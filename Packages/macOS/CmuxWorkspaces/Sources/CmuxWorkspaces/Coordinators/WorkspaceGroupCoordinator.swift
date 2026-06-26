@@ -5,7 +5,7 @@ internal import OSLog
 private let workspaceGroupLogger = Logger(subsystem: "com.cmuxterm.app", category: "WorkspaceGroupCoordinator")
 
 /// Sequences every workspace-group flow over the window's `WorkspacesModel`:
-/// group creation (fresh anchor + member adoption), member add/remove,
+/// group creation (member adoption), member add/remove,
 /// ungroup/delete, rename, collapse/pin/color/icon/anchor mutation, and
 /// group-slot moves — lifted one-for-one from the legacy TabManager method
 /// bodies. Workspace creation/teardown, selection moves, sidebar
@@ -28,13 +28,10 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
 
     // MARK: - Creation
 
-    /// Create a new group, inserting a fresh anchor workspace above the given
-    /// child workspaces. Returns the new group id.
+    /// Create a new group around existing child workspaces. Returns the new group id.
     ///
-    /// The anchor is always brand new (never promoted from an existing
-    /// workspace). Its cwd defaults to `anchorWorkingDirectory`, or the first
-    /// eligible child's cwd, or whatever the host's workspace creation
-    /// resolves on its own.
+    /// The first eligible child becomes the group's anchor for ordering and
+    /// lifecycle purposes; no terminal workspace is created for the header.
     @discardableResult
     public func createWorkspaceGroup(
         name: String,
@@ -59,43 +56,35 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             ? nextAutoWorkspaceGroupName()
             : trimmedName
 
-        let firstChildTab = eligibleChildren.first.flatMap { firstId in
-            model.tabs.first(where: { $0.id == firstId })
-        }
-        let inferredCwd: String? = anchorWorkingDirectory
-            ?? firstChildTab?.currentDirectory
+        guard let anchorId = eligibleChildren.first else { return nil }
         let originalTabOrder = model.tabs.map(\.id)
-
-        let anchor = host.createGroupAnchorWorkspace(
-            title: resolvedName,
-            workingDirectory: inferredCwd,
-            inheritWorkingDirectory: inferredCwd == nil,
-            select: selectAnchor
-        )
+        _ = anchorWorkingDirectory
 
         let group = WorkspaceGroup(
             id: UUID(),
             name: resolvedName,
             isCollapsed: false,
             isPinned: false,
-            anchorWorkspaceId: anchor.id,
+            anchorWorkspaceId: anchorId,
             customColor: nil,
             iconSymbol: nil
         )
         model.workspaceGroups.append(group)
-        anchor.groupId = group.id
         for id in eligibleChildren {
             model.assignGroup(workspaceId: id, groupId: group.id)
         }
         placeNewWorkspaceGroupAtCreationPosition(
             groupId: group.id,
-            anchorId: anchor.id,
             childWorkspaceIds: eligibleChildren,
             originalTabOrder: originalTabOrder
         )
+        if selectAnchor,
+           let anchor = model.tabs.first(where: { $0.id == anchorId }) {
+            host.selectWorkspace(anchor)
+        }
         // Collapse the sidebar multi-selection so a second ⌘⇧G press doesn't
         // immediately reuse the same child ids and create a duplicate group
-        // around them. The new anchor is the only sensible "current"
+        // around them. The promoted anchor is the only sensible "current"
         // selection at this point. Posts the hide notification so the
         // SwiftUI sidebar binding follows.
         //
@@ -108,10 +97,10 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             let hiddenIds = host.sidebarSelectedWorkspaceIds
             host.collapseSidebarSelectionForGroupCreation(
                 hiddenWorkspaceIds: hiddenIds,
-                anchorId: anchor.id
+                anchorId: anchorId
             )
         }
-        host.workspaceOrderDidChange(movedWorkspaceIds: [anchor.id] + eligibleChildren)
+        host.workspaceOrderDidChange(movedWorkspaceIds: eligibleChildren)
         return group.id
     }
 
@@ -286,13 +275,10 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         host?.workspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
     }
 
-    /// Dissolve a group while preserving every member workspace (including its
-    /// anchor) as a regular ungrouped workspace. Nothing is closed. The
-    /// former members KEEP their `tabs[]` positions so the anchor — which
-    /// was previously rendered exclusively as the group header — appears as
-    /// a workspace row at the same vertical spot the header occupied, with
-    /// the rest of the members staying right below it in their existing
-    /// relative order. We deliberately do not re-normalize here: that would
+    /// Dissolve a group while preserving every member workspace as a regular
+    /// ungrouped workspace. Nothing is closed. The former members KEEP their
+    /// `tabs[]` positions so ungrouping flattens the section in place. We
+    /// deliberately do not re-normalize here: that would
     /// push the now-ungrouped members down into the "ungrouped tier at the
     /// bottom" slot, which makes Ungroup feel like a destructive move
     /// instead of a flatten-in-place.
@@ -575,7 +561,6 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     /// position is the jump this creation path is avoiding.
     private func placeNewWorkspaceGroupAtCreationPosition(
         groupId: UUID,
-        anchorId: UUID,
         childWorkspaceIds: [UUID],
         originalTabOrder: [UUID]
     ) {
@@ -591,7 +576,6 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         desiredIds.reserveCapacity(model.tabs.count)
         for (index, id) in originalTabOrder.enumerated() {
             if index == insertionIndex {
-                desiredIds.append(anchorId)
                 desiredIds.append(contentsOf: orderedChildIds)
             }
             if !childIdSet.contains(id) {

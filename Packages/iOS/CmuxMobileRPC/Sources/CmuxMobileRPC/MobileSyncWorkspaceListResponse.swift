@@ -71,8 +71,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let isCollapsed: Bool
         /// Whether the group is pinned on the Mac.
         public let isPinned: Bool
-        /// The anchor workspace that owns this group. It is represented by the
-        /// group header and never rendered as a separate row.
+        /// The anchor workspace that positions this group in the workspace order.
         public let anchorWorkspaceID: String
 
         // The Mac also emits `member_workspace_ids`, but membership is derived on

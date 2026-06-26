@@ -4,10 +4,11 @@ import Foundation
 /// mobile shell.
 ///
 /// Workspaces on the Mac can be organized into named, collapsible groups. An
-/// anchor workspace owns each group; on the Mac sidebar the anchor renders as the
-/// group header (no separate row), and collapsing the group hides its members but
-/// keeps the header. The mobile shell mirrors those semantics. This is a pure
-/// value model decoupled from any RPC or rendering concern.
+/// anchor workspace positions each group; on the Mac sidebar the group header is
+/// separate from the workspace rows while expanded, and collapsing the group
+/// hides its members but keeps the header. The mobile shell mirrors those
+/// semantics. This is a pure value model decoupled from any RPC or rendering
+/// concern.
 public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
     /// A stable, string-backed identifier for a ``MobileWorkspaceGroupPreview``.
     public struct ID: RawRepresentable, Hashable, Codable, Sendable, ExpressibleByStringLiteral {
@@ -35,8 +36,7 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
     public var isCollapsed: Bool
     /// Whether the group is pinned on the Mac.
     public var isPinned: Bool
-    /// The anchor workspace that owns this group. It is represented by the group
-    /// header and never rendered as a separate row.
+    /// The anchor workspace that positions this group.
     public var anchorWorkspaceID: MobileWorkspacePreview.ID
 
     /// Creates a workspace group preview.
@@ -45,7 +45,7 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
     ///   - name: The group's user-facing name.
     ///   - isCollapsed: Whether the group is collapsed. Defaults to `false`.
     ///   - isPinned: Whether the group is pinned. Defaults to `false`.
-    ///   - anchorWorkspaceID: The anchor workspace that owns the group.
+    ///   - anchorWorkspaceID: The anchor workspace that positions the group.
     public init(
         id: ID,
         name: String,

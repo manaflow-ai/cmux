@@ -37,7 +37,7 @@ public protocol ControlWorkspaceGroupContext: AnyObject {
 
     /// Creates a workspace group for `workspace.group.create`.
     ///
-    /// The coordinator has already parsed `name` / `cwd`, resolved the child
+    /// The coordinator has already parsed `name` / legacy `cwd`, resolved the child
     /// handles to UUIDs, and surfaced the param-shape `invalid_params` failures;
     /// this runs the live-state remainder (fallback child selection, the
     /// target-window existence check, the all-children-are-anchors guard, and
@@ -47,7 +47,9 @@ public protocol ControlWorkspaceGroupContext: AnyObject {
     ///   - routing: The routing selectors used for TabManager resolution and the
     ///     caller-workspace fallback.
     ///   - name: The group name (already defaulted to "" when absent).
-    ///   - cwd: The anchor working directory, if provided.
+    ///   - cwd: Legacy create-time anchor working directory, if provided.
+    ///     Group creation no longer creates a terminal workspace for the header,
+    ///     so conformers may ignore it.
     ///   - childWorkspaceIDs: The resolved child workspace ids, in request order
     ///     (empty when none provided/resolved).
     ///   - childrenExplicit: Whether the caller explicitly listed

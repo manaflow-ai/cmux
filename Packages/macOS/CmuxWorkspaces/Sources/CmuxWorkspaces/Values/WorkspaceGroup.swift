@@ -3,12 +3,11 @@ public import Foundation
 /// Named collapsible sidebar group containing one or more workspaces.
 /// The membership relation lives on `Workspace.groupId`; this struct stores
 /// the group's identity, display name, collapse/pin state, and the explicit
-/// anchor workspace whose lifecycle gates the group itself.
+/// anchor workspace used to position the group in workspace order.
 ///
-/// The anchor workspace is always a real member workspace. It is created
-/// fresh when the group is created (never promoted from an existing member),
-/// rendered IMPLICITLY as the group header (no separate sidebar row), and
-/// when closed dissolves the group while keeping other members alive.
+/// The anchor workspace is always a real member workspace. Creating a group
+/// promotes the first selected child to be the anchor; it does not create a
+/// separate terminal workspace for the folder header.
 public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
     /// The group's stable identity.
     public let id: UUID
@@ -18,7 +17,7 @@ public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
     public var isCollapsed: Bool
     /// Whether the group is pinned.
     public var isPinned: Bool
-    /// Identifier of the member workspace that owns this group's lifecycle.
+    /// Identifier of the member workspace that positions this group.
     /// Always present and always points to a workspace in the window's tabs
     /// whose `groupId == self.id`. Closing this workspace dissolves the group.
     public var anchorWorkspaceId: UUID

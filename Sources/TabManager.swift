@@ -1871,23 +1871,6 @@ class TabManager: ObservableObject {
 
     // MARK: - WorkspaceGroupHosting (effects the group coordinator inverts)
 
-    func createGroupAnchorWorkspace(
-        title: String,
-        workingDirectory: String?,
-        inheritWorkingDirectory: Bool,
-        select: Bool
-    ) -> Workspace {
-        addWorkspace(
-            title: title,
-            workingDirectory: workingDirectory,
-            inheritWorkingDirectory: inheritWorkingDirectory,
-            select: select,
-            placementOverride: .top,
-            autoWelcomeIfNeeded: false,
-            normalizeWorkspaceGroupsAfterInsert: false
-        )
-    }
-
     func createWorkspaceForGroup(
         workingDirectory: String?,
         initialSurface: NewWorkspaceInitialSurface,
@@ -6167,10 +6150,8 @@ extension Notification.Name {
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
     static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
-    /// Posted when an existing workspace group's `name` changes (rename). The
-    /// imperatively-cached window-chrome surfaces (custom title bar in
-    /// `ContentView`, toolbar command label in `WindowToolbarController`) read
-    /// a grouped anchor's displayed name from `group.name` and refresh on this.
+    /// Posted when an existing workspace group's `name` changes (rename).
+    /// Sidebar group headers and any cached chrome surfaces refresh on this.
     static let workspaceGroupNameDidChange = Notification.Name("cmux.workspaceGroupNameDidChange")
     /// Posted after TabManager has applied a terminal title to workspace state.
     static let workspaceTitleDidChange = Notification.Name("cmux.workspaceTitleDidChange")

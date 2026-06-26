@@ -44,15 +44,16 @@ import Testing
         ])
     }
 
-    @Test func anchorRendersAsHeaderNotARow() {
-        // Anchor "a" owns group "g"; member "b" is nested. The anchor must not
-        // also appear as a workspace row.
+    @Test func expandedGroupRendersHeaderAndAnchorRow() {
+        // Anchor "a" positions group "g"; member "b" is nested. While
+        // expanded, both workspaces remain visible rows under the header.
         let items = MobileWorkspaceListItem.items(
             workspaces: [workspace("a", group: "g"), workspace("b", group: "g")],
             groups: [group("g", anchor: "a")]
         )
         #expect(items == [
             .groupHeader(group("g", anchor: "a"), hasUnread: false),
+            .workspace(workspace("a", group: "g"), indented: true),
             .workspace(workspace("b", group: "g"), indented: true),
         ])
     }
@@ -80,6 +81,7 @@ import Testing
         #expect(items == [
             .workspace(workspace("top"), indented: false),
             .groupHeader(group("g", anchor: "anchor"), hasUnread: false),
+            .workspace(workspace("anchor", group: "g"), indented: true),
             .workspace(workspace("member", group: "g"), indented: true),
             .workspace(workspace("bottom"), indented: false),
         ])
@@ -95,12 +97,15 @@ import Testing
         #expect(items == [.workspace(workspace("a", group: "missing"), indented: false)])
     }
 
-    @Test func anchorOnlyGroupRendersHeaderWithNoMembers() {
+    @Test func singleMemberGroupRendersHeaderAndWorkspace() {
         let items = MobileWorkspaceListItem.items(
             workspaces: [workspace("a", group: "g")],
             groups: [group("g", anchor: "a")]
         )
-        #expect(items == [.groupHeader(group("g", anchor: "a"), hasUnread: false)])
+        #expect(items == [
+            .groupHeader(group("g", anchor: "a"), hasUnread: false),
+            .workspace(workspace("a", group: "g"), indented: true),
+        ])
     }
 
     // MARK: Header unread aggregation (mirrors the Mac sidebar header badge)
@@ -131,9 +136,9 @@ import Testing
         #expect(items == [.groupHeader(group("g", anchor: "a", collapsed: true), hasUnread: true)])
     }
 
-    @Test func expandedGroupHeaderReflectsOnlyTheAnchor() {
-        // While expanded, member rows are visible and carry their own dots;
-        // the header only represents the anchor (matching the Mac header).
+    @Test func expandedGroupHeaderDoesNotDuplicateVisibleUnread() {
+        // While expanded, every workspace row is visible and carries its own
+        // dot, so the header does not duplicate unread state.
         let items = MobileWorkspaceListItem.items(
             workspaces: [
                 workspace("a", group: "g"),
@@ -143,11 +148,12 @@ import Testing
         )
         #expect(items == [
             .groupHeader(group("g", anchor: "a"), hasUnread: false),
+            .workspace(workspace("a", group: "g"), indented: true),
             .workspace(workspace("b", group: "g", unread: true), indented: true),
         ])
     }
 
-    @Test func expandedGroupHeaderCarriesUnreadAnchor() {
+    @Test func expandedGroupHeaderDoesNotCarryUnreadAnchor() {
         let items = MobileWorkspaceListItem.items(
             workspaces: [
                 workspace("a", group: "g", unread: true),
@@ -156,7 +162,8 @@ import Testing
             groups: [group("g", anchor: "a")]
         )
         #expect(items == [
-            .groupHeader(group("g", anchor: "a"), hasUnread: true),
+            .groupHeader(group("g", anchor: "a"), hasUnread: false),
+            .workspace(workspace("a", group: "g", unread: true), indented: true),
             .workspace(workspace("b", group: "g"), indented: true),
         ])
     }

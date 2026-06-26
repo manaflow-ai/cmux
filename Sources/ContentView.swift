@@ -10387,6 +10387,8 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
+        let workspaceShortcutDigitById: [UUID: Int]
+        let workspaceGroupUnreadCountById: [UUID: Int]
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -10426,7 +10428,28 @@ struct VerticalTabsSidebar: View {
             tabs: tabs,
             groupsById: workspaceGroupById
         )
+        let workspaceGroupUnreadCountById = workspaceRenderItems.reduce(into: [UUID: Int]()) { counts, item in
+            guard case .groupHeader(let group, let memberWorkspaceIds) = item else { return }
+            guard group.isCollapsed else {
+                counts[group.id] = 0
+                return
+            }
+            counts[group.id] = memberWorkspaceIds.reduce(0) { partial, workspaceId in
+                partial + sidebarUnread.unreadCount(forWorkspaceId: workspaceId)
+            }
+        }
         let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
+        let numberedWorkspaceShortcutIds = workspaceRenderItems.compactMap(\.numberedShortcutWorkspaceId)
+        let workspaceShortcutDigitById = (1...9).reduce(into: [UUID: Int]()) { digits, digit in
+            guard let workspaceId = WorkspaceShortcutMapper.workspaceId(
+                forDigit: digit,
+                workspaceIds: numberedWorkspaceShortcutIds
+            ),
+                  digits[workspaceId] == nil else {
+                return
+            }
+            digits[workspaceId] = digit
+        }
         let draggedSidebarTabId = dragState.draggedTabId
         let sidebarReorderIds = draggedSidebarTabId.map {
             tabManager.sidebarReorderWorkspaceIds(
@@ -10454,7 +10477,9 @@ struct VerticalTabsSidebar: View {
             workspaceGroupById: workspaceGroupById,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            workspaceShortcutDigitById: workspaceShortcutDigitById,
+            workspaceGroupUnreadCountById: workspaceGroupUnreadCountById
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -12145,10 +12170,7 @@ struct VerticalTabsSidebar: View {
             notificationStore: notificationStore,
             tab: tab,
             index: index,
-            workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
-                at: index,
-                workspaceCount: renderContext.workspaceCount
-            ),
+            workspaceShortcutDigit: renderContext.workspaceShortcutDigitById[tab.id],
             workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
             canCloseWorkspace: renderContext.canCloseWorkspace,
             accessibilityWorkspaceCount: renderContext.workspaceCount,

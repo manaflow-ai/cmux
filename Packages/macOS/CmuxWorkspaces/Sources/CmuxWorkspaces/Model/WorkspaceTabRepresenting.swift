@@ -18,7 +18,7 @@ public protocol WorkspaceTabRepresenting: AnyObject, Identifiable where ID == UU
     var groupId: UUID? { get set }
     /// Whether the workspace is pinned (pinned rows float above unpinned).
     var isPinned: Bool { get set }
-    /// The workspace's current working directory (group creation inherits
-    /// the anchor's / first child's cwd from this).
+    /// The workspace's current working directory (group actions use the
+    /// anchor's cwd as their reference).
     var currentDirectory: String { get }
 }

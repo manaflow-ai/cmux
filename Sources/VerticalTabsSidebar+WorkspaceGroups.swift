@@ -14,7 +14,7 @@ extension VerticalTabsSidebar {
         showModifierHoldHints: Bool
     ) -> some View {
         let settings = renderContext.tabItemSettings
-        let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
+        let isAnchorActive = group.isCollapsed && tabManager.selectedTabId == group.anchorWorkspaceId
         let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
@@ -24,14 +24,9 @@ extension VerticalTabsSidebar {
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
-        let anchorUnreadCount: Int = {
-            if group.isCollapsed {
-                return memberWorkspaceIds.reduce(0) { partial, workspaceId in
-                    partial + notificationStore.unreadCount(forTabId: workspaceId)
-                }
-            }
-            return notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
-        }()
+        let anchorUnreadCount = group.isCollapsed
+            ? renderContext.workspaceGroupUnreadCountById[group.id, default: 0]
+            : 0
         let anchorIds = [group.anchorWorkspaceId]
         let canMarkAnchorRead = notificationStore.canMarkWorkspaceRead(forTabIds: anchorIds)
         let canMarkAnchorUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: anchorIds)
@@ -42,13 +37,7 @@ extension VerticalTabsSidebar {
         let nonAnchorMemberIds = memberWorkspaceIds.filter { $0 != group.anchorWorkspaceId }
         let canMarkAllRead = notificationStore.canMarkWorkspaceRead(forTabIds: nonAnchorMemberIds)
         let canMarkAllUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: nonAnchorMemberIds)
-        let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
-        let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
-            at: anchorIndex,
-            workspaceCount: renderContext.workspaceCount
-        )
-        let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
-        let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
+        let showsHintForAnchor = false
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
@@ -106,8 +95,8 @@ extension VerticalTabsSidebar {
             hasLatestNotifications: anchorHasLatestNotification,
             canMarkAllRead: canMarkAllRead,
             canMarkAllUnread: canMarkAllUnread,
-            shortcutDigit: shortcutDigit,
-            shortcutModifierSymbol: modifierSymbol,
+            shortcutDigit: nil,
+            shortcutModifierSymbol: nil,
             showsShortcutHint: showsHintForAnchor,
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
@@ -208,12 +197,12 @@ extension VerticalTabsSidebar {
             }
         )
         .equatable()
-        .id(group.anchorWorkspaceId)
+        .id(group.isCollapsed ? group.anchorWorkspaceId : group.id)
         .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
 
         header
             .sidebarWorkspaceFrameAnchor(
-                id: group.anchorWorkspaceId,
+                id: group.isCollapsed ? group.anchorWorkspaceId : group.id,
                 isEnabled: shouldCollectWorkspaceDropTargets
             )
     }

@@ -1051,17 +1051,11 @@ struct cmuxApp: App {
                 let selectWorkspaceByNumberShortcut = menuShortcut(for: .selectWorkspaceByNumber)
                 if selectWorkspaceByNumberShortcut.isUnbound || selectWorkspaceByNumberShortcut.hasChord {
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
-                        let manager = activeTabManager
-                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
-                            manager.selectTab(at: targetIndex)
-                        }
+                        activeTabManager.selectWorkspaceByShortcutDigit(number)
                     }
                 } else {
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
-                        let manager = activeTabManager
-                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
-                            manager.selectTab(at: targetIndex)
-                        }
+                        activeTabManager.selectWorkspaceByShortcutDigit(number)
                     }
                     .keyboardShortcut(
                         KeyEquivalent(Character("\(number)")),

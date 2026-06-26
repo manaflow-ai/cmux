@@ -75,7 +75,8 @@ extension TerminalController: ControlWorkspaceGroupContext {
 
         // Default behavior when children were absent: group the active sidebar
         // selection, or fall back to the caller workspace_id, or the focused
-        // workspace. (An explicit empty array still creates an anchor-only group.)
+        // workspace. An explicit empty array now fails with not_created rather
+        // than creating a terminal just to serve as a group header.
         let parsedChildIds: [UUID]
         if childrenExplicit {
             parsedChildIds = childWorkspaceIDs
@@ -95,7 +96,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
 
         // A syntactically valid UUID can still reference a workspace that doesn't
         // exist in this TabManager. Surface those instead of silently dropping
-        // them into an anchor-only group.
+        // them and creating a group around only the remaining ids.
         let knownTabIds = Set(tabManager.tabs.map(\.id))
         let missing: [String] = parsedChildIds.compactMap { id in
             knownTabIds.contains(id) ? nil : id.uuidString
@@ -105,9 +106,8 @@ extension TerminalController: ControlWorkspaceGroupContext {
         }
         let childIds = parsedChildIds
 
-        // When the caller explicitly listed children, refuse to create an
-        // anchor-only group if every one of them was already an anchor of
-        // another group.
+        // When the caller explicitly listed children, refuse the request if
+        // every one of them was already an anchor of another group.
         if childrenExplicit, !parsedChildIds.isEmpty {
             let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
             let ineligible: [String] = parsedChildIds.compactMap { id -> String? in
@@ -127,6 +127,9 @@ extension TerminalController: ControlWorkspaceGroupContext {
         let createdGroupId = tabManager.createWorkspaceGroup(
             name: name,
             childWorkspaceIds: childIds,
+            // Kept for socket compatibility. Group creation promotes an
+            // existing workspace as the anchor now, so there is no new header
+            // terminal whose cwd should be initialized from this value.
             anchorWorkingDirectory: cwd,
             selectAnchor: false,
             collapseSidebarSelection: false
