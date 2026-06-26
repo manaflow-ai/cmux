@@ -62,7 +62,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// The composer toggle, pinned in the container (not the scrollable stack) so
     /// it is always reachable regardless of the button row's scroll position.
     private weak var composerButton: UIButton?
-    private let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
+    let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     /// The armed/sticky modifier state machine, extracted into the testable
     /// ``TerminalInputModifierState`` reducer. This view is now a dumb
     /// first-responder that forwards taps into the reducer and reads its state
@@ -1412,32 +1412,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         return String(describing: type(of: responder))
     }
     #endif
-}
-
-// MARK: - UITextInputTraits
-
-extension TerminalInputTextView {
-    // These traits are computed from the injected preference so a Settings
-    // toggle can reload the active keyboard without rebuilding the terminal
-    // surface. Capitalization and smart quotes/dashes stay off because command
-    // entry must remain literal even when suggestions are enabled.
-    var autocorrectionType: UITextAutocorrectionType {
-        get { keyboardCorrectionPreference.autocorrectionType }
-        set {}
-    }
-    var autocapitalizationType: UITextAutocapitalizationType { get { .none } set {} }
-    var spellCheckingType: UITextSpellCheckingType {
-        get { keyboardCorrectionPreference.spellCheckingType }
-        set {}
-    }
-    var smartQuotesType: UITextSmartQuotesType { get { .no } set {} }
-    var smartDashesType: UITextSmartDashesType { get { .no } set {} }
-    var smartInsertDeleteType: UITextSmartInsertDeleteType {
-        get { keyboardCorrectionPreference.smartInsertDeleteType }
-        set {}
-    }
-    var keyboardType: UIKeyboardType { get { .default } set {} }
-    var returnKeyType: UIReturnKeyType { get { .default } set {} }
 }
 
 // MARK: - UITextInput (documentless conformance + delete-repeat anchor)
