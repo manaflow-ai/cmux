@@ -400,16 +400,14 @@ struct CmuxTaskManagerRowView: View, Equatable {
             if row.canViewWorkspace {
                 elements.append(.button(
                     String(localized: "taskManager.contextMenu.viewWorkspace", defaultValue: "View Workspace"),
-                    systemImage: "rectangle.stack",
-                    action: onViewWorkspace
-                ))
+                    systemImage: "rectangle.stack"
+                ) { onViewWorkspace() })
             }
             if row.canViewTerminal {
                 elements.append(.button(
                     String(localized: "taskManager.contextMenu.viewTerminal", defaultValue: "View Terminal"),
-                    systemImage: "terminal",
-                    action: onViewTerminal
-                ))
+                    systemImage: "terminal"
+                ) { onViewTerminal() })
             }
             if row.canKillProcess {
                 if row.canViewWorkspace || row.canViewTerminal {
@@ -417,9 +415,8 @@ struct CmuxTaskManagerRowView: View, Equatable {
                 }
                 elements.append(.button(
                     String(localized: "taskManager.contextMenu.killProcess", defaultValue: "Kill Process..."),
-                    systemImage: "xmark.octagon",
-                    action: onKillProcess
-                ))
+                    systemImage: "xmark.octagon"
+                ) { onKillProcess() })
             }
             return elements
         }
