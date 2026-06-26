@@ -1350,13 +1350,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Macs signed in to your account. Workspaces from every computer appear together in the main list."
+            "value": "The Macs signed in to your account. Use the workspace title picker to focus one Mac or show All Macs."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アカウントにサインインしている Mac。すべてのコンピュータのワークスペースがメインのリストにまとめて表示されます。"
+            "value": "アカウントにサインインしている Mac。ワークスペースのタイトルピッカーで 1 台の Mac に絞り込むか、すべての Mac を表示できます。"
           }
         }
       }
@@ -1476,6 +1476,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "このコンピュータとそのワークスペースは表示されなくなります。再度ペアリングすると追加できます。"
+          }
+        }
+      }
+    },
+    "mobile.computers.removeMessageRepresentativeFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This removes paired record %@. Other matching records may still appear."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みレコード %@ を削除します。一致する他のレコードは引き続き表示される場合があります。"
           }
         }
       }
@@ -4421,6 +4438,40 @@
         }
       }
     },
+    "mobile.shortcuts.chat.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose which compatible terminal buttons appear on both the chat and terminal keyboard bars. Changes here also update the terminal keyboard bar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットとターミナル両方のキーボードバーに表示する互換性のあるターミナルボタンを選びます。ここでの変更はターミナルのキーボードバーにも反映されます。"
+          }
+        }
+      }
+    },
+    "mobile.shortcuts.chat.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shared Shortcuts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有ショートカット"
+          }
+        }
+      }
+    },
     "mobile.shortcuts.footer": {
       "extractionState": "manual",
       "localizations": {
@@ -4519,23 +4570,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "サインイン"
-          }
-        }
-      }
-    },
-    "mobile.signIn.cancel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancel"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャンセル"
           }
         }
       }
@@ -6882,6 +6916,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "設定"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.macPicker.allMacs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Macs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての Mac"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.macPicker.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac を選択"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.macPicker.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
           }
         }
       }

@@ -28,10 +28,17 @@ public protocol PairedMacBackingUp: Sendable {
 
     /// Fetch live records and tombstones only if auth still belongs to the captured account.
     func fetchSnapshot(teamID: String?, expectedUserID: String?) async -> PairedMacBackupSnapshot?
+
+    /// Optional client-owned restore/upload scope layered below the verified team
+    /// and user. Tagged iOS builds use this to keep their saved-Mac backups from
+    /// restoring into each other.
+    func clientScope() async -> String?
 }
 
 /// Convenience defaults for backup test doubles and simple implementations.
 public extension PairedMacBackingUp {
+    func clientScope() async -> String? { nil }
+
     /// Default explicit-scope upload for test doubles that do not care about team routing.
     @discardableResult
     func upload(ops: [PairedMacBackupOp], teamID: String?) async -> Bool {

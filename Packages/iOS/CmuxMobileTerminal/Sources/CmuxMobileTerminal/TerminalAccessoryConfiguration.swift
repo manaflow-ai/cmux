@@ -231,6 +231,15 @@ public final class TerminalAccessoryConfiguration {
         persistAndNotify()
     }
 
+    /// Reorder the configurable items using a complete desired order.
+    ///
+    /// Unknown identifiers are dropped and any omitted current/configurable ids
+    /// are appended by the reducer load path, matching launch-time normalization.
+    public func reorderItems(_ orderedIDs: [ToolbarItemID]) {
+        apply(reducer.load(savedOrder: orderedIDs, savedEnabled: Array(enabledSet)))
+        persistAndNotify()
+    }
+
     /// Append a new custom action, shown at the end of the configurable region.
     public func addCustomAction(_ action: CustomToolbarAction) {
         customActions.append(action)

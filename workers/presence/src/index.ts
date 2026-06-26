@@ -25,7 +25,7 @@ import {
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import { parseHeartbeat, readBoundedJson } from "./validate";
-import { MAX_PAIRED_MAC_BACKUP_BYTES, parsePairedMacBackup } from "./syncPairedMacs";
+import { MAX_PAIRED_MAC_BACKUP_BYTES, normalizeClientScope, parsePairedMacBackup } from "./syncPairedMacs";
 
 export { TeamPresence };
 
@@ -89,8 +89,14 @@ export default {
       //   GET   read it back (the sign-in restore path on a fresh install)
       const team = await resolveTeamOr403(request, env);
       if (!team.ok) return team.response;
+      const rawClientScope = request.headers.get("x-cmux-client-scope");
+      const trimmedClientScope = rawClientScope?.trim() ?? "";
+      if (trimmedClientScope && normalizeClientScope(trimmedClientScope) === null) {
+        return json({ error: "invalid_client_scope" }, 400);
+      }
+      const clientScope = trimmedClientScope || null;
       if (request.method === "GET") {
-        return json(await team.stub.listPairedMacs(team.teamId, team.user.id));
+        return json(await team.stub.listPairedMacs(team.teamId, team.user.id, clientScope));
       }
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
       // A full backup reconcile can far exceed the 16 KiB heartbeat cap, so size
@@ -99,7 +105,8 @@ export default {
       if (!body.ok) return json({ error: "invalid_request" }, body.status);
       const parsed = parsePairedMacBackup(body.value);
       if (!parsed.ok) return json({ error: parsed.error }, 400);
-      const result = await team.stub.backupPairedMacs(team.teamId, team.user.id, parsed.ops);
+      const result = await team.stub.backupPairedMacs(team.teamId, team.user.id, parsed.ops, clientScope);
+      if (!result.ok) return json({ error: result.error }, result.status);
       return json(result);
     }
 

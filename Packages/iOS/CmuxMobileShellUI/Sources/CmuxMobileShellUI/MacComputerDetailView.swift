@@ -44,17 +44,20 @@ struct MacComputerDetailView: View {
     private static let emojiChoices = ["💻", "🖥️", "⚡️", "🔥", "⭐️", "🚀", "🐧", "🍎", "🎮", "👾"]
 
     private var pairedMac: MobilePairedMac? {
-        store.pairedMacs.first { $0.macDeviceID == macDeviceID }
+        store.displayPairedMacs.first { $0.macDeviceID == macDeviceID }
     }
     private var connectionStatus: MobileMacConnectionStatus? {
         store.macConnectionStatuses[macDeviceID]
     }
     private var presence: PresenceMap.DeviceSummary? {
-        store.presenceMap.deviceSummary(deviceId: macDeviceID)
+        store.presenceSummary(for: macDeviceID)
     }
     private var isForeground: Bool { store.connectedMacDeviceID == macDeviceID }
     private var workspaceCount: Int {
-        store.workspaces.filter { $0.macDeviceID == macDeviceID }.count
+        store.workspaceCount(for: macDeviceID)
+    }
+    private var removalAliasIDs: [String] {
+        store.pairedMacAliasIDs(for: macDeviceID)
     }
 
     var body: some View {
@@ -92,8 +95,7 @@ struct MacComputerDetailView: View {
             }
             Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
-            Text(L10n.string("mobile.computers.removeMessage",
-                             defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."))
+            Text(removeMessage)
         }
     }
 
@@ -224,6 +226,20 @@ struct MacComputerDetailView: View {
                 customIcon: icon
             )
         }
+    }
+
+    private var removeMessage: String {
+        guard removalAliasIDs.count > 1 else {
+            return L10n.string("mobile.computers.removeMessage",
+                               defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back.")
+        }
+        return String(
+            format: L10n.string(
+                "mobile.computers.removeMessageRepresentativeFormat",
+                defaultValue: "This removes paired record %@. Other matching records may still appear."
+            ),
+            macDeviceID
+        )
     }
 
     @ViewBuilder
