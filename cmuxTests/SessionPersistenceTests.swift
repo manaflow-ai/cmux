@@ -2468,7 +2468,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "cd /Users/tiffanysun/fun && /bin/sh -c "
+            "cd -- '/Users/tiffanysun/fun' 2>/dev/null || [ ! -d '/Users/tiffanysun/fun' ] && /bin/sh -c "
                 + shellQuotedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume a22293b7-bcef-4707-8439-2f538c8517a4")
         )
     }
@@ -4292,10 +4292,10 @@ extension SessionPersistenceTests {
 
     private func portableShellCommandPayload(from command: String) throws -> String {
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
-        XCTAssertEqual(words.count, 3, command)
-        XCTAssertEqual(words[0].value, "/bin/sh", command)
-        XCTAssertEqual(words[1].value, "-c", command)
-        return words[2].value
+        let shellIndex = try XCTUnwrap(words.firstIndex { $0.value == "/bin/sh" }, command)
+        XCTAssertGreaterThan(words.count, shellIndex + 2, command)
+        XCTAssertEqual(words[shellIndex + 1].value, "-c", command)
+        return words[shellIndex + 2].value
     }
 
     func testSurfaceResumeBindingStartupInputUsesExactCommand() {
@@ -4423,7 +4423,7 @@ extension SessionPersistenceTests {
         XCTAssertFalse(binding.command.contains(legacyQuotedCwd), binding.command)
     }
 
-    func testAgentHookSurfaceResumeBindingNormalizesLegacyGuardToSingleExternalCommand() {
+    func testAgentHookSurfaceResumeBindingNormalizesLegacyGuardToParentCdExternalCommand() {
         let binding = SurfaceResumeBindingSnapshot(
             command: "{ cd -- '/tmp/project' 2>/dev/null || [ ! -d '/tmp/project' ]; } && codex resume session",
             cwd: "/tmp/project",
@@ -4431,7 +4431,8 @@ extension SessionPersistenceTests {
             updatedAt: 1
         )
 
-        XCTAssertTrue(binding.command.hasPrefix("/bin/sh -c "), binding.command)
+        XCTAssertTrue(binding.command.hasPrefix("cd -- '/tmp/project'"), binding.command)
+        XCTAssertTrue(binding.command.contains("] && /bin/sh -c "), binding.command)
         XCTAssertFalse(binding.command.hasPrefix("{ "), binding.command)
         XCTAssertTrue(binding.command.contains("codex resume session"), binding.command)
     }
@@ -5487,11 +5488,10 @@ extension SessionPersistenceTests {
             promptForApproval: false
         ))
 
-        let payload = try portableShellCommandPayload(
-            from: loginShellCommandPayload(from: input)
-        )
-        let cdRange = try XCTUnwrap(payload.range(of: "cd --"))
-        let bootstrapRange = try XCTUnwrap(payload.range(of: "config set model.provider"))
+        let startupPayload = try loginShellCommandPayload(from: input)
+        let payload = try portableShellCommandPayload(from: startupPayload)
+        let cdRange = try XCTUnwrap(startupPayload.range(of: "cd --"))
+        let bootstrapRange = try XCTUnwrap(startupPayload.range(of: "config set model.provider"))
         XCTAssertLessThan(cdRange.lowerBound, bootstrapRange.lowerBound)
         XCTAssertTrue(payload.contains("'./hermes' config set model.provider"), payload)
         XCTAssertTrue(payload.contains("'./hermes' '--provider' 'custom' '--resume'"), payload)
@@ -5662,9 +5662,9 @@ extension SessionPersistenceTests {
 
             XCTAssertNil(restoredPanel.requestedWorkingDirectory)
             XCTAssertTrue(startupPayload.contains("codex resume session-duplicate-turn --yolo"), startupPayload)
-            let guardStart = try XCTUnwrap(startupPayload.range(of: "{ cd -- "), startupPayload)
+            let guardStart = try XCTUnwrap(startupPayload.range(of: "cd -- "), startupPayload)
             let guardSuffix = String(startupPayload[guardStart.lowerBound...])
-            let guardEnd = try XCTUnwrap(guardSuffix.range(of: "]; } &&")?.upperBound, guardSuffix)
+            let guardEnd = try XCTUnwrap(guardSuffix.range(of: "] &&")?.upperBound, guardSuffix)
             let guardSnippet = String(guardSuffix[..<guardEnd])
             XCTAssertTrue(guardSnippet.contains(missingCwd.path), guardSnippet)
             XCTAssertTrue(guardSnippet.contains("2>/dev/null || [ ! -d"), guardSnippet)

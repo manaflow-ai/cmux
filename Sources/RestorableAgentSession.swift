@@ -92,11 +92,10 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         _ command: String,
         workingDirectory: String
     ) -> String {
-        let innerCommand = legacyChangeDirectoryPrefix(for: workingDirectory) + command
-        return [
+        portableParentChangeDirectoryPrefix(TerminalStartupShellQuoting.singleQuoted(workingDirectory)) + [
             TerminalStartupShellQuoting.shellToken("/bin/sh", allowingBareASCII: true),
             TerminalStartupShellQuoting.shellToken("-c", allowingBareASCII: true),
-            literalSingleQuoted(innerCommand),
+            literalSingleQuoted(command),
         ].joined(separator: " ")
     }
 
@@ -104,13 +103,7 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         from command: String,
         workingDirectory: String
     ) -> String? {
-        let words = shellWordRanges(command)
-        guard words.count == 3,
-              words[0].value == "/bin/sh",
-              words[1].value == "-c" || words[1].value == "-lc" else {
-            return nil
-        }
-        let innerCommand = words[2].value
+        guard let innerCommand = portableShellCommandPayload(from: command) else { return nil }
         let stripped = strippedLegacyChangeDirectoryPrefix(
             from: innerCommand,
             workingDirectory: workingDirectory
@@ -122,28 +115,34 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         from command: String,
         workingDirectory: String
     ) -> String {
-        let quotedCandidates = [
-            TerminalStartupShellQuoting.singleQuoted(workingDirectory),
-            literalSingleQuoted(workingDirectory)
-        ]
+        let quotedCandidates = [TerminalStartupShellQuoting.singleQuoted(workingDirectory), literalSingleQuoted(workingDirectory)]
         var seen = Set<String>()
         for quoted in quotedCandidates where seen.insert(quoted).inserted {
             let prefixes = [
+                portableParentChangeDirectoryPrefix(quoted),
                 "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && ",
                 "{ [ ! -d \(quoted) ] || cd -- \(quoted); } && ",
                 "cd -- \(quoted) && ",
                 "cd \(quoted) && "
             ]
             for prefix in prefixes where command.hasPrefix(prefix) {
-                return String(command.dropFirst(prefix.count))
+                let stripped = String(command.dropFirst(prefix.count))
+                return portableShellCommandPayload(from: stripped) ?? stripped
             }
         }
         return command
     }
 
-    private static func legacyChangeDirectoryPrefix(for workingDirectory: String) -> String {
-        let quoted = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
-        return "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && "
+    private static func portableParentChangeDirectoryPrefix(_ quoted: String) -> String {
+        "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && "
+    }
+
+    private static func portableShellCommandPayload(from command: String) -> String? {
+        let words = shellWordRanges(command)
+        guard words.count == 3, words[0].value == "/bin/sh", words[1].value == "-c" || words[1].value == "-lc" else {
+            return nil
+        }
+        return words[2].value
     }
 
     private static func strippedSavedWorkingDirectoryOptions(

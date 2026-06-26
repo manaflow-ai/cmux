@@ -109,11 +109,9 @@ extension SurfaceResumeCommandCanonicalizer {
             guard repairedInnerCommand != portableShellCommand.innerCommand else {
                 return command
             }
-            return [
-                shellQuoted(portableShellCommand.shell),
-                shellQuoted(portableShellCommand.option),
-                literalSingleQuoted(repairedInnerCommand),
-            ].joined(separator: " ")
+            var repaired = command
+            repaired.replaceSubrange(portableShellCommand.innerCommandRange, with: literalSingleQuoted(repairedInnerCommand))
+            return repaired
         }
 
         guard let executableIndex = commandExecutableWordIndex(in: words, command: command) else { return command }
@@ -150,16 +148,17 @@ extension SurfaceResumeCommandCanonicalizer {
 
     private static func portableShellCommand(
         in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange]
-    ) -> (shell: String, option: String, innerCommand: String)? {
-        guard words.count == 3,
-              words[0].value == "/bin/sh",
-              words[1].value == "-c" || words[1].value == "-lc" else {
+    ) -> (innerCommand: String, innerCommandRange: Range<String.Index>)? {
+        let commandStartIndex = commandStartWordIndex(in: words)
+        guard commandStartIndex + 2 < words.count,
+              words.count == commandStartIndex + 3,
+              words[commandStartIndex].value == "/bin/sh",
+              words[commandStartIndex + 1].value == "-c" || words[commandStartIndex + 1].value == "-lc" else {
             return nil
         }
         return (
-            shell: words[0].value,
-            option: words[1].value,
-            innerCommand: words[2].value
+            innerCommand: words[commandStartIndex + 2].value,
+            innerCommandRange: words[commandStartIndex + 2].range
         )
     }
 

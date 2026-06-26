@@ -102,7 +102,7 @@ import Testing
         let startupInput = try #require(binding.startupInput)
         let payload = try Self.portableShellCommandPayload(from: startupInput)
 
-        #expect(payload.contains("cd -- '\(cwd)'"), "\(payload)")
+        #expect(startupInput.contains("cd -- '\(cwd)'"), "\(startupInput)")
         #expect(payload.contains("codex 'resume' 'session-portable-codex'"), "\(payload)")
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
@@ -129,7 +129,7 @@ import Testing
         let startupInput = try #require(binding.startupInput)
         let payload = try Self.portableShellCommandPayload(from: startupInput)
 
-        #expect(payload.contains("cd -- '\(cwd)'"), "\(payload)")
+        #expect(startupInput.contains("cd -- '\(cwd)'"), "\(startupInput)")
         #expect(payload.contains("CMUX_CLAUDE_WRAPPER_SHIM"), "\(payload)")
         #expect(payload.contains("session-portable-claude"), "\(payload)")
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
@@ -409,7 +409,7 @@ import Testing
         #expect(restoredPanel.surface.debugInitialCommand() == nil)
         #expect(restoredPanel.requestedWorkingDirectory == nil)
         #expect(restoredPayload.contains("codex 'resume' 'session-local-resume'"), "\(restoredPayload)")
-        #expect(restoredPayload.contains(localDirectory), "\(restoredPayload)")
+        #expect(restoredInput.contains(localDirectory), "\(restoredInput)")
         #expect(!restoredPayload.contains(staleExecutablePath), "\(restoredPayload)")
     }
 
@@ -558,9 +558,9 @@ import Testing
             let inlineInput = scriptLines.dropFirst(2).joined(separator: "\n")
             return try portableShellCommandPayload(from: inlineInput)
         }
-        try #require(words.count == 3, "\(startupInput)")
-        #expect(words[0].value == "/bin/sh", "\(startupInput)")
-        #expect(words[1].value == "-c", "\(startupInput)")
-        return words[2].value
+        let shellIndex = try #require(words.firstIndex { $0.value == "/bin/sh" }, "\(startupInput)")
+        try #require(shellIndex + 2 < words.count, "\(startupInput)")
+        #expect(words[shellIndex + 1].value == "-c", "\(startupInput)")
+        return words[shellIndex + 2].value
     }
 }

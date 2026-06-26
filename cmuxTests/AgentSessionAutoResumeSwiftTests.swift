@@ -28,7 +28,7 @@ struct AgentSessionAutoResumeSwiftTests {
 
         let command = try #require(snapshot.resumeCommand)
 
-        #expect(command.hasPrefix("/bin/sh -c "), Comment(rawValue: command))
+        #expect(command.hasPrefix("cd -- '/tmp/cmux fish repo'") && command.contains("] && /bin/sh -c "), Comment(rawValue: command))
         #expect(!command.hasPrefix("{ "), Comment(rawValue: command))
         #expect(command.contains("claude"), Comment(rawValue: command))
         #expect(command.contains("--resume"), Comment(rawValue: command))
