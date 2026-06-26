@@ -36,6 +36,7 @@ public actor UserDefaultsSettingsStore {
     private var supersededMutationSources: [
         String: [(source: UserDefaultsSettingsMutationSource, sequence: UInt64)]
     ] = [:]
+    private var acceptedMutationSourceSequences: [String: [UUID: UInt64]] = [:]
     private var mutationSourceSequences: [String: UInt64] = [:]
     private let maximumSupersededMutationSourcesPerKey = 64
 
@@ -89,6 +90,7 @@ public actor UserDefaultsSettingsStore {
         guard shouldAcceptMutationSource(source, for: key.userDefaultsKey) else {
             return nil
         }
+        recordAcceptedMutationSource(source, for: key.userDefaultsKey)
         recordMutationSource(source, value: value, for: key.userDefaultsKey)
         storage.set(value, for: key)
         return source
@@ -108,6 +110,7 @@ public actor UserDefaultsSettingsStore {
         guard shouldAcceptMutationSource(source, for: key.userDefaultsKey) else {
             return nil
         }
+        recordAcceptedMutationSource(source, for: key.userDefaultsKey)
         recordMutationSource(source, value: key.defaultValue, for: key.userDefaultsKey)
         storage.removeObject(forKey: key.userDefaultsKey)
         return source
@@ -173,20 +176,26 @@ public actor UserDefaultsSettingsStore {
     ) -> Bool {
         guard let source else { return true }
 
-        if let record = mutationSources[storageKey],
-           record.source.ownerID == source.ownerID,
-           record.source.sequence >= source.sequence {
-            return false
-        }
-
-        guard let supersededSources = supersededMutationSources[storageKey] else {
+        guard let acceptedSequence = acceptedMutationSourceSequences[storageKey]?[source.ownerID] else {
             return true
         }
 
-        return !supersededSources.contains { record in
-            record.source.ownerID == source.ownerID
-                && record.source.sequence >= source.sequence
+        return source.sequence > acceptedSequence
+    }
+
+    private func recordAcceptedMutationSource(
+        _ source: UserDefaultsSettingsMutationSource?,
+        for storageKey: String
+    ) {
+        guard let source else { return }
+
+        var ownerSequences = acceptedMutationSourceSequences[storageKey] ?? [:]
+        if let acceptedSequence = ownerSequences[source.ownerID] {
+            ownerSequences[source.ownerID] = max(acceptedSequence, source.sequence)
+        } else {
+            ownerSequences[source.ownerID] = source.sequence
         }
+        acceptedMutationSourceSequences[storageKey] = ownerSequences
     }
 
     private func recordSupersededMutationSource(
