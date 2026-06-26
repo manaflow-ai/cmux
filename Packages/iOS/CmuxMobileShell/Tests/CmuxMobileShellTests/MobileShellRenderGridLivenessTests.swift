@@ -229,8 +229,8 @@ import Testing
         (seq: 12, text: "primary-repaired"),
     ])
     await router.setReplayFrames([
-        (seq: 6, text: "secondary-old"),
-        (seq: 14, text: "secondary-repaired"),
+        (seq: 6, text: "peer-old"),
+        (seq: 14, text: "peer-repaired"),
     ], surfaceID: "secondary-terminal")
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
 
@@ -245,7 +245,7 @@ import Testing
     #expect(sawMountReplays, "mounting two sinks arms cold-attach replays for both")
     let deliveredInitialReplays = try await pollUntil {
         primaryCollector.lines.contains { $0.contains("primary-old") }
-            && secondaryCollector.lines.contains { $0.contains("secondary-old") }
+            && secondaryCollector.lines.contains { $0.contains("peer-old") }
     }
     #expect(deliveredInitialReplays, "the mount replays establish both local rendered sequences")
 
@@ -265,7 +265,7 @@ import Testing
     )
     let deliveredRepairReplays = try await pollUntil {
         primaryCollector.lines.contains { $0.contains("primary-repaired") }
-            && secondaryCollector.lines.contains { $0.contains("secondary-repaired") }
+            && secondaryCollector.lines.contains { $0.contains("peer-repaired") }
     }
     #expect(deliveredRepairReplays)
     primaryCollector.unmount()

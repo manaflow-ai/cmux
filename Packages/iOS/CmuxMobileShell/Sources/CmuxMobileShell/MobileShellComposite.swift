@@ -6201,7 +6201,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 MobileDebugLog.anchormux("sync.input_seq_wait surface=\(surfaceID) local=\(localSeq) remote=\(remoteSeq)")
                 refreshTerminalEventSubscription(
                     reason: "input_seq_wait",
-                    replaySurfaceIDsIfRepaired: [surfaceID]
+                    replaySurfaceIDsIfRepaired: Array(terminalByteContinuationsBySurfaceID.keys)
                 )
             }
             return
