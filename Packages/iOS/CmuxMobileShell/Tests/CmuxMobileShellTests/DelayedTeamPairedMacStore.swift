@@ -11,6 +11,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private var upsertCount = 0
     private var upsertWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var removeFailures: Set<String> = []
+    private var gatedRemoveFailures: Set<String> = []
+    private var removeStartedIDs: Set<String> = []
+    private var removeStartWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var removeBlockers: [String: CheckedContinuation<Void, Never>] = [:]
 
     init(recordsByTeam: [String: [MobilePairedMac]], blockedTeams: Set<String>) {
         self.recordsByTeam = recordsByTeam
@@ -90,6 +94,13 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         recordsByTeam[key]?[index].customIcon = customIcon
     }
     func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        if gatedRemoveFailures.contains(macDeviceID) {
+            markRemoveStarted(macDeviceID)
+            await withCheckedContinuation { continuation in
+                removeBlockers[macDeviceID] = continuation
+            }
+            throw CocoaError(.fileWriteUnknown)
+        }
         if removeFailures.contains(macDeviceID) {
             throw CocoaError(.fileWriteUnknown)
         }
@@ -126,9 +137,30 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         removeFailures.insert(macDeviceID)
     }
 
+    func failRemoveAfterRelease(macDeviceID: String) {
+        gatedRemoveFailures.insert(macDeviceID)
+    }
+
+    func waitUntilRemoveStarted(macDeviceID: String) async {
+        if removeStartedIDs.contains(macDeviceID) { return }
+        await withCheckedContinuation { continuation in
+            removeStartWaiters[macDeviceID, default: []].append(continuation)
+        }
+    }
+
+    func releaseRemove(macDeviceID: String) {
+        removeBlockers.removeValue(forKey: macDeviceID)?.resume()
+    }
+
     private func markStarted(_ key: String) {
         startedTeams.insert(key)
         let waiters = startWaiters.removeValue(forKey: key) ?? []
+        for waiter in waiters { waiter.resume() }
+    }
+
+    private func markRemoveStarted(_ macDeviceID: String) {
+        removeStartedIDs.insert(macDeviceID)
+        let waiters = removeStartWaiters.removeValue(forKey: macDeviceID) ?? []
         for waiter in waiters { waiter.resume() }
     }
 

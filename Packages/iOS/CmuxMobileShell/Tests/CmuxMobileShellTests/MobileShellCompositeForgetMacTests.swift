@@ -346,6 +346,72 @@ import Testing
         #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-a", "mac-b"])
         #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue) == ["mac-a-workspace"])
     }
+
+    @Test func failedForgetAfterTeamSwitchDoesNotRestoreOldWorkspaceSnapshot() async throws {
+        let team = MutableTeamID("team-a")
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        await pairedStore.failRemoveAfterRelease(macDeviceID: "mac-a")
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { await team.value },
+            forgottenMacStore: InMemoryPairedMacForgottenStore()
+        )
+        await store.loadPairedMacs()
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: "old-team-workspace",
+                        macDeviceID: "mac-a",
+                        name: "Old Team",
+                        terminals: []
+                    ),
+                ],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: nil)
+
+        let forget = Task { await store.forgetMac(macDeviceID: "mac-a") }
+        await pairedStore.waitUntilRemoveStarted(macDeviceID: "mac-a")
+        await team.set("team-b")
+        store.setWorkspaceStatesForTesting([
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: "new-team-workspace",
+                        macDeviceID: "mac-b",
+                        name: "New Team",
+                        terminals: []
+                    ),
+                ],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "mac-b")
+        await pairedStore.releaseRemove(macDeviceID: "mac-a")
+        await forget.value
+
+        #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue) == ["new-team-workspace"])
+        #expect(store.foregroundMacDeviceIDForTesting() == "mac-b")
+    }
+
     private static func pairedMac(
         id: String,
         displayName: String,

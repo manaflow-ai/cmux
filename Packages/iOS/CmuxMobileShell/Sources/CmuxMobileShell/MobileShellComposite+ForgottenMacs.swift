@@ -164,6 +164,7 @@ extension MobileShellComposite {
                 forgottenMacLog.error("paired mac store remove failed mac=\(id, privacy: .public) error=\(String(describing: error), privacy: .public)")
             }
         }
+        guard await isScopeCurrent(scope) else { return }
         if !failedIDs.isEmpty {
             for id in failedIDs {
                 await clearForgottenMacDeviceID(id, scope: scope)

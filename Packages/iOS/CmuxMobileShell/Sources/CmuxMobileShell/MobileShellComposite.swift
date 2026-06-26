@@ -3610,6 +3610,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func markSecondaryMacUnavailableForTesting(_ macID: String) {
         markSecondaryMacUnavailable(macID)
     }
+    func foregroundMacDeviceIDForTesting() -> String? { foregroundMacDeviceID }
     func storedMacReconnectGenerationForTesting() -> Int { storedMacReconnectGeneration }
     #endif
 
