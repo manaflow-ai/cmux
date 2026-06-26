@@ -43,6 +43,9 @@ struct WorkspaceHermesAgentCommandBootstrapper {
                 baseURL: baseURL,
                 environment: environment
             )
+            guard innerCommand != portableCommand.innerCommand else {
+                return command
+            }
             var result = command
             result.replaceSubrange(portableCommand.innerCommandRange, with: shellQuote(innerCommand))
             return result

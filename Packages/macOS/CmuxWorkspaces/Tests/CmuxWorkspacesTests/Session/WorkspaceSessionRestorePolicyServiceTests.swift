@@ -250,6 +250,37 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(!command.contains("openai-codex"))
     }
 
+    @Test("Hermes agent portable shell wrappers preserve unchanged payload quoting")
+    func hermesAgentPortableShellWrapperPreservesUnchangedPayloadQuoting() throws {
+        let service = makeService(
+            applyingDefaultCodexBaseURL: { environment in
+                var copy = environment
+                copy["OPENAI_BASE_URL"] = "https://codex.example.test"
+                return copy
+            }
+        )
+        let rawCommand = "cd -- '/repo with space' 2>/dev/null || [ ! -d '/repo with space' ] && /bin/sh -c \"LOCAL_ONLY=$LOCAL_ONLY hermes --provider anthropic run\""
+        let binding = FakeBinding(
+            source: "agent-hook",
+            kind: "hermes-agent",
+            command: rawCommand,
+            isAgentHookBinding: true,
+            allowsAutomaticResume: true
+        )
+
+        let launch = try #require(service.surfaceResumeStartupLaunch(
+            binding,
+            autoResumeAgentSessions: true,
+            approvalStoreURL: URL(fileURLWithPath: "/tmp/cmux-approvals.json", isDirectory: false)
+        ))
+        guard case .command(let command) = launch else {
+            Issue.record("expected command launch")
+            return
+        }
+
+        #expect(command == "command:\(rawCommand)")
+    }
+
     @Test("remote reconnect waits when restored terminals can authenticate")
     func remoteReconnectWaitsWhenTerminalsAuthenticate() {
         let service = makeService()
