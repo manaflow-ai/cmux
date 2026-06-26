@@ -50,6 +50,9 @@ import Testing
         #expect(CmxRouteProximity.classify(.hostPort(host: "192.168.1.1", port: 1)) == .lan)
         #expect(CmxRouteProximity.classify(.hostPort(host: "169.254.1.2", port: 1)) == .lan)
         #expect(CmxRouteProximity.classify(.hostPort(host: "fe80::1", port: 1)) == .lan)
+        // Full fe80::/10 link-local range (fe80 – febf), not just fe80.
+        #expect(CmxRouteProximity.classify(.hostPort(host: "fea0::1", port: 1)) == .lan)
+        #expect(CmxRouteProximity.classify(.hostPort(host: "febf::1", port: 1)) == .lan)
         #expect(CmxRouteProximity.classify(.hostPort(host: "fc00::1", port: 1)) == .lan)
         #expect(CmxRouteProximity.classify(.hostPort(host: "fd12:3456::1", port: 1)) == .lan)
     }
@@ -173,11 +176,23 @@ import Testing
         #expect(merged.first?.route.id == "new")
     }
 
-    @Test func mergedTieBreaksOnRoutePriorityWithinTier() throws {
-        let high = candidate(try hostPort("192.168.1.9", id: "hi", priority: 10))
-        let low = candidate(try hostPort("192.168.1.5", id: "lo", priority: 0))
+    @Test func mergedTieBreaksOnRoutePriorityWithinSameSourceTier() throws {
+        // Same source (so authority ties): the Mac-assigned priority decides.
+        let high = candidate(try hostPort("192.168.1.9", id: "hi", priority: 10), .registry)
+        let low = candidate(try hostPort("192.168.1.5", id: "lo", priority: 0), .registry)
         let merged = CmxRouteCandidateSet([high, low]).merged()
         #expect(merged.first?.route.id == "lo") // lower priority value tried first
+    }
+
+    @Test func mergedRanksRegistryAheadOfStaleLocalRegardlessOfPriority() throws {
+        // Same proximity tier and same freshness, but the stale LOCAL route has a
+        // lower (more-preferred) Mac priority. The authoritative registry route
+        // must still rank first so reconnect dials the fresh route — source
+        // authority outranks the Mac-assigned priority across sources.
+        let staleLocal = candidate(try hostPort("100.96.0.5", id: "a", priority: 0), .localCache, at: 100)
+        let freshRegistry = candidate(try hostPort("100.96.0.9", id: "b", priority: 9), .registry, at: 100)
+        let merged = CmxRouteCandidateSet([staleLocal, freshRegistry]).merged()
+        #expect(merged.first?.source == .registry)
     }
 
     @Test func mergedRoutesProjectsToRoutesInRankedOrder() throws {

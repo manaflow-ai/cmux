@@ -57,6 +57,18 @@ import Testing
         #expect(hosts.contains("100.0.0.1")) // local route retained, not replaced
     }
 
+    @Test func registryMetadataChangeOnSharedEndpointIsWritten() throws {
+        // The registry re-advertises an endpoint already cached, but with a
+        // changed priority (no new endpoint). The endpoint set is unchanged, yet
+        // the metadata changed, so the update must be written — otherwise the
+        // phone keeps dialing in the server's stale preferred order indefinitely.
+        let cached = try route(host: "100.96.0.9", port: 51000, id: "tailnet", priority: 0)
+        let updated = try route(host: "100.96.0.9", port: 51000, id: "tailnet", priority: 9)
+        let selected = DeviceRegistryService.selectReconnectRoutes(local: [cached], registry: [updated])
+        #expect(selected?.count == 1)
+        #expect(selected?.first?.priority == 9)
+    }
+
     @Test func narrowerRegistrySubsetIsANoOp() throws {
         // The registry advertises only a subset of the routes already cached
         // locally (e.g. the LAN route lagged in the registry). There is nothing
