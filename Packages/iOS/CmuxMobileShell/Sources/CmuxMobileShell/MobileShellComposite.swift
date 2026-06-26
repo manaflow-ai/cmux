@@ -1529,15 +1529,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               expiresAt > (runtime?.now() ?? Date()) else {
             return nil
         }
-        return try? CmxAttachTicket(
-            workspaceID: "",
-            terminalID: nil,
-            macDeviceID: mac.macDeviceID,
-            macDisplayName: mac.displayName,
-            routes: mac.routes,
-            expiresAt: expiresAt,
-            authToken: attachToken
-        )
+        do {
+            return try CmxAttachTicket(
+                workspaceID: "", terminalID: nil, macDeviceID: mac.macDeviceID,
+                macDisplayName: mac.displayName, routes: mac.routes, expiresAt: expiresAt,
+                authToken: attachToken)
+        } catch {
+            mobileShellLog.warning("durable attach ticket invalid mac=\(mac.macDeviceID, privacy: .public) routeCount=\(mac.routes.count, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
 
     /// On launch, call this to reconnect to the last-active paired Mac. Pulls
