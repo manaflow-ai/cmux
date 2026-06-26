@@ -63,14 +63,14 @@ extension SidebarGitMetadataService {
         }
 
         if workspaceGitMetadataWatchersByKey[key]?.watchedPaths == watchedPaths {
-            workspaceGitMetadataWatcherSourceDirectoryByKey[key] = request.directory
+            moveWorkspaceGitSnapshotCacheEligibility(for: key, to: request.directory)
             return
         }
 
         stopWorkspaceGitMetadataWatcher(for: key)
         if let watcher = RecursivePathWatcher(paths: watchedPaths) {
             workspaceGitMetadataWatchersByKey[key] = watcher
-            markWorkspaceGitSnapshotCacheEligible(directory: request.directory)
+            moveWorkspaceGitSnapshotCacheEligibility(for: key, to: request.directory)
             let events = watcher.events
             workspaceGitMetadataWatcherRefreshTasksByKey[key] = Task { @MainActor [weak self] in
                 for await _ in events {
@@ -83,8 +83,9 @@ extension SidebarGitMetadataService {
                     )
                 }
             }
+        } else {
+            workspaceGitMetadataWatcherSourceDirectoryByKey[key] = request.directory
         }
-        workspaceGitMetadataWatcherSourceDirectoryByKey[key] = request.directory
     }
 
     func workspaceGitSnapshotCacheGeneration(directory: String) -> UInt64? {
@@ -94,6 +95,19 @@ extension SidebarGitMetadataService {
     func markWorkspaceGitSnapshotCacheEligible(directory: String) {
         workspaceGitMetadataFilesystemEventGeneration &+= 1
         workspaceGitSnapshotCacheGenerationByDirectory[directory] = workspaceGitMetadataFilesystemEventGeneration
+    }
+
+    func moveWorkspaceGitSnapshotCacheEligibility(for key: WorkspaceGitProbeKey, to directory: String) {
+        let previousDirectory = workspaceGitMetadataWatcherSourceDirectoryByKey[key]
+        workspaceGitMetadataWatcherSourceDirectoryByKey[key] = directory
+        guard previousDirectory != directory else {
+            if workspaceGitSnapshotCacheGenerationByDirectory[directory] == nil {
+                markWorkspaceGitSnapshotCacheEligible(directory: directory)
+            }
+            return
+        }
+        removeWorkspaceGitSnapshotCacheEligibilityIfUnused(directory: previousDirectory)
+        markWorkspaceGitSnapshotCacheEligible(directory: directory)
     }
 
     func recordWorkspaceGitMetadataFilesystemEvent(for key: WorkspaceGitProbeKey) {

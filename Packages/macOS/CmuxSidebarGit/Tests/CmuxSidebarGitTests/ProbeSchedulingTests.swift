@@ -183,6 +183,31 @@ import CmuxGit
         #expect(generations == [eventGeneration])
     }
 
+    @Test func reusedWatcherMovesCacheGenerationToNewDirectory() throws {
+        let oldDirectory = "/tmp/repo"
+        let newDirectory = "/tmp/repo/nested"
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: oldDirectory)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let service = makeService(
+            host: host,
+            reader: GatedMetadataReader(metadata: .repository(branch: "feature/x")),
+            clock: ManualGitPollClock()
+        )
+
+        service.workspaceGitMetadataWatcherSourceDirectoryByKey[key] = oldDirectory
+        service.markWorkspaceGitSnapshotCacheEligible(directory: oldDirectory)
+        let oldGeneration = try #require(service.workspaceGitSnapshotCacheGeneration(directory: oldDirectory))
+
+        service.moveWorkspaceGitSnapshotCacheEligibility(for: key, to: newDirectory)
+        let newGeneration = try #require(service.workspaceGitSnapshotCacheGeneration(directory: newDirectory))
+
+        #expect(service.workspaceGitSnapshotCacheGeneration(directory: oldDirectory) == nil)
+        #expect(newGeneration != oldGeneration)
+        service.recordWorkspaceGitMetadataFilesystemEvent(for: key)
+        #expect(service.workspaceGitSnapshotCacheGeneration(directory: newDirectory) != newGeneration)
+    }
+
     /// Restored sessions can already have a branch projected before the first
     /// local git probe runs. If the PR poller has no tracking state yet, that
     /// same-branch snapshot must still seed one refresh.
