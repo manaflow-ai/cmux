@@ -171,6 +171,10 @@ struct RightSidebarFileTreeRemoteRootTests {
         let root = RightSidebarToolPanel.fileExplorerWorkspaceRoot(for: workspace)
         #expect(Self.remoteRootPath(root) == "/home/deploy/project")
         #expect(Self.isRemoteAvailable(root))
+
+        // Tear down the remote session so the test leaves no live connection
+        // state behind, matching the other WorkspaceRemoteConnectionTests.
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64071)
     }
 
     private static func remoteRootPath(_ root: FileExplorerWorkspaceRoot) -> String? {
