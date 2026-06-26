@@ -28,7 +28,7 @@ def test_resume_from_different_cwd_seeds_transcript_copy(failures: list[str]) ->
         real_bin = root / "real-bin"
         config = root / "claude-config"
         origin_cwd = root / "repo.main"
-        target_cwd = root / "worktrees" / "feature"
+        target_cwd = root / "worktrees" / "feature.v2"
         sid = "39c1eb84-1111-2222-3333-444444444444"
         for directory in (wrapper_bin, real_bin, origin_cwd, target_cwd):
             directory.mkdir(parents=True, exist_ok=True)
@@ -39,6 +39,7 @@ def test_resume_from_different_cwd_seeds_transcript_copy(failures: list[str]) ->
 
         origin_project = config / "projects" / claude_project_dir_name(origin_cwd)
         target_project = config / "projects" / claude_project_dir_name(target_cwd)
+        slash_only_target_project = config / "projects" / str(target_cwd).replace("/", "-")
         origin_sidecar = origin_project / sid
         origin_sidecar.mkdir(parents=True, exist_ok=True)
         (origin_project / f"{sid}.jsonl").write_text("origin transcript\n", encoding="utf-8")
@@ -92,6 +93,7 @@ cat "$transcript" > {str(real_seen_transcript)!r}
 
         target_transcript = target_project / f"{sid}.jsonl"
         target_sidecar_file = target_project / sid / "attachment.txt"
+        slash_only_target_transcript = slash_only_target_project / f"{sid}.jsonl"
         if result.returncode != 0:
             failures.append(
                 f"wrapper exited {result.returncode}: stdout={result.stdout!r} stderr={result.stderr!r}"
@@ -108,6 +110,10 @@ cat "$transcript" > {str(real_seen_transcript)!r}
             failures.append("real claude did not observe the target cwd transcript")
         elif real_seen_transcript.read_text(encoding="utf-8") != "origin transcript\n":
             failures.append("real claude observed unexpected transcript content")
+        if not slash_only_target_transcript.exists():
+            failures.append("slash-only dotted cwd transcript variant was not seeded")
+        elif slash_only_target_transcript.read_text(encoding="utf-8") != "origin transcript\n":
+            failures.append("slash-only dotted cwd transcript variant did not preserve origin content")
         if target_transcript.exists() and target_transcript.samefile(origin_project / f"{sid}.jsonl"):
             failures.append("target transcript must be a copy, not a hardlink")
 
