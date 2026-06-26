@@ -10082,10 +10082,11 @@ final class Workspace: Identifiable, ObservableObject {
         // (scroll, drag, mouse-move), so re-arming a layout-follow-up attempt from
         // it pumped flushWorkspaceWindowLayouts() — a full-window relayout — on
         // every scroll tick while any follow-up session was open. Convergence is
-        // instead driven by (1) the self-rescheduling backoff loop in
-        // attemptEventDrivenLayoutFollowUp() (which now keeps retrying on stall,
-        // bounded by the follow-up timeout) and (2) the specific structural-event
-        // observers below. See the scroll-lag investigation in
+        // still driven by the progress-based reschedule below (each attempt that
+        // makes progress re-arms the next), the specific structural-event
+        // observers, and the follow-up timeout; the window-update firehose only
+        // added a per-tick wake that coupled scrolling to a full-window relayout.
+        // See the scroll-lag investigation in
         // https://github.com/manaflow-ai/cmux/issues/6790.
         layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidBecomeReady,
@@ -10351,17 +10352,10 @@ final class Workspace: Identifiable, ObservableObject {
 
         if didMakeProgress {
             layoutFollowUpStalledAttemptCount = 0
+            scheduleLayoutFollowUpAttempt()
         } else {
             layoutFollowUpStalledAttemptCount += 1
         }
-        // Always keep retrying while work remains. Previously a stalled attempt
-        // (no progress) stopped rescheduling and relied on an external wake —
-        // chiefly NSWindow.didUpdateNotification, which fired on every scroll
-        // tick. Now the loop self-drives at the stall backoff delay
-        // (layoutFollowUpBackoffDelay, capped at 0.25s) until it converges
-        // or the follow-up timeout (refreshLayoutFollowUpTimeout) clears it, so
-        // convergence no longer depends on high-frequency window updates.
-        scheduleLayoutFollowUpAttempt()
     }
 
     /// Reconcile remaining terminal view geometries after split topology changes.
