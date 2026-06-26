@@ -323,6 +323,11 @@ class TabManager: ObservableObject {
                 }
             }
             publishCmuxWorkspaceSelectedChange(from: previousTabId)
+            // Selecting a workspace makes it the visible delivery target, so retry
+            // any offline notes captured for it that an earlier flush deferred
+            // while it was backgrounded (e.g. connectivity returned while another
+            // workspace was on top). Beta-gated + a no-op when offline or empty.
+            OfflineNotesStore.flushIfFeatureEnabled()
             let notificationDismissalContext = notificationDismissal.takePendingSelectionContext() ?? .activeFocus
 #if DEBUG
             let switchId = debugWorkspaceSwitchId

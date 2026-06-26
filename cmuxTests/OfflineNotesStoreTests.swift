@@ -212,6 +212,37 @@ struct OfflineNotesStoreTests {
         #expect(store.notes.first?.attemptCount == 0)
     }
 
+    @Test
+    func deferredNoteIsDeliveredOnNextFlushWhenWorkspaceBecomesVisible() async throws {
+        // A note bound to a workspace that isn't currently visible: the
+        // dispatcher reports the transient `noActiveWorkspace`, so the note is
+        // deferred (kept pending), not failed.
+        let dispatcher = FakeDispatcher()
+        dispatcher.shouldFail = true
+        dispatcher.error = OfflineNoteDispatchError.noActiveWorkspace
+        let reachability = FakeReachability(isOnline: false)
+        let store = makeStore(fileURL: nil, dispatcher: dispatcher, reachability: reachability)
+        store.addNote("note for a backgrounded workspace")
+
+        reachability.setOnline(true)
+        await waitUntil { dispatcher.dispatched.count >= 1 }
+        #expect(store.notes.first?.status == .pending)
+        #expect(store.pendingCount == 1)
+        #expect(store.failedCount == 0)
+
+        // The workspace becomes visible. The retry that the store performs on
+        // workspace selection (OfflineNotesStore.flushIfFeatureEnabled, wired into
+        // the selection chokepoint) is exactly this subsequent flush — the
+        // per-invocation deferral set means the previously deferred note is now
+        // eligible again and is delivered.
+        dispatcher.shouldFail = false
+        await store.flush()
+        await waitUntil { store.notes.first?.status == .sent }
+        #expect(store.notes.first?.status == .sent)
+        #expect(store.sentCount == 1)
+        #expect(store.pendingCount == 0)
+    }
+
     // MARK: - Reentrancy
 
     @Test

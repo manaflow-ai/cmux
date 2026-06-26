@@ -95,6 +95,22 @@ final class OfflineNotesStore {
         }
     }
 
+    /// Shared trigger for "the set of deliverable workspaces may have changed"
+    /// events — app reactivation and workspace selection. A note is delivered
+    /// only when its captured workspace is the visible selection, so selecting a
+    /// workspace (or reactivating the app) is exactly when notes deferred while
+    /// that workspace was backgrounded should be retried.
+    ///
+    /// Beta-gated (the flag defaults off), so for users without the Notes
+    /// feature this returns *before* touching the shared store; the flush itself
+    /// is a no-op when offline, not yet started, or nothing is pending. Cheap
+    /// enough to call from the workspace-selection path.
+    @MainActor
+    static func flushIfFeatureEnabled() {
+        guard RightSidebarBetaFeatureSettings.isNotesEnabled() else { return }
+        Task { await OfflineNotesStore.shared.flush() }
+    }
+
     // MARK: - Mutations
 
     /// Captures a new note. Whitespace-only input is ignored. Returns the stored

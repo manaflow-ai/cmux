@@ -1817,11 +1817,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
 
-        if !isRunningUnderXCTestCached, RightSidebarBetaFeatureSettings.isNotesEnabled() {
+        if !isRunningUnderXCTestCached {
             // Windows are up now, so deliver any offline notes left pending by an
-            // earlier flush that ran before windows/workspaces were ready. No-ops
+            // earlier flush that ran before windows/workspaces were ready. Shared
+            // trigger with the workspace-selection path; beta-gated and a no-op
             // when offline or when nothing is pending.
-            Task { await OfflineNotesStore.shared.flush() }
+            OfflineNotesStore.flushIfFeatureEnabled()
         }
 
         guard let notificationStore else { return }
