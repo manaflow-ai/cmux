@@ -143,7 +143,11 @@ public struct PreferredEditorService: FileOpening {
             pathEntries.append(trimmed)
         }
 
-        result["PATH"] = pathEntries.joined(separator: ":")
+        if pathEntries.isEmpty {
+            result.removeValue(forKey: "PATH")
+        } else {
+            result["PATH"] = pathEntries.joined(separator: ":")
+        }
         return result
     }
 }
