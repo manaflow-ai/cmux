@@ -475,13 +475,12 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.showAgentActivity"),
                 String(localized: "settings.app.showAgentActivity", defaultValue: "Show Active Agents in Sidebar"),
-                subtitle: String(localized: "settings.app.showAgentActivity.subtitle", defaultValue: "Display a spinner and count on workspaces with running coding agents.")
+                subtitle: String(localized: "settings.app.showAgentActivity.subtitle", defaultValue: "Show a loading spinner on workspaces with running coding agents. Stays visible even when sidebar details are hidden.")
             ) {
                 Toggle("", isOn: Binding(get: { showAgentActivity.current }, set: { showAgentActivity.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }
-            .disabled(hideAll.current)
             SettingsCardDivider()
 
             SettingsCardRow(

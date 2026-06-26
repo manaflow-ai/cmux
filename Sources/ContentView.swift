@@ -13505,8 +13505,11 @@ struct TabItemView: View, Equatable {
                 // right edge; on hover the close x takes over the same corner.
                 // The slot always reserves its width so hover never re-lays-out
                 // the row. (Matches the group-header plus-button pattern.)
+                //
+                // The spinner is a live status signal, not a verbose detail, so
+                // it intentionally ignores Hide All Sidebar Details and stays
+                // visible while a loader/agent is running.
                 let showsLoadingSpinner = showsAgentActivity
-                    && !settings.hidesAllDetails
                     && workspaceSnapshot.activeCodingAgentCount > 0
                 if canCloseWorkspace {
                     ZStack {
