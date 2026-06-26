@@ -7364,3 +7364,61 @@ final class ExtensionWorktreePrototypeTests: XCTestCase {
         return output
     }
 }
+
+/// Regression coverage for issue #6790: the event-driven layout follow-up loop
+/// must coalesce its high-frequency drivers — chiefly
+/// `NSWindow.didUpdateNotification`, which AppKit posts on every scroll tick —
+/// so a burst cannot drive `flushWorkspaceWindowLayouts()` (a synchronous
+/// full-window `layoutSubtreeIfNeeded()`) back-to-back during scroll. These
+/// tests pin the pure coalescing policy that backs that throttle; without the
+/// per-frame floor a fresh attempt landing right after the previous one fires
+/// at delay 0, reproducing the per-tick relayout that caused the scroll lag.
+final class WorkspaceLayoutFollowUpThrottleTests: XCTestCase {
+    private let minInterval: TimeInterval = 1.0 / 30.0
+
+    /// A fresh attempt that lands immediately after the previous one (e.g. the
+    /// next scroll-driven window update) must be deferred by the remaining
+    /// frame budget instead of firing at delay 0.
+    func testAttemptImmediatelyAfterPreviousIsThrottledByOneFrame() {
+        let delay = Workspace.coalescedLayoutFollowUpAttemptDelay(
+            backoff: 0,
+            sinceLastAttempt: 0,
+            minInterval: minInterval
+        )
+        XCTAssertEqual(delay, minInterval, accuracy: 1e-9)
+    }
+
+    /// Once at least one interval has elapsed the throttle no longer applies, so
+    /// a genuinely-spaced attempt is not artificially delayed.
+    func testAttemptAfterIntervalIsNotThrottled() {
+        let delay = Workspace.coalescedLayoutFollowUpAttemptDelay(
+            backoff: 0,
+            sinceLastAttempt: 1.0,
+            minInterval: minInterval
+        )
+        XCTAssertEqual(delay, 0, accuracy: 1e-9)
+    }
+
+    /// A partially-elapsed interval is throttled by only the remaining budget.
+    func testPartiallyElapsedIntervalThrottlesByRemainder() {
+        let elapsed = minInterval / 3.0
+        let delay = Workspace.coalescedLayoutFollowUpAttemptDelay(
+            backoff: 0,
+            sinceLastAttempt: elapsed,
+            minInterval: minInterval
+        )
+        XCTAssertEqual(delay, minInterval - elapsed, accuracy: 1e-9)
+    }
+
+    /// The stall backoff still wins when it exceeds the frame throttle, so the
+    /// existing exponential backoff for a stuck follow-up is preserved.
+    func testBackoffDominatesWhenLargerThanThrottle() {
+        let backoff: TimeInterval = 0.25
+        let delay = Workspace.coalescedLayoutFollowUpAttemptDelay(
+            backoff: backoff,
+            sinceLastAttempt: 0,
+            minInterval: minInterval
+        )
+        XCTAssertEqual(delay, backoff, accuracy: 1e-9)
+    }
+}
