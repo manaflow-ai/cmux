@@ -280,6 +280,18 @@ import Testing
         }
     }
 
+    @Test func ticketThrowsOnPlaintextWebSocketDaemonURL() {
+        // The daemon route carries a bearer token, so a plaintext ws:// endpoint
+        // (which would leak it) is refused even though it is a WebSocket URL.
+        let endpoint = CmxCloudAttachEndpoint(
+            terminal: .init(url: "wss://x/terminal", token: "t", sessionID: "s", expiresAtUnix: 1),
+            daemon: .init(url: "ws://x/rpc", token: "t", sessionID: "s", expiresAtUnix: 1)
+        )
+        #expect(throws: CmxCloudAttachError.invalidDaemonURL("ws://x/rpc")) {
+            _ = try CmxCloudAttach().ticket(from: endpoint)
+        }
+    }
+
     @Test func ticketThrowsOnEmptyDaemonURL() {
         let endpoint = CmxCloudAttachEndpoint(
             terminal: .init(url: "wss://x/terminal", token: "t", sessionID: "s", expiresAtUnix: 1),

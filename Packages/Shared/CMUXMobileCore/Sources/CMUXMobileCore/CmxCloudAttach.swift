@@ -13,7 +13,9 @@ public enum CmxCloudAttachError: Error, Equatable, Sendable {
     /// speaks to a paired Mac — so a PTY-only endpoint cannot back a mobile
     /// session. Callers must request the daemon (`requireDaemon: true`).
     case missingDaemon
-    /// The daemon URL was empty or not a `ws://` / `wss://` endpoint. The
+    /// The daemon URL was empty or not a TLS-encrypted `wss://` endpoint. The
+    /// cloud daemon route carries the lease bearer token, so a plaintext
+    /// `ws://` endpoint (which would expose the token) is rejected. The
     /// associated value is the offending URL string.
     case invalidDaemonURL(String)
     /// The daemon lease carried no token. The short-lived lease token is the
@@ -251,7 +253,7 @@ public struct CmxCloudAttach: Sendable {
             throw CmxCloudAttachError.missingDaemon
         }
         let daemonURL = daemon.url.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard Self.isWebSocketURL(daemonURL) else {
+        guard Self.isSecureWebSocketURL(daemonURL) else {
             throw CmxCloudAttachError.invalidDaemonURL(daemon.url)
         }
         let token = daemon.token.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -300,14 +302,16 @@ public struct CmxCloudAttach: Sendable {
 }
 
 private extension CmxCloudAttach {
-    /// Whether `raw` is a usable WebSocket URL (`ws://` or `wss://`).
-    static func isWebSocketURL(_ raw: String) -> Bool {
+    /// Whether `raw` is a TLS-encrypted WebSocket URL (`wss://`). A cloud daemon
+    /// route carries the lease bearer token, so a plaintext `ws://` endpoint —
+    /// which would expose the token — is not accepted.
+    static func isSecureWebSocketURL(_ raw: String) -> Bool {
         guard !raw.isEmpty,
               let url = URL(string: raw),
               let scheme = url.scheme?.lowercased() else {
             return false
         }
-        return scheme == "ws" || scheme == "wss"
+        return scheme == "wss"
     }
 
     /// Convert a Unix expiry (seconds) into a `Date`, or `nil` for a missing or
