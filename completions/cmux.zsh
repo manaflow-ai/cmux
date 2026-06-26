@@ -154,11 +154,18 @@ _cmux() {
         'workspace-action'
         'workspace-group'
     )
-    if (( CURRENT == 2 )); then
+    local i cmd=""
+    for (( i = 2; i < CURRENT; i++ )); do
+        case ${words[i]} in
+            --socket|--id-format|--window|--password) (( i++ )) ;;
+            -*) ;;
+            *) cmd=${words[i]}; break ;;
+        esac
+    done
+    if [[ -z $cmd ]]; then
         _describe -t commands 'cmux command' commands
         return
     fi
-    local cmd=${words[2]}
     local prev=${words[CURRENT-1]}
     case $cmd in
         agent-hibernation)

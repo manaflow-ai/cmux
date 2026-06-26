@@ -10,10 +10,12 @@ _cmux() {
         prev="${COMP_WORDS[COMP_CWORD-1]}"
         cword=$COMP_CWORD
     }
-    # Locate the command word (first non-option after `cmux`).
+    # Locate the command word: first non-option after `cmux`,
+    # skipping value-bearing global options and their values.
     local i cmd=""
     for ((i=1; i < COMP_CWORD; i++)); do
         case "${COMP_WORDS[i]}" in
+            --socket|--id-format|--window|--password) ((i++)) ;;
             -*) ;;
             *) cmd="${COMP_WORDS[i]}"; break ;;
         esac

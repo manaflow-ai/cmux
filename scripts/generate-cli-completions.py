@@ -72,6 +72,12 @@ FLAG_VALUE_RE = re.compile(r"(--[a-z][a-z0-9-]*)\s+<([a-z][a-z0-9-]*(?:\|[a-z][a
 # sub|sub` subcommand group, which has no spaces around its pipes.
 LEAD_COMMAND_RE = re.compile(r"^[a-z][a-z0-9-]*(?:\s*\|\s*[a-z][a-z0-9-]*)*")
 
+# Value-bearing global options parsed before the command word in
+# CLI/cmux.swift run() (each consumes the following token). The command scan in
+# each emitter skips these plus their values; boolean globals like `--json` need
+# no special handling because the scan already skips any leading `-option`.
+GLOBAL_VALUE_FLAGS = ("--socket", "--id-format", "--window", "--password")
+
 # Type-descriptor tokens that appear inside `<...>` as metavariables, NOT as
 # literal values a user would type (e.g. `--pane <id|ref|index>`). A choice
 # group containing any of these is a placeholder, not a completable enum.
@@ -338,10 +344,12 @@ def emit_bash(commands: list[str], specs: dict[str, CommandSpec]) -> str:
     lines.append("        prev=\"${COMP_WORDS[COMP_CWORD-1]}\"")
     lines.append("        cword=$COMP_CWORD")
     lines.append("    }")
-    lines.append("    # Locate the command word (first non-option after `cmux`).")
+    lines.append("    # Locate the command word: first non-option after `cmux`,")
+    lines.append("    # skipping value-bearing global options and their values.")
     lines.append("    local i cmd=\"\"")
     lines.append("    for ((i=1; i < COMP_CWORD; i++)); do")
     lines.append("        case \"${COMP_WORDS[i]}\" in")
+    lines.append(f"            {'|'.join(GLOBAL_VALUE_FLAGS)}) ((i++)) ;;")
     lines.append("            -*) ;;")
     lines.append("            *) cmd=\"${COMP_WORDS[i]}\"; break ;;")
     lines.append("        esac")
@@ -378,11 +386,20 @@ def emit_zsh(commands: list[str], specs: dict[str, CommandSpec]) -> str:
     for name in commands:
         lines.append(f"        '{name}'")
     lines.append("    )")
-    lines.append("    if (( CURRENT == 2 )); then")
+    # Locate the command word, skipping value-bearing global options and their
+    # values, so completion works after `cmux --socket <path> ...` etc.
+    lines.append("    local i cmd=\"\"")
+    lines.append("    for (( i = 2; i < CURRENT; i++ )); do")
+    lines.append("        case ${words[i]} in")
+    lines.append(f"            {'|'.join(GLOBAL_VALUE_FLAGS)}) (( i++ )) ;;")
+    lines.append("            -*) ;;")
+    lines.append("            *) cmd=${words[i]}; break ;;")
+    lines.append("        esac")
+    lines.append("    done")
+    lines.append("    if [[ -z $cmd ]]; then")
     lines.append("        _describe -t commands 'cmux command' commands")
     lines.append("        return")
     lines.append("    fi")
-    lines.append("    local cmd=${words[2]}")
     lines.append("    local prev=${words[CURRENT-1]}")
     lines.append("    case $cmd in")
     for name in commands:
@@ -407,11 +424,36 @@ def emit_zsh(commands: list[str], specs: dict[str, CommandSpec]) -> str:
 
 
 def emit_fish(commands: list[str], specs: dict[str, CommandSpec]) -> str:
+    global_value_cases = " ".join(f"'{fl}'" for fl in GLOBAL_VALUE_FLAGS)
     lines = [HEADER.format(shell="fish")]
-    lines.append("# Complete top-level commands only when no command has been typed yet.")
+    # Resolve the active top-level cmux command by position (skipping global
+    # options and the values of value-bearing ones), rather than matching a word
+    # anywhere on the line -- so `cmux docs browser <Tab>` does not also trigger
+    # the top-level `browser` completions.
+    lines.append("function __cmux_command")
+    lines.append("    set -l toks (commandline -opc)")
+    lines.append("    set -l i 2")
+    lines.append("    while test $i -le (count $toks)")
+    lines.append("        switch $toks[$i]")
+    lines.append(f"            case {global_value_cases}")
+    lines.append("                set i (math $i + 2)")
+    lines.append("            case '-*'")
+    lines.append("                set i (math $i + 1)")
+    lines.append("            case '*'")
+    lines.append("                echo $toks[$i]")
+    lines.append("                return")
+    lines.append("        end")
+    lines.append("    end")
+    lines.append("end")
+    lines.append("")
     lines.append("function __cmux_needs_command")
-    lines.append("    set -l cmd (commandline -opc)")
-    lines.append("    test (count $cmd) -le 1")
+    lines.append("    set -l cmd (__cmux_command)")
+    lines.append("    test -z \"$cmd\"")
+    lines.append("end")
+    lines.append("")
+    lines.append("function __cmux_command_is")
+    lines.append("    set -l cmd (__cmux_command)")
+    lines.append("    test \"$cmd\" = \"$argv[1]\"")
     lines.append("end")
     lines.append("")
     for name in commands:
@@ -423,7 +465,7 @@ def emit_fish(commands: list[str], specs: dict[str, CommandSpec]) -> str:
         spec = specs.get(name)
         if not spec:
             continue
-        cond = f"__fish_seen_subcommand_from {name}"
+        cond = f"__cmux_command_is {name}"
         for sub in sorted(spec.subcommands):
             lines.append(f"complete -c cmux -n '{cond}' -f -a '{sub}'")
         for flag in sorted(spec.flags):
