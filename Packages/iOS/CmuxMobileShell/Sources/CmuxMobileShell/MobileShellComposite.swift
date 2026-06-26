@@ -3634,6 +3634,41 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspacesByMac[key] = state
     }
 
+    /// Optimistically remove the workspace identified by the derived-list `id` from
+    /// its owning Mac's source-of-truth list, so the derived ``workspaces`` (and
+    /// selection) update immediately with no wait on the backend close. The derived
+    /// row id can be a scoped aggregate id, so it is resolved back to the owning Mac
+    /// key and the raw per-Mac workspace via the owner + `rpcWorkspaceID`. Returns a
+    /// snapshot ``restoreWorkspace(_:)`` uses to put the row back at its original
+    /// index if the close cannot be delivered; returns `nil` when the row is already
+    /// gone (nothing to roll back).
+    func removeWorkspaceOptimistically(id: MobileWorkspacePreview.ID) -> WorkspaceCloseRollback? {
+        guard let derived = workspaces.first(where: { $0.id == id }) else { return nil }
+        // Anonymous foreground rows carry a nil macDeviceID but live under the
+        // foreground key; named foreground / secondary rows are keyed by their owner.
+        let ownerKey = derived.macDeviceID ?? foregroundMacKey
+        let rawRemoteID = derived.rpcWorkspaceID
+        guard var state = workspacesByMac[ownerKey],
+              let index = state.workspaces.firstIndex(where: { $0.rpcWorkspaceID == rawRemoteID })
+        else { return nil }
+        let removed = state.workspaces[index]
+        state.workspaces.remove(at: index)
+        // The didSet re-derives `workspaces` and reconciles selection to a neighbor.
+        workspacesByMac[ownerKey] = state
+        return WorkspaceCloseRollback(macKey: ownerKey, index: index, workspace: removed)
+    }
+
+    /// Re-insert an optimistically-removed workspace at its original index after a
+    /// close failed to land. A no-op if the row reappeared in the meantime (e.g. an
+    /// authoritative refresh arrived first), so a late rollback never duplicates it.
+    func restoreWorkspace(_ rollback: WorkspaceCloseRollback) {
+        guard var state = workspacesByMac[rollback.macKey] else { return }
+        guard !state.workspaces.contains(where: { $0.id == rollback.workspace.id }) else { return }
+        let index = min(rollback.index, state.workspaces.count)
+        state.workspaces.insert(rollback.workspace, at: index)
+        workspacesByMac[rollback.macKey] = state
+    }
+
     /// Create a workspace locally or through the connected Mac, then select it.
     public func createWorkspace() {
         guard remoteClient == nil else {

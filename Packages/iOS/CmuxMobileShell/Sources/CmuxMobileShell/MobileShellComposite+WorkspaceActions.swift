@@ -77,17 +77,28 @@ extension MobileShellComposite {
 
     /// Close a workspace on the Mac.
     ///
-    /// Sends the mutation to the Mac, then re-syncs from the authoritative
-    /// workspace list. If the Mac rejects the close, for example because it is
-    /// the last workspace, the refresh restores the row state on iOS.
+    /// Removes the row from the list immediately (optimistic UI) so a swipe-delete
+    /// feels instant, then tears the workspace down on the Mac in the background and
+    /// re-syncs from the authoritative workspace list. If the close cannot be
+    /// delivered the row is rolled back to its original position; if the Mac rejects
+    /// the close (for example because it is the last workspace) the authoritative
+    /// refresh restores the row.
     /// - Parameter id: The workspace to close.
     public func closeWorkspace(id: MobileWorkspacePreview.ID) async {
         guard workspaceActionCapabilities(for: id).supportsCloseActions else { return }
+        // Capture routing + params WHILE the row is still in the source of truth,
+        // then remove it so the derived list updates with no spinner. The snapshot
+        // restores the row only if the close cannot actually be delivered.
+        let target = workspaceMutationTarget(for: id)
+        let params = workspaceMutationParams(id: id)
+        let rollback = removeWorkspaceOptimistically(id: id)
         await sendWorkspaceMutation(
             method: "workspace.close",
-            params: workspaceMutationParams(id: id),
+            params: params,
             id: id,
-            actionName: "close"
+            actionName: "close",
+            target: target,
+            rollbackOnFailure: rollback
         )
     }
 
@@ -99,19 +110,24 @@ extension MobileShellComposite {
         method: String,
         params: [String: Any],
         id: MobileWorkspacePreview.ID,
-        actionName: String
+        actionName: String,
+        target precomputedTarget: WorkspaceMutationTarget? = nil,
+        rollbackOnFailure rollback: WorkspaceCloseRollback? = nil
     ) async {
         // Route the mutation to the Mac that actually OWNS this workspace. The
         // aggregated list can include rows from secondary Macs, whose connection is
         // not `remoteClient`; sending every mutation to the foreground client would
         // silently hit the wrong Mac (fail, or — with a colliding workspace id —
         // mutate a foreground workspace). The foreground path is unchanged for
-        // foreground-owned (or single-Mac / anonymous) rows.
-        let target = workspaceMutationTarget(for: id)
+        // foreground-owned (or single-Mac / anonymous) rows. An optimistic close
+        // passes the target resolved BEFORE its row was removed, so routing still
+        // finds the right Mac.
+        let target = precomputedTarget ?? workspaceMutationTarget(for: id)
         guard let client = target.client else {
             // Owner is a known non-foreground Mac with no live connection: can't
-            // deliver. Snap the row back to the authoritative state instead of
-            // misrouting to the foreground Mac.
+            // deliver. Roll an optimistic removal back, then snap to the
+            // authoritative state instead of misrouting to the foreground Mac.
+            if let rollback { restoreWorkspace(rollback) }
             await refreshWorkspaces()
             return
         }
@@ -122,6 +138,9 @@ extension MobileShellComposite {
             )
             _ = try await client.sendRequest(request)
         } catch {
+            // The mutation never landed; undo any optimistic removal so the row
+            // returns before we decide how to surface the failure.
+            if let rollback { restoreWorkspace(rollback) }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             // Only the foreground connection's health drives the foreground
             // unavailable/reconnect UI; a failed write to a secondary Mac must not

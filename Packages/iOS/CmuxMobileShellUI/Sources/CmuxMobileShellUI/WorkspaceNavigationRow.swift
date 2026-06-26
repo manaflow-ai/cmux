@@ -25,8 +25,15 @@ struct WorkspaceNavigationRow: View {
     /// affordance is hidden.
     var setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
     /// Close the workspace on the Mac. When `nil` the delete affordance is
-    /// hidden.
+    /// hidden. The context-menu Delete routes through this, which the list pairs
+    /// with a confirmation dialog (a deliberate, non-gesture action).
     var closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
+    /// Immediately close the workspace with no confirmation — wired to the trailing
+    /// swipe action so a full left swipe deletes in one gesture (iOS Mail-style) and
+    /// the row disappears right away (the list closes optimistically). When `nil`
+    /// the swipe-delete affordance is hidden. Distinct from ``closeWorkspace`` so the
+    /// gesture path can skip the confirmation the context menu keeps.
+    var deleteWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
     /// Whether this row's destructive close action is awaiting confirmation.
     /// The binding is owned by the list so recycled rows do not own presentation
     /// state, but the presenter stays attached to the swiped row.
@@ -52,9 +59,12 @@ struct WorkspaceNavigationRow: View {
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            if let closeWorkspace {
-                Button {
-                    closeWorkspace(workspace.id)
+            if let deleteWorkspace {
+                // `role: .destructive` makes a full swipe past the threshold commit
+                // this action automatically (it is the destructive swipe action), so
+                // the row deletes in one gesture without a separate tap.
+                Button(role: .destructive) {
+                    deleteWorkspace(workspace.id)
                 } label: {
                     Label(L10n.string("mobile.workspace.delete", defaultValue: "Delete"), systemImage: "trash")
                 }

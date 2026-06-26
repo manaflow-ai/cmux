@@ -359,7 +359,11 @@ struct WorkspaceListView: View {
             renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
             setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,
             setUnread: capabilities.supportsReadStateActions ? setUnread : nil,
+            // Context-menu Delete asks for confirmation first (deliberate action);
+            // the trailing swipe deletes immediately via `deleteWorkspace`, which the
+            // store closes optimistically. Both resolve to the same close path.
             closeWorkspace: capabilities.supportsCloseActions ? requestWorkspaceClose : nil,
+            deleteWorkspace: capabilities.supportsCloseActions ? closeWorkspace : nil,
             isConfirmingClose: closeConfirmationBinding(for: workspace.id),
             confirmCloseWorkspace: capabilities.supportsCloseActions && closeWorkspace != nil ? { _ in
                 confirmCloseWorkspace()
