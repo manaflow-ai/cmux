@@ -9530,7 +9530,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             pointerInitiatedWebFocus: false,
             liveOmnibarFieldExists: liveOmnibarFieldExists
         )
-        if shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(trackingContext) {
+        if trackingContext.shouldPreserveAddressBarTrackingDuringWebViewFocus {
 #if DEBUG
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
@@ -9680,7 +9680,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             pointerInitiatedWebFocus: pointerInitiatedWebFocus,
             liveOmnibarFieldExists: browserOmnibarField(panelId: panel.id, in: resolvedWindow) != nil
         )
-        return shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(trackingContext)
+        return trackingContext.shouldPreserveAddressBarTrackingDuringWebViewFocus
     }
 
     @discardableResult
