@@ -143,6 +143,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         surfaceID: surfaceID,
                         streamToken: chunk.streamToken
                     )
+                    surfaceView.noteAppliedRenderChunk(
+                        isFullFrame: chunk.isFullFrame,
+                        isAlternateScreen: chunk.isAlternateScreen
+                    )
                     // When the applied grid diverges from the producer's stamped
                     // hash (the "row blanks and stays blank" class), request a
                     // full-snapshot resync so it self-heals. The check runs only

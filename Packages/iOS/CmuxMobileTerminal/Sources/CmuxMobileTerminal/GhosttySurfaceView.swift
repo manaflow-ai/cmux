@@ -661,16 +661,35 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
     /// Approximate distance the local mirror is scrolled up into scrollback, in
-    /// lines (0 = pinned at the live bottom). `applyLocalScrollbackScroll` is the
-    /// only path that moves the iOS viewport off the live bottom, so summing its
-    /// signed `lines` (positive = into history) and clamping at 0 tracks whether
-    /// the visible viewport is the live grid. The divergence diagnostic uses this
-    /// to skip checks while scrolled up, where the read-back would hash history
-    /// instead of the live grid the producer stamped. Approximate is fine: it
-    /// only ever suppresses a check, never forces a false positive.
+    /// lines (0 = pinned at the live bottom). On the primary screen,
+    /// `applyLocalScrollbackScroll` sums its signed `lines` (positive = into
+    /// history) here, clamped at 0. To keep this from drifting when a scroll does
+    /// not actually move the viewport (alt-screen wheel-to-mouse, or clamped
+    /// overscroll), it is reset to 0 on every full-frame application (which lands
+    /// the viewport at the live bottom) and is ignored entirely on the alternate
+    /// screen. Only suppresses a divergence check, never forces a false positive.
     var localScrollbackPositionLines: Double = 0
+    /// Whether the last applied render-grid frame was on the alternate screen,
+    /// which has no scrollback, so its viewport is always the live grid.
+    var currentFrameIsAlternateScreen = false
     /// Whether the local mirror is currently showing the live bottom viewport.
-    var isAtLiveBottom: Bool { localScrollbackPositionLines <= 0.5 }
+    /// The alternate screen has no scrollback, so it is always "at bottom".
+    var isAtLiveBottom: Bool {
+        currentFrameIsAlternateScreen || localScrollbackPositionLines <= 0.5
+    }
+
+    /// Update scroll/screen tracking from a just-applied output chunk. A full
+    /// frame repaints the whole grid and lands the viewport at the live bottom,
+    /// so it resets the scrolled-into-history counter; this bounds any drift in
+    /// the requested-delta accumulation. The alternate-screen flag makes
+    /// ``isAtLiveBottom`` always true while a TUI owns the screen.
+    @MainActor
+    func noteAppliedRenderChunk(isFullFrame: Bool, isAlternateScreen: Bool) {
+        currentFrameIsAlternateScreen = isAlternateScreen
+        if isFullFrame {
+            localScrollbackPositionLines = 0
+        }
+    }
     private lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear

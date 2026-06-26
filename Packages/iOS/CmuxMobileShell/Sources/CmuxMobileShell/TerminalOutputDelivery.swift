@@ -42,6 +42,27 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             frame.gridHash
         }
     }
+
+    /// Whether this delivery is a full snapshot (lands the viewport at the live
+    /// bottom). `false` for raw bytes and delta frames.
+    var isFullFrame: Bool {
+        switch payload {
+        case .bytes:
+            false
+        case .renderGrid(let frame):
+            frame.full
+        }
+    }
+
+    /// Whether the source frame is on the alternate screen. `false` for raw bytes.
+    var isAlternateScreen: Bool {
+        switch payload {
+        case .bytes:
+            false
+        case .renderGrid(let frame):
+            frame.activeScreen == .alternate
+        }
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.

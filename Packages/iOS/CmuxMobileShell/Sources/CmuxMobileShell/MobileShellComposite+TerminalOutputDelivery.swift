@@ -32,7 +32,9 @@ extension MobileShellComposite {
                 MobileTerminalOutputChunk(
                     data: immediate.bytes,
                     streamToken: streamToken,
-                    expectedGridHash: immediate.expectedGridHash
+                    expectedGridHash: immediate.expectedGridHash,
+                    isFullFrame: immediate.isFullFrame,
+                    isAlternateScreen: immediate.isAlternateScreen
                 )
             )
         }
@@ -53,7 +55,9 @@ extension MobileShellComposite {
             MobileTerminalOutputChunk(
                 data: next.bytes,
                 streamToken: streamToken,
-                expectedGridHash: next.expectedGridHash
+                expectedGridHash: next.expectedGridHash,
+                isFullFrame: next.isFullFrame,
+                isAlternateScreen: next.isAlternateScreen
             )
         )
     }

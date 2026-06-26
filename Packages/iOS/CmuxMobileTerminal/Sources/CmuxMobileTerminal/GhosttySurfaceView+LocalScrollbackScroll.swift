@@ -21,9 +21,14 @@ extension GhosttySurfaceView {
         ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
         ghostty_surface_mouse_scroll(surface, 0, lines, 0)
         // Track distance from the live bottom (positive lines scroll into
-        // history) so the divergence diagnostic can skip while scrolled up, where
-        // the read-back would hash history instead of the live grid.
-        localScrollbackPositionLines = max(0, localScrollbackPositionLines + lines)
+        // history) so the divergence check can skip while scrolled up, where the
+        // read-back would hash history instead of the live grid. Only the primary
+        // screen actually moves into scrollback; on the alternate screen the wheel
+        // is delivered as mouse input and the viewport does not move, so summing
+        // it there would falsely mark the surface as scrolled up.
+        if !currentFrameIsAlternateScreen {
+            localScrollbackPositionLines = max(0, localScrollbackPositionLines + lines)
+        }
         drawForWakeup()
     }
 }
