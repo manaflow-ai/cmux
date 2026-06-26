@@ -2,7 +2,6 @@ import AppKit
 import CMUXProjectModel
 import Combine
 import Foundation
-import Observation
 import SwiftUI
 
 /// Which tab is active inside a ``ProjectPanel``.
@@ -272,29 +271,6 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
 }
 
 // MARK: - Find support
-
-/// Identifies which ``ProjectPanel`` filter field a find request targets.
-public enum ProjectPanelSearchFocus: Hashable, Sendable {
-    case files
-    case settings
-}
-
-/// Lightweight, view-observable find-focus state for a ``ProjectPanel``.
-///
-/// The tab views drive their `@FocusState` from these signals: ``request``
-/// moves keyboard focus into a filter field (cleared by the view once applied),
-/// and ``resignToken`` bumps to pull focus back out for "Hide Find Bar".
-@MainActor
-@Observable
-public final class ProjectPanelFindFocus {
-    /// The filter field that should receive focus, or `nil` when no request is pending.
-    public var request: ProjectPanelSearchFocus?
-
-    /// Incremented to ask the active filter field to resign first-responder.
-    public var resignToken: Int = 0
-
-    public init() {}
-}
 
 extension ProjectPanel: FindablePanel {
     /// Focuses the filter field for tabs that have one (Files, Build Settings).
