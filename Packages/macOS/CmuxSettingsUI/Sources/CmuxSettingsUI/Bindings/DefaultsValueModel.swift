@@ -190,6 +190,11 @@ public final class DefaultsValueModel<Value: SettingCodable> {
            event.value == initialStoreValue {
             return
         }
+        if let supersededSource = event.supersededMutationSource,
+           supersededSource.ownerID == mutationOwnerID,
+           consumeSupersededPendingStoreEcho(source: supersededSource) {
+            return
+        }
         clearPendingStoreEchoes()
         updateCurrent(event.value)
     }
@@ -235,6 +240,17 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         markLocalEchoesConsumed(through: source.sequence)
         pendingStoreEchoes.removeFirst(matchingIndex + 1)
         return true
+    }
+
+    private func consumeSupersededPendingStoreEcho(source: UserDefaultsSettingsMutationSource) -> Bool {
+        if let matchingIndex = pendingStoreEchoes.firstIndex(where: { $0.source == source }) {
+            markLocalEchoesConsumed(through: source.sequence)
+            pendingStoreEchoes.removeFirst(matchingIndex + 1)
+        } else if source.sequence < minimumRetainedMutationSequence {
+            return !pendingStoreEchoes.isEmpty
+        }
+
+        return !pendingStoreEchoes.isEmpty
     }
 
     private func clearPendingStoreEchoes() {

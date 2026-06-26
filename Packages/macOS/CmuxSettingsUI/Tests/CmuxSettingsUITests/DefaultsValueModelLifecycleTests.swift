@@ -238,6 +238,42 @@ import Testing
         #expect(model.revision == 3)
     }
 
+    @Test func supersededOlderLocalWriteObservationPreservesNewerPendingWrite() async {
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: "defaults-value-model-superseded-preserve-newer")!
+        )
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let (stream, continuation) = AsyncStream<DefaultsEvent<String>>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            initialValue: "#000000",
+            makeStream: { _ in stream }
+        )
+        model.startObserving()
+
+        let firstSource = model.set("#111111")
+        let secondSource = model.set("#222222")
+        #expect(model.current == "#222222")
+        #expect(model.revision == 2)
+
+        continuation.yield(event("#000000", supersededSource: firstSource))
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        #expect(model.current == "#222222")
+        #expect(model.revision == 2)
+
+        continuation.yield(event("#222222", source: secondSource))
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        #expect(model.current == "#222222")
+        #expect(model.revision == 2)
+    }
+
     @Test func lateLocalCommitAfterExternalObservationReconcilesCurrent() async {
         let store = UserDefaultsSettingsStore(
             defaults: UserDefaults(suiteName: "defaults-value-model-late-local-commit")!
