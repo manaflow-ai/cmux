@@ -45,31 +45,26 @@ enum WorkspaceActionDispatcher {
         let pinned: Bool
     }
 
-    struct WindowMove: Equatable {
-        let workspaceId: UUID
-        let focus: Bool
-    }
-
-    struct NewWindowMovePlan: Equatable {
-        let firstWorkspaceId: UUID
-        let focusFirstMove: Bool
-        let followUpMoves: [WindowMove]
-    }
-
-    static func newWindowMovePlan(orderedWorkspaceIds: [UUID]) -> NewWindowMovePlan? {
+    static func newWindowMovePlan(
+        orderedWorkspaceIds: [UUID]
+    ) -> (
+        firstWorkspaceId: UUID,
+        focusFirstMove: Bool,
+        followUpMoves: [(workspaceId: UUID, focus: Bool)]
+    )? {
         guard let firstWorkspaceId = orderedWorkspaceIds.first else { return nil }
 
-        var followUpMoves: [WindowMove] = []
+        var followUpMoves: [(workspaceId: UUID, focus: Bool)] = []
         if orderedWorkspaceIds.count > 1 {
             for workspaceId in orderedWorkspaceIds.dropFirst().dropLast() {
-                followUpMoves.append(WindowMove(workspaceId: workspaceId, focus: false))
+                followUpMoves.append((workspaceId: workspaceId, focus: false))
             }
             if let finalWorkspaceId = orderedWorkspaceIds.last {
-                followUpMoves.append(WindowMove(workspaceId: finalWorkspaceId, focus: true))
+                followUpMoves.append((workspaceId: finalWorkspaceId, focus: true))
             }
         }
 
-        return NewWindowMovePlan(
+        return (
             firstWorkspaceId: firstWorkspaceId,
             focusFirstMove: orderedWorkspaceIds.count == 1,
             followUpMoves: followUpMoves

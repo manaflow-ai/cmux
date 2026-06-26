@@ -115,12 +115,7 @@ struct WorkspaceActionDispatcherTests {
 
         #expect(plan.firstWorkspaceId == first)
         #expect(!plan.focusFirstMove)
-        #expect(
-            plan.followUpMoves == [
-                WorkspaceActionDispatcher.WindowMove(workspaceId: second, focus: false),
-                WorkspaceActionDispatcher.WindowMove(workspaceId: third, focus: true),
-            ]
-        )
         #expect(plan.followUpMoves.map(\.workspaceId) == [second, third])
+        #expect(plan.followUpMoves.map(\.focus) == [false, true])
     }
 }
