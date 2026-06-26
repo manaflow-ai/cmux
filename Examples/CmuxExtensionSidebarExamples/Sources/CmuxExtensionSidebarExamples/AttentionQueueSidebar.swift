@@ -63,7 +63,7 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
     private func needsAttention(_ workspace: CmuxSidebarProviderWorkspace) -> Bool {
         workspace.unreadCount > 0
             || trimmed(workspace.latestNotificationText) != nil
-            || (workspace.agentStatus == .needsInput && trimmed(workspace.agentStatusText) != nil)
+            || workspace.agentStatus == .needsInput
             || (hasRemoteTarget(workspace) && (
                 workspace.remoteConnectionState == "connecting"
                     || workspace.remoteConnectionState == "reconnecting"

@@ -101,6 +101,29 @@ struct AttentionQueueSidebarTests {
     }
 
     @Test
+    func needsInputAgentStatusWithoutTextNeedsAttention() throws {
+        let waiting = workspace(
+            title: "Waiting",
+            customDescription: "Agent workspace",
+            remoteDisplayTarget: nil,
+            remoteConnectionState: nil,
+            agentStatus: .needsInput
+        )
+        let snapshot = CmuxSidebarProviderSnapshot(
+            sequence: 1,
+            selectedWorkspaceId: nil,
+            workspaces: [waiting]
+        )
+
+        let model = AttentionQueueSidebar().render(snapshot: snapshot)
+
+        let attention = try #require(model.sections.first { $0.id == "attention" })
+        #expect(attention.rows.map(\.workspaceId) == [waiting.id])
+        #expect(attention.rows.first?.subtitle == .plain("Agent workspace"))
+        #expect(attention.rows.first?.subtitleRole == nil)
+    }
+
+    @Test
     func genericNotificationSubtitleKeepsProviderRole() throws {
         let notified = workspace(
             title: "Build",
