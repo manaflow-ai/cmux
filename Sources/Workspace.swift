@@ -4966,6 +4966,14 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceListeningPorts.removeAll()
         listeningPorts.removeAll()
         metadataBlocks.removeAll()
+        // An agent's `set-description` summary is sidebar context like the
+        // progress / PR / branch state cleared above, so wipe it on reset
+        // (issue #6753). User-authored notes — and legacy descriptions with no
+        // provenance, which normalize to `.user` — are intentionally left
+        // intact; they survive resets, branch changes, and restarts.
+        if effectiveCustomDescriptionSource == .agent {
+            setCustomDescription(nil)
+        }
         resetBrowserPanelsForContextChange(reason: reason)
     }
 
