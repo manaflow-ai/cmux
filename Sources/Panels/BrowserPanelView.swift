@@ -2638,7 +2638,7 @@ struct BrowserPanelView: View {
     /// The pure omnibar ranking engine, wired to the app's navigable-URL
     /// resolver so URL-intent classification matches address-bar navigation.
     private var omnibarSuggestionEngine: BrowserOmnibarSuggestionEngine {
-        BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) })
+        BrowserOmnibarSuggestionEngine(resolveNavigableURL: { $0.omnibarNavigableURL })
     }
 
     private func staleRemoteSuggestionsForDisplay(

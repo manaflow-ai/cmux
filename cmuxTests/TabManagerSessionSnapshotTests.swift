@@ -1713,13 +1713,11 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
 
         XCTAssertTrue(snapshot.hasRestorablePanels)
-        XCTAssertFalse(ClosedWindowRestoreValidation.hasUsableRestoredContent(
-            snapshot: snapshot,
+        XCTAssertFalse(snapshot.hasUsableRestoredContent(
             restoredPanelIdsByWorkspaceIndex: [[:]],
             hasLivePanels: true
         ))
-        XCTAssertTrue(ClosedWindowRestoreValidation.hasUsableRestoredContent(
-            snapshot: snapshot,
+        XCTAssertTrue(snapshot.hasUsableRestoredContent(
             restoredPanelIdsByWorkspaceIndex: [[UUID(): UUID()]],
             hasLivePanels: true
         ))

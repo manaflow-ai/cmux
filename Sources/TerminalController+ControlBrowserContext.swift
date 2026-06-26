@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxControlSocket
 import CmuxSettings
 import Foundation
@@ -81,7 +82,7 @@ extension TerminalController: ControlBrowserContext {
         let url: URL?
         if let urlStr = rawURLString {
             let trimmedURLStr = urlStr.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let navigable = resolveBrowserNavigableURL(urlStr) {
+            if let navigable = urlStr.omnibarNavigableURL {
                 url = navigable
             } else if let parsed = URL(string: trimmedURLStr), parsed.scheme != nil {
                 url = parsed

@@ -3,6 +3,7 @@ import Foundation
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxNotifications
 import CmuxTestSupport
 import CmuxTerminal
 import CmuxFoundation
@@ -10,8 +11,8 @@ import CmuxFoundation
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
-    @AppStorage(NotificationPaneRingSettings.enabledKey)
-    private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
+    @AppStorage(NotificationDefaultsToggle.paneRing.key)
+    private var notificationPaneRingEnabled = NotificationDefaultsToggle.paneRing.defaultValue
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
     private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
     @State private var terminalFontSize = GhosttyConfig.load().fontSize

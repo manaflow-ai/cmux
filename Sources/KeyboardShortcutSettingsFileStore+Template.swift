@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxBrowser
+import CmuxNotifications
 import CmuxSettings
 import Foundation
 
@@ -112,10 +113,10 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "notifications": [
-                    "dockBadge": NotificationBadgeSettings.defaultDockBadgeEnabled,
+                    "dockBadge": NotificationDefaultsToggle.dockBadge.defaultValue,
                     "showInMenuBar": MenuBarExtraSettings.defaultShowInMenuBar,
-                    "unreadPaneRing": NotificationPaneRingSettings.defaultEnabled,
-                    "paneFlash": NotificationPaneFlashSettings.defaultEnabled,
+                    "unreadPaneRing": NotificationDefaultsToggle.paneRing.defaultValue,
+                    "paneFlash": NotificationDefaultsToggle.paneFlash.defaultValue,
                     "sound": NotificationSoundSettings.defaultValue,
                     "customSoundFilePath": NotificationSoundSettings.defaultCustomFilePath,
                     "command": NotificationSoundSettings.defaultCustomCommand,

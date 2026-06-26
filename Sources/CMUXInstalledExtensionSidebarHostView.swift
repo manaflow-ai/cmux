@@ -1,4 +1,5 @@
 @_spi(CmuxHostTransport) import CmuxSidebar
+@_spi(CmuxHostTransport) import CmuxSidebarUI
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import AppKit
 import ExtensionFoundation
@@ -324,7 +325,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             VStack(alignment: .leading, spacing: 6) {
                 detailRow(
                     title: String(localized: "sidebar.extensions.details.status", defaultValue: "Status"),
-                    value: blockedManifestReason.map(blockedStatusText(reason:)) ?? (activeIdentity == nil
+                    value: blockedManifestReason?.blockedStatusText ?? (activeIdentity == nil
                         ? String(localized: "sidebar.extensions.details.statusWaiting", defaultValue: "Waiting for an enabled extension")
                         : String(localized: "sidebar.extensions.details.statusActive", defaultValue: "Connected"))
                 )
@@ -347,7 +348,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 permissionSection(effectiveGrant: effectiveGrant)
             } else if let blockedManifestReason {
                 Divider()
-                Text(blockedDetailText(reason: blockedManifestReason))
+                Text(blockedManifestReason.blockedDetailText)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -398,7 +399,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 .foregroundStyle(.secondary)
             Text(String(localized: "sidebar.extensions.blocked.title", defaultValue: "Extension Blocked"))
                 .font(.system(size: 13, weight: .semibold))
-            Text(blockedDetailText(reason: reason))
+            Text(reason.blockedDetailText)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -450,36 +451,6 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 systemImage: "puzzlepiece.extension")
         }
         .controlSize(.small)
-    }
-
-    private func blockedStatusText(reason: CMUXSidebarExtensionBlockedReason) -> String {
-        switch reason {
-        case .connectionInterrupted:
-            return String(localized: "sidebar.extensions.blocked.status.connectionInterrupted", defaultValue: "Blocked, connection interrupted")
-        case .manifestTimedOut:
-            return String(localized: "sidebar.extensions.blocked.status.manifestTimedOut", defaultValue: "Blocked, configuration timed out")
-        case .missingManifest:
-            return String(localized: "sidebar.extensions.blocked.status.missingManifest", defaultValue: "Blocked, missing configuration")
-        case .invalidManifest:
-            return String(localized: "sidebar.extensions.blocked.status.invalidManifest", defaultValue: "Blocked, invalid configuration")
-        default:
-            return String(localized: "sidebar.extensions.blocked.status.failedManifest", defaultValue: "Blocked, configuration unavailable")
-        }
-    }
-
-    private func blockedDetailText(reason: CMUXSidebarExtensionBlockedReason) -> String {
-        switch reason {
-        case .connectionInterrupted:
-            return String(localized: "sidebar.extensions.blocked.detail.connectionInterrupted", defaultValue: "CMUX lost the extension connection. No workspace data or actions are being shared.")
-        case .manifestTimedOut:
-            return String(localized: "sidebar.extensions.blocked.detail.manifestTimedOut", defaultValue: "CMUX did not receive this extension's configuration in time. No workspace data or actions are being shared.")
-        case .missingManifest:
-            return String(localized: "sidebar.extensions.blocked.detail.missingManifest", defaultValue: "CMUX did not receive a sidebar extension configuration, so no workspace data or actions were shared.")
-        case .invalidManifest:
-            return String(localized: "sidebar.extensions.blocked.detail.invalidManifest", defaultValue: "CMUX rejected this extension's configuration. No workspace data or actions were shared.")
-        default:
-            return String(localized: "sidebar.extensions.blocked.detail.failedManifest", defaultValue: "CMUX could not load this extension's configuration. No workspace data or actions were shared.")
-        }
     }
 
     private func detailRow(title: String, value: String) -> some View {

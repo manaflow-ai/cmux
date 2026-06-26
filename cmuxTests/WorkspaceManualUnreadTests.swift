@@ -2438,20 +2438,20 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
         let windowB = makeWindow()
 
         XCTAssertTrue(
-            ContentView.shouldHandleCommandPaletteRequest(
+            CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: windowA,
                 requestedWindow: windowA,
                 keyWindow: windowA,
                 mainWindow: windowA
-            )
+            ).shouldHandle
         )
         XCTAssertFalse(
-            ContentView.shouldHandleCommandPaletteRequest(
+            CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: windowB,
                 requestedWindow: windowA,
                 keyWindow: windowA,
                 mainWindow: windowA
-            )
+            ).shouldHandle
         )
     }
 
@@ -2460,20 +2460,20 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
         let other = makeWindow()
 
         XCTAssertTrue(
-            ContentView.shouldHandleCommandPaletteRequest(
+            CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: key,
                 requestedWindow: nil,
                 keyWindow: key,
                 mainWindow: nil
-            )
+            ).shouldHandle
         )
         XCTAssertFalse(
-            ContentView.shouldHandleCommandPaletteRequest(
+            CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: other,
                 requestedWindow: nil,
                 keyWindow: key,
                 mainWindow: nil
-            )
+            ).shouldHandle
         )
     }
 
@@ -2482,31 +2482,31 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
         let other = makeWindow()
 
         XCTAssertTrue(
-            ContentView.shouldHandleCommandPaletteRequest(
+            CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: main,
                 requestedWindow: nil,
                 keyWindow: nil,
                 mainWindow: main
-            )
+            ).shouldHandle
         )
         XCTAssertFalse(
-            ContentView.shouldHandleCommandPaletteRequest(
+            CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: other,
                 requestedWindow: nil,
                 keyWindow: nil,
                 mainWindow: main
-            )
+            ).shouldHandle
         )
     }
 
     func testNoObservedWindowNeverHandlesRequest() {
         XCTAssertFalse(
-            ContentView.shouldHandleCommandPaletteRequest(
+            CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: nil,
                 requestedWindow: makeWindow(),
                 keyWindow: makeWindow(),
                 mainWindow: makeWindow()
-            )
+            ).shouldHandle
         )
     }
 }
@@ -2514,34 +2514,34 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
 final class CommandPaletteBackNavigationTests: XCTestCase {
     func testBackspaceOnEmptyRenameInputReturnsToCommandList() {
         XCTAssertTrue(
-            ContentView.commandPaletteShouldPopRenameInputOnDelete(
+            CommandPaletteRenameInputDeletePolicy(
                 renameDraft: "",
                 modifiers: []
-            )
+            ).shouldPopToCommands
         )
     }
 
     func testBackspaceWithRenameTextDoesNotReturnToCommandList() {
         XCTAssertFalse(
-            ContentView.commandPaletteShouldPopRenameInputOnDelete(
+            CommandPaletteRenameInputDeletePolicy(
                 renameDraft: "Terminal 1",
                 modifiers: []
-            )
+            ).shouldPopToCommands
         )
     }
 
     func testModifiedBackspaceDoesNotReturnToCommandList() {
         XCTAssertFalse(
-            ContentView.commandPaletteShouldPopRenameInputOnDelete(
+            CommandPaletteRenameInputDeletePolicy(
                 renameDraft: "",
                 modifiers: [.control]
-            )
+            ).shouldPopToCommands
         )
         XCTAssertFalse(
-            ContentView.commandPaletteShouldPopRenameInputOnDelete(
+            CommandPaletteRenameInputDeletePolicy(
                 renameDraft: "",
                 modifiers: [.command]
-            )
+            ).shouldPopToCommands
         )
     }
 }
