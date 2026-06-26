@@ -35,6 +35,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Whether TextEdit mode is saving to disk.
     @Published private(set) var isSaving: Bool = false
 
+    /// Whether the AppKit text finder is visible or queued to become visible.
+    @Published private(set) var isFindVisible: Bool = false
+
     /// The current view mode for this markdown panel. New panels default to preview.
     @Published private(set) var displayMode: MarkdownPanelDisplayMode = .preview
 
@@ -247,6 +250,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         isClosed = true
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
+        isFindVisible = false
+        pendingTextFinderAction = nil
         textView = nil
         stopWatching()
         if let typographyDefaultsObserver {
@@ -510,7 +515,9 @@ extension MarkdownPanel: FindablePanel {
         guard displayMode == .text else { return false }
         guard let textView else {
             if queueIfNeeded {
-                pendingTextFinderAction = action.queuedWithoutTextView
+                let queuedAction = action.queuedWithoutTextView
+                pendingTextFinderAction = queuedAction
+                isFindVisible = queuedAction.updatesFindVisibility(isFindVisible)
                 return true
             }
             return false
@@ -518,12 +525,14 @@ extension MarkdownPanel: FindablePanel {
         _ = textView.window?.makeFirstResponder(textView)
         textView.performTextFinderAction(action.menuItemSender)
         pendingTextFinderAction = nil
+        isFindVisible = action.updatesFindVisibility(isFindVisible)
         return true
     }
 
     @discardableResult
     private func switchToTextModeAndOpenFindInterface() -> Bool {
         pendingTextFinderAction = .showFindInterface
+        isFindVisible = true
         setDisplayMode(.text)
         _ = performPendingTextFinderActionIfPossible()
         return true

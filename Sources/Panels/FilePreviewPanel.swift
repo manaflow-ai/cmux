@@ -989,6 +989,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var isDirty = false
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
+    @Published private(set) var isFindVisible = false
     @Published private(set) var previewMode: FilePreviewMode
 
     let nativeViewSessions = FilePreviewNativeViewSessions()
@@ -1042,6 +1043,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func close() {
         nativeViewSessions.closeAll()
+        isFindVisible = false
+        pendingTextFinderAction = nil
         textView = nil
         focusCoordinator.unregisterAll()
     }
@@ -4522,12 +4525,15 @@ extension FilePreviewPanel: FindablePanel {
     private func performTextFinderAction(_ action: NSTextFinder.Action) -> Bool {
         guard previewMode == .text else { return false }
         guard let textView else {
-            pendingTextFinderAction = action.queuedWithoutTextView
+            let queuedAction = action.queuedWithoutTextView
+            pendingTextFinderAction = queuedAction
+            isFindVisible = queuedAction.updatesFindVisibility(isFindVisible)
             return true
         }
         _ = textView.window?.makeFirstResponder(textView)
         textView.performTextFinderAction(action.menuItemSender)
         pendingTextFinderAction = nil
+        isFindVisible = action.updatesFindVisibility(isFindVisible)
         return true
     }
 

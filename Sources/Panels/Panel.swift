@@ -369,6 +369,9 @@ extension Panel {
 /// Capability for panels that can receive the global find commands routed by `TabManager`.
 @MainActor
 protocol FindablePanel: AnyObject {
+    /// Whether the panel currently has, or is about to show, an AppKit find UI.
+    var isFindVisible: Bool { get }
+
     /// Whether the panel has a text selection that can seed the find query.
     var hasSelectionForFind: Bool { get }
 
@@ -390,6 +393,9 @@ protocol FindablePanel: AnyObject {
 }
 
 extension FindablePanel {
+    /// Panels opt in when they can track local AppKit find UI visibility.
+    var isFindVisible: Bool { false }
+
     /// Panels opt in when they can derive a find query from local selection.
     var hasSelectionForFind: Bool { false }
 
@@ -412,6 +418,17 @@ extension NSTextFinder.Action {
             return .showFindInterface
         default:
             return self
+        }
+    }
+
+    func updatesFindVisibility(_ current: Bool) -> Bool {
+        switch self {
+        case .showFindInterface:
+            return true
+        case .hideFindInterface:
+            return false
+        default:
+            return current
         }
     }
 }
