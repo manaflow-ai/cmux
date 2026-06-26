@@ -1,6 +1,12 @@
 import CmuxCommandPalette
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 struct CommandPaletteEmojiTitleSearchTests {
     @Test func searchPrefersEmojiPrefixedFullTitleWordsOverPartialTitlePrefix() {
         let entries = [
@@ -72,5 +78,54 @@ struct CommandPaletteEmojiTitleSearchTests {
         ) { _, _ in 0 }
 
         #expect(results.first?.payload == "workspace.fullTitleMatch")
+    }
+
+    @MainActor
+    @Test func commandPaletteWorkspaceNameUsesRenamedGroupAnchorTitle() throws {
+        let manager = TabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Group 1", childWorkspaceIds: [manager.tabs[0].id]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
+
+        manager.renameWorkspaceGroup(groupId: groupId, name: "AUSTIN GENERAL INTELLIGENCE")
+
+        #expect(ContentView.commandPaletteWorkspaceDisplayName(
+            customTitle: anchor.customTitle,
+            resolvedTitle: manager.resolvedWorkspaceDisplayTitle(for: anchor),
+            preferResolvedTitle: true
+        ) == "AUSTIN GENERAL INTELLIGENCE")
+    }
+
+    @Test func commandPaletteWorkspaceNamePreservesCustomTitlesForRegularWorkspaces() {
+        #expect(ContentView.commandPaletteWorkspaceDisplayName(
+            customTitle: "Custom Workspace",
+            resolvedTitle: "Workspace",
+            preferResolvedTitle: false
+        ) == "Custom Workspace")
+    }
+
+    @Test func searchCanFindWorkspaceGroupsByKindKeywords() {
+        let entries = [
+            CommandPaletteSearchCorpusEntry(
+                payload: "workspace.group",
+                rank: 0,
+                title: "AUSTIN GENERAL INTELLIGENCE",
+                searchableTexts: ["AUSTIN GENERAL INTELLIGENCE", "Workspace group", "workspace group", "group"]
+            ),
+            CommandPaletteSearchCorpusEntry(
+                payload: "workspace.regular",
+                rank: 1,
+                title: "Regular Workspace",
+                searchableTexts: ["Regular Workspace", "Workspace", "workspace"]
+            ),
+        ]
+
+        let results = CommandPaletteSearchEngine(entries: entries).search(
+            query: "workspace group",
+            resultLimit: 5
+        ) { _, _ in 0 }
+
+        #expect(results.first?.payload == "workspace.group")
     }
 }

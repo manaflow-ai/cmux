@@ -3617,7 +3617,7 @@ struct ContentView: View {
 
             Divider()
 
-            Text(renameInputHintText(target: target))
+            Text(target.inputHint)
                 .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -3646,7 +3646,7 @@ struct ContentView: View {
         proposedName: String
     ) -> some View {
         let trimmedName = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let nextName = trimmedName.isEmpty ? String(localized: "commandPalette.rename.clearCustomName", defaultValue: "(clear custom name)") : trimmedName
+        let nextName = trimmedName.isEmpty ? target.emptyNameConfirmationLabel : trimmedName
 
         return VStack(spacing: 0) {
             Text(nextName)
@@ -3658,7 +3658,7 @@ struct ContentView: View {
 
             Divider()
 
-            Text(renameConfirmHintText(target: target))
+            Text(target.confirmHint)
                 .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -4555,24 +4555,6 @@ struct ContentView: View {
         }
     }
 
-    private func renameInputHintText(target: CommandPaletteRenameTarget) -> String {
-        switch target.kind {
-        case .workspace:
-            return String(localized: "commandPalette.rename.workspaceInputHint", defaultValue: "Enter a workspace name. Press Enter to rename, Escape to cancel.")
-        case .tab:
-            return String(localized: "commandPalette.rename.tabInputHint", defaultValue: "Enter a tab name. Press Enter to rename, Escape to cancel.")
-        }
-    }
-
-    private func renameConfirmHintText(target: CommandPaletteRenameTarget) -> String {
-        switch target.kind {
-        case .workspace:
-            return String(localized: "commandPalette.rename.workspaceConfirmHint", defaultValue: "Press Enter to apply this workspace name, or Escape to cancel.")
-        case .tab:
-            return String(localized: "commandPalette.rename.tabConfirmHint", defaultValue: "Press Enter to apply this tab name, or Escape to cancel.")
-        }
-    }
-
     private var commandPaletteListScope: CommandPaletteListScope {
         Self.commandPaletteListScope(for: commandPaletteQuery)
     }
@@ -5144,14 +5126,17 @@ struct ContentView: View {
     private func commandPaletteSwitcherEntriesFingerprint(includeSurfaces: Bool) -> Int {
         let windowContexts = commandPaletteSwitcherWindowContexts()
         let fingerprintContexts = windowContexts.map { context in
-            CommandPaletteSwitcherFingerprintContext(
+            let groupNameByAnchorWorkspaceId = Dictionary(uniqueKeysWithValues: context.tabManager.workspaceGroups.map { ($0.anchorWorkspaceId, $0.name) })
+            return CommandPaletteSwitcherFingerprintContext(
                 windowId: context.windowId,
                 windowLabel: context.windowLabel,
                 selectedWorkspaceId: context.selectedWorkspaceId,
                 workspaces: commandPaletteOrderedSwitcherWorkspaces(for: context).map { workspace in
-                    CommandPaletteSwitcherFingerprintWorkspace(
+                    let groupName = groupNameByAnchorWorkspaceId[workspace.id]
+                    let displayName = Self.commandPaletteWorkspaceDisplayName(customTitle: workspace.customTitle, resolvedTitle: groupName ?? workspace.title, preferResolvedTitle: groupName != nil)
+                    return CommandPaletteSwitcherFingerprintWorkspace(
                         id: workspace.id,
-                        displayName: workspaceDisplayName(workspace),
+                        displayName: displayName + (groupName != nil ? "\u{0}group" : ""),
                         metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
                         surfaces: includeSurfaces
                             ? commandPaletteOrderedSwitcherPanels(for: workspace).compactMap { panelId in
@@ -5269,8 +5254,13 @@ struct ContentView: View {
             let windowId = context.windowId
             let windowTabManager = context.tabManager
             let windowKeywords = commandPaletteWindowKeywords(windowLabel: context.windowLabel)
+            let groupNameByAnchorWorkspaceId = Dictionary(uniqueKeysWithValues: windowTabManager.workspaceGroups.map { ($0.anchorWorkspaceId, $0.name) })
             for workspace in workspaces {
-                let workspaceName = workspaceDisplayName(workspace)
+                let groupName = groupNameByAnchorWorkspaceId[workspace.id]
+                let isWorkspaceGroupAnchor = groupName != nil
+                let workspaceName = Self.commandPaletteWorkspaceDisplayName(customTitle: workspace.customTitle, resolvedTitle: groupName ?? workspace.title, preferResolvedTitle: isWorkspaceGroupAnchor)
+                let workspaceKindLabel = isWorkspaceGroupAnchor ? String(localized: "commandPalette.kind.workspaceGroup", defaultValue: "Workspace group") : String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace")
+                let groupKeywords = isWorkspaceGroupAnchor ? ["workspace group", "group", workspaceKindLabel] : []
                 let workspaceCommandId = "switcher.workspace.\(workspace.id.uuidString.lowercased())"
                 let workspaceKeywords = CommandPaletteSwitcherSearchIndexer(
                     baseKeywords: [
@@ -5279,7 +5269,7 @@ struct ContentView: View {
                         "go",
                         "open",
                         workspaceName
-                    ] + windowKeywords,
+                    ] + groupKeywords + windowKeywords,
                     metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
                     detail: .workspace
                 ).keywords
@@ -5291,7 +5281,7 @@ struct ContentView: View {
                         title: workspaceName,
                         subtitle: Self.commandPaletteSwitcherSubtitle(base: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"), windowLabel: context.windowLabel),
                         shortcutHint: nil,
-                        kindLabel: String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"),
+                        kindLabel: workspaceKindLabel,
                         keywords: workspaceKeywords,
                         dismissOnRun: true,
                         action: {
@@ -6156,6 +6146,7 @@ struct ContentView: View {
             let pinState = WorkspaceActionDispatcher.pinState(in: tabManager, target: pinTarget)
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
+            snapshot.setBool(CommandPaletteContextKeys.workspaceIsGroupAnchor, tabManager.workspaceGroups.contains { $0.anchorWorkspaceId == workspace.id })
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomDescription, workspace.hasCustomDescription)
             snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, pinState?.pinned ?? !workspace.isPinned)
@@ -6674,9 +6665,9 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.renameWorkspace",
-                title: constant(String(localized: "command.renameWorkspace.title", defaultValue: "Rename Workspace…")),
+                title: { $0.bool(CommandPaletteContextKeys.workspaceIsGroupAnchor) ? String(localized: "workspaceGroup.contextMenu.rename", defaultValue: "Rename Group…") : String(localized: "command.renameWorkspace.title", defaultValue: "Rename Workspace…") },
                 subtitle: workspaceSubtitle,
-                keywords: ["rename", "workspace", "title"],
+                keywords: ["rename", "workspace", "group", "title"],
                 dismissOnRun: false,
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
@@ -8168,17 +8159,27 @@ struct ContentView: View {
         return (workspace, panelId, panel)
     }
 
-    private static func commandPaletteWorkspaceDisplayName(_ workspace: Workspace) -> String {
-        let custom = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !custom.isEmpty {
-            return custom
+    static func commandPaletteWorkspaceDisplayName(customTitle: String?, resolvedTitle: String, preferResolvedTitle: Bool = false) -> String {
+        let title = resolvedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if preferResolvedTitle {
+            return title.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : title
         }
-        let title = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !custom.isEmpty { return custom }
         return title.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : title
     }
 
     private func workspaceDisplayName(_ workspace: Workspace) -> String {
-        Self.commandPaletteWorkspaceDisplayName(workspace)
+        workspaceDisplayName(workspace, tabManager: tabManager)
+    }
+
+    private func workspaceDisplayName(_ workspace: Workspace, tabManager: TabManager, preferResolvedTitle: Bool = false) -> String {
+        return Self.commandPaletteWorkspaceDisplayName(
+            customTitle: workspace.customTitle,
+            resolvedTitle: tabManager.resolvedWorkspaceDisplayTitle(for: workspace),
+            preferResolvedTitle: preferResolvedTitle
+        )
     }
 
     private func panelDisplayName(workspace: Workspace, panelId: UUID, fallback: String) -> String {
@@ -9267,6 +9268,10 @@ struct ContentView: View {
             NSSound.beep()
             return
         }
+        if let group = tabManager.workspaceGroups.first(where: { $0.anchorWorkspaceId == workspace.id }) {
+            startRenameFlow(CommandPaletteRenameTarget(kind: .workspaceGroup(groupId: group.id), currentName: group.name))
+            return
+        }
         let target = CommandPaletteRenameTarget(
             kind: .workspace(workspaceId: workspace.id),
             currentName: workspaceDisplayName(workspace)
@@ -9344,10 +9349,23 @@ struct ContentView: View {
     private func applyRenameFlow(target: CommandPaletteRenameTarget, proposedName: String) {
         let trimmedName = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedName: String? = trimmedName.isEmpty ? nil : trimmedName
+        guard target.allowsEmptyName || !trimmedName.isEmpty else {
+            NSSound.beep()
+            commandPaletteMode = .renameInput(target)
+            resetCommandPaletteRenameFocus()
+            syncCommandPaletteDebugStateForObservedWindow()
+            return
+        }
 
         switch target.kind {
         case .workspace(let workspaceId):
             tabManager.setCustomTitle(tabId: workspaceId, title: normalizedName)
+        case .workspaceGroup(let groupId):
+            guard tabManager.workspaceGroups.contains(where: { $0.id == groupId }) else {
+                NSSound.beep()
+                return
+            }
+            tabManager.renameWorkspaceGroup(groupId: groupId, name: normalizedName ?? "")
         case .tab(let workspaceId, let panelId):
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
                 NSSound.beep()
