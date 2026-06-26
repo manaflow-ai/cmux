@@ -36,11 +36,13 @@ struct SleepyFaceView: View {
                 )
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
                     let t = timeline.date.timeIntervalSinceReferenceDate
-                    // Read the agent census here (main-actor view-builder context),
-                    // never inside the Canvas renderer (which may run off-main).
+                    // Sample the census + status here (main-actor view-builder
+                    // context), never inside the Canvas renderer (which may run
+                    // off-main, and runs once per display).
                     let agents = config.showPets ? SleepyAgentCensus.shared.sample(at: t) : SleepyAgentCounts()
+                    let status = config.showStatus ? SleepyStatusProvider.shared.sample(at: t) : SleepyStatusSample(batteryLevel: nil, charging: false, wifiBars: nil)
                     Canvas { context, size in
-                        draw(in: &context, size: size, time: t, config: config, agents: agents, reactions: reactions)
+                        draw(in: &context, size: size, time: t, config: config, agents: agents, status: status, reactions: reactions)
                     }
                 }
                 .contentShape(Rectangle())
@@ -168,7 +170,7 @@ struct SleepyFaceView: View {
 
     // MARK: - Scene
 
-    private func draw(in ctx: inout GraphicsContext, size: CGSize, time t: Double, config: SleepyModeConfig, agents: SleepyAgentCounts, reactions: Reactions) {
+    private func draw(in ctx: inout GraphicsContext, size: CGSize, time t: Double, config: SleepyModeConfig, agents: SleepyAgentCounts, status: SleepyStatusSample, reactions: Reactions) {
         let palette = SleepyPalette.colors(for: config)
         let ink = SleepyPalette.ink(for: config)
         let s = min(size.width, size.height)
@@ -178,7 +180,7 @@ struct SleepyFaceView: View {
         if config.showStars { drawStars(in: &ctx, size: size, pixel: pixel, time: t, palette: palette) }
         if config.showMoon { drawMoon(in: &ctx, size: size, pixel: pixel, time: t, palette: palette) }
         if config.showClock { drawClock(in: &ctx, size: size, pixel: pixel, time: t, color: palette["O"] ?? .white) }
-        if config.showStatus { drawStatus(in: &ctx, size: size, pixel: pixel, time: t, color: palette["O"] ?? .white) }
+        if config.showStatus { drawStatus(in: &ctx, size: size, pixel: pixel, status: status, color: palette["O"] ?? .white) }
 
         // Moon easter egg: a shooting star streaks past when you poke the moon.
         if config.showMoon, let start = reactions.moonAt {
@@ -501,18 +503,34 @@ struct SleepyFaceView: View {
 
     private func drawClock(in ctx: inout GraphicsContext, size: CGSize, pixel: CGFloat, time t: Double, color: Color) {
         let comps = Calendar.current.dateComponents([.hour, .minute, .month, .day], from: Date(timeIntervalSinceReferenceDate: t))
-        let timeText = String(format: "%02d:%02d", comps.hour ?? 0, comps.minute ?? 0)
-        let dateText = String(format: "%02d/%02d", comps.month ?? 0, comps.day ?? 0)
+        let hour = comps.hour ?? 0, minute = comps.minute ?? 0, month = comps.month ?? 0, day = comps.day ?? 0
 
         let timePixel = max(2, (pixel * 0.9).rounded())
         let datePixel = max(2, (pixel * 0.5).rounded())
         let cx = (size.width / 2).rounded()
-        drawText(in: &ctx, text: timeText, centerX: cx, top: (size.height * 0.10).rounded(), pixel: timePixel, color: color)
-        drawText(in: &ctx, text: dateText, centerX: cx, top: (size.height * 0.10 + 7 * Double(timePixel) + 4 * Double(datePixel)).rounded(), pixel: datePixel, color: color.opacity(0.7))
+        // Drawn directly from digit components — no per-frame string allocation.
+        drawGlyphPair(in: &ctx, a: hour, separator: SleepyArt.colonGlyph, b: minute, centerX: cx, top: (size.height * 0.10).rounded(), pixel: timePixel, color: color)
+        drawGlyphPair(in: &ctx, a: month, separator: SleepyArt.slashGlyph, b: day, centerX: cx, top: (size.height * 0.10 + 7 * Double(timePixel) + 4 * Double(datePixel)).rounded(), pixel: datePixel, color: color.opacity(0.7))
     }
 
-    private func drawStatus(in ctx: inout GraphicsContext, size: CGSize, pixel: CGFloat, time t: Double, color: Color) {
-        let status = SleepyStatusProvider.shared.sample(at: t)
+    /// Draws a zero-padded `aa<sep>bb` (e.g. "17:34") centered, glyph by glyph.
+    private func drawGlyphPair(in ctx: inout GraphicsContext, a: Int, separator: [String], b: Int, centerX: CGFloat, top: CGFloat, pixel: CGFloat, color: Color) {
+        let digitW = 3
+        let sepW = separator.first?.count ?? 1
+        let totalCols = digitW * 4 + sepW + 4   // four digits + separator + four gaps
+        var x = (centerX - CGFloat(totalCols) / 2 * pixel).rounded()
+        func glyph(_ rows: [String], _ width: Int) {
+            drawSprite(in: &ctx, rows: rows, palette: ["#": color], origin: CGPoint(x: x, y: top), pixel: pixel)
+            x += CGFloat(width + 1) * pixel
+        }
+        glyph(SleepyArt.digitGlyphs[(a / 10) % 10], digitW)
+        glyph(SleepyArt.digitGlyphs[a % 10], digitW)
+        glyph(separator, sepW)
+        glyph(SleepyArt.digitGlyphs[(b / 10) % 10], digitW)
+        glyph(SleepyArt.digitGlyphs[b % 10], digitW)
+    }
+
+    private func drawStatus(in ctx: inout GraphicsContext, size: CGSize, pixel: CGFloat, status: SleepyStatusSample, color: Color) {
         let cell = max(2, (pixel * 0.55).rounded())
         let margin = (size.width * 0.03).rounded()
         let y = (size.height * 0.07).rounded()
@@ -564,19 +582,6 @@ struct SleepyFaceView: View {
     }
 
     // MARK: - Pixel helpers
-
-    private func drawText(in ctx: inout GraphicsContext, text: String, centerX: CGFloat, top: CGFloat, pixel: CGFloat, color: Color) {
-        var widths: [Int] = []
-        for ch in text { widths.append(SleepyArt.font[ch]?.first?.count ?? 3) }
-        let totalCols = widths.reduce(0, +) + max(0, text.count - 1)
-        var x = (centerX - CGFloat(totalCols) / 2 * pixel).rounded()
-        for (index, ch) in text.enumerated() {
-            if let glyph = SleepyArt.font[ch] {
-                drawSprite(in: &ctx, rows: glyph, palette: ["#": color], origin: CGPoint(x: x, y: top), pixel: pixel)
-            }
-            x += CGFloat(widths[index] + 1) * pixel
-        }
-    }
 
     private func drawSprite(in ctx: inout GraphicsContext, rows: [String], palette: [Character: Color], origin: CGPoint, pixel: CGFloat, alpha: Double = 1) {
         for (r, line) in rows.enumerated() {

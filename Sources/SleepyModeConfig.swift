@@ -234,6 +234,12 @@ enum SleepyArt {
         "/": ["..#", "..#", ".#.", "#..", "#.."],
     ]
 
+    /// Precomputed glyph rows for the clock, so the 30fps render path never
+    /// allocates strings (no per-frame `String(format:)`).
+    static let digitGlyphs: [[String]] = (0...9).map { font[Character(String($0))] ?? [] }
+    static let colonGlyph: [String] = font[":"] ?? []
+    static let slashGlyph: [String] = font["/"] ?? []
+
     struct Star { let x: Double; let y: Double; let big: Bool; let speed: Double; let phase: Double }
 
     static let stars: [Star] = [

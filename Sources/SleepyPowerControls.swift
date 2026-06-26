@@ -40,14 +40,15 @@ enum SleepyPowerControls {
         return unsafeBitCast(symbol, to: (@convention(c) () -> Void).self)
     }()
 
-    /// Engages the real macOS login lock (account password / Touch ID). Falls
-    /// back to the screen-saver "lock" key combo if the private symbol is gone.
+    /// Engages the real macOS login lock (account password / Touch ID). If the
+    /// private symbol is unavailable, falls back to `CGSession -suspend`, which
+    /// genuinely locks the session (switches to loginwindow) — never to a plain
+    /// display sleep, which would not lock and would be a false security claim.
     static func lockMacNow() {
         if let lockScreenFn {
             lockScreenFn()
         } else {
-            // Fallback: the standard "Lock Screen" path via the login session.
-            run("/usr/bin/pmset", ["displaysleepnow"])
+            run("/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession", ["-suspend"])
         }
     }
 
