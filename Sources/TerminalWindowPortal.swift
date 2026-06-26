@@ -1524,101 +1524,32 @@ final class WindowTerminalPortal: NSObject {
 
 @MainActor
 enum TerminalWindowPortalRegistry {
+    // Interactive-resize / split-divider-drag tracking lives in its own owned
+    // `@MainActor` instance (`Sources/Windowing/InteractiveGeometryResizeTracker.swift`).
+    // This namespace-enum keeps a single composition-root instance and forwards;
+    // the static forwarders preserve the existing call sites byte-for-byte.
+    private static let interactiveResizeTracker = InteractiveGeometryResizeTracker()
 #if DEBUG
-    static var isPointerDragActiveForTesting = false
+    static var isPointerDragActiveForTesting: Bool {
+        get { interactiveResizeTracker.isPointerDragActiveForTesting }
+        set { interactiveResizeTracker.isPointerDragActiveForTesting = newValue }
+    }
 #endif
     private static var portalsByWindowId: [ObjectIdentifier: WindowTerminalPortal] = [:]
     private static var hostedToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
     private static var hasPendingExternalGeometrySyncForAllWindows = false
     private static var externalGeometrySyncForAllWindowsGeneration: UInt64 = 0
-    private static var interactiveGeometryResizeCount = 0
-    private static var activeSplitDividerDragWindowId: ObjectIdentifier?
-    private static var activeSplitDividerDragEventNumber: Int?
 #if DEBUG
     private static var blockedBindCount: Int = 0
     private static var blockedBindReasons: [String: Int] = [:]
 #endif
 
     static var isInteractiveGeometryResizeActive: Bool {
-#if DEBUG
-        if Self.isPointerDragActiveForTesting { return true }
-#endif
-        if Self.interactiveGeometryResizeCount > 0 { return true }
-        return isCurrentEventSplitDividerDrag()
-    }
-
-    private static func isCurrentEventSplitDividerDrag() -> Bool {
-        let isLeftButtonDown = (NSEvent.pressedMouseButtons & 1) != 0
-        guard isLeftButtonDown else {
-            clearActiveSplitDividerDrag()
-            return false
-        }
-
-        guard let event = NSApp.currentEvent else { return false }
-
-        switch event.type {
-        case .leftMouseUp:
-            clearActiveSplitDividerDrag()
-            return false
-        case .leftMouseDown, .leftMouseDragged:
-            break
-        default:
-            return false
-        }
-
-        if let activeSplitDividerDragWindowId, let activeSplitDividerDragEventNumber {
-            let hasActiveWindow = NSApp.windows.contains { ObjectIdentifier($0) == activeSplitDividerDragWindowId }
-            if hasActiveWindow, event.eventNumber == activeSplitDividerDragEventNumber {
-                return true
-            }
-            clearActiveSplitDividerDrag()
-        }
-
-        guard event.type == .leftMouseDown else { return false }
-
-        let candidateWindows = currentSplitDividerDragCandidateWindows(for: event)
-        let mouseLocation = NSEvent.mouseLocation
-        for window in candidateWindows {
-            if WindowTerminalHostView.hasSplitDivider(atScreenPoint: mouseLocation, in: window) {
-                activeSplitDividerDragWindowId = ObjectIdentifier(window)
-                activeSplitDividerDragEventNumber = event.eventNumber
-                return true
-            }
-        }
-
-        return false
-    }
-
-    private static func clearActiveSplitDividerDrag() {
-        activeSplitDividerDragWindowId = nil
-        activeSplitDividerDragEventNumber = nil
+        interactiveResizeTracker.isInteractiveGeometryResizeActive
     }
 
     fileprivate static func noteSplitDividerInteraction(in window: NSWindow?, event: NSEvent?) {
-        guard let window, let event else { return }
-        guard (NSEvent.pressedMouseButtons & 1) != 0 else { return }
-
-        switch event.type {
-        case .leftMouseDown, .leftMouseDragged:
-            activeSplitDividerDragWindowId = ObjectIdentifier(window)
-            activeSplitDividerDragEventNumber = event.eventNumber
-        default:
-            break
-        }
-    }
-
-    private static func currentSplitDividerDragCandidateWindows(for event: NSEvent) -> [NSWindow] {
-        var candidateWindows: [NSWindow] = []
-        if let eventWindow = event.window {
-            candidateWindows.append(eventWindow)
-        }
-        if let keyWindow = NSApp.keyWindow, !candidateWindows.contains(where: { $0 === keyWindow }) {
-            candidateWindows.append(keyWindow)
-        }
-        if let mainWindow = NSApp.mainWindow, !candidateWindows.contains(where: { $0 === mainWindow }) {
-            candidateWindows.append(mainWindow)
-        }
-        return candidateWindows
+        interactiveResizeTracker.noteSplitDividerInteraction(in: window, event: event)
     }
 
     private static func installWindowCloseObserverIfNeeded(for window: NSWindow) {
@@ -1768,11 +1699,11 @@ enum TerminalWindowPortalRegistry {
 #endif
 
     static func beginInteractiveGeometryResize() {
-        interactiveGeometryResizeCount += 1
+        interactiveResizeTracker.beginInteractiveGeometryResize()
     }
 
     static func endInteractiveGeometryResize() {
-        interactiveGeometryResizeCount = max(0, interactiveGeometryResizeCount - 1)
+        interactiveResizeTracker.endInteractiveGeometryResize()
     }
 
     static func scheduleExternalGeometrySynchronizeForAllWindows(forceImmediate: Bool = true) {
