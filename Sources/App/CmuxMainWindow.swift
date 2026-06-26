@@ -149,6 +149,56 @@ final class CmuxMainWindow: NSWindow {
         }
         return false
     }
+
+    /// After the app has been inactive and a display sleep/wake or screen
+    /// reconfiguration occurred, a main window can come back genuinely
+    /// *resized* to a small frame — a native-fullscreen exit, an un-zoom
+    /// revert, or a display-mode resize. ``constrainFrameRect(_:to:)`` cannot
+    /// undo that: it only vetoes AppKit's re-constrain of an already-good
+    /// frame, not a real resize applied through another path, so the shrunken
+    /// frame sticks. This is issue #5492 — "goes from full screen to 2/3 of
+    /// the screen after the terminal has lost focus for some time" (≈ the
+    /// 1000×700 default window on a built-in MacBook display).
+    ///
+    /// A frame change while the app is inactive is never user-driven (the user
+    /// is in another app), so reverting the window to the frame it had when the
+    /// user last left it is safe. Returns that frame to restore, or `nil` when
+    /// no restore is warranted: the window did not shrink meaningfully, or the
+    /// pre-deactivation frame is no longer reachable on any current screen
+    /// (e.g. its display was unplugged), in which case the already-on-screen
+    /// shrunken frame is left alone.
+    nonisolated static func restoredFrameAfterInactiveDisplayTransition(
+        current: NSRect,
+        beforeDeactivation: NSRect,
+        visibleFrames: [NSRect],
+        minimumShrink: CGFloat = 40
+    ) -> NSRect? {
+        // Stub: implemented in the follow-up commit so the regression test
+        // demonstrates the bug (CI red) before the fix lands.
+        nil
+    }
+
+    /// Restores `window` to `frameBeforeDeactivation` when
+    /// ``restoredFrameAfterInactiveDisplayTransition(current:beforeDeactivation:visibleFrames:minimumShrink:)``
+    /// decides the window shrank while the app was inactive. Windows still in
+    /// native fullscreen are skipped — macOS owns their frame. Returns whether
+    /// a restore was applied.
+    @MainActor
+    @discardableResult
+    static func applyRestoredFrameAfterInactiveDisplayTransition(
+        to window: NSWindow,
+        frameBeforeDeactivation: NSRect,
+        visibleFrames: [NSRect]
+    ) -> Bool {
+        guard !window.styleMask.contains(.fullScreen) else { return false }
+        guard let restored = restoredFrameAfterInactiveDisplayTransition(
+            current: window.frame,
+            beforeDeactivation: frameBeforeDeactivation,
+            visibleFrames: visibleFrames
+        ) else { return false }
+        window.setFrame(restored, display: true)
+        return true
+    }
 }
 
 extension CmuxMainWindow {
