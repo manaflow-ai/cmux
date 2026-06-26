@@ -200,11 +200,11 @@ struct FakeTokenProvider: TokenProviding {
     }
 
     @Test func deviceTokenRegistrationFailsClosedAcrossOrigins() async {
-        // Security: a cross-origin redirect must NOT replay the method+body to
-        // the new host. Foundation strips Authorization off-origin, so restoring
-        // the body there would resend the (potentially sensitive) payload
-        // unauthenticated to wherever the redirect points. The delegate leaves
-        // Foundation's proposed body-less GET, so it fails loudly instead.
+        // Security: a cross-origin redirect must be REFUSED, not followed.
+        // Foundation forwards custom headers (X-Stack-Refresh-Token, ...) to the
+        // new origin even though it strips Authorization, so the delegate cancels
+        // the redirect outright — nothing (body or headers) reaches the other
+        // origin, and the cross-origin target is never contacted.
         RedirectingURLProtocol.recorder.reset()
         let suite = "push-xorigin-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -223,8 +223,32 @@ struct FakeTokenProvider: TokenProviding {
         await service.register(deviceToken: Data([0xAB, 0xCD]))
         await service.setEnabled(true)
 
-        // The cross-origin target sees Foundation's downgraded GET with no body,
-        // never a restored POST carrying the payload.
+        // The redirect was refused, so the cross-origin target is never reached.
+        #expect(RedirectingURLProtocol.recorder.targetMethod() == nil)
+    }
+
+    @Test func deviceTokenRegistrationLeavesSeeOtherAsGET() async {
+        // A 303 ("See Other") is by spec a GET follow-up to a different resource,
+        // so the delegate must NOT replay the POST body onto it (that would be a
+        // second mutating call). It is left as Foundation's body-less GET.
+        RedirectingURLProtocol.recorder.reset()
+        let suite = "push-seeother-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RedirectingURLProtocol.self]
+        let service = PushRegistrationService(
+            tokenProvider: FakeTokenProvider(),
+            apiBaseURL: "https://\(RedirectingURLProtocol.seeOtherHost)",
+            bundleID: "dev.cmux.app.beta",
+            apnsEnvironment: "production",
+            suiteName: suite,
+            session: URLSession(configuration: configuration)
+        )
+
+        await service.register(deviceToken: Data([0xAB, 0xCD]))
+        await service.setEnabled(true)
+
         #expect(RedirectingURLProtocol.recorder.targetMethod() == "GET")
         #expect((RedirectingURLProtocol.recorder.targetBodyByteCount() ?? 0) == 0)
     }

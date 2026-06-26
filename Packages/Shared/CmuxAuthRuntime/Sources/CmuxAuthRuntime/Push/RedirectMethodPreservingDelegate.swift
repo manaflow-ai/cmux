@@ -4,28 +4,34 @@ import OSLog
 private let redirectLog = Logger(subsystem: "ai.manaflow.cmux", category: "push")
 
 /// A `URLSessionTaskDelegate` that keeps a mutating request's HTTP method and
-/// body across a **same-origin** HTTP redirect.
+/// body across a **same-origin 301/302** HTTP redirect.
 ///
 /// Foundation's default redirect handling downgrades a `POST`/`DELETE` to a
-/// body-less `GET` on a 301/302/303 (only 307/308 preserve the method). For a
-/// canonicalizing redirect that turned `POST /api/device-tokens` into a `GET`
-/// with no body, the iOS device token silently never registered and push went
-/// dead end-to-end (https://github.com/manaflow-ai/cmux/issues/6270). The same
-/// hazard hit the Mac's `POST /api/notifications/push` forward. Pointing the
-/// production API base at `cmux.com` removed the specific cross-host trigger,
-/// but any future *same-origin* redirect (a trailing-slash normalization, an
-/// `http`->`https` upgrade on the same host) would silently reintroduce it.
-/// Routing the push register/forward requests through this delegate makes them
-/// robust to that class.
+/// body-less `GET` on a 301/302 (and 303). For a canonicalizing 301/302 that
+/// turned `POST /api/device-tokens` into a `GET` with no body, the iOS device
+/// token silently never registered and push went dead end-to-end
+/// (https://github.com/manaflow-ai/cmux/issues/6270). The same hazard hit the
+/// Mac's `POST /api/notifications/push` forward. Pointing the production API base
+/// at `cmux.com` removed the specific cross-host trigger, but any future
+/// *same-origin* 301/302 (a trailing-slash normalization, an `http`->`https`
+/// upgrade on the same host) would silently reintroduce it. Routing the push
+/// register/forward requests through this delegate makes them robust to that
+/// class.
 ///
-/// Fails closed across origins. The restored payload — a notification body in
-/// the `PhonePushClient` path — is potentially sensitive, and Foundation has
-/// already stripped `Authorization` for a cross-origin hop, so re-sending the
-/// method+body to a *different* origin would leak content to wherever the
-/// redirect points. Only a same-origin redirect (scheme + host + port match) is
-/// restored; a cross-origin redirect keeps Foundation's proposed (body-less,
-/// unauthenticated) request, so it fails loudly with a non-2xx instead of
-/// leaking the payload or silently "succeeding" as the wrong method.
+/// Scope is deliberately narrow:
+/// - **Only 301/302** are restored. A **303** ("See Other") is by spec a GET
+///   follow-up, so replaying the body would be a second mutating call — it is
+///   left as Foundation proposed. (307/308 already preserve the method, so the
+///   method never changes and nothing is restored.)
+/// - **Cross-origin redirects are refused** (`completionHandler(nil)`), not
+///   followed. These requests carry sensitive custom headers
+///   (`X-Stack-Refresh-Token`, `X-Cmux-Team-Id`) that Foundation does NOT strip
+///   on a cross-origin hop (it only strips `Authorization`), and the
+///   `PhonePushClient` body is a notification payload. Refusing means nothing —
+///   body or headers — leaves the app toward another origin; the task completes
+///   with the 3xx (a visible non-2xx) instead.
+/// - A body that cannot be replayed (`httpBodyStream`) is also left as proposed
+///   (no current caller streams a body).
 ///
 /// Stateless: each owner constructs and retains its own instance (there is no
 /// state to share, so a per-owner instance is equivalent to a global one and
@@ -38,10 +44,10 @@ public final class RedirectMethodPreservingDelegate: NSObject, URLSessionTaskDel
     public override init() { super.init() }
 
     /// `URLSessionTaskDelegate` hook (dispatched by URLSession, not called from
-    /// Swift): on a method-changing **same-origin** redirect, restores the
-    /// original method + `httpBody` so a `POST`/`DELETE` is not silently followed
-    /// as a body-less `GET`; cross-origin redirects are left as Foundation
-    /// proposed (fail closed). Public only to satisfy the public protocol
+    /// Swift): on a method-changing **same-origin 301/302** redirect, restores
+    /// the original method + `httpBody` so a `POST`/`DELETE` is not silently
+    /// followed as a body-less `GET`. 303 keeps Foundation's GET; cross-origin
+    /// redirects are refused. Public only to satisfy the public protocol
     /// requirement.
     public func urlSession(
         _ session: URLSession,
@@ -58,13 +64,24 @@ public final class RedirectMethodPreservingDelegate: NSObject, URLSessionTaskDel
             completionHandler(request)
             return
         }
-        // Fail closed across origins: never re-send a stripped-auth payload to a
-        // different origin. Restore only on a same-origin redirect.
+        // Restore only the accidental-downgrade statuses. A 303 ("See Other") is
+        // by spec a GET follow-up to a different resource, so replaying the body
+        // would be a second mutating call — leave it as Foundation proposed.
+        guard response.statusCode == 301 || response.statusCode == 302 else {
+            completionHandler(request)
+            return
+        }
+        // Refuse cross-origin redirects outright. Following Foundation's proposed
+        // request would still forward sensitive custom headers
+        // (X-Stack-Refresh-Token, X-Cmux-Team-Id) to the new origin — Foundation
+        // only strips Authorization — and the body in the PhonePushClient path is
+        // a notification payload. Refusing (nil) sends nothing to the other
+        // origin; the task completes with the 3xx (a visible non-2xx).
         guard sameOrigin(original.url, request.url) else {
             redirectLog.info(
-                "Not restoring \(originalMethod, privacy: .public) across a cross-origin HTTP \(response.statusCode, privacy: .public) redirect; following Foundation's proposed request (fails closed)"
+                "Refusing a cross-origin HTTP \(response.statusCode, privacy: .public) redirect of \(originalMethod, privacy: .public) (fail closed)"
             )
-            completionHandler(request)
+            completionHandler(nil)
             return
         }
         // Restore the verb only when the body can come with it. Every push

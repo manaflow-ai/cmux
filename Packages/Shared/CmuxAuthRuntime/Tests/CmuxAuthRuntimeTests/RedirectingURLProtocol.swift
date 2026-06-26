@@ -1,16 +1,18 @@
 import Foundation
 
-/// Simulates a canonicalizing 301 that downgrades the request method to GET and
-/// drops the body — Foundation's documented 301/302 behavior — then records what
-/// actually arrives at the redirect target. Two host families drive the two
+/// Simulates a canonicalizing redirect that downgrades the request method to GET
+/// and drops the body — Foundation's documented 301/302/303 behavior — then
+/// records what actually arrives at the redirect target. Host families drive the
 /// behaviors the delegate must have:
 ///   - `same-origin-start.test` 301s to a distinct path on the SAME host, so the
 ///     delegate restores method+body (the realistic recurrence).
-///   - `xorigin-start.test` 301s to a DIFFERENT host, so the delegate must fail
-///     closed and leave Foundation's proposed body-less GET (no payload leak).
+///   - `xorigin-start.test` 301s to a DIFFERENT host, so the delegate must
+///     refuse the redirect entirely (the target is never reached).
+///   - `see-other-start.test` 303s to a distinct path on the SAME host, which
+///     the delegate must leave as Foundation's GET (303 = GET follow-up by spec).
 /// A distinct canonical path (not a trailing-slash variant, whose slash URL
 /// normalization can strip and re-match the origin path into a redirect loop) is
-/// used for both. The arriving method + body are recorded in ``recorder``.
+/// used. The arriving method + body are recorded in ``recorder``.
 final class RedirectingURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static let recorder = RedirectTargetRecorder()
     static let originPath = "/api/device-tokens"
@@ -18,6 +20,7 @@ final class RedirectingURLProtocol: URLProtocol, @unchecked Sendable {
     static let sameOriginHost = "same-origin-start.test"
     static let crossOriginStartHost = "xorigin-start.test"
     static let crossOriginEndHost = "xorigin-end.test"
+    static let seeOtherHost = "see-other-start.test"
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -28,13 +31,15 @@ final class RedirectingURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
         if host == Self.sameOriginHost, url.path == Self.originPath {
-            var canonical = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-            canonical.path = Self.canonicalPath
-            redirect(from: url, to: canonical.url!)
+            redirect(from: url, to: sameHostCanonical(of: url), status: 301)
+            return
+        }
+        if host == Self.seeOtherHost, url.path == Self.originPath {
+            redirect(from: url, to: sameHostCanonical(of: url), status: 303)
             return
         }
         if host == Self.crossOriginStartHost {
-            redirect(from: url, to: URL(string: "https://\(Self.crossOriginEndHost)\(Self.canonicalPath)")!)
+            redirect(from: url, to: URL(string: "https://\(Self.crossOriginEndHost)\(Self.canonicalPath)")!, status: 301)
             return
         }
         // The redirect target (same host canonical path, or the cross-origin
@@ -48,18 +53,32 @@ final class RedirectingURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func stopLoading() {}
 
-    /// Emit a 301 whose proposed request is a body-less GET (Foundation's 301/302
-    /// behavior); the redirect delegate, when installed, is what restores it.
-    private func redirect(from url: URL, to target: URL) {
+    /// The canonical path on the SAME host as `url` (same scheme/host/port).
+    private func sameHostCanonical(of url: URL) -> URL {
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        components.path = Self.canonicalPath
+        return components.url!
+    }
+
+    /// Emit a redirect whose proposed request is a body-less GET (Foundation's
+    /// 301/302/303 behavior); the redirect delegate, when installed, decides
+    /// whether to restore, refuse, or follow it.
+    private func redirect(from url: URL, to target: URL, status: Int) {
         let response = HTTPURLResponse(
             url: url,
-            statusCode: 301,
+            statusCode: status,
             httpVersion: "HTTP/1.1",
             headerFields: ["Location": target.absoluteString]
         )!
         var proposed = URLRequest(url: target)
         proposed.httpMethod = "GET"
         client?.urlProtocol(self, wasRedirectedTo: proposed, redirectResponse: response)
+        // Finish the original load so a REFUSED redirect (delegate returns nil)
+        // completes the task promptly with this 3xx instead of hanging until the
+        // request timeout. A FOLLOWED redirect starts a fresh task and ignores
+        // this completion.
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocolDidFinishLoading(self)
     }
 
     /// Body length from `httpBody`, or by draining `httpBodyStream` (URLSession
