@@ -131,19 +131,18 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         // No-op when the registry names no endpoint the local cache is missing:
         // a narrower or identical registry response must never rewrite (and so
         // never shrink or reorder) the locally persisted routes.
-        let localKeys = Set(local.map { CmxRouteCandidateSet.endpointKey(for: $0.endpoint) })
-        let registryKeys = Set(registry.map { CmxRouteCandidateSet.endpointKey(for: $0.endpoint) })
+        let localKeys = Set(local.map(\.endpoint.routeDedupKey))
+        let registryKeys = Set(registry.map(\.endpoint.routeDedupKey))
         guard !registryKeys.isSubset(of: localKeys) else { return nil }
         // Union both sources, dedup by endpoint, and rank closest-first. The
         // registry is authoritative when reachable, so on a freshness tie its
-        // routes win dedup and rank ahead of the cached ones. `preferLoopback`
-        // stays false here — the persisted order is just a sensible default; the
-        // dial path re-applies the simulator/device loopback policy in
-        // `firstReconnectHostPortRoute`.
-        return CmxRouteCandidateSet.mergedRoutes(
-            CmxRouteCandidateSet.candidates(registry, source: .registry, lastSeenAt: mergeReferenceDate)
-                + CmxRouteCandidateSet.candidates(local, source: .localCache, lastSeenAt: mergeReferenceDate)
-        )
+        // routes win dedup and rank ahead of the cached ones (pass it first).
+        // `preferLoopback` stays false here — the persisted order is just a
+        // sensible default; the dial path re-applies the simulator/device
+        // loopback policy in `firstReconnectHostPortRoute`.
+        let registrySet = CmxRouteCandidateSet(routes: registry, source: .registry, lastSeenAt: mergeReferenceDate)
+        let localSet = CmxRouteCandidateSet(routes: local, source: .localCache, lastSeenAt: mergeReferenceDate)
+        return registrySet.unioned(with: localSet).mergedRoutes()
     }
 
     /// Whether a background registry refresh may write back into the paired-Mac

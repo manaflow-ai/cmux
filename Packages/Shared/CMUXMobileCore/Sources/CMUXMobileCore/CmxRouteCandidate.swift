@@ -118,6 +118,27 @@ public enum CmxRouteProximity: Sendable, Equatable, CaseIterable {
     }
 }
 
+extension CmxAttachEndpoint {
+    /// Stable dedup identity for this endpoint, independent of the route `id`,
+    /// `priority`, or which source advertised it. Two routes with the same
+    /// host:port (case- and bracket-insensitive), the same peer id, or the same
+    /// URL are the same physical destination and collapse to one candidate.
+    public var routeDedupKey: String {
+        switch self {
+        case let .hostPort(host, port):
+            let normalized = host
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+                .lowercased()
+            return "hp|\(normalized)|\(port)"
+        case let .peer(id, _, _, _):
+            return "peer|\(id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+        case let .url(url):
+            return "url|\(url.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+        }
+    }
+}
+
 /// Where a route candidate came from. Used as a freshness/trust tiebreaker when
 /// two sources advertise the same endpoint: the cloud registry is authoritative
 /// when reachable, a freshly scanned QR is current by construction, and the
@@ -167,17 +188,14 @@ public struct CmxRouteCandidate: Equatable, Sendable {
     /// The route's proximity tier, derived from its endpoint address.
     public var proximity: CmxRouteProximity { .classify(route.endpoint) }
 
-    /// Stable identity used to dedup candidates that point at the *same*
-    /// reachable endpoint. Two routes with the same host:port (case- and
-    /// bracket-insensitive), the same peer id, or the same URL are the same
-    /// physical destination regardless of which source advertised them or what
-    /// `priority`/`id` they carry.
-    public var endpointKey: String { CmxRouteCandidateSet.endpointKey(for: route.endpoint) }
+    /// Stable identity used to dedup candidates that point at the same endpoint.
+    public var endpointKey: String { route.endpoint.routeDedupKey }
 }
 
-/// Unions, dedups, and ranks route candidates from every source into a single
-/// ordered list the phone tries in order — issue #6351's "freshness-ranked
-/// candidate set".
+/// A collection of route candidates gathered from every source (QR, registry,
+/// local cache, …) that knows how to collapse itself into the single ordered
+/// list the phone tries in order — issue #6351's "freshness-ranked candidate
+/// set".
 ///
 /// The merge is intentionally **additive**: routes are advisory hints and
 /// connectivity is self-validating, so keeping a possibly-stale route (it fails
@@ -185,40 +203,35 @@ public struct CmxRouteCandidate: Equatable, Sendable {
 /// is the foundation for the server-death graceful fallback — a partial or
 /// unreachable registry can only *add* candidates, never remove the locally
 /// cached ones that let pairing survive offline.
-public enum CmxRouteCandidateSet {
+public struct CmxRouteCandidateSet: Equatable, Sendable {
     /// Default upper bound on the merged candidate count, matching the server's
     /// per-instance route cap. Ranking runs first, so any truncation drops only
     /// the worst-ranked (stalest / farthest) candidates.
     public static let defaultMaxCandidates = 16
 
-    /// Stable dedup identity for an endpoint, independent of any candidate
-    /// wrapper. See ``CmxRouteCandidate/endpointKey``.
-    public static func endpointKey(for endpoint: CmxAttachEndpoint) -> String {
-        switch endpoint {
-        case let .hostPort(host, port):
-            let normalized = host
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-                .lowercased()
-            return "hp|\(normalized)|\(port)"
-        case let .peer(id, _, _, _):
-            return "peer|\(id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
-        case let .url(url):
-            return "url|\(url.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+    /// The gathered candidates, in arbitrary order (deduped/ranked by ``merged``).
+    public let candidates: [CmxRouteCandidate]
+
+    public init(_ candidates: [CmxRouteCandidate] = []) {
+        self.candidates = candidates
+    }
+
+    /// Build a set from raw routes of a single source, all stamped `lastSeenAt`.
+    public init(routes: [CmxAttachRoute], source: CmxRouteSource, lastSeenAt: Date) {
+        self.candidates = routes.map {
+            CmxRouteCandidate(route: $0, source: source, lastSeenAt: lastSeenAt)
         }
     }
 
-    /// Wrap raw routes as candidates from a single source, all stamped with the
-    /// same `lastSeenAt`.
-    public static func candidates(
-        _ routes: [CmxAttachRoute],
-        source: CmxRouteSource,
-        lastSeenAt: Date
-    ) -> [CmxRouteCandidate] {
-        routes.map { CmxRouteCandidate(route: $0, source: source, lastSeenAt: lastSeenAt) }
+    /// A new set whose candidates are this set's followed by `other`'s. Dedup is
+    /// deferred to ``merged(preferLoopback:maxCandidates:)``; ordering of the two
+    /// operands only affects the stable first-seen order of equal-ranked dupes,
+    /// so pass the more authoritative source first.
+    public func unioned(with other: CmxRouteCandidateSet) -> CmxRouteCandidateSet {
+        CmxRouteCandidateSet(candidates + other.candidates)
     }
 
-    /// Merge candidates into the order the phone should try them.
+    /// Collapse the gathered candidates into the order the phone should try them.
     ///
     /// 1. **Dedup by endpoint:** when several sources name the same endpoint,
     ///    keep the freshest (tie → higher source authority → lower route
@@ -228,15 +241,13 @@ public enum CmxRouteCandidateSet {
     ///    authority, then a stable key.
     ///
     /// - Parameters:
-    ///   - candidates: All candidates from every source, in any order.
     ///   - preferLoopback: When `true` (e.g. the simulator, where `127.0.0.1`
     ///     reaches the Mac), loopback routes rank first; when `false` (a
     ///     physical phone, where loopback can only reach itself) they rank last.
     ///   - maxCandidates: Upper bound on the result count after ranking.
-    public static func merged(
-        _ candidates: [CmxRouteCandidate],
+    public func merged(
         preferLoopback: Bool = false,
-        maxCandidates: Int = defaultMaxCandidates
+        maxCandidates: Int = CmxRouteCandidateSet.defaultMaxCandidates
     ) -> [CmxRouteCandidate] {
         guard !candidates.isEmpty else { return [] }
 
@@ -245,7 +256,7 @@ public enum CmxRouteCandidateSet {
         for candidate in candidates {
             let key = candidate.endpointKey
             if let existing = bestByKey[key] {
-                if prefersAsDedupWinner(candidate, over: existing) {
+                if Self.prefersAsDedupWinner(candidate, over: existing) {
                     bestByKey[key] = candidate
                 }
             } else {
@@ -255,20 +266,18 @@ public enum CmxRouteCandidateSet {
         }
 
         let deduped = keyOrder.compactMap { bestByKey[$0] }
-        let ranked = deduped.sorted { sortsBefore($0, $1, preferLoopback: preferLoopback) }
+        let ranked = deduped.sorted { Self.sortsBefore($0, $1, preferLoopback: preferLoopback) }
         guard maxCandidates > 0, ranked.count > maxCandidates else { return ranked }
         return Array(ranked.prefix(maxCandidates))
     }
 
-    /// Convenience: ``merged(_:preferLoopback:maxCandidates:)`` projected back to
+    /// Convenience: ``merged(preferLoopback:maxCandidates:)`` projected back to
     /// plain routes in tried order, dropping the candidate metadata.
-    public static func mergedRoutes(
-        _ candidates: [CmxRouteCandidate],
+    public func mergedRoutes(
         preferLoopback: Bool = false,
-        maxCandidates: Int = defaultMaxCandidates
+        maxCandidates: Int = CmxRouteCandidateSet.defaultMaxCandidates
     ) -> [CmxAttachRoute] {
-        merged(candidates, preferLoopback: preferLoopback, maxCandidates: maxCandidates)
-            .map(\.route)
+        merged(preferLoopback: preferLoopback, maxCandidates: maxCandidates).map(\.route)
     }
 
     // MARK: - Ordering

@@ -85,34 +85,34 @@ import Testing
 
     // MARK: - Endpoint dedup keys
 
-    @Test func endpointKeyIsCaseAndBracketInsensitive() {
+    @Test func dedupKeyIsCaseAndBracketInsensitive() {
         #expect(
-            CmxRouteCandidateSet.endpointKey(for: .hostPort(host: "FE80::1", port: 5))
-                == CmxRouteCandidateSet.endpointKey(for: .hostPort(host: "[fe80::1]", port: 5))
+            CmxAttachEndpoint.hostPort(host: "FE80::1", port: 5).routeDedupKey
+                == CmxAttachEndpoint.hostPort(host: "[fe80::1]", port: 5).routeDedupKey
         )
         #expect(
-            CmxRouteCandidateSet.endpointKey(for: .hostPort(host: "Host.TS.NET", port: 5))
-                == CmxRouteCandidateSet.endpointKey(for: .hostPort(host: "host.ts.net", port: 5))
+            CmxAttachEndpoint.hostPort(host: "Host.TS.NET", port: 5).routeDedupKey
+                == CmxAttachEndpoint.hostPort(host: "host.ts.net", port: 5).routeDedupKey
         )
     }
 
-    @Test func endpointKeyDistinguishesPort() {
+    @Test func dedupKeyDistinguishesPort() {
         #expect(
-            CmxRouteCandidateSet.endpointKey(for: .hostPort(host: "h", port: 5))
-                != CmxRouteCandidateSet.endpointKey(for: .hostPort(host: "h", port: 6))
+            CmxAttachEndpoint.hostPort(host: "h", port: 5).routeDedupKey
+                != CmxAttachEndpoint.hostPort(host: "h", port: 6).routeDedupKey
         )
     }
 
     // MARK: - Merge: dedup
 
     @Test func mergedEmptyInputIsEmpty() {
-        #expect(CmxRouteCandidateSet.merged([]).isEmpty)
+        #expect(CmxRouteCandidateSet().merged().isEmpty)
     }
 
     @Test func mergedDedupsSameEndpointKeepingFresher() throws {
         let older = candidate(try hostPort("192.168.1.5"), .localCache, at: 100)
         let newer = candidate(try hostPort("192.168.1.5"), .localCache, at: 200)
-        let merged = CmxRouteCandidateSet.merged([older, newer])
+        let merged = CmxRouteCandidateSet([older, newer]).merged()
         #expect(merged.count == 1)
         #expect(merged.first?.lastSeenAt == Date(timeIntervalSinceReferenceDate: 200))
     }
@@ -122,7 +122,7 @@ import Testing
         // possibly-stale local cache.
         let cache = candidate(try hostPort("192.168.1.5"), .localCache, at: 100)
         let registry = candidate(try hostPort("192.168.1.5"), .registry, at: 100)
-        let merged = CmxRouteCandidateSet.merged([cache, registry])
+        let merged = CmxRouteCandidateSet([cache, registry]).merged()
         #expect(merged.count == 1)
         #expect(merged.first?.source == .registry)
     }
@@ -130,9 +130,9 @@ import Testing
     @Test func mergedDedupsPeerById() throws {
         let qr = candidate(try peer("nodeabc"), .qr, at: 100)
         let registry = candidate(try peer("nodeabc"), .registry, at: 100)
-        #expect(CmxRouteCandidateSet.merged([qr, registry]).count == 1)
+        #expect(CmxRouteCandidateSet([qr, registry]).merged().count == 1)
         let other = candidate(try peer("nodexyz"), .qr, at: 100)
-        #expect(CmxRouteCandidateSet.merged([qr, other]).count == 2)
+        #expect(CmxRouteCandidateSet([qr, other]).merged().count == 2)
     }
 
     // MARK: - Merge: ranking
@@ -141,53 +141,62 @@ import Testing
         let relay = candidate(try hostPort("8.8.8.8"))
         let tailnet = candidate(try hostPort("100.96.0.9"))
         let lan = candidate(try hostPort("192.168.1.5"))
-        let merged = CmxRouteCandidateSet.merged([relay, tailnet, lan], preferLoopback: false)
+        let merged = CmxRouteCandidateSet([relay, tailnet, lan]).merged(preferLoopback: false)
         #expect(merged.map(\.proximity) == [.lan, .tailnet, .relay])
     }
 
     @Test func mergedRanksLoopbackLastOnDeviceFirstOnSimulator() throws {
         let loop = candidate(try hostPort("127.0.0.1"))
         let lan = candidate(try hostPort("192.168.1.5"))
-        #expect(CmxRouteCandidateSet.merged([loop, lan], preferLoopback: false).map(\.proximity) == [.lan, .loopback])
-        #expect(CmxRouteCandidateSet.merged([loop, lan], preferLoopback: true).map(\.proximity) == [.loopback, .lan])
+        #expect(CmxRouteCandidateSet([loop, lan]).merged(preferLoopback: false).map(\.proximity) == [.lan, .loopback])
+        #expect(CmxRouteCandidateSet([loop, lan]).merged(preferLoopback: true).map(\.proximity) == [.loopback, .lan])
     }
 
     @Test func mergedPrefersFresherWithinSameTier() throws {
         let older = candidate(try hostPort("192.168.1.5", id: "old"), .localCache, at: 100)
         let newer = candidate(try hostPort("192.168.1.9", id: "new"), .localCache, at: 200)
-        let merged = CmxRouteCandidateSet.merged([older, newer])
+        let merged = CmxRouteCandidateSet([older, newer]).merged()
         #expect(merged.first?.route.id == "new")
     }
 
     @Test func mergedTieBreaksOnRoutePriorityWithinTier() throws {
         let high = candidate(try hostPort("192.168.1.9", id: "hi", priority: 10))
         let low = candidate(try hostPort("192.168.1.5", id: "lo", priority: 0))
-        let merged = CmxRouteCandidateSet.merged([high, low])
+        let merged = CmxRouteCandidateSet([high, low]).merged()
         #expect(merged.first?.route.id == "lo") // lower priority value tried first
     }
 
     @Test func mergedRoutesProjectsToRoutesInRankedOrder() throws {
         let relay = candidate(try hostPort("8.8.8.8", id: "relay"))
         let lan = candidate(try hostPort("192.168.1.5", id: "lan"))
-        #expect(CmxRouteCandidateSet.mergedRoutes([relay, lan]).map(\.id) == ["lan", "relay"])
+        #expect(CmxRouteCandidateSet([relay, lan]).mergedRoutes().map(\.id) == ["lan", "relay"])
     }
 
     @Test func mergedRespectsMaxCandidatesKeepingBestRanked() throws {
         let relay = candidate(try hostPort("8.8.8.8", id: "relay"))
         let tailnet = candidate(try hostPort("100.96.0.9", id: "tn"))
         let lan = candidate(try hostPort("192.168.1.5", id: "lan"))
-        let merged = CmxRouteCandidateSet.merged([relay, tailnet, lan], maxCandidates: 2)
+        let merged = CmxRouteCandidateSet([relay, tailnet, lan]).merged(maxCandidates: 2)
         #expect(merged.count == 2)
         #expect(merged.map(\.proximity) == [.lan, .tailnet]) // dropped the relay
     }
 
-    // MARK: - candidates(_:source:lastSeenAt:)
+    // MARK: - init(routes:source:lastSeenAt:) and union
 
-    @Test func candidatesHelperStampsSourceAndDate() throws {
+    @Test func routesInitializerStampsSourceAndDate() throws {
         let date = Date(timeIntervalSinceReferenceDate: 42)
-        let candidates = CmxRouteCandidateSet.candidates([try hostPort("10.0.0.1")], source: .qr, lastSeenAt: date)
-        #expect(candidates.count == 1)
-        #expect(candidates.first?.source == .qr)
-        #expect(candidates.first?.lastSeenAt == date)
+        let set = CmxRouteCandidateSet(routes: [try hostPort("10.0.0.1")], source: .qr, lastSeenAt: date)
+        #expect(set.candidates.count == 1)
+        #expect(set.candidates.first?.source == .qr)
+        #expect(set.candidates.first?.lastSeenAt == date)
+    }
+
+    @Test func unionedMergesCandidatesFromBothSets() throws {
+        let date = Date(timeIntervalSinceReferenceDate: 100)
+        let registry = CmxRouteCandidateSet(routes: [try hostPort("100.96.0.9", id: "tn")], source: .registry, lastSeenAt: date)
+        let cache = CmxRouteCandidateSet(routes: [try hostPort("192.168.1.5", id: "lan")], source: .localCache, lastSeenAt: date)
+        let merged = registry.unioned(with: cache).merged()
+        #expect(merged.count == 2)
+        #expect(merged.map(\.proximity) == [.lan, .tailnet]) // LAN closest, tried first
     }
 }
