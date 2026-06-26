@@ -49,6 +49,17 @@ extension CMUXCLI {
         // this runs, and the verb is always `list`/`ls`, so no help branch is
         // needed here.
         let (configOverride, rest) = parseOption(commandArgs, name: "--config")
+        // `parseOption` leaves a value-less `--config` (when it is the final
+        // token) in `rest`, and `--config=` / `--config ""` yield an empty
+        // value. Either way the user named the flag but no file, so fail loudly
+        // instead of silently reading the default config.
+        if rest.contains("--config") || configOverride?.trimmingCharacters(in: .whitespaces).isEmpty == true {
+            throw CLIError(message: """
+                ssh list: --config requires a path.
+
+                \(Self.sshListUsage)
+                """)
+        }
         let positionals = rest.filter { !$0.hasPrefix("-") }
         // The verb itself (list/ls) is expected; anything else is a user error.
         for extra in positionals where extra.lowercased() != "list" && extra.lowercased() != "ls" {

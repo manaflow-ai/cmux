@@ -141,6 +141,36 @@ import Testing
         #expect(hosts[0].hostName == "gpu.example.com")
     }
 
+    @Test func inlineCommentsAreStrippedLikeSsh() {
+        // Verified against `ssh -G`: a space-preceded `#` is a comment, so the
+        // Host line yields only `web` (not `#`/`production`) and HostName is
+        // `example.com` (not `example.com # main server`).
+        let config = """
+        Host web # production
+            HostName example.com # main server
+            Port 2222
+        """
+        let hosts = parser.hosts(configText: config)
+        #expect(hosts.map(\.alias) == ["web"])
+        #expect(hosts[0].hostName == "example.com")
+        #expect(hosts[0].port == 2222)
+    }
+
+    @Test func hashInsideTokenOrQuotesIsLiteral() {
+        // `ssh -G`: `host#x` and `"x # y"` keep the hash; only a whitespace-led
+        // `#` outside quotes starts a comment.
+        let config = """
+        Host a
+            HostName host.example.com#nospace
+        Host b
+            HostName "quoted # hash"
+        """
+        let hosts = parser.hosts(configText: config)
+        #expect(hosts.count == 2)
+        #expect(hosts[0].hostName == "host.example.com#nospace")
+        #expect(hosts[1].hostName == "quoted # hash")
+    }
+
     @Test func negatedPatternsAreExcludedFromListingAndMatching() {
         let config = """
         Host prod !prod-old

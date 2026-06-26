@@ -226,13 +226,40 @@ public struct SSHConfigParser: Sendable {
 
     // MARK: - Line parsing
 
+    /// Strip an inline `#` comment the way `ssh(1)` does: a `#` begins a
+    /// comment (to end of line) only when it starts a whitespace-delimited
+    /// token — i.e. it is at the start of the line or preceded by whitespace —
+    /// and is not inside double quotes. A `#` in the middle of a token
+    /// (`host#x`) or inside quotes (`"a # b"`) is literal. Verified against
+    /// `ssh -G`: `HostName x # c` resolves to `x`, but `HostName x#c` and
+    /// `HostName "x # c"` keep the hash.
+    static func stripInlineComment(_ line: String) -> String {
+        var result = ""
+        var inQuotes = false
+        var precededByWhitespace = true // the line start behaves like whitespace
+        for character in line {
+            if character == "\"" {
+                inQuotes.toggle()
+                result.append(character)
+                precededByWhitespace = false
+                continue
+            }
+            if character == "#", !inQuotes, precededByWhitespace {
+                break
+            }
+            result.append(character)
+            precededByWhitespace = character.isWhitespace
+        }
+        return result
+    }
+
     /// Split a config line into a lowercased keyword and its raw argument
-    /// string. Returns nil for blank lines, full-line comments, and
-    /// keyword-only lines. Keyword/argument may be separated by whitespace, by
-    /// `=`, or by both (OpenSSH allows all three); surrounding quotes on the
-    /// argument are stripped.
+    /// string. Returns nil for blank lines, comments, and keyword-only lines.
+    /// Keyword/argument may be separated by whitespace, by `=`, or by both
+    /// (OpenSSH allows all three); inline `#` comments and surrounding quotes on
+    /// the argument are stripped.
     static func parseLine(_ raw: String) -> (key: String, value: String)? {
-        var line = Substring(raw)
+        var line = Substring(stripInlineComment(raw))
         line = line.drop(while: { $0.isWhitespace })
         guard let first = line.first, first != "#" else { return nil }
         guard let sepIndex = line.firstIndex(where: { $0.isWhitespace || $0 == "=" }) else {
