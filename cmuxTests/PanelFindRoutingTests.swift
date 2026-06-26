@@ -62,6 +62,80 @@ struct PanelFindRoutingTests {
         #expect(textView.actionTags == [NSTextFinder.Action.showFindInterface.rawValue])
     }
 
+    @Test
+    func focusedMarkdownPreviewFindNextStartsFindWhenTextEditorMounts() throws {
+        let fixture = try makeTemporaryFile(named: "README.md", contents: "# Title\n\nFind target.\n")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let panel = try #require(workspace.newMarkdownSurface(
+            inPane: paneId,
+            filePath: fixture.file.path,
+            focus: true
+        ))
+        defer { panel.close() }
+
+        #expect(workspace.focusedPanelId == panel.id)
+        #expect(panel.displayMode == .preview)
+        manager.findNext()
+        #expect(panel.displayMode == .text)
+
+        let textView = RecordingTextFinderTextView()
+        panel.attachTextView(textView)
+        #expect(textView.actionTags == [NSTextFinder.Action.showFindInterface.rawValue])
+    }
+
+    @Test
+    func focusedMarkdownPreviewFindPreviousStartsFindWhenTextEditorMounts() throws {
+        let fixture = try makeTemporaryFile(named: "README.md", contents: "# Title\n\nFind target.\n")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let panel = try #require(workspace.newMarkdownSurface(
+            inPane: paneId,
+            filePath: fixture.file.path,
+            focus: true
+        ))
+        defer { panel.close() }
+
+        #expect(workspace.focusedPanelId == panel.id)
+        #expect(panel.displayMode == .preview)
+        manager.findPrevious()
+        #expect(panel.displayMode == .text)
+
+        let textView = RecordingTextFinderTextView()
+        panel.attachTextView(textView)
+        #expect(textView.actionTags == [NSTextFinder.Action.showFindInterface.rawValue])
+    }
+
+    @Test
+    func focusedMarkdownPendingFindIsNotOverwrittenByFindNextBeforeTextEditorMounts() throws {
+        let fixture = try makeTemporaryFile(named: "README.md", contents: "# Title\n\nFind target.\n")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let panel = try #require(workspace.newMarkdownSurface(
+            inPane: paneId,
+            filePath: fixture.file.path,
+            focus: true
+        ))
+        defer { panel.close() }
+
+        #expect(manager.startSearch())
+        #expect(panel.displayMode == .text)
+        manager.findNext()
+
+        let textView = RecordingTextFinderTextView()
+        panel.attachTextView(textView)
+        #expect(textView.actionTags == [NSTextFinder.Action.showFindInterface.rawValue])
+    }
+
     private func makeTemporaryFile(named fileName: String, contents: String) throws -> (directory: URL, file: URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-panel-find-routing-\(UUID().uuidString)", isDirectory: true)
