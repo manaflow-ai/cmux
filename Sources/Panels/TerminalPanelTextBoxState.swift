@@ -12,6 +12,10 @@ final class TerminalPanelTextBoxState {
         observedCommandRunningSinceLaunch ? launchCommand : nil
     }
 
+    var pendingLaunchCommand: String? {
+        observedCommandRunningSinceLaunch ? nil : launchCommand
+    }
+
     func recordLaunchCommand(_ rawCommand: String) {
         let command = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return }
@@ -31,7 +35,7 @@ final class TerminalPanelTextBoxState {
             observedCommandRunningSinceLaunch = true
             return
         }
-        if state == .promptIdle {
+        if state == .promptIdle, observedCommandRunningSinceLaunch {
             clearLaunchCommand()
         }
     }

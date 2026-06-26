@@ -50,6 +50,14 @@ enum TextBoxAgentDetection: CaseIterable {
         }
     }
 
+    static func hasPendingTextBoxLaunchContext(_ context: String) -> Bool {
+        context
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .contains { line in
+                metadataValue(String(line), prefix: "textBoxPendingLaunchCommand:") != nil
+            }
+    }
+
     static func activeTextBoxLaunchContext(from context: String) -> String? {
         context
             .split(separator: "\n", omittingEmptySubsequences: false)

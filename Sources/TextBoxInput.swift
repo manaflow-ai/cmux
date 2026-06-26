@@ -2744,7 +2744,7 @@ struct TextBoxInputContainer: View {
             return
         }
         let launchAction = effectiveSubmitAction
-        if Self.shouldFailClosedForUnsupportedCommandTemplate(
+        if Self.shouldFailClosedForCommandTemplate(
             action: launchAction,
             shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
             allowsCommandTemplateSubmit: allowsCommandTemplateSubmit

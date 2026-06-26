@@ -111,8 +111,11 @@ extension TextBoxInputContainer {
         shellActivityState: PanelShellActivityState,
         terminalAgentContext: String
     ) -> Bool {
-        shellActivityState == .promptIdle ||
-            TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext)
+        if TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext) {
+            return true
+        }
+        return shellActivityState == .promptIdle &&
+            !TextBoxAgentDetection.hasPendingTextBoxLaunchContext(terminalAgentContext)
     }
 
     static func shouldClearLaunchCommandWhenClearingPending(terminalAgentContext: String) -> Bool {
@@ -144,21 +147,19 @@ extension TextBoxInputContainer {
         shouldForceTextEntrySubmit: Bool,
         allowsCommandTemplateSubmit: Bool
     ) -> Bool {
-        !shouldForceTextEntrySubmit &&
-            !allowsCommandTemplateSubmit &&
-            action.kind == .commandTemplate
+        false
     }
 
-    static func shouldFailClosedForUnsupportedCommandTemplate(
+    static func shouldFailClosedForCommandTemplate(
         action: TextBoxSubmitAction,
         shouldForceTextEntrySubmit: Bool,
         allowsCommandTemplateSubmit: Bool
     ) -> Bool {
         guard action.kind == .commandTemplate,
-              !shouldForceTextEntrySubmit,
-              allowsCommandTemplateSubmit else {
+              !shouldForceTextEntrySubmit else {
             return false
         }
+        guard allowsCommandTemplateSubmit else { return true }
         if action.command(forPrompt: "") != nil {
             return false
         }

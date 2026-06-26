@@ -428,6 +428,7 @@ struct TextBoxSubmitActionTests {
         panel.recordTextBoxLaunchCommand("codex --dangerously-bypass-approvals-and-sandbox")
 
         let pendingContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+        XCTAssertTrue(TextBoxAgentDetection.hasPendingTextBoxLaunchContext(pendingContext))
         XCTAssertFalse(TextBoxAgentDetection.supportsAgentPrefixes(context: pendingContext))
         XCTAssertFalse(TextBoxAgentDetection.supportsActiveAgentPrefixes(context: pendingContext))
         XCTAssertTrue(
@@ -438,7 +439,7 @@ struct TextBoxSubmitActionTests {
         )
         XCTAssertFalse(
             TextBoxInputContainer.shouldClearPendingProviderLaunch(
-                shellActivityState: .unknown,
+                shellActivityState: .promptIdle,
                 terminalAgentContext: pendingContext
             )
         )
@@ -447,6 +448,7 @@ struct TextBoxSubmitActionTests {
         let runningContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
         XCTAssertTrue(TextBoxAgentDetection.supportsAgentPrefixes(context: runningContext))
         XCTAssertTrue(TextBoxAgentDetection.supportsActiveAgentPrefixes(context: runningContext))
+        XCTAssertFalse(TextBoxAgentDetection.hasPendingTextBoxLaunchContext(runningContext))
         XCTAssertTrue(
             TextBoxInputContainer.shouldForceTextEntrySubmit(
                 allowsCommandTemplateSubmit: true,
@@ -468,8 +470,10 @@ struct TextBoxSubmitActionTests {
         let panel = try #require(workspace.focusedTerminalPanel)
 
         panel.recordTextBoxLaunchCommand("codex --dangerously-bypass-approvals-and-sandbox")
+        XCTAssertEqual(panel.textBoxState.pendingLaunchCommand, "codex")
         panel.updateShellActivityState(.commandRunning)
         #expect(panel.textBoxState.launchCommand != nil)
+        #expect(panel.textBoxState.pendingLaunchCommand == nil)
 
         panel.updateShellActivityState(.promptIdle)
         #expect(panel.textBoxState.launchCommand == nil)
@@ -481,15 +485,17 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testTextBoxLaunchCommandContextClearsOnPromptIdleBeforeRunning() throws {
+    func testTextBoxLaunchCommandContextSurvivesStalePromptIdleBeforeRunning() throws {
         let panel = TerminalPanel(workspaceId: UUID())
 
         panel.updateShellActivityState(.promptIdle)
         panel.recordTextBoxLaunchCommand("codex --dangerously-bypass-approvals-and-sandbox")
         #expect(panel.textBoxState.launchCommand != nil)
+        XCTAssertEqual(panel.textBoxState.pendingLaunchCommand, "codex")
 
         panel.updateShellActivityState(.promptIdle)
-        #expect(panel.textBoxState.launchCommand == nil)
+        #expect(panel.textBoxState.launchCommand != nil)
+        XCTAssertEqual(panel.textBoxState.pendingLaunchCommand, "codex")
     }
 
 
@@ -614,14 +620,14 @@ struct TextBoxSubmitActionTests {
         )
 
         XCTAssertTrue(
-            TextBoxInputContainer.shouldFailClosedForUnsupportedCommandTemplate(
+            TextBoxInputContainer.shouldFailClosedForCommandTemplate(
                 action: router,
                 shouldForceTextEntrySubmit: false,
                 allowsCommandTemplateSubmit: true
             )
         )
-        XCTAssertFalse(
-            TextBoxInputContainer.shouldFailClosedForUnsupportedCommandTemplate(
+        XCTAssertTrue(
+            TextBoxInputContainer.shouldFailClosedForCommandTemplate(
                 action: router,
                 shouldForceTextEntrySubmit: false,
                 allowsCommandTemplateSubmit: false
@@ -659,7 +665,7 @@ struct TextBoxSubmitActionTests {
             )
         )
         XCTAssertFalse(
-            TextBoxInputContainer.shouldFailClosedForUnsupportedCommandTemplate(
+            TextBoxInputContainer.shouldFailClosedForCommandTemplate(
                 action: router,
                 shouldForceTextEntrySubmit: false,
                 allowsCommandTemplateSubmit: true
@@ -712,6 +718,12 @@ struct TextBoxSubmitActionTests {
             TextBoxInputContainer.shouldClearPendingProviderLaunch(
                 shellActivityState: .commandRunning,
                 terminalAgentContext: ""
+            )
+        )
+        XCTAssertFalse(
+            TextBoxInputContainer.shouldClearPendingProviderLaunch(
+                shellActivityState: .promptIdle,
+                terminalAgentContext: "textBoxPendingLaunchCommand:codex"
             )
         )
         XCTAssertTrue(
@@ -880,7 +892,7 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testUnknownShellStateFallsBackToTextEntryWithoutBlockingCycle() throws {
+    func testUnknownShellStateFailsClosedWithoutBlockingCycle() throws {
         let codex = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "codex" })
         let allowsCommandTemplateSubmit = TextBoxInputContainer.allowsCommandTemplateSubmit(
             shellActivityState: .unknown
@@ -891,7 +903,7 @@ struct TextBoxSubmitActionTests {
         )
 
         #expect(!shouldForceTextEntry)
-        #expect(TextBoxInputContainer.shouldUseTextEntryFallbackForCommandTemplate(
+        #expect(!TextBoxInputContainer.shouldUseTextEntryFallbackForCommandTemplate(
             action: codex,
             shouldForceTextEntrySubmit: shouldForceTextEntry,
             allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
@@ -903,16 +915,12 @@ struct TextBoxSubmitActionTests {
             ).action.id,
             codex.id
         )
-        XCTAssertEqual(
-            TextBoxInputContainer.dispatchPlan(
-                [.text("ordinary shell input")],
-                applying: codex,
+        XCTAssertTrue(
+            TextBoxInputContainer.shouldFailClosedForCommandTemplate(
+                action: codex,
                 shouldForceTextEntrySubmit: shouldForceTextEntry,
-                allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
-                terminalAgentContext: "",
-                pendingProviderLaunchAction: nil
-            ).events,
-            TextBoxSubmit.dispatchEvents(for: [.text("ordinary shell input")], terminalAgentContext: "")
+                allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
+            )
         )
         XCTAssertEqual(
             TextBoxInputContainer.nextCycledSubmitActionID(
