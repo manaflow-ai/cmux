@@ -103,6 +103,20 @@ import Testing
         )
     }
 
+    @Test func dedupKeyKeepsUrlAndPeerCaseSensitive() {
+        // URL path/query (relay route ids, tokens) and opaque peer ids are
+        // case-sensitive; folding case would collapse distinct endpoints and
+        // could discard the only valid route.
+        #expect(
+            CmxAttachEndpoint.url("wss://relay.example/ws?token=ABC").routeDedupKey
+                != CmxAttachEndpoint.url("wss://relay.example/ws?token=abc").routeDedupKey
+        )
+        #expect(
+            CmxAttachEndpoint.peer(id: "NodeABC", relayHint: nil, directAddrs: [], relayURL: nil).routeDedupKey
+                != CmxAttachEndpoint.peer(id: "nodeabc", relayHint: nil, directAddrs: [], relayURL: nil).routeDedupKey
+        )
+    }
+
     // MARK: - Merge: dedup
 
     @Test func mergedEmptyInputIsEmpty() {

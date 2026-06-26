@@ -38,4 +38,33 @@ extension MobileShellComposite {
         }
         return left.priority < right.priority
     }
+
+    /// Routes ordered by network proximity (direct LAN > Tailnet > relay) via the
+    /// shared ``CmxRouteCandidateSet`` ranking, replacing the raw priority/id sort
+    /// for reconnect dialing.
+    ///
+    /// This subsumes the old loopback avoidance — loopback ranks last on a
+    /// physical phone and first on the simulator — via `preferLoopback`. It also
+    /// makes the freshest route win: ``DeviceRegistryService/selectReconnectRoutes(local:registry:)``
+    /// persists the fresh registry route ahead of a stale same-tier cached one,
+    /// and earlier array position is treated as fresher here, so that order
+    /// survives the bare-`[CmxAttachRoute]` boundary and the fresh route is dialed
+    /// first instead of being beaten by a stale route with a smaller id.
+    static func proximityRankedRoutes(
+        _ routes: [CmxAttachRoute],
+        preferNonLoopback: Bool
+    ) -> [CmxAttachRoute] {
+        guard routes.count > 1 else { return routes }
+        let reference = Date(timeIntervalSinceReferenceDate: 0)
+        let candidates = routes.enumerated().map { index, route in
+            CmxRouteCandidate(
+                route: route,
+                source: .localCache,
+                lastSeenAt: reference.addingTimeInterval(-Double(index))
+            )
+        }
+        return CmxRouteCandidateSet(candidates)
+            .merged(preferLoopback: !preferNonLoopback, maxCandidates: routes.count)
+            .map(\.route)
+    }
 }

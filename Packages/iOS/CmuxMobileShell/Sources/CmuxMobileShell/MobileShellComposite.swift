@@ -2478,12 +2478,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         preferNonLoopback: Bool = false
     ) -> (String, Int)? {
         let supportedKinds = Set(supportedKinds)
-        let ordered = Self.proximityRankedRoutes(routes, preferNonLoopback: preferNonLoopback)
+        // Filter to supported kinds BEFORE proximity ranking: the ranking dedups
+        // by endpoint and ignores `kind`, so an unsupported route sharing a
+        // host:port with a supported one could otherwise win dedup and strand the
+        // supported route. (Empty `supportedKinds` means "no kind filter".)
+        let usableRoutes = supportedKinds.isEmpty
+            ? routes
+            : routes.filter { supportedKinds.contains($0.kind) }
+        let ordered = Self.proximityRankedRoutes(usableRoutes, preferNonLoopback: preferNonLoopback)
         func firstHostPort(where predicate: (CmxAttachRoute) -> Bool) -> (String, Int)? {
             for route in ordered {
-                if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
-                    continue
-                }
                 guard predicate(route), case let .hostPort(host, port) = route.endpoint else {
                     continue
                 }
@@ -2510,34 +2514,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         return firstHostPort(where: { _ in true })
-    }
-
-    /// Routes ordered by network proximity (direct LAN > Tailnet > relay) via the
-    /// shared ``CmxRouteCandidateSet`` ranking, replacing the raw priority/id sort.
-    ///
-    /// This subsumes the old loopback avoidance — loopback ranks last on a
-    /// physical phone and first on the simulator — via `preferLoopback`. It also
-    /// makes the freshest route win: ``DeviceRegistryService/selectReconnectRoutes(local:registry:)``
-    /// persists the fresh registry route ahead of a stale same-tier cached one,
-    /// and earlier array position is treated as fresher here, so that order
-    /// survives the bare-`[CmxAttachRoute]` boundary and the fresh route is dialed
-    /// first instead of being beaten by a stale route with a smaller id.
-    static func proximityRankedRoutes(
-        _ routes: [CmxAttachRoute],
-        preferNonLoopback: Bool
-    ) -> [CmxAttachRoute] {
-        guard routes.count > 1 else { return routes }
-        let reference = Date(timeIntervalSinceReferenceDate: 0)
-        let candidates = routes.enumerated().map { index, route in
-            CmxRouteCandidate(
-                route: route,
-                source: .localCache,
-                lastSeenAt: reference.addingTimeInterval(-Double(index))
-            )
-        }
-        return CmxRouteCandidateSet(candidates)
-            .merged(preferLoopback: !preferNonLoopback, maxCandidates: routes.count)
-            .map(\.route)
     }
 
     /// Whether `host` is a numeric IP literal (IPv4 or IPv6) rather than a name

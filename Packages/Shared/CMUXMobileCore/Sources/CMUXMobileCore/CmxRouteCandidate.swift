@@ -121,8 +121,14 @@ public enum CmxRouteProximity: Sendable, Equatable, CaseIterable {
 extension CmxAttachEndpoint {
     /// Stable dedup identity for this endpoint, independent of the route `id`,
     /// `priority`, or which source advertised it. Two routes with the same
-    /// host:port (case- and bracket-insensitive), the same peer id, or the same
-    /// URL are the same physical destination and collapse to one candidate.
+    /// host:port, the same peer id, or the same URL are the same physical
+    /// destination and collapse to one candidate.
+    ///
+    /// Only the host of a `hostPort` is case-folded (hostnames and IPv6 literals
+    /// are case-insensitive). Peer ids and URLs are kept case-sensitive: URL
+    /// path/query may carry case-sensitive relay route ids or tokens, and peer
+    /// ids are opaque case-sensitive identifiers — lowercasing either could
+    /// collapse two distinct endpoints and discard a valid route.
     public var routeDedupKey: String {
         switch self {
         case let .hostPort(host, port):
@@ -132,9 +138,9 @@ extension CmxAttachEndpoint {
                 .lowercased()
             return "hp|\(normalized)|\(port)"
         case let .peer(id, _, _, _):
-            return "peer|\(id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+            return "peer|\(id.trimmingCharacters(in: .whitespacesAndNewlines))"
         case let .url(url):
-            return "url|\(url.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+            return "url|\(url.trimmingCharacters(in: .whitespacesAndNewlines))"
         }
     }
 }

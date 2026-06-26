@@ -123,6 +123,32 @@ import Testing
         #expect(pick?.0 == "100.96.0.9")
     }
 
+    @Test func keepsSupportedRouteWhenUnsupportedKindSharesEndpoint() throws {
+        // Two routes at the same host:port but different transport kinds; only
+        // .tailscale is supported. Endpoint dedup ignores kind, so filtering by
+        // supported kind must happen BEFORE dedup — otherwise the unsupported
+        // route could win dedup and the supported route would be dropped, leaving
+        // reconnect with no route.
+        let unsupported = try CmxAttachRoute(
+            id: "loop",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "100.96.0.9", port: 50906),
+            priority: 0
+        )
+        let supported = try CmxAttachRoute(
+            id: "ts",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.96.0.9", port: 50906),
+            priority: 0
+        )
+        let pick = MobileShellComposite.firstReconnectHostPortRoute(
+            [unsupported, supported],
+            supportedKinds: [.tailscale],
+            preferNonLoopback: true
+        )
+        #expect(pick?.0 == "100.96.0.9")
+    }
+
     @Test func ipLiteralHostClassification() {
         #expect(MobileShellComposite.isIPLiteralHost("100.82.214.112"))
         #expect(MobileShellComposite.isIPLiteralHost("127.0.0.1"))
