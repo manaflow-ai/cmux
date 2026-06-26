@@ -225,16 +225,20 @@ extension TerminalController {
         guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
             return .surfaceNotTerminal(surfaceId)
         }
-        if let launchCommandMetadata = launchCommandMetadata?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !launchCommandMetadata.isEmpty {
-            terminalPanel.recordTextBoxLaunchCommand(launchCommandMetadata)
-        }
+        let acceptedLaunchCommandMetadata = launchCommandMetadata?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let queued: Bool
         switch terminalPanel.sendInputResult(text) {
         case .sent:
+            if let acceptedLaunchCommandMetadata, !acceptedLaunchCommandMetadata.isEmpty {
+                terminalPanel.recordTextBoxLaunchCommand(acceptedLaunchCommandMetadata)
+            }
             terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
             queued = false
         case .queued:
+            if let acceptedLaunchCommandMetadata, !acceptedLaunchCommandMetadata.isEmpty {
+                terminalPanel.recordTextBoxLaunchCommand(acceptedLaunchCommandMetadata)
+            }
             queued = true
         case .inputQueueFull:
             return .inputQueueFull(surfaceId)
