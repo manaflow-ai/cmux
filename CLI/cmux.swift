@@ -9943,15 +9943,24 @@ struct CMUXCLI {
             "case \"$cmux_ssh_agent_wait_delay\" in ''|*[!0-9]*) cmux_ssh_agent_wait_delay=3 ;; esac",
             "cmux_ssh_agent_wait=0",
             "cmux_ssh_agent_wait_exhausted=0",
+            // Per-attempt stderr capture: ssh's stderr is streamed through a
+            // background tee (fd 9 -> FIFO -> tee) so it is shown to the user
+            // live while a copy is saved for failure classification.
             "cmux_ssh_stderr_capture=$(mktemp \"${TMPDIR:-/tmp}/cmux-ssh-stderr.XXXXXX\" 2>/dev/null) || cmux_ssh_stderr_capture=",
+            "cmux_ssh_stderr_fifo=",
+            "if [ -n \"$cmux_ssh_stderr_capture\" ]; then cmux_ssh_stderr_fifo=\"$cmux_ssh_stderr_capture.fifo\"; mkfifo \"$cmux_ssh_stderr_fifo\" 2>/dev/null || cmux_ssh_stderr_fifo=; fi",
+            "cmux_ssh_tee_pid=",
+            "cmux_ssh_rm_capture() { if [ -n \"${cmux_ssh_stderr_capture:-}\" ]; then rm -f -- \"$cmux_ssh_stderr_capture\" \"${cmux_ssh_stderr_fifo:-}\" 2>/dev/null || true; fi; }",
             "cmux_ssh_retry=0",
             "CMUX_SSH_CHILD_PID=",
             "CMUX_SSH_PENDING_SIGNAL=",
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
-            "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); if [ -n \"${cmux_ssh_stderr_capture:-}\" ]; then rm -f -- \"$cmux_ssh_stderr_capture\" 2>/dev/null || true; fi; }",
+            "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); cmux_ssh_rm_capture; }",
             // Pane-close signals are terminal lifecycle, not SSH transport lifecycle.
             // Avoid sending an extra TERM to a child that may own the shared ControlMaster path.
-            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
+            // This path exits directly (bypassing the EXIT trap), so it must also
+            // remove the stderr capture/FIFO files itself.
+            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_rm_capture; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
             "trap 'cmux_ssh_session_end' EXIT",
             "trap 'cmux_ssh_signal_exit 129' HUP",
             "trap 'cmux_ssh_signal_exit 130' INT",
@@ -9961,21 +9970,31 @@ struct CMUXCLI {
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
             scriptLines.append("  cmux_ssh_preflight_control_path")
         }
-        // Mirror ssh's stderr into a per-attempt capture file (via fd 9) so the
-        // wrapper can classify the failure reason after the attempt exits, while
-        // still showing it to the user. The capture is gated behind a subshell
-        // writability probe so a failed redirect can never abort the wrapper.
+        // Stream ssh's stderr through a background `tee` (fd 9 -> FIFO -> tee) so
+        // each attempt's stderr is shown to the user *live* — interactive prompts
+        // such as a host-key confirmation must not be buffered until ssh exits —
+        // while a copy is captured for failure classification. Gated behind a
+        // subshell writability probe and a successful mkfifo so a failed redirect
+        // can never abort the wrapper; otherwise stderr passes straight through.
         scriptLines += [
             "  cmux_ssh_capture_active=0",
-            "  if [ -n \"${cmux_ssh_stderr_capture:-}\" ] && ( : > \"$cmux_ssh_stderr_capture\" ) 2>/dev/null; then cmux_ssh_capture_active=1; exec 9>>\"$cmux_ssh_stderr_capture\"; else exec 9>&2; fi",
+            "  cmux_ssh_tee_pid=",
+            "  if [ -n \"${cmux_ssh_stderr_fifo:-}\" ] && ( : > \"$cmux_ssh_stderr_capture\" ) 2>/dev/null; then",
+            "    cmux_ssh_capture_active=1",
+            "    tee -a \"$cmux_ssh_stderr_capture\" < \"$cmux_ssh_stderr_fifo\" >&2 &",
+            "    cmux_ssh_tee_pid=$!",
+            "    exec 9>\"$cmux_ssh_stderr_fifo\"",
+            "  else",
+            "    exec 9>&2",
+            "  fi",
         ]
         // POSIX sh redirects stdin of an async command (`&`) to /dev/null when
         // job control is off (the default for `/bin/sh -c …`), so ssh would
         // never receive keystrokes from the surface PTY. Inheriting fd 0
         // explicitly with `<&0` overrides that default and keeps the wrapper's
         // own stdin (the terminal) wired into the backgrounded ssh process.
-        // ssh's stderr (fd 2) is duplicated onto fd 9 so it is both shown and
-        // captured; the remote PTY stream stays on fd 1 and is untouched.
+        // ssh's stderr (fd 2) is duplicated onto fd 9 so it streams to both the
+        // terminal and the capture file; the remote PTY stream stays on fd 1.
         if isShellSnippet {
             scriptLines += [
                 "  (",
@@ -9993,10 +10012,12 @@ struct CMUXCLI {
             "  cmux_ssh_status=$?",
             "  CMUX_SSH_CHILD_PID=",
             "  exec 9>&-",
-            // Surface the attempt's captured stderr, then classify it: a key-signing
-            // refusal from the agent means the agent is locked (not that the host is
-            // unreachable), so it must not consume the network reconnect budget.
-            "  if [ \"$cmux_ssh_capture_active\" = 1 ] && [ -s \"$cmux_ssh_stderr_capture\" ]; then cat \"$cmux_ssh_stderr_capture\" >&2 2>/dev/null || true; fi",
+            // Close the write end so the background tee drains the FIFO and exits;
+            // wait for it so the capture file is complete before classification.
+            "  if [ -n \"${cmux_ssh_tee_pid:-}\" ]; then wait \"$cmux_ssh_tee_pid\" 2>/dev/null || true; cmux_ssh_tee_pid=; fi",
+            // Classify the failure: a key-signing refusal means the agent is locked
+            // (not that the host is unreachable), so it must not consume the network
+            // reconnect budget. stderr was already streamed live by the tee above.
             "  cmux_ssh_agent_locked=0",
             "  if [ \"$cmux_ssh_capture_active\" = 1 ] && [ \"$cmux_ssh_status\" -ne 0 ] && grep -qiE 'agent refused operation|sign_and_send_pubkey: signing failed' \"$cmux_ssh_stderr_capture\" 2>/dev/null; then cmux_ssh_agent_locked=1; fi",
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
