@@ -803,6 +803,38 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(marked.components(separatedBy: "\(esc)]133;A").count - 1, 1)
     }
 
+    // Agent plan output often restates the request as a Markdown bullet or
+    // heading ("- refactor the login flow"). These lead with a list/heading
+    // marker, not a prompt sigil, so they must not be mistaken for the prompt row
+    // even though they appear below it.
+    func testScrollbackReplayDoesNotMarkMarkdownBulletEchoingTheMessage() {
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let message = "refactor the login flow"
+        let lines = [
+            "\(esc)[2m> \(reset)refactor the login flow", // the real prompt row
+            "\(esc)[1mPlan:\(reset)",
+            "- refactor the login flow",                   // agent bullet restating it
+            "# Refactor the login flow",                   // agent heading restating it
+            "- add regression tests",
+        ]
+        let scrollback = lines.joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+        let markedLines = marked.components(separatedBy: "\n")
+
+        XCTAssertTrue(
+            markedLines[0].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
+            "the real prompt row must be marked, got: \(markedLines[0])"
+        )
+        XCTAssertFalse(markedLines[2].contains("\(esc)]133;A"), "a Markdown bullet must not be marked")
+        XCTAssertFalse(markedLines[3].contains("\(esc)]133;A"), "a Markdown heading must not be marked")
+        XCTAssertEqual(marked.components(separatedBy: "\(esc)]133;A").count - 1, 1)
+    }
+
     // A multiline prompt (newlines collapsed) whose words land on different
     // captured rows still matches across rows.
     func testScrollbackReplayMarksMultilinePromptAcrossRows() {

@@ -1938,6 +1938,13 @@ enum SessionScrollbackReplayStore {
     /// export drops. See https://github.com/manaflow-ai/cmux/issues/6691.
     static let semanticPromptStartMark = "\u{001B}]133;A;cl=line\u{0007}"
 
+    /// Characters a prompt row may lead with before the message text — shell and
+    /// agent prompt sigils only. Deliberately EXCLUDES Markdown list/heading
+    /// markers (`-`, `*`, `+`, `#`) and blockquote-only prose, so an agent plan
+    /// bullet ("- refactor the login flow") restating the user's request does not
+    /// get mistaken for the prompt row.
+    private static let promptSigilCharacters: Set<Character> = [">", "❯", "›", "»", "▶", "│", "┃", "$", "%"]
+
     static func replayEnvironment(
         for scrollback: String?,
         lastUserMessage: String? = nil,
@@ -2100,21 +2107,23 @@ enum SessionScrollbackReplayStore {
 
         // A user prompt row BEGINS with the message text, possibly after a short
         // prompt sigil ("> ", "❯ ", "│ > ", "$ "). Two filters, in order:
-        //  1. Anchoring to the row start — rather than an unconstrained substring
-        //     scan — excludes agent output that merely echoes the user's words
-        //     mid-sentence ("I'll refactor the login flow", "Summary: …"), which is
-        //     never at a row start.
+        //  1. Anchoring to the row start, allowing only known prompt sigils (not an
+        //     unconstrained substring scan and not arbitrary punctuation), excludes
+        //     agent output that echoes the user's words mid-sentence ("I'll refactor
+        //     the login flow") AND Markdown list/heading echoes ("- refactor the
+        //     login flow", "# Refactor the login flow"), since those don't lead with
+        //     a prompt sigil.
         //  2. Among the anchored prompt rows, keep the BOTTOM-most so jump-to-prompt
         //     lands on the user's MOST RECENT prompt (duplicate/repeated prompt text
         //     resolves to the latest turn). Bottom-most is safe here precisely
-        //     because anchoring already removed the mid-sentence agent echoes.
+        //     because anchoring already removed the agent echoes.
         // The match may continue into following rows for wrapped prompts.
         var targetIndex: Int?
         for index in compactRows.indices where !compactRows[index].isEmpty {
-            // Leading run of up to 4 non-alphanumeric sigil characters.
+            // Leading run of up to 4 known prompt-sigil characters.
             var sigil = 0
             let row = compactRows[index]
-            while sigil < row.count, sigil < 4, !row[sigil].isLetter, !row[sigil].isNumber {
+            while sigil < row.count, sigil < 4, promptSigilCharacters.contains(row[sigil]) {
                 sigil += 1
             }
             for offset in 0...sigil where compactPrefixMatches(
