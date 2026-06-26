@@ -82,4 +82,37 @@ describe("analytics events route", () => {
     expect(getUser).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  test("fails closed when the Vercel limiter reports an unknown error", async () => {
+    const originalConsoleError = console.error;
+    console.error = mock(() => {}) as unknown as typeof console.error;
+    try {
+      checkRateLimit.mockResolvedValue({
+        rateLimited: false,
+        error: "temporarily-unavailable",
+      });
+
+      const response = await analyticsRoute.POST(
+        new Request("https://cmux.test/api/analytics/events", {
+          method: "POST",
+          headers: {
+            host: "cmux.test",
+            "content-type": "application/json",
+            "x-real-ip": "203.0.113.10",
+          },
+          body: "{",
+        }),
+      );
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "rate_limit_unavailable" });
+      expect(getUser).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+      const calls = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+      expect(calls[0]?.[0]).toBe("analytics.events.rate_limit_error_unknown");
+      expect(calls[0]?.[1]).toBe("temporarily-unavailable");
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
 });
