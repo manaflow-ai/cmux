@@ -15,6 +15,7 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
     /// The gathered candidates, in arbitrary order (deduped/ranked by ``merged``).
     public let candidates: [CmxRouteCandidate]
 
+    /// Create a set from already-built candidates (in any order).
     public init(_ candidates: [CmxRouteCandidate] = []) {
         self.candidates = candidates
     }
@@ -119,7 +120,7 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
 
     // MARK: - Ordering
 
-    /// Whether `lhs` should replace `rhs` as the kept candidate for one endpoint.
+    /// Whether `lhs` should replace `rhs` as the kept candidate for one dedup key.
     private static func prefersAsDedupWinner(
         _ lhs: CmxRouteCandidate,
         over rhs: CmxRouteCandidate
@@ -147,8 +148,8 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
         if lhs.source.authority != rhs.source.authority {
             return lhs.source.authority > rhs.source.authority
         }
-        let lhsTier = proximityRank(lhs.proximity, preferLoopback: preferLoopback)
-        let rhsTier = proximityRank(rhs.proximity, preferLoopback: preferLoopback)
+        let lhsTier = Self.proximityRank(lhs.proximity, preferLoopback: preferLoopback)
+        let rhsTier = Self.proximityRank(rhs.proximity, preferLoopback: preferLoopback)
         if lhsTier != rhsTier { return lhsTier < rhsTier }
         if lhs.route.priority != rhs.route.priority { return lhs.route.priority < rhs.route.priority }
         return lhs.dedupKey < rhs.dedupKey

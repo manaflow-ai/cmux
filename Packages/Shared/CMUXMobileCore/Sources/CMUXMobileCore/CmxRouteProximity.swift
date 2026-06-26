@@ -45,8 +45,8 @@ public enum CmxRouteProximity: Sendable, Equatable, CaseIterable {
         }
     }
 
-    /// Classify a `host` string (IPv4/IPv6 literal or hostname).
-    static func classifyHost(_ host: String) -> CmxRouteProximity {
+    /// Classify a `host` string (IPv4/IPv6 literal or hostname) into a tier.
+    private static func classifyHost(_ host: String) -> CmxRouteProximity {
         let trimmed = host
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "[]")) // strip IPv6 brackets
@@ -74,7 +74,7 @@ public enum CmxRouteProximity: Sendable, Equatable, CaseIterable {
     /// `nil` if `host` is not one. Rejects leading zeros / out-of-range parts so
     /// only genuine IPv4 literals classify as such (matches the phone's existing
     /// `isIPLiteralHost` discipline).
-    static func ipv4Octets(_ host: String) -> [Int]? {
+    private static func ipv4Octets(_ host: String) -> [Int]? {
         let parts = host.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4 else { return nil }
         var octets: [Int] = []
@@ -110,8 +110,8 @@ public enum CmxRouteProximity: Sendable, Equatable, CaseIterable {
         // Tailscale's IPv6 ULA prefix fd7a:115c:a1e0::/48 — check before generic
         // ULA so a Tailscale v6 address ranks as tailnet, not plain LAN.
         if host.hasPrefix("fd7a:115c:a1e0") { return .tailnet }
-        // fe80::/10 link-local: first 10 bits 1111111010, i.e. the leading
-        // hextet spans fe80–febf, so match fe8x / fe9x / feax / febx.
+        // fe80::/10 link-local: first 10 bits 1111111010, i.e. the leading hextet
+        // spans fe80–febf, so match fe8x / fe9x / feax / febx.
         if host.hasPrefix("fe8") || host.hasPrefix("fe9")
             || host.hasPrefix("fea") || host.hasPrefix("feb") {
             return .lan

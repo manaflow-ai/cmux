@@ -32,12 +32,15 @@ extension CmxAttachEndpoint {
 /// by endpoint, and ranked into the order the phone tries them in by
 /// ``CmxRouteCandidateSet``.
 public struct CmxRouteCandidate: Equatable, Sendable {
+    /// The attach route this candidate offers (endpoint + transport kind).
     public let route: CmxAttachRoute
+    /// Where this candidate came from, used as a freshness/trust tiebreaker.
     public let source: CmxRouteSource
     /// When this candidate was last observed/refreshed. Drives freshness
     /// ranking; newer is preferred within a proximity tier.
     public let lastSeenAt: Date
 
+    /// Create a candidate from a route, its source, and when it was last seen.
     public init(route: CmxAttachRoute, source: CmxRouteSource, lastSeenAt: Date) {
         self.route = route
         self.source = source
