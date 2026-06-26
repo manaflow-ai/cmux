@@ -687,13 +687,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
-    /// Per-mount identity for a surface's output registration. Unlike
-    /// ``terminalOutputStreamTokensBySurfaceID`` (rotated by
-    /// ``resetTerminalOutputTracking()`` on reconnect to invalidate in-flight
-    /// delivery), this changes only when the surface is genuinely remounted. The
-    /// stream's deferred teardown checks it so a stale mount's `onTermination`
-    /// can't unregister a live remount's sink and strand it on stale content
-    /// (https://github.com/manaflow-ai/cmux/issues/6358).
+    /// Per-mount identity for a surface's output registration, checked by the
+    /// deferred stream teardown so a stale mount can't unregister a live remount's
+    /// sink. Distinct from the reconnect-rotated delivery token above (#6358).
     var terminalOutputStreamLifetimeTokensBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
@@ -6302,12 +6298,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }
-                    // Only tear down if this exact stream is still the registered
-                    // sink. A quick workspace switch away-and-back can remount the
-                    // same surface before this deferred teardown runs; unregistering
-                    // then would rip out the live remount's sink and strand it on
-                    // stale content. Mirrors ``terminalLiveFontStream``'s token guard
-                    // (https://github.com/manaflow-ai/cmux/issues/6358).
+                    // Only tear down if this stream still owns the registration; a
+                    // quick workspace switch away-and-back remounts the same surface,
+                    // and unregistering then would strand it on stale content. Mirrors
+                    // `terminalLiveFontStream`'s token guard (#6358).
                     guard self.terminalOutputStreamLifetimeTokensBySurfaceID[surfaceID] == lifetimeToken else {
                         return
                     }
