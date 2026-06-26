@@ -22,6 +22,10 @@ extension ControlCommandCoordinator {
             return workspaceList(request.params)
         case "workspace.create":
             return workspaceCreate(request.params)
+        case "workspace.get_cwd":
+            return workspaceGetCWD(request.params)
+        case "workspace.set_cwd":
+            return workspaceSetCWD(request.params)
         case "workspace.select":
             return workspaceSelect(request.params)
         case "workspace.current":
@@ -85,6 +89,7 @@ extension ControlCommandCoordinator {
             "listening_ports": .array(summary.listeningPorts.map { .int(Int64($0)) }),
             "remote": summary.remoteStatus,
             "current_directory": orNull(summary.currentDirectory),
+            "default_cwd": orNull(summary.defaultWorkingDirectory),
             "custom_color": orNull(summary.customColor),
             "latest_conversation_message": orNull(summary.latestConversationMessage),
             "latest_submitted_message": orNull(summary.latestSubmittedMessage),
@@ -150,6 +155,68 @@ extension ControlCommandCoordinator {
     func workspaceCreate(_ params: [String: JSONValue]) -> ControlCallResult {
         context?.controlWorkspaceCreate(params: params)
             ?? .err(code: "unavailable", message: "TabManager not available", data: nil)
+    }
+
+    // MARK: - Default cwd
+
+    /// `workspace.get_cwd` — read a workspace's stable default cwd.
+    func workspaceGetCWD(_ params: [String: JSONValue]) -> ControlCallResult {
+        let routing = routingSelectors(params)
+        let workspaceID = uuid(params, "workspace_id")
+        if hasNonNull(params, "workspace_id"), workspaceID == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let resolution = context?.controlGetWorkspaceDefaultDirectory(
+            routing: routing,
+            workspaceID: workspaceID
+        ) ?? .tabManagerUnavailable
+        return workspaceDefaultDirectoryResult(resolution, requestedWorkspaceID: workspaceID)
+    }
+
+    /// `workspace.set_cwd` — set a workspace's stable default cwd.
+    func workspaceSetCWD(_ params: [String: JSONValue]) -> ControlCallResult {
+        let routing = routingSelectors(params)
+        let workspaceID = uuid(params, "workspace_id")
+        if hasNonNull(params, "workspace_id"), workspaceID == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let cwd = string(params, "cwd") ?? string(params, "path") else {
+            return .err(code: "invalid_params", message: "Missing cwd", data: nil)
+        }
+        let resolution = context?.controlSetWorkspaceDefaultDirectory(
+            routing: routing,
+            workspaceID: workspaceID,
+            cwd: cwd
+        ) ?? .tabManagerUnavailable
+        return workspaceDefaultDirectoryResult(resolution, requestedWorkspaceID: workspaceID)
+    }
+
+    /// Shapes the shared `workspace.get_cwd` / `workspace.set_cwd` result.
+    private func workspaceDefaultDirectoryResult(
+        _ resolution: ControlWorkspaceDefaultDirectoryResolution,
+        requestedWorkspaceID: UUID?
+    ) -> ControlCallResult {
+        switch resolution {
+        case .tabManagerUnavailable:
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        case .noWorkspaceSelected:
+            return .err(code: "not_found", message: "No workspace selected", data: nil)
+        case .notFound:
+            var data: [String: JSONValue] = [:]
+            if let requestedWorkspaceID {
+                data["workspace_id"] = .string(requestedWorkspaceID.uuidString)
+                data["workspace_ref"] = ref(.workspace, requestedWorkspaceID)
+            }
+            return .err(code: "not_found", message: "Workspace not found", data: data.isEmpty ? nil : .object(data))
+        case .resolved(let windowID, let workspaceID, let cwd):
+            return .ok(.object([
+                "window_id": orNull(windowID?.uuidString),
+                "window_ref": ref(.window, windowID),
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "cwd": orNull(cwd),
+            ]))
+        }
     }
 
     // MARK: - Select / close / move

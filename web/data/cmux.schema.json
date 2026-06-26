@@ -216,6 +216,34 @@
         }
       }
     },
+    "workspaceProfiles": {
+      "type": "array",
+      "title": "workspaceProfiles",
+      "default": [],
+      "description": "Global persistent workspace profiles. On config reload, cmux ensures each named workspace exists, applies its pinned state, and keeps its default cwd separate from live terminal PWD reports. Project-local .cmux/cmux.json files cannot define workspace profiles.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "cwd"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Workspace name to create or reconcile."
+          },
+          "cwd": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Default working directory for new tabs and splits in this workspace. Relative paths resolve from the global cmux.json directory; ~ expands to the user's home directory."
+          },
+          "pinned": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether the reconciled workspace should be pinned in the sidebar."
+          }
+        }
+      }
+    },
     "surfaceTabBarButtons": {
       "title": "surfaceTabBarButtons",
       "description": "Legacy root-level surface tab bar buttons. Prefer ui.surfaceTabBar.buttons for new configs.",

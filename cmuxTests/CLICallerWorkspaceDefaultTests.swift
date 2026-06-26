@@ -50,8 +50,8 @@ struct CLICallerWorkspaceDefaultTests {
     }
 
     /// An explicit but unrecognized `--workspace` (e.g. a typo) must fail closed even when
-    /// a caller workspace is present, so a malformed name never silently resolves to — and
-    /// mutates — the caller's workspace.
+    /// a caller workspace is present, so a malformed name never silently resolves to and
+    /// mutates the caller's workspace.
     @Test func invalidWorkspaceArgFailsClosedEvenWithCaller() throws {
         let (requests, result) = try runMarkNotificationRead(
             workspaceArgument: "not-a-real-workspace",
@@ -81,6 +81,37 @@ struct CLICallerWorkspaceDefaultTests {
 
         let params = try #require(requests.first?["params"] as? [String: Any])
         #expect(params["tab_id"] as? String == Self.otherWorkspaceId)
+    }
+
+    @Test func workspaceGetCwdSendsDefaultCwdRequest() throws {
+        let cwd = "/tmp/cmux-cli-get-cwd-\(UUID().uuidString)"
+        let (requests, result) = try runWorkspaceCWDCommand(
+            arguments: ["workspace", "get-cwd", Self.callerWorkspaceId],
+            cwd: cwd
+        )
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == cwd)
+
+        let request = try #require(requests.first)
+        #expect(request["method"] as? String == "workspace.get_cwd")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.callerWorkspaceId)
+    }
+
+    @Test func workspaceSetCwdSendsResolvedPath() throws {
+        let cwd = "/tmp/cmux-cli-set-cwd-\(UUID().uuidString)"
+        let (requests, result) = try runWorkspaceCWDCommand(
+            arguments: ["workspace", "set-cwd", Self.callerWorkspaceId, cwd],
+            cwd: cwd
+        )
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(result.stdout.contains("cwd=\(cwd)"), Comment(rawValue: result.stdout))
+
+        let request = try #require(requests.first)
+        #expect(request["method"] as? String == "workspace.set_cwd")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.callerWorkspaceId)
+        #expect(params["cwd"] as? String == cwd)
     }
 
     /// Drives `mark-notification-read --workspace <argument>` against a mock socket and
@@ -124,6 +155,54 @@ struct CLICallerWorkspaceDefaultTests {
             executablePath: try Self.bundledCLIPath(),
             arguments: ["mark-notification-read", "--workspace", workspaceArgument],
             environment: cliEnvironment(socketPath: socketPath, callerWorkspaceId: callerWorkspaceId),
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+
+        return (try state.requestObjects(), result)
+    }
+
+    private func runWorkspaceCWDCommand(
+        arguments: [String],
+        cwd: String
+    ) throws -> ([[String: Any]], ProcessRunResult) {
+        let socketPath = Self.makeSocketPath("cwd")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.get_cwd", "workspace.set_cwd":
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": Self.callerWorkspaceId,
+                    "workspace_ref": "workspace:2",
+                    "cwd": cwd,
+                ])
+            default:
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: arguments,
+            environment: cliEnvironment(socketPath: socketPath, callerWorkspaceId: nil),
             timeout: 5
         )
 

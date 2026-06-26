@@ -128,6 +128,7 @@ extension Workspace {
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
+            defaultWorkingDirectory: defaultWorkingDirectory,
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
             layout: layout,
@@ -176,8 +177,15 @@ extension Workspace {
             disconnectRemoteConnection(clearConfiguration: true)
         }
 
+        let normalizedDefaultDirectory = snapshot.defaultWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !normalizedDefaultDirectory.isEmpty {
+            setDefaultWorkingDirectory(normalizedDefaultDirectory)
+        } else {
+            setDefaultWorkingDirectory(nil)
+        }
+
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !normalizedCurrentDirectory.isEmpty {
+        if defaultWorkingDirectory == nil, !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
         }
 
@@ -2188,6 +2196,10 @@ final class Workspace: Identifiable, ObservableObject {
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
     @Published private(set) var terminalScrollBarHidden: Bool = false
+    /// Stable workspace root used for profile-backed workspaces and workspaces
+    /// created with an explicit cwd. Live terminal PWD reports update
+    /// `panelDirectories` but do not replace this value.
+    @Published private(set) var defaultWorkingDirectory: String?
     @Published var currentDirectory: String {
         didSet {
             let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3012,6 +3024,7 @@ final class Workspace: Identifiable, ObservableObject {
         let initialDirectory = hasWorkingDirectory
             ? trimmedWorkingDirectory
             : FileManager.default.homeDirectoryForCurrentUser.path
+        self.defaultWorkingDirectory = hasWorkingDirectory ? trimmedWorkingDirectory : nil
         self.currentDirectory = initialDirectory
         self.surfaceTabBarDirectory = initialDirectory
 
@@ -4436,6 +4449,21 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Directory Updates
 
+    func setDefaultWorkingDirectory(_ workingDirectory: String?) {
+        let normalized = Self.normalizedTerminalWorkingDirectory(workingDirectory)
+        if defaultWorkingDirectory != normalized {
+            defaultWorkingDirectory = normalized
+        }
+        guard let normalized else { return }
+        if currentDirectory != normalized {
+            currentDirectory = normalized
+        }
+        let trackingDirectory = configTrackingDirectory(for: focusedPanelId)
+        if surfaceTabBarDirectory != trackingDirectory {
+            surfaceTabBarDirectory = trackingDirectory
+        }
+    }
+
     private enum PanelDirectoryUpdateSource {
         case liveReport
         case restoredSnapshotMetadata
@@ -4465,6 +4493,9 @@ final class Workspace: Identifiable, ObservableObject {
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
         // Remote workspace directories are remote-host paths; no local per-directory config can apply.
         if isRemoteWorkspace { return nil }
+        if let defaultWorkingDirectory {
+            return defaultWorkingDirectory
+        }
         if let panelId {
             for candidate in [panelDirectories[panelId], terminalPanel(for: panelId)?.requestedWorkingDirectory] {
                 let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -4490,7 +4521,7 @@ final class Workspace: Identifiable, ObservableObject {
         if panelId == focusedPanelId {
             let nextSurfaceTabBarDirectory = configTrackingDirectory(for: panelId)
             if surfaceTabBarDirectory != nextSurfaceTabBarDirectory { surfaceTabBarDirectory = nextSurfaceTabBarDirectory }
-            if currentDirectory != trimmed { currentDirectory = trimmed }
+            if defaultWorkingDirectory == nil, currentDirectory != trimmed { currentDirectory = trimmed }
         }
         return true
     }
@@ -6751,6 +6782,7 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> String? {
         [
             requestedWorkingDirectory,
+            defaultWorkingDirectory,
             sourcePanelId.flatMap { panelDirectories[$0] },
             sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
             currentDirectory,
@@ -8410,7 +8442,7 @@ final class Workspace: Identifiable, ObservableObject {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
-        let directory = workingDirectory ?? currentDirectory
+        let directory = workingDirectory ?? defaultWorkingDirectory ?? currentDirectory
 
         let agentPanel = AgentSessionPanel(
             workspaceId: id,
@@ -9852,6 +9884,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
             configTemplate: replacementConfig,
+            workingDirectory: defaultWorkingDirectory ?? currentDirectory,
             portOrdinal: portOrdinal,
             initialCommand: replacementInitialCommand,
             additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
@@ -9936,7 +9969,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalPanel = targetPanel as? TerminalPanel {
             terminalPanel.hostedView.ensureFocus(for: id, surfaceId: targetPanelId)
         }
-        if let dir = panelDirectories[targetPanelId] {
+        if defaultWorkingDirectory == nil, let dir = panelDirectories[targetPanelId] {
             currentDirectory = dir
         }
         gitBranch = panelGitBranches[targetPanelId]

@@ -7512,6 +7512,147 @@ struct CMUXCLI {
         }
     }
 
+    /// `cmux workspace get-cwd [workspace]` - print a workspace's stable default
+    /// working directory, falling back to the caller's workspace and then the
+    /// selected workspace when no handle is provided.
+    private func runWorkspaceGetCWDCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
+        let (_, rem1) = parseOption(rem0, name: "--window")
+        if let unknown = rem1.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.workspace.getCwd.error.unknownFlag",
+                    defaultValue: "workspace get-cwd: unknown flag '%@'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>"
+                ),
+                locale: .current,
+                unknown
+            ))
+        }
+        let positionals = rem1.filter { !$0.hasPrefix("--") }
+        guard positionals.count <= 1 else {
+            throw CLIError(message: String(
+                localized: "cli.workspace.getCwd.error.tooManyArgs",
+                defaultValue: "workspace get-cwd accepts at most one workspace handle"
+            ))
+        }
+
+        let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
+        let winId = try normalizeWindowHandle(windowRaw, client: client)
+        let target = workspaceArg ?? positionals.first
+        let wsId = try resolveWorkspaceId(target, client: client, windowHandle: winId)
+        var params: [String: Any] = ["workspace_id": wsId]
+        if let winId { params["window_id"] = winId }
+
+        let payload = try client.sendV2(method: "workspace.get_cwd", params: params)
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+            return
+        }
+        let cwd = (payload["cwd"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if cwd.isEmpty {
+            print(String(localized: "cli.workspace.getCwd.empty", defaultValue: "No default cwd"))
+        } else {
+            print(cwd)
+        }
+    }
+
+    /// `cmux workspace set-cwd [workspace] <path>` - set a workspace's stable
+    /// default working directory. With one positional argument, the argument is
+    /// the path and the workspace falls back to caller/selected context.
+    private func runWorkspaceSetCWDCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let (cwdOpt, rem0) = parseOption(commandArgs, name: "--cwd")
+        let (workspaceArg, rem1) = parseOption(rem0, name: "--workspace")
+        let (_, rem2) = parseOption(rem1, name: "--window")
+        if let unknown = rem2.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.workspace.setCwd.error.unknownFlag",
+                    defaultValue: "workspace set-cwd: unknown flag '%@'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>, --cwd <path>"
+                ),
+                locale: .current,
+                unknown
+            ))
+        }
+
+        let positionals = rem2.filter { !$0.hasPrefix("--") }
+        let target: String?
+        let cwdRaw: String?
+        if let cwdOpt {
+            target = workspaceArg ?? positionals.first
+            cwdRaw = cwdOpt
+            guard positionals.count <= 1 else {
+                throw CLIError(message: String(
+                    localized: "cli.workspace.setCwd.error.tooManyArgs",
+                    defaultValue: "workspace set-cwd received too many arguments"
+                ))
+            }
+        } else if let workspaceArg {
+            target = workspaceArg
+            cwdRaw = positionals.first
+            guard positionals.count <= 1 else {
+                throw CLIError(message: String(
+                    localized: "cli.workspace.setCwd.error.tooManyArgs",
+                    defaultValue: "workspace set-cwd received too many arguments"
+                ))
+            }
+        } else if positionals.count >= 2 {
+            target = positionals[0]
+            cwdRaw = positionals[1]
+            guard positionals.count == 2 else {
+                throw CLIError(message: String(
+                    localized: "cli.workspace.setCwd.error.tooManyArgs",
+                    defaultValue: "workspace set-cwd received too many arguments"
+                ))
+            }
+        } else {
+            target = nil
+            cwdRaw = positionals.first
+        }
+
+        guard let cwdRaw, !cwdRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw CLIError(message: String(
+                localized: "cli.workspace.setCwd.error.missingPath",
+                defaultValue: "workspace set-cwd requires a path"
+            ))
+        }
+
+        let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
+        let winId = try normalizeWindowHandle(windowRaw, client: client)
+        let wsId = try resolveWorkspaceId(target, client: client, windowHandle: winId)
+        let cwd = resolvePath(cwdRaw)
+        var params: [String: Any] = ["workspace_id": wsId, "cwd": cwd]
+        if let winId { params["window_id"] = winId }
+
+        let payload = try client.sendV2(method: "workspace.set_cwd", params: params)
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+            return
+        }
+        let handle = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? wsId
+        let echoedCWD = (payload["cwd"] as? String) ?? cwd
+        print(String(
+            format: String(
+                localized: "cli.workspace.setCwd.ok",
+                defaultValue: "OK %@ cwd=%@"
+            ),
+            locale: .current,
+            handle,
+            echoedCWD
+        ))
+    }
+
     private func runWorkspaceCloseCommand(
         commandName: String,
         commandArgs: [String],
@@ -7917,7 +8058,7 @@ struct CMUXCLI {
         guard let sub = commandArgs.first?.lowercased() else {
             throw CLIError(message: String(
                 localized: "cli.error.workspaceSubcommandRequired",
-                defaultValue: "workspace requires a subcommand. Try: list, create, env, close, rename, select, reconnect, disconnect, group"
+                defaultValue: "workspace requires a subcommand. Try: list, create, env, get-cwd, set-cwd, close, rename, select, reconnect, disconnect, group"
             ))
         }
         let rest = Array(commandArgs.dropFirst())
@@ -7950,6 +8091,22 @@ struct CMUXCLI {
             )
         case "env":
             try runWorkspaceEnvCommand(
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
+        case "get-cwd":
+            try runWorkspaceGetCWDCommand(
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
+        case "set-cwd":
+            try runWorkspaceSetCWDCommand(
                 commandArgs: rest,
                 client: client,
                 jsonOutput: jsonOutput,
@@ -8010,7 +8167,7 @@ struct CMUXCLI {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.error.workspaceSubcommandUnknown",
-                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, reconnect, disconnect, group"
+                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, env, get-cwd, set-cwd, close, rename, select, reconnect, disconnect, group"
                 ),
                 locale: .current,
                 sub
@@ -14845,10 +15002,14 @@ struct CMUXCLI {
 
             Subcommands:
               list                    List workspaces in a window
-              create [flags]          Create a workspace (same flags as new-workspace)
+              create [flags]          Create a workspace (same flags as new-workspace,
+                                      including --env KEY=VALUE and --env-file <path>)
               env [workspace] [--mask]
                                       Print a workspace's configured environment
                                       variables (--mask redacts the values)
+              get-cwd [workspace]    Print a workspace's stable default cwd
+              set-cwd [workspace] <path>
+                                      Set a workspace's stable default cwd
               close <workspace>       Close a workspace
               rename <workspace> --title <new>
               select <workspace>      Make a workspace active
@@ -14858,14 +15019,17 @@ struct CMUXCLI {
               disconnect [workspace]  Stop a remote (SSH) workspace's connection
               group <subcommand>      Workspace group operations (see cmux workspace-group --help)
 
-            env/reconnect/disconnect accept a positional handle or --workspace
+            env/get-cwd/set-cwd/reconnect/disconnect accept a positional handle or --workspace
             <id|ref|index>, defaulting to the caller's workspace, then the
             selected one (of --window's window when given).
 
             Examples:
               cmux workspace list --json
               cmux workspace create --name Build --cwd ~/projects/myapp
+              cmux workspace create --cwd . --env AWS_PROFILE=prod --env-file ./.cmux.env
               cmux workspace env workspace:3 --mask
+              cmux workspace set-cwd workspace:3 ~/projects/myapp
+              cmux workspace get-cwd workspace:3
               cmux workspace close workspace:3
               cmux workspace reconnect
               cmux workspace disconnect --workspace workspace:3

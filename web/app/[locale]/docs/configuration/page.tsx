@@ -42,6 +42,7 @@ const sectionOrder = [
   "notifications",
   "sidebar",
   "workspaceGroups",
+  "workspaceProfiles",
   "workspaceColors",
   "sidebarAppearance",
   "automation",
@@ -131,6 +132,11 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   // "workspaceGroups": {
   //   "newWorkspacePlacement": "afterCurrent"
   // },
+
+  // "workspaceProfiles": [
+  //   { "name": "coding", "cwd": "~/projects/coding", "pinned": true },
+  //   { "name": "planning", "cwd": "~/projects/planning", "pinned": true }
+  // ],
 
   // "shortcuts": {
   //   "bindings": {

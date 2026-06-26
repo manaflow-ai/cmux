@@ -155,7 +155,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     func newTerminalToRightUsesAnchorTabWorkingDirectoryWhenAnchorIsNotSelected() throws {
         let selectedDirectory = "/tmp/cmux-selected-\(UUID().uuidString)"
         let anchorDirectory = "/tmp/cmux-anchor-\(UUID().uuidString)"
-        let workspace = Workspace(workingDirectory: "/tmp/cmux-workspace-\(UUID().uuidString)")
+        let workspace = Workspace()
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)
         let selectedPanel = try #require(workspace.focusedTerminalPanel)
         let selectedTabId = try #require(workspace.surfaceIdFromPanelId(selectedPanel.id))
@@ -185,6 +185,24 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let createdPanel = try #require(workspace.terminalPanel(for: createdPanelId))
 
         #expect(createdPanel.requestedWorkingDirectory == anchorDirectory)
+    }
+
+    @MainActor
+    @Test("workspace default cwd is stable while live terminal cwd drifts")
+    func workspaceDefaultWorkingDirectoryDoesNotDriftWithLiveTerminalPwd() throws {
+        let defaultDirectory = "/tmp/cmux-default-\(UUID().uuidString)"
+        let liveDirectory = "/tmp/cmux-live-\(UUID().uuidString)"
+        let workspace = Workspace(workingDirectory: defaultDirectory)
+        let focusedPanel = try #require(workspace.focusedTerminalPanel)
+
+        workspace.updatePanelDirectory(panelId: focusedPanel.id, directory: liveDirectory)
+
+        #expect(workspace.defaultWorkingDirectory == defaultDirectory)
+        #expect(workspace.currentDirectory == defaultDirectory)
+        #expect(workspace.panelDirectories[focusedPanel.id] == liveDirectory)
+
+        let createdPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
+        #expect(createdPanel.requestedWorkingDirectory == defaultDirectory)
     }
 
     @MainActor

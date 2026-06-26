@@ -6,6 +6,10 @@ import CmuxSettings
 final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     var listResolution: ControlWorkspaceListResolution = .tabManagerUnavailable
     var currentResolution: ControlWorkspaceCurrentResolution = .tabManagerUnavailable
+    var getDefaultDirectoryResolution: ControlWorkspaceDefaultDirectoryResolution = .tabManagerUnavailable
+    var setDefaultDirectoryResolution: ControlWorkspaceDefaultDirectoryResolution = .tabManagerUnavailable
+    var getDefaultDirectoryCall: (routing: ControlRoutingSelectors, workspaceID: UUID?)?
+    var setDefaultDirectoryCall: (routing: ControlRoutingSelectors, workspaceID: UUID?, cwd: String)?
     var addWorkspaceToGroupResolution: ControlWorkspaceGroupAddResolution = .tabManagerUnavailable
     var addWorkspaceToGroupCall: (
         groupID: UUID,
@@ -47,6 +51,23 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
 
     func controlWorkspaceCurrent(routing: ControlRoutingSelectors) -> ControlWorkspaceCurrentResolution {
         currentResolution
+    }
+
+    func controlGetWorkspaceDefaultDirectory(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?
+    ) -> ControlWorkspaceDefaultDirectoryResolution {
+        getDefaultDirectoryCall = (routing: routing, workspaceID: workspaceID)
+        return getDefaultDirectoryResolution
+    }
+
+    func controlSetWorkspaceDefaultDirectory(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        cwd: String
+    ) -> ControlWorkspaceDefaultDirectoryResolution {
+        setDefaultDirectoryCall = (routing: routing, workspaceID: workspaceID, cwd: cwd)
+        return setDefaultDirectoryResolution
     }
 
     func controlAddWorkspaceToGroup(
