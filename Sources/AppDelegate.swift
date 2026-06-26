@@ -9246,17 +9246,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return workspace.terminalPanel(for: panelId) != nil
     }
 
-    /// Appends the appshot context to an existing agent surface and submits it
-    /// (terminal-mode Return). Returns `false` if the surface vanished so the
-    /// caller can fall back to a new thread. Deliberately does not steal focus
-    /// from the frontmost app, so consecutive appshots keep capturing it.
+    /// Stages the appshot context in an existing agent surface. Returns `false`
+    /// if the surface vanished so the caller can fall back to a new thread.
+    ///
+    /// The text is typed but NOT auto-submitted (no trailing Return): the prompt
+    /// embeds the frontmost window's title, which is attacker-influenceable, and
+    /// cmux cannot verify the focused surface is an agent rather than a plain
+    /// shell. Staging lets the user review and submit, so a hostile title can
+    /// never be auto-executed as a shell command. Deliberately does not steal
+    /// focus from the frontmost app, so consecutive appshots keep capturing it.
     @discardableResult
     func sendAppshotText(_ text: String, workspaceId: UUID, panelId: UUID) -> Bool {
         guard let manager = tabManagerFor(tabId: workspaceId),
               let workspace = manager.tabs.first(where: { $0.id == workspaceId }),
               workspace.terminalPanel(for: panelId) != nil else { return false }
         manager.focusTab(workspaceId, surfaceId: panelId, suppressFlash: true)
-        sendTextWhenReady(text + "\r", to: workspace, preferredPanelId: panelId)
+        sendTextWhenReady(text, to: workspace, preferredPanelId: panelId)
         return true
     }
 

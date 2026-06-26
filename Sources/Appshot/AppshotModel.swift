@@ -29,9 +29,14 @@ struct AppshotCapture: Equatable {
     /// The message references the saved screenshot/text *files by path* rather
     /// than pasting their contents, so it works with every terminal agent
     /// (Claude Code, Codex, …) regardless of whether they accept pasted images
-    /// (see https://github.com/manaflow-ai/cmux/issues/6039), and it never
-    /// embeds newlines — so appending a single Return submits it cleanly to a
-    /// TUI agent instead of executing fragments line-by-line.
+    /// (see https://github.com/manaflow-ai/cmux/issues/6039).
+    ///
+    /// The window title is attacker-influenceable (e.g. a web page can set its
+    /// title), so it is sanitized (``singleLine``) to strip control characters
+    /// and collapse newlines: the message is delivered as a single line and is
+    /// *staged without an automatic Return* (see `AppDelegate.sendAppshotText`),
+    /// so a malicious title cannot inject a terminal escape sequence or be
+    /// auto-executed as a shell command. The user reviews and submits.
     ///
     /// Returns `nil` when neither a screenshot nor any text was captured, so the
     /// caller can surface an error instead of sending an empty prompt.
@@ -76,11 +81,18 @@ struct AppshotCapture: Equatable {
         }
     }
 
-    /// Collapses any whitespace/newlines to single spaces and clamps length, so
-    /// titles with embedded newlines can't break the single-line invariant of
-    /// ``promptText()``.
+    /// Sanitizes a window/app label for safe single-line terminal delivery:
+    /// drops control characters (e.g. ESC, which could otherwise inject a
+    /// terminal escape sequence when typed into a surface) while treating
+    /// whitespace/newlines as separators, then collapses runs of whitespace and
+    /// clamps length. This preserves the single-line invariant of
+    /// ``promptText()`` even for hostile titles.
     static func singleLine(_ raw: String, max: Int) -> String {
-        let collapsed = raw
+        let stripped = String(String.UnicodeScalarView(raw.unicodeScalars.filter { scalar in
+            !CharacterSet.controlCharacters.contains(scalar)
+                || CharacterSet.whitespacesAndNewlines.contains(scalar)
+        }))
+        let collapsed = stripped
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: " ")

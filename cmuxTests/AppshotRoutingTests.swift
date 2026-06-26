@@ -81,6 +81,17 @@ final class AppshotRoutingTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Line1 Line2 Line3"))
     }
 
+    func testPromptStripsControlCharactersFromHostileTitle() throws {
+        // A hostile window title (e.g. a web page can set its title) must not
+        // smuggle a terminal escape sequence into the staged single-line prompt.
+        let prompt = try XCTUnwrap(
+            capture(title: "Tab\u{1B}[31mEvil\u{07}\u{08}", image: "/tmp/a.png", text: "/tmp/a.txt").promptText()
+        )
+        XCTAssertFalse(prompt.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) })
+        XCTAssertFalse(prompt.contains("\n"))
+        XCTAssertTrue(prompt.contains("/tmp/a.png"))
+    }
+
     // MARK: - routing
 
     func testRoutesToLastRouteWithinWindowWhenSurfaceExists() {
