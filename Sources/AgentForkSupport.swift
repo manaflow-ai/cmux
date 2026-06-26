@@ -3,37 +3,8 @@ import Foundation
 import CMUXAgentLaunch
 import Darwin
 
-/// Coordinates cancellation with `Process.run()`: Foundation raises an
-/// Objective-C exception if termination APIs touch a task before launch.
-/// `@unchecked Sendable` is safe here because all mutable state is protected by `lock`.
-final class ProcessTerminationGate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var didLaunch = false
-    private var didFinish = false
-    private var terminationRequested = false
-
-    func requestTermination() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !didFinish else { return false }
-        terminationRequested = true
-        return didLaunch
-    }
-
-    func markLaunched() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !didFinish else { return false }
-        didLaunch = true
-        return terminationRequested
-    }
-
-    func markFinished() {
-        lock.lock()
-        defer { lock.unlock() }
-        didFinish = true
-    }
-}
+// ProcessTerminationGate moved to CmuxFoundation
+// (Sources/CmuxFoundation/Process/ProcessTerminationGate.swift); used here via `import CmuxFoundation`.
 
 private actor OpenCodeVersionProbeCache {
     private var valuesByKey: [String: Bool] = [:]
