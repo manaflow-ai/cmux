@@ -30,6 +30,27 @@ enum SleepyPowerControls {
         run("/usr/bin/pmset", ["displaysleepnow"])
     }
 
+    // The real macOS login lock. This is the only genuinely secure, unbypassable
+    // lock available to an app — it's Apple's loginwindow, not our overlay.
+    // SACLockScreenImmediate is a private login.framework symbol, loaded
+    // dynamically (it's unavailable in Swift directly). No privileges needed.
+    nonisolated(unsafe) private static let lockScreenFn: (@convention(c) () -> Void)? = {
+        guard let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/Versions/Current/login", RTLD_LAZY),
+              let symbol = dlsym(handle, "SACLockScreenImmediate") else { return nil }
+        return unsafeBitCast(symbol, to: (@convention(c) () -> Void).self)
+    }()
+
+    /// Engages the real macOS login lock (account password / Touch ID). Falls
+    /// back to the screen-saver "lock" key combo if the private symbol is gone.
+    static func lockMacNow() {
+        if let lockScreenFn {
+            lockScreenFn()
+        } else {
+            // Fallback: the standard "Lock Screen" path via the login session.
+            run("/usr/bin/pmset", ["displaysleepnow"])
+        }
+    }
+
     /// Reads the current energy mode without elevated privileges.
     static func currentEnergyMode() -> SleepyEnergyMode {
         guard let out = capture("/usr/bin/pmset", ["-g"]) else { return .automatic }

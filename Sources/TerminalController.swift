@@ -11480,11 +11480,7 @@ class TerminalController {
             case "on", "activate", "start":
                 SleepyModeController.shared.activate()
             case "off", "deactivate", "stop":
-                // Force exit, bypassing auth — DEBUG-only escape hatch.
                 SleepyModeController.shared.deactivate()
-            case "unlock":
-                // Exercise the real Touch ID / password unlock path.
-                SleepyModeController.shared.requestUnlock()
             case "preview":
                 SleepyModeController.shared.preview()
             case "theme":
@@ -11500,7 +11496,6 @@ class TerminalController {
                 case "zs", "z": store.showZs.toggle()
                 case "clock": store.showClock.toggle()
                 case "status": store.showStatus.toggle()
-                case "auth", "requireauth": store.requireAuth.toggle()
                 case "pets": store.showPets.toggle()
                 default: break
                 }

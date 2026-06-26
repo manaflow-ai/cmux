@@ -103,12 +103,10 @@ public struct SleepyModeSection: View {
             SettingsCard {
                 SettingsCardRow(
                     configurationReview: .settingsOnly,
-                    String(localized: "sleepyMode.settings.requireAuth", defaultValue: "Require Touch ID to exit"),
-                    subtitle: store.requireAuth
-                        ? String(localized: "sleepyMode.settings.requireAuth.on", defaultValue: "Locks the Mac. Blocks Cmd-Tab, Cmd-Q, and force-quit until you authenticate.")
-                        : String(localized: "sleepyMode.settings.requireAuth.off", defaultValue: "Casual screensaver. Any key or click wakes it.")
+                    String(localized: "sleepyMode.settings.securityNote", defaultValue: "About security"),
+                    subtitle: String(localized: "sleepyMode.settings.securityNote.subtitle", defaultValue: "Sleepy Mode is a screensaver, not a lock — any key or click wakes it. For real security, use the \u{201C}Lock Mac\u{201D} button in the scene, which engages the actual macOS login lock.")
                 ) {
-                    Toggle("", isOn: $store.requireAuth).labelsHidden().controlSize(.small)
+                    EmptyView()
                 }
             }
 

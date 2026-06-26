@@ -42,7 +42,6 @@ public struct SleepyModeConfig: Equatable, Sendable {
     public var showClock = true
     public var showStatus = true
     public var showPets = true
-    public var requireAuth = true
 
     // Custom colors (used when theme == .custom / glow == .custom). Hex "RRGGBB".
     public var customFace = SleepyCustomDefaults.face
@@ -72,7 +71,6 @@ public final class SleepyModeSettingsStore {
     public var showClock: Bool { didSet { persist(showClock, Keys.showClock) } }
     public var showStatus: Bool { didSet { persist(showStatus, Keys.showStatus) } }
     public var showPets: Bool { didSet { persist(showPets, Keys.showPets) } }
-    public var requireAuth: Bool { didSet { persist(requireAuth, Keys.requireAuth) } }
 
     public var customFace: String { didSet { persist(customFace, Keys.customFace) } }
     public var customCap: String { didSet { persist(customCap, Keys.customCap) } }
@@ -93,7 +91,6 @@ public final class SleepyModeSettingsStore {
         static let showClock = "sleepyMode.showClock"
         static let showStatus = "sleepyMode.showStatus"
         static let showPets = "sleepyMode.showPets"
-        static let requireAuth = "sleepyMode.requireAuth"
         static let customFace = "sleepyMode.customFace"
         static let customCap = "sleepyMode.customCap"
         static let customBlush = "sleepyMode.customBlush"
@@ -114,7 +111,6 @@ public final class SleepyModeSettingsStore {
         showClock = defaults.object(forKey: Keys.showClock) as? Bool ?? fallback.showClock
         showStatus = defaults.object(forKey: Keys.showStatus) as? Bool ?? fallback.showStatus
         showPets = defaults.object(forKey: Keys.showPets) as? Bool ?? fallback.showPets
-        requireAuth = defaults.object(forKey: Keys.requireAuth) as? Bool ?? fallback.requireAuth
         customFace = defaults.string(forKey: Keys.customFace) ?? fallback.customFace
         customCap = defaults.string(forKey: Keys.customCap) ?? fallback.customCap
         customBlush = defaults.string(forKey: Keys.customBlush) ?? fallback.customBlush
@@ -134,7 +130,6 @@ public final class SleepyModeSettingsStore {
         config.showClock = showClock
         config.showStatus = showStatus
         config.showPets = showPets
-        config.requireAuth = requireAuth
         config.customFace = customFace
         config.customCap = customCap
         config.customBlush = customBlush

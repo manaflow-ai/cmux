@@ -114,19 +114,25 @@ struct SleepyFaceView: View {
 
     private func bottomBar(config: SleepyModeConfig) -> some View {
         let accent = SleepyPalette.colors(for: config)["O"] ?? .white
-        let hintText = config.requireAuth
-            ? String(localized: "sleepyMode.dismissHint", defaultValue: "Touch ID or password to unlock")
-            : String(localized: "sleepyMode.dismissHintCasual", defaultValue: "Click or press any key to wake")
+        let hintText = String(localized: "sleepyMode.dismissHintCasual", defaultValue: "Press any key or click to wake")
         return VStack(spacing: 0) {
             Spacer()
             HStack(spacing: 16) {
                 Button {
-                    // Exits (casual) or prompts Touch ID / password (locked).
                     SleepyModeController.shared.toggle()
                 } label: {
                     Label(String(localized: "sleepyMode.button.exit", defaultValue: "Exit"), systemImage: "xmark")
                 }
                 .buttonStyle(PixelButtonStyle(tint: Color(red: 0.52, green: 0.30, blue: 0.40)))
+
+                Button {
+                    // The real macOS login lock — genuinely secure (Apple's), unlike
+                    // the overlay. The screensaver stays up behind it as the backdrop.
+                    SleepyPowerControls.lockMacNow()
+                } label: {
+                    Label(String(localized: "sleepyMode.button.lockMac", defaultValue: "Lock Mac"), systemImage: "lock.fill")
+                }
+                .buttonStyle(PixelButtonStyle(tint: Color(red: 0.34, green: 0.30, blue: 0.60)))
 
                 Button {
                     SleepyPowerControls.sleepDisplayNow()

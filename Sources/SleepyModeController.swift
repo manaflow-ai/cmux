@@ -1,94 +1,47 @@
-import CmuxSettingsUI
 import AppKit
+import CmuxSettingsUI
 import IOKit.pwr_mgt
-import LocalAuthentication
 import SwiftUI
 
-/// Owns "Sleepy Mode": a secure full-screen cute-face lock that keeps the Mac
-/// (and its display) awake. Use case: leave the Mac running so it can be driven
-/// from the cmux iOS app, without letting a passerby touch the desktop.
+/// Owns "Sleepy Mode": a cute full-screen keep-awake screensaver. It holds
+/// IOKit power assertions so the Mac (and its display) stay awake — useful for
+/// leaving the Mac running for the cmux iOS app — and covers every screen with
+/// the animated scene.
 ///
-/// Security model (kiosk lock, not a FileVault-grade lock):
-/// - Covers every screen with a borderless screensaver-level overlay.
-/// - Applies `NSApplicationPresentationOptions` kiosk flags that disable
-///   Cmd-Tab, Mission Control/Exposé, the Force Quit panel, the power-key
-///   restart/shutdown menu, app hiding, the Dock, and the menu bar.
-/// - Swallows every key (including Cmd-Q) via a local event monitor while
-///   locked, so the only way out is authentication.
-/// - Requires Touch ID or the account password (`LocalAuthentication`) to exit.
-///
-/// The cmux daemon/socket keeps serving the iOS app while locked, since that
-/// path never touches the GUI.
+/// It is deliberately NOT a security boundary: a normal macOS app cannot make
+/// an unbypassable lock (the kiosk approach is escapable the moment another app
+/// takes focus). Any key or click wakes it. For real security, the scene's
+/// "Lock Mac" button triggers the actual macOS login lock.
 @MainActor
 final class SleepyModeController {
     static let shared = SleepyModeController()
 
     private(set) var isActive = false
-    private var locked = false
-
-    /// True only while engaged as a secure lock (kiosk + auth required to exit).
-    var isLocked: Bool { isActive && locked }
 
     /// Invoked whenever sleepy mode turns on or off so menu UI can refresh.
     var onStateChange: (() -> Void)?
 
     private var overlayWindows: [SleepyOverlayWindow] = []
-    private var keyMonitor: Any?
     private var screenObserver: NSObjectProtocol?
-    private var savedPresentationOptions: NSApplication.PresentationOptions?
-    private var isAuthenticating = false
 
     private var systemAssertionID = IOPMAssertionID(0)
     private var displayAssertionID = IOPMAssertionID(0)
     private var hasSystemAssertion = false
     private var hasDisplayAssertion = false
 
-    /// Kiosk flags. This exact combination is the canonical "lock down
-    /// everything" set; invalid combinations raise an uncatchable NSException,
-    /// so it must not be edited casually (hideMenuBar requires hideDock, etc.).
-    private static let kioskOptions: NSApplication.PresentationOptions = [
-        .hideDock,
-        .hideMenuBar,
-        .disableAppleMenu,
-        .disableProcessSwitching,
-        .disableForceQuit,
-        .disableSessionTermination,
-        .disableHideApplication,
-    ]
-
     private init() {}
 
     var isHoldingPowerAssertions: Bool { hasSystemAssertion || hasDisplayAssertion }
 
     func toggle() {
-        if isActive {
-            if locked { requestUnlock() } else { deactivate() }
-        } else {
-            activate()
-        }
+        if isActive { deactivate() } else { activate() }
     }
 
-    /// Engage Sleepy Mode using the user's settings (locks when "Require Touch
-    /// ID to exit" is on, otherwise a casual screensaver that any key/click wakes).
+    /// Shows the screensaver and keeps the Mac awake. Any key/click wakes it.
     func activate() {
-        activateInternal(locked: SleepyModeSettingsStore.shared.requireAuth)
-    }
-
-    /// Non-locking full-screen preview: shows the scene without the kiosk
-    /// lockdown, and any key/click exits without authentication.
-    func preview() {
-        activateInternal(locked: false)
-    }
-
-    private func activateInternal(locked: Bool) {
         guard !isActive else { return }
         isActive = true
-        self.locked = locked
         beginPowerAssertions()
-        if locked {
-            applyKioskPresentationOptions()
-            installKeyMonitor()
-        }
         installScreenObserver()
         rebuildOverlayWindows()
         NSApp.unhide(nil)
@@ -96,43 +49,16 @@ final class SleepyModeController {
         onStateChange?()
     }
 
-    /// User-facing exit: requires Touch ID / password. Falls back to a plain
-    /// exit only when no authentication is possible at all, to avoid lockout.
-    func requestUnlock() {
-        guard isActive, !isAuthenticating else { return }
-
-        let context = LAContext()
-        context.localizedCancelTitle = String(localized: "sleepyMode.unlockCancel", defaultValue: "Cancel")
-        var policyError: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &policyError) else {
-            // No biometrics and no password set: do not trap the user.
-            deactivate()
-            return
-        }
-
-        isAuthenticating = true
-        let reason = String(localized: "sleepyMode.unlockReason", defaultValue: "Unlock cmux Sleepy Mode")
-        context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { [weak self] success, _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.isAuthenticating = false
-                if success {
-                    self.deactivate()
-                }
-            }
-        }
+    /// Same thing — kept as a distinct entry point for the settings "Preview"
+    /// button now that there is no lock distinction.
+    func preview() {
+        activate()
     }
 
-    /// Force exit without authentication. Internal teardown path (also the
-    /// DEBUG socket escape hatch); never reachable from the locked UI.
     func deactivate() {
         guard isActive else { return }
         isActive = false
-        locked = false
-        isAuthenticating = false
-        removeKeyMonitor()
         removeScreenObserver()
-        restorePresentationOptions()
         endPowerAssertions()
         tearDownOverlayWindows()
         onStateChange?()
@@ -168,10 +94,7 @@ final class SleepyModeController {
         window.isMovable = false
         window.acceptsMouseMovedEvents = true
         window.setFrame(screen.frame, display: true)
-        window.onExit = { [weak self] in
-            guard let self else { return }
-            if self.locked { self.requestUnlock() } else { self.deactivate() }
-        }
+        window.onExit = { [weak self] in self?.deactivate() }
         window.contentView = NSHostingView(rootView: SleepyFaceView())
         return window
     }
@@ -184,42 +107,6 @@ final class SleepyModeController {
             window.close()
         }
         overlayWindows.removeAll()
-    }
-
-    // MARK: - Kiosk lockdown
-
-    private func applyKioskPresentationOptions() {
-        savedPresentationOptions = NSApp.presentationOptions
-        NSApp.presentationOptions = Self.kioskOptions
-    }
-
-    private func restorePresentationOptions() {
-        if let savedPresentationOptions {
-            NSApp.presentationOptions = savedPresentationOptions
-            self.savedPresentationOptions = nil
-        } else {
-            NSApp.presentationOptions = []
-        }
-    }
-
-    private func installKeyMonitor() {
-        guard keyMonitor == nil else { return }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
-            guard let self, self.isActive else { return event }
-            // While the auth sheet is up, let it receive keystrokes (password
-            // fallback). Otherwise swallow every key — including Cmd-Q — and
-            // route the interaction to the unlock prompt.
-            if self.isAuthenticating { return event }
-            self.requestUnlock()
-            return nil
-        }
-    }
-
-    private func removeKeyMonitor() {
-        if let keyMonitor {
-            NSEvent.removeMonitor(keyMonitor)
-            self.keyMonitor = nil
-        }
     }
 
     private func installScreenObserver() {
@@ -251,35 +138,17 @@ final class SleepyModeController {
         let reason = "cmux Sleepy Mode" as CFString
         if !hasSystemAssertion {
             var id = IOPMAssertionID(0)
-            let result = IOPMAssertionCreateWithName(
-                kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
-                IOPMAssertionLevel(kIOPMAssertionLevelOn),
-                reason,
-                &id
-            )
-            if result == kIOReturnSuccess {
+            if IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), reason, &id) == kIOReturnSuccess {
                 systemAssertionID = id
                 hasSystemAssertion = true
             }
-            #if DEBUG
-            cmuxDebugLog("sleepyMode.assertion.system result=\(result) id=\(id) ok=\(hasSystemAssertion)")
-            #endif
         }
         if !hasDisplayAssertion {
             var id = IOPMAssertionID(0)
-            let result = IOPMAssertionCreateWithName(
-                kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
-                IOPMAssertionLevel(kIOPMAssertionLevelOn),
-                reason,
-                &id
-            )
-            if result == kIOReturnSuccess {
+            if IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), reason, &id) == kIOReturnSuccess {
                 displayAssertionID = id
                 hasDisplayAssertion = true
             }
-            #if DEBUG
-            cmuxDebugLog("sleepyMode.assertion.display result=\(result) id=\(id) ok=\(hasDisplayAssertion)")
-            #endif
         }
     }
 
@@ -297,25 +166,14 @@ final class SleepyModeController {
     }
 }
 
-/// Borderless overlay window that becomes key so clicks route to the unlock
-/// prompt. Keystrokes are handled by the controller's local event monitor.
+/// Borderless screensaver window. Any key or click wakes it (no lock).
 final class SleepyOverlayWindow: NSWindow {
     var onExit: (() -> Void)?
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
-    override func keyDown(with event: NSEvent) {
-        // In locked mode the controller's local monitor swallows keys before
-        // they reach here; this path serves casual/preview mode.
-        onExit?()
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        onExit?()
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        onExit?()
-    }
+    override func keyDown(with event: NSEvent) { onExit?() }
+    override func mouseDown(with event: NSEvent) { onExit?() }
+    override func rightMouseDown(with event: NSEvent) { onExit?() }
 }
