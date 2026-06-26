@@ -95,7 +95,8 @@ struct WorkspaceRemoteConfigurationValueTests {
         preserveAfterTerminalExit: Bool = false,
         persistentDaemonSlot: String? = nil,
         managedCloudVMID: String? = nil,
-        skipDaemonBootstrap: Bool = false
+        skipDaemonBootstrap: Bool = false,
+        ownerWorkspaceID: UUID? = nil
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: transport,
@@ -108,6 +109,7 @@ struct WorkspaceRemoteConfigurationValueTests {
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
+            ownerWorkspaceID: ownerWorkspaceID,
             managedCloudVMID: managedCloudVMID,
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
@@ -185,6 +187,33 @@ struct WorkspaceRemoteConfigurationValueTests {
 
         let differentRelay = makeConfiguration(relayPort: 7001, preserveAfterTerminalExit: true, persistentDaemonSlot: "slot")
         #expect(!a.hasSamePersistentPTYIdentity(as: differentRelay))
+    }
+
+    @Test("managed Cloud VM persistent identity ignores local owner workspace")
+    func managedCloudPersistentIdentityIgnoresOwnerWorkspace() {
+        let ownerA = UUID()
+        let ownerB = UUID()
+        let a = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            managedCloudVMID: "vm-base",
+            skipDaemonBootstrap: true,
+            ownerWorkspaceID: ownerA
+        )
+        let b = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            managedCloudVMID: "vm-base",
+            skipDaemonBootstrap: true,
+            ownerWorkspaceID: ownerB
+        )
+
+        #expect(a.proxyBrokerTransportKey == b.proxyBrokerTransportKey)
+        #expect(a.hasSamePersistentPTYIdentity(as: b))
     }
 
     @Test("sessionSnapshot persists restorable transports with a non-empty destination")

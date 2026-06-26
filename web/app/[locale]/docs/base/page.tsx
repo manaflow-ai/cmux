@@ -71,7 +71,7 @@ export default async function BasePage({
         <li>{t("forkMeaning")}</li>
       </ul>
       <CodeBlock lang="bash">{`# Current preview CLI
-cmux vm new
+cmux vm base open
 cmux vm ls
 cmux vm status <id>`}</CodeBlock>
       <p>{t("cliNamingDesc")}</p>

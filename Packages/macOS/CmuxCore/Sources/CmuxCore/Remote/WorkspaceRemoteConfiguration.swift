@@ -167,6 +167,25 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             managedCloudVMID != nil
     }
 
+    private var usesManagedCloudPersistentPTYIdentity: Bool {
+        preserveAfterTerminalExit &&
+            managedCloudVMID != nil &&
+            (isManagedCloudVMSSHD || transport == .websocket)
+    }
+
+    private var proxyBrokerOwnerWorkspaceKeyComponent: String {
+        usesManagedCloudPersistentPTYIdentity
+            ? ""
+            : ownerWorkspaceID?.uuidString.lowercased() ?? ""
+    }
+
+    private func ownerWorkspaceMatchesForPersistentPTY(_ other: WorkspaceRemoteConfiguration) -> Bool {
+        if usesManagedCloudPersistentPTYIdentity && other.usesManagedCloudPersistentPTYIdentity {
+            return true
+        }
+        return ownerWorkspaceID == other.ownerWorkspaceID
+    }
+
     /// The stable key the proxy broker uses to share one daemon tunnel across
     /// workspaces that target the same transport identity.
     public var proxyBrokerTransportKey: String {
@@ -180,7 +199,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
         let normalizedRequiredCapabilities = preserveAfterTerminalExit ? "pty.session" : ""
         let normalizedPersistentDaemonSlot = persistentDaemonSlot ?? ""
-        let normalizedOwnerWorkspaceID = ownerWorkspaceID?.uuidString.lowercased() ?? ""
+        let normalizedOwnerWorkspaceID = proxyBrokerOwnerWorkspaceKeyComponent
         let normalizedManagedCloudVMID = managedCloudVMID ?? ""
         return [
             normalizedTransport,
@@ -219,7 +238,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
                 == other.destination.trimmingCharacters(in: .whitespacesAndNewlines)
             && port == other.port
             && relayPort == other.relayPort
-            && ownerWorkspaceID == other.ownerWorkspaceID
+            && ownerWorkspaceMatchesForPersistentPTY(other)
             && managedCloudVMID == other.managedCloudVMID
             && Self.normalizedIdentityPath(identityFile)
                 == Self.normalizedIdentityPath(other.identityFile)

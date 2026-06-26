@@ -38,7 +38,7 @@ final class CloudVMActionLauncher {
     func start(
         socketPath: String,
         preferredWindow: NSWindow?,
-        arguments: [String] = ["vm", "new"],
+        arguments: [String] = ["vm", "base", "open"],
         successTitle: String? = nil,
         presentOutputOnSuccess: Bool = false,
         showsProgress: Bool = true,
@@ -58,7 +58,7 @@ final class CloudVMActionLauncher {
                     output: "",
                     action: String(
                         localized: "command.cloudVM.failed.action.missingCLI",
-                        defaultValue: "Install or reload a fresh cmux build, then try Start Cloud VM again. You can also run `cmux vm new` in a terminal to see the full error."
+                        defaultValue: "Install or reload a fresh cmux build, then try Start Cloud VM again. You can also run `cmux vm base open` in a terminal to see the full error."
                     ),
                     preferredWindow: preferredWindow
                 )
@@ -124,7 +124,7 @@ final class CloudVMActionLauncher {
                     output: output,
                     action: String(
                         localized: "command.cloudVM.failed.action.exit",
-                        defaultValue: "Open a terminal and run `cmux auth status`, `cmux vm ls`, then `cmux vm new`. If you hit the active VM limit, delete one with `cmux vm rm <id>` and retry."
+                        defaultValue: "Open a terminal and run `cmux auth status`, `cmux vm ls`, then `cmux vm base open`. If you hit the active VM limit, delete one with `cmux vm rm <id>` and retry."
                     ),
                     preferredWindow: launchWindow
                 )
@@ -149,12 +149,12 @@ final class CloudVMActionLauncher {
                 presentStartFailure(
                     summary: String(
                         localized: "command.cloudVM.failed.launch",
-                        defaultValue: "cmux vm new could not be launched."
+                        defaultValue: "cmux vm base open could not be launched."
                     ),
                     output: error.localizedDescription,
                     action: String(
                         localized: "command.cloudVM.failed.action.launch",
-                        defaultValue: "Reload cmux so the bundled CLI is available, then try again. If it still fails, run `cmux vm new` in a terminal and send us the output."
+                        defaultValue: "Reload cmux so the bundled CLI is available, then try again. If it still fails, run `cmux vm base open` in a terminal and send us the output."
                     ),
                     preferredWindow: preferredWindow
                 )
@@ -198,7 +198,7 @@ final class CloudVMActionLauncher {
     }
 
     private static func progressPresentation(arguments: [String]) -> ProgressPresentation {
-        if arguments.starts(with: ["vm", "new"]) {
+        if arguments.starts(with: ["vm", "base"]) || arguments.starts(with: ["vm", "new"]) {
             return ProgressPresentation(
                 title: String(localized: "command.cloudVM.loading.open.title", defaultValue: "Opening Base"),
                 message: String(localized: "command.cloudVM.loading.open.message", defaultValue: "Creating or reattaching to your persistent cloud workspace.")
