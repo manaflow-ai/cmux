@@ -30,16 +30,6 @@ extension RightSidebarMode {
         }
     }
 
-    var symbolName: String {
-        switch self {
-        case .files: return "folder"
-        case .find: return "magnifyingglass"
-        case .sessions: return "books.vertical"
-        case .feed: return "dot.radiowaves.left.and.right"
-        case .dock: return "dock.rectangle"
-        }
-    }
-
     var shortcutAction: KeyboardShortcutSettings.Action? {
         switch self {
         case .files: return .switchRightSidebarToFiles
@@ -48,14 +38,6 @@ extension RightSidebarMode {
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
         }
-    }
-}
-
-extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
-
-    var canOpenAsPane: Bool {
-        Self.paneModes.contains(self)
     }
 }
 

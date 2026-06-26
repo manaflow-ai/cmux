@@ -114,6 +114,7 @@
 		B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770BA00000000000000002 /* BrowserAutomation.swift */; };
 		BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */; };
 		BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */; };
+		BC000011 /* BrowserChromeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC000001 /* BrowserChromeStyle.swift */; };
 		E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */; };
 		C10D517B0000000000000002 /* BrowserDevToolsIconColorOption+DevToolsColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D517B0000000000000001 /* BrowserDevToolsIconColorOption+DevToolsColor.swift */; };
 		C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */; };
@@ -1290,6 +1291,7 @@
 		B3770BA00000000000000002 /* BrowserAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAutomation.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserChromeMetrics.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserChromeMetricsTests.swift; sourceTree = "<group>"; };
+		BC000001 /* BrowserChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserChromeStyle.swift; sourceTree = "<group>"; };
 		970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
 		C10D517B0000000000000001 /* BrowserDevToolsIconColorOption+DevToolsColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserDevToolsIconColorOption+DevToolsColor.swift"; sourceTree = "<group>"; };
 		C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadFilenameResolver.swift; sourceTree = "<group>"; };
@@ -2929,6 +2931,7 @@
 				109D0E38E29A8779FA0BAE82 /* BrowserRemoteWorkspaceStatus.swift */,
 				326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */,
 				A5001414 /* BrowserPanelView.swift */,
+				BC000001 /* BrowserChromeStyle.swift */,
 				A9E010000000000000000001 /* AgentSessionProvider.swift */,
 				A9F100000000000000000001 /* AgentExecutableResolver.swift */,
 				A9F100000000000000000002 /* AgentExecutableResolverError.swift */,
@@ -3986,6 +3989,7 @@
 				D7ABB07A0000000000000003 /* BonsplitTabTransferPasteboard.swift in Sources */,
 				B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */,
 				BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */,
+				BC000011 /* BrowserChromeStyle.swift in Sources */,
 				C10D517B0000000000000002 /* BrowserDevToolsIconColorOption+DevToolsColor.swift in Sources */,
 				C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */,
 				A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */,

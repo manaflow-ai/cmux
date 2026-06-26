@@ -1029,11 +1029,15 @@ struct cmuxApp: App {
     private var browserFocusModeMenuSnapshot: (title: String, canToggle: Bool) {
         let _ = browserFocusModeMenuRevision
         let panel = activeTabManager.focusedBrowserPanel
+        let state = BrowserFocusModeMenuState(
+            isFocusModeActive: panel?.isBrowserFocusModeActive == true,
+            canToggle: panel?.canToggleBrowserFocusMode == true
+        )
         return (
-            title: panel?.isBrowserFocusModeActive == true
+            title: state.title == .exitBrowserFocusMode
                 ? String(localized: "menu.view.exitBrowserFocusMode", defaultValue: "Exit Browser Focus Mode")
                 : String(localized: "menu.view.enterBrowserFocusMode", defaultValue: "Enter Browser Focus Mode"),
-            canToggle: panel?.canToggleBrowserFocusMode == true
+            canToggle: state.canToggle
         )
     }
 
