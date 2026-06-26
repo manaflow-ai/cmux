@@ -291,7 +291,12 @@ public final class TerminalAccessoryConfiguration {
     }
 
     /// Move one configurable item to the end of another toolbar row.
+    ///
+    /// Selecting the row the item already occupies is a no-op.
     public func moveItem(_ id: ToolbarItemID, toRow rowIndex: Int) {
+        guard displayRows.indices.contains(rowIndex),
+              !displayRows[rowIndex].contains(id)
+        else { return }
         apply(reducer.move(id, toRow: rowIndex, in: currentLayout))
         persistAndNotify()
     }
