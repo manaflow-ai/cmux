@@ -14,8 +14,9 @@ DMG packaging fails the release instead of shipping a bundle that users see as
 "internal error in Code Signing subsystem".
 
 This test is pure static analysis (no codesign), so it runs on the Linux
-workflow-guard-tests job. The script's runtime behavior is covered by
-`scripts/verify-released-app-bundle.sh --self-test` on macOS.
+workflow-guard-tests job. It additionally requires ci.yml to wire the verifier's
+`--self-test` into a macOS job, so the verifier's runtime tamper-rejection
+behavior is actually proven in CI (not just asserted to exist).
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "verify-released-app-bundle.sh"
 RELEASE_WF = ROOT / ".github" / "workflows" / "release.yml"
 NIGHTLY_WF = ROOT / ".github" / "workflows" / "nightly.yml"
+CI_WF = ROOT / ".github" / "workflows" / "ci.yml"
 
 FAILURES: list[str] = []
 
@@ -111,8 +113,24 @@ def check_workflow(path: Path, dmg_name: str, upload_anchor: str, staple_anchor:
         )
 
 
+def check_self_test_wired() -> None:
+    """ci.yml must run the verifier's --self-test on a macOS runner, so the
+    runtime tamper-rejection proof actually executes in CI."""
+    if not CI_WF.exists():
+        FAILURES.append(f"missing workflow: {CI_WF.relative_to(ROOT)}")
+        return
+    text = CI_WF.read_text(encoding="utf-8")
+    check(
+        "verify-released-app-bundle.sh --self-test" in text,
+        ".github/workflows/ci.yml must run "
+        "scripts/verify-released-app-bundle.sh --self-test (a macOS job) so the "
+        "verifier's runtime tamper-rejection behavior is proven in CI",
+    )
+
+
 def main() -> int:
     check_script()
+    check_self_test_wired()
     check_workflow(
         RELEASE_WF,
         dmg_name="cmux-macos.dmg",
