@@ -127,6 +127,9 @@ jobs:
       - name: Validate cmux profiling support scripts
         run: ./tests/test_start_cmux_profiling.sh
 
+      - name: Validate bundled provider runtime guard
+        run: ./tests/test_bundled_provider_runtime_guard.sh
+
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
 
