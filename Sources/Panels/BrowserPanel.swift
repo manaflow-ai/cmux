@@ -7086,8 +7086,7 @@ extension BrowserPanel {
             switch result {
             case .success(let image):
                 completion(image)
-            case .failure(let error):
-                NSLog("BrowserPanel snapshot error: %@", error.localizedDescription)
+            case .failure:
                 completion(nil)
             }
         }
@@ -8388,7 +8387,6 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         #if DEBUG
         cmuxDebugLog("download.failed error=\(error.localizedDescription)")
         #endif
-        NSLog("BrowserPanel download failed: %@", error.localizedDescription)
     }
 }
 
