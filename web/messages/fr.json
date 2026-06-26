@@ -1068,7 +1068,7 @@
       "closeWorkspaceDesc": "Fermer un espace de travail.",
       "splitCommands": "Commandes de division",
       "newSplitDesc": "Créer un nouveau panneau divisé. Directions : left, right, up, down.",
-      "listSurfacesDesc": "Lister toutes les surfaces dans l'espace de travail actuel.",
+      "listPaneSurfacesDesc": "Lister les surfaces du panneau actif.",
       "focusSurfaceDesc": "Mettre le focus sur une surface spécifique.",
       "inputCommands": "Commandes de saisie",
       "sendDesc": "Envoyer du texte au terminal actif.",

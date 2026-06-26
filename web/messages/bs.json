@@ -1068,7 +1068,7 @@
       "closeWorkspaceDesc": "Zatvori radni prostor.",
       "splitCommands": "Komande razdjelnica",
       "newSplitDesc": "Kreiraj novi podijeljeni panel. Smjerovi: left, right, up, down.",
-      "listSurfacesDesc": "Izlistaj sve površine u trenutnom radnom prostoru.",
+      "listPaneSurfacesDesc": "Izlistaj površine u fokusiranom panelu.",
       "focusSurfaceDesc": "Fokusiraj specifičnu površinu.",
       "inputCommands": "Komande unosa",
       "sendDesc": "Pošalji tekstualni unos u fokusirani terminal.",

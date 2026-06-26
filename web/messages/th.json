@@ -1068,7 +1068,7 @@
       "closeWorkspaceDesc": "ปิด workspace",
       "splitCommands": "คำสั่งแยกหน้าจอ",
       "newSplitDesc": "สร้างพาเนลแยกใหม่ ทิศทาง: left, right, up, down",
-      "listSurfacesDesc": "แสดงรายการ surface ทั้งหมดใน workspace ปัจจุบัน",
+      "listPaneSurfacesDesc": "แสดงรายการ surface ในพาเนลที่โฟกัสอยู่",
       "focusSurfaceDesc": "โฟกัส surface ที่ระบุ",
       "inputCommands": "คำสั่ง input",
       "sendDesc": "ส่งข้อความไปยังเทอร์มินัลที่โฟกัสอยู่",

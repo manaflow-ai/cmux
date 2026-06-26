@@ -1068,7 +1068,7 @@
       "closeWorkspaceDesc": "Einen Workspace schließen.",
       "splitCommands": "Split-Befehle",
       "newSplitDesc": "Einen neuen geteilten Bereich erstellen. Richtungen: left, right, up, down.",
-      "listSurfacesDesc": "Alle Oberflächen im aktuellen Workspace auflisten.",
+      "listPaneSurfacesDesc": "Oberflächen im fokussierten Bereich auflisten.",
       "focusSurfaceDesc": "Eine bestimmte Oberfläche fokussieren.",
       "inputCommands": "Eingabebefehle",
       "sendDesc": "Texteingabe an das fokussierte Terminal senden.",

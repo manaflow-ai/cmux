@@ -1068,7 +1068,7 @@
       "closeWorkspaceDesc": "Cerrar un workspace.",
       "splitCommands": "Comandos de división",
       "newSplitDesc": "Crear un nuevo panel dividido. Direcciones: left, right, up, down.",
-      "listSurfacesDesc": "Listar todas las superficies en el workspace actual.",
+      "listPaneSurfacesDesc": "Listar las superficies en el panel enfocado.",
       "focusSurfaceDesc": "Enfocar una superficie específica.",
       "inputCommands": "Comandos de entrada",
       "sendDesc": "Enviar texto al terminal enfocado.",
