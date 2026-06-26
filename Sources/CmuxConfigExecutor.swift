@@ -141,8 +141,11 @@ struct CmuxConfigExecutor {
         // them without per-surface duplication.
         let variables = CmuxCommandVariableParser.variables(in: rawCommand)
         guard !variables.isEmpty else {
+            // No variables to prompt for, but still strip any escaped
+            // `\{{…}}` placeholders so they run as literal `{{…}}`.
+            let resolvedCommand = CmuxCommandVariableParser.substitute(rawCommand, values: [:])
             return authorizeSanitizedShellCommand(
-                rawCommand,
+                resolvedCommand,
                 confirm: confirm,
                 actionID: actionID,
                 target: target,

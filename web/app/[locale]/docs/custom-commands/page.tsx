@@ -352,6 +352,7 @@ export default function CustomCommandsPage() {
   ]
 }`}</CodeBlock>
       <p>{t("commandVariablesDefaultNote")}</p>
+      <p>{t("commandVariablesTemplateNote")}</p>
 
       <DocsHeading level={2} id="workspace-commands">{t("workspaceCommands")}</DocsHeading>
       <p>{t("workspaceCommandsDesc")}</p>

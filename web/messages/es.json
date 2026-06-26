@@ -964,8 +964,9 @@
       "restartNew": "Crear un workspace nuevo (por defecto)",
       "fieldFolder": "Ruta de carpeta opcional separada por / (p. ej. Project/Linting) que agrupa el comando en la paleta de comandos",
       "commandVariables": "Variables del comando",
-      "commandVariablesDesc": "Añade marcadores {{variable}} a un comando y cmux pedirá cada valor antes de ejecutarlo. Reutiliza el mismo nombre para rellenarlo en varios lugares a la vez.",
-      "commandVariablesDefaultNote": "Usa {{variable=default}} para rellenar previamente el campo con un valor predeterminado."
+      "commandVariablesDesc": "Añade marcadores a un comando y cmux pedirá cada valor antes de ejecutarlo. Reutiliza el mismo nombre para rellenarlo en varios lugares a la vez.",
+      "commandVariablesDefaultNote": "Añade un valor predeterminado después de un signo igual dentro de un marcador para rellenar el campo previamente.",
+      "commandVariablesTemplateNote": "Solo los identificadores simples se convierten en variables, así que las plantillas con puntos iniciales, espacios o tuberías se ejecutan sin cambios. Antepón una barra invertida a un marcador para mantenerlo literal."
     },
     "keyboardShortcuts": {
       "title": "Atajos de teclado",

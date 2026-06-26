@@ -964,8 +964,9 @@
       "restartNew": "Créer un nouveau workspace (par défaut)",
       "fieldFolder": "Chemin de dossier facultatif séparé par / (par ex. Project/Linting) qui regroupe la commande dans la palette de commandes",
       "commandVariables": "Variables de commande",
-      "commandVariablesDesc": "Ajoutez des espaces réservés {{variable}} à une commande et cmux demande chaque valeur avant de l'exécuter. Réutilisez le même nom pour le renseigner à plusieurs endroits à la fois.",
-      "commandVariablesDefaultNote": "Utilisez {{variable=default}} pour préremplir l'invite avec une valeur par défaut."
+      "commandVariablesDesc": "Ajoutez des espaces réservés à une commande et cmux demande chaque valeur avant de l'exécuter. Réutilisez le même nom pour le renseigner à plusieurs endroits à la fois.",
+      "commandVariablesDefaultNote": "Ajoutez une valeur par défaut après un signe égal à l'intérieur d'un espace réservé pour préremplir l'invite.",
+      "commandVariablesTemplateNote": "Seuls les identifiants simples deviennent des variables ; les modèles utilisant des points en tête, des espaces ou des barres verticales s'exécutent sans changement. Faites précéder un espace réservé d'une barre oblique inverse pour le garder littéral."
     },
     "keyboardShortcuts": {
       "title": "Raccourcis clavier",

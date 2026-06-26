@@ -964,8 +964,9 @@
       "restartNew": "创建新的 workspace（默认）",
       "fieldFolder": "可选的以 / 分隔的文件夹路径（例如 Project/Linting），用于在命令面板中对命令进行分组",
       "commandVariables": "命令变量",
-      "commandVariablesDesc": "在命令中添加 {{variable}} 占位符，cmux 会在运行前提示输入每个值。重复使用相同的名称即可一次性填充多个位置。",
-      "commandVariablesDefaultNote": "使用 {{variable=default}} 可为提示预填默认值。"
+      "commandVariablesDesc": "在命令中添加占位符，cmux 会在运行前提示输入每个值。重复使用相同的名称即可一次性填充多个位置。",
+      "commandVariablesDefaultNote": "在占位符内的等号后添加默认值，可为提示预填内容。",
+      "commandVariablesTemplateNote": "只有简单标识符才会成为变量，因此使用前导点、空格或竖线的模板会原样运行。在占位符前加反斜杠可保留其字面形式。"
     },
     "keyboardShortcuts": {
       "title": "快捷键",

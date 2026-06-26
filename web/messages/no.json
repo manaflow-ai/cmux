@@ -964,8 +964,9 @@
       "restartNew": "Opprett et nytt workspace (standard)",
       "fieldFolder": "Valgfri /-separert mappebane (f.eks. Project/Linting) som grupperer kommandoen i kommandopaletten",
       "commandVariables": "Kommandovariabler",
-      "commandVariablesDesc": "Legg til {{variable}}-plassholdere i en kommando, så ber cmux om hver verdi før den kjøres. Bruk det samme navnet på nytt for å fylle det inn flere steder samtidig.",
-      "commandVariablesDefaultNote": "Bruk {{variable=default}} for å forhåndsutfylle ledeteksten med en standardverdi."
+      "commandVariablesDesc": "Legg til plassholdere i en kommando, så ber cmux om hver verdi før den kjøres. Bruk det samme navnet på nytt for å fylle det inn flere steder samtidig.",
+      "commandVariablesDefaultNote": "Legg til en standardverdi etter et likhetstegn inne i en plassholder for å forhåndsutfylle ledeteksten.",
+      "commandVariablesTemplateNote": "Bare enkle identifikatorer blir variabler, så maler som bruker innledende punktum, mellomrom eller rør kjøres uendret. Sett en omvendt skråstrek foran en plassholder for å beholde den bokstavelig."
     },
     "keyboardShortcuts": {
       "title": "Tastatursnarveier",

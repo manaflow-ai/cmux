@@ -1116,8 +1116,9 @@
       "restartNew": "新しいワークスペースを作成する (デフォルト)",
       "fieldFolder": "コマンドパレットでコマンドをグループ化する任意の / 区切りフォルダーパス（例: Project/Linting）",
       "commandVariables": "コマンド変数",
-      "commandVariablesDesc": "コマンドに {{variable}} プレースホルダーを追加すると、実行前に cmux が各値の入力を求めます。同じプレースホルダー名を再利用すると、複数箇所を一度に入力できます。",
-      "commandVariablesDefaultNote": "{{variable=default}} を使うと、プロンプトに既定値をあらかじめ入力できます。"
+      "commandVariablesDesc": "コマンドにプレースホルダーを追加すると、実行前に cmux が各値の入力を求めます。同じプレースホルダー名を再利用すると、複数箇所を一度に入力できます。",
+      "commandVariablesDefaultNote": "プレースホルダー内のイコール記号の後に既定値を指定すると、プロンプトにあらかじめ入力できます。",
+      "commandVariablesTemplateNote": "変数として扱われるのは単純な識別子のみです。先頭のドット、スペース、パイプを使うテンプレートはそのまま実行されます。プレースホルダーの前にバックスラッシュを付けると、そのまま残せます。"
     },
     "keyboardShortcuts": {
       "title": "キーボードショートカット",

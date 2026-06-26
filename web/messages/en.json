@@ -1157,8 +1157,9 @@
       "restartNew": "Create a new workspace (default)",
       "fieldFolder": "Optional /-separated folder path (e.g. Project/Linting) that groups the command in the Command Palette",
       "commandVariables": "Command variables",
-      "commandVariablesDesc": "Add {{variable}} placeholders to a command and cmux prompts for each value before running it. Reuse the same placeholder name to fill it in several places at once.",
-      "commandVariablesDefaultNote": "Use {{variable=default}} to pre-fill the prompt with a default value."
+      "commandVariablesDesc": "Add placeholders to a command and cmux prompts for each value before running it. Reuse the same placeholder name to fill it in several places at once.",
+      "commandVariablesDefaultNote": "Add a default value after an equals sign inside a placeholder to pre-fill the prompt.",
+      "commandVariablesTemplateNote": "Only bare identifiers become variables, so templates that use leading dots, spaces, or pipes run unchanged. Prefix a placeholder with a backslash to keep it literal."
     },
     "keyboardShortcuts": {
       "title": "Keyboard Shortcuts",

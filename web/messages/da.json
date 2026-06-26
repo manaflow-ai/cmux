@@ -964,8 +964,9 @@
       "restartNew": "Opret et nyt workspace (standard)",
       "fieldFolder": "Valgfri /-adskilt mappesti (f.eks. Project/Linting), der grupperer kommandoen i kommandopaletten",
       "commandVariables": "Kommandovariabler",
-      "commandVariablesDesc": "Tilføj {{variable}}-pladsholdere til en kommando, og cmux beder om hver værdi, før den køres. Genbrug det samme navn for at udfylde det flere steder på én gang.",
-      "commandVariablesDefaultNote": "Brug {{variable=default}} til at udfylde prompten med en standardværdi på forhånd."
+      "commandVariablesDesc": "Tilføj pladsholdere til en kommando, og cmux beder om hver værdi, før den køres. Genbrug det samme navn for at udfylde det flere steder på én gang.",
+      "commandVariablesDefaultNote": "Tilføj en standardværdi efter et lighedstegn inde i en pladsholder for at udfylde prompten på forhånd.",
+      "commandVariablesTemplateNote": "Kun simple identifikatorer bliver variabler, så skabeloner med indledende punktummer, mellemrum eller pipes køres uændret. Sæt en omvendt skråstreg foran en pladsholder for at bevare den bogstaveligt."
     },
     "keyboardShortcuts": {
       "title": "Tastaturgenveje",

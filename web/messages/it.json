@@ -964,8 +964,9 @@
       "restartNew": "Crea un nuovo workspace (predefinito)",
       "fieldFolder": "Percorso di cartella facoltativo separato da / (es. Project/Linting) che raggruppa il comando nella palette dei comandi",
       "commandVariables": "Variabili del comando",
-      "commandVariablesDesc": "Aggiungi segnaposto {{variable}} a un comando e cmux chiederà ogni valore prima di eseguirlo. Riutilizza lo stesso nome per compilarlo in più punti contemporaneamente.",
-      "commandVariablesDefaultNote": "Usa {{variable=default}} per precompilare il prompt con un valore predefinito."
+      "commandVariablesDesc": "Aggiungi segnaposto a un comando e cmux chiederà ogni valore prima di eseguirlo. Riutilizza lo stesso nome per compilarlo in più punti contemporaneamente.",
+      "commandVariablesDefaultNote": "Aggiungi un valore predefinito dopo un segno di uguale all'interno di un segnaposto per precompilare il prompt.",
+      "commandVariablesTemplateNote": "Solo gli identificatori semplici diventano variabili, quindi i template che usano punti iniziali, spazi o pipe vengono eseguiti senza modifiche. Anteponi una barra rovesciata a un segnaposto per mantenerlo letterale."
     },
     "keyboardShortcuts": {
       "title": "Scorciatoie da tastiera",

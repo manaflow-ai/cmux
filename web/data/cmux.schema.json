@@ -53,7 +53,7 @@
           },
           "command": {
             "type": "string",
-            "description": "Shell command to run. Use {{variable}} placeholders (optionally {{variable=default}}) to prompt for values before running, for example \"bin/deploy --env {{environment}}\"."
+            "description": "Shell command to run. Use {{name}} placeholders (optionally {{name=default}}) to prompt for values before running, for example \"bin/deploy --env {{environment}}\". Only bare identifiers ([A-Za-z_][A-Za-z0-9_-]*) are treated as variables, so Go/Handlebars-style templates such as {{ .Env.FOO }} run unchanged; prefix a placeholder with a backslash (\\{{name}}) to keep a literal {{name}}."
           },
           "folder": {
             "type": "string",

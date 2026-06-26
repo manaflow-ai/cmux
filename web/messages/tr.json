@@ -964,8 +964,9 @@
       "restartNew": "Yeni bir workspace oluştur (varsayılan)",
       "fieldFolder": "Komutu komut paletinde gruplayan, / ile ayrılmış isteğe bağlı klasör yolu (ör. Project/Linting)",
       "commandVariables": "Komut değişkenleri",
-      "commandVariablesDesc": "Bir komuta {{variable}} yer tutucuları ekleyin; cmux çalıştırmadan önce her değeri sorar. Aynı adı yeniden kullanarak birden çok yeri tek seferde doldurun.",
-      "commandVariablesDefaultNote": "İstemi varsayılan bir değerle önceden doldurmak için {{variable=default}} kullanın."
+      "commandVariablesDesc": "Bir komuta yer tutucular ekleyin; cmux çalıştırmadan önce her değeri sorar. Aynı adı yeniden kullanarak birden çok yeri tek seferde doldurun.",
+      "commandVariablesDefaultNote": "İstemi önceden doldurmak için bir yer tutucu içindeki eşittir işaretinden sonra bir varsayılan değer ekleyin.",
+      "commandVariablesTemplateNote": "Yalnızca düz tanımlayıcılar değişken olur; bu nedenle baştaki noktalar, boşluklar veya borular kullanan şablonlar değişmeden çalışır. Bir yer tutucuyu olduğu gibi bırakmak için önüne ters eğik çizgi koyun."
     },
     "keyboardShortcuts": {
       "title": "Klavye Kısayolları",

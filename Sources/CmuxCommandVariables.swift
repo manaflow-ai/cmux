@@ -19,97 +19,130 @@ struct CmuxCommandVariable: Equatable, Sendable {
 /// Parses and substitutes `{{variable}}` placeholders inside custom command
 /// strings.
 ///
-/// Grammar (kept deliberately small and shell-safe):
+/// Grammar (deliberately narrow so it does not regress shell commands that
+/// embed Go/Handlebars-style `{{…}}` templates):
 /// - A placeholder is `{{` … `}}` whose inner text contains no `{`, `}`, or
 ///   newline.
-/// - The name is the text before the first `=`; an optional default value is
-///   the text after it. Both are trimmed of surrounding whitespace.
-/// - A name must be non-empty and contain only letters, digits, spaces, or
-///   `_ - .`. Anything else (`$`, `(`, `/`, `|`, …) makes the braces literal so
-///   ordinary shell snippets that happen to use `{{` are never mistaken for a
-///   variable.
+/// - The name is the text before an optional `=`; the text after `=` is a
+///   default value. Both are trimmed of surrounding whitespace.
+/// - The name must be a *bare identifier*: a letter or `_` followed by letters,
+///   digits, `_`, or `-`. Anything else — a leading `.` (`{{ .Env.FOO }}`),
+///   internal spaces (`{{ range .Items }}`), pipes, or function calls — is left
+///   completely untouched and runs as-is.
+/// - Prefix the placeholder with a backslash (`\{{name}}`) to force a literal
+///   `{{name}}`; cmux strips the backslash and never prompts for it.
 enum CmuxCommandVariableParser {
     /// Returns the ordered, de-duplicated variables found in `command`,
     /// preserving first-occurrence order. When the same name appears more than
     /// once, the first occurrence's default value wins.
     static func variables(in command: String) -> [CmuxCommandVariable] {
+        guard command.contains("{{") else { return [] }
         var seen = Set<String>()
         var result: [CmuxCommandVariable] = []
-        for match in matches(in: command) where seen.insert(match.name).inserted {
-            result.append(CmuxCommandVariable(name: match.name, defaultValue: match.defaultValue))
+        for case let .variable(variable, _) in scan(command) where seen.insert(variable.name).inserted {
+            result.append(variable)
         }
         return result
     }
 
     /// Whether `command` contains at least one recognized variable placeholder.
     static func containsVariables(_ command: String) -> Bool {
-        for _ in matches(in: command) { return true }
+        guard command.contains("{{") else { return false }
+        for case .variable in scan(command) { return true }
         return false
     }
 
-    /// Replaces every recognized placeholder whose name is present in `values`
-    /// with the corresponding value. Placeholders whose name is missing from
-    /// `values` are left untouched so partial maps never corrupt the command.
+    /// Resolves `command` for execution: replaces every recognized placeholder
+    /// whose name is present in `values` with its value, leaves placeholders
+    /// whose name is missing from `values` untouched, leaves non-identifier
+    /// `{{…}}` template expressions untouched, and strips the escaping
+    /// backslash from any `\{{…}}` so it becomes a literal `{{…}}`.
     static func substitute(_ command: String, values: [String: String]) -> String {
-        let found = matches(in: command)
-        guard !found.isEmpty else { return command }
+        guard command.contains("{{") else { return command }
         var result = ""
         result.reserveCapacity(command.count)
-        var cursor = command.startIndex
-        for match in found {
-            result.append(contentsOf: command[cursor..<match.range.lowerBound])
-            if let value = values[match.name] {
-                result.append(value)
-            } else {
-                result.append(contentsOf: command[match.range])
+        for token in scan(command) {
+            switch token {
+            case .literal(let text):
+                result.append(text)
+            case .variable(let variable, let raw):
+                result.append(values[variable.name] ?? raw)
             }
-            cursor = match.range.upperBound
         }
-        result.append(contentsOf: command[cursor...])
         return result
     }
 
     // MARK: - Scanning
 
-    private struct Match {
-        let range: Range<String.Index>
-        let name: String
-        let defaultValue: String?
+    private enum Token {
+        /// Text emitted verbatim (plain text, escaped placeholders with the
+        /// backslash removed, and unrecognized `{{…}}` template expressions).
+        case literal(String)
+        /// A recognized variable placeholder; `raw` is the original `{{…}}`
+        /// text used when no value is supplied.
+        case variable(CmuxCommandVariable, raw: String)
     }
 
-    private static let allowedNameCharacters: CharacterSet = CharacterSet.alphanumerics
-        .union(CharacterSet(charactersIn: "_-. "))
-
-    private static func matches(in command: String) -> [Match] {
-        var matches: [Match] = []
+    private static func scan(_ command: String) -> [Token] {
+        var tokens: [Token] = []
+        var literalStart = command.startIndex
         var index = command.startIndex
         let end = command.endIndex
+
+        func flushLiteral(upTo upperBound: String.Index) {
+            if literalStart < upperBound {
+                tokens.append(.literal(String(command[literalStart..<upperBound])))
+            }
+        }
+
         while index < end {
             guard let open = command.range(of: "{{", range: index..<end) else { break }
-            guard let close = command.range(of: "}}", range: open.upperBound..<end) else { break }
+            guard let close = command.range(of: "}}", range: open.upperBound..<end) else {
+                // No closing braces remain; everything left is literal text.
+                break
+            }
+
             let inner = command[open.upperBound..<close.lowerBound]
-            let hasIllegalCharacter = inner.contains { character in
+            let innerHasIllegalCharacter = inner.contains { character in
                 character == "{" || character == "}" || character == "\n" || character == "\r"
             }
-            if hasIllegalCharacter {
-                // Not a clean placeholder; keep scanning just past the "{{".
+            if innerHasIllegalCharacter {
+                // Not a clean placeholder; keep the "{{" in the literal run.
                 index = open.upperBound
                 continue
             }
+
+            let isEscaped = open.lowerBound > command.startIndex
+                && command[command.index(before: open.lowerBound)] == "\\"
+            if isEscaped {
+                // Drop the escaping backslash and emit a literal "{{…}}".
+                let backslash = command.index(before: open.lowerBound)
+                flushLiteral(upTo: backslash)
+                tokens.append(.literal(String(command[open.lowerBound..<close.upperBound])))
+                literalStart = close.upperBound
+                index = close.upperBound
+                continue
+            }
+
             if let parsed = parse(inner: String(inner)) {
-                matches.append(
-                    Match(
-                        range: open.lowerBound..<close.upperBound,
-                        name: parsed.name,
-                        defaultValue: parsed.defaultValue
+                flushLiteral(upTo: open.lowerBound)
+                tokens.append(
+                    .variable(
+                        CmuxCommandVariable(name: parsed.name, defaultValue: parsed.defaultValue),
+                        raw: String(command[open.lowerBound..<close.upperBound])
                     )
                 )
+                literalStart = close.upperBound
                 index = close.upperBound
             } else {
-                index = open.upperBound
+                // A `{{…}}` that is not a bare identifier (template expression);
+                // keep it in the literal run unchanged.
+                index = close.upperBound
             }
         }
-        return matches
+
+        flushLiteral(upTo: end)
+        return tokens
     }
 
     private static func parse(inner: String) -> (name: String, defaultValue: String?)? {
@@ -117,16 +150,23 @@ enum CmuxCommandVariableParser {
             let name = inner[..<equals].trimmingCharacters(in: .whitespaces)
             let defaultValue = inner[inner.index(after: equals)...]
                 .trimmingCharacters(in: .whitespaces)
-            guard isValidName(name) else { return nil }
+            guard isValidIdentifier(name) else { return nil }
             return (name, defaultValue)
         }
         let name = inner.trimmingCharacters(in: .whitespaces)
-        guard isValidName(name) else { return nil }
+        guard isValidIdentifier(name) else { return nil }
         return (name, nil)
     }
 
-    private static func isValidName(_ name: String) -> Bool {
-        guard !name.isEmpty else { return false }
-        return name.unicodeScalars.allSatisfy { allowedNameCharacters.contains($0) }
+    private static let trailingNameCharacters: CharacterSet = CharacterSet.letters
+        .union(.decimalDigits)
+        .union(CharacterSet(charactersIn: "_-"))
+
+    /// A bare identifier: a leading letter or `_`, then letters, digits, `_`, or
+    /// `-`. Rejects dots, spaces, and everything used by template engines.
+    private static func isValidIdentifier(_ name: String) -> Bool {
+        guard let first = name.unicodeScalars.first else { return false }
+        guard CharacterSet.letters.contains(first) || first == "_" else { return false }
+        return name.unicodeScalars.allSatisfy { trailingNameCharacters.contains($0) }
     }
 }
