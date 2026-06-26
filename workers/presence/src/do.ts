@@ -55,6 +55,7 @@ import {
 import {
   applyBackupOps,
   listBackupSnapshotWithUnscopedFallback,
+  normalizeClientScope,
   pairedMacsCollection,
   PAIRED_MACS_COLLECTION,
   PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES,
@@ -322,11 +323,12 @@ export class TeamPresence extends DurableObject {
   /** Back up a user's saved-host (paired-Mac) list. Called only by the worker
    * after it verifies the token, so `userId` is trusted, exactly like
    * `heartbeat`. Writes into the per-user physical `pairedMacs:<userId>`
-   * collection (so one team member never sees another's saved hosts) and
-   * broadcasts the resulting deltas — relabeled to the logical `pairedMacs`
-   * name — to that user's subscribed sockets so a second signed-in device
-   * updates live. Returns the number of records changed (no-op upserts of an
-   * unchanged payload are not counted and broadcast nothing). */
+   * collection (so one team member never sees another's saved hosts). Unscoped
+   * writes broadcast relabeled deltas to that user's `pairedMacs` subscribers.
+   * Scoped writes are not broadcast over the legacy unscoped live-sync channel;
+   * scoped clients restore/push through the scoped HTTP backup API until scoped
+   * WebSocket subscriptions exist. Returns the number of records changed (no-op
+   * upserts of an unchanged payload are not counted). */
   async backupPairedMacs(
     teamId: string,
     userId: string,
@@ -335,7 +337,9 @@ export class TeamPresence extends DurableObject {
   ): Promise<{ ok: true; changed: number }> {
     await this.rememberTeamId(teamId);
     const deltas = await applyBackupOps(this.syncStorage(), userId, ops, Date.now(), clientScope);
-    for (const delta of deltas) this.broadcastSyncToUser(userId, delta);
+    if (!normalizeClientScope(clientScope)) {
+      for (const delta of deltas) this.broadcastSyncToUser(userId, delta);
+    }
     // A delete creates a tombstone the alarm GCs, but an idle team (no presence
     // instances or subscribers) may never schedule an alarm otherwise, so a
     // create/delete churn would grow DO storage without bound. Schedule the
