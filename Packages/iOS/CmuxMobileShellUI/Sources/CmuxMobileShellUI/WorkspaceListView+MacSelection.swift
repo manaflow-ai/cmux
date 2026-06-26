@@ -119,6 +119,18 @@ extension WorkspaceListView {
                 }
             }
             .labelsVisibility(.visible)
+            if let showAddDevice {
+                Divider()
+                Button {
+                    showAddDevice()
+                } label: {
+                    Label(
+                        L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
+                        systemImage: "plus"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceMacPickerAdd")
+            }
         } label: {
             WorkspaceMacTitlePickerLabel(title: macTitlePickerTitle)
         }
