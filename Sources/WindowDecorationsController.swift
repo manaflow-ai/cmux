@@ -294,8 +294,8 @@ final class WindowDecorationsController {
             payload["minimalSidebarWindowMonitorLastEventType"] = String(describing: event.type)
             payload["minimalSidebarWindowMonitorLastEventWindowNumber"] = event.window.map { String($0.windowNumber) } ?? "nil"
             payload["minimalSidebarWindowMonitorLastTargetWindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"
-            payload["minimalSidebarWindowMonitorLastPoint"] = locationInWindow.map(windowDragHandleFormatPoint) ?? "nil"
-            payload["minimalSidebarWindowMonitorLastScreenPoint"] = windowDragHandleFormatPoint(NSEvent.mouseLocation)
+            payload["minimalSidebarWindowMonitorLastPoint"] = locationInWindow.map(\.titlebarDragPointDescription) ?? "nil"
+            payload["minimalSidebarWindowMonitorLastScreenPoint"] = NSEvent.mouseLocation.titlebarDragPointDescription
             payload["minimalSidebarWindowMonitorLastIsHovering"] = isHovering.map(String.init) ?? "nil"
             payload["minimalSidebarWindowMonitorLastSlot"] = slot?.debugName ?? "nil"
         }
@@ -314,7 +314,7 @@ final class WindowDecorationsController {
             let count = (payload["minimalSidebarWindowSendEventLeftMouseDownCount"] as? String).flatMap(Int.init) ?? 0
             payload["minimalSidebarWindowSendEventLeftMouseDownCount"] = String(count + 1)
             payload["minimalSidebarWindowSendEventLastWindowNumber"] = String(window.windowNumber)
-            payload["minimalSidebarWindowSendEventLastPoint"] = windowDragHandleFormatPoint(locationInWindow)
+            payload["minimalSidebarWindowSendEventLastPoint"] = locationInWindow.titlebarDragPointDescription
             payload["minimalSidebarWindowSendEventLastIsHovering"] = String(isHovering)
             payload["minimalSidebarWindowSendEventLastSlot"] = slot?.debugName ?? "nil"
         }

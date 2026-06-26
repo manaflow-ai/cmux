@@ -1282,8 +1282,8 @@ final class WindowDragHandleHitTests: XCTestCase {
     }
 
     func testPassiveHostingTopHitClassification() {
-        XCTAssertTrue(windowDragHandleShouldTreatTopHitAsPassiveHost(HostContainerView(frame: .zero)))
-        XCTAssertFalse(windowDragHandleShouldTreatTopHitAsPassiveHost(NSButton(frame: .zero)))
+        XCTAssertTrue(HostContainerView(frame: .zero).isWindowDragHandlePassiveHost)
+        XCTAssertFalse(NSButton(frame: .zero).isWindowDragHandlePassiveHost)
     }
 
     func testMinimalModeTitlebarControlRegionRegistryMatchesVisibleRegisteredView() {

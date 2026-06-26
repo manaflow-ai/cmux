@@ -66,10 +66,6 @@ enum WindowMouseMovedEventsCoordinator {
     }
 }
 
-func windowDragHandleFormatPoint(_ point: NSPoint) -> String {
-    String(format: "(%.1f,%.1f)", point.x, point.y)
-}
-
 private func windowDragHandleEventTypeDescription(_ eventType: NSEvent.EventType?) -> String {
     eventType.map { String(describing: $0) } ?? "nil"
 }
@@ -113,7 +109,7 @@ private func windowDragHandleEmitBreadcrumb(
 
     var data: [String: Any] = [
         "event_type": windowDragHandleEventTypeDescription(eventType),
-        "point": windowDragHandleFormatPoint(point),
+        "point": point.titlebarDragPointDescription,
         "window_number": windowNumber,
         "window_present": window != nil
     ]
@@ -121,50 +117,6 @@ private func windowDragHandleEmitBreadcrumb(
         data[name] = value
     }
     sentryBreadcrumb(message, category: "titlebar.drag", data: data)
-}
-
-private func windowDragHandleShouldResolveActiveHitCapture(
-    for eventType: NSEvent.EventType?,
-    eventWindow: NSWindow?,
-    dragHandleWindow: NSWindow?
-) -> Bool {
-    // We only need active hit resolution for titlebar mouse-down handling.
-    // During launch, NSApp.currentEvent can transiently point at a stale
-    // leftMouseDown from outside this window (for example Finder/Dock
-    // activation). Treat those as passive events so we never walk SwiftUI/
-    // AppKit hierarchy while initial layout is mutating it.
-    guard eventType == .leftMouseDown else {
-        return false
-    }
-    guard let dragHandleWindow else {
-        // Test-only views may not be attached to a window.
-        return true
-    }
-    guard let eventWindow else {
-        return false
-    }
-    return eventWindow === dragHandleWindow
-}
-
-/// SwiftUI/AppKit hosting wrappers can appear as the top hit even for empty
-/// titlebar space. Treat those as pass-through so explicit sibling checks decide.
-///
-/// Interactive titlebar controls are *not* identified here by their hit view.
-/// They register their region with ``MinimalModeTitlebarControlHitRegionRegistry``
-/// instead, which ``windowDragHandleShouldCaptureHit(_:in:eventType:eventWindow:)``
-/// consults (via `isMinimalModeTitlebarControlHit`) before this sibling walk runs,
-/// so a registered control already makes the drag handle yield.
-func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
-    let className = String(describing: type(of: view))
-    if className.contains("HostContainerView")
-        || className.contains("AppKitWindowHostingView")
-        || className.contains("NSHostingView") {
-        return true
-    }
-    if let window = view.window, view === window.contentView {
-        return true
-    }
-    return false
 }
 
 protocol MinimalModeTitlebarControlHitRegionProviding: AnyObject {
@@ -548,7 +500,7 @@ func recordMinimalModeSidebarChromeHoverForUITest(
         payload["minimalSidebarHoverEventCount"] = String(count + 1)
         payload["minimalSidebarHoverEventType"] = String(describing: eventType)
         payload["minimalSidebarHoverWindowNumber"] = String(window.windowNumber)
-        payload["minimalSidebarHoverPoint"] = windowDragHandleFormatPoint(locationInWindow)
+        payload["minimalSidebarHoverPoint"] = locationInWindow.titlebarDragPointDescription
         payload["minimalSidebarHoverIsCandidate"] = String(isHovering)
         payload["minimalSidebarHoverIsMinimal"] = String(isMinimal)
         payload["minimalSidebarHoverIsFullScreen"] = String(isFullScreen)
@@ -596,7 +548,7 @@ func windowDragHandleShouldCaptureHit(
         if BonsplitTabItemHitRegionRegistry.containsWindowPoint(windowPoint, in: dragHandleWindow) {
             #if DEBUG
             cmuxDebugLog(
-                "titlebar.dragHandle.hitTest capture=false reason=bonsplitPaneTab point=\(windowDragHandleFormatPoint(point))"
+                "titlebar.dragHandle.hitTest capture=false reason=bonsplitPaneTab point=\(point.titlebarDragPointDescription)"
             )
             #endif
             return false
@@ -623,14 +575,14 @@ func windowDragHandleShouldCaptureHit(
             )
             #if DEBUG
             cmuxDebugLog(
-                "titlebar.dragHandle.hitTest suppressionRecovered clearedDepth=\(clearedDepth) point=\(windowDragHandleFormatPoint(point))"
+                "titlebar.dragHandle.hitTest suppressionRecovered clearedDepth=\(clearedDepth) point=\(point.titlebarDragPointDescription)"
             )
             #endif
         } else {
         #if DEBUG
             let depth = dragHandleWindow?.windowDragSuppressionDepth ?? 0
             cmuxDebugLog(
-                "titlebar.dragHandle.hitTest capture=false reason=suppressed depth=\(depth) point=\(windowDragHandleFormatPoint(point))"
+                "titlebar.dragHandle.hitTest capture=false reason=suppressed depth=\(depth) point=\(point.titlebarDragPointDescription)"
             )
         #endif
             return false
@@ -639,17 +591,17 @@ func windowDragHandleShouldCaptureHit(
 
     // Bail out before the view-hierarchy walk so we never re-enter SwiftUI
     // views during a layout pass — which causes exclusive-access crashes (#490).
-    if !windowDragHandleShouldResolveActiveHitCapture(
-        for: eventType,
+    if !WindowDragHandleActiveHitResolution(
+        eventType: eventType,
         eventWindow: eventWindow,
         dragHandleWindow: dragHandleWindow
-    ) {
+    ).shouldResolveActiveHitCapture {
         #if DEBUG
         let eventTypeDescription = eventType.map { String(describing: $0) } ?? "nil"
         let eventWindowNumber = eventWindow?.windowNumber ?? -1
         let dragWindowNumber = dragHandleWindow?.windowNumber ?? -1
         cmuxDebugLog(
-            "titlebar.dragHandle.hitTest capture=false reason=passiveEvent eventType=\(eventTypeDescription) eventWindow=\(eventWindowNumber) dragWindow=\(dragWindowNumber) point=\(windowDragHandleFormatPoint(point))"
+            "titlebar.dragHandle.hitTest capture=false reason=passiveEvent eventType=\(eventTypeDescription) eventWindow=\(eventWindowNumber) dragWindow=\(dragWindowNumber) point=\(point.titlebarDragPointDescription)"
         )
         #endif
         return false
@@ -657,7 +609,7 @@ func windowDragHandleShouldCaptureHit(
 
     guard dragHandleView.bounds.contains(point) else {
         #if DEBUG
-        cmuxDebugLog("titlebar.dragHandle.hitTest capture=false reason=outside point=\(windowDragHandleFormatPoint(point))")
+        cmuxDebugLog("titlebar.dragHandle.hitTest capture=false reason=outside point=\(point.titlebarDragPointDescription)")
         #endif
         return false
     }
@@ -666,7 +618,7 @@ func windowDragHandleShouldCaptureHit(
         let locationInWindow = dragHandleView.convert(point, to: nil)
         if isMinimalModeTitlebarControlHit(window: dragHandleWindow, locationInWindow: locationInWindow) {
             #if DEBUG
-            cmuxDebugLog("titlebar.dragHandle.hitTest capture=false reason=minimalTitlebarControl point=\(windowDragHandleFormatPoint(point))")
+            cmuxDebugLog("titlebar.dragHandle.hitTest capture=false reason=minimalTitlebarControl point=\(point.titlebarDragPointDescription)")
             #endif
             return false
         }
@@ -674,7 +626,7 @@ func windowDragHandleShouldCaptureHit(
 
     guard let superview = dragHandleView.superview else {
         #if DEBUG
-        cmuxDebugLog("titlebar.dragHandle.hitTest capture=true reason=noSuperview point=\(windowDragHandleFormatPoint(point))")
+        cmuxDebugLog("titlebar.dragHandle.hitTest capture=true reason=noSuperview point=\(point.titlebarDragPointDescription)")
         #endif
         return true
     }
@@ -689,7 +641,7 @@ func windowDragHandleShouldCaptureHit(
     )
     guard !_windowDragHandleResolvingSiblingHitScopes.contains(hitResolutionScope) else {
         #if DEBUG
-        cmuxDebugLog("titlebar.dragHandle.hitTest capture=false reason=reentrant point=\(windowDragHandleFormatPoint(point))")
+        cmuxDebugLog("titlebar.dragHandle.hitTest capture=false reason=reentrant point=\(point.titlebarDragPointDescription)")
         #endif
         return false
     }
@@ -711,18 +663,18 @@ func windowDragHandleShouldCaptureHit(
 
         let pointInSibling = dragHandleView.convert(point, to: sibling)
         if let hitView = sibling.hitTest(pointInSibling) {
-            let passiveHostHit = windowDragHandleShouldTreatTopHitAsPassiveHost(hitView)
+            let passiveHostHit = hitView.isWindowDragHandlePassiveHost
             if passiveHostHit {
                 #if DEBUG
                 cmuxDebugLog(
-                    "titlebar.dragHandle.hitTest capture=defer point=\(windowDragHandleFormatPoint(point)) sibling=\(type(of: sibling)) hit=\(type(of: hitView)) passiveHost=true"
+                    "titlebar.dragHandle.hitTest capture=defer point=\(point.titlebarDragPointDescription) sibling=\(type(of: sibling)) hit=\(type(of: hitView)) passiveHost=true"
                 )
                 #endif
                 continue
             }
             #if DEBUG
             cmuxDebugLog(
-                "titlebar.dragHandle.hitTest capture=false point=\(windowDragHandleFormatPoint(point)) siblingCount=\(siblingCount) sibling=\(type(of: sibling)) hit=\(type(of: hitView)) passiveHost=false"
+                "titlebar.dragHandle.hitTest capture=false point=\(point.titlebarDragPointDescription) siblingCount=\(siblingCount) sibling=\(type(of: sibling)) hit=\(type(of: hitView)) passiveHost=false"
             )
             #endif
             windowDragHandleEmitBreadcrumb(
@@ -741,7 +693,7 @@ func windowDragHandleShouldCaptureHit(
     }
 
     #if DEBUG
-    cmuxDebugLog("titlebar.dragHandle.hitTest capture=true point=\(windowDragHandleFormatPoint(point)) siblingCount=\(siblingCount)")
+    cmuxDebugLog("titlebar.dragHandle.hitTest capture=true point=\(point.titlebarDragPointDescription) siblingCount=\(siblingCount)")
     #endif
     return true
 }
@@ -796,7 +748,7 @@ struct WindowDragHandleView: NSViewRepresentable {
             )
             #if DEBUG
             cmuxDebugLog(
-                "titlebar.dragHandle.hitTestResult capture=\(shouldCapture) point=\(windowDragHandleFormatPoint(point)) window=\(window != nil)"
+                "titlebar.dragHandle.hitTestResult capture=\(shouldCapture) point=\(point.titlebarDragPointDescription) window=\(window != nil)"
             )
             #endif
             return shouldCapture ? self : nil
@@ -807,7 +759,7 @@ struct WindowDragHandleView: NSViewRepresentable {
             let point = convert(event.locationInWindow, from: nil)
             let depth = window?.windowDragSuppressionDepth ?? 0
             cmuxDebugLog(
-                "titlebar.dragHandle.mouseDown point=\(windowDragHandleFormatPoint(point)) clickCount=\(event.clickCount) depth=\(depth)"
+                "titlebar.dragHandle.mouseDown point=\(point.titlebarDragPointDescription) clickCount=\(event.clickCount) depth=\(depth)"
             )
             #endif
 
@@ -1082,7 +1034,7 @@ struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
                 _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                     let count = (payload["minimalTitlebarEventSurfaceMouseDownCount"] as? String).flatMap(Int.init) ?? 0
                     payload["minimalTitlebarEventSurfaceMouseDownCount"] = String(count + 1)
-                    payload["minimalTitlebarEventSurfaceLastPoint"] = windowDragHandleFormatPoint(locationInWindow)
+                    payload["minimalTitlebarEventSurfaceLastPoint"] = locationInWindow.titlebarDragPointDescription
                     payload["minimalTitlebarEventSurfaceLastClickCount"] = String(event.clickCount)
                 }
             }

@@ -167,7 +167,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
             _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["\(telemetryPrefix)LastHitTestSlot"] = slot.debugName
-                payload["\(telemetryPrefix)LastHitTestPoint"] = windowDragHandleFormatPoint(point)
+                payload["\(telemetryPrefix)LastHitTestPoint"] = point.titlebarDragPointDescription
                 payload["\(telemetryPrefix)LastHitTestWindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"
                 payload["\(telemetryPrefix)LastHitTestRevealed"] = String(isRevealed)
             }
@@ -247,7 +247,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
             _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["\(telemetryPrefix)LastAction"] = slot.debugName
-                payload["\(telemetryPrefix)LastPoint"] = windowDragHandleFormatPoint(convert(locationInWindow, from: nil))
+                payload["\(telemetryPrefix)LastPoint"] = convert(locationInWindow, from: nil).titlebarDragPointDescription
                 payload["\(telemetryPrefix)WindowNumber"] = window.map { String($0.windowNumber) } ?? "nil"
                 payload["\(telemetryPrefix)LastActionRevealed"] = String(isRevealed)
             }

@@ -123,11 +123,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
         var webView: MarkdownWebView?
-        var panelId: UUID = UUID()
-        var workspaceId: UUID = UUID()
         var filePath: String = "" {
             didSet { imageSchemeHandler.filePath = filePath }
         }
+        /// Routes clicked links and JS-bridge file-open requests to the right
+        /// cmux surface (markdown tab, in-app browser, or system handler). Kept
+        /// in sync with the panel binding in `bind(panelId:workspaceId:filePath:)`.
+        private var linkRouter = MarkdownLinkRouter(surfaceRouting: AppDelegateMarkdownPanelSurfaceRouting())
         /// Owns the `WKURLSchemeHandler` responsibility for the custom image
         /// schemes. Registered on the web view configuration in place of the
         /// coordinator; kept in sync with `filePath` via the property observer.
@@ -157,9 +159,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #endif
 
         func bind(panelId: UUID, workspaceId: UUID, filePath: String) {
-            self.panelId = panelId
-            self.workspaceId = workspaceId
             self.filePath = filePath
+            linkRouter.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
         }
 
         /// Records the desired body font size and applies it as `pageZoom`.
@@ -361,11 +362,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 case "resolveMarkdownFile":
                     guard let requestId = body["requestId"] as? String,
                           let rawPath = body["path"] as? String else { return }
-                    resolveMarkdownFile(rawPath, requestId: requestId)
+                    linkRouter.resolveMarkdownFile(rawPath, requestId: requestId, on: webView)
                 case "openMarkdownFile":
                     guard let rawPath = body["path"] as? String else { return }
-                    if let resolved = resolvedMarkdownFilePath(rawPath) {
-                        openMarkdownFile(resolved)
+                    if let resolved = linkRouter.resolvedMarkdownFilePath(rawPath) {
+                        linkRouter.openMarkdownFile(resolved)
                     }
                 default:
                     break
@@ -400,46 +401,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         func cancelLocalImageLoads() {
             imageSchemeHandler.cancelLocalImageLoads()
-        }
-
-        private func resolveMarkdownFile(_ rawPath: String, requestId: String) {
-            guard let webView else { return }
-            let resolved = resolvedMarkdownFilePath(rawPath)
-#if DEBUG
-            NSLog("MarkdownPanel.resolve raw=\(rawPath) resolved=\(resolved ?? "nil")")
-#endif
-            let payload: [String: Any] = [
-                "requestId": requestId,
-                "exists": resolved != nil,
-                "path": resolved ?? ""
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let json = String(data: data, encoding: .utf8) else { return }
-            webView.evaluateJavaScript("window.__cmuxMarkdownFileResolved && window.__cmuxMarkdownFileResolved(\(json));", completionHandler: nil)
-        }
-
-        private func resolvedMarkdownFilePath(_ rawPath: String) -> String? {
-            let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            guard MarkdownPanelFileLinkResolver.isMarkdownPathLike(trimmed) else { return nil }
-            return MarkdownPanelFileLinkResolver.resolve(rawPath: trimmed, relativeToMarkdownFile: filePath)
-        }
-
-        private func openMarkdownFile(_ path: String) {
-#if DEBUG
-            NSLog("MarkdownPanel.openMarkdownFile path=\(path)")
-#endif
-            guard let app = AppDelegate.shared,
-                  let location = app.workspaceContainingPanel(
-                      panelId: panelId,
-                      preferredWorkspaceId: workspaceId
-                  ),
-                  let paneId = location.workspace.paneId(forPanelId: panelId) else { return }
-            _ = location.workspace.newMarkdownSurface(
-                inPane: paneId,
-                filePath: path,
-                focus: true
-            )
         }
 
         private func handleLibRequest(_ lib: String) {
@@ -562,7 +523,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                     decisionHandler(.allow)
                     return
                 }
-                handleExternalLink(url)
+                linkRouter.handleExternalLink(url)
                 decisionHandler(.cancel)
                 return
             }
@@ -577,60 +538,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         ) -> WKWebView? {
             // target=_blank / window.open from inside the rendered markdown.
             if let url = navigationAction.request.url {
-                handleExternalLink(url)
+                linkRouter.handleExternalLink(url)
             }
             return nil
-        }
-
-        // MARK: - Link routing
-
-        /// Route a clicked link to a brand-new cmux browser tab in the same
-        /// pane as this markdown panel — mirroring how Browser panels open
-        /// child links via `openLinkInNewTab`. Falls back to the system
-        /// browser only when the in-app browser is disabled or the panel
-        /// can't be located in any workspace.
-        private func handleExternalLink(_ url: URL) {
-#if DEBUG
-            NSLog("MarkdownPanel.handleExternalLink url=\(url.absoluteString)")
-#endif
-            // First preference: links that resolve to local markdown files
-            // open as markdown tabs in cmux, not in the browser.
-            let fileCandidate = url.scheme == "file" ? url.path : url.absoluteString
-            if let markdownPath = resolvedMarkdownFilePath(fileCandidate) {
-                openMarkdownFile(markdownPath)
-                return
-            }
-
-            // Schemes the in-app browser doesn't (and shouldn't) handle:
-            // mailto:, tel:, slack://, vscode://, file:// non-markdown, etc.
-            // Route those to the system handler so the user's default app picks them up.
-            if let scheme = url.scheme?.lowercased(),
-               scheme != "http", scheme != "https" {
-                NSWorkspace.shared.open(url)
-                return
-            }
-
-            guard BrowserAvailabilitySettings.isEnabled() else {
-                NSWorkspace.shared.open(url)
-                return
-            }
-
-            guard let app = AppDelegate.shared,
-                  let location = app.workspaceContainingPanel(
-                      panelId: panelId,
-                      preferredWorkspaceId: workspaceId
-                  ),
-                  let paneId = location.workspace.paneId(forPanelId: panelId) else {
-                // No workspace context — last-resort fallback.
-                NSWorkspace.shared.open(url)
-                return
-            }
-
-            _ = location.workspace.newBrowserSurface(
-                inPane: paneId,
-                url: url,
-                focus: true
-            )
         }
 
     }

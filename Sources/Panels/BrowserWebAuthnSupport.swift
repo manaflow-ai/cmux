@@ -123,40 +123,6 @@ private final class BrowserBluetoothAuthorizationGate: NSObject, @preconcurrency
     }
 }
 
-@MainActor
-private final class BrowserPasskeyAuthorizationGate {
-    static let shared = BrowserPasskeyAuthorizationGate()
-
-    private let manager = ASAuthorizationWebBrowserPublicKeyCredentialManager()
-    private var inFlightRequest: Task<ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState, Never>?
-
-    func currentAuthorizationState() -> ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState {
-        manager.authorizationStateForPlatformCredentials
-    }
-
-    func authorizeIfNeeded() async -> ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState {
-        let currentState = manager.authorizationStateForPlatformCredentials
-        guard currentState == .notDetermined else { return currentState }
-
-        if let inFlightRequest {
-            return await inFlightRequest.value
-        }
-
-        let request = Task { @MainActor [manager] in
-            await withCheckedContinuation { continuation in
-                manager.requestAuthorizationForPublicKeyCredentials { authorizationState in
-                    continuation.resume(returning: authorizationState)
-                }
-            }
-        }
-
-        inFlightRequest = request
-        let result = await request.value
-        inFlightRequest = nil
-        return result
-    }
-}
-
 final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithReply {
     private var activeAuthorizationController: ASAuthorizationController?
     private var activeAuthorizationContinuation: CheckedContinuation<[String: Any], Error>?

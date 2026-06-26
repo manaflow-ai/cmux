@@ -6231,78 +6231,28 @@ final class GhosttySurfaceScrollView: NSView {
     private var dragLayoutLogSequence: UInt64 = 0
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
-    private static var flashCounts: [UUID: Int] = [:]
-    private static var drawCounts: [UUID: Int] = [:]
-    private static var lastDrawTimes: [UUID: CFTimeInterval] = [:]
-    private static var presentCounts: [UUID: Int] = [:]
-    private static var dropOverlayShowCounts: [UUID: Int] = [:]
-    private static var lastPresentTimes: [UUID: CFTimeInterval] = [:]
-    private static var lastContentsKeys: [UUID: String] = [:]
+    /// The process-wide per-surface render/flash/present diagnostic counters.
+    ///
+    /// One shared instance for the whole process: surfaces record into it from
+    /// their own view instance while the debug-command path and unit tests read
+    /// or reset it by `surfaceId` with no instance in hand, so a per-instance
+    /// registry would change the aggregation. This `static let` is the
+    /// composition default (the LEARNINGS-sanctioned process-wide-cap shape).
+    /// The state and logic live in ``SurfaceRenderStatsRegistry``; this view
+    /// forwards to it.
+    private static let renderStatsRegistry = SurfaceRenderStatsRegistry()
 
     static func flashCount(for surfaceId: UUID) -> Int {
-        flashCounts[surfaceId, default: 0]
+        renderStatsRegistry.flashCount(for: surfaceId)
     }
 
     static func resetFlashCounts() {
-        flashCounts.removeAll()
-    }
-
-    private static func recordFlash(for surfaceId: UUID) {
-        flashCounts[surfaceId, default: 0] += 1
-    }
-
-    static func drawStats(for surfaceId: UUID) -> (count: Int, last: CFTimeInterval) {
-        (drawCounts[surfaceId, default: 0], lastDrawTimes[surfaceId, default: 0])
-    }
-
-    static func resetDrawStats() {
-        drawCounts.removeAll()
-        lastDrawTimes.removeAll()
-    }
-
-    static func recordSurfaceDraw(_ surfaceId: UUID) {
-        drawCounts[surfaceId, default: 0] += 1
-        lastDrawTimes[surfaceId] = CACurrentMediaTime()
-    }
-
-    private static func contentsKey(for layer: CALayer?) -> String {
-        guard let modelLayer = layer else { return "nil" }
-        // Prefer the presentation layer to better reflect what the user sees on screen.
-        let layer = modelLayer.presentation() ?? modelLayer
-        guard let contents = layer.contents else { return "nil" }
-        // Prefer pointer identity for object/CFType contents.
-        if let obj = contents as AnyObject? {
-            let ptr = Unmanaged.passUnretained(obj).toOpaque()
-            var key = "0x" + String(UInt(bitPattern: ptr), radix: 16)
-
-            // For IOSurface-backed terminal layers, the IOSurface object can remain stable while
-            // its contents change. Include the IOSurface seed so "new frame rendered" is visible
-            // to debug/test tooling even when the pointer identity doesn't change.
-            let cf = contents as CFTypeRef
-            if CFGetTypeID(cf) == IOSurfaceGetTypeID() {
-                let surfaceRef = (contents as! IOSurfaceRef)
-                let seed = IOSurfaceGetSeed(surfaceRef)
-                key += ":seed=\(seed)"
-            }
-
-            return key
-        }
-        return String(describing: contents)
-    }
-
-    private static func updatePresentStats(surfaceId: UUID, layer: CALayer?) -> (count: Int, last: CFTimeInterval, key: String) {
-        let key = contentsKey(for: layer)
-        if lastContentsKeys[surfaceId] != key {
-            presentCounts[surfaceId, default: 0] += 1
-            lastPresentTimes[surfaceId] = CACurrentMediaTime()
-            lastContentsKeys[surfaceId] = key
-        }
-        return (presentCounts[surfaceId, default: 0], lastPresentTimes[surfaceId, default: 0], key)
+        renderStatsRegistry.resetFlashCounts()
     }
 
     private func recordDropOverlayShowAnimation() {
         guard let surfaceId = surfaceView.terminalSurface?.id else { return }
-        Self.dropOverlayShowCounts[surfaceId, default: 0] += 1
+        Self.renderStatsRegistry.recordDropOverlayShow(for: surfaceId)
     }
 
     func debugProbeDropOverlayAnimation(useDeferredPath: Bool) -> (before: Int, after: Int, bounds: CGSize) {
@@ -6310,7 +6260,7 @@ final class GhosttySurfaceScrollView: NSView {
             return (0, 0, bounds.size)
         }
 
-        let before = Self.dropOverlayShowCounts[surfaceId, default: 0]
+        let before = Self.renderStatsRegistry.dropOverlayShowCount(for: surfaceId)
 
         // Reset to a hidden baseline so each probe exercises an initial-show transition.
         dropZoneOverlayAnimationGeneration &+= 1
@@ -6327,7 +6277,7 @@ final class GhosttySurfaceScrollView: NSView {
             setDropZoneOverlay(zone: .left)
         }
 
-        let after = Self.dropOverlayShowCounts[surfaceId, default: 0]
+        let after = Self.renderStatsRegistry.dropOverlayShowCount(for: surfaceId)
         setDropZoneOverlay(zone: nil)
         return (before, after, bounds.size)
     }
@@ -7720,7 +7670,7 @@ final class GhosttySurfaceScrollView: NSView {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if let surfaceId = self.surfaceView.terminalSurface?.id {
-                Self.recordFlash(for: surfaceId)
+                Self.renderStatsRegistry.recordFlash(for: surfaceId)
             }
         }
 #endif
@@ -8879,12 +8829,12 @@ final class GhosttySurfaceScrollView: NSView {
         let layerClass = surfaceView.layer.map { String(describing: type(of: $0)) } ?? "nil"
         let (metalCount, metalLast) = (surfaceView.layer as? GhosttyMetalLayer)?.debugStats() ?? (0, 0)
         let (drawCount, lastDraw): (Int, CFTimeInterval) = surfaceView.terminalSurface.map { terminalSurface in
-            Self.drawStats(for: terminalSurface.id)
+            Self.renderStatsRegistry.drawStats(for: terminalSurface.id)
         } ?? (0, 0)
         let (presentCount, lastPresent, contentsKey): (Int, CFTimeInterval, String) = surfaceView.terminalSurface.map { terminalSurface in
-            let stats = Self.updatePresentStats(surfaceId: terminalSurface.id, layer: surfaceView.layer)
+            let stats = Self.renderStatsRegistry.updatePresentStats(surfaceId: terminalSurface.id, layer: surfaceView.layer)
             return (stats.count, stats.last, stats.key)
-        } ?? (0, 0, Self.contentsKey(for: surfaceView.layer))
+        } ?? (0, 0, Self.renderStatsRegistry.contentsKey(for: surfaceView.layer))
         let inWindow = (window != nil)
         let windowIsKey = window?.isKeyWindow ?? false
         let windowOcclusionVisible = (window?.occlusionState.contains(.visible) ?? false) || (window?.isKeyWindow ?? false)
@@ -8966,7 +8916,7 @@ final class GhosttySurfaceScrollView: NSView {
         let layer = modelLayer.presentation() ?? modelLayer
         let layerClass = String(describing: type(of: layer))
         let layerContentsGravity = layer.contentsGravity.rawValue
-        let contentsKey = Self.contentsKey(for: layer)
+        let contentsKey = Self.renderStatsRegistry.contentsKey(for: layer)
         let presentationScale = max(1.0, layer.contentsScale)
         let expectedWidthPx = Int((layer.bounds.width * presentationScale).rounded(.toNearestOrAwayFromZero))
         let expectedHeightPx = Int((layer.bounds.height * presentationScale).rounded(.toNearestOrAwayFromZero))

@@ -322,13 +322,11 @@ extension TerminalController: ControlDebugContext {
     }
 
     func controlDebugCommandPaletteRenameSelectAll(updating enabled: Bool?) -> Bool {
+        let store = CommandPaletteSettingsStore(defaults: .standard)
         if let enabled {
-            UserDefaults.standard.set(
-                enabled,
-                forKey: AppCatalogSection().renameSelectsExistingName.userDefaultsKey
-            )
+            store.setRenameSelectsExistingName(enabled)
         }
-        return CommandPaletteSettingsStore(defaults: .standard).renameSelectsAllOnFocus
+        return store.renameSelectsAllOnFocus
     }
 
     // MARK: - debug.browser.*

@@ -80,6 +80,7 @@
 		FE0DEB01 /* AppDelegateDebugTerminalActionsHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0DEB02 /* AppDelegateDebugTerminalActionsHosting.swift */; };
 		E3309A09 /* AppDelegateEqualizeSplitsShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A0A /* AppDelegateEqualizeSplitsShortcutTests.swift */; };
 		2907A0032907A0032907A003 /* AppDelegateIssue2907RoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907A0042907A0042907A004 /* AppDelegateIssue2907RoutingTests.swift */; };
+		D10014C2 /* AppDelegateMarkdownPanelSurfaceRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10014C1 /* AppDelegateMarkdownPanelSurfaceRouting.swift */; };
 		D7AB0000000000000000000F /* AppDelegateMoveTabToNewWorkspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000010 /* AppDelegateMoveTabToNewWorkspaceTests.swift */; };
 		C34670010000000000000001 /* AppDelegateRenameShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */; };
 		6419B0016419B0016419B001 /* AppDelegateShortcutRoutingRepairProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6419B0026419B0026419B002 /* AppDelegateShortcutRoutingRepairProbe.swift */; };
@@ -551,11 +552,13 @@
 		F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */; };
 		F5168A030000000000000001 /* MarkdownFontSizeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */; };
 		F5168A080000000000000001 /* MarkdownImageSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A080000000000000002 /* MarkdownImageSchemeHandler.swift */; };
+		D10014A2 /* MarkdownLinkRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10014A1 /* MarkdownLinkRouter.swift */; };
 		F5168A050000000000000001 /* MarkdownMaxWidthSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A050000000000000002 /* MarkdownMaxWidthSettings.swift */; };
 		D6069002D6069002D6069002 /* MarkdownMermaidZoomTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6069001D6069001D6069001 /* MarkdownMermaidZoomTests.swift */; };
 		FB0CA0510000000000000003 /* MarkdownPanel+FocusedMarkdownZooming.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0CA0510000000000000004 /* MarkdownPanel+FocusedMarkdownZooming.swift */; };
 		A5001420 /* MarkdownPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001418 /* MarkdownPanel.swift */; };
 		A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F0 /* MarkdownPanelFileLinkResolver.swift */; };
+		D10014B2 /* MarkdownPanelSurfaceRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10014B1 /* MarkdownPanelSurfaceRouting.swift */; };
 		D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3664001D3664001D3664001 /* MarkdownPanelTests.swift */; };
 		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
 		A50014F7 /* MarkdownRemoteImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F6 /* MarkdownRemoteImageLoader.swift */; };
@@ -1260,6 +1263,7 @@
 		FE0DEB02 /* AppDelegateDebugTerminalActionsHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateDebugTerminalActionsHosting.swift; sourceTree = "<group>"; };
 		E3309A0A /* AppDelegateEqualizeSplitsShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateEqualizeSplitsShortcutTests.swift; sourceTree = "<group>"; };
 		2907A0042907A0042907A004 /* AppDelegateIssue2907RoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateIssue2907RoutingTests.swift; sourceTree = "<group>"; };
+		D10014C1 /* AppDelegateMarkdownPanelSurfaceRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AppDelegateMarkdownPanelSurfaceRouting.swift; sourceTree = "<group>"; };
 		D7AB00000000000000000010 /* AppDelegateMoveTabToNewWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateMoveTabToNewWorkspaceTests.swift; sourceTree = "<group>"; };
 		C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateRenameShortcutContextTests.swift; sourceTree = "<group>"; };
 		6419B0026419B0026419B002 /* AppDelegateShortcutRoutingRepairProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateShortcutRoutingRepairProbe.swift; sourceTree = "<group>"; };
@@ -1675,11 +1679,13 @@
 		F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontFamilyCache.swift; sourceTree = "<group>"; };
 		F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontSizeSettings.swift; sourceTree = "<group>"; };
 		F5168A080000000000000002 /* MarkdownImageSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownImageSchemeHandler.swift; sourceTree = "<group>"; };
+		D10014A1 /* MarkdownLinkRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownLinkRouter.swift; sourceTree = "<group>"; };
 		F5168A050000000000000002 /* MarkdownMaxWidthSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownMaxWidthSettings.swift; sourceTree = "<group>"; };
 		D6069001D6069001D6069001 /* MarkdownMermaidZoomTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMermaidZoomTests.swift; sourceTree = "<group>"; };
 		FB0CA0510000000000000004 /* MarkdownPanel+FocusedMarkdownZooming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/MarkdownPanel+FocusedMarkdownZooming.swift"; sourceTree = "<group>"; };
 		A5001418 /* MarkdownPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanel.swift; sourceTree = "<group>"; };
 		A50014F0 /* MarkdownPanelFileLinkResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelFileLinkResolver.swift; sourceTree = "<group>"; };
+		D10014B1 /* MarkdownPanelSurfaceRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelSurfaceRouting.swift; sourceTree = "<group>"; };
 		D3664001D3664001D3664001 /* MarkdownPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPanelTests.swift; sourceTree = "<group>"; };
 		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
 		A50014F6 /* MarkdownRemoteImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownRemoteImageLoader.swift; sourceTree = "<group>"; };
@@ -2998,6 +3004,9 @@
 				A5001419 /* MarkdownPanelView.swift */,
 				A5000D02 /* MarkdownRenderScript.swift */,
 				A50014F4 /* MarkdownWebRenderer.swift */,
+				D10014A1 /* MarkdownLinkRouter.swift */,
+				D10014B1 /* MarkdownPanelSurfaceRouting.swift */,
+				D10014C1 /* AppDelegateMarkdownPanelSurfaceRouting.swift */,
 				B10014F4 /* MarkdownWebRecoveryPolicy.swift */,
 				F5168A080000000000000002 /* MarkdownImageSchemeHandler.swift */,
 				A50014F6 /* MarkdownRemoteImageLoader.swift */,
@@ -3981,6 +3990,7 @@
 				A5001093 /* AppDelegate.swift in Sources */,
 				C0DE32480000000000000001 /* AppDelegateDebugStressWorkspaceHosting.swift in Sources */,
 				FE0DEB01 /* AppDelegateDebugTerminalActionsHosting.swift in Sources */,
+				D10014C2 /* AppDelegateMarkdownPanelSurfaceRouting.swift in Sources */,
 				A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */,
 				AAFD0001000100010001000A /* AppFileDropTarget.swift in Sources */,
 				A1C04E00A1C04E00A1C04E01 /* AppIconRuntime.swift in Sources */,
@@ -4218,10 +4228,12 @@
 				F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */,
 				F5168A030000000000000001 /* MarkdownFontSizeSettings.swift in Sources */,
 				F5168A080000000000000001 /* MarkdownImageSchemeHandler.swift in Sources */,
+				D10014A2 /* MarkdownLinkRouter.swift in Sources */,
 				F5168A050000000000000001 /* MarkdownMaxWidthSettings.swift in Sources */,
 				FB0CA0510000000000000003 /* MarkdownPanel+FocusedMarkdownZooming.swift in Sources */,
 				A5001420 /* MarkdownPanel.swift in Sources */,
 				A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */,
+				D10014B2 /* MarkdownPanelSurfaceRouting.swift in Sources */,
 				A5001421 /* MarkdownPanelView.swift in Sources */,
 				A50014F7 /* MarkdownRemoteImageLoader.swift in Sources */,
 				A5000D01 /* MarkdownRenderScript.swift in Sources */,
