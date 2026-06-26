@@ -99,12 +99,12 @@ public final class ComposerDictationController {
     public var isAvailable: Bool { state != .unavailable }
 
     /// Whether dictation currently owns the composer text, so the field must be
-    /// locked (non-editable) until dictation settles to idle. True while
-    /// `.listening` (partials streaming in) and `.stopping` (final result
-    /// pending); see ``ComposerDictationState/locksComposerField``. The view binds
-    /// the field's `.disabled(...)` to this so a user edit made mid-dictation can
-    /// never be clobbered by a later partial/final callback. The mic toggle and
-    /// send remain usable while locked.
+    /// locked (non-editable) until dictation settles to idle. True from
+    /// `.requestingPermission` (the engine spins up off-main; locking here closes
+    /// the async edit-loss window) through `.listening` and `.stopping`; see
+    /// ``ComposerDictationState/locksComposerField``. The view binds the field's
+    /// `.disabled(...)` to this so a mid-dictation edit can never be clobbered by a
+    /// later partial/final callback. The mic toggle and send remain usable.
     public var locksComposerField: Bool { state.locksComposerField }
 
     /// Toggle dictation: start if idle, stop if already listening, or cancel a

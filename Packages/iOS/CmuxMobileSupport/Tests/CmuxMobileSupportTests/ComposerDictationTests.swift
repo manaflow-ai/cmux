@@ -144,27 +144,30 @@ import Testing
 
     // MARK: - Field lock (dictation owns the text)
 
-    @Test func dictationLocksFieldWhileListeningAndStopping() {
-        // While dictation owns the composer text the field must be locked so a
-        // user edit cannot be silently clobbered by the next partial/final
-        // callback. Both the live capture and the finalize-wait own the text.
+    @Test func dictationLocksFieldFromRequestingPermissionThroughStopping() {
+        // The field must lock the moment dictation commits to starting — including
+        // `.requestingPermission`, where the engine spins up off-main (~100-300ms,
+        // issue #6284). Locking that window closes the edit-loss race: any text
+        // typed during spin-up would not be in the captured base, so the first
+        // partial (base + transcript) would clobber it. `.listening` (partials
+        // streaming) and `.stopping` (final pending) keep the lock held.
+        #expect(ComposerDictationState.requestingPermission.locksComposerField)
         #expect(ComposerDictationState.listening.locksComposerField)
         #expect(ComposerDictationState.stopping.locksComposerField)
     }
 
     @Test func dictationLeavesFieldEditableWhenNotActive() {
-        // Idle (no session), requestingPermission (engine not started, the field
-        // still holds only what the user typed), and unavailable all leave the
+        // Idle (no session) and unavailable (denied/unsupported) both leave the
         // field editable: no callback will overwrite the user's text.
         #expect(!ComposerDictationState.idle.locksComposerField)
-        #expect(!ComposerDictationState.requestingPermission.locksComposerField)
         #expect(!ComposerDictationState.unavailable.locksComposerField)
     }
 
-    @Test func fieldLockMatchesEngineOwnership() {
+    @Test func fieldLockMatchesDictationOwnership() {
         // The lock holds for exactly the states where a recognition callback can
-        // rewrite the field (listening streams partials, stopping awaits the
-        // final), and for no other state.
+        // (or is imminently about to) rewrite the field: requestingPermission
+        // (engine spinning up), listening (streaming partials), stopping (awaiting
+        // the final). Idle and unavailable leave the field free.
         for state in [
             ComposerDictationState.idle,
             .requestingPermission,
@@ -172,8 +175,8 @@ import Testing
             .stopping,
             .unavailable,
         ] {
-            let ownsText = state == .listening || state == .stopping
-            #expect(state.locksComposerField == ownsText)
+            let locks = state == .requestingPermission || state == .listening || state == .stopping
+            #expect(state.locksComposerField == locks)
         }
     }
 
