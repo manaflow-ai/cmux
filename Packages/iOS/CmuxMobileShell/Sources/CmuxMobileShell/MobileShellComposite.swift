@@ -2461,31 +2461,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
     }
 
-    /// The first reachable host/port route to a Mac, in priority order.
+    /// The first reachable host/port route to a Mac, honoring the given order.
+    ///
+    /// The caller supplies routes already in the order they should be tried:
+    /// ``DeviceRegistryService/selectReconnectRoutes(local:registry:)`` persists
+    /// the merged set freshness/authority-first (fresh registry routes ahead of
+    /// stale cached ones), and other callers pass the producer's order. This
+    /// function does not re-rank — re-ranking by proximity here would let a
+    /// stale-but-closer cached route beat the fresh registry route the persisted
+    /// order put first.
     ///
     /// When `preferNonLoopback` is set (physical devices), a real route
-    /// (`.tailscale` etc.) is always chosen over a `.debugLoopback` route even
-    /// if the loopback route has a lower (more-preferred) priority, because a
-    /// loopback route can never reach a remote Mac from a physical phone. A
+    /// (`.tailscale` etc.) is always chosen over a `.debugLoopback` route, because
+    /// a loopback route can never reach a remote Mac from a physical phone. A
     /// loopback route is used only when it is the sole supported route — the
     /// on-device XCUITest mock host, which serves a real listener on `127.0.0.1`
-    /// inside the test runner. This is what lets a restored Mac (whose published
-    /// routes include both `debug_loopback` and `tailscale`) actually connect
-    /// over Tailscale instead of dialing the phone's own loopback and failing.
+    /// inside the test runner. Within the non-loopback routes a directly-dialable
+    /// IP literal is preferred over a MagicDNS hostname that may not resolve.
     static func firstReconnectHostPortRoute(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool = false
     ) -> (String, Int)? {
         let supportedKinds = Set(supportedKinds)
-        // Filter to supported kinds BEFORE proximity ranking: the ranking dedups
-        // by endpoint and ignores `kind`, so an unsupported route sharing a
-        // host:port with a supported one could otherwise win dedup and strand the
-        // supported route. (Empty `supportedKinds` means "no kind filter".)
-        let usableRoutes = supportedKinds.isEmpty
+        // Honor the caller's order; only drop unsupported transport kinds.
+        // (Empty `supportedKinds` means "no kind filter".)
+        let ordered = supportedKinds.isEmpty
             ? routes
             : routes.filter { supportedKinds.contains($0.kind) }
-        let ordered = Self.proximityRankedRoutes(usableRoutes, preferNonLoopback: preferNonLoopback)
         func firstHostPort(where predicate: (CmxAttachRoute) -> Bool) -> (String, Int)? {
             for route in ordered {
                 guard predicate(route), case let .hostPort(host, port) = route.endpoint else {

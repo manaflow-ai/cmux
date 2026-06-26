@@ -101,8 +101,8 @@ import Testing
         // unions with a stale same-tier cached route the Mac has moved away from.
         // Both are Tailnet IP literals at priority 0, so the old priority/id sort
         // would dial the stale route (smaller id "tailscale" < "tailscale_2") and
-        // keep timing out. Proximity ranking treats the earlier (fresh) array
-        // entry as fresher, so reconnect dials the fresh route instead.
+        // keep timing out. The dialer now honors the persisted order, so the fresh
+        // route (first) is dialed instead.
         let fresh = try CmxAttachRoute(
             id: "tailscale_2",
             kind: .tailscale,

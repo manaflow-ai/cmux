@@ -130,12 +130,12 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         registry: [CmxAttachRoute]?
     ) -> [CmxAttachRoute]? {
         guard let registry, !registry.isEmpty else { return nil }
-        // Union both sources, dedup by endpoint, and rank closest-first. The
-        // registry is authoritative when reachable, so on a freshness tie its
-        // routes win dedup and rank ahead of the cached ones (pass it first).
-        // `preferLoopback` stays false here — the persisted order is just a
-        // sensible default; the dial path re-applies the simulator/device
-        // loopback policy in `firstReconnectHostPortRoute`.
+        // Union both sources, dedup by endpoint, and rank freshness/authority
+        // first: both sources are stamped equally fresh, so the authoritative
+        // registry routes sort ahead of the cached ones, and the reconnect dialer
+        // (which honors this order and dials the first reachable route) reaches a
+        // fresh registry route before a stale cached one — even a closer cached
+        // LAN route. Proximity only orders routes within the same source here.
         let registrySet = CmxRouteCandidateSet(routes: registry, source: .registry, lastSeenAt: mergeReferenceDate)
         let localSet = CmxRouteCandidateSet(routes: local, source: .localCache, lastSeenAt: mergeReferenceDate)
         let merged = registrySet.unioned(with: localSet).mergedRoutes()

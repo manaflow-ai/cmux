@@ -226,6 +226,9 @@ import Testing
         let cache = CmxRouteCandidateSet(routes: [try hostPort("192.168.1.5", id: "lan")], source: .localCache, lastSeenAt: date)
         let merged = registry.unioned(with: cache).merged()
         #expect(merged.count == 2)
-        #expect(merged.map(\.proximity) == [.lan, .tailnet]) // LAN closest, tried first
+        // Equally fresh, so the authoritative registry route leads even though the
+        // cached route is closer (LAN): freshness/authority outranks proximity, so
+        // the single-dial reconnect path reaches the fresh route first.
+        #expect(merged.map(\.source) == [.registry, .localCache])
     }
 }

@@ -44,15 +44,16 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
     /// 1. **Dedup by endpoint:** when several sources name the same endpoint,
     ///    keep the freshest (tie → higher source authority → lower route
     ///    priority).
-    /// 2. **Rank** the survivors by proximity (closest first), then freshness
-    ///    (newest first), then source authority (registry over local cache),
+    /// 2. **Rank** the survivors by freshness (newest first), then source
+    ///    authority (registry over local cache), then proximity (closest first),
     ///    then the route's own `priority`, then a stable key.
     ///
-    /// Source authority is ranked *above* `route.priority` so the authoritative
-    /// registry route always wins over a possibly-stale cached one — otherwise a
-    /// stale route with a lower (more-preferred) Mac priority could be dialed
-    /// first and reconnect would keep failing on it. Within a single source,
-    /// authority ties and the Mac-assigned `priority` decides.
+    /// Freshness and source authority rank *above* proximity and `route.priority`
+    /// so a fresh, authoritative registry route always sorts ahead of a
+    /// possibly-stale cached one — even a closer (e.g. cached LAN) one. The
+    /// reconnect path dials the first route, so ranking a stale-but-closer route
+    /// first would keep failing on it. Among equally-fresh routes from the same
+    /// source, proximity (then the Mac-assigned `priority`) decides.
     ///
     /// - Parameters:
     ///   - preferLoopback: When `true` (e.g. the simulator, where `127.0.0.1`
@@ -111,19 +112,22 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
         return false
     }
 
-    /// Total ordering for the ranked candidate list.
+    /// Total ordering for the ranked candidate list: freshness, then source
+    /// authority, then proximity, then the Mac-assigned priority, then a stable
+    /// key. Freshness/authority lead so a fresh registry route outranks a stale
+    /// cached one regardless of how close the stale one is.
     private static func sortsBefore(
         _ lhs: CmxRouteCandidate,
         _ rhs: CmxRouteCandidate,
         preferLoopback: Bool
     ) -> Bool {
-        let lhsTier = proximityRank(lhs.proximity, preferLoopback: preferLoopback)
-        let rhsTier = proximityRank(rhs.proximity, preferLoopback: preferLoopback)
-        if lhsTier != rhsTier { return lhsTier < rhsTier }
         if lhs.lastSeenAt != rhs.lastSeenAt { return lhs.lastSeenAt > rhs.lastSeenAt }
         if lhs.source.authority != rhs.source.authority {
             return lhs.source.authority > rhs.source.authority
         }
+        let lhsTier = proximityRank(lhs.proximity, preferLoopback: preferLoopback)
+        let rhsTier = proximityRank(rhs.proximity, preferLoopback: preferLoopback)
+        if lhsTier != rhsTier { return lhsTier < rhsTier }
         if lhs.route.priority != rhs.route.priority { return lhs.route.priority < rhs.route.priority }
         return lhs.endpointKey < rhs.endpointKey
     }
