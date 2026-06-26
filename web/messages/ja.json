@@ -76,6 +76,7 @@
   "pricing": {
     "metaTitle": "料金 — cmux",
     "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、cmux Vault によるセッションバックアップ、モデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
     "title": "料金",
     "perMonth": "/月",
     "free": {
@@ -100,11 +101,13 @@
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
         "4 vCPU / 16 GB の VM で毎月20時間のアクティブ計算時間、超過分は従量課金",
-        "cmux Vault: すべてのセッションをクラウドにバックアップし検索可能に",
-        "すべてのマシンをまたいだ無制限のセッション履歴",
         "モデルゲートウェイ: 複数プロバイダーへのルーティングと使用量・コスト分析",
         "iOS アプリから Mac に接続するホスト型ネットワーク、Tailscale の設定不要",
         "cmux iOS アプリとメールサポート"
+      ],
+      "vaultFeatures": [
+        "cmux Vault: すべてのセッションをクラウドにバックアップし検索可能に",
+        "すべてのマシンをまたいだ無制限のセッション履歴"
       ]
     },
     "enterprise": {
@@ -147,19 +150,22 @@
           "label": "セッション履歴",
           "free": "ローカル",
           "pro": "無制限",
-          "enterprise": "無制限"
+          "enterprise": "無制限",
+          "vault": true
         },
         {
           "label": "cmux Vault: クラウドセッションバックアップ",
           "free": "false",
           "pro": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "vault": true
         },
         {
           "label": "すべてのセッションを横断検索",
           "free": "false",
           "pro": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "vault": true
         },
         {
           "label": "Cloud VM 上のクラウドエージェント",
@@ -273,7 +279,8 @@
         },
         {
           "q": "cmux Vault とは何ですか?",
-          "a": "Vault はすべてのターミナルセッションをクラウドにバックアップし、それらを横断検索できるようにします。マシンをまたいだ無制限の履歴を保持します。Free では履歴は各マシンのローカルに残り、Pro でクラウドバックアップと検索が追加されます。"
+          "a": "Vault はすべてのターミナルセッションをクラウドにバックアップし、それらを横断検索できるようにします。マシンをまたいだ無制限の履歴を保持します。Free では履歴は各マシンのローカルに残り、Pro でクラウドバックアップと検索が追加されます。",
+          "vault": true
         },
         {
           "q": "モデルゲートウェイとは何ですか?",

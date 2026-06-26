@@ -76,6 +76,7 @@
   "pricing": {
     "metaTitle": "Pricing — cmux",
     "metaDescription": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs, cmux Vault session backup, and a model gateway. Enterprise adds SSO and self-hosting.",
+    "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs and a model gateway. Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
     "perMonth": "/month",
     "free": {
@@ -100,11 +101,13 @@
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
         "20 active compute-hours per month on a 4 vCPU / 16 GB VM, then usage-based",
-        "cmux Vault: every session backed up to the cloud and searchable",
-        "Unlimited session history across all your machines",
         "Model gateway: route across providers with usage and cost analytics",
         "Hosted networking to reach your Mac from the iOS app, no Tailscale setup",
         "The cmux iOS app and email support"
+      ],
+      "vaultFeatures": [
+        "cmux Vault: every session backed up to the cloud and searchable",
+        "Unlimited session history across all your machines"
       ]
     },
     "enterprise": {
@@ -147,19 +150,22 @@
           "label": "Session history",
           "free": "Local",
           "pro": "Unlimited",
-          "enterprise": "Unlimited"
+          "enterprise": "Unlimited",
+          "vault": true
         },
         {
           "label": "cmux Vault: cloud session backup",
           "free": "false",
           "pro": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "vault": true
         },
         {
           "label": "Search across all your sessions",
           "free": "false",
           "pro": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "vault": true
         },
         {
           "label": "Cloud agents on Cloud VMs",
@@ -273,7 +279,8 @@
         },
         {
           "q": "What is cmux Vault?",
-          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search."
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
+          "vault": true
         },
         {
           "q": "What is the model gateway?",

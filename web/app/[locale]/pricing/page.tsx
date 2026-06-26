@@ -10,6 +10,13 @@ import { buildAlternates } from "../../../i18n/seo";
 const PRO_CTA_URL = DOWNLOAD_URL;
 const SALES_EMAIL = "founders@manaflow.com";
 
+// Feature flag: cmux Vault (cloud session backup, cross-session search, and
+// unlimited cross-machine history) isn't shipped yet. Keep its pricing copy out
+// of the page until it's live. Flip to `true` to surface every Vault entry
+// again: the Pro feature bullets, the compare rows, the FAQ, and the meta
+// description all key off this flag.
+const SHOW_VAULT = false;
+
 export async function generateMetadata({
   params,
 }: {
@@ -19,7 +26,7 @@ export async function generateMetadata({
   const t = await getTranslations({ locale, namespace: "pricing" });
   return {
     title: t("metaTitle"),
-    description: t("metaDescription"),
+    description: SHOW_VAULT ? t("metaDescription") : t("metaDescriptionNoVault"),
     alternates: buildAlternates(locale, "/pricing"),
   };
 }
@@ -28,11 +35,20 @@ export default function PricingPage() {
   const t = useTranslations("pricing");
 
   const freeFeatures = t.raw("free.features") as string[];
-  const proFeatures = t.raw("pro.features") as string[];
+  const proBaseFeatures = t.raw("pro.features") as string[];
+  const proVaultFeatures = t.raw("pro.vaultFeatures") as string[];
+  // Vault bullets slot back in right after the Cloud VM compute-hours line.
+  const proFeatures = SHOW_VAULT
+    ? [...proBaseFeatures.slice(0, 2), ...proVaultFeatures, ...proBaseFeatures.slice(2)]
+    : proBaseFeatures;
   const enterpriseFeatures = t.raw("enterprise.features") as string[];
-  const compareRows = t.raw("compare.rows") as CompareRow[];
+  const compareRows = (t.raw("compare.rows") as CompareRow[]).filter(
+    (row) => SHOW_VAULT || !row.vault,
+  );
   const sizeRows = t.raw("sizes.rows") as SizeRow[];
-  const faqItems = t.raw("faq.items") as { q: string; a: string }[];
+  const faqItems = (t.raw("faq.items") as FaqItem[]).filter(
+    (item) => SHOW_VAULT || !item.vault,
+  );
 
   const linkClass =
     "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
@@ -319,6 +335,15 @@ type CompareRow = {
   free: string;
   pro: string;
   enterprise: string;
+  // Marks a row that only applies once cmux Vault ships (see SHOW_VAULT).
+  vault?: boolean;
+};
+
+type FaqItem = {
+  q: string;
+  a: string;
+  // Marks a Vault-specific question (see SHOW_VAULT).
+  vault?: boolean;
 };
 
 type SizeRow = {
