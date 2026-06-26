@@ -460,9 +460,7 @@ enum SettingsSearchIndex {
         setting(.settingsJSON, "documentation", String(localized: "settings.settingsJSON.documentation", defaultValue: "Documentation"), "cmux json schema reference docs"),
         setting(.reset, "reset-all", String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), "restore defaults")
     ] + terminalScrollSpeedSettingEntries
-
     private static let allEntries = sectionEntries + settingEntries
-
     private static let entriesByID: [String: SettingsSearchEntry] = Dictionary(
         uniqueKeysWithValues: allEntries.map { ($0.id, $0) }
     )

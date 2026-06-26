@@ -1,5 +1,4 @@
 import AppKit
-import CmuxSettings
 import CmuxSidebar
 import CmuxWorkspaces
 import SwiftUI
@@ -10,33 +9,6 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
-@Suite struct SidebarTabItemSettingsSnapshotTests {
-    private func makeDefaults() throws -> (UserDefaults, String) {
-        let suiteName = "sidebar-tab-item-settings-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defaults.removePersistentDomain(forName: suiteName)
-        return (defaults, suiteName)
-    }
-
-    @Test func hideWorkspaceCloseButtonDefaultsOff() throws {
-        let (defaults, suiteName) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let snapshot = SidebarTabItemSettingsSnapshot(defaults: defaults)
-
-        #expect(snapshot.hidesWorkspaceCloseButton == false)
-    }
-
-    @Test func hideWorkspaceCloseButtonReadsUserDefault() throws {
-        let (defaults, suiteName) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set(true, forKey: SettingCatalog().sidebar.hideWorkspaceCloseButton.userDefaultsKey)
-
-        let snapshot = SidebarTabItemSettingsSnapshot(defaults: defaults)
-
-        #expect(snapshot.hidesWorkspaceCloseButton)
-    }
-}
 
 @Suite struct SidebarWorkspaceSnapshotRefreshPolicyTests {
     @Test func contextMenuPinChangeUpdatesDisplayedFieldsAndDefersNoisyFields() {

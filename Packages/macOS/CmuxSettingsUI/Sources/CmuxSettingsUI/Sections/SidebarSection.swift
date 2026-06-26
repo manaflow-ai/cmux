@@ -252,7 +252,6 @@ public struct SidebarSection: View {
                 }
             }
             SettingsCardDivider()
-
             SettingsCardRow(
                 configurationReview: .json("sidebar.hideAllDetails"),
                 String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"),
@@ -278,18 +277,8 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             SettingsCardDivider()
-
-            SettingsCardRow(
-                configurationReview: .json("sidebar.hideWorkspaceCloseButton"),
-                String(localized: "settings.sidebar.hideWorkspaceCloseButton", defaultValue: "Hide Workspace Close Button"),
-                subtitle: String(localized: "settings.sidebar.hideWorkspaceCloseButton.subtitle", defaultValue: "Hide the sidebar close button and let workspace titles use the reclaimed width.")
-            ) {
-                Toggle("", isOn: Binding(get: { hideWorkspaceCloseButton.current }, set: { hideWorkspaceCloseButton.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-            }
+            SidebarWorkspaceCloseButtonSettingsRow(model: hideWorkspaceCloseButton)
             SettingsCardDivider()
-
             SettingsCardRow(
                 configurationReview: .json("sidebar.showWorkspaceDescription"),
                 String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"),
