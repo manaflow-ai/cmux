@@ -41,12 +41,14 @@ func builtInScopeCaption(for clause: ShortcutWhenClause) -> String? {
             localized: "shortcut.when.caption.markdownFocus",
             defaultValue: "Only while a markdown preview is focused"
         )
-    case let .key(key) where key == canvasLayoutKey:
-        return canvasLayoutCaption()
-    case let .and(.key(key), _) where key == canvasLayoutKey:
-        // `Canvas: Actual Size` gates on `canvas && !browser && !markdown` so it
-        // never collides with the browser/markdown ⌘0 zoom-reset bindings, but
-        // its user-facing scope is still simply "the canvas layout".
+    case let other where clauseRequiresKey(other, key: canvasLayoutKey):
+        // Any clause that *requires* the canvas-layout key is scoped to the
+        // canvas layout — both the plain `Canvas: …` actions (`canvas`) and
+        // `Canvas: Actual Size`, whose `canvas && !browser && !markdown` clause
+        // keeps its ⌘0 default off the browser/markdown zoom-reset bindings.
+        // Matching the key as a required conjunct (rather than positionally)
+        // avoids re-introducing the very mislabel this caption fixes if a future
+        // clause places the canvas predicate on the other side of an `&&`.
         return canvasLayoutCaption()
     default:
         // The remaining built-in scope is the terminal-pane predicate used by
@@ -56,6 +58,22 @@ func builtInScopeCaption(for clause: ShortcutWhenClause) -> String? {
             localized: "shortcut.when.caption.terminalFocus",
             defaultValue: "Only while a terminal pane is focused"
         )
+    }
+}
+
+/// Whether `clause` requires `key` to be true — i.e. a bare `.key(key)` term
+/// appears as a top-level conjunct (`&&`), at any `.and` nesting depth.
+///
+/// Negated (`.not`) or alternative (`.or`) occurrences do not count as a
+/// requirement, so `!canvas` predicates are correctly excluded.
+private func clauseRequiresKey(_ clause: ShortcutWhenClause, key: String) -> Bool {
+    switch clause {
+    case let .key(name):
+        return name == key
+    case let .and(lhs, rhs):
+        return clauseRequiresKey(lhs, key: key) || clauseRequiresKey(rhs, key: key)
+    default:
+        return false
     }
 }
 

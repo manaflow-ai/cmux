@@ -53,6 +53,25 @@ struct ShortcutScopeCaptionTests {
         #expect(builtInScopeCaption(for: compound) == canvasCaption)
     }
 
+    /// The canvas key must be recognized as a required `&&` conjunct regardless
+    /// of which side of the `.and` it sits on, so a future clause structure can't
+    /// silently fall back to the terminal caption (the bug this PR fixes).
+    @Test func canvasLayoutKeyIsMatchedRegardlessOfConjunctPosition() {
+        let rightPlaced = ShortcutWhenClause.and(.not(.atom(.browserFocus)), .key(canvasLayoutKey))
+        #expect(builtInScopeCaption(for: rightPlaced) == canvasCaption)
+
+        let nested = ShortcutWhenClause.and(
+            .not(.atom(.markdownFocus)),
+            .and(.not(.atom(.browserFocus)), .key(canvasLayoutKey))
+        )
+        #expect(builtInScopeCaption(for: nested) == canvasCaption)
+
+        // A *negated* canvas predicate is not a canvas requirement, so it must
+        // not borrow the canvas caption.
+        let negated = ShortcutWhenClause.and(.not(.key(canvasLayoutKey)), .not(.atom(.sidebarFocus)))
+        #expect(builtInScopeCaption(for: negated) == terminalCaption)
+    }
+
     /// Regression for issue #5810: the ⌘= / ⌘- / ⌘0 zoom shortcuts ship the same
     /// default across browser, markdown, and (for ⌘0) canvas. Each must carry the
     /// caption for its own scope. In particular `canvasZoomReset` must read as the
