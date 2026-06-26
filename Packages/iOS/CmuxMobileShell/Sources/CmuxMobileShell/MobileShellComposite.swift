@@ -3129,22 +3129,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard await isAggregationScopeValid(scope) else { return }
         let visibleLoadedMacs = await visibleStoredPairedMacs(from: loadedMacs, scope: scope)
         guard await isAggregationScopeValid(scope) else { return }
-        let macs = Self.coalescePairedMacsByDialEndpoint(
-            visibleLoadedMacs,
-            supportedKinds: runtime?.supportedRouteKinds ?? [],
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
-        )
-        let foregroundMacDeviceIDs = foregroundMacDeviceID.map {
-            Self.macDeviceIDsForLogicalPairedMac(
-                $0,
-                in: visibleLoadedMacs,
-                supportedKinds: runtime?.supportedRouteKinds ?? [],
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
-            )
-        } ?? []
+        let macs = secondaryAggregationCandidateMacs(from: visibleLoadedMacs)
         let wanted = Set(macs.map(\.macDeviceID))
-            .subtracting(foregroundMacDeviceIDs)
-            .subtracting([""])
         // Tear down subscriptions for Macs that are gone or are now the foreground.
         for (macID, subscription) in secondaryMacSubscriptions where !wanted.contains(macID) {
             subscription.cancel()
@@ -3210,13 +3196,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return await !isForgottenMacDeviceID(macDeviceID, scope: scope)
     }
 
-    #if DEBUG
-    func secondaryAggregationCandidateMacIDsForTesting() async -> [String] {
+    func secondaryAggregationCandidateMacIDs() async -> [String] {
         guard let pairedMacStore,
               let scope = await currentScopeSnapshot() else { return [] }
         let loadedMacs = (try? await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)) ?? []
         let visibleLoadedMacs = await visibleStoredPairedMacs(from: loadedMacs, scope: scope)
         guard await isAggregationScopeValid(scope) else { return [] }
+        return secondaryAggregationCandidateMacs(from: visibleLoadedMacs).map(\.macDeviceID)
+    }
+
+    private func secondaryAggregationCandidateMacs(from visibleLoadedMacs: [MobilePairedMac]) -> [MobilePairedMac] {
         let macs = Self.coalescePairedMacsByDialEndpoint(
             visibleLoadedMacs,
             supportedKinds: runtime?.supportedRouteKinds ?? [],
@@ -3231,9 +3220,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
         } ?? []
         let foregroundIDSet = Set(foregroundMacDeviceIDs)
-        return macs.map(\.macDeviceID).filter { !$0.isEmpty && !foregroundIDSet.contains($0) }
+        return macs.filter { !$0.macDeviceID.isEmpty && !foregroundIDSet.contains($0.macDeviceID) }
     }
-    #endif
 
     /// Open a persistent read-only connection to `mac`, seed its workspace state,
     /// then run a live `workspace.updated` consumer that re-fetches its list on

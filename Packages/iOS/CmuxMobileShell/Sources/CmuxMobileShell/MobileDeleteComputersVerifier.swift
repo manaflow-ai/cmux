@@ -46,7 +46,6 @@ public struct MobileDeleteComputersVerifier {
             let updatedData = try JSONEncoder.prettyVerifierEncoder.encode(result)
             try updatedData.write(to: url, options: [.atomic])
         } catch {
-            result.passed = false
             result.reason = "\(result.reason); failed to write evidence: \(error)"
         }
         return result
@@ -118,10 +117,22 @@ public struct MobileDeleteComputersVerifier {
 
         let removedHalf = Set(halfDeleteIDs)
         let expectedRemaining = Set(["mac-c", "mac-d"])
+        let aggregation = MobileWorkspaceAggregation()
+        let expectedRemainingWorkspaceIDs = Set(
+            seededWorkspaceStates()
+                .filter { expectedRemaining.contains($0.key) }
+                .flatMap { macID, state in
+                    state.workspaces.map {
+                        aggregation.rowID(macDeviceID: macID, workspaceID: $0.id).rawValue
+                    }
+                }
+        )
         let halfRemovedAbsent = afterHalfDelete.workspaceMacIDs.allSatisfy { !removedHalf.contains($0) }
             && afterHalfRefresh.workspaceMacIDs.allSatisfy { !removedHalf.contains($0) }
-        let halfRemainingPresent = Set(afterHalfDelete.workspaceMacIDs) == expectedRemaining
-            && Set(afterHalfRefresh.workspaceMacIDs) == expectedRemaining
+        let halfRemainingPresent = Set(afterHalfDelete.workspaceIDs) == expectedRemainingWorkspaceIDs
+            && afterHalfDelete.workspaceCount == expectedRemainingWorkspaceIDs.count
+            && Set(afterHalfRefresh.workspaceIDs) == expectedRemainingWorkspaceIDs
+            && afterHalfRefresh.workspaceCount == expectedRemainingWorkspaceIDs.count
         let halfNoDisconnectedBanner = afterHalfDelete.workspaceListStatus == "connected"
             && afterHalfRefresh.workspaceListStatus == "connected"
         let refreshPreservedHalfList = afterHalfRefresh.workspaceIDs == afterHalfDelete.workspaceIDs

@@ -10,6 +10,32 @@ actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
         self.records = records
     }
 
+    private func isVisibleInLoadScope(
+        _ mac: MobilePairedMac,
+        stackUserID: String?,
+        teamID: String?
+    ) -> Bool {
+        if let stackUserID, mac.stackUserID != stackUserID {
+            return false
+        }
+        guard let teamID else { return true }
+        return mac.teamID == teamID || mac.teamID == nil
+    }
+
+    private func isVisibleInActiveScope(
+        _ mac: MobilePairedMac,
+        stackUserID: String?,
+        teamID: String?
+    ) -> Bool {
+        if let stackUserID, mac.stackUserID != stackUserID {
+            return false
+        }
+        if let teamID {
+            return mac.teamID == teamID || mac.teamID == nil
+        }
+        return mac.teamID == nil
+    }
+
     func upsert(
         macDeviceID: String,
         displayName: String?,
@@ -22,7 +48,9 @@ actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
         if markActive {
             records = records.map { mac in
                 var copy = mac
-                copy.isActive = false
+                if isVisibleInActiveScope(copy, stackUserID: stackUserID, teamID: teamID) {
+                    copy.isActive = false
+                }
                 return copy
             }
         }
@@ -48,21 +76,22 @@ actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
     }
 
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
-        records.filter { mac in
-            mac.stackUserID == stackUserID && mac.teamID == teamID
-        }
+        records
+            .filter { isVisibleInLoadScope($0, stackUserID: stackUserID, teamID: teamID) }
+            .sorted { lhs, rhs in
+                if lhs.lastSeenAt != rhs.lastSeenAt { return lhs.lastSeenAt > rhs.lastSeenAt }
+                return lhs.macDeviceID < rhs.macDeviceID
+            }
     }
 
     func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
-        records.first { mac in
-            mac.isActive && mac.stackUserID == stackUserID && mac.teamID == teamID
-        }
+        try await loadAll(stackUserID: stackUserID, teamID: teamID).first { $0.isActive }
     }
 
     func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         records = records.map { mac in
             var copy = mac
-            if copy.stackUserID == stackUserID && copy.teamID == teamID {
+            if isVisibleInActiveScope(copy, stackUserID: stackUserID, teamID: teamID) {
                 copy.isActive = copy.macDeviceID == macDeviceID
             }
             return copy
@@ -72,7 +101,7 @@ actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
     func clearActive(stackUserID: String?, teamID: String?) async throws {
         records = records.map { mac in
             var copy = mac
-            if copy.stackUserID == stackUserID && copy.teamID == teamID {
+            if isVisibleInActiveScope(copy, stackUserID: stackUserID, teamID: teamID) {
                 copy.isActive = false
             }
             return copy

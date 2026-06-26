@@ -56,7 +56,7 @@ import Testing
 
         #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-b"])
         #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-b"])
-        #expect(await store.secondaryAggregationCandidateMacIDsForTesting() == ["mac-b"])
+        #expect(await store.secondaryAggregationCandidateMacIDs() == ["mac-b"])
     }
 
     @Test func forgettingMacSuppressesStaleStoreWriteAfterRelaunch() async throws {
@@ -120,7 +120,7 @@ import Testing
 
         #expect(relaunchedStore.pairedMacs.map(\.macDeviceID) == ["mac-b"])
         #expect(relaunchedStore.displayPairedMacs.map(\.macDeviceID) == ["mac-b"])
-        #expect(await relaunchedStore.secondaryAggregationCandidateMacIDsForTesting() == ["mac-b"])
+        #expect(await relaunchedStore.secondaryAggregationCandidateMacIDs() == ["mac-b"])
     }
 
     @Test func forgettingTeamlessMacSuppressesItAfterTeamSwitch() async throws {
