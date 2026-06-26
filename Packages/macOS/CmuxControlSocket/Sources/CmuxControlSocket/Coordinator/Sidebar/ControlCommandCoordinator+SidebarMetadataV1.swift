@@ -91,8 +91,16 @@ extension ControlCommandCoordinator {
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
+        let panelResolution = sidebarParseOptionalPanelIdOption(options: parsed.options, usage: usage)
+        if let error = panelResolution.error {
+            return error
+        }
 
-        sidebarContext?.controlSidebarScheduleStatusClear(target: target, key: key)
+        sidebarContext?.controlSidebarScheduleStatusClear(
+            target: target,
+            key: key,
+            panelID: panelResolution.panelId
+        )
         return "OK"
     }
 

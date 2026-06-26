@@ -42,7 +42,7 @@ extension ControlSidebarContext {
         pid: Int32?
     ) {}
 
-    func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String) {}
+    func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String, panelID: UUID?) {}
 
     func controlSidebarScheduleAgentPIDRecord(
         target: ControlSidebarTabTarget,
