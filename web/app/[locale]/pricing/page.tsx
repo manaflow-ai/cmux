@@ -47,9 +47,6 @@ export default function PricingPage() {
     : proBaseFeatures;
   const teamFeatures = t.raw("team.features") as string[];
   const enterpriseFeatures = t.raw("enterprise.features") as string[];
-  const compareRows = (t.raw("compare.rows") as CompareRow[]).filter(
-    (row) => SHOW_VAULT || !row.vault,
-  );
   const sizeRows = t.raw("sizes.rows") as SizeRow[];
   const faqItems = (t.raw("faq.items") as FaqItem[]).filter(
     (item) => SHOW_VAULT || !item.vault,
@@ -66,8 +63,9 @@ export default function PricingPage() {
         {/* Title */}
         <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
 
-        {/* Tier cards */}
-        <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4 items-stretch">
+        {/* Tier cards. Sticky below the 48px (h-12) site header; lower z-index
+            than the header (z-30) so the header always wins when they overlap. */}
+        <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4 items-stretch sticky top-12 z-20 bg-background pb-5">
           {/* Free */}
           <PlanCard
             name={t("free.name")}
@@ -117,51 +115,6 @@ export default function PricingPage() {
             <FeatureList items={enterpriseFeatures} />
           </PlanCard>
         </div>
-
-        {/* Compare plans */}
-        <section className="mt-16 border-t border-border pt-10">
-          <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
-            {t("compare.title")}
-          </h2>
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full border-collapse text-[15px]">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="py-3 pr-4 text-left align-bottom font-medium min-w-[12rem]" />
-                  <ColumnHead name={t("free.name")} price={t("free.price")} />
-                  <ColumnHead
-                    name={t("pro.name")}
-                    price={`${t("pro.price")}${t("perMonth")}`}
-                  />
-                  <ColumnHead
-                    name={t("team.name")}
-                    price={`${t("team.price")}${t("perUserMonth")}`}
-                  />
-                  <ColumnHead
-                    name={t("enterprise.name")}
-                    price={t("enterprise.price")}
-                  />
-                </tr>
-              </thead>
-              <tbody>
-                {compareRows.map((row, i) => (
-                  <tr key={i} className="border-b border-border">
-                    <th
-                      scope="row"
-                      className="py-3 pr-4 text-left font-normal align-top"
-                    >
-                      {row.label}
-                    </th>
-                    <CompareCell value={row.free} />
-                    <CompareCell value={row.pro} />
-                    <CompareCell value={row.team} />
-                    <CompareCell value={row.enterprise} />
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
 
         {/* Cloud VM sizes */}
         <section className="mt-16 border-t border-border pt-10">
@@ -351,16 +304,6 @@ function SecondaryLink({
   );
 }
 
-type CompareRow = {
-  label: string;
-  free: string;
-  pro: string;
-  team: string;
-  enterprise: string;
-  // Marks a row that only applies once cmux Vault ships (see SHOW_VAULT).
-  vault?: boolean;
-};
-
 type FaqItem = {
   q: string;
   a: string;
@@ -374,32 +317,3 @@ type SizeRow = {
   rate: string;
 };
 
-function ColumnHead({ name, price }: { name: string; price: string }) {
-  return (
-    <th className="px-4 py-3 text-left align-bottom font-medium">
-      {name}
-      <span className="block text-xs font-normal text-muted">{price}</span>
-    </th>
-  );
-}
-
-function CompareCell({ value }: { value: string }) {
-  const base = "px-4 py-3 text-left align-top";
-  if (value === "true") {
-    return (
-      <td className={base}>
-        <span className="inline-flex text-foreground">
-          <CheckIcon inline />
-        </span>
-      </td>
-    );
-  }
-  if (value === "false") {
-    return (
-      <td className={`${base} text-muted`} aria-label="Not included">
-        <span aria-hidden="true">–</span>
-      </td>
-    );
-  }
-  return <td className={`${base} text-[13px] text-muted`}>{value}</td>;
-}
