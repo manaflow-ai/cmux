@@ -2155,6 +2155,13 @@ final class Workspace: Identifiable, ObservableObject {
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
 
+    /// Posted (with the `Workspace` as `object`) when `customColor` changes so
+    /// the workspace's appearance host can re-run the authoritative Ghostty
+    /// chrome refresh — which paints the custom color into the top tab bar.
+    static let customColorDidChangeNotification = Notification.Name(
+        "cmux.workspaceCustomColorDidChange"
+    )
+
     let id: UUID
     /// When this workspace instance came into existence in this app session
     /// (creation, or restore at launch). The mobile list's last-activity
@@ -2175,13 +2182,6 @@ final class Workspace: Identifiable, ObservableObject {
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
-    /// Terminal background color/opacity most recently fed to the bonsplit
-    /// chrome. Cached so a live `setCustomColor(_:)` can recompute the chrome —
-    /// which tints the top tab bar with the workspace's custom color — without
-    /// waiting for the next Ghostty theme refresh. Updated on every
-    /// `applyGhosttyChrome(...)`.
-    private var lastAppliedChromeBackgroundColor: NSColor = .black
-    private var lastAppliedChromeBackgroundOpacity: Double = 1.0
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every
     /// surface recreated on session restore. Managed `CMUX_*` and terminal-identity
@@ -2916,8 +2916,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyGhosttyChrome(from config: GhosttyConfig, reason: String = "unspecified") {
-        lastAppliedChromeBackgroundColor = config.backgroundColor
-        lastAppliedChromeBackgroundOpacity = config.backgroundOpacity
         let sharesWindowBackdrop = Self.usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
@@ -2977,8 +2975,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyGhosttyChrome(backgroundColor: NSColor, backgroundOpacity: Double, reason: String = "unspecified") {
-        lastAppliedChromeBackgroundColor = backgroundColor
-        lastAppliedChromeBackgroundOpacity = backgroundOpacity
         let sharesWindowBackdrop = Self.usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
@@ -3069,8 +3065,6 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
             tabTitleFontSize: initialSurfaceTabBarFontSize
         )
-        self.lastAppliedChromeBackgroundColor = GhosttyApp.shared.defaultBackgroundColor
-        self.lastAppliedChromeBackgroundOpacity = GhosttyApp.shared.defaultBackgroundOpacity
         let config = BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: !CloseTabWarningStore(defaults: closeTabWarningDefaults).hidesTabCloseButton,
@@ -4418,14 +4412,14 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             customColor = nil
         }
-        // Reflect the change in the top tab bar immediately. Changing a
-        // workspace's color does not trigger a Ghostty theme refresh, so without
-        // this the tint would only appear on the next unrelated chrome update.
-        // `applyGhosttyChrome` no-ops when the recomputed chrome is unchanged.
-        applyGhosttyChrome(
-            backgroundColor: lastAppliedChromeBackgroundColor,
-            backgroundOpacity: lastAppliedChromeBackgroundOpacity,
-            reason: "customColorChanged"
+        // The top tab bar reflects the workspace color through the bonsplit
+        // chrome, but a color change does not alter the Ghostty config, so the
+        // appearance host's signature-diff would otherwise skip the refresh.
+        // Notify it to re-run the authoritative chrome path (which owns the live
+        // terminal background) instead of caching the background here.
+        NotificationCenter.default.post(
+            name: Self.customColorDidChangeNotification,
+            object: self
         )
     }
 
