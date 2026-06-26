@@ -135,13 +135,6 @@ final class TerminalCmdClickUITestRecorder: UITestRecording {
             ]
         }
 
-        func pointPayload(x: CGFloat, yFromTop: CGFloat) -> [String: Double] {
-            [
-                "x": x,
-                "y": yFromTop
-            ]
-        }
-
         func doubleValue(_ value: Any?) -> Double? {
             if let value = value as? Double {
                 return value
@@ -218,92 +211,14 @@ final class TerminalCmdClickUITestRecorder: UITestRecording {
             let cellHeight = debugCellSize.height > 0 ? debugCellSize.height : CGFloat(size.cell_height_px)
             guard cellWidth > 0, cellHeight > 0 else { return nil }
 
-            let xInset = max(0, (bounds.width - (CGFloat(cols) * cellWidth)) / 2)
-            let yInset = max(0, (bounds.height - (CGFloat(rows) * cellHeight)) / 2)
-            let pointClampX: (CGFloat) -> CGFloat = { x in
-                min(bounds.width - 4, max(4, x))
-            }
-            let pointClampY: (CGFloat) -> CGFloat = { y in
-                min(bounds.height - 4, max(4, y))
-            }
-
-            let rawVisibleLines = visibleText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-            let visibleLines = rawVisibleLines.count > rows ? Array(rawVisibleLines.suffix(rows)) : rawVisibleLines
-            let rowOffset = max(0, rows - visibleLines.count)
-
-            var matchedRowFromTop: Int?
-            var matchedColumnStart: Int?
-            var matchedColumnEnd: Int?
-            var matchedLine = ""
-            var matchingLines: [(lineIndex: Int, line: String, ranges: [Range<String.Index>])] = []
-
-            for (lineIndex, line) in visibleLines.enumerated() {
-                var searchStart = line.startIndex
-                var ranges: [Range<String.Index>] = []
-                while searchStart < line.endIndex,
-                      let range = line.range(of: displayToken, range: searchStart..<line.endIndex) {
-                    ranges.append(range)
-                    searchStart = range.upperBound
-                }
-                if !ranges.isEmpty {
-                    matchingLines.append((lineIndex, line, ranges))
-                }
-            }
-
-            if !matchingLines.isEmpty {
-                let selectedLine = matchingLines[matchingLines.count / 2]
-                let selectedRange = selectedLine.ranges[selectedLine.ranges.count / 2]
-                let startColumn = selectedLine.line.distance(from: selectedLine.line.startIndex, to: selectedRange.lowerBound)
-                let endColumnExclusive = selectedLine.line.distance(from: selectedLine.line.startIndex, to: selectedRange.upperBound)
-                if startColumn < cols {
-                    matchedRowFromTop = rowOffset + selectedLine.lineIndex
-                    matchedColumnStart = startColumn
-                    matchedColumnEnd = max(startColumn, endColumnExclusive - 1)
-                    matchedLine = selectedLine.line
-                }
-            }
-
-            guard let matchedRowFromTop,
-                  let matchedColumnStart,
-                  let matchedColumnEnd else {
-                return [
-                    "tokenLayoutMatch": "0",
-                    "tokenCellMetrics": [
-                        "cellWidth": cellWidth,
-                        "cellHeight": cellHeight,
-                        "columns": cols,
-                        "rows": rows,
-                        "xInset": xInset,
-                        "yInset": yInset,
-                        "visibleLineCount": visibleLines.count
-                    ]
-                ]
-            }
-
-            let yFromTop = pointClampY(yInset + (CGFloat(matchedRowFromTop) * cellHeight) + (cellHeight / 2))
-            let startX = pointClampX(xInset + (CGFloat(matchedColumnStart) * cellWidth) + (cellWidth / 2))
-            let endX = pointClampX(xInset + (CGFloat(matchedColumnEnd) * cellWidth) + (cellWidth / 2))
-            let hitX = pointClampX(startX + min(cellWidth * 2, max(0, endX - startX)))
-            return [
-                "tokenHitPointInTerminal": pointPayload(x: hitX, yFromTop: yFromTop),
-                "tokenSelectionStartInTerminal": pointPayload(x: startX, yFromTop: yFromTop),
-                "tokenSelectionEndInTerminal": pointPayload(x: endX, yFromTop: yFromTop),
-                "tokenQuicklookWord": displayToken,
-                "tokenLayoutMatch": "1",
-                "tokenCellMetrics": [
-                    "cellWidth": cellWidth,
-                    "cellHeight": cellHeight,
-                    "columns": cols,
-                    "rows": rows,
-                    "xInset": xInset,
-                    "yInset": yInset,
-                    "visibleLineCount": visibleLines.count,
-                    "matchedRowFromTop": matchedRowFromTop,
-                    "matchedColumnStart": matchedColumnStart,
-                    "matchedColumnEnd": matchedColumnEnd,
-                    "matchedLine": matchedLine
-                ]
-            ]
+            return TerminalCmdClickTokenGrid(
+                bounds: bounds,
+                rows: rows,
+                cols: cols,
+                cellWidth: cellWidth,
+                cellHeight: cellHeight,
+                displayToken: displayToken
+            ).tokenPoints(visibleText: visibleText)
         }
 
         func cleanup() {

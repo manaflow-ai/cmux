@@ -12867,7 +12867,7 @@ extension AppDelegate: BrowserDebugContext {
     }
 
     func resetBrowserImportHintDebugState() {
-        BrowserImportHintSettings.reset()
+        BrowserImportHintSettings().reset()
     }
 }
 

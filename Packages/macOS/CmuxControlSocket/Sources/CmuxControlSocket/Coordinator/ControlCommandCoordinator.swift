@@ -146,7 +146,10 @@ public final class ControlCommandCoordinator {
 
     /// A trimmed, non-empty string param, or `nil` (matches legacy `v2String`:
     /// only a JSON string counts; whitespace-only is treated as absent).
-    func string(_ params: [String: JSONValue], _ key: String) -> String? {
+    ///
+    /// Public so the app-resident `workspace.remote.configure` witness reads its
+    /// params through this single coercion (the former app-side `jvString`).
+    public func string(_ params: [String: JSONValue], _ key: String) -> String? {
         guard case .string(let raw)? = params[key] else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -164,7 +167,10 @@ public final class ControlCommandCoordinator {
 
     /// Whether a param is present and not JSON `null` (matches legacy
     /// `v2HasNonNullParam`).
-    func hasNonNull(_ params: [String: JSONValue], _ key: String) -> Bool {
+    ///
+    /// Public so the app-resident `workspace.remote.configure` witness reuses this
+    /// presence check (the former app-side `jvHasNonNullParam`).
+    public func hasNonNull(_ params: [String: JSONValue], _ key: String) -> Bool {
         guard let value = params[key] else { return false }
         if case .null = value { return false }
         return true

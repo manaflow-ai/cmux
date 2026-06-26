@@ -121,7 +121,7 @@ struct cmuxApp: App {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingStore.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingStore.defaultSpacing
     @State private var browserFocusModeMenuRevision = 0
-    @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
+    @State var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
 

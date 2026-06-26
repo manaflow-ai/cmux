@@ -348,62 +348,19 @@ func shouldHandleCommandPaletteShortcutEvent(
     return false
 }
 
-enum BrowserZoomShortcutAction: Equatable {
-    case zoomIn
-    case zoomOut
-    case reset
-}
-
 func browserZoomShortcutAction(
     flags: NSEvent.ModifierFlags,
     chars: String,
     keyCode: UInt16,
     literalChars: String? = nil
 ) -> BrowserZoomShortcutAction? {
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function])
-    let hasCommand = normalizedFlags.contains(.command)
-    let hasOnlyCommandAndOptionalShift = hasCommand && normalizedFlags.isDisjoint(with: [.control, .option])
-
-    guard hasOnlyCommandAndOptionalShift else { return nil }
-    let keys = browserZoomShortcutKeyCandidates(
+    BrowserZoomShortcutAction.resolve(
+        flags: flags,
         chars: chars,
+        keyCode: keyCode,
         literalChars: literalChars,
-        keyCode: keyCode
+        layoutCharacter: { KeyboardLayout.character(forKeyCode: $0) }
     )
-
-    if keys.contains("=") || keys.contains("+") || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
-        return .zoomIn
-    }
-
-    if keys.contains("-") || keys.contains("_") || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
-        return .zoomOut
-    }
-
-    if keys.contains("0") || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
-        return .reset
-    }
-
-    return nil
-}
-
-func browserZoomShortcutKeyCandidates(
-    chars: String,
-    literalChars: String?,
-    keyCode: UInt16
-) -> Set<String> {
-    var keys: Set<String> = [chars.lowercased()]
-
-    if let literalChars, !literalChars.isEmpty {
-        keys.insert(literalChars.lowercased())
-    }
-
-    if let layoutChar = KeyboardLayout.character(forKeyCode: keyCode), !layoutChar.isEmpty {
-        keys.insert(layoutChar)
-    }
-
-    return keys
 }
 
 func shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
@@ -710,46 +667,21 @@ func browserZoomShortcutTraceCandidate(
     keyCode: UInt16,
     literalChars: String? = nil
 ) -> Bool {
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function])
-    guard normalizedFlags.contains(.command) else { return false }
-
-    let keys = browserZoomShortcutKeyCandidates(
+    BrowserZoomShortcutAction.traceCandidate(
+        flags: flags,
         chars: chars,
+        keyCode: keyCode,
         literalChars: literalChars,
-        keyCode: keyCode
+        layoutCharacter: { KeyboardLayout.character(forKeyCode: $0) }
     )
-    if keys.contains("=") || keys.contains("+") || keys.contains("-") || keys.contains("_") || keys.contains("0") {
-        return true
-    }
-    switch keyCode {
-    case 24, 27, 29, 69, 78, 82: // ANSI and keypad zoom keys
-        return true
-    default:
-        return false
-    }
 }
 
 func browserZoomShortcutTraceFlagsString(_ flags: NSEvent.ModifierFlags) -> String {
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function])
-    var parts: [String] = []
-    if normalizedFlags.contains(.command) { parts.append("Cmd") }
-    if normalizedFlags.contains(.shift) { parts.append("Shift") }
-    if normalizedFlags.contains(.option) { parts.append("Opt") }
-    if normalizedFlags.contains(.control) { parts.append("Ctrl") }
-    return parts.isEmpty ? "none" : parts.joined(separator: "+")
+    BrowserZoomShortcutAction.traceFlagsString(flags)
 }
 
 func browserZoomShortcutTraceActionString(_ action: BrowserZoomShortcutAction?) -> String {
-    guard let action else { return "none" }
-    switch action {
-    case .zoomIn: return "zoomIn"
-    case .zoomOut: return "zoomOut"
-    case .reset: return "reset"
-    }
+    BrowserZoomShortcutAction.traceActionString(action)
 }
 #endif
 

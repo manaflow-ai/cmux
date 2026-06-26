@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxCommandPalette
 import Foundation
 import CmuxSettings

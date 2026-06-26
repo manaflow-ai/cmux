@@ -109,9 +109,11 @@ class TabManager {
         backgroundWorkspaceLoad.debugPinnedWorkspaceLoadIds
     }
 
-    /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
-    /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
-    static var nextPortOrdinal: Int = 0
+    /// Monotonic allocator for CMUX_PORT ordinal assignment, shared across every
+    /// window's `TabManager` so port ranges don't overlap (each window has its
+    /// own `TabManager`). Injected, with the process-wide shared default at the
+    /// composition point (see `sharedPortOrdinalAllocator` / `init`).
+    let portOrdinalAllocator: WorkspacePortOrdinalAllocator
     var selectedTabId: UUID? {
         get { workspaces.selectedTabId }
         set { workspaces.selectedTabId = newValue }
@@ -418,6 +420,12 @@ class TabManager {
     // the legacy shared limiter; tests inject their own instance.
     private static let sharedWorkspaceGitProbeLimiter = WorkspaceGitMetadataProbeLimiter(limit: 2)
 
+    // Process-wide CMUX_PORT ordinal allocator, shared by every window's
+    // TabManager so port ranges never overlap. A static (not a per-instance
+    // default) on purpose: the counter is per process, not per window, matching
+    // the legacy `static var nextPortOrdinal`; tests inject their own instance.
+    private static let sharedPortOrdinalAllocator = WorkspacePortOrdinalAllocator()
+
     // The sidebar git/PR subsystem (extracted to CmuxSidebarGit). TabManager
     // is the per-window composition point: it constructs the concrete
     // services, stores only the seams, implements SidebarGitHosting
@@ -436,9 +444,11 @@ class TabManager {
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
+        portOrdinalAllocator: WorkspacePortOrdinalAllocator? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard)
     ) {
         self.settings = settings
+        self.portOrdinalAllocator = portOrdinalAllocator ?? Self.sharedPortOrdinalAllocator
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceCommands = WorkspaceCommandCoordinator(model: workspaces, reordering: workspaceReordering)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
@@ -2127,9 +2137,7 @@ class TabManager {
     }
 
     func nextPortOrdinal() -> Int {
-        let ordinal = Self.nextPortOrdinal
-        Self.nextPortOrdinal += 1
-        return ordinal
+        portOrdinalAllocator.next()
     }
 
     func requestBackgroundWorkspaceLoad(workspaceId: UUID) {
@@ -4555,8 +4563,7 @@ extension TabManager {
         let workspaceSnapshots = (snapshot?.workspaces ?? [])
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         for workspaceSnapshot in workspaceSnapshots {
-            let ordinal = Self.nextPortOrdinal
-            Self.nextPortOrdinal += 1
+            let ordinal = portOrdinalAllocator.next()
             let workspace = Workspace(
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
@@ -4571,8 +4578,7 @@ extension TabManager {
         }
 
         if newTabs.isEmpty {
-            let ordinal = Self.nextPortOrdinal
-            Self.nextPortOrdinal += 1
+            let ordinal = portOrdinalAllocator.next()
             let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal)
             fallback.owningTabManager = self
             wireClosedBrowserTracking(for: fallback)

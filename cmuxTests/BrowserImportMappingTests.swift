@@ -151,7 +151,7 @@ final class BrowserImportMappingTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let presentation = BrowserImportHintSettings.presentation(defaults: defaults)
+        let presentation = BrowserImportHintSettings(defaults: defaults).presentation()
 
         XCTAssertEqual(presentation.blankTabPlacement, .toolbarChip)
         XCTAssertEqual(presentation.settingsStatus, .visible)

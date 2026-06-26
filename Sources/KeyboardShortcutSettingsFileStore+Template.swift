@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxBrowser
 import CmuxSettings
 import Foundation
 

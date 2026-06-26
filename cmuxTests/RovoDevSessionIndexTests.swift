@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import XCTest
 
@@ -10,7 +11,7 @@ import XCTest
 final class RovoDevSessionIndexTests: XCTestCase {
     func testRipgrepCancellationDoesNotSignalBeforeProcessStarts() {
         var sentSignals: [(pid_t, Int32)] = []
-        let cancellation = SessionIndexRipgrepCancellation { processIdentifier, signal in
+        let cancellation = RipgrepProcessCancellation { processIdentifier, signal in
             sentSignals.append((processIdentifier, signal))
             return 0
         }
@@ -22,7 +23,7 @@ final class RovoDevSessionIndexTests: XCTestCase {
 
     func testRipgrepCancellationSignalsActiveProcess() {
         var sentSignals: [(pid_t, Int32)] = []
-        let cancellation = SessionIndexRipgrepCancellation { processIdentifier, signal in
+        let cancellation = RipgrepProcessCancellation { processIdentifier, signal in
             sentSignals.append((processIdentifier, signal))
             return 0
         }
@@ -40,7 +41,7 @@ final class RovoDevSessionIndexTests: XCTestCase {
 
     func testRipgrepCancellationDoesNotResurrectFinishedProcess() {
         var sentSignals: [(pid_t, Int32)] = []
-        let cancellation = SessionIndexRipgrepCancellation { processIdentifier, signal in
+        let cancellation = RipgrepProcessCancellation { processIdentifier, signal in
             sentSignals.append((processIdentifier, signal))
             return 0
         }

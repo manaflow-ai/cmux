@@ -13,50 +13,6 @@ nonisolated private let sessionIndexLogger = Logger(
     category: "SessionIndexStore"
 )
 
-/// Locked cancellation state shared by synchronous `Process` callbacks.
-/// `onCancel` cannot await an actor, so mutable state stays behind `lock`.
-final class SessionIndexRipgrepCancellation: @unchecked Sendable {
-    private let lock = NSLock()
-    private let sendSignal: @Sendable (pid_t, Int32) -> Int32
-    private var activeProcessIdentifier: pid_t?
-    private var finishedProcessIdentifier: pid_t?
-
-    init(sendSignal: @escaping @Sendable (pid_t, Int32) -> Int32 = Darwin.kill) {
-        self.sendSignal = sendSignal
-    }
-
-    func markStarted(processIdentifier: pid_t) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        if finishedProcessIdentifier == processIdentifier {
-            activeProcessIdentifier = nil
-        } else {
-            activeProcessIdentifier = processIdentifier
-        }
-    }
-
-    func markFinished(processIdentifier: pid_t) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        finishedProcessIdentifier = processIdentifier
-        if activeProcessIdentifier == processIdentifier {
-            activeProcessIdentifier = nil
-        }
-    }
-
-    func cancel() {
-        lock.lock()
-        let processIdentifier = activeProcessIdentifier
-        activeProcessIdentifier = nil
-        lock.unlock()
-
-        guard let processIdentifier else { return }
-        _ = sendSignal(processIdentifier, SIGTERM)
-    }
-}
-
 // MARK: - Parsed metadata cache
 
 /// Process-wide cache for parsed Claude session metadata, keyed by file URL with
@@ -1061,73 +1017,8 @@ final class SessionIndexStore: ObservableObject {
     nonisolated static func ripgrepMatchingPaths(
         needle: String, root: String, fileGlob: String, ripgrepPath: String? = nil
     ) async -> [URL]? {
-        guard let rg = ripgrepPath ?? resolvedRipgrepPath() else { return nil }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: rg)
-        process.arguments = [
-            "--files-with-matches",
-            "--ignore-case",
-            "--fixed-strings",
-            "--no-messages",
-            "--no-ignore",
-            "--hidden",
-            "--glob", fileGlob,
-            "--",
-            needle,
-            root,
-        ]
-        let outPipe = Pipe()
-        process.standardOutput = outPipe
-        // Discard stderr to /dev/null so its pipe can never deadlock either.
-        if let nullDev = FileHandle(forWritingAtPath: "/dev/null") {
-            process.standardError = nullDev
-        }
-        let cancellation = SessionIndexRipgrepCancellation()
-        process.terminationHandler = { process in
-            cancellation.markFinished(processIdentifier: process.processIdentifier)
-        }
-
-        return await withTaskCancellationHandler {
-            guard !Task.isCancelled else { return [] }
-            do {
-                try process.run()
-            } catch {
-                if Task.isCancelled { return [] }
-                return nil as [URL]?
-            }
-            cancellation.markStarted(processIdentifier: process.processIdentifier)
-            if Task.isCancelled {
-                cancellation.cancel()
-            }
-            // Drain stdout BEFORE waitUntilExit. With many matches rg writes
-            // more than the ~64 KB pipe buffer; reading until EOF lets rg
-            // make progress and EOF arrives when rg closes its stdout on exit.
-            // Once the pipe read returns, the process is already exiting,
-            // so waitUntilExit is essentially instant — we just need it to make
-            // terminationStatus observable. (Setting terminationHandler here
-            // would race: if rg already exited, the handler is registered too
-            // late and never fires → deadlock.)
-            let data = outPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
-            process.waitUntilExit()
-            cancellation.markFinished(processIdentifier: process.processIdentifier)
-            if Task.isCancelled { return [] }
-            // rg exit codes: 0 = matches, 1 = no matches, 2 = error/terminated.
-            switch process.terminationStatus {
-            case 0:
-                guard let str = String(data: data, encoding: .utf8) else { return nil as [URL]? }
-                return str.split(separator: "\n", omittingEmptySubsequences: true)
-                    .map { URL(fileURLWithPath: String($0)) }
-            case 1:
-                return []
-            default:
-                return nil
-            }
-        } onCancel: {
-            // Fires synchronously when the awaiting Task is cancelled. SIGTERM
-            // closes stdout, lets the pipe read return, and unblocks the
-            // body so this call can complete cleanly.
-            cancellation.cancel()
-        }
+        await RipgrepFileSearch(ripgrepPath: ripgrepPath ?? resolvedRipgrepPath())
+            .matchingPaths(needle: needle, root: root, fileGlob: fileGlob)
     }
 
     /// Returns Claude session entries paginated by mtime desc.
@@ -1316,12 +1207,7 @@ final class SessionIndexStore: ObservableObject {
     }
 
     nonisolated static func fileContainsNeedle(url: URL, needle: String) -> Bool {
-        guard !needle.isEmpty,
-              let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-              let text = String(data: data, encoding: .utf8) else {
-            return false
-        }
-        return text.range(of: needle, options: [.caseInsensitive, .literal]) != nil
+        RipgrepFileSearch.fileContainsNeedle(url: url, needle: needle)
     }
 
     /// Disk-scan fallback for Codex when state_5.sqlite isn't present (very old

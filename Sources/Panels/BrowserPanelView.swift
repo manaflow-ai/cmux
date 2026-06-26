@@ -12,6 +12,13 @@ import ObjectiveC
 import CmuxTestSupport
 #endif
 
+// Both `CmuxBrowser` (the live import-hint settings) and `CmuxAppKitSupportUI`
+// (its debug-panel preview copy) export these names; this file uses the live
+// settings types, so pin the unqualified spellings to the `CmuxBrowser`
+// versions to keep the lookup unambiguous.
+private typealias BrowserImportHintVariant = CmuxBrowser.BrowserImportHintVariant
+private typealias BrowserImportHintPresentation = CmuxBrowser.BrowserImportHintPresentation
+
 private var cmuxBrowserPanelNeedsRenderingStateReattachKey: UInt8 = 0
 let browserOmnibarTextFieldIdentifier = NSUserInterfaceItemIdentifier("cmux.browserOmnibarTextField")
 

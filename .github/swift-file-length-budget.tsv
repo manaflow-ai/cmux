@@ -112,7 +112,7 @@
 834	Sources/TerminalController+ControlSurfaceSendNotifyV1.swift
 831	Sources/ClosedItemHistory.swift
 830	Sources/TaskManagerTypes.swift
-826	Sources/App/ShortcutRoutingSupport.swift
+758	Sources/App/ShortcutRoutingSupport.swift
 825	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 810	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 805	Sources/WorkspaceContentView.swift

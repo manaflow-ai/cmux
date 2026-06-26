@@ -3,6 +3,7 @@ import CmuxTerminalCore
 import Combine
 import AppKit
 import Bonsplit
+import CMUXAgentLaunch
 import CmuxTerminal
 import CmuxWorkspaces
 
@@ -13,21 +14,6 @@ struct AgentHibernationPanelState {
 
     var agentDisplayName: String {
         agent.agentDisplayName
-    }
-}
-
-enum AgentHibernationResumePreparation: Equatable {
-    case unavailable
-    case resumed(queuedStartupInput: Bool)
-
-    var didResume: Bool {
-        if case .resumed = self { return true }
-        return false
-    }
-
-    var queuedStartupInput: Bool {
-        if case .resumed(let queuedStartupInput) = self { return queuedStartupInput }
-        return false
     }
 }
 

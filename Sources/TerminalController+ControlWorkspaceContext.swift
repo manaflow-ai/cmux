@@ -602,38 +602,45 @@ extension TerminalController: ControlWorkspaceContext {
         // Parameter extraction and workspace/owner resolution stay app-side; the
         // pure ~40-param validation and `WorkspaceRemote*` assembly live in
         // `WorkspaceRemoteConfiguration.validated(...)` in CmuxCore. The typed
-        // `JSONValue` params are read directly through the `jv*` accessors below,
-        // which reproduce the legacy `v2*`/`as?` coercions byte-for-byte (so the
-        // interim `[String: Any]` re-parse twin is gone).
-        guard let destination = jvString(typedParams, "destination") else {
+        // `JSONValue` params are read through the shared `controlCommandCoordinator`
+        // param accessors (the byte-faithful coercions now live in the package
+        // alongside the other command param readers — the configure-specific
+        // numeric/boolean coercions are the `remoteConfigure*` accessors, which
+        // reproduce the legacy `NSNumber`-based path exactly).
+        guard let destination = controlCommandCoordinator.string(typedParams, "destination") else {
             return .err(code: "invalid_params", message: "Missing destination", data: nil)
         }
 
-        let identityFile = jvRawString(typedParams, "identity_file")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sshOptions = jvStringArray(typedParams, "ssh_options") ?? []
-        let transportRaw = jvRawString(typedParams, "transport")?
+        let identityFile = controlCommandCoordinator.rawString(typedParams, "identity_file")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let sshOptions = controlCommandCoordinator.stringArray(typedParams, "ssh_options") ?? []
+        let transportRaw = controlCommandCoordinator.rawString(typedParams, "transport")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        let autoConnect = jvBool(typedParams, "auto_connect") ?? true
-        let relayID = jvRawString(typedParams, "relay_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let relayToken = jvRawString(typedParams, "relay_token")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let foregroundAuthToken = jvRawString(typedParams, "foreground_auth_token")?
+        let autoConnect = controlCommandCoordinator.remoteConfigureBool(typedParams, "auto_connect") ?? true
+        let relayID = controlCommandCoordinator.rawString(typedParams, "relay_id")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let localSocketPath = jvRawString(typedParams, "local_socket_path")
-        let hasExplicitAgentSocketPath = jvHasNonNullParam(typedParams, "ssh_auth_sock")
-        let agentSocketPath = jvRawString(typedParams, "ssh_auth_sock")?
+        let relayToken = controlCommandCoordinator.rawString(typedParams, "relay_token")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let terminalStartupCommand = jvRawString(typedParams, "terminal_startup_command")?
+        let foregroundAuthToken = controlCommandCoordinator.rawString(typedParams, "foreground_auth_token")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let persistentDaemonSlotRaw = jvRawString(typedParams, "persistent_daemon_slot")?
+        let localSocketPath = controlCommandCoordinator.rawString(typedParams, "local_socket_path")
+        let hasExplicitAgentSocketPath = controlCommandCoordinator.hasNonNull(typedParams, "ssh_auth_sock")
+        let agentSocketPath = controlCommandCoordinator.rawString(typedParams, "ssh_auth_sock")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let daemonWebSocketURL = jvRawString(typedParams, "daemon_websocket_url")?
+        let terminalStartupCommand = controlCommandCoordinator.rawString(typedParams, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let daemonWebSocketToken = jvRawString(typedParams, "daemon_websocket_token")?
+        let persistentDaemonSlotRaw = controlCommandCoordinator.rawString(typedParams, "persistent_daemon_slot")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let daemonWebSocketSessionID = jvRawString(typedParams, "daemon_websocket_session_id")?
+        let daemonWebSocketURL = controlCommandCoordinator.rawString(typedParams, "daemon_websocket_url")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let daemonWebSocketExpiresAtUnix = jvExpiresAtUnix(typedParams, "daemon_websocket_expires_at_unix")
+        let daemonWebSocketToken = controlCommandCoordinator.rawString(typedParams, "daemon_websocket_token")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let daemonWebSocketSessionID = controlCommandCoordinator.rawString(typedParams, "daemon_websocket_session_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let daemonWebSocketExpiresAtUnix = controlCommandCoordinator.remoteConfigureExpiresAtUnix(
+            typedParams, "daemon_websocket_expires_at_unix"
+        )
         var daemonWebSocketHeaders: [String: String] = [:]
         if case .object(let rawDaemonHeaders)? = typedParams["daemon_websocket_headers"] {
             for (key, value) in rawDaemonHeaders {
@@ -647,12 +654,12 @@ extension TerminalController: ControlWorkspaceContext {
         switch WorkspaceRemoteConfiguration.validated(
             transportRaw: transportRaw,
             destination: destination,
-            portPresent: jvHasNonNullParam(typedParams, "port"),
-            portValue: jvStrictInt(typedParams, "port"),
-            localProxyPortPresent: jvHasNonNullParam(typedParams, "local_proxy_port"),
-            localProxyPortValue: jvStrictInt(typedParams, "local_proxy_port"),
-            relayPortPresent: jvHasNonNullParam(typedParams, "relay_port"),
-            relayPortValue: jvStrictInt(typedParams, "relay_port"),
+            portPresent: controlCommandCoordinator.hasNonNull(typedParams, "port"),
+            portValue: controlCommandCoordinator.remoteConfigureStrictInt(typedParams, "port"),
+            localProxyPortPresent: controlCommandCoordinator.hasNonNull(typedParams, "local_proxy_port"),
+            localProxyPortValue: controlCommandCoordinator.remoteConfigureStrictInt(typedParams, "local_proxy_port"),
+            relayPortPresent: controlCommandCoordinator.hasNonNull(typedParams, "relay_port"),
+            relayPortValue: controlCommandCoordinator.remoteConfigureStrictInt(typedParams, "relay_port"),
             identityFile: identityFile,
             sshOptions: sshOptions,
             relayID: relayID,
@@ -662,16 +669,16 @@ extension TerminalController: ControlWorkspaceContext {
             hasExplicitAgentSocketPath: hasExplicitAgentSocketPath,
             agentSocketPath: agentSocketPath,
             terminalStartupCommand: terminalStartupCommand,
-            persistentDaemonSlotPresent: jvHasNonNullParam(typedParams, "persistent_daemon_slot"),
+            persistentDaemonSlotPresent: controlCommandCoordinator.hasNonNull(typedParams, "persistent_daemon_slot"),
             persistentDaemonSlotValue: persistentDaemonSlotRaw,
             daemonWebSocketURL: daemonWebSocketURL,
             daemonWebSocketToken: daemonWebSocketToken,
             daemonWebSocketSessionID: daemonWebSocketSessionID,
             daemonWebSocketExpiresAtUnix: daemonWebSocketExpiresAtUnix,
             daemonWebSocketHeaders: daemonWebSocketHeaders,
-            preservePresent: jvHasNonNullParam(typedParams, "preserve_after_terminal_exit"),
-            preserveValue: jvBool(typedParams, "preserve_after_terminal_exit"),
-            skipDaemonBootstrap: jvBool(typedParams, "skip_daemon_bootstrap") ?? false,
+            preservePresent: controlCommandCoordinator.hasNonNull(typedParams, "preserve_after_terminal_exit"),
+            preserveValue: controlCommandCoordinator.remoteConfigureBool(typedParams, "preserve_after_terminal_exit"),
+            skipDaemonBootstrap: controlCommandCoordinator.remoteConfigureBool(typedParams, "skip_daemon_bootstrap") ?? false,
             workspaceID: workspaceId
         ) {
         case .failure(let error):
@@ -933,117 +940,5 @@ extension TerminalController: ControlWorkspaceContext {
             }
         }
         return result.isEmpty ? "ERROR: No tab selected" : result
-    }
-}
-
-// MARK: - Direct JSONValue param accessors (workspace.remote.configure)
-
-/// Typed `JSONValue` readers used by `controlConfigureWorkspaceRemote` so the
-/// configure command no longer round-trips its params through the interim
-/// `[String: Any]` twin and the `v2*` `as?` helpers. Each `jv*` reproduces the
-/// corresponding `v2*` coercion byte-for-byte against the `JSONValue` shape that
-/// `JSONValue(foundationObject:)` would have produced (the wire decode already
-/// distinguishes JSON booleans from numbers via the `.bool`/`.int`/`.double`
-/// cases, so no `CFBoolean` type-identity probing is needed):
-///
-/// - `jvString`/`jvRawString` mirror `params[key] as? String` (only `.string`),
-///   with `jvString` additionally trimming and rejecting an empty result.
-/// - `jvStringArray` mirrors the `[String]` / `[Any]`-compactMap / single-value
-///   fallback chain (collect every `.string` element, trim, drop empties).
-/// - `jvBool` mirrors `as? Bool` else `NSNumber.boolValue` else the string
-///   token parse; `NSNumber(value:).boolValue` is byte-identical to the legacy
-///   numeric branch (a successful `as? Bool` only fires on an exact 0/1 whose
-///   `boolValue` agrees).
-/// - `jvHasNonNullParam` is true iff the key is present and not JSON `null`.
-/// - `jvStrictInt` mirrors `v2StrictIntAny`: booleans rejected, numbers required
-///   finite + integral via `Int(exactly: doubleValue)`, strings parsed.
-/// - `jvExpiresAtUnix` mirrors `(as? Int64) ?? Int64((as? Double) ?? 0)`,
-///   including the legacy `Int64(...)` truncation (and its overflow/NaN trap)
-///   for a non-integral double and the `CFBoolean as? Int64 == 0/1` coercion.
-extension TerminalController {
-    nonisolated func jvString(_ params: [String: JSONValue], _ key: String) -> String? {
-        guard case .string(let raw)? = params[key] else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    nonisolated func jvRawString(_ params: [String: JSONValue], _ key: String) -> String? {
-        guard case .string(let raw)? = params[key] else { return nil }
-        return raw
-    }
-
-    nonisolated func jvStringArray(_ params: [String: JSONValue], _ key: String) -> [String]? {
-        if case .array(let elements)? = params[key] {
-            return elements
-                .compactMap { element -> String? in
-                    guard case .string(let value) = element else { return nil }
-                    return value
-                }
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-        }
-        if let single = jvString(params, key) {
-            return [single]
-        }
-        return nil
-    }
-
-    nonisolated func jvBool(_ params: [String: JSONValue], _ key: String) -> Bool? {
-        switch params[key] {
-        case .bool(let value):
-            return value
-        case .int(let value):
-            return NSNumber(value: value).boolValue
-        case .double(let value):
-            return NSNumber(value: value).boolValue
-        case .string(let value):
-            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "1", "true", "yes", "on":
-                return true
-            case "0", "false", "no", "off":
-                return false
-            default:
-                return nil
-            }
-        case .null, .array, .object, .none:
-            return nil
-        }
-    }
-
-    nonisolated func jvHasNonNullParam(_ params: [String: JSONValue], _ key: String) -> Bool {
-        guard let value = params[key] else { return false }
-        if case .null = value { return false }
-        return true
-    }
-
-    nonisolated func jvStrictInt(_ params: [String: JSONValue], _ key: String) -> Int? {
-        switch params[key] {
-        case .bool:
-            return nil
-        case .int(let value):
-            let doubleValue = Double(value)
-            guard doubleValue.isFinite, floor(doubleValue) == doubleValue else { return nil }
-            return Int(exactly: doubleValue)
-        case .double(let doubleValue):
-            guard doubleValue.isFinite, floor(doubleValue) == doubleValue else { return nil }
-            return Int(exactly: doubleValue)
-        case .string(let value):
-            return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
-        case .null, .array, .object, .none:
-            return nil
-        }
-    }
-
-    nonisolated func jvExpiresAtUnix(_ params: [String: JSONValue], _ key: String) -> Int64 {
-        switch params[key] {
-        case .int(let value):
-            return value
-        case .double(let value):
-            return Int64(exactly: value) ?? Int64(value)
-        case .bool(let value):
-            return value ? 1 : 0
-        case .string, .null, .array, .object, .none:
-            return 0
-        }
     }
 }

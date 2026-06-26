@@ -10,7 +10,10 @@ internal import Foundation
 /// Sendable enum the app maps.
 extension ControlCommandCoordinator {
     /// `v2RawString`: the raw string value, untrimmed, or `nil`.
-    func rawString(_ params: [String: JSONValue], _ key: String) -> String? {
+    ///
+    /// Public so the app-resident `workspace.remote.configure` witness reuses this
+    /// raw read (the former app-side `jvRawString`).
+    public func rawString(_ params: [String: JSONValue], _ key: String) -> String? {
         guard case .string(let value)? = params[key] else { return nil }
         return value
     }
@@ -23,7 +26,10 @@ extension ControlCommandCoordinator {
 
     /// `v2StringArray`: a JSON string array (trimmed, empties dropped); a single
     /// trimmed non-empty string yields a one-element array; otherwise `nil`.
-    func stringArray(_ params: [String: JSONValue], _ key: String) -> [String]? {
+    ///
+    /// Public so the app-resident `workspace.remote.configure` witness reuses this
+    /// array coercion (the former app-side `jvStringArray`).
+    public func stringArray(_ params: [String: JSONValue], _ key: String) -> [String]? {
         if case .array(let raw)? = params[key] {
             return raw.compactMap { element -> String? in
                 guard case .string(let value) = element else { return nil }

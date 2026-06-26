@@ -1751,39 +1751,27 @@ final class CmuxSettingsFileStore {
         cmuxSettingsFileStoreLogger.warning("ignoring invalid setting '\(path, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
     }
 
+    // JSON scalar coercion narrows untyped `Any?` parsed values to typed Swift
+    // values; the coercion rules live in `CmuxFoundation.JSONScalar`. These thin
+    // adapters keep the parser's existing call sites unchanged.
     private func jsonString(_ rawValue: Any?) -> String? {
-        rawValue as? String
+        JSONScalar(rawValue).string
     }
 
     private func jsonBool(_ rawValue: Any?) -> Bool? {
-        guard let number = rawValue as? NSNumber else { return nil }
-        guard CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
-        return number.boolValue
+        JSONScalar(rawValue).bool
     }
 
     private func jsonInt(_ rawValue: Any?) -> Int? {
-        guard let number = rawValue as? NSNumber else { return nil }
-        guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
-        let doubleValue = number.doubleValue
-        guard doubleValue.rounded() == doubleValue else { return nil }
-        return number.intValue
+        JSONScalar(rawValue).int
     }
 
     private func jsonDouble(_ rawValue: Any?) -> Double? {
-        guard let number = rawValue as? NSNumber else { return nil }
-        guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
-        return number.doubleValue
+        JSONScalar(rawValue).double
     }
 
     private func jsonStringArray(_ rawValue: Any?) -> [String]? {
-        guard let values = rawValue as? [Any] else { return nil }
-        var strings: [String] = []
-        strings.reserveCapacity(values.count)
-        for value in values {
-            guard let string = value as? String else { return nil }
-            strings.append(string)
-        }
-        return strings
+        JSONScalar(rawValue).stringArray
     }
 
 }
