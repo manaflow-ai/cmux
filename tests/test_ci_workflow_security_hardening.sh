@@ -64,6 +64,16 @@ for workflow in nightly.yml release.yml; do
   done
 done
 
+if grep -Fq "git ls-remote origin refs/heads/main" "$WORKFLOW_DIR/nightly.yml"; then
+  fail "nightly.yml HEAD checks must not rely on checkout-persisted origin credentials"
+fi
+nightly_head_checks="$(grep -Fc 'gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main"' "$WORKFLOW_DIR/nightly.yml")"
+[ "$nightly_head_checks" -eq 2 ] \
+  || fail "nightly.yml must use authenticated gh api lookups for both current-main HEAD checks"
+nightly_head_tokens="$(grep -Fc 'GH_TOKEN: ${{ github.token }}' "$WORKFLOW_DIR/nightly.yml")"
+[ "$nightly_head_tokens" -ge 2 ] \
+  || fail "nightly.yml current-main HEAD checks must set GH_TOKEN"
+
 for permission in "contents: read" "id-token: write"; do
   count="$(grep -Fc "$permission" "$WORKFLOW_DIR/cloud-vm-migrate.yml")"
   [ "$count" -ge 2 ] || fail "cloud-vm-migrate.yml must grant $permission on migration jobs"
@@ -78,5 +88,8 @@ grep -Fq 'WORKFLOW_RUN_EVENT' "$WORKFLOW_DIR/update-homebrew.yml" \
 grep -Fq 'x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/manaflow-ai/homebrew-cmux.git' \
   "$WORKFLOW_DIR/update-homebrew.yml" \
   || fail "update-homebrew.yml must push with an explicit tokenized URL after checkout credentials are disabled"
+if grep -Eq '>>[[:space:]]+\$GITHUB_OUTPUT' "$WORKFLOW_DIR/update-homebrew.yml"; then
+  fail "update-homebrew.yml must quote GITHUB_OUTPUT writes"
+fi
 
 echo "PASS: GitHub Actions workflow security hardening guards hold"

@@ -58,11 +58,11 @@ jobs:
               exit 1
             fi
             echo "Skipping homebrew cask update for non-release ref: ${VERSION}"
-            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "skip=false" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Updating homebrew cask to version $VERSION"
 
       - name: Download DMG and get SHA256
@@ -88,7 +88,7 @@ jobs:
             sleep 30
           done
           SHA256=$(shasum -a 256 cmux.dmg | cut -d' ' -f1)
-          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
           echo "DMG SHA256: $SHA256"
 
       - name: Checkout homebrew-cmux

@@ -137,9 +137,10 @@ jobs:
         id: current_head_prebuild
         env:
           BUILD_SHA: ${{ needs.decide.outputs.head_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          CURRENT_MAIN_SHA="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          CURRENT_MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
           if [ "$CURRENT_MAIN_SHA" = "$BUILD_SHA" ]; then
             STILL_CURRENT=true
           else
@@ -319,9 +320,10 @@ jobs:
         id: current_head_postbuild
         env:
           BUILD_SHA: ${{ needs.decide.outputs.head_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          CURRENT_MAIN_SHA="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          CURRENT_MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
           if [ "$CURRENT_MAIN_SHA" = "$BUILD_SHA" ]; then
             STILL_CURRENT=true
           else
