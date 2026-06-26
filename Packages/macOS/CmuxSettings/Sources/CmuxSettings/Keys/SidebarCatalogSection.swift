@@ -116,6 +116,12 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowStatusPills"
     )
 
+    public let leftMinWidth = DefaultsKey<Double>(
+        id: LeftSidebarWidthSettings.settingsPath,
+        defaultValue: LeftSidebarWidthSettings.defaultMinimumWidth,
+        userDefaultsKey: LeftSidebarWidthSettings.minimumWidthKey
+    )
+
     public let rightMaxWidth = DefaultsKey<Double>(
         id: "sidebar.rightMaxWidth",
         defaultValue: RightSidebarWidthSettings.noOverrideValue,
