@@ -5,11 +5,16 @@ import Observation
 // MARK: - Monitor
 
 /// One instance owns the background poll timer, scans every live pane each tick,
-/// and attributes process-tree memory by controlling tty. The user-facing
-/// warning badge and dismissible banner were removed in issue #6614, so the scan
-/// now only maintains the engine's monitoring state (surfaced in DEBUG logs) and
-/// the still-wired system memory-pressure response. The heavy libproc scan runs
-/// off the main thread; only the small state updates touch `@MainActor`.
+/// and attributes process-tree memory by controlling tty. When a pane's process
+/// tree first crosses the configurable threshold the guardrail fires
+/// `onPaneRunaway` (issue #6313) so the app can post a calm, per-pane
+/// notification before macOS can OOM-suspend the whole app. The intrusive
+/// sidebar warning badge + dismissible "kill pane" banner from the original
+/// feature were removed in issue #6614 and are deliberately not reintroduced;
+/// the notification reuses the standard notification channel instead. The scan
+/// also drives the still-wired system memory-pressure response. The heavy
+/// libproc scan runs off the main thread; only the small state updates touch
+/// `@MainActor`.
 @MainActor
 @Observable
 final class PaneMemoryGuardrail {
@@ -29,6 +34,12 @@ final class PaneMemoryGuardrail {
     /// Invoked when the OS reports warning/critical system memory pressure.
     @ObservationIgnored
     var onSystemMemoryPressure: (@MainActor () -> Void)?
+    /// Invoked with each pane that first crossed the runaway-memory threshold
+    /// this tick (edge-triggered, hysteresis-cleared by the engine). Wired to a
+    /// per-pane in-app notification so a leaking process is observable before it
+    /// OOM-suspends the app (issue #6313).
+    @ObservationIgnored
+    var onPaneRunaway: (@MainActor ([PaneMemoryWarning]) -> Void)?
 
     @ObservationIgnored
     private var engine = PaneMemoryGuardrailEngine()
@@ -351,10 +362,14 @@ final class PaneMemoryGuardrail {
         isScanning = false
         scanApplyTask = nil
 
-        // Keep the engine's monitoring state machine current. Its warn/clear
-        // output no longer drives any UI (the badge + banner were removed in
-        // issue #6614); it is retained for the DEBUG scan log below.
+        // Advance the engine's edge-trigger + hysteresis state machine. Each
+        // pane that newly crossed the threshold this tick is surfaced as a calm
+        // per-pane notification (issue #6313); the bespoke badge + dismissible
+        // banner were removed in issue #6614 and are not reintroduced here.
         let output = engine.ingest(samples: samples, thresholdBytes: thresholdBytes)
+        if !output.bannersToPresent.isEmpty {
+            onPaneRunaway?(output.bannersToPresent)
+        }
         emitScanDebugLog(samples: samples, output: output, thresholdBytes: thresholdBytes, includesCMUXScope: batch.includesCMUXScope)
     }
 
