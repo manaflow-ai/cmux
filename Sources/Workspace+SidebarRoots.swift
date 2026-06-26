@@ -7,6 +7,6 @@ extension Workspace {
         if activeRemoteTerminalSessionCount > 0 {
             return true
         }
-        return remoteConnectionState != .disconnected
+        return remoteConnectionState == .connected
     }
 }

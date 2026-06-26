@@ -20,21 +20,8 @@ struct RightSidebarRemoteFileRootTests {
         let panel = RightSidebarToolPanel(workspace: workspace, mode: .files)
         let store = panel.fileExplorerStore
 
-        workspace.configureRemoteConnection(
-            WorkspaceRemoteConfiguration(
-                destination: "dev@ubuntu-host",
-                port: nil,
-                identityFile: nil,
-                sshOptions: [],
-                localProxyPort: nil,
-                relayPort: nil,
-                relayID: nil,
-                relayToken: nil,
-                localSocketPath: nil,
-                terminalStartupCommand: "ssh dev@ubuntu-host"
-            ),
-            autoConnect: false
-        )
+        workspace.configureRemoteConnection(Self.sshConfiguration(), autoConnect: false)
+        #expect(workspace.activeRemoteTerminalSessionCount == 1)
         workspace.currentDirectory = "/home/dev/project"
         panel.syncWorkspaceRoot(from: workspace)
         #expect(store.provider is SSHFileExplorerProvider)
@@ -47,5 +34,26 @@ struct RightSidebarRemoteFileRootTests {
         #expect(store.provider is LocalFileExplorerProvider)
         #expect(store.rootPath == localPath)
         #expect(!store.displayRootPath.hasPrefix("ssh://"))
+
+        workspace.remoteConfiguration = Self.sshConfiguration()
+        workspace.remoteConnectionState = .error
+        panel.syncWorkspaceRoot(from: workspace)
+        #expect(store.provider is LocalFileExplorerProvider)
+        #expect(store.rootPath == localPath)
+    }
+
+    private static func sshConfiguration() -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "dev@ubuntu-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "ssh dev@ubuntu-host"
+        )
     }
 }
