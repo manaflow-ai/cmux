@@ -76,6 +76,29 @@ extension PanelType {
             return .extensionBrowser
         }
     }
+
+    /// Maps a normalized control-command surface-type token onto a ``PanelType``.
+    ///
+    /// Byte-faithful home of the duplicated `panelType(forRawToken:)` /
+    /// `surfacePanelType(forRawToken:)` switches that the control-socket pane- and
+    /// surface-create paths each carried. Both normalized the caller-supplied type
+    /// string app-side (`TerminalController.v2NormalizedToken`, stripping
+    /// `-`/`_`/spaces and lowercasing) and switched on the result; the
+    /// normalization stays app-side while this owns the single case table.
+    /// `agentSession` is accepted here (the pane-create path rejects it
+    /// downstream), and `project`/`extensionBrowser` remain unmapped, exactly as
+    /// the legacy switches did.
+    public init?(normalizedControlToken token: String) {
+        switch token {
+        case "terminal": self = .terminal
+        case "browser": self = .browser
+        case "markdown": self = .markdown
+        case "filepreview": self = .filePreview
+        case "rightsidebartool": self = .rightSidebarTool
+        case "agentsession": self = .agentSession
+        default: return nil
+        }
+    }
 }
 
 public enum TerminalPanelFocusIntent: Equatable {
