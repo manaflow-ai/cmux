@@ -88,6 +88,13 @@ extension CMUXCLI {
         guard let contents = try? String(contentsOfFile: configPath, encoding: .utf8) else {
             return []
         }
+        // OpenSSH resolves every relative `Include` under a single fixed base
+        // (`~/.ssh` for a user config), independent of nesting depth — the
+        // including file's own directory does not matter (ssh_config(5):
+        // "Files without absolute paths are assumed to be in ~/.ssh"). So the
+        // base is captured once here and shared by every (possibly nested)
+        // include, rather than re-derived per included file. For the default
+        // `~/.ssh/config` this base is exactly `~/.ssh`.
         let baseDirectory = (configPath as NSString).deletingLastPathComponent
         let resolver: (String) -> [String] = { argument in
             Self.sshIncludeFileContents(argument: argument, baseDirectory: baseDirectory)
@@ -97,9 +104,11 @@ extension CMUXCLI {
 
     /// Expand an `Include` directive argument into the contents of each matched
     /// file. Mirrors OpenSSH: whitespace separates multiple patterns, `~`
-    /// expands to home, and relative paths resolve against the directory of the
-    /// config file being read; `*`/`?` globs in the final path component are
-    /// expanded and matches are read in lexical order.
+    /// expands to home, and a relative path resolves against `baseDirectory`
+    /// (the directory of the config file being listed — `~/.ssh` for the
+    /// default config), which is the same fixed base at every nesting depth per
+    /// ssh_config(5). `*`/`?` globs in the final path component are expanded and
+    /// matches are read in lexical order.
     private static func sshIncludeFileContents(argument: String, baseDirectory: String) -> [String] {
         var results: [String] = []
         let patterns = argument.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
