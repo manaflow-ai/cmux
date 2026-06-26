@@ -740,6 +740,42 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertNotNil(workspace.panels[initialPanelId], "Expected sibling panel to remain")
     }
 
+    /// Companion to `testChildExitKeepsWaitAfterCommandSplitOpen` covering the last-panel
+    /// path: an initial-command workspace also sets wait-after-command on its only surface
+    /// (to keep a failed startup script's output visible), so a single such surface must
+    /// survive its child exiting too — the keep-open check runs before the last-panel
+    /// collapse, not only the split collapse (#6244).
+    func testChildExitKeepsSingleWaitAfterCommandSurfaceOpen() {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(initialTerminalCommand: "echo subagent")
+        guard let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected an initial-command workspace with a focused terminal panel")
+            return
+        }
+
+        XCTAssertEqual(workspace.panels.count, 1)
+        XCTAssertFalse(workspace.isRemoteWorkspace)
+        XCTAssertTrue(
+            terminalPanel.surface.waitAfterCommand,
+            "An initial-command workspace surface should wait after its command exits"
+        )
+
+        let workspaceCountBefore = manager.tabs.count
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panelId)
+        drainMainQueue()
+
+        XCTAssertNotNil(
+            workspace.panels[panelId],
+            "A single wait-after-command surface must survive its child process exiting"
+        )
+        XCTAssertTrue(
+            manager.tabs.contains(where: { $0.id == workspace.id }),
+            "The workspace hosting a wait-after-command surface must stay open after child exit"
+        )
+        XCTAssertEqual(manager.tabs.count, workspaceCountBefore)
+    }
+
     func testChildExitWindowCloseRequestsNoClosedWindowHistory() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()

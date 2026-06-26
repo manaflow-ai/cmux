@@ -448,7 +448,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Whether the surface stays open after its startup command exits, instead of
     /// being collapsed/closed when its child process ends. Mirrors Ghostty's
     /// `wait-after-command`. The host honors this when a child exit would otherwise
-    /// auto-close the pane (see `Workspace.shouldKeepSplitOpenAfterCommandExit` /
+    /// auto-close the pane (see `Workspace.shouldKeepSurfaceOpenAfterCommandExit` /
     /// `TabManager.closePanelAfterChildExited`).
     public var waitAfterCommand: Bool {
         configTemplate?.waitAfterCommand ?? false

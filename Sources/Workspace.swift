@@ -5345,19 +5345,21 @@ final class Workspace: Identifiable, ObservableObject {
         isRemoteWorkspace || pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
     }
 
-    /// Whether a local split surface must stay open after its child process exits
-    /// because it was configured to wait after its command. A split created with an
-    /// initial command (e.g. an agent/subtask pane spawned via the `surface.split`
-    /// socket `initial_command`) requests this so the user can keep reading its output
-    /// after the foreground command detaches its real work to the background. Without
-    /// honoring it, the child exit silently collapses the split — the
+    /// Whether a local surface must stay open after its child process exits because it
+    /// was configured to wait after its command. A surface created with an initial
+    /// command requests this so the user can keep reading its output after the foreground
+    /// command finishes — for example an agent/subtask split spawned via the
+    /// `surface.split` socket `initial_command` that detaches its real work to the
+    /// background, or an initial-command workspace whose startup script printed an error.
+    /// Without honoring it, the child exit silently collapses the surface — the
     /// "subagent split pane disappears when clicked while the task is still running"
     /// bug (https://github.com/manaflow-ai/cmux/issues/6244).
     ///
-    /// Remote surfaces are excluded: they have their own keep-open and teardown
-    /// handling in `TabManager.closePanelAfterChildExited`.
+    /// Applies to both split and last-panel surfaces. Remote surfaces are excluded: they
+    /// have their own dedicated keep-open / teardown handling in
+    /// `TabManager.closePanelAfterChildExited`.
     @MainActor
-    func shouldKeepSplitOpenAfterCommandExit(surfaceId: UUID) -> Bool {
+    func shouldKeepSurfaceOpenAfterCommandExit(surfaceId: UUID) -> Bool {
         guard !isRemoteWorkspace,
               !isRemoteTerminalSurface(surfaceId) else {
             return false

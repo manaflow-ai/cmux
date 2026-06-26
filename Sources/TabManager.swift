@@ -2853,6 +2853,25 @@ class TabManager: ObservableObject {
             return
         }
 
+        // A local surface explicitly configured to wait after its command exits must not be
+        // torn down when that command finishes: the user asked to keep it open to read the
+        // output (e.g. an agent/subtask split that streams progress and detaches its real
+        // work to the background, or an initial-command workspace whose startup script
+        // printed an error). Collapsing it here is the "subagent split pane disappears when
+        // clicked while the task is still running" bug (#6244). This is checked before the
+        // last-panel collapse below so a single wait-after-command surface is honored too;
+        // remote surfaces keep their dedicated keep-open / teardown handling in the branches
+        // above.
+        if tab.shouldKeepSurfaceOpenAfterCommandExit(surfaceId: surfaceId) {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.close.childExited.keepOpen tab=\(tabId.uuidString.prefix(5)) " +
+                "surface=\(surfaceId.uuidString.prefix(5)) reason=waitAfterCommand"
+            )
+#endif
+            return
+        }
+
         // Child-exit on the last panel should collapse the workspace, matching explicit close
         // semantics (and close the window when it was the last workspace).
         if tab.panels.count <= 1 {
@@ -2867,22 +2886,6 @@ class TabManager: ObservableObject {
             } else {
                 closeWorkspace(tab, recordHistory: false)
             }
-            return
-        }
-
-        // A split explicitly configured to wait after its command exits must not be
-        // collapsed when that command finishes: the user asked to keep it open to read
-        // the output (e.g. an agent/subtask pane that streams progress and detaches its
-        // real work to the background). Auto-collapsing it here is the "subagent split
-        // pane disappears when clicked while the task is still running" bug (#6244).
-        // Remote surfaces are handled by the keep-open branches above.
-        if tab.shouldKeepSplitOpenAfterCommandExit(surfaceId: surfaceId) {
-#if DEBUG
-            cmuxDebugLog(
-                "surface.close.childExited.keepOpen tab=\(tabId.uuidString.prefix(5)) " +
-                "surface=\(surfaceId.uuidString.prefix(5)) reason=waitAfterCommand"
-            )
-#endif
             return
         }
 
