@@ -225,6 +225,45 @@ import Testing
         #expect(blank.folderBreadcrumb == nil)
     }
 
+    @Test func folderIsPartOfCommandIdentity() {
+        // Same leaf name in different folders must produce distinct ids so one
+        // does not silently hide the other in the Command Palette.
+        let frontend = CmuxCommandDefinition(name: "Build", command: "x", folder: "Frontend")
+        let backend = CmuxCommandDefinition(name: "Build", command: "x", folder: "Backend")
+        let plain = CmuxCommandDefinition(name: "Build", command: "x")
+        #expect(frontend.id != backend.id)
+        #expect(frontend.id != plain.id)
+        // Folderless commands keep their historical id.
+        #expect(plain.id == "cmux.config.command.Build")
+    }
+
+    @Test func sameLeafNameInDifferentFoldersBothResolve() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-folder-collide-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "commands": [
+            { "name": "Build", "folder": "Frontend", "command": "yarn build" },
+            { "name": "Build", "folder": "Backend", "command": "make build" }
+          ]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        store.loadAll()
+
+        let builds = store.paletteCustomActions().filter { $0.title.contains("Build") }
+        #expect(builds.count == 2)
+        #expect(Set(builds.map(\.id)).count == 2)
+        #expect(Set(builds.compactMap(\.folder)) == ["Frontend", "Backend"])
+    }
+
     @Test func folderSurfacesInResolvedPaletteAction() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-folder-\(UUID().uuidString)",

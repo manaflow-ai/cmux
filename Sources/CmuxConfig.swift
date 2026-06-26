@@ -1625,7 +1625,12 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
     var folder: String?
 
     var id: String {
-        "cmux.config.command." + (name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? name)
+        // Fold the folder path into the identity so same-named commands in
+        // different folders (e.g. `Frontend/Build` and `Backend/Build`) stay
+        // distinct rather than colliding. Folderless commands keep their
+        // historical `cmux.config.command.<name>` id.
+        let key = (folderComponents + [name]).joined(separator: "/")
+        return "cmux.config.command." + (key.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? key)
     }
 
     /// The trimmed, non-empty components of ``folder`` split on `/`.
