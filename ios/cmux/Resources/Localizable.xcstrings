@@ -4574,23 +4574,6 @@
         }
       }
     },
-    "mobile.signIn.cancel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancel"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャンセル"
-          }
-        }
-      }
-    },
     "mobile.signIn.checkEmail": {
       "extractionState": "manual",
       "localizations": {
