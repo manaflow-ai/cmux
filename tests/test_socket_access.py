@@ -87,9 +87,9 @@ def _preferred_worktree_slug():
 
 
 def _derived_app_candidates_for_current_worktree():
-    project_path = os.path.realpath(os.path.join(os.getcwd(), "GhosttyTabs.xcodeproj"))
+    project_path = os.path.realpath(os.path.join(os.getcwd(), "cmux.xcodeproj"))
     info_paths = glob.glob(os.path.expanduser(
-        "~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*/info.plist"
+        "~/Library/Developer/Xcode/DerivedData/cmux-*/info.plist"
     ))
     matches = []
     for info_path in info_paths:

@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { BlogSchema } from "../blog-schema";
 import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 
@@ -11,24 +12,20 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.sessionRestore" });
+  const rawKeywords = t.raw("metaKeywords");
+  const keywords = Array.isArray(rawKeywords)
+    ? rawKeywords.filter((keyword): keyword is string => typeof keyword === "string")
+    : [];
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    keywords: [
-      "cmux",
-      "session restore",
-      "terminal",
-      "macOS",
-      "Claude Code",
-      "Codex",
-      "OpenCode",
-      "AI coding agents",
-    ],
+    keywords,
     openGraph: {
       title: t("metaTitle"),
       description: t("metaDescription"),
       type: "article",
       publishedTime: "2026-05-13T00:00:00Z",
+      modifiedTime: "2026-05-22T00:00:00Z",
     },
     twitter: {
       card: "summary_large_image",
@@ -45,6 +42,7 @@ export default function SessionRestoreBlogPage() {
 
   return (
     <>
+      <BlogSchema postKey="sessionRestore" path="/blog/session-restore" datePublished="2026-05-13T00:00:00Z" />
       <div className="mb-8">
         <Link
           href="/blog"
@@ -61,6 +59,7 @@ export default function SessionRestoreBlogPage() {
 
       <p className="mt-6">{t("p1")}</p>
       <p>{t("p2")}</p>
+      <p>{t("seoP")}</p>
 
       <h2>{t("baselineTitle")}</h2>
       <p>{t("baselineP")}</p>

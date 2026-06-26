@@ -1,6 +1,10 @@
 {
   "strictness": 2,
-  "commentTypes": ["logic", "syntax", "style"],
+  "commentTypes": [
+    "logic",
+    "syntax",
+    "style"
+  ],
   "triggerOnUpdates": true,
   "statusCheck": true,
   "updateExistingSummaryComment": true,
@@ -9,55 +13,239 @@
     {
       "id": "cmux-swift-actor-isolation",
       "rule": "Flag new or materially worsened Swift 6 actor isolation mistakes in production Swift: implicit MainActor value models or service protocols, file-scoped helpers that should be nonisolated, shared mutable Sendable reference types without isolation, or UI-bound stores used from background contexts.",
-      "scope": ["**/*.swift", "**/Package.swift"],
+      "scope": [
+        "**/*.swift",
+        "**/Package.swift"
+      ],
       "severity": "high"
     },
     {
       "id": "cmux-swift-blocking-runtime",
       "rule": "Flag new blocking or timing-based synchronization in production Swift: semaphores, DispatchGroup.wait, sleeps, Task.sleep, asyncAfter, timers or polling for synchronization, DispatchQueue.main.sync, or manual locks where actor isolation or a real signal should own coordination.",
-      "scope": ["**/*.swift", "**/Package.swift"],
+      "scope": [
+        "**/*.swift",
+        "**/Package.swift"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-browser-automation-webkit-waits-off-main",
+      "rule": "Flag browser socket automation commands that wait on page JavaScript, WebKit callbacks, WKHTTPCookieStore, screenshots, or injected page hooks while routed through main actor paths. Require socketWorkerMethods, the worker browser automation router, explicit main hops for WebKit/AppKit access or state mutation, and policy tests that prove worker routing. Pass for direct focus/show commands that do not wait and existing debt not worsened.",
+      "scope": [
+        "Sources/TerminalController.swift",
+        "Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Wire/ControlCommandExecutionPolicy.swift",
+        "Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandExecutionPolicyTests.swift"
+      ],
       "severity": "high"
     },
     {
       "id": "cmux-runtime-no-hacky-sleeps",
       "rule": "Flag fixed sleeps, delayed dispatch, timers, polling, or wall-clock waits used as synchronization in production non-Swift app/runtime code across TypeScript, JavaScript, shell, or build/runtime scripts. Fail race repairs for lifecycle, focus, rendering, socket, process, filesystem, network, teardown, startup, retry, or shared-state readiness unless they use a real signal or a dedicated cancellation-aware timeout/retry abstraction with tests. Swift files are covered by cmux-swift-blocking-runtime.",
-      "scope": ["web/app/**/*.ts", "web/app/**/*.tsx", "web/services/**/*.ts", "web/services/**/*.tsx", "web/db/**/*.ts", "web/data/**/*.ts", "web/i18n/**/*.ts", "web/scripts/**/*.ts", "web/scripts/**/*.tsx", "web/scripts/**/*.js", "web/scripts/**/*.jsx", "web/scripts/**/*.mjs", "web/scripts/**/*.cjs", "web/scripts/**/*.sh", "web/scripts/**/*.zsh", "web/*.ts", "web/*.mjs", "scripts/**/*.ts", "scripts/**/*.tsx", "scripts/**/*.js", "scripts/**/*.jsx", "scripts/**/*.mjs", "scripts/**/*.cjs", "scripts/**/*.sh", "scripts/**/*.zsh"],
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.mjs",
+        "**/*.cjs",
+        "**/*.sh",
+        "**/*.zsh"
+      ],
       "severity": "high"
     },
     {
       "id": "cmux-swift-concurrency-modernization",
       "rule": "Flag new legacy async patterns in cmux-owned Swift where Swift concurrency is the correct shape: DispatchQueue.global for ordinary async work, new Combine app state, completion-handler APIs fully under cmux control, or fire-and-forget Tasks with meaningful lifecycle.",
-      "scope": ["**/*.swift", "**/Package.swift"],
+      "scope": [
+        "**/*.swift",
+        "**/Package.swift"
+      ],
       "severity": "high"
     },
     {
       "id": "cmux-swift-concurrent-annotation",
       "rule": "Flag incorrect or missing use of Swift @concurrent and nonisolated async behavior, including nonisolated async work that should leave the caller actor, invalid @concurrent annotations, or CPU/file/network-heavy async helpers called from UI isolation without an explicit boundary.",
-      "scope": ["**/*.swift", "**/Package.swift"],
+      "scope": [
+        "**/*.swift",
+        "**/Package.swift"
+      ],
       "severity": "high"
     },
     {
       "id": "cmux-swift-file-package-boundaries",
       "rule": "Flag Swift changes that add too much unrelated responsibility to one file or miss a SwiftPM package boundary: new production Swift files over 400 lines without one responsibility, files over 800 lines, large additions to existing oversized files, mixed UI/state/persistence/network/parsing/protocol code, or independently testable feature logic kept in the app target instead of a small package.",
-      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"],
+      "scope": [
+        "**/*.swift",
+        "**/Package.swift",
+        "cmux.xcodeproj/**"
+      ],
       "severity": "high"
     },
     {
       "id": "cmux-swift-logging",
       "rule": "Flag production Swift diagnostics that bypass unified logging or risk leaking sensitive data: print/debugPrint/dump/NSLog in app or runtime code, ad hoc stdout or file logging, MainActor-coupled file-scoped Logger constants, or unredacted secrets, tokens, customer content, or personal data.",
-      "scope": ["**/*.swift", "**/Package.swift"],
+      "scope": [
+        "**/*.swift",
+        "**/Package.swift"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-full-internationalization",
+      "rule": "Flag production user-facing text that is not fully internationalized across every locale supported by the affected surface: Swift UI/menu/alert/tooltip/error/command text must use String(localized:defaultValue:) or an equivalent localized API with a matching translated string-catalog entry, app string catalog or Info.plist changes must include translated entries for every locale already supported by the touched catalog, and web UI, metadata, API response, rendered markdown, changelog, or user-facing data changes must read from next-intl or another locale-specific source and update every locale listed in web/i18n/routing.ts with matching web/messages entries. Pass for tests, operational docs not shown to end users, developer-only comments, debug-only logs, literal protocol/config tokens, and existing untranslated strings not worsened by the PR.",
+      "scope": [
+        "**/*.swift",
+        "CHANGELOG.md",
+        "Resources/Info.plist",
+        "Resources/*.xcstrings",
+        "web/*.ts",
+        "web/*.tsx",
+        "web/*.js",
+        "web/*.jsx",
+        "web/*.mjs",
+        "web/*.cjs",
+        "web/**/*.ts",
+        "web/**/*.tsx",
+        "web/**/*.js",
+        "web/**/*.jsx",
+        "web/**/*.mjs",
+        "web/**/*.cjs",
+        "web/messages/**/*.json",
+        "web/data/**/*.json",
+        "web/app/**/*.md",
+        "web/app/**/*.mdx"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-algorithmic-complexity",
+      "rule": "Flag production code that adds nested full-collection scans, per-target rescans for batch actions, repeated sort/filter/map work in hot UI/socket/search/process paths, in-memory joins that belong in the data store, or unbenchmarked slower algorithms for paths expected to handle about 1000 workspaces or similar user-owned records. Pass for tiny fixed-size collections, tests and benchmark harnesses, existing debt not worsened, and documented bounds with measurements.",
+      "scope": [
+        "**/*.swift",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.mjs",
+        "**/*.cjs",
+        "**/*.sh",
+        "**/*.zsh"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-swift-expensive-sync-load",
+      "rule": "Flag production Swift that reads, decodes, or scans unbounded agent-history data on the main actor or interactive paths: RestorableAgentSessionIndex.load(), agent hook/session stores, agent-turn-diff-baselines.json, transcript files, trajectory files, workstream/event JSONL logs, broad directory scans, per-record syscalls, or large JSON/JSONL parsing. Require SharedLiveAgentIndex.shared, Task.detached, a background actor/repository parser, or another off-main cached path that returns to MainActor only for UI/process launch work. Pass for the cache/background loader itself, explicit nil-cache fallbacks with justification, and existing call sites not worsened.",
+      "scope": [
+        "**/*.swift",
+        "**/Package.swift"
+      ],
       "severity": "high"
     },
     {
       "id": "cmux-swiftui-state-layout",
       "rule": "Flag SwiftUI changes that can cause stale state, broad invalidation, layout instability, or main-thread churn: new ObservableObject/@Published state where @Observable is correct, GeometryReader measurement that changes layout, lazy/list row subtrees holding store references, or state mutation during body rendering.",
-      "scope": ["**/*.swift"],
+      "scope": [
+        "**/*.swift"
+      ],
       "severity": "high"
     },
     {
       "id": "cmux-swift-architectural-rethink",
       "rule": "Flag Swift fixes that patch symptoms while leaving bad state representable: timing repairs, new flags/caches/singletons/observers/side channels, duplicate behavior wired through multiple entrypoints, split SwiftUI/AppKit lifecycle ownership, or fixes that do not name the invariant and source of truth.",
-      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"],
+      "scope": [
+        "**/*.swift",
+        "**/Package.swift",
+        "cmux.xcodeproj/**"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-swiftpm-package-resolved",
+      "rule": "Flag SwiftPM package, Xcode project, .gitignore, workflow, and dependency changes that violate cmux's Package.resolved policy: cmux-owned package .gitignore files must not ignore Package.resolved, external SwiftPM dependency resolution changes must include the relevant package-local Package.resolved diff, and Xcode project package-reference changes must include the root Xcode Package.resolved diff. The root Xcode project lockfile is not sufficient proof for standalone package resolution. Pass for vendored third-party directories preserving upstream policy.",
+      "scope": [
+        "**/Package.swift",
+        "**/Package.resolved",
+        "**/.gitignore",
+        "cmux.xcodeproj/**",
+        ".github/workflows/**"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-no-test-debug-seam-in-production-source",
+      "rule": "Flag Swift files under a production Sources path (matching **/Sources/** and not under **/Tests/**) that add a test-only or debug-only seam: a #if DEBUG (or other test-build-guarded) extension/member exposing internal state only for tests or a debugger with no production caller, a member named like debug…/…ForTesting/…ForTests/testOnly…/…TestHook/…TestSeam/_test…, or visibility widened together with a wrapper accessor added so a test can call it. Prefer observing internal state from the test target via @testable import after widening private to internal, or isolating a genuinely debug-only facility in a dedicated debug file or folder (canonical fix: cmux PR 6452). Pass for #if DEBUG blocks that gate real product behavior, scaffolding inside Tests/ or a test-support module, and existing seams not worsened by the PR.",
+      "scope": [
+        "**/Sources/**/*.swift"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-no-ambient-global-state",
+      "rule": "Flag new ambient global state in production Swift: a top-level (file-scope) func used as API, a top-level mutable var or a stub class/struct holding a global flag/once-token, a caseless enum/empty struct used purely as a static func/static let namespace or a type whose API is mostly static funcs, or a new singleton (static let shared/standard/default, or new app-delegate state) for runtime state that should be owned by a scoped type and injected at the app seam. Prefer methods on a constructable, injectable owning type and private/fileprivate file-scope helpers. Pass for static let constants, enum cases, protocol/extension conformances, existing globals only touched incidentally, and platform/@main boundaries that require top-level declarations.",
+      "scope": [
+        "**/*.swift",
+        "**/Package.swift"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-hot-path-allocating-formatting",
+      "rule": "Flag per-call allocating formatting on hot or concurrent Swift paths (git index/signature encoding, terminal input/render, sidebar/feed/list rows, snapshot builders, per-byte/row/keystroke/frame loops): String(format:) with per-element conversions, a NumberFormatter/DateFormatter/ISO8601DateFormatter/ByteCountFormatter allocated per call inside a loop or row body, or repeated per-element string building where a preallocated buffer would avoid the churn. Canonical P0: cmux PR 5347, where String(format:) byte-to-hex in the concurrent git-index snapshot path caused unbounded memory growth and user crashes. Pass for cold paths, reused/cached formatters, fixed-table buffer encoding, tests/benchmarks, and existing formatting not moved into a hotter or concurrent path.",
+      "scope": [
+        "**/*.swift"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-reliability-single-source-of-truth",
+      "rule": "Flag correctness-critical detection/identity derived unreliably: a value the UI trusts (which agent is running, agent/session lifecycle and liveness, workspace/pane/surface identity, controls enable/route input) derived from a window/pane/terminal title, name, or process-argv heuristic; an unreliable but-better-than-nothing fallback branch where a wrong value is a correctness bug; more than one disagreeing source of truth for the same fact; or a throttle/poll interval on the read that introduces a visible staleness window. Require a single reliable structured source (session id, registered agent descriptor, typed lifecycle event) and failing closed when it is missing. Pass for genuinely cosmetic non-authoritative hints and coalescing that does not delay the observable value.",
+      "scope": [
+        "**/*.swift",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.mjs",
+        "**/*.cjs"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-react-base-ui-accessibility",
+      "rule": "Flag custom React dialogs, popovers, menus, context menus, checkboxes, selects, switches, tabs, tooltips, comboboxes, command menus, or other composite widgets built from raw elements, ad hoc ARIA, tabIndex, or hand-rolled keyboard handlers when @base-ui-components/react or an existing local component provides the relevant primitive. Pass for native semantic controls and for cases with no relevant primitive where the PR owns complete accessibility, keyboard, focus, and disabled/loading behavior.",
+      "scope": [
+        "web/**/*.tsx",
+        "web/**/*.jsx"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-source-control-artifacts",
+      "rule": "Flag local tool output, generated logs, screenshots, recordings, temp folders, dependency checkouts, caches, build output, DerivedData, package-manager downloads, and broad scratch directories that enter source control without a deliberate product, docs, fixture, build, release, or test-system reason. Pass for intentional source files, configs, localization catalogs, review rules, durable docs assets, required fixtures, generated files that are already part of the repo's source-of-truth model, and PRs that only remove or ignore existing accidental artifacts.",
+      "scope": [
+        "**/*"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-readme-site-feature-parity",
+      "rule": "Flag diffs that make README.md user-facing feature claims contradict the marketing site. When the README \"## Features\" section, the homepage feature list (home.feature.* in web/messages/en.json, rendered by web/app/[locale]/page.tsx), or the homepage FAQ (home.faq*) changes, fail when a shared feature is renamed or relabeled on one surface but not the other (e.g. README \"Scriptable\" vs site \"Programmable\"), or when a factual claim (platform, price/free, license, supported agents, networking, built-in vs optional) contradicts across surfaces. The README may remain the detailed superset; only shared features must use consistent names and non-contradicting claims. Pass for README-only extra features, pure description/length differences where name and claim agree, and localization-only edits that preserve English source meaning.",
+      "scope": [
+        "README.md",
+        "web/app/[locale]/page.tsx",
+        "web/messages/en.json"
+      ],
+      "severity": "medium"
+    },
+    {
+      "id": "cmux-landing-page-registry-parity",
+      "rule": "When a PR adds a new marketing landing page under web/app/[locale]/(landing)/<slug>/page.tsx, flag it if the new path is missing from any of web/app/sitemap.ts, agentReadablePages in web/app/lib/agent-page-paths.ts, the ARTICLES list in web/app/[locale]/(landing)/guides/page.tsx, or a landing.links label plus an internal cross-link from a sibling page. A sitemap page missing from agentReadablePages breaks tests/agent-page-variants.test.ts and omits the .md/.txt and llms.txt variants. Also flag agentReadablePages/sitemap.ts drift (a path in one but not the other). Localization of the new copy is covered by the internationalization rule. Pass for routes intentionally kept out of the sitemap (legal, deeplink, redirect-only) when excluded consistently, edits to existing landing pages, and existing drift the PR does not worsen.",
+      "scope": [
+        "web/app/[locale]/(landing)/**/page.tsx",
+        "web/app/sitemap.ts",
+        "web/app/lib/agent-page-paths.ts"
+      ],
       "severity": "high"
     }
   ]

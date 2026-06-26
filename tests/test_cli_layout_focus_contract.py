@@ -18,7 +18,8 @@ PANE_ID = "22222222-2222-4222-8222-222222222222"
 SURFACE_ID = "33333333-3333-4333-8333-333333333333"
 NEW_PANE_ID = "44444444-4444-4444-8444-444444444444"
 NEW_SURFACE_ID = "55555555-5555-4555-8555-555555555555"
-WINDOW_ID = "window:7"
+WINDOW_ID = "66666666-6666-4666-8666-666666666666"
+WINDOW_REF = "window:7"
 
 
 class FakeCmuxState:
@@ -28,6 +29,16 @@ class FakeCmuxState:
     def handle(self, method: str, params: dict[str, object]) -> dict[str, object]:
         self.calls.append((method, params))
 
+        if method == "window.list":
+            return {
+                "windows": [
+                    {
+                        "id": WINDOW_ID,
+                        "ref": WINDOW_REF,
+                        "index": 7,
+                    },
+                ],
+            }
         if method == "workspace.create":
             return {
                 "workspace_id": WORKSPACE_ID,
@@ -104,6 +115,7 @@ def run_cli(
     socket_path: str,
     args: list[str],
     env_overrides: dict[str, str] | None = None,
+    cwd: str | None = None,
 ) -> str:
     env = dict(os.environ)
     for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
@@ -116,6 +128,7 @@ def run_cli(
         text=True,
         check=False,
         env=env,
+        cwd=cwd,
         timeout=5,
     )
     if proc.returncode != 0:
@@ -195,7 +208,7 @@ def main() -> int:
             run_cli(
                 cli,
                 socket_path,
-                ["new-workspace", "--window", WINDOW_ID, "--name", "explicit-window"],
+                ["new-workspace", "--window", WINDOW_REF, "--name", "explicit-window"],
                 env_overrides={
                     "CMUX_WORKSPACE_ID": WORKSPACE_ID,
                     "CMUX_SURFACE_ID": SURFACE_ID,
@@ -238,6 +251,36 @@ def main() -> int:
                 state,
                 "surface.create",
                 {"workspace_id": WORKSPACE_ID, "pane_id": PANE_ID, "focus": False},
+            )
+
+            project_dir = Path(tmp) / "project"
+            project_dir.mkdir()
+            run_cli(
+                cli,
+                socket_path,
+                [
+                    "new-surface",
+                    "--workspace",
+                    WORKSPACE_ID,
+                    "--pane",
+                    PANE_ID,
+                    "--type",
+                    "agent-session",
+                    "--cwd",
+                    "project",
+                ],
+                cwd=tmp,
+            )
+            assert_last_call(
+                state,
+                "surface.create",
+                {
+                    "workspace_id": WORKSPACE_ID,
+                    "pane_id": PANE_ID,
+                    "type": "agent-session",
+                    "working_directory": str(project_dir.resolve()),
+                    "focus": False,
+                },
             )
 
             run_cli(cli, socket_path, ["reorder-surface", "--surface", SURFACE_ID, "--index", "0"])

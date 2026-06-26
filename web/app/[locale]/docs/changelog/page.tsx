@@ -5,17 +5,9 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
 import { changelogMedia, type VersionMedia } from "./changelog-media";
+import { pngDimensions } from "./png-dimensions";
 import { DocsHeading } from "../../components/docs-heading";
-
-/** Read PNG dimensions from the IHDR chunk (bytes 16-23). */
-function pngDimensions(filePath: string): { width: number; height: number } {
-  const abs = path.join(process.cwd(), "public", filePath);
-  const buf = fs.readFileSync(abs);
-  return {
-    width: buf.readUInt32BE(16),
-    height: buf.readUInt32BE(24),
-  };
-}
+import { DocsSchema } from "../docs-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -251,7 +243,8 @@ export default function ChangelogPage() {
   const versions = parseChangelog(markdown);
 
   return (
-    <div className="max-w-[640px] overflow-hidden">
+    <div className="w-full max-w-[640px] min-w-0">
+      <DocsSchema namespace="docs.changelog" path="/docs/changelog" />
       <DocsHeading level={1} id="title" className="docs-heading-compact">{t("title")}</DocsHeading>
 
       <div style={{ paddingTop: 16 }}>
@@ -283,7 +276,18 @@ export default function ChangelogPage() {
               </div>
 
               {media?.title && (
-                <div style={{ paddingTop: 12, margin: 0, fontSize: "1.5rem", fontWeight: 700, letterSpacing: "-0.025em" }}>
+                <div
+                  className="max-w-full"
+                  style={{
+                    paddingTop: 12,
+                    margin: 0,
+                    fontSize: "1.5rem",
+                    fontWeight: 700,
+                    letterSpacing: 0,
+                    lineHeight: 1.25,
+                    overflowWrap: "anywhere",
+                  }}
+                >
                   {media.title}
                 </div>
               )}

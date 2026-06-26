@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | Polski | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | Polski | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
@@ -92,6 +92,8 @@ Pasek boczny pokazuje gałąź git, status/numer powiązanego PR, katalog robocz
 - **Natywna aplikacja macOS** — Zbudowana w Swift i AppKit, nie Electron. Szybki start, niskie zużycie pamięci.
 - **Kompatybilny z Ghostty** — Odczytuje istniejącą konfigurację `~/.config/ghostty/config` dla motywów, czcionek i kolorów
 - **Akceleracja GPU** — Napędzany przez libghostty dla płynnego renderowania
+- **Skróty klawiszowe** — [Rozbudowane skróty](https://cmux.com/docs/keyboard-shortcuts) dla przestrzeni roboczych, podziałów, przeglądarki i więcej
+- **Open source** — Darmowy i na licencji GPL
 
 ## Instalacja
 
@@ -157,7 +159,10 @@ Więcej informacji o konfiguracji cmux znajdziesz w [naszej dokumentacji](https:
 | ⌃ ⌘ [ | Poprzednia przestrzeń robocza |
 | ⌘ ⇧ W | Zamknij przestrzeń roboczą |
 | ⌘ ⇧ R | Zmień nazwę przestrzeni roboczej |
+| ⌥ ⌘ E | Edytuj opis przestrzeni roboczej |
 | ⌘ B | Przełącz pasek boczny |
+| ⌥ ⌘ B | Przełącz prawy pasek boczny |
+| ⌘ ⇧ E | Przełącz fokus prawego paska bocznego |
 
 ### Powierzchnie
 
@@ -184,6 +189,7 @@ Więcej informacji o konfiguracji cmux znajdziesz w [naszej dokumentacji](https:
 ### Przeglądarka
 
 Skróty narzędzi deweloperskich przeglądarki odpowiadają domyślnym ustawieniom Safari i można je dostosować w `Ustawienia → Skróty klawiszowe`.
+Skróty nawigacji w palecie poleceń, w tym ⌃ P, również można dostosować i wyczyścić, aby naciśnięcie klawisza dotarło do aktywnego terminala.
 
 | Skrót | Akcja |
 |----------|--------|
@@ -201,14 +207,17 @@ Skróty narzędzi deweloperskich przeglądarki odpowiadają domyślnym ustawieni
 |----------|--------|
 | ⌘ I | Pokaż panel powiadomień |
 | ⌘ ⇧ U | Przejdź do najnowszego nieprzeczytanego |
+| ⌥ ⌘ U | Przełącz stan przeczytania bieżącego elementu |
+| ⌃ ⌘ U | Oznacz bieżący element jako najstarszy nieprzeczytany i przejdź do następnego najnowszego nieprzeczytanego |
 
 ### Szukaj
 
 | Skrót | Akcja |
 |----------|--------|
 | ⌘ F | Szukaj |
-| ⌘ G / ⌘ ⇧ G | Znajdź następny / poprzedni |
-| ⌘ ⇧ F | Ukryj pasek wyszukiwania |
+| ⌘ ⇧ F | Szukaj w katalogu |
+| ⌘ G / ⌥ ⌘ G | Znajdź następny / poprzedni |
+| ⌥ ⌘ ⇧ F | Ukryj pasek wyszukiwania |
 | ⌘ E | Użyj zaznaczenia do wyszukiwania |
 
 ### Terminal
@@ -226,6 +235,7 @@ Skróty narzędzi deweloperskich przeglądarki odpowiadają domyślnym ustawieni
 | Skrót | Akcja |
 |----------|--------|
 | ⌘ ⇧ N | Nowe okno |
+| ⌘ ⇧ O | Ponownie otwórz poprzednią sesję |
 | ⌘ , | Ustawienia |
 | ⌘ ⇧ , | Przeładuj konfigurację |
 | ⌘ Q | Zakończ |
@@ -236,15 +246,128 @@ Skróty narzędzi deweloperskich przeglądarki odpowiadają domyślnym ustawieni
 
 cmux NIGHTLY to osobna aplikacja z własnym identyfikatorem pakietu, więc działa obok wersji stabilnej. Budowana automatycznie z najnowszego commitu `main` i aktualizuje się automatycznie przez własny kanał Sparkle.
 
-## Przywracanie sesji (obecne zachowanie)
+Zgłaszaj błędy wersji nightly w [GitHub Issues](https://github.com/manaflow-ai/cmux/issues) lub na [#nightly-bugs na Discordzie](https://discord.gg/xsgFEVrWCZ).
 
-Przy ponownym uruchomieniu cmux obecnie przywraca tylko układ aplikacji i metadane:
+## Przywracanie sesji
+
+Po zamknięciu cmux zapisuje bieżącą sesję. Po ponownym uruchomieniu cmux przywraca stan należący do aplikacji:
 - Układ okien/przestrzeni roboczych/paneli
 - Katalogi robocze
 - Scrollback terminala (najlepsza próba)
 - URL przeglądarki i historia nawigacji
 
-cmux **nie** przywraca stanu żywych procesów wewnątrz aplikacji terminalowych. Na przykład aktywne sesje Claude Code/tmux/vim nie są jeszcze wznawiane po restarcie.
+cmux nie tworzy checkpointów dowolnego stanu działających procesów. tmux, vim, powłoki i nieobsługiwane aplikacje terminalowe otwierają się ponownie jako zwykłe terminale.
+
+Obsługiwane sesje agentów mogą zostać wznowione, gdy hooks zapiszą natywny ID sesji. Zainstaluj hooks po zainstalowaniu CLI agenta, aby jego plik binarny znalazł się w `PATH`:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+`cmux hooks setup` instaluje obsługiwanych agentów, których może znaleźć, i wypisuje podsumowanie dla pominiętych agentów. Obsługiwane integracje wznawiania obejmują Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory i Qoder. Claude Code jest obsługiwany przez wrapper Claude cmux, gdy integracja Claude jest włączona w Ustawieniach.
+
+Zaawansowani użytkownicy i integracje mogą przypiąć własne polecenie wznowienia do bieżącej terminal surface. Przydaje się to narzędziom z własnym trwałym stanem, takim jak sesje tmux lub niestandardowe agent CLI:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+Binding pozostaje powiązany z cmux surface. Bindingi utworzone przez publiczny CLI lub socket są zapisywane do inspekcji i ręcznego wznowienia, chyba że zatwierdzisz podpisany prefiks polecenia do automatycznego wznawiania. Zatwierdzone prefiksy są również powiązane z katalogiem roboczym i dokładnymi wartościami środowiska, gdy są obecne. Przeglądaj lub edytuj zatwierdzenia w **Ustawienia > Terminal > Resume Commands**. cmux automatycznie uruchamia tylko bindingi wznowienia oznaczone jako zaufane, na przykład bindingi tmux wykryte z działających procesów lub prefiksy zatwierdzone przez użytkownika. Wrażliwe klucze środowiska, takie jak tokeny, hasła, sekrety i klucze API, są odrzucane przed zapisaniem bindingu wznowienia.
+
+Aby przywrócone terminale agentów pozostawały bezczynne zamiast automatycznie uruchamiać swoje polecenia wznowienia, wyłącz **Ustawienia > Terminal > Resume Agent Sessions on Reopen** lub ustaw to w `~/.config/cmux/cmux.json`:
+
+```json
+{
+  "terminal": {
+    "autoResumeAgentSessions": false
+  }
+}
+```
+
+To wyłącza tylko automatyczne polecenia wznowienia agentów. cmux nadal przywraca zapisany układ, katalogi robocze, scrollback i historię przeglądarki.
+
+Jeśli chcesz ręcznie ponownie zastosować ostatnią zapisaną migawkę, użyj:
+- `File > Reopen Previous Session`
+- `⌘ ⇧ O`
+- `cmux restore-session`
+
+Pod maską cmux zapisuje wersjonowaną migawkę w `~/Library/Application Support/cmux/`, a hooks agentów zapisują mapowania sesji w `~/.cmuxterm/`. Przy przywracaniu cmux najpierw odbudowuje układ, a następnie uruchamia natywne polecenie wznowienia obsługiwanego agenta, gdy automatyczne wznawianie agentów jest włączone.
+
+Przeczytaj pełny przewodnik na <https://cmux.com/docs/session-restore>.
+
+## FAQ
+
+### Jak cmux ma się do Ghostty?
+
+cmux nie jest forkiem Ghostty. Używa [libghostty](https://github.com/ghostty-org/ghostty) jako biblioteki do renderowania terminala, tak samo jak aplikacje używają WebKit do widoków internetowych. Ghostty to samodzielny terminal; cmux to inna aplikacja zbudowana na jego silniku renderowania.
+
+### Jakie platformy są obsługiwane?
+
+Na razie tylko macOS. cmux to natywna aplikacja Swift + AppKit.
+
+### Czy jest aplikacja na iOS?
+
+Tak, w wersji beta. Sparuj iPhone'a z Makiem z okna Mobile Connect i podłącz się do terminali z telefonu, z opcjonalnym przekazywaniem powiadomień terminala. Jest dostępna w TestFlight jako cmux BETA. Zobacz [dokumentację iOS](https://cmux.com/docs/ios).
+
+### Z jakimi agentami kodowania współpracuje cmux?
+
+Ze wszystkimi. cmux to terminal, więc każdy agent działający w terminalu działa od razu: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent i wszystko inne, co możesz uruchomić z wiersza poleceń.
+
+### Czy cmux może orkiestrować wielu agentów i subagentów?
+
+Tak. Gdy agent tworzy subagentów lub współpracowników, cmux zamienia ich w natywne panele i podziały zamiast ukrytych procesów w tle. Obsługuje [Claude Code teams](https://cmux.com/docs/agent-integrations/claude-code-teams) i orkiestrację wielu modeli [oh-my-opencode](https://cmux.com/docs/agent-integrations/oh-my-opencode), więc każdy agent w uruchomieniu jest widoczny i kontrolowalny.
+
+### Czy mogę używać cmux ze zdalnymi maszynami?
+
+Tak. Otwieraj przestrzenie robocze przez SSH i podłączaj się do zdalnych sesji tmux, aby agenci mogli działać na zdalnym hoście, podczas gdy Ty sterujesz nimi z cmux. Zobacz [SSH i zdalne](https://cmux.com/docs/ssh).
+
+### Jak działają powiadomienia?
+
+Gdy proces wymaga uwagi, cmux pokazuje pierścienie powiadomień wokół paneli, znaczniki nieprzeczytanych w pasku bocznym, popover powiadomień i powiadomienie pulpitu macOS. Są one wyzwalane automatycznie przez standardowe sekwencje ucieczki terminala (OSC 9/99/777) lub możesz je wyzwolić za pomocą [cmux CLI](https://cmux.com/docs/notifications#cli-usage) i [hooków agentów](https://cmux.com/docs/notifications#integration-examples). Działa każdy agent obsługujący hooki lub OSC, w tym Claude Code, Codex, OpenCode i pi.
+
+### Czy cmux jest programowalny?
+
+Tak. Każda akcja jest dostępna przez cmux CLI i gniazdo Unix: tworzenie przestrzeni roboczych, otwieranie podzielonych paneli, wysyłanie danych wejściowych, odczyt zawartości ekranu, wykonywanie zrzutów ekranu i sterowanie wbudowaną przeglądarką. Zobacz [referencję CLI](https://cmux.com/docs/api) i dokumentację [automatyzacji przeglądarki](https://cmux.com/docs/browser-automation).
+
+### Co potrafi wbudowana przeglądarka?
+
+cmux może podzielić prawdziwy panel przeglądarki obok terminala i jest w pełni programowalny: nawiguj, wykonuj migawki DOM, klikaj, pisz, ewaluuj JavaScript oraz odczytuj aktywność konsoli i sieci przez to samo socket API. Agenci używają go do weryfikacji własnych zmian webowych bez opuszczania cmux. Zobacz [automatyzację przeglądarki](https://cmux.com/docs/browser-automation).
+
+### Czy cmux ma skills?
+
+Tak. Skills to wielokrotnego użytku przepływy pracy, które możesz dać dowolnemu agentowi działającemu w cmux, do rzeczy takich jak sterowanie CLI, automatyzacja przestrzeni roboczych, ustawienia i powierzchnie przeglądarki. Przeglądaj otwartą kolekcję na [cmux-skills](https://github.com/manaflow-ai/cmux-skills) lub przeczytaj [dokumentację skills](https://cmux.com/docs/skills).
+
+### Czy mogę dostosować skróty klawiszowe?
+
+Skróty klawiszowe terminala są odczytywane z pliku konfiguracyjnego Ghostty (`~/.config/ghostty/config`). Skróty specyficzne dla cmux (przestrzenie robocze, podziały, przeglądarka, powiadomienia) można dostosować w Ustawieniach. Zobacz [domyślne skróty](https://cmux.com/docs/keyboard-shortcuts), aby uzyskać pełną listę.
+
+### Czy mogę dostosować cmux?
+
+Tak. Renderowanie terminala używa Twojej konfiguracji Ghostty, więc motywy, czcionki, kolory i kursor przenoszą się bezpośrednio. Własne ustawienia cmux w `~/.config/cmux/cmux.json` kontrolują pasek boczny, pasek kart, podzielone panele i zachowanie, a każdy [skrót klawiszowy](https://cmux.com/docs/keyboard-shortcuts) można edytować. Zobacz [konfigurację](https://cmux.com/docs/configuration).
+
+### Czy moje sesje są zapisywane?
+
+Tak. cmux przywraca Twoje okna, przestrzenie robocze, panele, katalogi robocze i scrollback po ponownym uruchomieniu, a stan przetrwa pełny restart komputera, nie tylko zamknięcie aplikacji. Sesje agentów takich jak Claude Code, Codex i OpenCode również wracają. Zobacz [przywracanie sesji](https://cmux.com/docs/session-restore).
+
+### Jak wypada w porównaniu z tmux?
+
+tmux to multiplekser terminala, który działa wewnątrz dowolnego terminala. cmux to natywna aplikacja macOS z GUI: pionowe karty, podzielone panele, wbudowana przeglądarka i socket API, wszystko wbudowane, bez potrzeby plików konfiguracyjnych ani klawiszy prefiksu. To powiedziawszy, wiele osób chętnie używa cmux razem z SSH i tmux, a cmux może natywnie podłączać się do Twoich zdalnych sesji tmux ([beta](https://cmux.com/docs/remote-tmux)).
+
+### Czy cmux jest darmowy?
+
+Tak, cmux jest darmowy w użyciu. Kod źródłowy jest dostępny na [GitHub](https://github.com/manaflow-ai/cmux).
+
+### Jak mogę wesprzeć cmux?
+
+cmux jest darmowy i open source, i zawsze taki będzie. Jeśli chcesz wesprzeć rozwój i uzyskać wczesny dostęp do tego, co nadchodzi, w tym cmux AI, aplikacji iOS i Cloud VMs, sprawdź [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+
+### Mam prośbę o funkcję lub znalazłem błąd?
+
+Chcemy o tym usłyszeć. Otwórz [issue](https://github.com/manaflow-ai/cmux/issues) lub [pull request](https://github.com/manaflow-ai/cmux/pulls) na GitHub, albo [napisz do nas](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
 
 ## Historia Gwiazdek
 

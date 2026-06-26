@@ -1,4 +1,5 @@
 import AppKit
+import CmuxPanes
 
 private enum AppleScriptStrings {
     static let disabled = String(

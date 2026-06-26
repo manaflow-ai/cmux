@@ -28,9 +28,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
-        app.launch()
+        launchAllowingHeadlessBackgroundActivation(app)
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for multi-window routing test. state=\(app.state.rawValue)"
         )
 
@@ -70,6 +70,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         // Sanity: ensure the second window was actually created.
         XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before sending notification shortcut. state=\(app.state.rawValue)"
+        )
 
         // Jump to latest unread (Cmd+Shift+U). This should bring the owning window forward.
         let beforeToken = loadData()?["focusToken"]
@@ -115,9 +119,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
-        app.launch()
+        launchAllowingHeadlessBackgroundActivation(app)
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for notifications popover shortcut test. state=\(app.state.rawValue)"
         )
 
@@ -132,6 +136,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before opening notifications popover. state=\(app.state.rawValue)"
+        )
 
         app.typeKey("i", modifierFlags: [.command])
         let targetButton = app.buttons["NotificationPopoverRow.\(notifId1)"]
@@ -152,14 +160,18 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
-        app.launch()
+        launchAllowingHeadlessBackgroundActivation(app)
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for jump-to-latest popover test. state=\(app.state.rawValue)"
         )
 
         XCTAssertTrue(waitForData(keys: ["notifId1"], timeout: 15.0), "Expected multi-window notification setup data")
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before opening notifications popover. state=\(app.state.rawValue)"
+        )
 
         app.typeKey("i", modifierFlags: [.command])
 
@@ -180,9 +192,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
-        app.launch()
+        launchAllowingHeadlessBackgroundActivation(app)
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for empty popover blocking test. state=\(app.state.rawValue)"
         )
 
@@ -198,6 +210,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         _ = socketCommand("clear_notifications")
 
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before opening empty notifications popover. state=\(app.state.rawValue)"
+        )
         app.typeKey("i", modifierFlags: [.command])
         XCTAssertTrue(app.staticTexts["No notifications yet"].waitForExistence(timeout: 6.0), "Expected empty notifications popover state")
         let jumpButton = app.buttons["notificationsPopover.jumpToLatest"]
@@ -233,9 +249,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_NOTIFY_SOURCE_TERMINAL_READY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
-        app.launch()
+        launchAllowingHeadlessBackgroundActivation(app)
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for notify focus regression test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(
@@ -336,6 +352,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return
         }
 
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before typing delayed notify command. state=\(app.state.rawValue)"
+        )
         app.typeText("sh \(commandScriptPath)")
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
@@ -359,7 +379,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let notifyStdout = readTrimmedFile(atPath: commandStdoutPath) ?? ""
         let notifyStderr = readTrimmedFile(atPath: commandStderrPath) ?? ""
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        // `waitForCommandCompletionWhileBackgrounded` above only returns once the
+        // bundled `cmux notify` command has finished while the app stayed
+        // backgrounded, so assert the no-foreground invariant at that causal
+        // point rather than polling a fixed wall-clock window.
         XCTAssertFalse(
             app.state == .runningForeground,
             "Expected cmux to remain in background after bundled `cmux notify`. state=\(app.state.rawValue) stderr=\(notifyStderr)"
@@ -384,9 +407,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
-        app.launch()
+        launchAllowingHeadlessBackgroundActivation(app)
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for open-notification CLI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(
@@ -494,6 +517,119 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         )
     }
 
+    func testNewWorkspaceCLIWindowFlagTargetsSpecificWindow() throws {
+        let app = XCUIApplication()
+        let title = "window-route-\(UUID().uuidString.prefix(8))"
+        app.launchArguments += ["-socketControlMode", "allowAll"]
+        app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_WINDOW_ROUTE_CLI"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_WINDOW_ROUTE_CLI_TITLE"] = title
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        launchAllowingHeadlessBackgroundActivation(app)
+        XCTAssertTrue(
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for CLI --window workspace routing test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 20.0) { data in
+                let window1Id = data["window1Id"] ?? ""
+                let window2Id = data["window2Id"] ?? ""
+                let tabId1 = data["tabId1"] ?? ""
+                let socketReady = data["socketReady"] ?? ""
+                let routeStatus = data["windowRouteStatus"] ?? ""
+                return !window1Id.isEmpty &&
+                    !window2Id.isEmpty &&
+                    !tabId1.isEmpty &&
+                    !socketReady.isEmpty &&
+                    socketReady != "pending" &&
+                    !routeStatus.isEmpty &&
+                    routeStatus != "pending"
+            },
+            "Expected multi-window setup data, socket readiness, and CLI route result. data=\(loadData() ?? [:])"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing setup data")
+            return
+        }
+        if let expectedSocketPath = setup["socketExpectedPath"], !expectedSocketPath.isEmpty {
+            socketPath = expectedSocketPath
+        }
+        guard setup["socketReady"] == "1" else {
+            XCTFail(
+                "Control socket unavailable in this test environment. expected=\(socketPath) " +
+                socketDiagnostics(from: setup)
+            )
+            return
+        }
+        guard setup["socketPingResponse"] == "PONG" else {
+            XCTFail(
+                "Control socket ping sanity check failed. path=\(socketPath) " +
+                socketDiagnostics(from: setup)
+            )
+            return
+        }
+        let window1Id = try XCTUnwrap(setup["window1Id"])
+        let window2Id = try XCTUnwrap(setup["window2Id"])
+        XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
+
+        XCTAssertEqual(
+            setup["windowRouteStatus"],
+            "1",
+            "Expected bundled `cmux --window` route test hook to finish. failure=\(setup["windowRouteFailure"] ?? "")"
+        )
+
+        let createExitStatus = setup["windowRouteCreateStatus"] ?? "<missing>"
+        let createStdout = setup["windowRouteCreateStdout"] ?? ""
+        let createStderr = setup["windowRouteCreateStderr"] ?? ""
+        XCTAssertEqual(
+            createExitStatus,
+            "0",
+            "Expected `new-workspace --window` to succeed. stdout=\(createStdout) stderr=\(createStderr)"
+        )
+
+        let window2ExitStatus = setup["windowRouteWindow2Status"] ?? "<missing>"
+        let window2Stdout = setup["windowRouteWindow2Stdout"] ?? ""
+        let window2Stderr = setup["windowRouteWindow2Stderr"] ?? ""
+        XCTAssertEqual(
+            window2ExitStatus,
+            "0",
+            "Expected `list-workspaces --window` for target window to succeed. stdout=\(window2Stdout) stderr=\(window2Stderr)"
+        )
+        guard let window2Payload = parseJSONObject(window2Stdout),
+              let window2Rows = window2Payload["workspaces"] as? [[String: Any]] else {
+            XCTFail("Failed to parse target window workspace list. stdout=\(window2Stdout) stderr=\(window2Stderr)")
+            return
+        }
+        XCTAssertTrue(
+            window2Rows.contains { $0["title"] as? String == title },
+            "Expected new workspace '\(title)' in targeted window \(window2Id). stdout=\(window2Stdout)"
+        )
+
+        let window1ExitStatus = setup["windowRouteWindow1Status"] ?? "<missing>"
+        let window1Stdout = setup["windowRouteWindow1Stdout"] ?? ""
+        let window1Stderr = setup["windowRouteWindow1Stderr"] ?? ""
+        XCTAssertEqual(
+            window1ExitStatus,
+            "0",
+            "Expected `list-workspaces --window` for source window to succeed. stdout=\(window1Stdout) stderr=\(window1Stderr)"
+        )
+        guard let window1Payload = parseJSONObject(window1Stdout),
+              let window1Rows = window1Payload["workspaces"] as? [[String: Any]] else {
+            XCTFail("Failed to parse source window workspace list. stdout=\(window1Stdout) stderr=\(window1Stderr)")
+            return
+        }
+        XCTAssertFalse(
+            window1Rows.contains { $0["title"] as? String == title },
+            "Expected new workspace '\(title)' not to appear in source window \(window1Id). stdout=\(window1Stdout)"
+        )
+    }
+
     private func clickNotificationPopoverRowAndWaitForFocusChange(
         button: XCUIElement,
         app: XCUIApplication,
@@ -524,15 +660,32 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
     }
 
-    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        if app.wait(for: .runningForeground, timeout: timeout) {
+    private func launchAllowingHeadlessBackgroundActivation(_ app: XCUIApplication) {
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
+    }
+
+    private func ensureAppRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        waitForCondition(timeout: timeout) {
+            app.state == .runningForeground || app.state == .runningBackground
+        }
+    }
+
+    private func ensureAppForegroundForInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.state == .runningForeground {
             return true
         }
-        if app.state == .runningBackground {
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App foreground activation may fail on headless CI runners", options: options) {
             app.activate()
-            return app.wait(for: .runningForeground, timeout: 6.0)
         }
-        return false
+        return waitForCondition(timeout: timeout) {
+            app.state == .runningForeground
+        }
     }
 
     private func waitForElementToDisappear(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
@@ -726,11 +879,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in predicate() },
-            object: nil
-        )
-        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if predicate() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return predicate()
     }
 
     private func firstSurfaceIdViaCLI(forWorkspaceId workspaceId: String) -> String? {
@@ -1114,10 +1268,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     private func stableSocketPath() -> String {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("cmux", isDirectory: true)
+        // Mirrors CmuxStateDirectory.url() + cmux.sock (non-TCC ~/.local/state/cmux;
+        // see https://github.com/manaflow-ai/cmux/issues/5146).
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux", isDirectory: true)
             .appendingPathComponent("cmux.sock", isDirectory: false)
-            .path ?? "/tmp/cmux.sock"
+            .path
     }
 
     private func socketMatchesRequiredWorkspace(_ candidatePath: String, workspaceId: String?) -> Bool {

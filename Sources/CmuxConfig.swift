@@ -1,7 +1,9 @@
 import Bonsplit
+import CmuxFoundation
 import Combine
 import CryptoKit
 import Foundation
+import CmuxSettings
 
 extension CodingUserInfoKey {
     static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
@@ -15,9 +17,10 @@ struct CmuxConfigFile: Codable, Sendable {
     var surfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
     var commands: [CmuxCommandDefinition]
     var vault: CmuxVaultConfigDefinition?
+    var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case actions, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault
+        case actions, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
     }
 
     init(
@@ -27,7 +30,8 @@ struct CmuxConfigFile: Codable, Sendable {
         newWorkspaceCommand: String? = nil,
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
-        vault: CmuxVaultConfigDefinition? = nil
+        vault: CmuxVaultConfigDefinition? = nil,
+        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
     ) {
         self.actions = actions
         self.ui = ui
@@ -36,6 +40,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.surfaceTabBarButtons = surfaceTabBarButtons
         self.commands = commands
         self.vault = vault
+        self.workspaceGroups = workspaceGroups
     }
 
     init(from decoder: Decoder) throws {
@@ -83,6 +88,10 @@ struct CmuxConfigFile: Codable, Sendable {
         }
         commands = try container.decodeIfPresent([CmuxCommandDefinition].self, forKey: .commands) ?? []
         vault = try container.decodeIfPresent(CmuxVaultConfigDefinition.self, forKey: .vault)
+        workspaceGroups = try container.decodeIfPresent(
+            CmuxConfigWorkspaceGroupsDefinition.self,
+            forKey: .workspaceGroups
+        )
     }
 
     private static func normalizedActions(
@@ -141,6 +150,46 @@ struct CmuxConfigFile: Codable, Sendable {
         }
         return buttons
     }
+}
+
+/// Per-cwd customization for sidebar workspace groups. Keyed by the anchor
+/// workspace's cwd. Keys containing `*` or `?` are matched as fnmatch globs;
+/// otherwise they are path prefixes. Longest match wins. `~` is expanded.
+struct CmuxConfigWorkspaceGroupsDefinition: Codable, Sendable, Equatable {
+    var byCwd: [String: CmuxConfigWorkspaceGroupEntry]?
+
+    enum CodingKeys: String, CodingKey {
+        case byCwd
+    }
+}
+
+struct CmuxConfigWorkspaceGroupEntry: Codable, Sendable, Equatable {
+    var color: String?
+    var icon: String?
+    var contextMenu: [CmuxConfigContextMenuItem]?
+    /// Where a newly-created workspace lands inside the group when the user
+    /// clicks the header's `+` button or invokes Cmd-N from a group member.
+    /// Valid values: `"afterCurrent"` (after the current in-group workspace,
+    /// falling back to top), `"top"` (immediately after the anchor), or
+    /// `"end"` (after the last member). When omitted,
+    /// falls back to the global default
+    /// (the stored `workspaceGroups.newWorkspacePlacement` setting).
+    var newWorkspacePlacement: String?
+}
+
+/// Resolved snapshot of a per-cwd workspace group entry, with the JSON key
+/// normalized for matching and any `contextMenu` actions resolved against the
+/// loaded action/command tables.
+struct CmuxResolvedWorkspaceGroupConfig: Sendable, Equatable {
+    let originalKey: String
+    let normalizedKey: String
+    let isGlob: Bool
+    let color: String?
+    let iconSymbol: String?
+    let contextMenuItems: [CmuxResolvedConfigContextMenuItem]
+    /// Parsed override for where the `+` button places its new workspace.
+    /// nil means "fall through to the global default."
+    let newWorkspacePlacement: WorkspaceGroupNewPlacement?
 }
 
 enum CmuxNotificationHooksMode: String, Codable, Sendable, Hashable {
@@ -1768,6 +1817,7 @@ struct CmuxSurfaceDefinition: Codable, Sendable {
 enum CmuxSurfaceType: String, Codable, Sendable {
     case terminal
     case browser
+    case project
 }
 
 struct CmuxResolvedCommand: Sendable {
@@ -1839,6 +1889,11 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var newWorkspaceCommandName: String?
     @Published private(set) var newWorkspaceActionID: String?
     @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
+    /// Resolved per-cwd workspace group customization, keyed by the JSON cwd key.
+    /// Use `resolveWorkspaceGroupConfig(forCwd:)` to find the best match for an
+    /// anchor workspace's cwd. Empty when no `workspaceGroups.byCwd` block is
+    /// configured.
+    @Published private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
     @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
@@ -1911,15 +1966,18 @@ final class CmuxConfigStore: ObservableObject {
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
     private var lifetimeCancellables = Set<AnyCancellable>()
     private var trackingCancellables = Set<AnyCancellable>()
+    // The local config still uses a bespoke DispatchSource watcher because it
+    // performs search-directory *path re-resolution* (not just reload-on-change).
+    // The global config and hook files use CmuxFileWatch.FileWatcher.
     private var localFileWatchSource: DispatchSourceFileSystemObject?
     private var localFileDescriptor: Int32 = -1
     private var localConfigSearchDirectory: String?
-    private var localHookFileWatchSources: [String: DispatchSourceFileSystemObject] = [:]
-    private var localHookFileDescriptors: [String: Int32] = [:]
+    private var hookWatchers: [String: FileWatcher] = [:]
+    private var hookWatchTasks: [String: Task<Void, Never>] = [:]
     private var localFallbackDirectoryWatchSource: DispatchSourceFileSystemObject?
     private var localFallbackDirectoryDescriptor: Int32 = -1
-    private var globalFileWatchSource: DispatchSourceFileSystemObject?
-    private var globalFileDescriptor: Int32 = -1
+    private var globalWatcher: FileWatcher?
+    private var globalWatchTask: Task<Void, Never>?
     private let watchQueue = DispatchQueue(label: "com.cmux.config-file-watch")
 
     private static let maxReattachAttempts = 5
@@ -1957,17 +2015,15 @@ final class CmuxConfigStore: ObservableObject {
             if localConfigPath != nil {
                 startLocalFileWatcher()
             }
-            startGlobalFileWatcher()
+            startGlobalWatching()
         }
     }
 
     deinit {
         localFileWatchSource?.cancel()
-        for source in localHookFileWatchSources.values {
-            source.cancel()
-        }
         localFallbackDirectoryWatchSource?.cancel()
-        globalFileWatchSource?.cancel()
+        hookWatchTasks.values.forEach { $0.cancel() }
+        globalWatchTask?.cancel()
     }
 
     // MARK: - Public API
@@ -1976,7 +2032,7 @@ final class CmuxConfigStore: ObservableObject {
         trackingCancellables.removeAll()
         self.tabManager = tabManager
 
-        tabManager.$selectedTabId
+        tabManager.selectedTabIdPublisher
             .compactMap { [weak tabManager] tabId -> Workspace? in
                 guard let tabId, let tabManager else { return nil }
                 return tabManager.tabs.first(where: { $0.id == tabId })
@@ -1992,7 +2048,7 @@ final class CmuxConfigStore: ObservableObject {
             }
             .store(in: &trackingCancellables)
 
-        tabManager.$tabs
+        tabManager.tabsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.applySurfaceTabBarButtonsToCurrentManager()
@@ -2246,6 +2302,17 @@ final class CmuxConfigStore: ObservableObject {
         newWorkspaceActionSourcePath = configuredNewWorkspaceActionSourcePath
         newWorkspaceCommandName = configuredNewWorkspaceCommandName
         newWorkspaceContextMenuItems = resolvedNewWorkspaceContextMenuItems.items
+        let resolvedGroupConfigs = resolveWorkspaceGroupConfigsFromLayers(
+            localConfig: localConfig,
+            globalConfig: globalConfig,
+            localPath: localPath,
+            globalPath: globalConfigPath,
+            actions: resolvedActionLookup,
+            commands: commands,
+            sourcePaths: sourcePaths,
+            issues: &issues
+        )
+        workspaceGroupConfigs = resolvedGroupConfigs
         surfaceTabBarButtonSourcePath = configuredSurfaceTabBarButtonSourcePath
         surfaceTabBarCommandSourcePaths = resolvedButtons.terminalCommandSourcePaths
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
@@ -2673,6 +2740,172 @@ final class CmuxConfigStore: ObservableObject {
         )
     }
 
+    /// Public lookup: given an anchor workspace's cwd, return the best-matching
+    /// resolved group config. Matching uses auto-glob detection (keys with `*`
+    /// or `?` are treated as fnmatch globs, others as path prefixes). Longest
+    /// matching key wins. Returns nil when nothing matches.
+    func resolveWorkspaceGroupConfig(forCwd cwd: String?) -> CmuxResolvedWorkspaceGroupConfig? {
+        guard let cwd, !cwd.isEmpty, !workspaceGroupConfigs.isEmpty else { return nil }
+        let normalizedCwd = Self.normalizeAbsolutePath(cwd)
+        var best: (CmuxResolvedWorkspaceGroupConfig, Int)?
+        for entry in workspaceGroupConfigs {
+            guard Self.cwdEntryMatches(entry, cwd: normalizedCwd) else { continue }
+            let score = entry.normalizedKey.count
+            if best == nil || score > best!.1 {
+                best = (entry, score)
+            }
+        }
+        return best?.0
+    }
+
+    /// Replace a leading `~` with the user's home directory while preserving
+    /// the rest of the pattern (including `*`/`?` glob characters). Unlike
+    /// `normalizeAbsolutePath`, this skips `standardizingPath` so trailing
+    /// glob segments aren't collapsed.
+    private static func expandTildePreservingGlob(_ pattern: String) -> String {
+        let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("~") else { return trimmed }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let suffix = trimmed.dropFirst()
+        return suffix.isEmpty ? home : home + String(suffix)
+    }
+
+    private static func normalizeAbsolutePath(_ path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "" }
+        if trimmed.hasPrefix("~") {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let suffix = trimmed.dropFirst()
+            return suffix.isEmpty ? home : home + String(suffix)
+        }
+        return (trimmed as NSString).standardizingPath
+    }
+
+    private static func cwdEntryMatches(
+        _ entry: CmuxResolvedWorkspaceGroupConfig,
+        cwd: String
+    ) -> Bool {
+        let key = entry.normalizedKey
+        if entry.isGlob {
+            return fnmatchStyle(pattern: key, candidate: cwd)
+        }
+        if cwd == key { return true }
+        // Root prefix `/` is a documented catch-all; without this branch
+        // any non-root cwd would be tested against "//" and fail. Other
+        // keys append `/` so `/Users/lawrence` doesn't also match
+        // `/Users/lawrence-fork`.
+        if key == "/" {
+            return cwd.hasPrefix("/")
+        }
+        return cwd.hasPrefix(key + "/")
+    }
+
+    /// Minimal fnmatch: `*` matches any run of characters within a path segment
+    /// (and across path separators); `?` matches a single character. Sufficient
+    /// for the byCwd matching contract — full fnmatch features can come later.
+    private static func fnmatchStyle(pattern: String, candidate: String) -> Bool {
+        let p = Array(pattern)
+        let s = Array(candidate)
+        var pi = 0
+        var si = 0
+        var starP = -1
+        var starS = -1
+        while si < s.count {
+            if pi < p.count && (p[pi] == "?" || p[pi] == s[si]) {
+                pi += 1
+                si += 1
+            } else if pi < p.count && p[pi] == "*" {
+                starP = pi
+                starS = si
+                pi += 1
+            } else if starP != -1 {
+                pi = starP + 1
+                starS += 1
+                si = starS
+            } else {
+                return false
+            }
+        }
+        while pi < p.count && p[pi] == "*" { pi += 1 }
+        return pi == p.count
+    }
+
+    private func resolveWorkspaceGroupConfigsFromLayers(
+        localConfig: CmuxConfigFile?,
+        globalConfig: CmuxConfigFile?,
+        localPath: String?,
+        globalPath: String,
+        actions: [String: CmuxResolvedConfigAction],
+        commands: [CmuxCommandDefinition],
+        sourcePaths: [String: String],
+        issues: inout [CmuxConfigIssue]
+    ) -> [CmuxResolvedWorkspaceGroupConfig] {
+        var resolved: [String: CmuxResolvedWorkspaceGroupConfig] = [:]
+        if let globalEntries = globalConfig?.workspaceGroups?.byCwd {
+            for (key, entry) in globalEntries {
+                if let r = resolveWorkspaceGroupConfigEntry(
+                    key: key, entry: entry, sourcePath: globalPath,
+                    actions: actions, commands: commands,
+                    sourcePaths: sourcePaths, issues: &issues
+                ) {
+                    resolved[r.normalizedKey] = r
+                }
+            }
+        }
+        if let localEntries = localConfig?.workspaceGroups?.byCwd {
+            for (key, entry) in localEntries {
+                if let r = resolveWorkspaceGroupConfigEntry(
+                    key: key, entry: entry, sourcePath: localPath ?? globalPath,
+                    actions: actions, commands: commands,
+                    sourcePaths: sourcePaths, issues: &issues
+                ) {
+                    resolved[r.normalizedKey] = r // local overrides global
+                }
+            }
+        }
+        return Array(resolved.values).sorted { $0.normalizedKey.count > $1.normalizedKey.count }
+    }
+
+    private func resolveWorkspaceGroupConfigEntry(
+        key: String,
+        entry: CmuxConfigWorkspaceGroupEntry,
+        sourcePath: String,
+        actions: [String: CmuxResolvedConfigAction],
+        commands: [CmuxCommandDefinition],
+        sourcePaths: [String: String],
+        issues: inout [CmuxConfigIssue]
+    ) -> CmuxResolvedWorkspaceGroupConfig? {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let isGlob = trimmed.contains("*") || trimmed.contains("?")
+        // Expand `~` in both glob and prefix keys so a key like
+        // `~/projects/*` matches workspace cwds that are already normalized to
+        // absolute paths (`/Users/<you>/projects/foo`). Prefix keys also go
+        // through `standardizingPath` so trailing `/.` and similar are
+        // canonicalized.
+        let normalizedKey = isGlob
+            ? Self.expandTildePreservingGlob(trimmed)
+            : Self.normalizeAbsolutePath(trimmed)
+        let menuResolution = resolvedConfigContextMenuItems(
+            entry.contextMenu,
+            actions: actions,
+            commands: commands,
+            sourcePaths: sourcePaths,
+            settingName: "workspaceGroups.byCwd[\(key)].contextMenu",
+            settingSourcePath: sourcePath
+        )
+        issues.append(contentsOf: menuResolution.issues)
+        return CmuxResolvedWorkspaceGroupConfig(
+            originalKey: trimmed,
+            normalizedKey: normalizedKey,
+            isGlob: isGlob,
+            color: entry.color.map(sanitizeConfigText),
+            iconSymbol: entry.icon.map(sanitizeConfigText),
+            contextMenuItems: menuResolution.items,
+            newWorkspacePlacement: WorkspaceGroupNewPlacement(rawString: entry.newWorkspacePlacement)
+        )
+    }
+
     private func resolvedConfigContextMenuItems(
         _ configuredItems: [CmuxConfigContextMenuItem]?,
         actions: [String: CmuxResolvedConfigAction],
@@ -2732,6 +2965,7 @@ final class CmuxConfigStore: ObservableObject {
                             id: "\(settingName).\(index).\(action.id)",
                             title: sanitizeConfigText(item.title ?? action.title, fallback: action.id),
                             icon: item.icon ?? action.icon,
+                            iconSourcePath: item.icon == nil ? action.iconSourcePath : settingSourcePath,
                             tooltip: (item.tooltip ?? action.tooltip).map(sanitizeConfigText),
                             action: action
                         )
@@ -2984,51 +3218,35 @@ final class CmuxConfigStore: ObservableObject {
         let desiredPaths = Set(paths.filter { path in
             path != primaryLocalPath && FileManager.default.fileExists(atPath: path)
         })
-        for path in Array(localHookFileWatchSources.keys) where !desiredPaths.contains(path) {
+        for path in Array(hookWatchers.keys) where !desiredPaths.contains(path) {
             stopLocalHookFileWatcher(at: path)
         }
-        for path in desiredPaths where localHookFileWatchSources[path] == nil {
+        for path in desiredPaths where hookWatchers[path] == nil {
             startLocalHookFileWatcher(at: path)
         }
     }
 
     private func startLocalHookFileWatcher(at path: String) {
-        let fd = open(path, O_EVTONLY)
-        guard fd >= 0 else { return }
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename, .extend],
-            queue: watchQueue
-        )
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            let flags = source.data
-            DispatchQueue.main.async {
-                if flags.contains(.delete) || flags.contains(.rename) {
-                    self.stopLocalHookFileWatcher(at: path)
-                }
+        let watcher = FileWatcher(path: path)
+        hookWatchers[path] = watcher
+        let events = watcher.events
+        hookWatchTasks[path] = Task { @MainActor [weak self] in
+            for await _ in events {
+                guard let self else { break }
                 self.loadAll()
             }
         }
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
-        source.resume()
-        localHookFileWatchSources[path] = source
-        localHookFileDescriptors[path] = fd
     }
 
     private func stopLocalHookFileWatcher(at path: String) {
-        localHookFileWatchSources.removeValue(forKey: path)?.cancel()
-        localHookFileDescriptors.removeValue(forKey: path)
+        hookWatchTasks.removeValue(forKey: path)?.cancel()
+        hookWatchers.removeValue(forKey: path)
     }
 
     private func stopLocalHookFileWatchers() {
-        for source in localHookFileWatchSources.values {
-            source.cancel()
-        }
-        localHookFileWatchSources.removeAll()
-        localHookFileDescriptors.removeAll()
+        hookWatchTasks.values.forEach { $0.cancel() }
+        hookWatchTasks.removeAll()
+        hookWatchers.removeAll()
     }
 
     private func startLocalDirectoryWatcher() {
@@ -3133,102 +3351,31 @@ final class CmuxConfigStore: ObservableObject {
 
     // MARK: - File watching (global)
 
-    private func startGlobalFileWatcher() {
-        let fd = open(globalConfigPath, O_EVTONLY)
-        guard fd >= 0 else {
-            startGlobalDirectoryWatcher()
-            return
-        }
-        globalFileDescriptor = fd
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename, .extend],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            let flags = source.data
-            if flags.contains(.delete) || flags.contains(.rename) {
-                DispatchQueue.main.async {
-                    self.stopGlobalFileWatcher()
-                    self.loadAll()
-                    self.scheduleGlobalReattach(attempt: 1)
-                }
-            } else {
-                DispatchQueue.main.async {
-                    self.loadAll()
-                }
-            }
-        }
-
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
-
-        source.resume()
-        globalFileWatchSource = source
-    }
-
-    private func scheduleGlobalReattach(attempt: Int) {
-        guard attempt <= Self.maxReattachAttempts else {
-            startGlobalDirectoryWatcher()
-            return
-        }
-        watchQueue.asyncAfter(deadline: .now() + Self.reattachDelay) { [weak self] in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                if FileManager.default.fileExists(atPath: self.globalConfigPath) {
-                    self.loadAll()
-                    self.startGlobalFileWatcher()
-                } else {
-                    self.scheduleGlobalReattach(attempt: attempt + 1)
-                }
-            }
-        }
-    }
-
-    private func startGlobalDirectoryWatcher() {
+    /// Watches the global config via ``CmuxFileWatch/FileWatcher``, which handles
+    /// inode reattachment and nearest-existing-ancestor recovery internally; each
+    /// change reloads. Ensures the config directory exists first (the previous
+    /// directory-watcher created it).
+    private func startGlobalWatching() {
+        stopGlobalWatching()
         let dirPath = (globalConfigPath as NSString).deletingLastPathComponent
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: dirPath) {
-            try? fm.createDirectory(atPath: dirPath, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: dirPath) {
+            try? FileManager.default.createDirectory(atPath: dirPath, withIntermediateDirectories: true)
         }
-        let fd = open(dirPath, O_EVTONLY)
-        guard fd >= 0 else { return }
-        globalFileDescriptor = fd
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .link, .rename],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                guard FileManager.default.fileExists(atPath: self.globalConfigPath) else { return }
-                self.stopGlobalFileWatcher()
+        let watcher = FileWatcher(path: globalConfigPath)
+        globalWatcher = watcher
+        let events = watcher.events
+        globalWatchTask = Task { @MainActor [weak self] in
+            for await _ in events {
+                guard let self else { break }
                 self.loadAll()
-                self.startGlobalFileWatcher()
             }
         }
-
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
-
-        source.resume()
-        globalFileWatchSource = source
     }
 
-    private func stopGlobalFileWatcher() {
-        if let source = globalFileWatchSource {
-            source.cancel()
-            globalFileWatchSource = nil
-        }
-        globalFileDescriptor = -1
+    private func stopGlobalWatching() {
+        globalWatchTask?.cancel()
+        globalWatchTask = nil
+        globalWatcher = nil
     }
 }
 

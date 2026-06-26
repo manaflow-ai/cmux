@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 nonisolated struct RightSidebarRemoteTarget: Equatable, Sendable {
@@ -6,6 +7,12 @@ nonisolated struct RightSidebarRemoteTarget: Equatable, Sendable {
 
     var isActiveTarget: Bool {
         windowId == nil && workspaceId == nil
+    }
+}
+
+extension FileExplorerState {
+    var rightSidebarRemoteModeRawValue: String {
+        mode.rawValue
     }
 }
 
@@ -29,7 +36,7 @@ nonisolated struct RightSidebarRemoteParseError: Error, Equatable, Sendable {
 
 nonisolated struct RightSidebarRemoteState: Equatable, Sendable {
     let visible: Bool
-    let mode: RightSidebarMode
+    let modeRawValue: String
 }
 
 nonisolated enum RightSidebarRemoteApplyResult: Equatable, Sendable {
@@ -128,18 +135,22 @@ extension RightSidebarRemoteRequest {
             guard positional.count == 2 else {
                 return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]")))
             }
-            guard let mode = RightSidebarMode.from(cliArgument: positional[1]) else {
-                return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownMode", defaultValue: "ERROR: Unknown right sidebar mode '\(positional[1])'")))
+            let rawMode = positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            if let mode = RightSidebarMode.from(cliArgument: rawMode), mode != .customSidebar {
+                return .success(.init(command: .setMode(mode, focus: !noFocus), target: target))
             }
-            return .success(.init(command: .setMode(mode, focus: !noFocus), target: target))
+            return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownMode", defaultValue: "ERROR: Unknown right sidebar mode '\(positional[1])'")))
         default:
             guard !noFocus else {
                 return .failure(.init(message: String(localized: "rightSidebar.remote.error.noFocusOnlySet", defaultValue: "ERROR: --no-focus is only valid with right_sidebar set")))
             }
-            guard positional.count == 1, let mode = RightSidebarMode.from(cliArgument: action) else {
+            guard positional.count == 1 else {
                 return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownCommand", defaultValue: "ERROR: Unknown right sidebar command '\(action)'")))
             }
-            return .success(.init(command: .setMode(mode, focus: true), target: target))
+            if let mode = RightSidebarMode.from(cliArgument: action), mode != .customSidebar {
+                return .success(.init(command: .setMode(mode, focus: true), target: target))
+            }
+            return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownCommand", defaultValue: "ERROR: Unknown right sidebar command '\(action)'")))
         }
     }
 

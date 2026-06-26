@@ -29,8 +29,10 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-shim-") as td:
         tmp = Path(td)
         home = tmp / "home"
+        cmux_shim_bin = tmp / "cmux-shim-bin"
         real_bin = tmp / "real-bin"
         home.mkdir(parents=True, exist_ok=True)
+        cmux_shim_bin.mkdir(parents=True, exist_ok=True)
         real_bin.mkdir(parents=True, exist_ok=True)
 
         shim_dir = home / ".cmuxterm" / "claude-teams-bin"
@@ -46,6 +48,14 @@ def main() -> int:
         shim_dir.chmod(0o555)
 
         make_executable(
+            cmux_shim_bin / "claude",
+            """#!/usr/bin/env bash
+set -euo pipefail
+echo cmux-claude-command-shim-should-not-run
+exit 42
+""",
+        )
+        make_executable(
             real_bin / "claude",
             """#!/usr/bin/env bash
 set -euo pipefail
@@ -55,7 +65,9 @@ printf 'shim=%s\\n' "$(command -v tmux)"
 
         env = os.environ.copy()
         env["HOME"] = str(home)
-        env["PATH"] = f"{real_bin}:/usr/bin:/bin"
+        env["PATH"] = f"{cmux_shim_bin}:{real_bin}:/usr/bin:/bin"
+        env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(cmux_shim_bin / "claude")
+        env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(cmux_shim_bin)
 
         proc = subprocess.run(
             [cli_path, "claude-teams", "--version"],

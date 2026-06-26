@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | 한국어 | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | 한국어 | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
@@ -92,6 +92,8 @@
 - **네이티브 macOS 앱** — Electron이 아닌 Swift와 AppKit으로 만들었어요. 빠르게 실행되고 메모리도 적게 써요.
 - **Ghostty 호환** — 기존 `~/.config/ghostty/config`에서 테마, 글꼴, 색상 설정을 그대로 읽어와요
 - **GPU 가속** — libghostty 기반이라 렌더링이 부드러워요
+- **키보드 단축키** — 워크스페이스, 분할, 브라우저 등을 위한 [풍부한 단축키](https://cmux.com/docs/keyboard-shortcuts)를 제공해요
+- **오픈 소스** — 무료이고 GPL 라이선스예요
 
 ## 설치하기
 
@@ -157,7 +159,10 @@ cmux 설정 방법에 대한 자세한 내용은 [문서를 확인해주세요](
 | ⌃ ⌘ [ | 이전 워크스페이스 |
 | ⌘ ⇧ W | 워크스페이스 닫기 |
 | ⌘ ⇧ R | 워크스페이스 이름 변경 |
+| ⌥ ⌘ E | 워크스페이스 설명 편집 |
 | ⌘ B | 사이드바 토글 |
+| ⌥ ⌘ B | 오른쪽 사이드바 토글 |
+| ⌘ ⇧ E | 오른쪽 사이드바 포커스 토글 |
 
 ### 서피스
 
@@ -184,6 +189,7 @@ cmux 설정 방법에 대한 자세한 내용은 [문서를 확인해주세요](
 ### 브라우저
 
 브라우저 개발자 도구 단축키는 Safari 기본값을 따르며, `설정 → 키보드 단축키`에서 변경할 수 있어요.
+⌃ P를 포함한 명령 팔레트 탐색 단축키도 변경할 수 있으며, 비워두면 키 입력이 활성 터미널로 전달돼요.
 
 | 단축키 | 동작 |
 |----------|--------|
@@ -201,14 +207,17 @@ cmux 설정 방법에 대한 자세한 내용은 [문서를 확인해주세요](
 |----------|--------|
 | ⌘ I | 알림 패널 표시 |
 | ⌘ ⇧ U | 최근 읽지 않은 알림으로 이동 |
+| ⌥ ⌘ U | 현재 항목의 읽지 않음 상태 토글 |
+| ⌃ ⌘ U | 현재 항목을 가장 오래된 읽지 않음으로 표시하고 다음 최신 읽지 않음으로 이동 |
 
 ### 찾기
 
 | 단축키 | 동작 |
 |----------|--------|
 | ⌘ F | 찾기 |
-| ⌘ G / ⌘ ⇧ G | 다음 찾기 / 이전 찾기 |
-| ⌘ ⇧ F | 찾기 바 숨기기 |
+| ⌘ ⇧ F | 디렉토리에서 찾기 |
+| ⌘ G / ⌥ ⌘ G | 다음 찾기 / 이전 찾기 |
+| ⌥ ⌘ ⇧ F | 찾기 바 숨기기 |
 | ⌘ E | 선택한 텍스트로 찾기 |
 
 ### 터미널
@@ -226,6 +235,7 @@ cmux 설정 방법에 대한 자세한 내용은 [문서를 확인해주세요](
 | 단축키 | 동작 |
 |----------|--------|
 | ⌘ ⇧ N | 새 창 |
+| ⌘ ⇧ O | 이전 세션 다시 열기 |
 | ⌘ , | 설정 |
 | ⌘ ⇧ , | 설정 다시 불러오기 |
 | ⌘ Q | 종료 |
@@ -236,15 +246,128 @@ cmux 설정 방법에 대한 자세한 내용은 [문서를 확인해주세요](
 
 cmux NIGHTLY는 자체 번들 ID를 가진 별도의 앱이라 안정 버전과 함께 실행할 수 있어요. 최신 `main` 커밋에서 자동으로 빌드되고, 자체 Sparkle 피드를 통해 자동 업데이트돼요.
 
-## 세션 복원 (현재 동작)
+나이틀리 버그는 [GitHub Issues](https://github.com/manaflow-ai/cmux/issues)나 [Discord의 #nightly-bugs](https://discord.gg/xsgFEVrWCZ)에서 알려주세요.
 
-재실행 시 cmux는 현재 앱 레이아웃과 메타데이터만 복원해요:
+## 세션 복원
+
+cmux를 종료하면 현재 세션을 저장합니다. 다시 실행하면 cmux가 앱이 관리하는 상태를 복원합니다:
 - 창/워크스페이스/패널 레이아웃
 - 작업 디렉토리
 - 터미널 스크롤백 (최선 노력)
 - 브라우저 URL 및 탐색 기록
 
-cmux는 터미널 앱 내부의 라이브 프로세스 상태를 복원하지 **않아요**. 예를 들어 활성 Claude Code/tmux/vim 세션은 재시작 후 아직 복원되지 않아요.
+cmux는 임의의 라이브 프로세스 상태를 체크포인트하지 않습니다. tmux, vim, shell, 지원되지 않는 터미널 앱은 일반 터미널로 다시 열립니다.
+
+지원되는 에이전트 세션은 hooks가 네이티브 세션 ID를 저장한 경우 다시 시작할 수 있습니다. 에이전트의 바이너리가 `PATH`에 오도록, 에이전트 CLI를 설치한 후에 hooks를 설치하세요:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+`cmux hooks setup`은 찾을 수 있는 지원 에이전트를 설치하고 건너뛴 에이전트에 대한 요약을 출력합니다. 지원되는 resume 통합에는 Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder가 포함됩니다. Claude Code는 설정에서 Claude 통합이 활성화된 경우 cmux의 Claude 래퍼가 처리합니다.
+
+고급 사용자와 통합은 현재 터미널 surface에 사용자 지정 resume 명령을 연결할 수 있습니다. tmux 세션이나 사용자 지정 에이전트 CLI처럼 자체 영구 상태가 있는 도구에 유용합니다:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+이 binding은 cmux surface에 계속 연결됩니다. 공개 CLI나 socket으로 만든 binding은, 자동 복원을 위해 서명된 명령 접두사를 승인하지 않는 한, 확인과 수동 resume용으로 저장됩니다. 승인된 접두사는, 존재하는 경우, 작업 디렉토리와 정확한 환경 변수 값에도 연결됩니다. 승인은 **설정 > 터미널 > Resume Commands**에서 검토하거나 편집할 수 있습니다. cmux는 실행 중인 프로세스에서 감지한 tmux binding이나 사용자가 승인한 접두사처럼 신뢰됨으로 표시한 resume binding만 자동 실행합니다. 토큰, 비밀번호, 시크릿, API 키 같은 민감한 환경 변수 키는 resume binding을 저장하기 전에 제거됩니다.
+
+복원된 에이전트 터미널이 resume 명령을 자동 실행하지 않고 유휴 상태로 유지되게 하려면, **설정 > 터미널 > Resume Agent Sessions on Reopen**을 끄거나 `~/.config/cmux/cmux.json`에 다음을 설정하세요:
+
+```json
+{
+  "terminal": {
+    "autoResumeAgentSessions": false
+  }
+}
+```
+
+이것은 에이전트의 자동 resume 명령만 비활성화합니다. cmux는 여전히 저장된 레이아웃, 작업 디렉토리, 스크롤백, 브라우저 기록을 복원합니다.
+
+마지막으로 저장된 스냅샷을 수동으로 다시 적용해야 한다면 다음을 사용하세요:
+- `파일 > 이전 세션 다시 열기`
+- `⌘ ⇧ O`
+- `cmux restore-session`
+
+내부적으로 cmux는 `~/Library/Application Support/cmux/` 아래에 버전이 지정된 스냅샷을 기록하고, 에이전트 hooks는 `~/.cmuxterm/` 아래에 세션 매핑을 기록합니다. 복원 시 cmux는 먼저 레이아웃을 재구성한 다음, 자동 에이전트 resume가 활성화된 경우 지원되는 에이전트의 네이티브 resume 명령을 실행합니다.
+
+전체 가이드는 <https://cmux.com/docs/session-restore>에서 읽어보세요.
+
+## FAQ
+
+### cmux는 Ghostty와 어떤 관계인가요?
+
+cmux는 Ghostty의 포크가 아니에요. 앱이 웹 뷰에 WebKit을 사용하는 것과 같은 방식으로, 터미널 렌더링을 위한 라이브러리로 [libghostty](https://github.com/ghostty-org/ghostty)를 사용해요. Ghostty는 독립형 터미널이고, cmux는 그 렌더링 엔진 위에 만든 다른 앱이에요.
+
+### 어떤 플랫폼을 지원하나요?
+
+지금은 macOS만 지원해요. cmux는 네이티브 Swift + AppKit 앱이에요.
+
+### iOS 앱이 있나요?
+
+네, 베타로 있어요. Mobile Connect 창에서 iPhone을 Mac과 페어링하고 휴대폰에서 터미널에 연결할 수 있으며, 터미널 알림 전달도 선택적으로 지원해요. TestFlight에서 cmux BETA로 배포돼요. [iOS 문서](https://cmux.com/docs/ios)를 확인해주세요.
+
+### cmux는 어떤 코딩 에이전트와 함께 작동하나요?
+
+전부 다요. cmux는 터미널이라서, 터미널에서 실행되는 에이전트는 별도 설정 없이 바로 작동해요: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, 그리고 명령줄에서 실행할 수 있는 무엇이든요.
+
+### cmux로 여러 에이전트와 서브에이전트를 오케스트레이션할 수 있나요?
+
+네. 에이전트가 서브에이전트나 팀원을 생성하면, cmux는 그것들을 숨겨진 백그라운드 프로세스가 아니라 네이티브 패널과 분할로 바꿔요. [Claude Code teams](https://cmux.com/docs/agent-integrations/claude-code-teams)와 [oh-my-opencode](https://cmux.com/docs/agent-integrations/oh-my-opencode) 멀티 모델 오케스트레이션을 지원하니, 한 번의 실행에 참여하는 모든 에이전트를 보고 제어할 수 있어요.
+
+### cmux를 원격 머신과 함께 사용할 수 있나요?
+
+네. SSH로 워크스페이스를 열고 원격 tmux 세션에 연결할 수 있어서, 에이전트는 원격 호스트에서 실행하면서 cmux에서 조작할 수 있어요. [SSH 및 원격](https://cmux.com/docs/ssh)을 확인해주세요.
+
+### 알림은 어떻게 작동하나요?
+
+프로세스가 주의를 필요로 하면, cmux는 패널 주변의 알림 링, 사이드바의 읽지 않음 배지, 알림 팝오버, macOS 데스크톱 알림을 표시해요. 이것들은 표준 터미널 이스케이프 시퀀스(OSC 9/99/777)를 통해 자동으로 발생하거나, [cmux CLI](https://cmux.com/docs/notifications#cli-usage)와 [에이전트 훅](https://cmux.com/docs/notifications#integration-examples)으로 직접 트리거할 수 있어요. Claude Code, Codex, OpenCode, pi를 포함해 훅이나 OSC를 지원하는 에이전트는 무엇이든 작동해요.
+
+### cmux는 프로그래밍할 수 있나요?
+
+네. 모든 동작이 cmux CLI와 Unix socket을 통해 제공돼요: 워크스페이스 생성, 분할 패널 열기, 입력 전송, 화면 내용 읽기, 스크린샷 캡처, 그리고 내장 브라우저 제어까지요. [CLI 레퍼런스](https://cmux.com/docs/api)와 [브라우저 자동화](https://cmux.com/docs/browser-automation) 문서를 확인해주세요.
+
+### 내장 브라우저로 무엇을 할 수 있나요?
+
+cmux는 터미널 옆에 진짜 브라우저 패널을 분할할 수 있고, 완전히 프로그래밍할 수 있어요: 탐색, DOM 스냅샷, 클릭, 입력, JavaScript 실행, 그리고 같은 socket API로 콘솔과 네트워크 활동 읽기까지요. 에이전트는 이것을 사용해 cmux를 떠나지 않고 자신의 웹 변경 사항을 검증해요. [브라우저 자동화](https://cmux.com/docs/browser-automation)를 확인해주세요.
+
+### cmux에 스킬이 있나요?
+
+네. 스킬은 CLI 제어, 워크스페이스 자동화, 설정, 브라우저 surface 같은 작업을 위해 cmux에서 실행되는 어떤 에이전트에든 줄 수 있는 재사용 가능한 워크플로우예요. 오픈 컬렉션은 [cmux-skills](https://github.com/manaflow-ai/cmux-skills)에서 둘러보거나 [스킬 문서](https://cmux.com/docs/skills)를 읽어보세요.
+
+### 키보드 단축키를 변경할 수 있나요?
+
+터미널 키바인딩은 Ghostty 설정 파일(`~/.config/ghostty/config`)에서 읽어와요. cmux 전용 단축키(워크스페이스, 분할, 브라우저, 알림)는 설정에서 변경할 수 있어요. 전체 목록은 [기본 단축키](https://cmux.com/docs/keyboard-shortcuts)를 확인해주세요.
+
+### cmux를 커스터마이즈할 수 있나요?
+
+네. 터미널 렌더링은 Ghostty 설정을 사용하니 테마, 글꼴, 색상, 커서가 그대로 넘어와요. `~/.config/cmux/cmux.json`에 있는 cmux 자체 설정으로 사이드바, 탭 바, 분할 패널, 동작을 제어할 수 있고, 모든 [키보드 단축키](https://cmux.com/docs/keyboard-shortcuts)를 편집할 수 있어요. [구성](https://cmux.com/docs/configuration)을 확인해주세요.
+
+### 제 세션이 저장되나요?
+
+네. cmux는 다시 실행할 때 창, 워크스페이스, 패널, 작업 디렉토리, 스크롤백을 복원하고, 이 상태는 앱을 종료한 것뿐만 아니라 컴퓨터를 완전히 재시작해도 유지돼요. Claude Code, Codex, OpenCode 같은 에이전트 세션도 다시 돌아와요. [세션 복원](https://cmux.com/docs/session-restore)을 확인해주세요.
+
+### tmux와 비교하면 어떤가요?
+
+tmux는 어떤 터미널 안에서든 실행되는 터미널 멀티플렉서예요. cmux는 GUI를 갖춘 네이티브 macOS 앱이에요: 세로 탭, 분할 패널, 임베디드 브라우저, socket API가 모두 내장돼 있고, 설정 파일이나 prefix 키가 필요 없어요. 그래도 많은 사람들이 cmux를 SSH와 tmux와 함께 즐겨 사용하고, cmux는 원격 tmux 세션에 네이티브로 연결할 수 있어요 ([베타](https://cmux.com/docs/remote-tmux)).
+
+### cmux는 무료인가요?
+
+네, cmux는 무료로 사용할 수 있어요. 소스 코드는 [GitHub](https://github.com/manaflow-ai/cmux)에서 볼 수 있어요.
+
+### cmux를 어떻게 지원할 수 있나요?
+
+cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발을 후원하고 cmux AI, iOS 앱, Cloud VMs를 포함해 다음에 나올 것들에 먼저 접근하고 싶다면, [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)을 확인해주세요.
+
+### 기능 요청이 있거나 버그를 발견했어요?
+
+꼭 듣고 싶어요. GitHub에서 [issue](https://github.com/manaflow-ai/cmux/issues)나 [pull request](https://github.com/manaflow-ai/cmux/pulls)를 열거나, [이메일을 보내주세요](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
 
 ## Star History
 

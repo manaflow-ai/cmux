@@ -5,20 +5,7 @@ import Bonsplit
 /// Bonsplit tab strip rendered underneath them.
 enum BonsplitTabBarPassThrough {
     static func isPassThroughPointerEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        switch eventType {
-        case nil:
-            // Unit tests can call hitTest directly without an active AppKit event.
-            return true
-        case .leftMouseDown, .leftMouseUp, .leftMouseDragged,
-             .rightMouseDown, .rightMouseUp, .rightMouseDragged,
-             .otherMouseDown, .otherMouseUp, .otherMouseDragged,
-             .mouseMoved, .mouseEntered,
-             .mouseExited, .cursorUpdate,
-             .appKitDefined, .applicationDefined, .systemDefined, .periodic:
-            return true
-        default:
-            return false
-        }
+        WindowInputRoutingContext.allowsTabBarPassThroughHitTesting(eventType: eventType)
     }
 
     static func titlebarInteractionBandMinY(in window: NSWindow) -> CGFloat {
@@ -34,7 +21,8 @@ enum BonsplitTabBarPassThrough {
 
     static func shouldPassThroughToPaneTabBar(
         windowPoint: NSPoint,
-        below portalHost: NSView
+        below portalHost: NSView,
+        eventType: NSEvent.EventType? = nil
     ) -> (result: Bool, registryHit: Bool) {
         let registryHit = portalHost.window.map {
             BonsplitTabBarHitRegionRegistry.containsWindowPoint(windowPoint, in: $0)
@@ -42,10 +30,13 @@ enum BonsplitTabBarPassThrough {
         if registryHit {
             return (true, true)
         }
+        if usesRegisteredTabBarRegionsOnly(eventType: eventType) {
+            return (false, false)
+        }
 
-        // High-frequency pointer events (mouseMoved/cursorUpdate) flow through
-        // here on every hover; cap the recursive view-tree walk to the top
-        // band where the tab strip can actually live.
+        // Non-hover fallback keeps older unregistered tab-strip surfaces
+        // working, but still caps the tree walk to the top band where the tab
+        // strip can actually live.
         if let window = portalHost.window {
             let scanFloor = window.contentLayoutRect.maxY - tabStripScanBandHeight
             if windowPoint.y < scanFloor {
@@ -67,8 +58,16 @@ enum BonsplitTabBarPassThrough {
     ) -> (windowPoint: NSPoint, result: Bool, registryHit: Bool)? {
         guard isPassThroughPointerEvent(eventType) else { return nil }
         let windowPoint = portalHost.convert(point, to: nil)
-        let decision = shouldPassThroughToPaneTabBar(windowPoint: windowPoint, below: portalHost)
+        let decision = shouldPassThroughToPaneTabBar(
+            windowPoint: windowPoint,
+            below: portalHost,
+            eventType: eventType
+        )
         return (windowPoint, decision.result, decision.registryHit)
+    }
+
+    private static func usesRegisteredTabBarRegionsOnly(eventType: NSEvent.EventType?) -> Bool {
+        WindowInputRoutingContext(eventType: eventType).eventKind == .pointerHover
     }
 
     static func hasBonsplitTabBarBackground(at windowPoint: NSPoint, in view: NSView) -> Bool {

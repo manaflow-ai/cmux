@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import Foundation
 import SwiftUI
+import CmuxTerminal
 
 final class PaneDropTargetView: NSView {
     weak var hostedView: GhosttySurfaceScrollView?
@@ -39,50 +40,32 @@ final class PaneDropTargetView: NSView {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) -> Bool {
+        let routingContext = WindowInputRoutingContext(eventType: eventType)
+        guard routingContext.allowsPaneDropHitTesting else { return false }
+
         let hasTabTransfer = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
         let hasFileDropPayload = DragOverlayRoutingPolicy.hasFileDropPayload(pasteboardTypes)
         guard hasTabTransfer || hasFileDropPayload else { return false }
-        guard let eventType else { return false }
 
         if hasFileDropPayload, !hasTabTransfer {
-            switch eventType {
-            case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
-                 .leftMouseUp, .rightMouseUp, .otherMouseUp:
-                return true
-            default:
-                return false
-            }
+            return routingContext.allowsFileDropPaneHitTesting
         }
-
-        switch eventType {
-        case .cursorUpdate,
-             .mouseEntered,
-             .mouseExited,
-             .mouseMoved,
-             .leftMouseDragged,
-             .rightMouseDragged,
-             .otherMouseDragged,
-             .leftMouseUp,
-             .rightMouseUp,
-             .otherMouseUp,
-             .appKitDefined,
-             .applicationDefined,
-             .systemDefined,
-             .periodic:
-            return true
-        default:
-            return false
-        }
+        return true
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        performHitTest(at: point, currentEvent: NSApp.currentEvent)
+    }
+
+    func performHitTest(at point: NSPoint, currentEvent: NSEvent?) -> NSView? {
         guard bounds.contains(point), dropContext != nil else { return nil }
+        let eventType = currentEvent?.type
+        guard WindowInputRoutingContext.allowsPaneDropHitTesting(eventType: eventType) else { return nil }
         if shouldDeferToPaneTabBar(at: point) {
             return nil
         }
 
         let pasteboardTypes = NSPasteboard(name: .drag).types
-        let eventType = NSApp.currentEvent?.type
         let capture = Self.shouldCaptureHitTesting(
             pasteboardTypes: pasteboardTypes,
             eventType: eventType
@@ -294,7 +277,7 @@ final class PaneDropTargetView: NSView {
                 panelId: panelId,
                 hostedView: terminalPanel.hostedView,
                 urls: urls,
-                window: window ?? terminalPanel.hostedView.window
+                window: window ?? terminalPanel.surface.uiWindow
             )
         }
         if let filePreviewPanel = panel as? FilePreviewPanel {
@@ -339,6 +322,12 @@ final class PaneDropTargetView: NSView {
         case .markdown:
             return nil
         case .rightSidebarTool:
+            return nil
+        case .customSidebar:
+            return nil
+        case .agentSession, .project:
+            return nil
+        case .extensionBrowser:
             return nil
         }
     }

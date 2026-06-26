@@ -9,6 +9,10 @@ public enum PanelType: String, Codable, Sendable {
     case markdown
     case filePreview = "filepreview"
     case rightSidebarTool
+    case customSidebar
+    case agentSession
+    case project
+    case extensionBrowser
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -23,6 +27,14 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.rightSidebarTool.rawValue.lowercased() {
             self = .rightSidebarTool
+            return
+        }
+        if rawValue.lowercased() == Self.customSidebar.rawValue.lowercased() {
+            self = .customSidebar
+            return
+        }
+        if rawValue.lowercased() == Self.agentSession.rawValue.lowercased() {
+            self = .agentSession
             return
         }
         throw DecodingError.dataCorruptedError(
@@ -40,6 +52,7 @@ public enum PanelType: String, Codable, Sendable {
 public enum TerminalPanelFocusIntent: Equatable {
     case surface
     case findField
+    case textBoxInput
 }
 
 public enum BrowserPanelFocusIntent: Equatable {
@@ -58,31 +71,34 @@ public enum FilePreviewPanelFocusIntent: Hashable {
     case quickLook
 }
 
+public enum ProjectPanelFocusIntent: Hashable {
+    case navigator
+    case detail
+}
+
 public enum PanelFocusIntent: Equatable {
     case panel
     case terminal(TerminalPanelFocusIntent)
     case browser(BrowserPanelFocusIntent)
     case filePreview(FilePreviewPanelFocusIntent)
+    case project(ProjectPanelFocusIntent)
 }
 
 public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
     case navigation
     case notificationArrival
     case notificationDismiss
-    case manualUnreadDismiss
+    case unreadIndicatorDismiss
     case debug
 }
 
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
     case notificationBlue
-    case navigationTeal
 
     var strokeColor: NSColor {
         switch self {
         case .notificationBlue:
             return .systemBlue
-        case .navigationTeal:
-            return .systemTeal
         }
     }
 }
@@ -118,20 +134,22 @@ struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
 }
 
 enum WorkspaceAttentionCoordinator {
+    static let notificationRingStyle = WorkspaceAttentionFlashPresentation(
+        accent: .notificationBlue,
+        glowOpacity: 0.35,
+        glowRadius: 3
+    )
+
+    static let flashRingStyle = WorkspaceAttentionFlashPresentation(
+        accent: .notificationBlue,
+        glowOpacity: 0.6,
+        glowRadius: 6
+    )
+
     static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> WorkspaceAttentionFlashPresentation {
         switch reason {
-        case .navigation:
-            return WorkspaceAttentionFlashPresentation(
-                accent: .navigationTeal,
-                glowOpacity: 0.14,
-                glowRadius: 3
-            )
-        case .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
-            return WorkspaceAttentionFlashPresentation(
-                accent: .notificationBlue,
-                glowOpacity: 0.6,
-                glowRadius: 6
-            )
+        case .navigation, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
+            return flashRingStyle
         }
     }
 
@@ -144,7 +162,7 @@ enum WorkspaceAttentionCoordinator {
         switch reason {
         case .navigation:
             isAllowed = !persistentState.hasCompetingIndicator(for: targetPanelID)
-        case .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
+        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             isAllowed = true
         }
 

@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { DocsSchema } from "../docs-schema";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import { DocsHeading } from "../../components/docs-heading";
@@ -43,6 +44,7 @@ export default function ApiPage() {
 
   return (
     <>
+      <DocsSchema namespace="docs.api" path="/docs/api" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
@@ -285,9 +287,9 @@ cmux list-notifications --json`}
       <Cmd
         name="set-status"
         desc={t("setStatusDesc")}
-        cli={`cmux set-status build "compiling" --icon hammer --color "#ff9500"
+        cli={`cmux set-status build "compiling" --icon hammer --color "#ff9500" --priority 80
 cmux set-status deploy "v1.2.3" --workspace workspace:2`}
-        socket={`set_status build compiling --icon=hammer --color=#ff9500 --tab=<workspace-uuid>`}
+        socket={`set_status build compiling --icon=hammer --color=#ff9500 --priority=80 --tab=<workspace-uuid>`}
       />
       <Cmd
         name="clear-status"

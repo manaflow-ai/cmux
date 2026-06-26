@@ -219,18 +219,58 @@ final class VSCodeServeWebURLBuilderTests: XCTestCase {
 
 
 final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
-    func testLaunchConfigurationUsesCodeTunnelBinary() {
+    func testLaunchConfigurationPrefersCachedCodeServerOverCodeTunnelWrapper() {
+        let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+        let productURL = appURL.appendingPathComponent("Contents/Resources/app/product.json", isDirectory: false)
+        let cacheURL = URL(fileURLWithPath: "/Users/tester/.vscode/cli/serve-web", isDirectory: true)
+        let lruURL = cacheURL.appendingPathComponent("lru.json", isDirectory: false)
+        let codeTunnelPath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
+        let expectedExecutablePath = "/Users/tester/.vscode/cli/serve-web/server-new/bin/code-server"
+
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: appURL,
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester", isDirectory: true),
+            baseEnvironment: [
+                "ELECTRON_RUN_AS_NODE": "stale",
+            ],
+            isExecutableAtPath: { $0 == codeTunnelPath || $0 == expectedExecutablePath },
+            dataAtURL: { url in
+                if url == productURL {
+                    return Data(#"{"dataFolderName": ".vscode"}"#.utf8)
+                }
+                if url == lruURL {
+                    return Data(#"["missing","server-new"]"#.utf8)
+                }
+                return nil
+            },
+            contentsOfDirectoryAtURL: { _ in
+                XCTFail("Expected lru.json to select the cached code-server binary")
+                return []
+            },
+            contentModificationDateAtURL: { _ in nil }
+        )
+
+        XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
+        XCTAssertEqual(configuration?.argumentsPrefix, [])
+        XCTAssertNil(configuration?.environment["ELECTRON_RUN_AS_NODE"])
+    }
+
+    func testLaunchConfigurationFallsBackToCodeTunnelBinary() {
         let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
         let expectedExecutablePath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
 
         let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
             vscodeApplicationURL: appURL,
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester", isDirectory: true),
             baseEnvironment: [:],
-            isExecutableAtPath: { $0 == expectedExecutablePath }
+            isExecutableAtPath: { $0 == expectedExecutablePath },
+            dataAtURL: { _ in nil },
+            contentsOfDirectoryAtURL: { _ in [] },
+            contentModificationDateAtURL: { _ in nil }
         )
 
         XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
-        XCTAssertEqual(configuration?.argumentsPrefix, [])
+        XCTAssertEqual(configuration?.argumentsPrefix, ["serve-web"])
         XCTAssertEqual(configuration?.environment["ELECTRON_RUN_AS_NODE"], "1")
     }
 
@@ -274,16 +314,18 @@ final class ServeWebOutputCollectorTests: XCTestCase {
     func testWaitForURLReturnsFalseAfterProcessExitSignal() {
         let collector = ServeWebOutputCollector()
 
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
-            collector.markProcessExited()
-        }
+        // The process exited without ever emitting a Web UI URL. markProcessExited()
+        // is the real completion signal that unblocks waitForURL; deliver it first so
+        // the wait returns the instant the signal is observed instead of racing an
+        // async dispatch and timing the latency. The outcome the prior elapsed-time
+        // guard stood for is exactly this: the exit signal (not the timeout) is what
+        // releases the wait, and with no URL collected the result is false. A generous
+        // timeout remains as a deadline so a regression that fails to signal still
+        // fails the test rather than hanging.
+        collector.markProcessExited()
 
-        let start = Date()
-        let resolved = collector.waitForURL(timeoutSeconds: 1)
-        let elapsed = Date().timeIntervalSince(start)
-
-        XCTAssertFalse(resolved)
-        XCTAssertLessThan(elapsed, 0.5)
+        XCTAssertFalse(collector.waitForURL(timeoutSeconds: 5))
+        XCTAssertNil(collector.webUIURL)
     }
 
     func testWaitForURLReturnsTrueWhenURLIsCollected() {
@@ -397,8 +439,101 @@ final class VSCodeServeWebControllerTests: XCTestCase {
     }
 }
 
-
 final class OmnibarStateMachineTests: XCTestCase {
+    func testPointerFocusCanPreserveInitialClickSelection() throws {
+        var state = OmnibarState()
+
+        let effects = omnibarReduce(
+            state: &state,
+            event: .focusGained(currentURLString: "https://example.com/", shouldSelectAll: false)
+        )
+
+        XCTAssertTrue(state.isFocused)
+        XCTAssertEqual(state.buffer, "https://example.com/")
+        XCTAssertFalse(effects.shouldSelectAll)
+    }
+
+    func testExplicitRefocusRequestPreservesEditingBufferAndSelectsAll() throws {
+        var state = OmnibarState()
+
+        _ = omnibarReduce(
+            state: &state,
+            event: .focusGained(currentURLString: "https://example.com/")
+        )
+        _ = omnibarReduce(state: &state, event: .bufferChanged("abcdef"))
+
+        let effects = omnibarReduce(
+            state: &state,
+            event: .focusReasserted(
+                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
+                    selectionIntent: .selectAll
+                )
+            )
+        )
+
+        XCTAssertTrue(state.isFocused)
+        XCTAssertTrue(state.isUserEditing)
+        XCTAssertEqual(state.currentURLString, "https://example.com/")
+        XCTAssertEqual(state.buffer, "abcdef")
+        XCTAssertTrue(effects.shouldSelectAll)
+    }
+
+    func testFocusReassertionHonorsSelectionIntent() throws {
+        XCTAssertTrue(
+            browserOmnibarShouldSelectAllOnFocusReassertion(
+                selectionIntent: .selectAll
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldSelectAllOnFocusReassertion(
+                selectionIntent: .preserveFieldEditorSelection
+            )
+        )
+    }
+
+    // State 1 (issue #5459): the single click that moves first responder into the
+    // omnibar selects the whole URL so the next keystroke replaces it (Chrome parity).
+    func testFocusGainingClickSelectsAll() throws {
+        XCTAssertTrue(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: true,
+                isShiftClick: false,
+                didDrag: false
+            )
+        )
+    }
+
+    // State 2 (issue #5268 must not regress): a click while the omnibar is already
+    // first responder keeps the caret placed at the click point — no select-all.
+    func testAlreadyFocusedClickPlacesCaret() throws {
+        XCTAssertFalse(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: false,
+                isShiftClick: false,
+                didDrag: false
+            )
+        )
+    }
+
+    // A Shift-click or a drag expresses an explicit range, so the focus-gaining
+    // select-all defers to it even on the click that gains focus.
+    func testFocusGainingClickDefersToExplicitSelection() throws {
+        XCTAssertFalse(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: true,
+                isShiftClick: true,
+                didDrag: false
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: true,
+                isShiftClick: false,
+                didDrag: true
+            )
+        )
+    }
+
     func testEscapeRevertsWhenEditingThenBlursOnSecondEscape() throws {
         var state = OmnibarState()
 
@@ -406,7 +541,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertTrue(state.isFocused)
         XCTAssertEqual(state.buffer, "https://example.com/")
         XCTAssertFalse(state.isUserEditing)
-        XCTAssertTrue(effects.shouldSelectAll)
+        XCTAssertFalse(effects.shouldSelectAll)
 
         effects = omnibarReduce(state: &state, event: .bufferChanged("exam"))
         XCTAssertTrue(state.isUserEditing)
@@ -588,6 +723,160 @@ final class OmnibarStateMachineTests: XCTestCase {
 }
 
 @MainActor
+final class BrowserOmnibarNativeFieldRegistryWindowSelectionTests: XCTestCase {
+    func testFieldLookupPrefersMatchingWindowAndNilWindowPrefersAttachedField() throws {
+        let panelId = UUID()
+        let registry = BrowserOmnibarNativeFieldRegistry()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 32),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 32))
+        let visibleField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        let offWindowField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        visibleField.panelId = panelId
+        offWindowField.panelId = panelId
+        contentView.addSubview(visibleField)
+        window.contentView = contentView
+        defer {
+            registry.unregister(visibleField, panelId: panelId)
+            registry.unregister(offWindowField, panelId: panelId)
+            visibleField.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        registry.register(visibleField, panelId: panelId)
+        registry.register(offWindowField, panelId: panelId)
+
+        XCTAssertTrue(registry.field(for: panelId, in: window) === visibleField)
+        XCTAssertTrue(registry.field(for: panelId, in: nil) === visibleField)
+        XCTAssertTrue(registry.field(for: panelId) === visibleField)
+
+        registry.unregister(offWindowField, panelId: panelId)
+
+        XCTAssertTrue(registry.field(for: panelId) === visibleField)
+    }
+
+    func testWindowLookupDoesNotFallBackAcrossWindows() throws {
+        let panelId = UUID()
+        let registry = BrowserOmnibarNativeFieldRegistry()
+        let sourceWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 32),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let requestedWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 32),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 32))
+        let sourceField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        sourceField.panelId = panelId
+        contentView.addSubview(sourceField)
+        sourceWindow.contentView = contentView
+        defer {
+            registry.unregister(sourceField, panelId: panelId)
+            sourceField.removeFromSuperview()
+            sourceWindow.contentView = nil
+            sourceWindow.orderOut(nil)
+            requestedWindow.orderOut(nil)
+        }
+
+        registry.register(sourceField, panelId: panelId)
+
+        XCTAssertTrue(registry.field(for: panelId, in: sourceWindow) === sourceField)
+        XCTAssertNil(registry.field(for: panelId, in: requestedWindow))
+    }
+
+    func testInteractionOverlayPassesThroughUntilFieldIsRegisteredInWindow() throws {
+        let panelId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 32),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 32))
+        let field = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        let interactionView = BrowserOmnibarInteractionView(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        field.panelId = panelId
+        interactionView.panelId = panelId
+        contentView.addSubview(field)
+        contentView.addSubview(interactionView)
+        window.contentView = contentView
+        defer {
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: panelId)
+            field.removeFromSuperview()
+            interactionView.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertNil(
+            interactionView.hitTest(NSPoint(x: 12, y: 12)),
+            "The overlay must not swallow the first click before it has a forwarding target"
+        )
+
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
+
+        XCTAssertTrue(
+            interactionView.hitTest(NSPoint(x: 12, y: 12)) === interactionView,
+            "The overlay should capture events once it can forward to the same-window native field"
+        )
+    }
+}
+
+@MainActor
+final class BrowserPortalOmnibarSuggestionsTests: XCTestCase {
+    func testPortalSuggestionsOverlayPassesHitTestingOutsidePopupFrame() {
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 420, height: 260))
+        let item = OmnibarSuggestion.search(engineName: "Google", query: "news")
+        let popupFrame = CGRect(
+            x: 40,
+            y: 12,
+            width: 220,
+            height: OmnibarSuggestionsView.popupHeight(for: [item])
+        )
+
+        slot.setOmnibarSuggestions(
+            BrowserPortalOmnibarSuggestionsConfiguration(
+                panelId: UUID(),
+                popupFrame: popupFrame,
+                colorScheme: .dark,
+                engineName: "Google",
+                items: [item],
+                selectedIndex: 0,
+                isLoadingRemoteSuggestions: false,
+                searchSuggestionsEnabled: true,
+                onCommit: { _ in XCTFail("Unexpected commit") },
+                onHighlight: { _ in XCTFail("Unexpected highlight") }
+            )
+        )
+        slot.layoutSubtreeIfNeeded()
+
+        let overlay = slot.subviews.first {
+            String(describing: type(of: $0)).contains("OmnibarSuggestionsHostingView")
+        }
+        XCTAssertNotNil(overlay)
+        guard let overlay else { return }
+
+        XCTAssertNil(overlay.hitTest(NSPoint(x: 8, y: 8)))
+
+        let insideTopLeftPoint = NSPoint(x: popupFrame.midX, y: popupFrame.midY)
+        let insidePoint = overlay.isFlipped
+            ? insideTopLeftPoint
+            : NSPoint(x: insideTopLeftPoint.x, y: overlay.bounds.height - insideTopLeftPoint.y)
+        XCTAssertNotNil(overlay.hitTest(insidePoint))
+    }
+}
+
+@MainActor
 private final class OmnibarInlineDeletionHarness {
     var state = OmnibarState()
     var inlineCompletion: OmnibarInlineCompletion?
@@ -648,6 +937,7 @@ private final class OmnibarInlineDeletionHarness {
         OmnibarTextFieldRepresentable.Coordinator(
             parent: OmnibarTextFieldRepresentable(
                 panelId: UUID(),
+                fontSize: 12,
                 text: Binding(
                     get: { self.state.buffer },
                     set: { self.state.buffer = $0 }
@@ -660,7 +950,7 @@ private final class OmnibarInlineDeletionHarness {
                 inlineCompletion: inlineCompletion,
                 placeholder: "",
                 onTap: {},
-                onSubmit: {},
+                onSubmit: { _ in },
                 onEscape: {},
                 onFieldLostFocus: {},
                 onMoveSelection: { _ in },
@@ -710,6 +1000,57 @@ private final class OmnibarInlineDeletionHarness {
         inlineCompletion = nil
     }
 
+}
+
+
+@MainActor
+final class BrowserOmnibarFieldEditorResolutionTests: XCTestCase {
+    func testPanelIdResolutionUsesLiveOmnibarFieldWhenFieldEditorResponderChainIsStale() {
+        _ = NSApplication.shared
+
+        let panelId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 80),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+
+        let staleWebView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 420, height: 80), configuration: WKWebViewConfiguration())
+        contentView.addSubview(staleWebView)
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 8, y: 28, width: 300, height: 24))
+        field.panelId = panelId
+        contentView.addSubview(field)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            field.removeFromSuperview()
+            staleWebView.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard let editor = field.currentEditor() as? NSTextView else {
+            XCTFail("Expected omnibar field editor after focusing text field")
+            return
+        }
+
+        let originalNextResponder = editor.nextResponder
+        editor.nextResponder = staleWebView
+        defer {
+            editor.nextResponder = originalNextResponder
+        }
+
+        XCTAssertEqual(
+            browserOmnibarPanelId(for: editor),
+            panelId,
+            "A live omnibar field editor must resolve to its owning omnibar field even when AppKit leaves a stale browser responder chain behind"
+        )
+    }
 }
 
 

@@ -26,6 +26,7 @@
 #      notarized macOS 26 Tahoe rejects with errno 163.
 
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ $# -lt 3 ]]; then
   echo "usage: $0 <app-path> <app-entitlements> <signing-identity>" >&2
@@ -75,6 +76,7 @@ fi
 
 # 3. Frameworks
 if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
+  "$SCRIPT_DIR/remove-sparkle-sandbox-xpc-services.sh" "$APP_PATH"
   while IFS= read -r -d '' framework; do
     echo "==> signing framework $(basename "$framework")"
     /usr/bin/codesign "${COMMON[@]}" --deep "$framework"
@@ -87,6 +89,7 @@ echo "==> signing main bundle"
 
 echo "==> verifying"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+"$SCRIPT_DIR/verify-command-palette-nucleo-ffi-artifact.sh" "$APP_PATH"
 
 APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \
   /dev/stdin <<<"$(plutil -convert xml1 -o - "$APP_ENTITLEMENTS")" 2>/dev/null || true)"

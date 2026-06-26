@@ -75,8 +75,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
               let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
               let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
-              workspace.newTerminalSplit(from: rightPanel.id, orientation: .vertical) != nil else {
-            XCTFail("Expected nested split setup")
+              workspace.newTerminalSplit(from: rightPanel.id, orientation: .horizontal) != nil else {
+            XCTFail("Expected asymmetric horizontal split setup")
             return
         }
 
@@ -113,6 +113,9 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             XCTFail("Expected cached layout snapshot after seeding split geometry")
             return
         }
+        let expectedEqualizedPositions = shortcutRoutingExpectedEqualizedDividerPositions(
+            in: workspace.bonsplitController.treeSnapshot()
+        )
 
         guard let event = makeKeyDownEvent(key: "=", modifiers: [.command, .control], keyCode: 24, windowNumber: window.windowNumber) else {
             XCTFail("Failed to construct Cmd+Ctrl+= event")
@@ -129,8 +132,16 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 
         let equalizedSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
         XCTAssertEqual(equalizedSplits.count, seededSplits.count)
+        let equalizedLeafCount = shortcutRoutingAssertProportionalEqualizedTree(
+            workspace.bonsplitController.treeSnapshot()
+        )
+        XCTAssertEqual(equalizedLeafCount, 3)
         for split in equalizedSplits {
-            XCTAssertEqual(split.dividerPosition, 0.5, accuracy: 0.000_1)
+            guard let expectedPosition = expectedEqualizedPositions[split.id] else {
+                XCTFail("Expected equalized split ID to remain present")
+                continue
+            }
+            XCTAssertEqual(split.dividerPosition, expectedPosition, accuracy: 0.000_1)
         }
 
         let liveEqualizedLayout = workspace.bonsplitController.layoutSnapshot()
@@ -152,6 +163,51 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         case .split(let split):
             return [split] + shortcutRoutingSplitNodes(in: split.first) + shortcutRoutingSplitNodes(in: split.second)
         }
+    }
+
+    @discardableResult
+    private func shortcutRoutingAssertProportionalEqualizedTree(
+        _ node: ExternalTreeNode,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> Int {
+        switch node {
+        case .pane:
+            return 1
+        case .split(let split):
+            let firstLeafCount = shortcutRoutingAssertProportionalEqualizedTree(split.first, file: file, line: line)
+            let secondLeafCount = shortcutRoutingAssertProportionalEqualizedTree(split.second, file: file, line: line)
+            let totalLeafCount = firstLeafCount + secondLeafCount
+            XCTAssertEqual(
+                split.dividerPosition,
+                Double(firstLeafCount) / Double(totalLeafCount),
+                accuracy: 0.000_1,
+                file: file,
+                line: line
+            )
+            return totalLeafCount
+        }
+    }
+
+    private func shortcutRoutingExpectedEqualizedDividerPositions(in node: ExternalTreeNode) -> [String: Double] {
+        var positionsBySplitId: [String: Double] = [:]
+
+        @discardableResult
+        func collectLeafCount(_ node: ExternalTreeNode) -> Int {
+            switch node {
+            case .pane:
+                return 1
+            case .split(let split):
+                let firstLeafCount = collectLeafCount(split.first)
+                let secondLeafCount = collectLeafCount(split.second)
+                let totalLeafCount = firstLeafCount + secondLeafCount
+                positionsBySplitId[split.id] = Double(firstLeafCount) / Double(totalLeafCount)
+                return totalLeafCount
+            }
+        }
+
+        collectLeafCount(node)
+        return positionsBySplitId
     }
 
     private func shortcutRoutingPaneFramesById(in snapshot: LayoutSnapshot) -> [String: PixelRect] {

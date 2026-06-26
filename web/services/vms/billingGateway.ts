@@ -190,7 +190,7 @@ function createCreditItemId(
   if (global.kind === "disabled") return null;
   if (global.kind === "item") return global.itemId;
 
-  return normalizedPlanId(planId) === "free" ? DEFAULT_FREE_CREATE_CREDIT_ITEM_ID : null;
+  return null;
 }
 
 function resolvedCreateCreditItemIdValue(

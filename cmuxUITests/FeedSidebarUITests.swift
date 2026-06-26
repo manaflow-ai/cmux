@@ -1,4 +1,6 @@
+import CoreGraphics
 import Foundation
+import ImageIO
 import Darwin
 import XCTest
 
@@ -12,6 +14,7 @@ final class FeedSidebarUITests: XCTestCase {
     private var diagnosticsPath = ""
     private var feedResultPath = ""
     private var feedTUIReadyPath = ""
+    private var dockRenderReadyPath = ""
     private var dockConfigPath = ""
     private var requestId = ""
     private let modeKey = "socketControlMode"
@@ -25,6 +28,7 @@ final class FeedSidebarUITests: XCTestCase {
         diagnosticsPath = "/tmp/cmux-feed-sidebar-\(UUID().uuidString).json"
         feedResultPath = "/tmp/cmux-feed-sidebar-result-\(UUID().uuidString).json"
         feedTUIReadyPath = "/tmp/cmux-feed-sidebar-tui-ready-\(UUID().uuidString).json"
+        dockRenderReadyPath = "/tmp/cmux-dock-render-ready-\(UUID().uuidString).json"
         dockConfigPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-feed-sidebar-dock-\(UUID().uuidString).json")
             .path
@@ -33,6 +37,7 @@ final class FeedSidebarUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
         try? FileManager.default.removeItem(atPath: feedResultPath)
         try? FileManager.default.removeItem(atPath: feedTUIReadyPath)
+        try? FileManager.default.removeItem(atPath: dockRenderReadyPath)
         try? FileManager.default.removeItem(atPath: dockConfigPath)
     }
 
@@ -89,11 +94,15 @@ final class FeedSidebarUITests: XCTestCase {
             "feed.push did not publish a pending item. result=\(loadFeedResult())"
         )
 
-        // The TUI blocks on keyboard input. Refresh first so it observes the
-        // pending request, then Enter accepts the default "once" action.
-        app.typeKey("r", modifierFlags: [])
-        Thread.sleep(forTimeInterval: 1.0)
-        app.typeKey(.return, modifierFlags: [])
+        // The TUI blocks on keyboard input. Refresh so it observes the pending
+        // request, then Enter accepts the default "once" action. The TUI is an
+        // out-of-process bun/opentui program reading from a pty, so a single
+        // fixed delay between the refresh and Enter is a synchronization
+        // substitute for "the TUI re-rendered with the pending item selected"
+        // and races on a loaded runner. Instead, drive refresh+Enter in a
+        // bounded loop and stop as soon as the real signal (the resolved
+        // feed.push result) appears.
+        driveFeedRefreshAndAccept(in: app, timeout: 35)
 
         // Await the hook-side reply from the Feed dispatcher.
         let result = try waitForFeedPushResult(timeout: 35)
@@ -117,6 +126,77 @@ final class FeedSidebarUITests: XCTestCase {
         )
 
         app.terminate()
+    }
+
+    func testDockTerminalRerendersAfterRightSidebarHideShow() throws {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-\(modeKey)", "allowAll",
+            "-\(dockBetaFeatureKey)", "YES",
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US"
+        ]
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        app.launchEnvironment["CMUX_UI_TEST_PORTAL_STATS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DOCK_CONFIG_PATH"] = dockConfigPath
+        if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
+            app.launchEnvironment["PATH"] = path
+        }
+        try writeDockRenderConfig()
+        launchAndEnsureUsable(app)
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            waitForInAppSocketReady(timeout: 75),
+            "Expected app-side control socket readiness at \(socketPath). diagnostics=\(loadDiagnostics())"
+        )
+        XCTAssertTrue(
+            revealDockMode(in: app),
+            "Dock mode did not open in the right sidebar. diagnostics=\(loadDiagnostics())"
+        )
+        XCTAssertTrue(
+            waitForDockRenderReady(timeout: 30),
+            "Dock render control did not publish readiness. marker=\(loadDockRenderReadyMarker())"
+        )
+        let renderPID = try XCTUnwrap(
+            dockRenderProcessPID(),
+            "Dock render control did not publish a pid. marker=\(loadDockRenderReadyMarker())"
+        )
+        XCTAssertTrue(
+            waitForDockTerminalBrightPixels(in: app, timeout: 25),
+            "Initial Dock terminal did not render the sentinel. brightPixels=\(dockTerminalBrightPixelCount(in: app)) diagnostics=\(loadDiagnostics())"
+        )
+
+        app.typeKey("b", modifierFlags: [.command, .option])
+        XCTAssertTrue(
+            waitForRightSidebarHidden(in: app, timeout: 8),
+            "Right sidebar did not hide after Opt-Cmd-B"
+        )
+        XCTAssertTrue(
+            dockRenderProcessIsAlive(pid: renderPID),
+            "Dock render process exited after hiding the right sidebar. marker=\(loadDockRenderReadyMarker())"
+        )
+
+        app.typeKey("b", modifierFlags: [.command, .option])
+        XCTAssertTrue(
+            waitForDockModeVisible(in: app, timeout: 8),
+            "Dock mode did not reappear after Opt-Cmd-B. diagnostics=\(loadDiagnostics())"
+        )
+        XCTAssertTrue(
+            dockRenderProcessIsAlive(pid: renderPID),
+            "Dock render process exited after reopening the right sidebar. marker=\(loadDockRenderReadyMarker())"
+        )
+        XCTAssertTrue(
+            waitForDockTerminalBrightPixels(in: app, timeout: 25),
+            "Dock terminal stayed visually blank after right sidebar hide/show. brightPixels=\(dockTerminalBrightPixelCount(in: app)) diagnostics=\(loadDiagnostics())"
+        )
     }
 
     // MARK: - Socket helpers
@@ -143,6 +223,36 @@ final class FeedSidebarUITests: XCTestCase {
         pollUntil(timeout: timeout, interval: 0.2) {
             self.loadFeedResult()["pushPendingObserved"] == "1"
         }
+    }
+
+    /// Drives the Feed TUI's "refresh then accept default" path without gating
+    /// on wall-clock time. Each iteration presses `r` (refresh) then Return
+    /// (accept the default "once" action) and then polls the real readiness
+    /// signal: the resolved `feed.push` result published to `feedResultPath`.
+    /// If a refresh/Enter pair lands before the out-of-process TUI has selected
+    /// the pending item, the next iteration re-refreshes and re-presses Enter.
+    /// Returns as soon as the push resolves; otherwise keeps trying until the
+    /// generous deadline, leaving the subsequent `waitForFeedPushResult`
+    /// assertion to surface a precise failure.
+    private func driveFeedRefreshAndAccept(in app: XCUIApplication, timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            app.typeKey("r", modifierFlags: [])
+            // Give the out-of-process TUI a brief window to process the refresh
+            // keystroke and re-render the selected pending item before Enter.
+            if pollUntil(timeout: 1.0, interval: 0.1, { self.feedPushHasReturned() }) {
+                return
+            }
+            app.typeKey(.return, modifierFlags: [])
+            if pollUntil(timeout: 1.5, interval: 0.1, { self.feedPushHasReturned() }) {
+                return
+            }
+        } while Date() < deadline
+    }
+
+    private func feedPushHasReturned() -> Bool {
+        let payload = loadFeedResult()
+        return payload["pushResultStatus"] != nil || payload["pushError"] != nil
     }
 
     private func waitForFeedPushResult(timeout: TimeInterval) throws -> FeedPushResult {
@@ -191,10 +301,21 @@ final class FeedSidebarUITests: XCTestCase {
         }
     }
 
+    private func waitForDockRenderReady(timeout: TimeInterval) -> Bool {
+        pollUntil(timeout: timeout, interval: 0.5) {
+            dockRenderProcessPID() != nil
+        }
+    }
+
     private func waitForFeedTUIProcessAlive(timeout: TimeInterval) -> Bool {
         return pollUntil(timeout: timeout, interval: 0.2) {
             feedTUIProcessIsAlive()
         }
+    }
+
+    private func dockRenderProcessIsAlive(pid: Int32) -> Bool {
+        errno = 0
+        return kill(pid, 0) == 0 || errno == EPERM
     }
 
     private func resolvedBunPathForFeedTUI() -> String? {
@@ -279,10 +400,86 @@ final class FeedSidebarUITests: XCTestCase {
     }
 
     private func waitForDockModeVisible(in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let dockButton = app.buttons["RightSidebarModeButton.dock"].firstMatch
         let focusButton = app.buttons["Focus Control"].firstMatch
-        let dockPanel = app.otherElements["DockPanel"].firstMatch
         return pollUntil(timeout: timeout, interval: 0.2) {
-            focusButton.exists || dockPanel.exists
+            dockButton.exists && dockButton.isHittable && focusButton.exists && focusButton.isHittable
+        }
+    }
+
+    private func waitForRightSidebarHidden(in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let focusButton = app.buttons["Focus Control"].firstMatch
+        let dockButton = app.buttons["RightSidebarModeButton.dock"].firstMatch
+        return pollUntil(timeout: timeout, interval: 0.2) {
+            (!focusButton.exists || !focusButton.isHittable) &&
+                (!dockButton.exists || !dockButton.isHittable)
+        }
+    }
+
+    private func waitForDockTerminalBrightPixels(in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        pollUntil(timeout: timeout, interval: 0.5) {
+            dockTerminalBrightPixelCount(in: app) >= 600
+        }
+    }
+
+    private func dockTerminalBrightPixelCount(in app: XCUIApplication) -> Int {
+        let window = app.windows.firstMatch
+        guard window.exists else { return 0 }
+        return brightPixelCount(
+            in: window.screenshot(),
+            xFractionStart: 0.88,
+            yFractionStart: 0.18,
+            yFractionEnd: 0.90
+        )
+    }
+
+    private func brightPixelCount(
+        in screenshot: XCUIScreenshot,
+        xFractionStart: Double,
+        yFractionStart: Double,
+        yFractionEnd: Double
+    ) -> Int {
+        guard let source = CGImageSourceCreateWithData(screenshot.pngRepresentation as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            return 0
+        }
+        let width = image.width
+        let height = image.height
+        guard width > 0, height > 0 else { return 0 }
+
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        return pixels.withUnsafeMutableBytes { buffer in
+            guard let baseAddress = buffer.baseAddress,
+                  let context = CGContext(
+                      data: baseAddress,
+                      width: width,
+                      height: height,
+                      bitsPerComponent: 8,
+                      bytesPerRow: bytesPerRow,
+                      space: colorSpace,
+                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                  ) else {
+                return 0
+            }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+            let startX = min(width, max(0, Int(Double(width) * xFractionStart)))
+            let startY = min(height, max(0, Int(Double(height) * yFractionStart)))
+            let endY = min(height, max(startY, Int(Double(height) * yFractionEnd)))
+            var count = 0
+            let rgba = buffer.bindMemory(to: UInt8.self)
+            for y in startY..<endY {
+                for x in startX..<width {
+                    let index = y * bytesPerRow + x * bytesPerPixel
+                    if rgba[index] > 150, rgba[index + 1] > 150, rgba[index + 2] > 150 {
+                        count += 1
+                    }
+                }
+            }
+            return count
         }
     }
 
@@ -293,11 +490,7 @@ final class FeedSidebarUITests: XCTestCase {
     }
 
     private func launchAndEnsureUsable(_ app: XCUIApplication) {
-        let options = XCTExpectedFailure.Options()
-        options.isStrict = false
-        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
-            app.launch()
-        }
+        app.launch()
 
         if app.state == .runningForeground {
             return
@@ -335,12 +528,32 @@ final class FeedSidebarUITests: XCTestCase {
         (try? String(contentsOfFile: feedTUIReadyPath, encoding: .utf8)) ?? ""
     }
 
+    private func loadDockRenderReadyMarker() -> String {
+        (try? String(contentsOfFile: dockRenderReadyPath, encoding: .utf8)) ?? ""
+    }
+
     private func loadFeedTUIReadyPayload() -> [String: String] {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: feedTUIReadyPath)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             return [:]
         }
         return object
+    }
+
+    private func loadDockRenderReadyPayload() -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: dockRenderReadyPath)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
+    }
+
+    private func dockRenderProcessPID() -> Int32? {
+        guard let pidText = loadDockRenderReadyPayload()["pid"],
+              let pidValue = Int32(pidText) else {
+            return nil
+        }
+        return pidValue
     }
 
     private func writeFeedDockConfig(bunPath: String?) throws {
@@ -354,6 +567,32 @@ final class FeedSidebarUITests: XCTestCase {
                 "title": "Feed",
                 "command": "cmux feed tui --opentui",
                 "env": env
+            ]]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: URL(fileURLWithPath: dockConfigPath), options: .atomic)
+    }
+
+    private func writeDockRenderConfig() throws {
+        let command = """
+        printf '{"pid":"%s"}\\n' "$$" > "$CMUX_DOCK_RENDER_READY_PATH"; \
+        while true; do \
+          clear; \
+          i=1; \
+          while [ "$i" -le 28 ]; do \
+            printf 'ISSUE5435_DOCK_RENDER_READY %02d ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789\\n' "$i"; \
+            i=$((i + 1)); \
+          done; \
+          sleep 0.2; \
+        done
+        """
+        let config: [String: Any] = [
+            "controls": [[
+                "id": "issue5435-render",
+                "title": "Issue 5435 Render",
+                "command": command,
+                "height": 320,
+                "env": ["CMUX_DOCK_RENDER_READY_PATH": dockRenderReadyPath]
             ]]
         ]
         let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])

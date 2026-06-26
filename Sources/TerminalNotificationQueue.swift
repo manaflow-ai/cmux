@@ -16,12 +16,14 @@ fileprivate enum TerminalSocketMutation {
     case deliverNotification(QueuedTerminalNotification)
     case clearAllNotifications
     case clearNotificationsForTab(UUID)
+    case clearNotificationsForSurface(UUID, UUID)
     case perform(@MainActor () -> Void)
 }
 
 fileprivate struct TerminalSocketMutationEntry {
     let sequence: UInt64
     let mutation: TerminalSocketMutation
+    let notificationGeneration: UInt64?
     let notificationCoalescingKey: TerminalNotificationCoalescingKey?
 }
 
@@ -48,14 +50,15 @@ final class TerminalMutationBus: @unchecked Sendable {
         surfaceId: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        coalesces: Bool = true
     ) {
         enqueueNotification(QueuedTerminalNotification(
             key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
             title: title,
             subtitle: subtitle,
             body: body
-        ))
+        ), coalesces: coalesces)
     }
 
     nonisolated func enqueueClearAllNotifications() {
@@ -65,6 +68,12 @@ final class TerminalMutationBus: @unchecked Sendable {
     nonisolated func enqueueClearNotifications(forTabId tabId: UUID) {
         enqueueClear(.clearNotificationsForTab(tabId)) { notification in
             notification.key.tabId == tabId
+        }
+    }
+
+    nonisolated func enqueueClearNotifications(forTabId tabId: UUID, surfaceId: UUID) {
+        enqueueClear(.clearNotificationsForSurface(tabId, surfaceId)) { notification in
+            notification.key.tabId == tabId && notification.key.surfaceId == surfaceId
         }
     }
 
@@ -86,6 +95,14 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
+    nonisolated func discardPendingNotifications(forTabId tabId: UUID, surfaceId: UUID, through boundary: UInt64) {
+        discardPendingNotifications { notification, generation in
+            notification.key.tabId == tabId
+                && notification.key.surfaceId == surfaceId
+                && generation <= boundary
+        }
+    }
+
     nonisolated func discardPendingNotifications() {
         discardPendingNotifications(advanceGeneration: true) { _, _ in true }
     }
@@ -102,27 +119,47 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
-    private func enqueueNotification(_ notification: QueuedTerminalNotification) {
+    private func enqueueNotification(_ notification: QueuedTerminalNotification, coalesces: Bool) {
         let shouldScheduleDrain: Bool
+        let removedCount: Int
+        let pendingCount: Int
+        let sequence: UInt64
+        let generation: UInt64
         lock.lock()
-        let coalescingKey = TerminalNotificationCoalescingKey(
-            generation: currentNotificationGeneration,
-            notificationKey: notification.key
-        )
-        pending.removeAll { entry in
-            entry.notificationCoalescingKey == coalescingKey
+        generation = currentNotificationGeneration
+        let coalescingKey = coalesces
+            ? TerminalNotificationCoalescingKey(
+                generation: generation,
+                notificationKey: notification.key
+            )
+            : nil
+        let beforeCount = pending.count
+        if let coalescingKey {
+            pending.removeAll { entry in
+                entry.notificationCoalescingKey == coalescingKey
+            }
         }
+        removedCount = beforeCount - pending.count
         nextSequence &+= 1
+        sequence = nextSequence
         pending.append(TerminalSocketMutationEntry(
-            sequence: nextSequence,
+            sequence: sequence,
             mutation: .deliverNotification(notification),
+            notificationGeneration: generation,
             notificationCoalescingKey: coalescingKey
         ))
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain {
             drainScheduled = true
         }
+        pendingCount = pending.count
         lock.unlock()
+
+#if DEBUG
+        cmuxDebugLog(
+            "notification.queue.enqueue seq=\(sequence) workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") coalesces=\(coalesces ? 1 : 0) removed=\(removedCount) pending=\(pendingCount) generation=\(generation) titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
+        )
+#endif
 
         guard shouldScheduleDrain else { return }
         scheduleDrain()
@@ -144,6 +181,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         pending.append(TerminalSocketMutationEntry(
             sequence: nextSequence,
             mutation: mutation,
+            notificationGeneration: nil,
             notificationCoalescingKey: nil
         ))
         shouldScheduleDrain = !drainScheduled
@@ -163,6 +201,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         pending.append(TerminalSocketMutationEntry(
             sequence: nextSequence,
             mutation: mutation,
+            notificationGeneration: nil,
             notificationCoalescingKey: nil
         ))
         shouldScheduleDrain = !drainScheduled
@@ -182,10 +221,10 @@ final class TerminalMutationBus: @unchecked Sendable {
         lock.lock()
         pending.removeAll { entry in
             guard case .deliverNotification(let notification) = entry.mutation,
-                  let coalescingKey = entry.notificationCoalescingKey else {
+                  let generation = entry.notificationGeneration else {
                 return false
             }
-            return shouldDiscard(notification, coalescingKey.generation)
+            return shouldDiscard(notification, generation)
         }
         if advanceGeneration {
             currentNotificationGeneration &+= 1
@@ -260,7 +299,15 @@ final class TerminalMutationBus: @unchecked Sendable {
         if !batch.isEmpty {
             pending.removeFirst(count)
         }
+        let remaining = pending.count
         lock.unlock()
+#if DEBUG
+        if !batch.isEmpty {
+            cmuxDebugLog(
+                "notification.queue.drain batch=\(batch.count) remaining=\(remaining) firstSeq=\(batch.first?.sequence ?? 0) lastSeq=\(batch.last?.sequence ?? 0)"
+            )
+        }
+#endif
         return batch
     }
 
@@ -281,12 +328,23 @@ final class TerminalMutationBus: @unchecked Sendable {
         for entry in batch {
             switch entry.mutation {
             case .deliverNotification(let notification):
+#if DEBUG
+                cmuxDebugLog(
+                    "notification.queue.perform seq=\(entry.sequence) workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
+                )
+#endif
                 TerminalNotificationStore.shared.deliverQueuedNotification(notification)
             case .clearAllNotifications:
                 TerminalNotificationStore.shared.clearAll(discardQueuedNotifications: false)
             case .clearNotificationsForTab(let tabId):
                 TerminalNotificationStore.shared.clearNotifications(
                     forTabId: tabId,
+                    discardQueuedNotifications: false
+                )
+            case .clearNotificationsForSurface(let tabId, let surfaceId):
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: tabId,
+                    surfaceId: surfaceId,
                     discardQueuedNotifications: false
                 )
             case .perform(let mutation):
@@ -305,6 +363,11 @@ extension TerminalController {
         body: String
     ) {
         TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId)
+#if DEBUG
+        cmuxDebugLog(
+            "notification.sync.deliver workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count)"
+        )
+#endif
         TerminalNotificationStore.shared.addNotification(
             tabId: tabId,
             surfaceId: surfaceId,
@@ -317,7 +380,19 @@ extension TerminalController {
 
 extension TerminalNotificationStore {
     fileprivate func deliverQueuedNotification(_ notification: QueuedTerminalNotification) {
-        guard shouldDeliverQueuedNotification(notification) else { return }
+        guard shouldDeliverQueuedNotification(notification) else {
+#if DEBUG
+            cmuxDebugLog(
+                "notification.queue.deliver.skip workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") reason=targetMissing titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
+            )
+#endif
+            return
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "notification.queue.deliver workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
+        )
+#endif
         addNotification(
             tabId: notification.key.tabId,
             surfaceId: notification.key.surfaceId,
@@ -357,5 +432,24 @@ extension TerminalNotificationStore {
         case .unknown:
             return nil
         }
+    }
+
+    /// Effects for the out-of-band fallback path, where cmux plays feedback
+    /// itself because the OS will not deliver the banner.
+    ///
+    /// A user who explicitly turned cmux notifications off (`.denied`) asked
+    /// for silence, so the direct `NSSound` fallback must not punch through
+    /// the denial (https://github.com/manaflow-ai/cmux/issues/5650). Every
+    /// other state keeps the audible fallback: fresh installs
+    /// (`.notDetermined`) have expressed no preference, and granted states
+    /// only reach the fallback when delivery itself failed.
+    nonisolated static func fallbackEffects(
+        _ effects: TerminalNotificationPolicyEffects,
+        authorizationState: NotificationAuthorizationState
+    ) -> TerminalNotificationPolicyEffects {
+        guard authorizationState == .denied else { return effects }
+        var silenced = effects
+        silenced.sound = false
+        return silenced
     }
 }

@@ -1,32 +1,136 @@
+import CmuxFoundation
+import CmuxAppKitSupportUI
+import CmuxSettings
 import SwiftUI
+
+func titlebarShortcutHintShouldShow(
+    shortcut: StoredShortcut,
+    alwaysShowShortcutHints: Bool,
+    modifierPressed: Bool
+) -> Bool {
+    !shortcut.isUnbound && (alwaysShowShortcutHints || (shortcut.command && modifierPressed))
+}
+
+enum HeaderChromeIconStyle {
+    static let opacity = 0.86
+    static let hoveredOpacity = 0.96
+    static let pressedOpacity = 1.0
+    static let disabledOpacity = 0.34
+    static let weight: Font.Weight = .regular
+    static let foregroundColor = Color(nsColor: .secondaryLabelColor)
+    static let sidebarGlyphStrokeWidth: CGFloat = 1
+
+    static func iconFrameSize(forIconSize iconSize: CGFloat) -> CGFloat {
+        HeaderChromeControlMetrics.iconFrameSize(forIconSize: iconSize)
+    }
+
+    static func symbol(_ systemName: String) -> some View {
+        CmuxSystemSymbolImage(
+            systemName: systemName,
+            pointSize: RightSidebarChromeMetrics.headerIconSize,
+            weight: weight
+        )
+    }
+
+    static func foregroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool = true) -> Double {
+        guard isEnabled else { return disabledOpacity }
+        if isPressed {
+            return pressedOpacity
+        }
+        if isHovering {
+            return hoveredOpacity
+        }
+        return opacity
+    }
+
+    static func backgroundOpacity(
+        hoverBackground: Bool,
+        isHovering: Bool,
+        isPressed: Bool,
+        isEnabled: Bool = true
+    ) -> Double {
+        guard isEnabled else { return 0 }
+        if isPressed {
+            return 0.14
+        }
+        if isHovering {
+            return hoverBackground ? 0.09 : 0.07
+        }
+        return 0
+    }
+
+    static func borderOpacity(
+        buttonBackground: Bool,
+        isHovering: Bool,
+        isPressed: Bool,
+        isEnabled: Bool = true
+    ) -> Double {
+        guard isEnabled else { return buttonBackground ? 0.04 : 0 }
+        if isPressed {
+            return 0.11
+        }
+        if isHovering {
+            return 0.07
+        }
+        return buttonBackground ? 0.05 : 0
+    }
+}
+
+enum RightSidebarChromeControlStyle {
+    static let modeIconSize: CGFloat = 11
+    static let secondaryIconSize: CGFloat = 10
+    static let labelSize: CGFloat = 11
+    static let iconWeight = HeaderChromeIconStyle.weight
+    static let labelWeight = HeaderChromeIconStyle.weight
+    static let foregroundColor = HeaderChromeIconStyle.foregroundColor
+
+    static func foregroundOpacity(isSelected: Bool, isHovered: Bool, isEnabled: Bool = true) -> Double {
+        guard isEnabled else { return HeaderChromeIconStyle.disabledOpacity }
+        if isSelected {
+            return HeaderChromeIconStyle.pressedOpacity
+        }
+        return HeaderChromeIconStyle.foregroundOpacity(
+            isHovering: isHovered,
+            isPressed: false,
+            isEnabled: isEnabled
+        )
+    }
+}
 
 struct RightSidebarChromeBarModifier: ViewModifier {
     var leadingPadding: CGFloat
     var trailingPadding: CGFloat
     var height: CGFloat
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     func body(content: Content) -> some View {
         content
             .padding(.leading, leadingPadding)
             .padding(.trailing, trailingPadding)
             .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
-            .frame(height: height)
+            .frame(height: resolvedHeight)
+    }
+
+    private var resolvedHeight: CGFloat {
+        _ = globalFontPercent
+        return max(height, RightSidebarChromeMetrics.secondaryBarHeight)
     }
 }
 
 struct RightSidebarChromePillModifier: ViewModifier {
     var isSelected: Bool
     var isHovered: Bool
-    var selectedForeground: Color = .primary
-    var defaultForeground: Color = .secondary
     var horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding
     var geometryKeyPrefix: String?
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     func body(content: Content) -> some View {
         content
-            .foregroundColor(isSelected ? selectedForeground : defaultForeground)
+            .foregroundStyle(
+                RightSidebarChromeControlStyle.foregroundColor.opacity(foregroundOpacity)
+            )
             .padding(.horizontal, horizontalPadding)
-            .frame(height: RightSidebarChromeMetrics.controlHeight)
+            .frame(height: controlHeight)
             .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
                 keyPrefix: geometryKeyPrefix,
                 isVisible: true
@@ -38,6 +142,18 @@ struct RightSidebarChromePillModifier: ViewModifier {
             .contentShape(
                 RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
             )
+    }
+
+    private var controlHeight: CGFloat {
+        _ = globalFontPercent
+        return RightSidebarChromeMetrics.controlHeight
+    }
+
+    private var foregroundOpacity: Double {
+        RightSidebarChromeControlStyle.foregroundOpacity(
+            isSelected: isSelected,
+            isHovered: isHovered
+        )
     }
 
     private var backgroundColor: Color {
@@ -54,8 +170,76 @@ struct RightSidebarChromePillModifier: ViewModifier {
 struct RightSidebarChromeBottomBorderModifier: ViewModifier {
     func body(content: Content) -> some View {
         content.overlay(alignment: .bottom) {
-            WindowChromeBorder(orientation: .horizontal, ignoresSafeArea: false)
+            WindowChromeBorder(
+                orientation: .horizontal,
+                ignoresSafeArea: false,
+                refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
+                backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
+            )
         }
+    }
+}
+
+struct RightSidebarHeaderIconButtonStyle: ButtonStyle {
+    var iconGeometryKeyPrefix: String? = nil
+
+    func makeBody(configuration: Configuration) -> some View {
+        RightSidebarHeaderIconButtonStyleBody(
+            configuration: configuration,
+            iconGeometryKeyPrefix: iconGeometryKeyPrefix
+        )
+    }
+}
+
+private struct RightSidebarHeaderIconButtonStyleBody: View {
+    let configuration: ButtonStyle.Configuration
+    let iconGeometryKeyPrefix: String?
+    @State private var isHovering = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        configuration.label
+            .symbolRenderingMode(.monochrome)
+            .frame(
+                width: RightSidebarChromeMetrics.headerIconFrameSize,
+                height: RightSidebarChromeMetrics.headerIconFrameSize
+            )
+            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+                keyPrefix: iconGeometryKeyPrefix,
+                isVisible: true
+            )
+            .frame(
+                width: RightSidebarChromeMetrics.headerControlSize,
+                height: RightSidebarChromeMetrics.headerControlSize
+            )
+            .foregroundStyle(HeaderChromeIconStyle.foregroundColor.opacity(foregroundOpacity))
+            .background {
+                if backgroundOpacity > 0 {
+                    RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius, style: .continuous)
+                        .fill(Color.primary.opacity(backgroundOpacity))
+                }
+            }
+            .contentShape(
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius, style: .continuous)
+            )
+            .onHover { isHovering = $0 }
+    }
+
+    private var foregroundOpacity: Double {
+        HeaderChromeIconStyle.foregroundOpacity(
+            isHovering: isHovering,
+            isPressed: configuration.isPressed,
+            isEnabled: isEnabled
+        )
+    }
+
+    private var backgroundOpacity: Double {
+        HeaderChromeIconStyle.backgroundOpacity(
+            hoverBackground: false,
+            isHovering: isHovering,
+            isPressed: configuration.isPressed,
+            isEnabled: isEnabled
+        )
     }
 }
 
@@ -77,8 +261,6 @@ extension View {
     func rightSidebarChromePill(
         isSelected: Bool,
         isHovered: Bool,
-        selectedForeground: Color = .primary,
-        defaultForeground: Color = .secondary,
         horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding,
         geometryKeyPrefix: String? = nil
     ) -> some View {
@@ -86,8 +268,6 @@ extension View {
             RightSidebarChromePillModifier(
                 isSelected: isSelected,
                 isHovered: isHovered,
-                selectedForeground: selectedForeground,
-                defaultForeground: defaultForeground,
                 horizontalPadding: horizontalPadding,
                 geometryKeyPrefix: geometryKeyPrefix
             )
@@ -96,5 +276,146 @@ extension View {
 
     func rightSidebarChromeBottomBorder() -> some View {
         modifier(RightSidebarChromeBottomBorderModifier())
+    }
+
+    func rightSidebarHeaderControlAlignment() -> some View {
+        alignmentGuide(VerticalAlignment.center) { dimensions in
+            dimensions[VerticalAlignment.center] + RightSidebarChromeMetrics.headerControlCenterAlignmentAdjustment
+        }
+    }
+}
+
+nonisolated struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case mode(RightSidebarMode)
+    }
+
+    let kind: Kind
+
+    var id: String {
+        switch kind {
+        case .mode(let mode):
+            return mode.rawValue
+        }
+    }
+
+    var label: String {
+        switch kind {
+        case .mode(let mode):
+            return mode.label
+        }
+    }
+
+    var symbolName: String {
+        switch kind {
+        case .mode(let mode):
+            return mode.symbolName
+        }
+    }
+
+    var shortcutAction: KeyboardShortcutSettings.Action? {
+        switch kind {
+        case .mode(let mode):
+            return mode.shortcutAction
+        }
+    }
+
+    var mode: RightSidebarMode {
+        switch kind {
+        case .mode(let mode):
+            return mode
+        }
+    }
+
+    func isSelected(mode: RightSidebarMode) -> Bool {
+        switch kind {
+        case .mode(let itemMode):
+            return mode == itemMode
+        }
+    }
+}
+
+struct ModeBarButton: View {
+    let item: RightSidebarModeBarItem
+    let isSelected: Bool
+    var badgeCount: Int = 0
+    let shortcutHint: StoredShortcut
+    let showsShortcutHint: Bool
+    let action: () -> Void
+
+    @State private var isHovered: Bool = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                CmuxSystemSymbolImage(
+                    systemName: item.symbolName,
+                    pointSize: RightSidebarChromeControlStyle.modeIconSize,
+                    weight: RightSidebarChromeControlStyle.iconWeight,
+                    appliesGlobalFontMagnification: true
+                )
+                    .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+                        keyPrefix: "rightSidebarModeIcon_\(item.id)",
+                        isVisible: true
+                    )
+                Text(item.label)
+                    .cmuxFont(
+                        size: RightSidebarChromeControlStyle.labelSize,
+                        weight: RightSidebarChromeControlStyle.labelWeight
+                    )
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if badgeCount > 0 {
+                    pendingChip
+                }
+            }
+            .rightSidebarChromePill(
+                isSelected: isSelected,
+                isHovered: isHovered,
+                geometryKeyPrefix: "rightSidebarModeControl_\(item.id)"
+            )
+            .overlay(alignment: .trailing) {
+                if showsShortcutHint {
+                    ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
+                        .offset(x: 5)
+                        .shortcutHintTransition()
+                        .accessibilityIdentifier("rightSidebarModeShortcutHint.\(item.id)")
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .titlebarInteractiveControl()
+        .onHover { isHovered = $0 }
+        .help(helpText)
+        .accessibilityIdentifier("RightSidebarModeButton.\(item.id)")
+        .shortcutHintVisibilityAnimation(value: showsShortcutHint)
+    }
+
+    private var helpText: String {
+        if badgeCount > 0 {
+            return String(
+                localized: "rightSidebar.mode.pendingHelp",
+                defaultValue: "\(item.label) · \(badgeCount) pending"
+            )
+        }
+        return item.label
+    }
+
+    private var pendingChip: some View {
+        let countText = badgeCount > 9 ? "9+" : String(badgeCount)
+        return Text(countText)
+            .cmuxFont(size: 10, weight: .bold, monospacedDigit: true)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: true)
+            .foregroundColor(.orange)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.orange.opacity(0.20))
+            )
+            .fixedSize(horizontal: true, vertical: true)
+            .layoutPriority(2)
     }
 }

@@ -38,8 +38,10 @@ def resolve_cmux_cli() -> str:
 
 
 class CapturingSocketServer:
-    def __init__(self) -> None:
+    def __init__(self, workspace_id: str, surface_id: str) -> None:
         self.commands: list[str] = []
+        self.workspace_id = workspace_id
+        self.surface_id = surface_id
         self.ready = threading.Event()
         self.stop = threading.Event()
         self.error: Exception | None = None
@@ -103,12 +105,36 @@ class CapturingSocketServer:
                         continue
                     line = raw_line.decode("utf-8", errors="replace")
                     self.commands.append(line)
-                    conn.sendall((self._response_for(line) + "\n").encode("utf-8"))
+                    response = self._response_for(line)
+                    if response is None:
+                        continue
+                    try:
+                        conn.sendall((response + "\n").encode("utf-8"))
+                    except OSError:
+                        return
 
-    def _response_for(self, line: str) -> str:
+    def _response_for(self, line: str) -> str | None:
         if line.startswith("{"):
             try:
                 request = json.loads(line)
+                if "id" not in request:
+                    return None
+                if request.get("method") == "surface.list":
+                    return json.dumps(
+                        {
+                            "id": request.get("id"),
+                            "ok": True,
+                            "result": {
+                                "surfaces": [
+                                    {
+                                        "id": self.surface_id,
+                                        "ref": self.surface_id,
+                                        "workspace_id": self.workspace_id,
+                                    }
+                                ]
+                            },
+                        }
+                    )
                 return json.dumps({"id": request.get("id"), "ok": True, "result": {}})
             except json.JSONDecodeError:
                 pass
@@ -131,7 +157,7 @@ def main() -> int:
         "last_assistant_message": "2",
     }
 
-    with CapturingSocketServer() as server:
+    with CapturingSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
         env = os.environ.copy()
         env["CMUX_SOCKET_PATH"] = server.socket_path
         env["CMUX_WORKSPACE_ID"] = workspace_id

@@ -1,4 +1,5 @@
 import XCTest
+import CmuxCore
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -6,6 +7,11 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import CmuxGit
+import CmuxSidebarGit
+import CmuxSidebar
+import CmuxTerminal
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -61,6 +67,75 @@ private func waitForCondition(
     return true
 }
 
+private func restoreUserDefaultForTabManagerTests(_ value: Any?, key: String) {
+    let defaults = UserDefaults.standard
+    if let value {
+        defaults.set(value, forKey: key)
+    } else {
+        defaults.removeObject(forKey: key)
+    }
+}
+
+private actor BlockingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
+    private let metadata: GitWorkspaceMetadata
+    private var callCount = 0
+    private var maxActiveCallCount = 0
+    private var activeCallCount = 0
+    private var callCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    init(metadata: GitWorkspaceMetadata) {
+        self.metadata = metadata
+    }
+
+    func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+        callCount += 1
+        activeCallCount += 1
+        maxActiveCallCount = max(maxActiveCallCount, activeCallCount)
+        resumeSatisfiedCallCountWaiters()
+        await withCheckedContinuation { continuation in
+            releaseContinuations.append(continuation)
+        }
+        activeCallCount -= 1
+        return metadata
+    }
+
+    func waitForCallCount(_ expected: Int) async {
+        guard callCount < expected else { return }
+        await withCheckedContinuation { continuation in
+            callCountWaiters.append((expected, continuation))
+        }
+    }
+
+    func releaseAll() {
+        let continuations = releaseContinuations
+        releaseContinuations.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
+    var observedCallCount: Int {
+        callCount
+    }
+
+    var observedMaxActiveCallCount: Int {
+        maxActiveCallCount
+    }
+
+    private func resumeSatisfiedCallCountWaiters() {
+        var remaining: [(Int, CheckedContinuation<Void, Never>)] = []
+        for waiter in callCountWaiters {
+            if callCount >= waiter.0 {
+                waiter.1.resume()
+            } else {
+                remaining.append(waiter)
+            }
+        }
+        callCountWaiters = remaining
+    }
+}
+
 private struct ProcessRunResult {
     let status: Int32
     let stdout: String
@@ -73,6 +148,30 @@ private func splitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
         return []
     case .split(let split):
         return [split] + splitNodes(in: split.first) + splitNodes(in: split.second)
+    }
+}
+
+@discardableResult
+private func assertProportionalEqualizedSplitTree(
+    _ node: ExternalTreeNode,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) -> Int {
+    switch node {
+    case .pane:
+        return 1
+    case .split(let split):
+        let firstLeafCount = assertProportionalEqualizedSplitTree(split.first, file: file, line: line)
+        let secondLeafCount = assertProportionalEqualizedSplitTree(split.second, file: file, line: line)
+        let totalLeafCount = firstLeafCount + secondLeafCount
+        XCTAssertEqual(
+            split.dividerPosition,
+            Double(firstLeafCount) / Double(totalLeafCount),
+            accuracy: 0.000_1,
+            file: file,
+            line: line
+        )
+        return totalLeafCount
     }
 }
 
@@ -171,7 +270,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
     }
 
-    func testChildExitOnLastRemotePanelKeepsWorkspaceAndDemotesToLocal() throws {
+    func testChildExitOnLastRemotePanelKeepsWorkspaceDisconnected() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
@@ -205,14 +304,327 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, 1)
         XCTAssertEqual(manager.selectedTabId, workspace.id)
         XCTAssertEqual(manager.tabs.first?.id, workspace.id)
-        XCTAssertFalse(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
         XCTAssertNil(workspace.panels[remotePanelId])
         XCTAssertEqual(workspace.panels.count, 1)
         XCTAssertNotEqual(workspace.focusedPanelId, remotePanelId)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
-    func testChildExitAfterRemoteSessionEndKeepsWorkspaceAndDemotesToLocal() throws {
+    func testManualCloseOnLastRemotePanelKeepsWorkspaceDisconnected() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let remotePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64017,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            ),
+            autoConnect: false
+        )
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
+
+        XCTAssertTrue(workspace.closePanel(remotePanelId, force: true))
+        drainMainQueue()
+        drainMainQueue()
+
+        let replacement = try XCTUnwrap(workspace.focusedTerminalPanel)
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertNil(workspace.panels[remotePanelId])
+        XCTAssertEqual(workspace.panels.count, 1)
+        XCTAssertNotEqual(replacement.id, remotePanelId)
+        XCTAssertNotNil(replacement.surface.initialCommand)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+
+        let firstPlaceholderId = replacement.id
+        XCTAssertTrue(workspace.closePanel(firstPlaceholderId, force: true))
+        drainMainQueue()
+        drainMainQueue()
+
+        let secondReplacement = try XCTUnwrap(workspace.focusedTerminalPanel)
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertNil(workspace.panels[firstPlaceholderId])
+        XCTAssertEqual(workspace.panels.count, 1)
+        XCTAssertNotEqual(secondReplacement.id, firstPlaceholderId)
+        XCTAssertNotNil(secondReplacement.surface.initialCommand)
+    }
+
+    func testChildExitOnLastPersistentRemotePanelKeepsExitedSurfaceVisibleAndClearsPTYState() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let remotePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64017,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "ssh-child-exit-test"
+            ),
+            autoConnect: false
+        )
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertEqual(manager.selectedTabId, workspace.id)
+        XCTAssertEqual(manager.tabs.first?.id, workspace.id)
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertNotNil(workspace.panels[remotePanelId])
+        XCTAssertEqual(workspace.panels.count, 1)
+        XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertNil(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
+        )
+    }
+
+    func testPaneCloseOnLastRemotePanelKeepsWorkspaceDisconnected() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let remotePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                transport: .websocket,
+                destination: "vm:issue-4509",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "cmux remote websocket"
+            ),
+            autoConnect: false
+        )
+
+        guard let browserPanel = workspace.newBrowserSplit(
+            from: remotePanelId,
+            orientation: .horizontal,
+            focus: false,
+            creationPolicy: .restoration
+        ),
+              let remotePaneId = workspace.paneId(forPanelId: remotePanelId) else {
+            XCTFail("Expected split browser and remote terminal panes")
+            return
+        }
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+
+        XCTAssertTrue(workspace.bonsplitController.closePane(remotePaneId))
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertNil(workspace.panels[remotePanelId])
+        XCTAssertNotNil(workspace.panels[browserPanel.id])
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+    }
+
+    func testChildExitAfterPersistentAttachEndKeepsExitedSurfaceVisible() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let remotePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64020,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-attach-end-test.sock",
+                terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "ssh-child-exit-after-attach-end"
+            ),
+            autoConnect: false
+        )
+        let sessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: remotePanelId)
+
+        let outcome = workspace.markRemotePTYAttachEnded(surfaceId: remotePanelId, sessionID: sessionID)
+
+        XCTAssertTrue(outcome.clearedRemotePTYSession)
+        XCTAssertTrue(outcome.untrackedRemoteTerminal)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertTrue(workspace.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(remotePanelId))
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertNotNil(workspace.panels[remotePanelId])
+        XCTAssertEqual(workspace.panels.count, 1)
+        XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
+        XCTAssertFalse(workspace.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(remotePanelId))
+        XCTAssertNil(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
+        )
+    }
+
+    func testChildExitOnSplitPersistentRemotePanelKeepsExitedSurfaceVisibleAndClearsOnlyThatPTYState() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let remotePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64018,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-split-test.sock",
+                terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "ssh-child-exit-split-test"
+            ),
+            autoConnect: false
+        )
+        let siblingPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: remotePanelId, orientation: .horizontal, focus: false)
+        )
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(siblingPanel.id))
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertEqual(manager.selectedTabId, workspace.id)
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertNotNil(workspace.panels[remotePanelId])
+        XCTAssertNotNil(workspace.panels[siblingPanel.id])
+        XCTAssertEqual(workspace.panels.count, 2)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(siblingPanel.id))
+        XCTAssertNil(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
+        )
+        XCTAssertNotNil(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == siblingPanel.id }?.terminal?.remotePTYSessionID
+        )
+    }
+
+    func testFocusedRemoteChildExitWithMultipleTerminalsDisconnectsWorkspace() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        guard let splitPanel = workspace.newTerminalSplit(
+            from: initialPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            XCTFail("Expected split terminal panel")
+            return
+        }
+        XCTAssertEqual(workspace.focusedPanelId, initialPanelId)
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                transport: .websocket,
+                destination: "vm:issue-4509-untracked",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "cmux remote websocket"
+            ),
+            autoConnect: false
+        )
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(initialPanelId))
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(splitPanel.id))
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: initialPanelId)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertNil(workspace.panels[initialPanelId])
+        XCTAssertNotNil(workspace.panels[splitPanel.id])
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+    }
+
+    func testChildExitAfterRemoteSessionEndKeepsWorkspaceDisconnected() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
@@ -238,7 +650,8 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: remotePanelId, relayPort: 64016)
 
-        XCTAssertFalse(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
         drainMainQueue()
@@ -247,7 +660,8 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, 1)
         XCTAssertEqual(manager.selectedTabId, workspace.id)
         XCTAssertEqual(manager.tabs.first?.id, workspace.id)
-        XCTAssertFalse(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
         XCTAssertNil(workspace.panels[remotePanelId])
         XCTAssertEqual(workspace.panels.count, 1)
         XCTAssertNotEqual(workspace.focusedPanelId, remotePanelId)
@@ -275,6 +689,106 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, panelCountBefore - 1)
         XCTAssertNotNil(workspace.panels[initialPanelId], "Expected sibling panel to remain")
     }
+
+    func testChildExitWindowCloseRequestsNoClosedWindowHistory() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        var closeRequest: (tabId: UUID, recordHistory: Bool)?
+        appDelegate.closeMainWindowContainingTabIdObserverForTesting = { tabId, recordHistory in
+            closeRequest = (tabId, recordHistory)
+        }
+        defer {
+            appDelegate.closeMainWindowContainingTabIdObserverForTesting = nil
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        appDelegate.recordClosedWindowHistoryForTesting(windowId: windowId)
+        XCTAssertTrue(ClosedItemHistoryStore.shared.canReopen)
+        ClosedItemHistoryStore.shared.removeAll()
+
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panelId)
+        drainMainQueue()
+
+        XCTAssertEqual(closeRequest?.tabId, workspace.id)
+        XCTAssertEqual(closeRequest?.recordHistory, false)
+
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        appDelegate.recordClosedWindowHistoryForTesting(windowId: windowId)
+        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+        XCTAssertFalse(appDelegate.isClosedWindowHistorySuppressedForTesting(windowId: windowId))
+    }
+
+    func testSessionSnapshotKeepsWindowWithNoRestorableWorkspaces() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "wss://remote.example.test",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        XCTAssertFalse(workspace.isRestorableInSessionSnapshot)
+        let snapshot = try XCTUnwrap(appDelegate.sessionSnapshotForTesting())
+        XCTAssertEqual(snapshot.windows.count, 1)
+        XCTAssertTrue(snapshot.windows[0].tabManager.workspaces.isEmpty)
+    }
+
+    func testClosedWindowHistorySkipsWindowWithNoRestorableWorkspaces() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "wss://remote.example.test",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        appDelegate.recordClosedWindowHistoryForTesting(windowId: windowId)
+
+        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+    }
 }
 
 
@@ -297,189 +811,47 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertEqual(externalWorkspace.panels.count, externalPanelCountBefore)
         XCTAssertEqual(externalWorkspace.panelTitles, externalPanelTitlesBefore)
     }
+
+    func testFocusedPanelTitleRefreshesAutoWorkspaceTitleInSplitWorkspace() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        XCTAssertTrue(workspace.updatePanelTitle(panelId: focusedPanelId, title: "Waiting - grok"))
+        XCTAssertEqual(workspace.title, "Waiting - grok")
+
+        let splitPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal, focus: false)
+        )
+        XCTAssertEqual(workspace.focusedPanelId, focusedPanelId)
+        XCTAssertEqual(workspace.panels.count, 2)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: "Processing Simple Addition Query - grok"
+            ]
+        )
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 1.0) {
+                workspace.panelTitles[focusedPanelId] == "Processing Simple Addition Query - grok" &&
+                    workspace.title == "Processing Simple Addition Query - grok"
+            }
+        )
+        XCTAssertNil(workspace.customTitle)
+        XCTAssertNotEqual(workspace.panelTitles[splitPanel.id], Optional(workspace.title))
+    }
 }
 
 @MainActor
 final class TabManagerPullRequestProbeTests: XCTestCase {
-    func testGitHubRepositorySlugsPrioritizeUpstreamThenOriginAndDeduplicate() {
-        let output = """
-        origin https://github.com/austinwang/cmux.git (fetch)
-        origin https://github.com/austinwang/cmux.git (push)
-        upstream git@github.com:manaflow-ai/cmux.git (fetch)
-        upstream git@github.com:manaflow-ai/cmux.git (push)
-        backup ssh://git@github.com/manaflow-ai/cmux.git (fetch)
-        mirror https://gitlab.com/manaflow-ai/cmux.git (fetch)
-        """
 
-        XCTAssertEqual(
-            TabManager.githubRepositorySlugs(fromGitRemoteVOutput: output),
-            ["manaflow-ai/cmux", "austinwang/cmux"]
-        )
-    }
-
-    func testPreferredPullRequestPrefersOpenOverMergedAndClosed() {
-        let candidates = [
-            TabManager.GitHubPullRequestProbeItem(
-                number: 1889,
-                state: "MERGED",
-                url: "https://github.com/manaflow-ai/cmux/pull/1889",
-                updatedAt: "2026-03-20T18:00:00Z"
-            ),
-            TabManager.GitHubPullRequestProbeItem(
-                number: 1891,
-                state: "OPEN",
-                url: "https://github.com/manaflow-ai/cmux/pull/1891",
-                updatedAt: "2026-03-19T18:00:00Z"
-            ),
-            TabManager.GitHubPullRequestProbeItem(
-                number: 1800,
-                state: "CLOSED",
-                url: "https://github.com/manaflow-ai/cmux/pull/1800",
-                updatedAt: "2026-03-21T18:00:00Z"
-            ),
-        ]
-
-        XCTAssertEqual(
-            TabManager.preferredPullRequest(from: candidates),
-            candidates[1]
-        )
-    }
-
-    func testPreferredPullRequestPrefersMostRecentlyUpdatedWithinSameStatus() {
-        let olderOpen = TabManager.GitHubPullRequestProbeItem(
-            number: 1880,
-            state: "OPEN",
-            url: "https://github.com/manaflow-ai/cmux/pull/1880",
-            updatedAt: "2026-03-18T18:00:00Z"
-        )
-        let newerOpen = TabManager.GitHubPullRequestProbeItem(
-            number: 1890,
-            state: "OPEN",
-            url: "https://github.com/manaflow-ai/cmux/pull/1890",
-            updatedAt: "2026-03-20T18:00:00Z"
-        )
-
-        XCTAssertEqual(
-            TabManager.preferredPullRequest(from: [olderOpen, newerOpen]),
-            newerOpen
-        )
-    }
-
-    func testPreferredPullRequestIgnoresMalformedCandidates() {
-        let valid = TabManager.GitHubPullRequestProbeItem(
-            number: 1888,
-            state: "OPEN",
-            url: "https://github.com/manaflow-ai/cmux/pull/1888",
-            updatedAt: "2026-03-20T18:00:00Z"
-        )
-
-        XCTAssertEqual(
-            TabManager.preferredPullRequest(from: [
-                TabManager.GitHubPullRequestProbeItem(
-                    number: 9999,
-                    state: "WHATEVER",
-                    url: "https://github.com/manaflow-ai/cmux/pull/9999",
-                    updatedAt: "2026-03-21T18:00:00Z"
-                ),
-                TabManager.GitHubPullRequestProbeItem(
-                    number: 10000,
-                    state: "OPEN",
-                    url: "not a url",
-                    updatedAt: "2026-03-21T18:00:00Z"
-                ),
-                valid,
-            ]),
-            valid
-        )
-    }
-
-    func testPullRequestMapDropsStaleMergedHeadPullRequestForLongLivedBaseBranch() throws {
-        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
-        let pullRequests = [
-            TabManager.GitHubPullRequestProbeItem(
-                number: 2400,
-                state: "MERGED",
-                url: "https://github.com/manaflow-ai/cmux/pull/2400",
-                updatedAt: "2026-03-06T12:00:00Z",
-                mergedAt: "2026-03-06T12:00:00Z",
-                headRefName: "develop",
-                baseRefName: "main"
-            ),
-            TabManager.GitHubPullRequestProbeItem(
-                number: 2501,
-                state: "MERGED",
-                url: "https://github.com/manaflow-ai/cmux/pull/2501",
-                updatedAt: "2026-04-19T12:00:00Z",
-                mergedAt: "2026-04-19T12:00:00Z",
-                headRefName: "feature/recent-one",
-                baseRefName: "develop"
-            ),
-            TabManager.GitHubPullRequestProbeItem(
-                number: 2502,
-                state: "OPEN",
-                url: "https://github.com/manaflow-ai/cmux/pull/2502",
-                updatedAt: "2026-04-20T12:00:00Z",
-                headRefName: "feature/recent-two",
-                baseRefName: "develop"
-            ),
-        ]
-
-        let pullRequestsByBranch = TabManager.pullRequestMapByNormalizedBranchForTesting(
-            from: pullRequests,
-            now: now
-        )
-
-        XCTAssertNil(pullRequestsByBranch["develop"])
-        XCTAssertEqual(pullRequestsByBranch["feature/recent-one"]?.number, 2501)
-        XCTAssertEqual(pullRequestsByBranch["feature/recent-two"]?.number, 2502)
-    }
-
-    func testShouldSkipWorkspacePullRequestLookupOnlyForExactMainAndMaster() {
-        XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "main"))
-        XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "master"))
-        XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: " master \n"))
-
-        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "Main"))
-        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "mainline"))
-        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "feature/main"))
-        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "release/master-fix"))
-    }
-
-    func testWorkspacePullRequestRefreshAllowsRepoCacheForTimerAndPeriodicReasons() {
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "periodicPoll"))
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "periodicPoll.followUp"))
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "selectedPeriodicPoll"))
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "selectedPeriodicPoll.followUp"))
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "timer"))
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "timer.followUp"))
-
-        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "branchChange"))
-        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "branchChange.followUp"))
-        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "shellPrompt"))
-        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "commandHint:merge"))
-    }
-
-    func testWorkspacePullRequestShouldRefreshHonorsForcedRefreshForTerminalStates() {
-        let now = Date(timeIntervalSince1970: 1_000)
-        let recentTerminalRefresh = now.addingTimeInterval(-60)
-
-        XCTAssertTrue(
-            TabManager.shouldRefreshWorkspacePullRequest(
-                now: now,
-                nextPollAt: .distantPast,
-                lastTerminalStateRefreshAt: recentTerminalRefresh,
-                currentPullRequestStatus: .merged
-            )
-        )
-        XCTAssertFalse(
-            TabManager.shouldRefreshWorkspacePullRequest(
-                now: now,
-                nextPollAt: now.addingTimeInterval(60),
-                lastTerminalStateRefreshAt: recentTerminalRefresh,
-                currentPullRequestStatus: .closed
-            )
-        )
-    }
+    // Pure pull-request selection/policy tests moved to the CmuxGit package
+    // (CmuxGitTests.PullRequestProbeServiceTests) with the extraction.
 
     func testTrackedWorkspaceGitMetadataPollCandidatesIncludeMainAndMasterPanels() throws {
         let manager = TabManager()
@@ -535,6 +907,95 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id),
             Set([panelId])
         )
+    }
+
+    func testSameDirectoryInitialGitMetadataProbesShareOneSnapshotRead() async throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefaultForTabManagerTests(
+                previousWatchGitStatus,
+                key: SidebarWorkspaceDetailDefaults.watchGitStatusKey
+            )
+        }
+
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-git-coalesced-probes-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        let reader = BlockingWorkspaceGitMetadataReader(
+            metadata: GitWorkspaceMetadata(
+                isRepository: true,
+                branch: "main",
+                isDirty: false,
+                indexSignature: "index",
+                indexContentSignature: "content",
+                headSignature: "head"
+            )
+        )
+        defer {
+            Task {
+                await reader.releaseAll()
+            }
+        }
+
+        let manager = TabManager(workspaceGitMetadataReader: reader)
+        guard let workspace = manager.selectedWorkspace,
+              let mainPanelId = workspace.focusedPanelId,
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let splitPanel = workspace.newTerminalSplit(from: mainPanelId, orientation: .horizontal, focus: false),
+              let tabPanel = workspace.newTerminalSurface(inPane: paneId) else {
+            XCTFail("Expected selected workspace with three terminal panels")
+            return
+        }
+
+        let panelIds = [mainPanelId, splitPanel.id, tabPanel.id]
+        for panelId in panelIds {
+            manager.updateSurfaceDirectory(
+                tabId: workspace.id,
+                surfaceId: panelId,
+                directory: directoryURL.path
+            )
+        }
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+
+        let firstRead = expectation(description: "first git snapshot read started")
+        Task {
+            await reader.waitForCallCount(1)
+            firstRead.fulfill()
+        }
+        await fulfillment(of: [firstRead], timeout: 1.0)
+
+        let uncoalescedSecondRead = expectation(description: "uncoalesced second git snapshot read")
+        uncoalescedSecondRead.isInverted = true
+        Task {
+            await reader.waitForCallCount(2)
+            uncoalescedSecondRead.fulfill()
+        }
+        await fulfillment(of: [uncoalescedSecondRead], timeout: 0.2)
+
+        let observedCallCount = await reader.observedCallCount
+        let observedMaxActiveCallCount = await reader.observedMaxActiveCallCount
+        XCTAssertEqual(observedCallCount, 1)
+        XCTAssertEqual(observedMaxActiveCallCount, 1)
+
+        await reader.releaseAll()
+        XCTAssertTrue(
+            waitForCondition {
+                panelIds.allSatisfy { workspace.panelGitBranches[$0]?.branch == "main" }
+            },
+            "One same-directory snapshot should update every queued panel."
+        )
+        let finalObservedCallCount = await reader.observedCallCount
+        XCTAssertEqual(finalObservedCallCount, 1)
     }
 
     func testTrackedWorkspaceGitMetadataPollCandidatesExcludeDirectoriesWithoutResolvedGitMetadata() throws {
@@ -735,32 +1196,9 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id), Set<UUID>())
     }
 
-    func testResolvedCommandPathFallsBackOutsideAppPATH() throws {
-        let fileManager = FileManager.default
-        let tempDir = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-command-path-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: tempDir) }
-
-        let executableName = "cmux-gh-test-\(UUID().uuidString)"
-        let executableURL = tempDir.appendingPathComponent(executableName)
-        try """
-        #!/bin/sh
-        exit 0
-        """.write(to: executableURL, atomically: true, encoding: .utf8)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
-
-        XCTAssertEqual(
-            TabManager.resolvedCommandPathForTesting(
-                executable: executableName,
-                environment: ["PATH": "/usr/bin:/bin"],
-                fallbackDirectories: [tempDir.path]
-            ),
-            executableURL.path
-        )
-    }
+    // testResolvedCommandPathFallsBackOutsideAppPATH moved to
+    // CmuxProcessTests.resolvesCommandViaFallbackDirectoryOutsidePath when the
+    // command runner was extracted into the CmuxProcess package.
 
     func testPeriodicWorkspaceGitMetadataRefreshClearsStalePullRequestAfterBranchReset() throws {
         let fileManager = FileManager.default
@@ -891,13 +1329,13 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
 
     func testCloseWorkspacesWithConfirmationHonorsWarnBeforeClosingTabDisabled() {
         let defaults = UserDefaults.standard
-        let originalWarnBeforeClosingTab = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
-        defaults.set(false, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        let originalWarnBeforeClosingTab = defaults.object(forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
+        defaults.set(false, forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
         defer {
             if let originalWarnBeforeClosingTab {
-                defaults.set(originalWarnBeforeClosingTab, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+                defaults.set(originalWarnBeforeClosingTab, forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
             } else {
-                defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+                defaults.removeObject(forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
             }
         }
 
@@ -994,6 +1432,40 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, 5, "Expected only one workspace to close after the first accepted confirmation")
     }
 
+    func testCloseWorkspaceEnqueuesTerminalRuntimeTeardownOffMainThread() {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace()
+        manager.selectWorkspace(workspace)
+
+        guard let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let fakeSurface: ghostty_surface_t = UnsafeMutableRawPointer(bitPattern: 0x5282)!
+        terminalPanel.surface.installRuntimeSurfaceForTesting(fakeSurface)
+        terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+
+        let nativeFreeStarted = expectation(description: "native free started")
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            XCTAssertFalse(Thread.isMainThread, "Native surface free must not run on the main thread")
+            nativeFreeStarted.fulfill()
+        }
+        defer {
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        }
+
+        manager.confirmCloseHandler = { _, _, _ in true }
+
+        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(workspace))
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == workspace.id }))
+        XCTAssertNil(terminalPanel.surface.surface)
+
+        wait(for: [nativeFreeStarted], timeout: 3.0)
+    }
+
     func testCloseCurrentTabSpamWithConfirmationDisabledClosesEveryRequestedWorkspace() {
         let manager = TabManager()
         while manager.tabs.count < 6 {
@@ -1051,6 +1523,99 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             expectedPromptCount: 1,
             expectedPanelClosed: false
         )
+    }
+
+    func testTabCloseButtonWarningHonorsCmuxJSON() throws {
+        try withCloseTabConfig(warnBeforeClosingTabXButton: true) {
+            XCTAssertTrue(
+                CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+                    requiresConfirmation: false,
+                    source: .tabCloseButton
+                )
+            )
+        }
+    }
+
+    func testHideTabCloseButtonHonorsCmuxJSON() throws {
+        try withCloseTabConfig(hideTabCloseButton: true) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace else {
+                XCTFail("Expected selected workspace")
+                return
+            }
+
+            XCTAssertFalse(workspace.bonsplitController.configuration.allowCloseTabs)
+        }
+    }
+
+    func testTabCloseButtonWarningDefaultsOffForCleanPanel() throws {
+        try assertTabCloseButtonConfirmation(
+            warnBeforeClosingTab: nil,
+            warnBeforeClosingTabXButton: nil,
+            panelNeedsConfirmation: false,
+            expectedPromptCount: 0,
+            expectedPanelClosed: true
+        )
+    }
+
+    func testTabCloseButtonWarningPromptsWhenEnabledForCleanPanel() throws {
+        try assertTabCloseButtonConfirmation(
+            warnBeforeClosingTab: nil,
+            warnBeforeClosingTabXButton: true,
+            panelNeedsConfirmation: false,
+            expectedPromptCount: 1,
+            expectedPanelClosed: false
+        )
+    }
+
+    func testMiddleClickCloseDoesNotUseXButtonWarning() throws {
+        try assertTabCloseButtonConfirmation(
+            warnBeforeClosingTab: nil,
+            warnBeforeClosingTabXButton: true,
+            panelNeedsConfirmation: false,
+            marksTabCloseButtonSource: false,
+            expectedPromptCount: 0,
+            expectedPanelClosed: true
+        )
+    }
+
+    func testTabCloseButtonPreservesExistingDirtyPanelWarningWhenXButtonSettingIsOff() throws {
+        try assertTabCloseButtonConfirmation(
+            warnBeforeClosingTab: nil,
+            warnBeforeClosingTabXButton: nil,
+            panelNeedsConfirmation: true,
+            expectedPromptCount: 1,
+            expectedPanelClosed: false
+        )
+    }
+
+    func testHideTabCloseButtonDisablesBonsplitTabCloseAffordances() throws {
+        try withCloseTabUserDefaults(hideTabCloseButton: true) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace else {
+                XCTFail("Expected selected workspace")
+                return
+            }
+
+            XCTAssertFalse(workspace.bonsplitController.configuration.allowCloseTabs)
+        }
+    }
+
+    func testTabCloseButtonVisibilityRefreshesFromDefaults() throws {
+        try withCloseTabUserDefaults(hideTabCloseButton: false) {
+            let defaults = UserDefaults.standard
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace else {
+                XCTFail("Expected selected workspace")
+                return
+            }
+
+            XCTAssertTrue(workspace.bonsplitController.configuration.allowCloseTabs)
+            defaults.set(true, forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey)
+            manager.refreshTabCloseButtonVisibility()
+
+            XCTAssertFalse(workspace.bonsplitController.configuration.allowCloseTabs)
+        }
     }
 
     func testCloseCurrentPanelHonorsWarnBeforeClosingTabDisabledForPinnedWorkspaceLastSurface() throws {
@@ -1470,23 +2035,126 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         }
     }
 
+    private func assertTabCloseButtonConfirmation(
+        warnBeforeClosingTab: Bool?,
+        warnBeforeClosingTabXButton: Bool?,
+        panelNeedsConfirmation: Bool,
+        marksTabCloseButtonSource: Bool = true,
+        expectedPromptCount: Int,
+        expectedPanelClosed: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        try withCloseTabUserDefaults(
+            warnBeforeClosingTab: warnBeforeClosingTab,
+            warnBeforeClosingTabXButton: warnBeforeClosingTabXButton,
+            hideTabCloseButton: false
+        ) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId,
+                  let initialPanelId = workspace.focusedPanelId,
+                  let initialTerminalPanel = workspace.terminalPanel(for: initialPanelId),
+                  workspace.newTerminalSurface(inPane: paneId, focus: false) != nil,
+                  let initialSurfaceId = workspace.surfaceIdFromPanelId(initialPanelId) else {
+                XCTFail("Expected workspace with two terminal surfaces", file: file, line: line)
+                return
+            }
+            workspace.focusPanel(initialPanelId)
+            initialTerminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(panelNeedsConfirmation)
+
+            var promptCount = 0
+            manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                return false
+            }
+
+            if marksTabCloseButtonSource {
+                workspace.markTabCloseButtonClose(surfaceId: initialSurfaceId)
+            } else {
+                workspace.markExplicitClose(surfaceId: initialSurfaceId)
+            }
+            _ = workspace.bonsplitController.closeTab(initialSurfaceId)
+            drainMainQueue()
+            drainMainQueue()
+            drainMainQueue()
+
+            XCTAssertEqual(promptCount, expectedPromptCount, file: file, line: line)
+            if expectedPanelClosed {
+                XCTAssertNil(workspace.panels[initialPanelId], file: file, line: line)
+            } else {
+                XCTAssertNotNil(workspace.panels[initialPanelId], file: file, line: line)
+            }
+        }
+    }
+
+    private func withCloseTabUserDefaults(
+        warnBeforeClosingTab: Bool? = nil,
+        warnBeforeClosingTabXButton: Bool? = nil,
+        hideTabCloseButton: Bool? = nil,
+        run: () throws -> Void
+    ) throws {
+        let defaults = UserDefaults.standard
+        let originalWarnBeforeClosingTab = defaults.object(forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
+        let originalWarnBeforeClosingTabXButton = defaults.object(forKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey)
+        let originalHideTabCloseButton = defaults.object(forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey)
+        defer {
+            restore(originalWarnBeforeClosingTab, forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey, defaults: defaults)
+            restore(originalWarnBeforeClosingTabXButton, forKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey, defaults: defaults)
+            restore(originalHideTabCloseButton, forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey, defaults: defaults)
+        }
+
+        setOrRemove(warnBeforeClosingTab, forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey, defaults: defaults)
+        setOrRemove(warnBeforeClosingTabXButton, forKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey, defaults: defaults)
+        setOrRemove(hideTabCloseButton, forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey, defaults: defaults)
+
+        try run()
+    }
+
+    private func setOrRemove(_ value: Bool?, forKey key: String, defaults: UserDefaults) {
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    private func restore(_ value: Any?, forKey key: String, defaults: UserDefaults) {
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     private func withWarnBeforeClosingTabConfig(
         _ warnBeforeClosingTab: Bool?,
         run: () throws -> Void
     ) throws {
+        try withCloseTabConfig(warnBeforeClosingTab: warnBeforeClosingTab, run: run)
+    }
+
+    private func withCloseTabConfig(
+        warnBeforeClosingTab: Bool? = nil,
+        warnBeforeClosingTabXButton: Bool? = nil,
+        hideTabCloseButton: Bool? = nil,
+        run: () throws -> Void
+    ) throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let defaults = UserDefaults.standard
-        let originalWarnBeforeClosingTab = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        let originalWarnBeforeClosingTab = defaults.object(forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
+        let originalWarnBeforeClosingTabXButton = defaults.object(forKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey)
+        let originalHideTabCloseButton = defaults.object(forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey)
         let originalBackups = defaults.object(forKey: settingsFileBackupsDefaultsKey)
-        defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        defaults.removeObject(forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey)
+        defaults.removeObject(forKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey)
+        defaults.removeObject(forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
         defer {
             KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
-            if let originalWarnBeforeClosingTab {
-                defaults.set(originalWarnBeforeClosingTab, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
-            } else {
-                defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
-            }
+            restore(originalWarnBeforeClosingTab, forKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey, defaults: defaults)
+            restore(originalWarnBeforeClosingTabXButton, forKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey, defaults: defaults)
+            restore(originalHideTabCloseButton, forKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey, defaults: defaults)
             if let originalBackups {
                 defaults.set(originalBackups, forKey: settingsFileBackupsDefaultsKey)
             } else {
@@ -1502,8 +2170,12 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
         let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-        let settingLine = warnBeforeClosingTab.map { #"    "warnBeforeClosingTab": \#($0)"# } ?? ""
-        let appBody = settingLine.isEmpty ? "" : "\n\(settingLine)\n  "
+        let settingLines = [
+            warnBeforeClosingTab.map { #"    "warnBeforeClosingTab": \#($0)"# },
+            warnBeforeClosingTabXButton.map { #"    "warnBeforeClosingTabXButton": \#($0)"# },
+            hideTabCloseButton.map { #"    "hideTabCloseButton": \#($0)"# },
+        ].compactMap { $0 }
+        let appBody = settingLines.isEmpty ? "" : "\n\(settingLines.joined(separator: ",\n"))\n  "
         try """
         {
           "app": {\(appBody)}
@@ -1555,6 +2227,37 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         }
 
         XCTAssertFalse(manager.focusTabFromNotification(workspace.id, surfaceId: UUID()))
+    }
+
+    func testClosingSelectedTabInZoomedPaneClearsSplitZoomBeforeSelectingNextTab() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let firstPanelId = workspace.focusedPanelId,
+              let firstPaneId = workspace.bonsplitController.focusedPaneId,
+              workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) != nil,
+              let secondTabPanel = workspace.newTerminalSurface(inPane: firstPaneId, focus: true) else {
+            XCTFail("Expected split workspace with two tabs in the first pane")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, secondTabPanel.id)
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: secondTabPanel.id), "Expected split zoom to enable")
+        XCTAssertTrue(workspace.bonsplitController.isSplitZoomed, "Expected workspace to start zoomed")
+
+        XCTAssertTrue(workspace.closePanel(secondTabPanel.id, force: true), "Expected selected tab close to succeed")
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(workspace.focusedPanelId, firstPanelId, "Expected the surviving tab in the pane to become focused")
+        XCTAssertFalse(
+            workspace.bonsplitController.isSplitZoomed,
+            "Closing the selected tab that owns zoom must not transfer the maximized layout to the next tab"
+        )
+        XCTAssertTrue(
+            workspace.toggleSplitZoom(panelId: firstPanelId),
+            "The surviving tab should still be zoomable on demand"
+        )
+        XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
     }
 
     func testFocusTabFromNotificationDismissesUnreadWithDismissFlash() {
@@ -1665,6 +2368,128 @@ final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
 
 @MainActor
 final class TabManagerSurfaceCreationTests: XCTestCase {
+    func testFocusTextBoxOnNewTerminalsDefaultAppliesToNewWorkspaceAndTerminalSurfaces() {
+        let defaults = UserDefaults.standard
+        let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
+        let focusKey = TerminalTextBoxInputSettings.focusOnNewTerminalsKey
+        let previousShowValue = defaults.object(forKey: showKey)
+        let previousFocusValue = defaults.object(forKey: focusKey)
+        defer {
+            if let previousShowValue {
+                defaults.set(previousShowValue, forKey: showKey)
+            } else {
+                defaults.removeObject(forKey: showKey)
+            }
+            if let previousFocusValue {
+                defaults.set(previousFocusValue, forKey: focusKey)
+            } else {
+                defaults.removeObject(forKey: focusKey)
+            }
+        }
+
+        defaults.set(false, forKey: showKey)
+        defaults.set(true, forKey: focusKey)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanel = workspace.focusedTerminalPanel,
+              let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected initial terminal workspace")
+            return
+        }
+
+        XCTAssertTrue(initialPanel.isTextBoxActive)
+        XCTAssertEqual(initialPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
+
+        guard let newTabPanel = workspace.newTerminalSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected new terminal tab")
+            return
+        }
+
+        XCTAssertTrue(newTabPanel.isTextBoxActive)
+        XCTAssertEqual(newTabPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
+
+        guard let splitPanel = workspace.newTerminalSplit(from: newTabPanel.id, orientation: .horizontal) else {
+            XCTFail("Expected new terminal split")
+            return
+        }
+
+        XCTAssertTrue(splitPanel.isTextBoxActive)
+        XCTAssertEqual(splitPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
+    }
+
+    func testShowTextBoxOnNewTerminalsDefaultShowsWithoutStealingFocus() {
+        let defaults = UserDefaults.standard
+        let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
+        let focusKey = TerminalTextBoxInputSettings.focusOnNewTerminalsKey
+        let previousShowValue = defaults.object(forKey: showKey)
+        let previousFocusValue = defaults.object(forKey: focusKey)
+        defer {
+            if let previousShowValue {
+                defaults.set(previousShowValue, forKey: showKey)
+            } else {
+                defaults.removeObject(forKey: showKey)
+            }
+            if let previousFocusValue {
+                defaults.set(previousFocusValue, forKey: focusKey)
+            } else {
+                defaults.removeObject(forKey: focusKey)
+            }
+        }
+
+        defaults.set(true, forKey: showKey)
+        defaults.set(false, forKey: focusKey)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanel = workspace.focusedTerminalPanel,
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let newTabPanel = workspace.newTerminalSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected initial and new terminal panels")
+            return
+        }
+
+        XCTAssertTrue(initialPanel.isTextBoxActive)
+        XCTAssertNotEqual(initialPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
+        XCTAssertTrue(newTabPanel.isTextBoxActive)
+        XCTAssertNotEqual(newTabPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
+    }
+
+    func testFocusTextBoxOnNewTerminalsDefaultLeavesNewTerminalsHiddenWhenDisabled() {
+        let defaults = UserDefaults.standard
+        let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
+        let focusKey = TerminalTextBoxInputSettings.focusOnNewTerminalsKey
+        let previousShowValue = defaults.object(forKey: showKey)
+        let previousFocusValue = defaults.object(forKey: focusKey)
+        defer {
+            if let previousShowValue {
+                defaults.set(previousShowValue, forKey: showKey)
+            } else {
+                defaults.removeObject(forKey: showKey)
+            }
+            if let previousFocusValue {
+                defaults.set(previousFocusValue, forKey: focusKey)
+            } else {
+                defaults.removeObject(forKey: focusKey)
+            }
+        }
+
+        defaults.set(false, forKey: showKey)
+        defaults.set(false, forKey: focusKey)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanel = workspace.focusedTerminalPanel,
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let newTabPanel = workspace.newTerminalSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected initial and new terminal panels")
+            return
+        }
+
+        XCTAssertFalse(initialPanel.isTextBoxActive)
+        XCTAssertFalse(newTabPanel.isTextBoxActive)
+    }
+
     func testNewSurfaceFocusesCreatedSurface() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
@@ -1715,6 +2540,115 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             "Expected Cmd+Shift+B/Cmd+L open path to append browser surface at end"
         )
         XCTAssertEqual(workspace.focusedPanelId, browserPanelId, "Expected opened browser surface to be focused")
+    }
+
+    func testToggleOmnibarFocusedBrowserIsSurfaceSpecific() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected focused browser panel")
+            return
+        }
+
+        XCTAssertTrue(browserPanel.isOmnibarVisible)
+        XCTAssertTrue(manager.toggleOmnibarFocusedBrowser())
+        XCTAssertFalse(browserPanel.isOmnibarVisible)
+
+        let otherBrowser = workspace.newBrowserSurface(
+            inPane: workspace.paneId(forPanelId: browserPanelId) ?? workspace.bonsplitController.allPaneIds[0],
+            focus: true
+        )
+        XCTAssertTrue(otherBrowser?.isOmnibarVisible ?? false)
+    }
+
+    func testNewBrowserSurfaceCanSelectBackgroundPaneWithoutTakingFocus() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: sourcePanelId, orientation: .horizontal),
+              let rightPaneId = workspace.paneId(forPanelId: rightPanel.id),
+              let url = URL(string: "file:///tmp/cmux-diff.html") else {
+            XCTFail("Expected split setup to succeed")
+            return
+        }
+        workspace.focusPanel(sourcePanelId)
+        let sourcePaneBefore = workspace.bonsplitController.focusedPaneId
+
+        guard let browserPanel = workspace.newBrowserSurface(
+            inPane: rightPaneId,
+            url: url,
+            focus: false,
+            selectWhenNotFocused: true,
+            omnibarVisible: false
+        ), let browserSurfaceId = workspace.surfaceIdFromPanelId(browserPanel.id) else {
+            XCTFail("Expected background browser surface to be created")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, sourcePanelId)
+        XCTAssertEqual(workspace.bonsplitController.focusedPaneId, sourcePaneBefore)
+        XCTAssertEqual(workspace.bonsplitController.selectedTab(inPane: rightPaneId)?.id, browserSurfaceId)
+        XCTAssertFalse(browserPanel.isOmnibarVisible)
+    }
+
+    func testDuplicateBrowserPreservesDiffViewerChromeAndProxyBypass() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        let browserPanel = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                url: url,
+                focus: true,
+                omnibarVisible: false,
+                bypassRemoteProxy: true
+            )
+        )
+        guard browserPanel.setMuted(true) else {
+            throw XCTSkip("WKWebView page-audio mute selector is unavailable")
+        }
+
+        let duplicate = try XCTUnwrap(workspace.duplicateBrowserToRight(panelId: browserPanel.id, focus: false))
+        let duplicateTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(duplicate.id))
+        let duplicateTab = try XCTUnwrap(workspace.bonsplitController.tab(duplicateTabId))
+
+        XCTAssertFalse(duplicate.isOmnibarVisible)
+        XCTAssertTrue(duplicate.bypassesRemoteWorkspaceProxyForTabDuplication)
+        XCTAssertTrue(duplicate.isMuted)
+        XCTAssertTrue(duplicateTab.isAudioMuted)
+    }
+
+    func testBrowserAudioMuteContextActionTogglesPanelAndTabState() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let browserPanel = try XCTUnwrap(workspace.newBrowserSurface(inPane: paneId, focus: true))
+        let tabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(browserPanel.id))
+        guard browserPanel.setMuted(false) else {
+            throw XCTSkip("WKWebView page-audio mute selector is unavailable")
+        }
+
+        let initialTab = try XCTUnwrap(workspace.bonsplitController.tab(tabId))
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .toggleAudioMute,
+            for: initialTab,
+            inPane: paneId
+        )
+
+        XCTAssertTrue(browserPanel.isMuted)
+        XCTAssertTrue(try XCTUnwrap(workspace.bonsplitController.tab(tabId)).isAudioMuted)
+
+        let mutedTab = try XCTUnwrap(workspace.bonsplitController.tab(tabId))
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .toggleAudioMute,
+            for: mutedTab,
+            inPane: paneId
+        )
+
+        XCTAssertFalse(browserPanel.isMuted)
+        XCTAssertFalse(try XCTUnwrap(workspace.bonsplitController.tab(tabId)).isAudioMuted)
     }
 
     func testOpenBrowserInWorkspaceSplitRightSelectsTargetWorkspaceAndCreatesSplit() {
@@ -1816,38 +2750,191 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
 
 @MainActor
 final class TabManagerEqualizeSplitsTests: XCTestCase {
-    func testEqualizeSplitsSetsEverySplitDividerToHalf() {
+    func testEqualizeSplitsKeepsMultiTabPaneAndBrowserAtHalfWidth() {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let leftPanelId = workspace.focusedPanelId,
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
-              workspace.newTerminalSplit(from: rightPanel.id, orientation: .vertical) != nil else {
-            XCTFail("Expected nested split setup to succeed")
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
             return
         }
 
-        let initialSplits = splitNodes(in: workspace.bonsplitController.treeSnapshot())
-        XCTAssertGreaterThanOrEqual(initialSplits.count, 2, "Expected at least two split nodes in nested layout")
-
-        for (index, split) in initialSplits.enumerated() {
-            guard let splitId = UUID(uuidString: split.id) else {
-                XCTFail("Expected split ID to be a UUID")
-                return
-            }
-            let targetPosition: CGFloat = index.isMultiple(of: 2) ? 0.2 : 0.8
-            XCTAssertTrue(
-                workspace.bonsplitController.setDividerPosition(targetPosition, forSplit: splitId),
-                "Expected to seed divider position for split \(splitId)"
-            )
-        }
+        workspace.applyCustomLayout(
+            .split(CmuxSplitDefinition(
+                direction: .horizontal,
+                split: 0.2,
+                children: [
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .terminal, name: "Terminal A"),
+                        CmuxSurfaceDefinition(type: .terminal, name: "Terminal B")
+                    ])),
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .browser, name: "Browser", url: "https://example.com")
+                    ]))
+                ]
+            )),
+            baseCwd: NSTemporaryDirectory()
+        )
 
         XCTAssertTrue(manager.equalizeSplits(tabId: workspace.id), "Expected equalize splits command to succeed")
 
-        let equalizedSplits = splitNodes(in: workspace.bonsplitController.treeSnapshot())
-        XCTAssertEqual(equalizedSplits.count, initialSplits.count)
-        for split in equalizedSplits {
-            XCTAssertEqual(split.dividerPosition, 0.5, accuracy: 0.000_1)
+        guard case .split(let root) = workspace.bonsplitController.treeSnapshot() else {
+            XCTFail("Expected horizontal root split")
+            return
         }
+        XCTAssertEqual(root.orientation, "horizontal")
+        XCTAssertEqual(root.dividerPosition, 0.5, accuracy: 0.000_1)
+
+        guard case .pane(let terminalPane) = root.first else {
+            XCTFail("Expected first child to remain one pane containing multiple tabs")
+            return
+        }
+        XCTAssertEqual(terminalPane.tabs.count, 2)
+    }
+
+    func testEqualizeSplitsBalancesThreeSameAxisSiblingPanesIntoThirds() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+
+        workspace.applyCustomLayout(
+            .split(CmuxSplitDefinition(
+                direction: .horizontal,
+                split: 0.2,
+                children: [
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .terminal, name: "Left")
+                    ])),
+                    .split(CmuxSplitDefinition(
+                        direction: .horizontal,
+                        split: 0.8,
+                        children: [
+                            .pane(CmuxPaneDefinition(surfaces: [
+                                CmuxSurfaceDefinition(type: .terminal, name: "Middle")
+                            ])),
+                            .pane(CmuxPaneDefinition(surfaces: [
+                                CmuxSurfaceDefinition(type: .browser, name: "Right", url: "https://example.com")
+                            ]))
+                        ]
+                    ))
+                ]
+            )),
+            baseCwd: NSTemporaryDirectory()
+        )
+
+        XCTAssertTrue(manager.equalizeSplits(tabId: workspace.id), "Expected equalize splits command to succeed")
+
+        guard case .split(let root) = workspace.bonsplitController.treeSnapshot(),
+              case .split(let rightColumn) = root.second else {
+            XCTFail("Expected three-pane same-axis split tree")
+            return
+        }
+        XCTAssertEqual(root.orientation, "horizontal")
+        XCTAssertEqual(root.dividerPosition, 1.0 / 3.0, accuracy: 0.000_1)
+        XCTAssertEqual(rightColumn.orientation, "horizontal")
+        XCTAssertEqual(rightColumn.dividerPosition, 0.5, accuracy: 0.000_1)
+    }
+
+    func testEqualizeSplitsCountsCrossAxisSubtreeAsOneSpan() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+
+        workspace.applyCustomLayout(
+            .split(CmuxSplitDefinition(
+                direction: .horizontal,
+                split: 0.2,
+                children: [
+                    .split(CmuxSplitDefinition(
+                        direction: .vertical,
+                        split: 0.8,
+                        children: [
+                            .pane(CmuxPaneDefinition(surfaces: [
+                                CmuxSurfaceDefinition(type: .terminal, name: "Top Terminal")
+                            ])),
+                            .pane(CmuxPaneDefinition(surfaces: [
+                                CmuxSurfaceDefinition(type: .terminal, name: "Bottom Terminal")
+                            ]))
+                        ]
+                    )),
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .browser, name: "Browser", url: "https://example.com")
+                    ]))
+                ]
+            )),
+            baseCwd: NSTemporaryDirectory()
+        )
+
+        XCTAssertTrue(manager.equalizeSplits(tabId: workspace.id), "Expected equalize splits command to succeed")
+
+        guard case .split(let root) = workspace.bonsplitController.treeSnapshot(),
+              case .split(let leftStack) = root.first else {
+            XCTFail("Expected browser beside a vertically stacked terminal subtree")
+            return
+        }
+        XCTAssertEqual(root.orientation, "horizontal")
+        XCTAssertEqual(root.dividerPosition, 0.5, accuracy: 0.000_1)
+        XCTAssertEqual(leftStack.orientation, "vertical")
+        XCTAssertEqual(leftStack.dividerPosition, 0.5, accuracy: 0.000_1)
+    }
+
+    func testEqualizeSplitsDoesNotPropagateSameAxisSpansThroughCrossAxisBoundary() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+
+        workspace.applyCustomLayout(
+            .split(CmuxSplitDefinition(
+                direction: .horizontal,
+                split: 0.2,
+                children: [
+                    .split(CmuxSplitDefinition(
+                        direction: .vertical,
+                        split: 0.8,
+                        children: [
+                            .split(CmuxSplitDefinition(
+                                direction: .horizontal,
+                                split: 0.8,
+                                children: [
+                                    .pane(CmuxPaneDefinition(surfaces: [
+                                        CmuxSurfaceDefinition(type: .terminal, name: "Top Left")
+                                    ])),
+                                    .pane(CmuxPaneDefinition(surfaces: [
+                                        CmuxSurfaceDefinition(type: .terminal, name: "Top Right")
+                                    ]))
+                                ]
+                            )),
+                            .pane(CmuxPaneDefinition(surfaces: [
+                                CmuxSurfaceDefinition(type: .terminal, name: "Bottom")
+                            ]))
+                        ]
+                    )),
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .browser, name: "Browser", url: "https://example.com")
+                    ]))
+                ]
+            )),
+            baseCwd: NSTemporaryDirectory()
+        )
+
+        XCTAssertTrue(manager.equalizeSplits(tabId: workspace.id), "Expected equalize splits command to succeed")
+
+        guard case .split(let root) = workspace.bonsplitController.treeSnapshot(),
+              case .split(let leftStack) = root.first,
+              case .split(let topRow) = leftStack.first else {
+            XCTFail("Expected browser beside a mixed nested terminal subtree")
+            return
+        }
+        XCTAssertEqual(root.orientation, "horizontal")
+        XCTAssertEqual(root.dividerPosition, 0.5, accuracy: 0.000_1)
+        XCTAssertEqual(leftStack.orientation, "vertical")
+        XCTAssertEqual(leftStack.dividerPosition, 0.5, accuracy: 0.000_1)
+        XCTAssertEqual(topRow.orientation, "horizontal")
+        XCTAssertEqual(topRow.dividerPosition, 0.5, accuracy: 0.000_1)
     }
 }
 
@@ -2351,6 +3438,28 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertEqual(closedSnapshot?.originalPaneId, paneId.id)
     }
 
+    func testTemporaryDiffViewerTabCloseDoesNotStageRestoreSnapshot() throws {
+        let workspace = Workspace()
+        let diffViewerURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        guard let paneId = workspace.bonsplitController.focusedPaneId,
+              let browserPanel = workspace.newBrowserSurface(inPane: paneId, url: diffViewerURL, focus: false),
+              let tabId = workspace.surfaceIdFromPanelId(browserPanel.id),
+              let tab = workspace.bonsplitController.tab(tabId) else {
+            XCTFail("Expected diff viewer browser panel setup")
+            return
+        }
+
+        var closedSnapshot: ClosedBrowserPanelRestoreSnapshot?
+        workspace.onClosedBrowserPanel = { snapshot in
+            closedSnapshot = snapshot
+        }
+
+        XCTAssertTrue(workspace.splitTabBar(workspace.bonsplitController, shouldCloseTab: tab, inPane: paneId))
+        workspace.splitTabBar(workspace.bonsplitController, didCloseTab: tabId, fromPane: paneId)
+
+        XCTAssertNil(closedSnapshot)
+    }
+
     func testBrowserWebViewDidCloseClosesPanelAndCmdShiftTRestoresIt() {
         let manager = TabManager()
         let expectedURL = URL(string: "https://example.com/self-close")
@@ -2380,6 +3489,125 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, reopenedPanelId)
     }
 
+    func testReopenClosedItemFallsBackToLegacyClosedBrowserStack() {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let expectedURL = URL(string: "https://example.com/self-close-item-fallback")
+        guard let workspace = manager.selectedWorkspace,
+              let closedBrowserId = manager.openBrowser(url: expectedURL),
+              let browserPanel = workspace.panels[closedBrowserId] as? BrowserPanel else {
+            XCTFail("Expected browser panel setup")
+            return
+        }
+
+        drainMainQueue()
+        browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
+        drainMainQueue()
+
+        XCTAssertNil(workspace.panels[closedBrowserId])
+        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
+
+        XCTAssertTrue(appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: manager))
+        drainMainQueue()
+
+        guard let reopenedPanel = workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first else {
+            XCTFail("Expected reopened browser panel")
+            return
+        }
+        XCTAssertEqual(reopenedPanel.currentURL, expectedURL)
+    }
+
+    func testReopenClosedItemUsesNewerLegacyBrowserBeforeOlderClosedStore() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let expectedURL = URL(string: "https://example.com/newer-legacy-browser")
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        var olderPanelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        olderPanelSnapshot.customTitle = "Older Stored Panel"
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: 1),
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: workspace.id,
+                paneId: paneId.id,
+                tabIndex: 0,
+                snapshot: olderPanelSnapshot
+            ))
+        ))
+
+        guard let closedBrowserId = manager.openBrowser(url: expectedURL),
+              let browserPanel = workspace.panels[closedBrowserId] as? BrowserPanel else {
+            XCTFail("Expected browser panel setup")
+            return
+        }
+
+        drainMainQueue()
+        browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
+        drainMainQueue()
+
+        XCTAssertNil(workspace.panels[closedBrowserId])
+        let panelIdsAfterClose = Set(workspace.panels.keys)
+
+        XCTAssertTrue(appDelegate.reopenMostRecentlyClosedItem(
+            preferredTabManager: manager,
+            shouldActivate: false
+        ))
+        drainMainQueue()
+
+        guard let reopenedPanelId = singleNewPanelId(in: workspace, comparedTo: panelIdsAfterClose),
+              let reopenedPanel = workspace.panels[reopenedPanelId] as? BrowserPanel else {
+            XCTFail("Expected Cmd+Shift+T to restore the newer self-closed browser before the older stored tab")
+            return
+        }
+        XCTAssertEqual(reopenedPanel.currentURL, expectedURL)
+        XCTAssertTrue(ClosedItemHistoryStore.shared.canReopen)
+    }
+
+    func testClearRecentlyClosedHistoryClearsLegacyBrowserStack() {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        ClosedItemHistoryStore.shared.removeAll()
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let expectedURL = URL(string: "https://example.com/clear-legacy-reopen")
+        guard let workspace = manager.selectedWorkspace,
+              let closedBrowserId = manager.openBrowser(url: expectedURL),
+              let browserPanel = workspace.panels[closedBrowserId] as? BrowserPanel else {
+            XCTFail("Expected browser panel setup")
+            return
+        }
+
+        drainMainQueue()
+        browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
+        drainMainQueue()
+
+        XCTAssertNil(workspace.panels[closedBrowserId])
+        appDelegate.clearRecentlyClosedHistory(preferredTabManager: manager)
+
+        XCTAssertFalse(appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: manager))
+    }
+
     func testReopenFromDifferentWorkspaceFocusesReopenedBrowser() {
         let manager = TabManager()
         guard let workspace1 = manager.selectedWorkspace,
@@ -2402,7 +3630,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertTrue(isFocusedPanelBrowser(in: workspace1))
     }
 
-    func testReopenFallsBackToCurrentWorkspaceAndFocusesBrowserWhenOriginalWorkspaceDeleted() {
+    func testReopenDropsBrowserSnapshotWhenOriginalWorkspaceDeleted() {
         let manager = TabManager()
         guard let originalWorkspace = manager.selectedWorkspace,
               let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/deleted-ws")) else {
@@ -2415,16 +3643,18 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         drainMainQueue()
 
         let currentWorkspace = manager.addWorkspace()
-        manager.closeWorkspace(originalWorkspace)
+        let currentPanelCountBefore = currentWorkspace.panels.count
+        manager.closeWorkspace(originalWorkspace, recordHistory: false)
 
         XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
         XCTAssertFalse(manager.tabs.contains(where: { $0.id == originalWorkspace.id }))
 
-        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
+        XCTAssertFalse(manager.reopenMostRecentlyClosedBrowserPanel())
         drainMainQueue()
 
         XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
-        XCTAssertTrue(isFocusedPanelBrowser(in: currentWorkspace))
+        XCTAssertEqual(currentWorkspace.panels.count, currentPanelCountBefore)
+        XCTAssertFalse(isFocusedPanelBrowser(in: currentWorkspace))
     }
 
     func testReopenCollapsedSplitFromDifferentWorkspaceFocusesBrowser() {
@@ -2545,5 +3775,152 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         }
         let result = XCTWaiter().wait(for: [expectation], timeout: 3.0)
         XCTAssertEqual(result, .completed)
+    }
+}
+
+/// Behavioral coverage for the cross-window workspace move primitive that backs
+/// dragging a workspace from one window's sidebar into another window's sidebar
+/// (`AppDelegate.moveWorkspaceToWindow(workspaceId:windowId:atIndex:focus:)`).
+/// The app-level routing needs live windows, but the underlying mechanism —
+/// `detachWorkspace` from the source manager + `attachWorkspace(at:)` on the
+/// destination manager — is the move and is exercised directly here.
+@MainActor
+final class CrossWindowWorkspaceMoveTests: XCTestCase {
+    func testMoveInsertsAtDropIndexInDestination() {
+        let source = TabManager()
+        let destination = TabManager()
+        let moving = source.addWorkspace()
+        _ = source.addWorkspace()
+
+        let destFirst = destination.tabs[0]
+        let destSecond = destination.addWorkspace()
+
+        guard let detached = source.detachWorkspace(tabId: moving.id) else {
+            XCTFail("Expected to detach the dragged workspace from the source window")
+            return
+        }
+        XCTAssertEqual(detached.id, moving.id)
+        destination.attachWorkspace(detached, at: 1, select: true)
+
+        XCTAssertEqual(
+            destination.tabs.map(\.id),
+            [destFirst.id, moving.id, destSecond.id],
+            "Moved workspace should land at the requested drop index in the destination"
+        )
+        XCTAssertEqual(destination.selectedTabId, moving.id)
+        XCTAssertFalse(
+            source.tabs.contains { $0.id == moving.id },
+            "Source window must no longer contain the moved workspace"
+        )
+        XCTAssertTrue(
+            destination.tabs.allSatisfy { $0.owningTabManager === destination },
+            "Destination workspaces should be owned by the destination manager"
+        )
+    }
+
+    func testMoveAppendsWhenNoDropIndex() {
+        let source = TabManager()
+        let destination = TabManager()
+        let moving = source.addWorkspace()
+        _ = source.addWorkspace()
+
+        let existingDestIds = destination.tabs.map(\.id)
+
+        guard let detached = source.detachWorkspace(tabId: moving.id) else {
+            XCTFail("Expected to detach the dragged workspace")
+            return
+        }
+        destination.attachWorkspace(detached, at: nil, select: true)
+
+        XCTAssertEqual(
+            destination.tabs.map(\.id),
+            existingDestIds + [moving.id],
+            "With no drop index the moved workspace appends to the destination"
+        )
+    }
+
+    func testMovingLastWorkspaceKeepsSourceNonEmpty() {
+        let source = TabManager()
+        let destination = TabManager()
+        let onlyWorkspace = source.tabs[0]
+
+        guard let detached = source.detachWorkspace(tabId: onlyWorkspace.id) else {
+            XCTFail("Expected to detach the only workspace")
+            return
+        }
+        destination.attachWorkspace(detached, at: nil, select: true)
+
+        XCTAssertFalse(
+            source.tabs.isEmpty,
+            "Detaching the last workspace must leave the source window with a fresh workspace"
+        )
+        XCTAssertFalse(
+            source.tabs.contains { $0.id == onlyWorkspace.id },
+            "The moved workspace should no longer be in the source window"
+        )
+        XCTAssertTrue(destination.tabs.contains { $0.id == onlyWorkspace.id })
+    }
+
+    func testMovingPinnedWorkspaceLandsAtFrontEvenWhenDroppedBelowUnpinnedRows() {
+        let source = TabManager()
+        let destination = TabManager()
+        let destFirst = destination.tabs[0]   // unpinned
+        let moving = source.tabs[0]
+        source.setPinned(moving, pinned: true)
+
+        guard let detached = source.detachWorkspace(tabId: moving.id) else {
+            XCTFail("Expected to detach the pinned workspace")
+            return
+        }
+        XCTAssertTrue(detached.isPinned, "Detach must preserve the pinned state")
+
+        // Request a drop position *below* the destination's unpinned row.
+        destination.attachWorkspace(detached, at: 1, select: true)
+
+        XCTAssertEqual(
+            destination.tabs.first?.id,
+            moving.id,
+            "A pinned workspace must land in the leading pinned segment regardless of drop index"
+        )
+        XCTAssertTrue(destination.tabs.contains { $0.id == destFirst.id })
+    }
+
+    func testMovingWorkspaceIntoMiddleOfGroupRunKeepsGroupContiguous() {
+        let source = TabManager()
+        let destination = TabManager()
+
+        // Build a destination group with an anchor + two members.
+        let memberA = destination.tabs[0]
+        let memberB = destination.addWorkspace()
+        guard let groupId = destination.createWorkspaceGroup(
+            name: "Group",
+            childWorkspaceIds: [memberA.id, memberB.id]
+        ) else {
+            XCTFail("Expected to create a destination group")
+            return
+        }
+
+        let moving = source.tabs[0]
+        guard let detached = source.detachWorkspace(tabId: moving.id) else {
+            XCTFail("Expected to detach the workspace")
+            return
+        }
+        XCTAssertNil(detached.groupId, "Detach must clear group membership")
+
+        // Aim the insert into the middle of the group's contiguous run.
+        let middle = max(1, destination.tabs.count - 1)
+        destination.attachWorkspace(detached, at: middle, select: true)
+
+        // The moved (ungrouped) workspace must not sit between grouped rows.
+        let groupedOffsets = destination.tabs.enumerated()
+            .filter { $0.element.groupId == groupId }
+            .map(\.offset)
+        XCTAssertFalse(groupedOffsets.isEmpty)
+        let isContiguous = groupedOffsets.max()! - groupedOffsets.min()! == groupedOffsets.count - 1
+        XCTAssertTrue(
+            isContiguous,
+            "The destination group's rows must stay contiguous after a cross-window move"
+        )
+        XCTAssertTrue(destination.tabs.contains { $0.id == moving.id })
     }
 }

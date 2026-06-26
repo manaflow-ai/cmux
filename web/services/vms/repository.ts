@@ -50,7 +50,7 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly providerVmId: string;
     readonly status: CloudVmStatus;
-  }) => Effect.Effect<void, VmDatabaseError>;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly markCreateRunning: (input: {
     readonly id: string;
     readonly providerVmId: string;
@@ -90,6 +90,16 @@ export type VmRepositoryShape = {
     readonly imageId?: string;
     readonly metadata?: Record<string, unknown>;
   }) => Effect.Effect<void, VmDatabaseError>;
+  readonly recordUsageEvents: (inputs: readonly {
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly billingPlanId?: string | null;
+    readonly vmId?: string | null;
+    readonly eventType: string;
+    readonly provider?: ProviderId;
+    readonly imageId?: string;
+    readonly metadata?: Record<string, unknown>;
+  }[]) => Effect.Effect<void, VmDatabaseError>;
 };
 
 export class VmRepository extends Context.Tag("cmux/VmRepository")<
@@ -298,7 +308,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   markProviderObservedStatus: (input) =>
     dbEffect("markProviderObservedStatus", async () => {
       const db = cloudDb();
-      await db
+      const updated = await db
         .update(cloudVms)
         .set({
           status: input.status,
@@ -311,7 +321,9 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             eq(cloudVms.providerVmId, input.providerVmId),
             ne(cloudVms.status, "destroyed"),
           ),
-        );
+        )
+        .returning({ id: cloudVms.id });
+      return updated.length > 0;
     }),
 
   markCreateRunning: (input) =>
@@ -465,5 +477,20 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         imageId: input.imageId,
         metadata: input.metadata ?? {},
       });
+    }),
+  recordUsageEvents: (inputs) =>
+    dbEffect("recordUsageEvents", async () => {
+      if (inputs.length === 0) return;
+      const db = cloudDb();
+      await db.insert(cloudVmUsageEvents).values(inputs.map((input) => ({
+        userId: input.userId,
+        billingTeamId: input.billingTeamId ?? null,
+        billingPlanId: input.billingPlanId ?? null,
+        vmId: input.vmId ?? null,
+        eventType: input.eventType,
+        provider: input.provider,
+        imageId: input.imageId,
+        metadata: input.metadata ?? {},
+      })));
     }),
 });

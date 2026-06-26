@@ -1,7 +1,7 @@
 const providerSubjectPattern =
   "(?:vm|virtual machine|sandbox|sandboxes|instance|container|machine|environment|resource)";
 const providerMissingPattern =
-  "(?:not found|does not exist|already deleted|has been deleted|was deleted|no such)";
+  "(?:not found|does not exist|already deleted|has been deleted|was deleted|marked as deleted|no such)";
 
 function hasProviderMissingMessage(message: string): boolean {
   const normalized = message.toLowerCase();
@@ -42,7 +42,15 @@ export function isProviderNotFoundError(err: unknown): boolean {
   if (status === 404) return true;
 
   const code = String(candidate.code ?? candidate.name ?? "").toLowerCase();
-  if (code === "not_found" || code === "notfound" || code === "404") return true;
+  if (
+    code === "not_found" ||
+    code === "notfound" ||
+    code === "404" ||
+    code === "vmdeletederror" ||
+    code === "vm_deleted"
+  ) {
+    return true;
+  }
 
   if (hasProviderMissingMessage(candidate.message ?? "")) return true;
 

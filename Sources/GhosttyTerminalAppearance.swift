@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Foundation
 
 enum GhosttyDefaultBackgroundUpdateScope: Int {
@@ -17,18 +18,20 @@ enum GhosttyDefaultBackgroundUpdateScope: Int {
 
 /// Coalesces Ghostty appearance notifications so consumers only observe the
 /// latest runtime terminal colors for a burst of updates.
+@MainActor
 final class GhosttyDefaultBackgroundNotificationDispatcher {
     private let coalescer: NotificationBurstCoalescer
-    private let postNotification: ([AnyHashable: Any]) -> Void
+    private let postNotification: @MainActor ([AnyHashable: Any]) -> Void
     private var pendingUserInfo: [AnyHashable: Any]?
     private var pendingEventId: UInt64 = 0
     private var pendingSource: String = "unspecified"
-    private let logEvent: ((String) -> Void)?
+    private let logEvent: (@MainActor (String) -> Void)?
 
     init(
         delay: TimeInterval = 1.0 / 30.0,
-        logEvent: ((String) -> Void)? = nil,
-        postNotification: @escaping ([AnyHashable: Any]) -> Void = { userInfo in
+        coalescer: NotificationBurstCoalescer? = nil,
+        logEvent: (@MainActor (String) -> Void)? = nil,
+        postNotification: @escaping @MainActor ([AnyHashable: Any]) -> Void = { userInfo in
             NotificationCenter.default.post(
                 name: .ghosttyDefaultBackgroundDidChange,
                 object: nil,
@@ -36,11 +39,12 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
             )
         }
     ) {
-        coalescer = NotificationBurstCoalescer(delay: delay)
+        self.coalescer = coalescer ?? NotificationBurstCoalescer(delay: delay)
         self.logEvent = logEvent
         self.postNotification = postNotification
     }
 
+    @MainActor
     func signal(
         backgroundColor: NSColor,
         opacity: Double,
@@ -52,39 +56,31 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
         selectionBackground: NSColor,
         selectionForeground: NSColor
     ) {
-        let signalOnMain = { [self] in
-            pendingEventId = eventId
-            pendingSource = source
-            pendingUserInfo = [
-                GhosttyNotificationKey.backgroundColor: backgroundColor,
-                GhosttyNotificationKey.backgroundOpacity: opacity,
-                GhosttyNotificationKey.backgroundEventId: NSNumber(value: eventId),
-                GhosttyNotificationKey.backgroundSource: source,
-                GhosttyNotificationKey.foregroundColor: foregroundColor,
-                GhosttyNotificationKey.cursorColor: cursorColor,
-                GhosttyNotificationKey.cursorTextColor: cursorTextColor,
-                GhosttyNotificationKey.selectionBackground: selectionBackground,
-                GhosttyNotificationKey.selectionForeground: selectionForeground,
-            ]
-            logEvent?(
-                "bg notify queued id=\(eventId) source=\(source) color=\(backgroundColor.hexString()) fg=\(foregroundColor.hexString()) opacity=\(String(format: "%.3f", opacity))"
-            )
-            coalescer.signal { [self] in
-                guard let userInfo = pendingUserInfo else { return }
-                let eventId = pendingEventId
-                let source = pendingSource
-                pendingUserInfo = nil
-                logEvent?("bg notify flushed id=\(eventId) source=\(source)")
-                logEvent?("bg notify posting id=\(eventId) source=\(source)")
-                postNotification(userInfo)
-                logEvent?("bg notify posted id=\(eventId) source=\(source)")
-            }
-        }
-
-        if Thread.isMainThread {
-            signalOnMain()
-        } else {
-            DispatchQueue.main.async(execute: signalOnMain)
+        pendingEventId = eventId
+        pendingSource = source
+        pendingUserInfo = [
+            GhosttyNotificationKey.backgroundColor: backgroundColor,
+            GhosttyNotificationKey.backgroundOpacity: opacity,
+            GhosttyNotificationKey.backgroundEventId: NSNumber(value: eventId),
+            GhosttyNotificationKey.backgroundSource: source,
+            GhosttyNotificationKey.foregroundColor: foregroundColor,
+            GhosttyNotificationKey.cursorColor: cursorColor,
+            GhosttyNotificationKey.cursorTextColor: cursorTextColor,
+            GhosttyNotificationKey.selectionBackground: selectionBackground,
+            GhosttyNotificationKey.selectionForeground: selectionForeground,
+        ]
+        logEvent?(
+            "bg notify queued id=\(eventId) source=\(source) color=\(backgroundColor.hexString()) fg=\(foregroundColor.hexString()) opacity=\(String(format: "%.3f", opacity))"
+        )
+        coalescer.signal { [self] in
+            guard let userInfo = pendingUserInfo else { return }
+            let eventId = pendingEventId
+            let source = pendingSource
+            pendingUserInfo = nil
+            logEvent?("bg notify flushed id=\(eventId) source=\(source)")
+            logEvent?("bg notify posting id=\(eventId) source=\(source)")
+            postNotification(userInfo)
+            logEvent?("bg notify posted id=\(eventId) source=\(source)")
         }
     }
 }

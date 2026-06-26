@@ -1,6 +1,8 @@
+import CmuxFoundation
 import AppKit
 import Bonsplit
-import CMUXAgentVault
+import CmuxAppKitSupportUI
+import CMUXAgentLaunch
 import SQLite3
 import SwiftUI
 import UniformTypeIdentifiers
@@ -112,7 +114,7 @@ struct SessionIndexView: View {
 
             Toggle(isOn: $store.scopeToCurrentDirectory) {
                 Text(String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only"))
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .foregroundColor(.secondary)
             }
             .toggleStyle(.checkbox)
@@ -121,16 +123,18 @@ struct SessionIndexView: View {
             .reportRightSidebarChromeNamedGeometryForBonsplitUITest(keyPrefix: "rightSidebarSecondaryControl_scope", isVisible: true)
             .disabled(store.currentDirectory == nil)
             .accessibilityIdentifier("SessionScopeToggle.thisFolder")
+            .titlebarInteractiveControl()
 
             Button {
                 store.reload()
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 10, weight: .medium))
+                    .cmuxFont(size: 10, weight: .medium)
             }
             .buttonStyle(.borderless)
             .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
             .disabled(store.isLoading)
+            .titlebarInteractiveControl()
         }
         .rightSidebarChromeBar()
         .rightSidebarChromeBottomBorder()
@@ -141,7 +145,7 @@ struct SessionIndexView: View {
         VStack(spacing: 6) {
             ProgressView().controlSize(.small)
             Text(String(localized: "sessionIndex.loading", defaultValue: "Loading Vault…"))
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -150,11 +154,11 @@ struct SessionIndexView: View {
     private var emptyView: some View {
         VStack(spacing: 4) {
             Text(String(localized: "sessionIndex.empty.title", defaultValue: "Vault is empty"))
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
             Text(String(localized: "sessionIndex.empty.subtitle",
                                    defaultValue: "Claude Code, Codex, OpenCode, and Rovo Dev history will appear here."))
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundColor(.secondary.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
@@ -264,7 +268,7 @@ private struct AgentIconImage: View, Equatable {
                 .frame(width: size, height: size)
         } else {
             Image(systemName: agent.systemImageName ?? "person.crop.circle")
-                .font(.system(size: max(size - 2, 10), weight: .regular))
+                .cmuxFont(size: max(size - 2, 10), weight: .regular)
                 .foregroundColor(.secondary)
                 .frame(width: size, height: size)
         }
@@ -281,13 +285,21 @@ private struct GroupingButton: View {
         Button(action: action) {
             HStack(spacing: 3) {
                 Image(systemName: mode.symbolName)
-                    .font(.system(size: 10, weight: .medium))
+                    .symbolRenderingMode(.monochrome)
+                    .cmuxFont(
+                        size: RightSidebarChromeControlStyle.secondaryIconSize,
+                        weight: RightSidebarChromeControlStyle.iconWeight
+                    )
                 Text(mode.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(
+                        size: RightSidebarChromeControlStyle.labelSize,
+                        weight: RightSidebarChromeControlStyle.labelWeight
+                    )
             }
             .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_\(mode.rawValue)")
         }
         .buttonStyle(.plain)
+        .titlebarInteractiveControl()
         .onHover { isHovered = $0 }
         .help(mode.label)
         .accessibilityIdentifier("SessionGroupingButton.\(mode.rawValue)")
@@ -379,7 +391,7 @@ private struct IndexSectionView: View, Equatable {
                         .equatable()
                         .id(entry.id)
                 }
-                if section.entries.count > rowLimit {
+                if section.shouldOfferShowMore(rowLimit: rowLimit) {
                     showMoreButton
                 }
                 Spacer(minLength: 2)
@@ -393,7 +405,7 @@ private struct IndexSectionView: View, Equatable {
             isPopoverOpen = true
         } label: {
             Text(String(localized: "sessionIndex.section.showMore", defaultValue: "Show more"))
-                .font(.system(size: 12, weight: .medium))
+                .cmuxFont(size: 12, weight: .medium)
                 .foregroundColor(.secondary.opacity(0.7))
                 .padding(.leading, 32)
                 .padding(.trailing, 12)
@@ -420,12 +432,12 @@ private struct IndexSectionView: View, Equatable {
             HStack(spacing: 8) {
                 sectionIconView
                 Text(section.title)
-                    .font(.system(size: 13, weight: .regular))
+                    .cmuxFont(size: 13, weight: .regular)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .cmuxFont(size: 9, weight: .semibold)
                     .foregroundColor(.secondary.opacity(0.6))
                     .rotationEffect(.degrees(isCollapsed ? -90 : 0))
                 Spacer(minLength: 0)
@@ -444,7 +456,7 @@ private struct IndexSectionView: View, Equatable {
             HStack(spacing: 8) {
                 sectionIconView
                 Text(section.title)
-                    .font(.system(size: 13))
+                    .cmuxFont(size: 13)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
@@ -459,7 +471,7 @@ private struct IndexSectionView: View, Equatable {
             AgentIconImage(agent: agent, size: 14)
         case .folder:
             Image(systemName: "folder")
-                .font(.system(size: 12, weight: .regular))
+                .cmuxFont(size: 12, weight: .regular)
                 .foregroundColor(.secondary)
                 .frame(width: 14, height: 14)
         }
@@ -557,13 +569,13 @@ private struct SessionRow: View, Equatable {
         HStack(spacing: 6) {
             AgentIconImage(agent: entry.agent, size: 12)
             Text(entry.displayTitle)
-                .font(.system(size: 13))
+                .cmuxFont(size: 13)
                 .foregroundColor(.primary.opacity(0.92))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
             Text(relativeTime(entry.modified))
-                .font(.system(size: 12).monospacedDigit())
+                .cmuxFont(size: 12, monospacedDigit: true)
                 .foregroundColor(.secondary.opacity(0.65))
                 .fixedSize()
         }
@@ -585,7 +597,7 @@ private struct SessionRow: View, Equatable {
             HStack(spacing: 6) {
                 AgentIconImage(agent: entry.agent, size: 12)
                 Text(entry.displayTitle)
-                    .font(.system(size: 12, weight: .medium))
+                    .cmuxFont(size: 12, weight: .medium)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -743,13 +755,13 @@ private struct SessionTranscriptPreviewView: View {
             AgentIconImage(agent: entry.agent, size: 14)
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.displayTitle)
-                    .font(.system(size: 13, weight: .semibold))
+                    .cmuxFont(size: 13, weight: .semibold)
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let cwd = entry.cwdLabel {
                     Text(cwd)
-                        .font(.system(size: 11))
+                        .cmuxFont(size: 11)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -757,7 +769,7 @@ private struct SessionTranscriptPreviewView: View {
             }
             Spacer(minLength: 8)
             Image(systemName: "xmark")
-                .font(.system(size: 11, weight: .semibold))
+                .cmuxFont(size: 11, weight: .semibold)
                 .foregroundColor(closeIsHovered ? .primary : .secondary)
                 .frame(width: 20, height: 20)
                 .background(
@@ -810,7 +822,7 @@ private struct SessionTranscriptPreviewView: View {
             ProgressView()
                 .controlSize(.small)
             Text(String(localized: "sessionIndex.popover.loading", defaultValue: "Loading…"))
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
             Spacer(minLength: 0)
         }
@@ -821,10 +833,10 @@ private struct SessionTranscriptPreviewView: View {
     private func statusRow(systemImage: String, text: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .medium))
+                .cmuxFont(size: 12, weight: .medium)
                 .foregroundColor(.secondary)
             Text(text)
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
             Spacer(minLength: 0)
         }
@@ -932,7 +944,7 @@ private struct SessionTranscriptTurnView: View, Equatable {
         HStack(alignment: .top, spacing: 10) {
             VStack(spacing: 3) {
                 Text(row.isContinuation ? "" : row.role.label)
-                    .font(.system(size: 10, weight: .semibold))
+                    .cmuxFont(size: 10, weight: .semibold)
                     .foregroundColor(row.role.foregroundColor)
                     .lineLimit(1)
                     .frame(width: 58, alignment: .trailing)
@@ -943,7 +955,7 @@ private struct SessionTranscriptTurnView: View, Equatable {
                 }
             }
             Text(row.text)
-                .font(row.role.bodyFont)
+                .cmuxFont(size: row.role.bodyFontSize, design: row.role.bodyFontDesign)
                 .foregroundColor(.primary.opacity(0.92))
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1033,12 +1045,33 @@ private enum SessionTranscriptPreviewState: Equatable {
     case loaded([SessionTranscriptDisplayRow])
 }
 
+private extension SessionEntry {
+    var usesGrokTranscriptLayout: Bool {
+        if agent == .grok {
+            return true
+        }
+        guard case .registered(let registration) = specifics else {
+            return false
+        }
+        if case .grokSessionDirectory = registration.sessionIdSource {
+            return true
+        }
+        return false
+    }
+}
+
 private enum SessionTranscriptLoader {
     private static let streamChunkSize = 256 * 1024
     private static let maxPreviewRecordBytes = 2 * 1024 * 1024
     private static let maxPreviewTurns = 500
     private static let maxTurnTextCharacters = 40_000
     private static let newlineByte: UInt8 = 10
+
+    // Wrapping `Data(string.utf8)` in a helper keeps large needle array literals
+    // cheap to type-check. The Xcode 27 / Swift 6.4 expression solver otherwise
+    // times out on the bigger literals below ("unable to type-check this
+    // expression in reasonable time"), which Xcode 26 tolerated.
+    private static func needle(_ string: String) -> Data { Data(string.utf8) }
 
     private static let claudeUserNeedles = [
         Data(#""type":"user""#.utf8),
@@ -1064,6 +1097,58 @@ private enum SessionTranscriptLoader {
         Data(#""role":"#.utf8),
         Data(#""role": "#.utf8)
     ]
+    private static let grokAssistantRoleNeedles = [
+        Data(#""role":"assistant""#.utf8),
+        Data(#""role": "assistant""#.utf8),
+        Data(#""type":"assistant""#.utf8),
+        Data(#""type": "assistant""#.utf8)
+    ]
+    private static let grokUserRoleNeedles = [
+        Data(#""role":"user""#.utf8),
+        Data(#""role": "user""#.utf8),
+        Data(#""type":"user""#.utf8),
+        Data(#""type": "user""#.utf8)
+    ]
+    private static let grokSystemRoleNeedles = [
+        Data(#""role":"system""#.utf8),
+        Data(#""role": "system""#.utf8),
+        Data(#""role":"developer""#.utf8),
+        Data(#""role": "developer""#.utf8),
+        Data(#""type":"system""#.utf8),
+        Data(#""type": "system""#.utf8),
+        Data(#""type":"developer""#.utf8),
+        Data(#""type": "developer""#.utf8)
+    ]
+    private static let grokToolRoleNeedles = [
+        needle(#""role":"tool""#),
+        needle(#""role": "tool""#),
+        needle(#""role":"tool_use""#),
+        needle(#""role": "tool_use""#),
+        needle(#""role":"tool_result""#),
+        needle(#""role": "tool_result""#),
+        needle(#""role":"function_call""#),
+        needle(#""role": "function_call""#),
+        needle(#""role":"function_call_output""#),
+        needle(#""role": "function_call_output""#),
+        needle(#""type":"tool""#),
+        needle(#""type": "tool""#),
+        needle(#""type":"tool_use""#),
+        needle(#""type": "tool_use""#),
+        needle(#""type":"tool_result""#),
+        needle(#""type": "tool_result""#),
+        needle(#""type":"function_call""#),
+        needle(#""type": "function_call""#),
+        needle(#""type":"function_call_output""#),
+        needle(#""type": "function_call_output""#)
+    ]
+    private static let grokRoleNeedles = [
+        needle(#""role":"#),
+        needle(#""role": "#)
+    ]
+        + grokAssistantRoleNeedles
+        + grokUserRoleNeedles
+        + grokSystemRoleNeedles
+        + grokToolRoleNeedles
 
     static func load(entry: SessionEntry) async throws -> [SessionTranscriptTurn] {
         if entry.agent == .opencode {
@@ -1084,12 +1169,27 @@ private enum SessionTranscriptLoader {
             throw SessionTranscriptLoadError.missingFile
         }
         let agent = entry.agent
+        let sessionId = entry.sessionId
+        if agent.id == "antigravity" {
+            return try await Task.detached(priority: .userInitiated) {
+                try loadAntigravityHistorySynchronously(from: url, sessionId: sessionId)
+            }.value
+        }
+        let usesGrokTranscriptLayout = entry.usesGrokTranscriptLayout
         return try await Task.detached(priority: .userInitiated) {
-            try loadSynchronously(from: url, agent: agent)
+            try loadSynchronously(
+                from: url,
+                agent: agent,
+                usesGrokTranscriptLayout: usesGrokTranscriptLayout
+            )
         }.value
     }
 
-    private static func loadSynchronously(from url: URL, agent: SessionAgent) throws -> [SessionTranscriptTurn] {
+    private static func loadSynchronously(
+        from url: URL,
+        agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool
+    ) throws -> [SessionTranscriptTurn] {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw SessionTranscriptLoadError.missingFile
         }
@@ -1130,7 +1230,12 @@ private enum SessionTranscriptLoader {
                 didHitTurnLimit = turns.count >= maxPreviewTurns
                 return
             }
-            guard let parsed = parseLineData(lineData, agent: agent, id: lineIndex) else {
+            guard let parsed = parseLineData(
+                lineData,
+                agent: agent,
+                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                id: lineIndex
+            ) else {
                 return
             }
             turns.append(parsed)
@@ -1145,8 +1250,16 @@ private enum SessionTranscriptLoader {
                 if remainingCapacity > 0 {
                     lineData.append(contentsOf: segment.prefix(remainingCapacity))
                 }
-                if shouldParseRawLine(lineData, agent: agent) {
-                    oversizedPreviewRole = inferredRole(from: lineData, agent: agent) ?? .event
+                if shouldParseRawLine(
+                    lineData,
+                    agent: agent,
+                    usesGrokTranscriptLayout: usesGrokTranscriptLayout
+                ) {
+                    oversizedPreviewRole = inferredRole(
+                        from: lineData,
+                        agent: agent,
+                        usesGrokTranscriptLayout: usesGrokTranscriptLayout
+                    ) ?? .event
                 }
                 lineData.removeAll(keepingCapacity: true)
                 isSkippingOversizedLine = true
@@ -1184,6 +1297,51 @@ private enum SessionTranscriptLoader {
         }
 
         return coalesce(turns)
+    }
+
+    private static func loadAntigravityHistorySynchronously(
+        from url: URL,
+        sessionId: String
+    ) throws -> [SessionTranscriptTurn] {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw SessionTranscriptLoadError.missingFile
+        }
+
+        var turns: [SessionTranscriptTurn] = []
+        var lineIndex = 0
+        var didHitTurnLimit = false
+        let agent = SessionAgent.registered(RegisteredSessionAgent(id: "antigravity"))
+
+        SessionIndexStore.forEachJSONLine(url: url, maxBytes: Int.max) { object in
+            defer { lineIndex += 1 }
+            if Task.isCancelled { return true }
+            guard turns.count < maxPreviewTurns else {
+                didHitTurnLimit = true
+                return true
+            }
+            guard antigravityHistorySessionID(in: object) == sessionId else {
+                return false
+            }
+            let content = object["display"] ?? object["prompt"] ?? object["text"] ?? object["message"]
+            guard let text = normalizedText(from: content, role: .user, agent: agent) else {
+                return false
+            }
+            turns.append(SessionTranscriptTurn(id: lineIndex, role: .user, text: text))
+            return false
+        }
+        if didHitTurnLimit {
+            appendTurnLimitMarker(to: &turns, id: lineIndex)
+        }
+        return coalesce(turns)
+    }
+
+    private static func antigravityHistorySessionID(in object: [String: Any]) -> String? {
+        for key in ["conversationId", "conversation_id", "sessionId", "session_id", "id"] {
+            guard let value = object[key] as? String else { continue }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
     }
 
     private static func loadOpenCodeSynchronously(sessionId: String) throws -> [SessionTranscriptTurn] {
@@ -1308,19 +1466,26 @@ private enum SessionTranscriptLoader {
     private static func parseLineData(
         _ lineData: Data,
         agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool,
         id: Int
     ) -> SessionTranscriptTurn? {
         guard !lineData.isEmpty,
-              shouldParseRawLine(lineData, agent: agent),
+              shouldParseRawLine(lineData, agent: agent, usesGrokTranscriptLayout: usesGrokTranscriptLayout),
               let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
             return nil
         }
-        return parseLine(object, agent: agent, id: id)
+        return parseLine(
+            object,
+            agent: agent,
+            usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+            id: id
+        )
     }
 
     private static func parseLine(
         _ object: [String: Any],
         agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool,
         id: Int
     ) -> SessionTranscriptTurn? {
         switch agent {
@@ -1328,8 +1493,13 @@ private enum SessionTranscriptLoader {
             return parseClaudeLine(object, id: id)
         case .codex:
             return parseCodexLine(object, id: id)
-        case .opencode, .rovodev, .registered:
-            return parseGenericLine(object, agent: agent, id: id)
+        case .grok, .opencode, .rovodev, .registered:
+            return parseGenericLine(
+                object,
+                agent: agent,
+                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                id: id
+            )
         case .hermesAgent:
             return nil
         }
@@ -1378,17 +1548,33 @@ private enum SessionTranscriptLoader {
     private static func parseGenericLine(
         _ object: [String: Any],
         agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool,
         id: Int
     ) -> SessionTranscriptTurn? {
-        if let parsed = parseGenericMessage(object, agent: agent, id: id) {
+        if let parsed = parseGenericMessage(
+            object,
+            agent: agent,
+            usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+            id: id
+        ) {
             return parsed
         }
         if let payload = object["payload"] as? [String: Any],
-           let parsed = parseGenericMessage(payload, agent: agent, id: id) {
+           let parsed = parseGenericMessage(
+               payload,
+               agent: agent,
+               usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+               id: id
+           ) {
             return parsed
         }
         if let message = object["message"] as? [String: Any],
-           let parsed = parseGenericMessage(message, agent: agent, id: id) {
+           let parsed = parseGenericMessage(
+               message,
+               agent: agent,
+               usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+               id: id
+           ) {
             return parsed
         }
         return nil
@@ -1397,10 +1583,31 @@ private enum SessionTranscriptLoader {
     private static func parseGenericMessage(
         _ object: [String: Any],
         agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool,
         id: Int
     ) -> SessionTranscriptTurn? {
         let fallbackRole: SessionTranscriptRole? = { if case .registered = agent { return .event }; return nil }()
-        guard let role = transcriptRole(from: object["role"] as? String) ?? fallbackRole else {
+        let rawRole = object["role"] as? String
+        let parsedRole = transcriptRole(from: rawRole)
+        let roleFromRole = usesGrokTranscriptLayout
+            && parsedRole == .event
+            && rawRole?.caseInsensitiveCompare("event") != .orderedSame
+            ? nil
+            : parsedRole
+        let shouldUseGrokTypeRole = usesGrokTranscriptLayout
+            && roleFromRole == nil
+        let roleFromType: SessionTranscriptRole? = {
+            guard shouldUseGrokTypeRole else { return nil }
+            let rawType = object["type"] as? String
+            let parsedTypeRole = transcriptRole(from: rawType)
+            if parsedTypeRole == .event,
+               rawType?.caseInsensitiveCompare("event") != .orderedSame {
+                return nil
+            }
+            return parsedTypeRole
+        }()
+        let shouldUseFallbackRole = !usesGrokTranscriptLayout
+        guard let role = roleFromType ?? roleFromRole ?? (shouldUseFallbackRole ? fallbackRole : nil) else {
             return nil
         }
         let content = object["content"] ?? object["text"] ?? object["message"]
@@ -1604,13 +1811,22 @@ private enum SessionTranscriptLoader {
         }
     }
 
-    private static func shouldParseRawLine(_ data: Data, agent: SessionAgent) -> Bool {
+    private static func shouldParseRawLine(
+        _ data: Data,
+        agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool
+    ) -> Bool {
+        if usesGrokTranscriptLayout {
+            return containsAny(data, needles: grokRoleNeedles)
+        }
         switch agent {
         case .claude:
             return containsAny(data, needles: claudeUserNeedles)
         case .codex:
             return containsAny(data, needles: codexResponseItemNeedles)
                 && containsAny(data, needles: codexPreviewNeedles)
+        case .grok:
+            return containsAny(data, needles: grokRoleNeedles)
         case .opencode, .rovodev:
             return containsAny(data, needles: genericRoleNeedles)
         case .registered:
@@ -1620,7 +1836,14 @@ private enum SessionTranscriptLoader {
         }
     }
 
-    private static func inferredRole(from data: Data, agent: SessionAgent) -> SessionTranscriptRole? {
+    private static func inferredRole(
+        from data: Data,
+        agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool
+    ) -> SessionTranscriptRole? {
+        if usesGrokTranscriptLayout {
+            return inferredGrokRole(from: data)
+        }
         switch agent {
         case .claude:
             if containsAny(data, needles: [Data(#""type":"assistant""#.utf8), Data(#""type": "assistant""#.utf8)]) {
@@ -1639,8 +1862,26 @@ private enum SessionTranscriptLoader {
             if containsAny(data, needles: [Data(#""type":"function_call""#.utf8), Data(#""type": "function_call""#.utf8)]) {
                 return .tool
             }
+        case .grok:
+            return inferredGrokRole(from: data)
         case .hermesAgent:
             return nil
+        }
+        return nil
+    }
+
+    private static func inferredGrokRole(from data: Data) -> SessionTranscriptRole? {
+        if containsAny(data, needles: grokAssistantRoleNeedles) {
+            return .assistant
+        }
+        if containsAny(data, needles: grokUserRoleNeedles) {
+            return .user
+        }
+        if containsAny(data, needles: grokSystemRoleNeedles) {
+            return .system
+        }
+        if containsAny(data, needles: grokToolRoleNeedles) {
+            return .tool
         }
         return nil
     }
@@ -1911,7 +2152,7 @@ private struct SectionPopoverView: View {
             HStack(spacing: 8) {
                 sectionIconView
                 Text(section.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .cmuxFont(size: 13, weight: .semibold)
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -1923,7 +2164,7 @@ private struct SectionPopoverView: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .foregroundColor(.secondary)
                 TextField(
                     String(localized: "sessionIndex.popover.searchPlaceholder",
@@ -1931,14 +2172,14 @@ private struct SectionPopoverView: View {
                     text: $query
                 )
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .focused($searchFieldFocused)
                 if !query.isEmpty {
                     Button {
                         query = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
+                            .cmuxFont(size: 11)
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
@@ -1960,10 +2201,10 @@ private struct SectionPopoverView: View {
                     ForEach(errorMessages, id: \.self) { msg in
                         HStack(alignment: .top, spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 10))
+                                .cmuxFont(size: 10)
                                 .foregroundColor(.orange)
                             Text(msg)
-                                .font(.system(size: 11))
+                                .cmuxFont(size: 11)
                                 .foregroundColor(.primary.opacity(0.85))
                         }
                     }
@@ -1980,7 +2221,7 @@ private struct SectionPopoverView: View {
                     } else if loaded.isEmpty {
                         Text(String(localized: "sessionIndex.popover.noMatches",
                                     defaultValue: "No matches"))
-                            .font(.system(size: 12))
+                            .cmuxFont(size: 12)
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
@@ -2003,7 +2244,7 @@ private struct SectionPopoverView: View {
                         } else {
                             Text(String(localized: "sessionIndex.popover.endOfList",
                                         defaultValue: "You've reached the end"))
-                                .font(.system(size: 11))
+                                .cmuxFont(size: 11)
                                 .foregroundColor(.secondary.opacity(0.5))
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.vertical, 8)
@@ -2121,7 +2362,7 @@ private struct SectionPopoverView: View {
         HStack(spacing: 6) {
             ProgressView().controlSize(.small)
             Text(String(localized: "sessionIndex.popover.loading", defaultValue: "Loading…"))
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundColor(.secondary)
             Spacer(minLength: 0)
         }
@@ -2207,7 +2448,7 @@ private struct SectionPopoverView: View {
             AgentIconImage(agent: agent, size: 14)
         case .folder:
             Image(systemName: "folder")
-                .font(.system(size: 12, weight: .regular))
+                .cmuxFont(size: 12, weight: .regular)
                 .foregroundColor(.secondary)
                 .frame(width: 14, height: 14)
         }
@@ -2245,7 +2486,7 @@ private struct PopoverRow: View, Equatable {
         TimelineView(RelativeTimestampSchedule(modified: entry.modified)) { context in
             Text(SessionIndexView.relativeFormatter.localizedString(for: entry.modified, relativeTo: context.date))
         }
-        .font(.system(size: 11).monospacedDigit())
+        .cmuxFont(size: 11, monospacedDigit: true)
         .foregroundColor(.secondary.opacity(0.7))
         .fixedSize()
     }
@@ -2258,7 +2499,7 @@ private struct PopoverRow: View, Equatable {
             // always constrain a Text that has hard line breaks in the
             // source string.
             Text(Self.flatten(entry.displayTitle))
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .foregroundColor(.primary.opacity(0.92))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -2315,6 +2556,7 @@ private struct MirrorTabItem: Codable {
     let isDirty: Bool
     let showsNotificationBadge: Bool
     let isLoading: Bool
+    let isAudioMuted: Bool
     let isPinned: Bool
 }
 
@@ -2338,6 +2580,7 @@ private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Da
             isDirty: false,
             showsNotificationBadge: false,
             isLoading: false,
+            isAudioMuted: false,
             isPinned: false
         ),
         sourcePaneId: UUID(),

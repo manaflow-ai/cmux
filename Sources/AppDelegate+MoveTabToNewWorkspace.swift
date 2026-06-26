@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 
 struct SurfaceNewWorkspaceMoveResult {
     let sourceWindowId: UUID
@@ -36,6 +37,22 @@ extension AppDelegate {
         return true
     }
 
+    func workspaceMoveTargets(forSurface panelId: UUID) -> [WorkspaceMoveTarget] {
+        guard let source = locateSurface(surfaceId: panelId) else { return [] }
+        return workspaceMoveTargets(
+            excludingWorkspaceId: source.workspaceId,
+            referenceWindowId: source.windowId
+        )
+    }
+
+    func workspaceMoveTargets(forBonsplitTab tabId: UUID) -> [WorkspaceMoveTarget] {
+        guard let located = locateBonsplitSurface(tabId: tabId) else { return [] }
+        return workspaceMoveTargets(
+            excludingWorkspaceId: located.workspaceId,
+            referenceWindowId: located.windowId
+        )
+    }
+
     @discardableResult
     func moveBonsplitTabToNewWorkspace(
         tabId: UUID,
@@ -43,7 +60,7 @@ extension AppDelegate {
         title: String? = nil,
         focus: Bool = true,
         focusWindow: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil,
+        placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil
     ) -> SurfaceNewWorkspaceMoveResult? {
         guard let located = locateBonsplitSurface(tabId: tabId) else { return nil }
@@ -65,7 +82,7 @@ extension AppDelegate {
         title: String? = nil,
         focus: Bool = true,
         focusWindow: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil,
+        placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil
     ) -> SurfaceNewWorkspaceMoveResult? {
         guard let source = locateSurface(surfaceId: panelId),
@@ -76,6 +93,10 @@ extension AppDelegate {
         }
 
         let targetManager = destinationManager ?? source.tabManager
+        let hasExplicitTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        if !hasExplicitTitle {
+            source.tabManager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
+        }
         let destinationTitle = titleForDetachedWorkspace(
             explicitTitle: title,
             workspace: sourceWorkspace,

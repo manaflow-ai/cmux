@@ -1,11 +1,13 @@
 import Foundation
 import Combine
+import CmuxTerminal
 
 @MainActor
 final class BackgroundWorkspacePrimeCoordinator {
     private nonisolated enum PrimeCompletionReason: String {
         case alreadyCleared = "already_cleared"
         case cancelled
+        case noSurfaceWork = "no_surface_work"
         case surfaceReady = "surface_ready"
         case timeout
         case workspaceRemoved = "workspace_removed"
@@ -119,7 +121,7 @@ final class BackgroundWorkspacePrimeCoordinator {
                     continue
                 case .cancelled:
                     continue
-                case .alreadyCleared, .surfaceReady, .workspaceRemoved:
+                case .alreadyCleared, .noSurfaceWork, .surfaceReady, .workspaceRemoved:
                     continue
                 }
             }
@@ -134,6 +136,19 @@ final class BackgroundWorkspacePrimeCoordinator {
             tabManager.releaseBackgroundWorkspaceMount(for: workspaceId)
             return .alreadyCleared
         }
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
+            return .workspaceRemoved
+        }
+        guard workspace.hasBackgroundPrimeTerminalSurfaceStartWork() else {
+            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
+            return .noSurfaceWork
+        }
+        guard !workspace.hasLoadedBackgroundPrimeTerminalSurface() else {
+            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
+            return .surfaceReady
+        }
+
         tabManager.retainBackgroundWorkspaceMount(for: workspaceId)
 
 #if DEBUG
@@ -171,6 +186,14 @@ final class BackgroundWorkspacePrimeCoordinator {
         guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
             tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             return .completed(reason: .workspaceRemoved)
+        }
+        guard workspace.hasBackgroundPrimeTerminalSurfaceStartWork() else {
+            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
+            return .completed(reason: .noSurfaceWork)
+        }
+        guard !workspace.hasLoadedBackgroundPrimeTerminalSurface() else {
+            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
+            return .completed(reason: .surfaceReady)
         }
 
         workspace.requestBackgroundPrimeTerminalSurfaceStartIfNeeded()
@@ -275,7 +298,7 @@ final class BackgroundWorkspacePrimeCoordinator {
             }
         waiter.addCancellable(pendingObserver)
 
-        let tabsObserver = tabManager.$tabs
+        let tabsObserver = tabManager.tabsPublisher
             .dropFirst()
             .sink { [weak self, weak waiter, weak tabManager] tabs in
                 guard !tabs.contains(where: { $0.id == workspaceId }),

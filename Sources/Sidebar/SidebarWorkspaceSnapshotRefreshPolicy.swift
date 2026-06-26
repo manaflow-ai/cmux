@@ -4,6 +4,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let customDescription: String?
         let isPinned: Bool
         let customColorHex: String?
+        let finderDirectoryPath: String?
+        let mediaActivity: BrowserMediaActivity
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -11,7 +13,9 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
-            customColorHex: customColorHex
+            customColorHex: customColorHex,
+            finderDirectoryPath: finderDirectoryPath,
+            mediaActivity: mediaActivity
         )
     }
 
@@ -26,6 +30,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
+            showsRemoteReconnectAffordance: showsRemoteReconnectAffordance,
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: latestConversationMessage,
             metadataEntries: metadataEntries,
@@ -33,11 +38,16 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             latestLog: latestLog,
             progress: progress,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
-            compactBranchDirectoryRow: compactBranchDirectoryRow,
+            compactDirectoryCandidates: compactDirectoryCandidates,
+            compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
             branchDirectoryLines: branchDirectoryLines,
             branchLinesContainBranch: branchLinesContainBranch,
             pullRequestRows: pullRequestRows,
-            listeningPorts: listeningPorts
+            listeningPorts: listeningPorts,
+            finderDirectoryPath: snapshot.finderDirectoryPath,
+            // Media activity drives a leading row glyph, so stale values are
+            // visually worse than ordinary telemetry text while the menu is open.
+            mediaActivity: snapshot.mediaActivity
         )
     }
 }

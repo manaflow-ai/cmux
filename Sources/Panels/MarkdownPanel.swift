@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Combine
 import Foundation
 
@@ -49,13 +50,33 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 
+    /// Body font size for the preview renderer, in points. Drives the
+    /// WKWebView `pageZoom` so `--font-size` and Cmd-+/Cmd-- scale the rendered
+    /// document the way browser zoom scales a browser surface. Per-panel and
+    /// transient; the persistent default lives in `MarkdownFontSizeSettings`.
+    @Published private(set) var fontSize: Double
+
+    /// Body prose font family for the preview renderer, as an installed
+    /// font-family name. Empty string means the System default (the GitHub
+    /// stack). Applied as an inline `font-family` on the rendered content; code
+    /// blocks stay monospace. Per-panel; the persistent default lives in
+    /// `MarkdownFontFamily`.
+    @Published private(set) var fontFamily: String
+
+    /// Maximum width for the rendered markdown content column, in CSS pixels.
+    /// Per-panel and transient; the persistent default lives in
+    /// `MarkdownMaxWidthSettings`.
+    @Published private(set) var maxContentWidth: Double
+
+    /// Stable markdown renderer state. Keep this panel-owned so split/tab
+    /// layout churn does not recreate the WKWebView and flash existing content.
+    let rendererSession = MarkdownRendererSession()
+
     // MARK: - File watching
 
-    // nonisolated(unsafe) because deinit is not guaranteed to run on the
-    // main actor, but DispatchSource.cancel() is thread-safe.
-    private nonisolated(unsafe) var fileWatchSource: DispatchSourceFileSystemObject?
-    private nonisolated(unsafe) var directoryWatchSource: DispatchSourceFileSystemObject?
-    private var directoryWatchPath: String?
+    // Watches `filePath` (file + ancestor-directory recovery) via CmuxFileWatch.
+    private var fileWatcher: FileWatcher?
+    private var fileWatchTask: Task<Void, Never>?
     private var originalTextContent: String = ""
     private var textEncoding: String.Encoding = .utf8
     private var saveGeneration: Int = 0
@@ -63,18 +84,149 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var pendingSearchNeedle: String?
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
-    private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
+    // NotificationCenter token; removal is thread-safe so deinit can drop it.
+    private nonisolated(unsafe) var typographyDefaultsObserver: NSObjectProtocol?
+    // The typography default this viewer is currently tracking. While the panel
+    // still matches it, a default change (Set as Default / cmux.json reload) is
+    // adopted; once the user customizes the panel it diverges and is left alone.
+    private var followedFontSize: Double
+    private var followedFontFamily: String
+    private var followedMaxContentWidth: Double
 
     // MARK: - Init
 
-    init(workspaceId: UUID, filePath: String) {
+    /// - Parameter fontSize: Initial body font size in points. When `nil`, the
+    ///   panel uses the persistent `markdown.fontSize` default. The value is
+    ///   clamped to the supported range.
+    init(workspaceId: UUID, filePath: String, fontSize: Double? = nil) {
+        let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
+        let defaultFamily = MarkdownFontFamily.resolvedDefault()
+        let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
+        self.fontFamily = defaultFamily
+        self.maxContentWidth = defaultMaxWidth
+        self.followedFontSize = defaultSize
+        self.followedFontFamily = defaultFamily
+        self.followedMaxContentWidth = defaultMaxWidth
         self.displayTitle = (filePath as NSString).lastPathComponent
 
         loadFileContent()
-        startFileWatcher()
+        startWatching()
+        observeTypographyDefaults()
+    }
+
+    /// Adopt a changed typography default (from another viewer's "Set as Default"
+    /// or a `cmux.json` reload), but only while this viewer still matches the
+    /// default it was tracking — i.e. the user has not customized it.
+    private func observeTypographyDefaults() {
+        typographyDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.adoptTypographyDefaultsIfFollowing()
+            }
+        }
+    }
+
+    private func adoptTypographyDefaultsIfFollowing() {
+        guard !isClosed else { return }
+        // Only viewers still tracking the default follow the change.
+        guard abs(fontSize - followedFontSize) < 0.01,
+              fontFamily == followedFontFamily,
+              abs(maxContentWidth - followedMaxContentWidth) < 0.01 else { return }
+        let newSize = MarkdownFontSizeSettings.resolvedDefault()
+        let newFamily = MarkdownFontFamily.resolvedDefault()
+        let newMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
+        _ = setFontSize(newSize)
+        _ = setFontFamily(newFamily)
+        _ = setMaxContentWidth(newMaxWidth)
+        followedFontSize = newSize
+        followedFontFamily = newFamily
+        followedMaxContentWidth = newMaxWidth
+    }
+
+    // MARK: - Font size / zoom
+
+    /// Increases the preview font size by one step. Returns `true` if the size
+    /// changed (so callers can beep when already at the maximum).
+    @discardableResult
+    func zoomIn() -> Bool {
+        setFontSize(fontSize + MarkdownFontSizeSettings.stepPointSize)
+    }
+
+    /// Decreases the preview font size by one step. Returns `true` if the size
+    /// changed (so callers can beep when already at the minimum).
+    @discardableResult
+    func zoomOut() -> Bool {
+        setFontSize(fontSize - MarkdownFontSizeSettings.stepPointSize)
+    }
+
+    /// Resets the preview font size to the configured `markdown.fontSize`
+    /// default. Returns `true` if the size changed.
+    @discardableResult
+    func resetZoom() -> Bool {
+        setFontSize(MarkdownFontSizeSettings.resolvedDefault())
+    }
+
+    /// Sets the preview font size to an explicit point value (clamped). Used by
+    /// the header font-size popover's manual entry. Returns `true` if changed.
+    @discardableResult
+    func setFontSize(_ candidate: Double) -> Bool {
+        let clamped = MarkdownFontSizeSettings.clamp(candidate)
+        guard abs(clamped - fontSize) > 0.0001 else { return false }
+        fontSize = clamped
+        return true
+    }
+
+    /// Sets the preview body prose font family (an installed font-family name,
+    /// or empty for the System default). Returns `true` if changed.
+    @discardableResult
+    func setFontFamily(_ family: String) -> Bool {
+        let normalized = MarkdownFontFamily.normalized(family)
+        guard normalized != fontFamily else { return false }
+        fontFamily = normalized
+        return true
+    }
+
+    /// Sets the rendered markdown content column max width, in CSS pixels.
+    /// Returns `true` if changed.
+    @discardableResult
+    func setMaxContentWidth(_ candidate: Double) -> Bool {
+        let clamped = MarkdownMaxWidthSettings.clamp(candidate)
+        guard abs(clamped - maxContentWidth) > 0.0001 else { return false }
+        maxContentWidth = clamped
+        return true
+    }
+
+    /// Resets typography to the configured defaults. Used by the popover's
+    /// "Reset to default" action.
+    func resetTypography() {
+        let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
+        let defaultFamily = MarkdownFontFamily.resolvedDefault()
+        let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
+        _ = setFontSize(defaultSize)
+        _ = setFontFamily(defaultFamily)
+        _ = setMaxContentWidth(defaultMaxWidth)
+        followedFontSize = defaultSize
+        followedFontFamily = defaultFamily
+        followedMaxContentWidth = defaultMaxWidth
+    }
+
+    /// Clears persisted markdown typography defaults and resets this viewer to
+    /// the built-in app defaults.
+    func resetTypographyToBuiltInDefaults() {
+        MarkdownTypographyDefaults.resetToBuiltInDefaults()
+        _ = setFontSize(MarkdownFontSizeSettings.defaultPointSize)
+        _ = setFontFamily(MarkdownFontFamily.systemDefault)
+        _ = setMaxContentWidth(MarkdownMaxWidthSettings.defaultCSSPixels)
+        followedFontSize = MarkdownFontSizeSettings.defaultPointSize
+        followedFontFamily = MarkdownFontFamily.systemDefault
+        followedMaxContentWidth = MarkdownMaxWidthSettings.defaultCSSPixels
     }
 
     // MARK: - Panel protocol
@@ -91,9 +243,14 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func close() {
         isClosed = true
+        rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
         stopWatching()
+        if let typographyDefaultsObserver {
+            NotificationCenter.default.removeObserver(typographyDefaultsObserver)
+            self.typographyDefaultsObserver = nil
+        }
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -261,164 +418,35 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         pendingSearchNeedle = nil
     }
 
-    // MARK: - File watcher via DispatchSource
+    // MARK: - File watcher
 
-    private func startFileWatcher() {
-        stopFileWatcher()
-
-        let fd = open(filePath, O_EVTONLY)
-        guard fd >= 0 else {
-            startDirectoryWatcher()
-            return
-        }
-
-        stopDirectoryWatcher()
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename, .extend],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            let flags = source.data
-            if flags.contains(.delete) || flags.contains(.rename) {
-                // File was deleted or renamed. The old file descriptor points to
-                // a stale inode, so we must always stop and reattach the watcher
-                // even if the new file is already readable (atomic save case).
-                DispatchQueue.main.async {
-                    guard !self.isClosed else { return }
-                    self.stopFileWatcher()
-                    self.loadFileContent(replacingDirtyContent: false)
-                    // Reattach to the replacement inode when atomic-save
-                    // already created it; otherwise watch the directory until
-                    // the file comes back.
-                    self.startFileWatcher()
-                }
-            } else {
-                // Content changed — reload.
-                DispatchQueue.main.async {
-                    guard !self.isClosed else { return }
-                    self.loadFileContent(replacingDirtyContent: false)
-                }
-            }
-        }
-
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
-
-        source.resume()
-        fileWatchSource = source
-    }
-
-    private func startDirectoryWatcher() {
-        for directoryPath in existingDirectoryCandidatesForWatcher() {
-            if directoryWatchPath == directoryPath, directoryWatchSource != nil {
-                return
-            }
-
-            let fd = open(directoryPath, O_EVTONLY)
-            guard fd >= 0 else { continue }
-
-            stopDirectoryWatcher()
-
-            installDirectoryWatcher(fileDescriptor: fd, directoryPath: directoryPath)
-            return
-        }
-    }
-
-    private func installDirectoryWatcher(fileDescriptor fd: Int32, directoryPath: String) {
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename, .extend],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            let flags = source.data
-            DispatchQueue.main.async {
-                guard !self.isClosed else { return }
-                if flags.contains(.delete) || flags.contains(.rename) {
-                    // The watched directory inode changed. Drop the stale file
-                    // descriptor before reattaching, even if the replacement is
-                    // created at the same path string.
-                    self.stopDirectoryWatcher()
-                }
+    /// Watches ``filePath`` for changes via ``CmuxFileWatch/FileWatcher``, which
+    /// handles inode reattachment and nearest-existing-ancestor recovery
+    /// internally; each change reloads the content.
+    private func startWatching() {
+        stopWatching()
+        let watcher = FileWatcher(path: filePath)
+        fileWatcher = watcher
+        let events = watcher.events
+        fileWatchTask = Task { @MainActor [weak self] in
+            for await _ in events {
+                guard let self, !self.isClosed else { break }
                 self.loadFileContent(replacingDirtyContent: false)
-                if !self.isFileUnavailable {
-                    self.startFileWatcher()
-                } else {
-                    // If we were watching an ancestor, a child directory may
-                    // have been recreated. Move the watcher as close to the
-                    // target file as possible.
-                    self.startDirectoryWatcher()
-                }
             }
         }
-
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
-
-        source.resume()
-        directoryWatchSource = source
-        directoryWatchPath = directoryPath
-    }
-
-    private func existingDirectoryCandidatesForWatcher() -> [String] {
-        let fileManager = FileManager.default
-        var current = (filePath as NSString).deletingLastPathComponent
-        if current.isEmpty {
-            current = fileManager.currentDirectoryPath
-        }
-
-        var candidates: [String] = []
-        var seen = Set<String>()
-        while !current.isEmpty {
-            let standardized = (current as NSString).standardizingPath
-            guard seen.insert(standardized).inserted else { break }
-
-            var isDirectory: ObjCBool = false
-            if fileManager.fileExists(atPath: standardized, isDirectory: &isDirectory),
-               isDirectory.boolValue {
-                candidates.append(standardized)
-            }
-
-            let parent = (standardized as NSString).deletingLastPathComponent
-            if parent == standardized || parent.isEmpty {
-                break
-            }
-            current = parent
-        }
-        return candidates
-    }
-
-    private func stopFileWatcher() {
-        if let source = fileWatchSource {
-            source.cancel()
-            fileWatchSource = nil
-        }
-    }
-
-    private func stopDirectoryWatcher() {
-        if let source = directoryWatchSource {
-            source.cancel()
-            directoryWatchSource = nil
-        }
-        directoryWatchPath = nil
     }
 
     private func stopWatching() {
-        stopFileWatcher()
-        stopDirectoryWatcher()
+        fileWatchTask?.cancel()
+        fileWatchTask = nil
+        // Dropping the watcher runs its deinit, cancelling the DispatchSources.
+        fileWatcher = nil
     }
 
     deinit {
-        // DispatchSource cancel is safe from any thread.
-        fileWatchSource?.cancel()
-        directoryWatchSource?.cancel()
+        fileWatchTask?.cancel()
+        if let typographyDefaultsObserver {
+            NotificationCenter.default.removeObserver(typographyDefaultsObserver)
+        }
     }
 }

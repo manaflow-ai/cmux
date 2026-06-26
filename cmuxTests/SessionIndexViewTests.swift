@@ -56,31 +56,176 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
-    func testClaudeResumeCommandPinsConfigDirectoryFromFileURL() {
+    func testClaudeResumeCommandPinsSnapshotConfigDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude config", isDirectory: true)
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("-tmp", isDirectory: true)
+            .appendingPathComponent("claude-session-123.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(#"{"oauthAccount":{"email":"user@example.com"}}"#.utf8)
+            .write(to: configDir.appendingPathComponent(".claude.json", isDirectory: false))
+
         let entry = makeEntry(
             sessionId: "claude-session-123",
             title: "resume me",
-            fileURL: URL(fileURLWithPath: "/tmp/claude config/projects/-tmp/claude-session-123.jsonl")
+            fileURL: transcriptURL,
+            claudeConfigDirectoryForResume: configDir.path
         )
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='/tmp/claude config' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
+            posixShWrappedForTest("env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" --resume claude-session-123")
         )
     }
 
-    func testClaudeResumeCommandUsesNearestProjectsDirectory() {
+    func testClaudeResumeCommandUsesSnapshotConfigDirectoryWithNestedProjectsPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configDir = root
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("claude config", isDirectory: true)
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("-tmp", isDirectory: true)
+            .appendingPathComponent("claude-session-123.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(#"{"oauthAccount":{"email":"user@example.com"}}"#.utf8)
+            .write(to: configDir.appendingPathComponent(".claude.json", isDirectory: false))
+
         let entry = makeEntry(
             sessionId: "claude-session-123",
             title: "resume me",
-            fileURL: URL(
-                fileURLWithPath: "/tmp/projects/claude config/projects/-tmp/claude-session-123.jsonl"
+            fileURL: transcriptURL,
+            claudeConfigDirectoryForResume: configDir.path
+        )
+
+        XCTAssertEqual(
+            entry.resumeCommand,
+            posixShWrappedForTest("env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" --resume claude-session-123")
+        )
+    }
+
+    func testGrokResumeCommandPreservesSpecifics() {
+        let entry = makeEntry(
+            agent: .grok,
+            sessionId: "grok-session-123",
+            title: "resume me",
+            specifics: .grok(
+                model: "grok-4",
+                permissionMode: "auto",
+                sandboxMode: "danger-full-access",
+                grokHome: "/tmp/grok home"
             )
         )
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='/tmp/projects/claude config' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
+            "'env' 'GROK_HOME=/tmp/grok home' 'grok' '-r' 'grok-session-123' '-m' 'grok-4' '--permission-mode' 'auto' '--sandbox' 'danger-full-access'"
+        )
+    }
+
+    // Regression for https://github.com/manaflow-ai/cmux/issues/5262.
+    // cmux captures Codex's *internal* sandbox-policy `type`, which is a superset of
+    // the values the `--sandbox` CLI flag accepts. A
+    // `--dangerously-bypass-approvals-and-sandbox` launch round-trips to a captured
+    // `(approval: "never", sandbox: "disabled")`; the generator must reproduce that
+    // single combined flag rather than the invalid, contradictory `-a never -s disabled`
+    // (Codex rejects it: `error: invalid value 'disabled' for '--sandbox <SANDBOX_MODE>'`).
+    func testCodexResumeCommandReproducesBypassFlagForDisabledSandbox() {
+        let entry = makeEntry(
+            agent: .codex,
+            sessionId: "codex-session-123",
+            title: "resume me",
+            specifics: .codex(
+                model: "gpt-5.5",
+                approvalPolicy: "never",
+                sandboxMode: "disabled",
+                effort: "high"
+            )
+        )
+
+        let command = entry.resumeCommand ?? ""
+        XCTAssertEqual(
+            command,
+            "codex resume codex-session-123 -m gpt-5.5 --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high"
+        )
+        XCTAssertFalse(
+            command.contains("-s disabled"),
+            "Codex resume must not emit the invalid `-s disabled` flag (issue #5262)"
+        )
+        XCTAssertFalse(
+            command.contains("-a never -s"),
+            "The bypass flag must replace, not accompany, -a/-s"
+        )
+    }
+
+    // The `managed` sandbox type (ChatGPT/cloud-managed) likewise has no `--sandbox`
+    // equivalent, so it must be dropped rather than emitted as the invalid `-s managed`.
+    func testCodexResumeCommandDropsUnsupportedManagedSandbox() {
+        let entry = makeEntry(
+            agent: .codex,
+            sessionId: "codex-session-managed",
+            title: "resume me",
+            specifics: .codex(
+                model: nil,
+                approvalPolicy: "on-request",
+                sandboxMode: "managed",
+                effort: nil
+            )
+        )
+
+        let command = entry.resumeCommand ?? ""
+        XCTAssertEqual(command, "codex resume codex-session-managed -a on-request")
+        XCTAssertFalse(
+            command.contains("-s managed"),
+            "Codex resume must not emit the invalid `-s managed` flag (issue #5262)"
+        )
+    }
+
+    // Valid sandbox values still pass through unchanged, and an explicit
+    // `(never, danger-full-access)` is preserved rather than collapsed into the
+    // bypass flag (the two are semantically distinct in Codex).
+    func testCodexResumeCommandPreservesValidSandboxModes() {
+        let readOnly = makeEntry(
+            agent: .codex,
+            sessionId: "codex-ro",
+            title: "resume me",
+            specifics: .codex(
+                model: nil,
+                approvalPolicy: "untrusted",
+                sandboxMode: "read-only",
+                effort: nil
+            )
+        )
+        XCTAssertEqual(readOnly.resumeCommand, "codex resume codex-ro -a untrusted -s read-only")
+
+        let dangerFullAccess = makeEntry(
+            agent: .codex,
+            sessionId: "codex-dfa",
+            title: "resume me",
+            specifics: .codex(
+                model: "gpt-5.5",
+                approvalPolicy: "never",
+                sandboxMode: "danger-full-access",
+                effort: nil
+            )
+        )
+        XCTAssertEqual(
+            dangerFullAccess.resumeCommand,
+            "codex resume codex-dfa -m gpt-5.5 -a never -s danger-full-access"
         )
     }
 
@@ -96,6 +241,69 @@ final class SessionIndexViewTests: XCTestCase {
         store.setCurrentDirectoryIfChanged("/foo")
 
         XCTAssertEqual(emittedValues, ["/foo"])
+    }
+
+    func testDirectoryOrderBackfillUsesLatestModifiedForDuplicateDirectories() {
+        preservingSessionIndexDefaults {
+            let store = SessionIndexStore()
+            store.directoryOrder = ["/existing"]
+
+            store.replaceEntriesForTesting([
+                makeEntry(title: "old project", cwd: "/project-a", modified: Date(timeIntervalSince1970: 1)),
+                makeEntry(title: "new project", cwd: "/project-b", modified: Date(timeIntervalSince1970: 2)),
+                makeEntry(title: "newer project", cwd: "/project-a", modified: Date(timeIntervalSince1970: 3)),
+                makeEntry(title: "known project", cwd: "/existing", modified: Date(timeIntervalSince1970: 4))
+            ])
+
+            XCTAssertEqual(store.directoryOrder, ["/existing", "/project-a", "/project-b"])
+        }
+    }
+
+    func testDirectoryOrderBackfillUsesPathTieBreakForEqualModifiedDates() {
+        preservingSessionIndexDefaults {
+            let store = SessionIndexStore()
+            let sameModified = Date(timeIntervalSince1970: 10)
+
+            store.replaceEntriesForTesting([
+                makeEntry(title: "project b", cwd: "/project-b", modified: sameModified),
+                makeEntry(title: "project a", cwd: "/project-a", modified: sameModified),
+                makeEntry(title: "project c", cwd: "/project-c", modified: Date(timeIntervalSince1970: 1))
+            ])
+
+            XCTAssertEqual(store.directoryOrder, ["/project-a", "/project-b", "/project-c"])
+        }
+    }
+
+    func testAgentOrderBackfillUsesLatestModifiedForDuplicateAgents() {
+        preservingSessionIndexDefaults {
+            let store = SessionIndexStore()
+            store.agentOrder = [.claude]
+
+            store.replaceEntriesForTesting([
+                makeEntry(agent: .codex, title: "old codex", modified: Date(timeIntervalSince1970: 1)),
+                makeEntry(agent: .grok, title: "grok", modified: Date(timeIntervalSince1970: 2)),
+                makeEntry(agent: .codex, title: "newer codex", modified: Date(timeIntervalSince1970: 3)),
+                makeEntry(agent: .claude, title: "known claude", modified: Date(timeIntervalSince1970: 4))
+            ])
+
+            XCTAssertEqual(store.agentOrder.map(\.rawValue), ["claude", "codex", "grok"])
+        }
+    }
+
+    func testAgentOrderBackfillUsesAgentIdTieBreakForEqualModifiedDates() {
+        preservingSessionIndexDefaults {
+            let store = SessionIndexStore()
+            let sameModified = Date(timeIntervalSince1970: 10)
+            store.agentOrder = []
+
+            store.replaceEntriesForTesting([
+                makeEntry(agent: .grok, title: "grok", modified: sameModified),
+                makeEntry(agent: .codex, title: "codex", modified: sameModified),
+                makeEntry(agent: .claude, title: "claude", modified: Date(timeIntervalSince1970: 1))
+            ])
+
+            XCTAssertEqual(store.agentOrder.map(\.rawValue), ["codex", "grok", "claude"])
+        }
     }
 
     func testCodexSQLSearchMatchesRolloutTranscriptContent() async throws {
@@ -131,6 +339,55 @@ final class SessionIndexViewTests: XCTestCase {
 
         XCTAssertEqual(outcome.errors, [])
         XCTAssertEqual(outcome.entries.map(\.sessionId), ["codex-transcript-match"])
+    }
+
+    // Regression for https://github.com/manaflow-ai/cmux/issues/6302.
+    // The always-visible sidebar list is built from `scanAll()`, which loads
+    // only each agent's 30 most-recent sessions across ALL folders and then
+    // groups that already-capped pool by folder. A folder can therefore
+    // contribute ≤ collapsedRowLimit sessions to the in-memory list even
+    // though more exist on disk. "Show more" is the ONLY trigger for the
+    // complete folder-scoped query (`loadDirectorySnapshot`), so it must be
+    // offered for every directory section regardless of the truncated count —
+    // otherwise the rest of a folder's sessions are permanently unreachable.
+    func testDirectorySectionOffersShowMoreEvenWhenUnderRowLimit() {
+        let section = IndexSection(
+            key: .directory("/Users/me/dev/codexbarlite"),
+            title: "codexbarlite",
+            icon: .folder,
+            entries: [makeEntry(title: "a"), makeEntry(title: "b")]
+        )
+
+        XCTAssertTrue(section.shouldOfferShowMore(rowLimit: 5))
+    }
+
+    func testNoFolderDirectorySectionOffersShowMore() {
+        let section = IndexSection(
+            key: .directory(nil),
+            title: "(no folder)",
+            icon: .folder,
+            entries: [makeEntry(title: "x")]
+        )
+
+        XCTAssertTrue(section.shouldOfferShowMore(rowLimit: 5))
+    }
+
+    func testAgentSectionUsesRowCountThresholdForShowMore() {
+        let under = IndexSection(
+            key: .agent(.claude),
+            title: "Claude",
+            icon: .agent(.claude),
+            entries: [makeEntry(title: "a"), makeEntry(title: "b")]
+        )
+        XCTAssertFalse(under.shouldOfferShowMore(rowLimit: 5))
+
+        let over = IndexSection(
+            key: .agent(.claude),
+            title: "Claude",
+            icon: .agent(.claude),
+            entries: (0..<6).map { makeEntry(title: "s\($0)") }
+        )
+        XCTAssertTrue(over.shouldOfferShowMore(rowLimit: 5))
     }
 
     func testSectionPopoverHostCoordinatorSkipsHiddenRefreshes() {
@@ -233,24 +490,54 @@ final class SessionIndexViewTests: XCTestCase {
         agent: SessionAgent = .claude,
         sessionId: String = UUID().uuidString,
         title: String,
-        fileURL: URL? = nil
+        cwd: String? = nil,
+        modified: Date = Date(timeIntervalSince1970: 0),
+        fileURL: URL? = nil,
+        specifics: AgentSpecifics? = nil,
+        claudeConfigDirectoryForResume: String? = nil
     ) -> SessionEntry {
         SessionEntry(
             id: UUID().uuidString,
             agent: agent,
             sessionId: sessionId,
             title: title,
-            cwd: nil,
+            cwd: cwd,
             gitBranch: nil,
             pullRequest: nil,
-            modified: Date(timeIntervalSince1970: 0),
+            modified: modified,
             fileURL: fileURL,
-            specifics: agent.defaultSpecificsForTesting
+            specifics: specifics ?? agent.defaultSpecificsForTesting(
+                claudeConfigDirectoryForResume: claudeConfigDirectoryForResume
+            )
         )
     }
 
     private func pumpRunLoop() {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    }
+
+    private func preservingSessionIndexDefaults(_ body: () -> Void) {
+        let defaults = UserDefaults.standard
+        let keys = [
+            "sessionIndex.agentOrder",
+            "sessionIndex.directoryOrder",
+            "sessionIndex.grouping"
+        ]
+        let previousValues = keys.map { (key: $0, value: defaults.object(forKey: $0)) }
+        defer {
+            for previousValue in previousValues {
+                if let value = previousValue.value {
+                    defaults.set(value, forKey: previousValue.key)
+                } else {
+                    defaults.removeObject(forKey: previousValue.key)
+                }
+            }
+        }
+
+        for key in keys {
+            defaults.removeObject(forKey: key)
+        }
+        body()
     }
 
     private func makeCodexStateDatabase(
@@ -325,21 +612,41 @@ final class SessionIndexViewTests: XCTestCase {
         guard let cString = sqlite3_errmsg(db) else { return nil }
         return String(cString: cString)
     }
+
+    /// Mirrors `AgentResumeArgv.portableClaudeResumeShellCommand`: the rendered claude
+    /// resume command is wrapped as `/bin/sh -c '…'` so it parses in non-POSIX shells
+    /// (fish/csh/tcsh). https://github.com/manaflow-ai/cmux/issues/5639
+    private func posixShWrappedForTest(_ posixCommand: String) -> String {
+        "/bin/sh -c '" + posixCommand.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
 }
 
 private extension SessionAgent {
-    var defaultSpecificsForTesting: AgentSpecifics {
+    func defaultSpecificsForTesting(
+        claudeConfigDirectoryForResume: String? = nil
+    ) -> AgentSpecifics {
         switch self {
         case .claude:
-            return .claude(model: nil, permissionMode: nil)
+            return .claude(
+                model: nil,
+                permissionMode: nil,
+                configDirectoryForResume: claudeConfigDirectoryForResume
+            )
         case .codex:
             return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+        case .grok:
+            return .grok(model: nil, permissionMode: nil, sandboxMode: nil, grokHome: nil)
         case .opencode:
             return .opencode(providerModel: nil, agentName: nil)
         case .rovodev:
             return .rovodev
         case .hermesAgent:
             return .hermesAgent(source: nil, model: nil, hermesHome: nil)
+        case .registered:
+            // Registered (Vault) agents aren't exercised by these tests; if a
+            // future test reaches this branch, point them at the missing
+            // helper instead of silently returning a misleading default.
+            fatalError("defaultSpecificsForTesting does not support .registered SessionAgent; extend the helper when adding registered-agent coverage")
         }
     }
 }

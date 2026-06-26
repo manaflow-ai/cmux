@@ -88,6 +88,44 @@ body {
   color: var(--fgColor-default);
   background: var(--bgColor-muted);
 }
+.cmux-remote-image-placeholder {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  margin: 0.4em 0;
+  padding: 7px 9px;
+  border: 1px solid var(--borderColor-default);
+  border-radius: 6px;
+  background: var(--bgColor-muted);
+  color: var(--fgColor-muted);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.cmux-remote-image-placeholder strong {
+  color: var(--fgColor-default);
+  font-weight: 600;
+}
+.cmux-remote-image-url {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--fgColor-muted);
+}
+.cmux-remote-image-placeholder button {
+  padding: 3px 7px;
+  border: 1px solid var(--borderColor-default);
+  border-radius: 6px;
+  background: var(--bgColor-default);
+  color: var(--fgColor-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.cmux-remote-image-placeholder button:hover,
+.cmux-remote-image-placeholder button:focus-visible {
+  background: var(--bgColor-neutral-muted);
+}
 /* Mermaid + Vega-Lite blocks. Both libs render into these containers
    lazily; the .cmux-source <pre> holds the raw block source for the
    library to read, hidden from view. */
@@ -97,7 +135,16 @@ body {
   overflow-x: auto;
   text-align: center;
 }
-.cmux-mermaid svg, .cmux-vega canvas, .cmux-vega svg {
+.cmux-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+.cmux-mermaid svg[data-cmux-mermaid-scaled="1"] {
+  display: block;
+  margin-inline: auto;
+  max-width: none;
+}
+.cmux-vega canvas, .cmux-vega svg {
   max-width: 100%;
   height: auto;
 }
@@ -191,7 +238,7 @@ html { scroll-behavior: smooth; }
 </style>
 </head>
 <body>
-<article id="content" class="markdown-body"><p style="color:#f85149">Loading markdown shell…</p></article>
+<article id="content" class="markdown-body"></article>
 <script>
 {{markedJS}}
 </script>
@@ -220,6 +267,14 @@ html { scroll-behavior: smooth; }
   };
   if (!window.marked || !window.hljs) {
     showBootError('marked/highlight libraries did not load');
+  }
+  var cmuxStrings = {{localizedStringsJSON}};
+  function cmuxString(key, fallback, replacements) {
+    var value = String((cmuxStrings && cmuxStrings[key]) || fallback || key);
+    Object.keys(replacements || {}).forEach(function(name) {
+      value = value.split('{' + name + '}').join(String(replacements[name]));
+    });
+    return value;
   }
 
   function escapeHtml(s) {
@@ -339,6 +394,412 @@ html { scroll-behavior: smooth; }
     return out;
   }
 
+  function isSafeDataImageURL(value) {
+    var raw = String(value || '').trim();
+    return /^data:image\/(?:png|jpe?g|gif|webp|avif);base64,[A-Za-z0-9+/=]+$/i.test(raw);
+  }
+
+  function remoteImageInfo(value) {
+    var raw = String(value || '').trim();
+    if (!raw) { return null; }
+    var compact = compactForProtocolCheck(raw);
+    if (compact.indexOf('http:') !== 0 && compact.indexOf('https:') !== 0) {
+      return null;
+    }
+    try {
+      var parsed = new URL(raw, document.baseURI || window.location.href);
+      var protocol = (parsed.protocol || '').toLowerCase();
+      if (protocol !== 'http:' && protocol !== 'https:') { return null; }
+      return {
+        href: parsed.href,
+        host: parsed.host || parsed.hostname || '',
+        hostname: parsed.hostname || '',
+        port: parsed.port || '',
+        username: parsed.username || '',
+        password: parsed.password || '',
+        https: protocol === 'https:'
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function normalizedRemoteHostname(info) {
+    return String((info && info.hostname) || '')
+      .replace(/^\[/, '')
+      .replace(/\]$/, '')
+      .replace(/\.+$/, '')
+      .toLowerCase();
+  }
+
+  function isBlockedRemoteIPv4(host) {
+    var match = String(host || '').match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!match) { return false; }
+    var parts = match.slice(1).map(function(part) { return Number(part); });
+    if (parts.some(function(part) { return !Number.isFinite(part) || part < 0 || part > 255; })) {
+      return true;
+    }
+    var first = parts[0];
+    var second = parts[1];
+    return first === 0 ||
+      first === 10 ||
+      (first === 100 && second >= 64 && second <= 127) ||
+      first === 127 ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && (second === 0 || second === 168)) ||
+      (first === 198 && (second === 18 || second === 19)) ||
+      first >= 224;
+  }
+
+  function isBlockedRemoteIPv6(host) {
+    var value = String(host || '').toLowerCase();
+    value = value.replace(/^\[/, '').replace(/\]$/, '');
+    if (value.indexOf(':') === -1) { return false; }
+    if (value === '::' || value === '::1') { return true; }
+    var embeddedIPv4 = embeddedIPv4FromIPv6(value);
+    if (embeddedIPv4) {
+      return isBlockedRemoteIPv4(embeddedIPv4);
+    }
+    var first = value.split(':')[0] || '0';
+    var firstValue = parseInt(first, 16);
+    if (Number.isFinite(firstValue)) {
+      if ((firstValue & 0xfe00) === 0xfc00) { return true; }
+      if ((firstValue & 0xffc0) === 0xfe80) { return true; }
+      if ((firstValue & 0xffc0) === 0xfec0) { return true; }
+      if ((firstValue & 0xff00) === 0xff00) { return true; }
+    }
+    return false;
+  }
+
+  function embeddedIPv4FromIPv6(value) {
+    var raw = String(value || '').toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+    var hextets = null;
+    if (raw.indexOf('::') === 0) {
+      hextets = raw.split(':').filter(Boolean);
+      if (hextets.length === 3 && hextets[0] === 'ffff') {
+        hextets = hextets.slice(1);
+      }
+    } else {
+      var expanded = raw.split(':');
+      var numbers = expanded.map(function(part) {
+        return /^[0-9a-f]{1,4}$/.test(part) ? parseInt(part, 16) : NaN;
+      });
+      var isIPv4Compatible = numbers.length === 8 &&
+        numbers.slice(0, 6).every(function(part) { return part === 0; });
+      var isIPv4Mapped = numbers.length === 8 &&
+        numbers.slice(0, 5).every(function(part) { return part === 0; }) &&
+        numbers[5] === 0xffff;
+      if (isIPv4Compatible || isIPv4Mapped) {
+        hextets = [expanded[6], expanded[7]];
+      }
+    }
+    if (!hextets || hextets.length !== 2) { return null; }
+    var high = parseInt(hextets[0], 16);
+    var low = parseInt(hextets[1], 16);
+    if (
+      !Number.isFinite(high) ||
+      !Number.isFinite(low) ||
+      high < 0 ||
+      high > 0xffff ||
+      low < 0 ||
+      low > 0xffff
+    ) {
+      return null;
+    }
+    return [
+      (high >> 8) & 0xff,
+      high & 0xff,
+      (low >> 8) & 0xff,
+      low & 0xff
+    ].join('.');
+  }
+
+  function remoteImageCanOfferLoad(info) {
+    if (!info || !info.https) { return false; }
+    if (info.username || info.password) { return false; }
+    if (info.port && info.port !== '443') { return false; }
+    var host = normalizedRemoteHostname(info);
+    if (!host) { return false; }
+    if (host === 'localhost' || host.slice(-10) === '.localhost') { return false; }
+    if (host === 'local' || host.slice(-6) === '.local') { return false; }
+    if (isBlockedRemoteIPv4(host) || isBlockedRemoteIPv6(host)) { return false; }
+    return true;
+  }
+
+  function isRelativeLocalImagePath(value) {
+    var raw = String(value || '').trim();
+    if (!raw) { return false; }
+    var compact = compactForProtocolCheck(raw);
+    if (/^[a-z][a-z0-9+.-]*:/i.test(compact)) {
+      return false;
+    }
+    if (raw.charAt(0) === '/' || raw.charAt(0) === '\\') {
+      return false;
+    }
+    if (/^[A-Za-z]:[\\/]/.test(raw)) {
+      return false;
+    }
+    return true;
+  }
+
+  function cmuxLocalImageURL(value) {
+    var raw = String(value || '').trim();
+    if (!isRelativeLocalImagePath(raw)) {
+      return null;
+    }
+
+    try {
+      var parsed = new URL(raw, document.baseURI || window.location.href);
+      if ((parsed.protocol || '').toLowerCase() !== 'file:') { return null; }
+      return 'cmux-local-image://image?url=' + encodeURIComponent(parsed.href);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function rewriteLocalImageSources() {
+    contentEl.querySelectorAll('img[src]').forEach(function(img) {
+      var raw = img.getAttribute('src') || '';
+      var rewritten = cmuxLocalImageURL(raw);
+      if (!rewritten) { return; }
+      img.setAttribute('data-cmux-original-src', raw);
+      img.setAttribute('src', rewritten);
+    });
+  }
+
+  var remoteImageAllowedURLs = Object.create(null);
+
+  function cmuxRemoteImageURL(value) {
+    var info = remoteImageInfo(value);
+    if (!info || !info.https) { return null; }
+    return 'cmux-remote-image://image?url=' + encodeURIComponent(info.href);
+  }
+
+  function removeRemoteImagePlaceholder(img) {
+    var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+    if (!id) { return; }
+    var placeholder = contentEl.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+    if (placeholder) { placeholder.remove(); }
+  }
+
+  function remoteImagePlaceholderForImage(img) {
+    var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+    if (!id) { return null; }
+    return contentEl.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+  }
+
+  function setRemoteImageLoadingState(img, loading) {
+    var placeholder = remoteImagePlaceholderForImage(img);
+    if (!placeholder) { return; }
+    var buttons = placeholder.querySelectorAll('button[data-cmux-remote-action="load"]');
+    Array.prototype.slice.call(buttons).forEach(function(button) {
+      if (loading) {
+        button.textContent = cmuxString('remoteImageLoading', 'Loading');
+        button.disabled = true;
+        button.setAttribute('data-loading', '1');
+      } else {
+        button.textContent = cmuxString('remoteImageLoadImage', 'Load this image');
+        button.disabled = false;
+        button.removeAttribute('data-loading');
+      }
+    });
+  }
+
+  function loadRemoteImage(img) {
+    var raw = unescapeDataAttribute(img.getAttribute('data-cmux-remote-src'));
+    var rewritten = cmuxRemoteImageURL(raw);
+    if (!rewritten) { return false; }
+    if (img.getAttribute('data-cmux-remote-loading') === '1') { return true; }
+    img.setAttribute('data-cmux-remote-loading', '1');
+    setRemoteImageLoadingState(img, true);
+    function cleanup() {
+      img.removeEventListener('load', onLoad);
+      img.removeEventListener('error', onError);
+      img.removeAttribute('data-cmux-remote-loading');
+    }
+    function onLoad() {
+      cleanup();
+      removeRemoteImagePlaceholder(img);
+      img.hidden = false;
+    }
+    function onError() {
+      cleanup();
+      setRemoteImageLoadingState(img, false);
+      img.hidden = true;
+      img.removeAttribute('src');
+    }
+    img.addEventListener('load', onLoad);
+    img.addEventListener('error', onError);
+    img.setAttribute('src', rewritten);
+    if (img.complete && img.naturalWidth > 0) {
+      onLoad();
+    }
+    return true;
+  }
+
+  function loadApprovedRemoteImage(href) {
+    remoteImageAllowedURLs[href] = true;
+    contentEl.querySelectorAll('img[data-cmux-remote-src]').forEach(function(img) {
+      var raw = unescapeDataAttribute(img.getAttribute('data-cmux-remote-src'));
+      var info = remoteImageInfo(raw);
+      if (info && remoteImageCanOfferLoad(info) && info.href === href) {
+        loadRemoteImage(img);
+      }
+    });
+    return true;
+  }
+
+  function appendRemoteImageText(placeholder, key, fallback, replacements) {
+    var detail = document.createElement('span');
+    detail.textContent = cmuxString(key, fallback, replacements || {});
+    placeholder.appendChild(detail);
+    return detail;
+  }
+
+  function appendRemoteImageURL(placeholder, href) {
+    var url = document.createElement('span');
+    url.className = 'cmux-remote-image-url';
+    url.textContent = cmuxString(
+      'remoteImageURL',
+      'Image URL: {url}',
+      { url: href }
+    );
+    placeholder.appendChild(url);
+    return url;
+  }
+
+  function appendRemoteImageButton(placeholder, label, handler) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.addEventListener('click', function(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      handler(button);
+    });
+    placeholder.appendChild(button);
+    return button;
+  }
+
+  function openRemoteImageURL(href) {
+    window.open(href, '_blank', 'noopener');
+  }
+
+  function temporarilySetButtonLabel(button, label, restoreLabel) {
+    if (!button) { return; }
+    if (button._cmuxResetLabelTimer) {
+      window.clearTimeout(button._cmuxResetLabelTimer);
+    }
+    button.textContent = label;
+    button.setAttribute('data-copied', '1');
+    button._cmuxResetLabelTimer = window.setTimeout(function() {
+      button.textContent = restoreLabel;
+      button.removeAttribute('data-copied');
+      button._cmuxResetLabelTimer = null;
+    }, 1200);
+  }
+
+  function copyRemoteImageURL(href, button, restoreLabel) {
+    copyTextToClipboard(href).then(function() {
+      temporarilySetButtonLabel(
+        button,
+        cmuxString('remoteImageCopied', 'Copied'),
+        restoreLabel
+      );
+    }).catch(function() {});
+  }
+
+  function insertRemoteImagePlaceholder(img, placeholder) {
+    var anchor = img.closest ? img.closest('a') : null;
+    if (anchor && contentEl.contains(anchor) && anchor.parentNode) {
+      anchor.parentNode.insertBefore(placeholder, anchor.nextSibling);
+      return;
+    }
+    img.parentNode.insertBefore(placeholder, img.nextSibling);
+  }
+
+  function ensureRemoteImagePlaceholder(img) {
+    if (!img || img.getAttribute('data-cmux-remote-processed') === '1') { return; }
+    var raw = unescapeDataAttribute(img.getAttribute('data-cmux-remote-src'));
+    var info = remoteImageInfo(raw);
+    if (!info) { return; }
+
+    img.setAttribute('data-cmux-remote-processed', '1');
+    img.hidden = true;
+    var canOfferLoad = remoteImageCanOfferLoad(info);
+
+    var placeholderId = 'remote-image-' + Math.floor(Math.random() * 1e9).toString(36) + '-' + Date.now().toString(36);
+    img.setAttribute('data-cmux-remote-placeholder-id', placeholderId);
+
+    var placeholder = document.createElement('span');
+    placeholder.className = 'cmux-remote-image-placeholder';
+    placeholder.setAttribute('data-cmux-remote-placeholder-for', placeholderId);
+    placeholder.setAttribute('role', 'group');
+
+    var title = document.createElement('strong');
+    title.textContent = cmuxString('remoteImageBlocked', 'Remote image blocked');
+    placeholder.appendChild(title);
+
+    if (canOfferLoad) {
+      appendRemoteImageText(
+        placeholder,
+        'remoteImageConsentMessage',
+        'cmux will not contact this image URL until you load this image.'
+      );
+      appendRemoteImageURL(placeholder, info.href);
+      var loadButton = appendRemoteImageButton(
+        placeholder,
+        cmuxString(
+          'remoteImageLoadImage',
+          'Load this image'
+        ),
+        function() {
+          loadApprovedRemoteImage(info.href);
+        }
+      );
+      loadButton.setAttribute('data-cmux-remote-action', 'load');
+    } else if (!info.https) {
+      appendRemoteImageText(
+        placeholder,
+        'remoteImageHTTPSOnly',
+        'Only HTTPS remote images can be loaded in the viewer.'
+      );
+      appendRemoteImageURL(placeholder, info.href);
+    } else {
+      appendRemoteImageText(
+        placeholder,
+        'remoteImageNotAllowed',
+        'This remote image URL cannot be loaded in the viewer.'
+      );
+      appendRemoteImageURL(placeholder, info.href);
+    }
+    var copyURLLabel = cmuxString('remoteImageCopyURL', 'Copy image URL');
+    appendRemoteImageButton(
+      placeholder,
+      copyURLLabel,
+      function(button) {
+        copyRemoteImageURL(info.href, button, copyURLLabel);
+      }
+    );
+    appendRemoteImageButton(
+      placeholder,
+      cmuxString('remoteImageOpenURL', 'Open image URL'),
+      function() {
+        openRemoteImageURL(info.href);
+      }
+    );
+
+    insertRemoteImagePlaceholder(img, placeholder);
+    if (canOfferLoad && remoteImageAllowedURLs[info.href]) {
+      loadRemoteImage(img);
+    }
+  }
+
+  function rewriteRemoteImageSources() {
+    contentEl.querySelectorAll('img[data-cmux-remote-src]').forEach(ensureRemoteImagePlaceholder);
+  }
+
   function isSafeURLAttribute(name, value) {
     var raw = String(value || '').trim();
     if (!raw) { return true; }
@@ -348,10 +809,12 @@ html { scroll-behavior: smooth; }
     var compact = compactForProtocolCheck(raw);
     if (
       compact.indexOf('javascript:') === 0 ||
-      compact.indexOf('vbscript:') === 0 ||
-      compact.indexOf('data:') === 0
+      compact.indexOf('vbscript:') === 0
     ) {
       return false;
+    }
+    if (compact.indexOf('data:') === 0) {
+      return name === 'src' && isSafeDataImageURL(raw);
     }
 
     try {
@@ -364,7 +827,7 @@ html { scroll-behavior: smooth; }
           protocol === 'mailto:' ||
           protocol === 'tel:';
       }
-      return protocol === 'http:' || protocol === 'https:' || protocol === 'file:';
+      return protocol === 'file:' && isRelativeLocalImagePath(raw);
     } catch (e) {
       return false;
     }
@@ -380,11 +843,17 @@ html { scroll-behavior: smooth; }
       object: true,
       embed: true,
       link: true,
+      style: true,
       meta: true,
       base: true,
+      audio: true,
       form: true,
       button: true,
+      picture: true,
+      source: true,
       textarea: true,
+      track: true,
+      video: true,
       select: true,
       option: true,
       svg: true,
@@ -422,9 +891,15 @@ html { scroll-behavior: smooth; }
 
       Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
         var name = String(attr.name || '').toLowerCase();
+        if (name.indexOf('data-cmux-') === 0) {
+          el.removeAttribute(attr.name);
+          return;
+        }
         if (
           name.indexOf('on') === 0 ||
           name === 'style' ||
+          name === 'background' ||
+          name === 'srcset' ||
           name === 'srcdoc' ||
           name === 'autofocus' ||
           name === 'formaction' ||
@@ -432,6 +907,18 @@ html { scroll-behavior: smooth; }
         ) {
           el.removeAttribute(attr.name);
           return;
+        }
+        if (tag === 'img' && name === 'src') {
+          var remoteInfo = remoteImageInfo(attr.value);
+          if (remoteInfo) {
+            el.setAttribute('data-cmux-remote-src', escapeDataAttribute(remoteInfo.href));
+            el.setAttribute('data-cmux-remote-host', escapeDataAttribute(remoteInfo.host));
+            if (!remoteInfo.https) {
+              el.setAttribute('data-cmux-remote-blocked-reason', 'https-only');
+            }
+            el.removeAttribute(attr.name);
+            return;
+          }
         }
         if ((name === 'href' || name === 'src') && !isSafeURLAttribute(name, attr.value)) {
           el.removeAttribute(attr.name);
@@ -474,9 +961,6 @@ html { scroll-behavior: smooth; }
     renderer: {
       codespan(code) {
         var raw = code || '';
-        if (isMarkdownPathLike(raw)) {
-          return '<code data-cmux-file="' + escapeDataAttribute(raw) + '">' + escapeHtml(raw) + '</code>';
-        }
         return '<code>' + escapeHtml(raw) + '</code>';
       },
       code(code, infostring, escaped) {
@@ -639,6 +1123,171 @@ html { scroll-behavior: smooth; }
   }
 
   var mermaidInitialized = false;
+  var cmuxMarkdownZoom = 1;
+  var mermaidResizeObserver = null;
+  var mermaidObservedWidth = 0;
+
+  function normalizedMarkdownZoom(value) {
+    var zoom = Number(value);
+    if (!Number.isFinite(zoom) || zoom <= 0) { return 1; }
+    return Math.max(0.1, Math.min(zoom, 10));
+  }
+
+  function mermaidNumericLength(value) {
+    var raw = String(value || '').trim();
+    if (!raw || raw.charAt(raw.length - 1) === '%') { return NaN; }
+    var match = raw.match(/^([0-9]+(?:\.[0-9]+)?)(?:px)?$/i);
+    return match ? Number(match[1]) : NaN;
+  }
+
+  function mermaidViewBoxSize(svg) {
+    var raw = String(svg.getAttribute('viewBox') || '').trim();
+    if (!raw) { return null; }
+    var parts = raw.split(/[\s,]+/).map(Number);
+    if (
+      parts.length !== 4 ||
+      !parts.every(Number.isFinite) ||
+      parts[2] <= 0 ||
+      parts[3] <= 0
+    ) {
+      return null;
+    }
+    return { width: parts[2], height: parts[3] };
+  }
+
+  function mermaidRememberOriginalSizing(svg) {
+    if (svg.hasAttribute('data-cmux-mermaid-original-max-width')) { return; }
+    svg.setAttribute('data-cmux-mermaid-original-max-width', svg.style.maxWidth || '');
+    svg.setAttribute('data-cmux-mermaid-original-width', svg.style.width || '');
+    svg.setAttribute('data-cmux-mermaid-original-height', svg.style.height || '');
+  }
+
+  function mermaidRestoreOriginalSizing(svg) {
+    mermaidRememberOriginalSizing(svg);
+    svg.removeAttribute('data-cmux-mermaid-scaled');
+    svg.style.maxWidth = svg.getAttribute('data-cmux-mermaid-original-max-width') || '';
+    svg.style.width = svg.getAttribute('data-cmux-mermaid-original-width') || '';
+    svg.style.height = svg.getAttribute('data-cmux-mermaid-original-height') || '';
+  }
+
+  function mermaidIntrinsicSize(svg) {
+    mermaidRememberOriginalSizing(svg);
+    var cachedWidth = Number(svg.getAttribute('data-cmux-mermaid-natural-width'));
+    var cachedHeight = Number(svg.getAttribute('data-cmux-mermaid-natural-height'));
+    if (
+      Number.isFinite(cachedWidth) &&
+      cachedWidth > 0 &&
+      Number.isFinite(cachedHeight) &&
+      cachedHeight > 0
+    ) {
+      return { width: cachedWidth, height: cachedHeight };
+    }
+
+    var viewBox = mermaidViewBoxSize(svg);
+    var width = mermaidNumericLength(svg.getAttribute('data-cmux-mermaid-original-max-width'));
+    if (!Number.isFinite(width) || width <= 0) {
+      width = mermaidNumericLength(svg.getAttribute('data-cmux-mermaid-original-width'));
+    }
+    if (!Number.isFinite(width) || width <= 0) {
+      width = mermaidNumericLength(svg.getAttribute('width'));
+    }
+    if ((!Number.isFinite(width) || width <= 0) && viewBox) {
+      width = viewBox.width;
+    }
+
+    var height = mermaidNumericLength(svg.getAttribute('data-cmux-mermaid-original-height'));
+    if (!Number.isFinite(height) || height <= 0) {
+      height = mermaidNumericLength(svg.getAttribute('height'));
+    }
+    if ((!Number.isFinite(height) || height <= 0) && viewBox && Number.isFinite(width) && width > 0) {
+      height = width * (viewBox.height / viewBox.width);
+    }
+    if ((!Number.isFinite(height) || height <= 0) && viewBox) {
+      height = viewBox.height;
+    }
+
+    if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
+      return null;
+    }
+
+    svg.setAttribute('data-cmux-mermaid-natural-width', String(width));
+    svg.setAttribute('data-cmux-mermaid-natural-height', String(height));
+    return { width: width, height: height };
+  }
+
+  function mermaidCurrentBaseSize(svg, natural) {
+    var container = svg.closest ? svg.closest('.cmux-mermaid') : svg.parentElement;
+    var rect = container && container.getBoundingClientRect ? container.getBoundingClientRect() : null;
+    var containerWidth = rect ? rect.width : NaN;
+    if (!Number.isFinite(containerWidth) || containerWidth <= 0) {
+      containerWidth = container ? container.clientWidth : NaN;
+    }
+    var width = natural.width;
+    if (Number.isFinite(containerWidth) && containerWidth > 0) {
+      width = Math.min(containerWidth, natural.width);
+    }
+    return { width: width, height: width * (natural.height / natural.width) };
+  }
+
+  function mermaidContentWidth(entry) {
+    return Math.round(
+      (entry && entry.contentRect && entry.contentRect.width) ||
+      contentEl.getBoundingClientRect().width ||
+      contentEl.clientWidth ||
+      0
+    );
+  }
+
+  function ensureMermaidResizeObserver() {
+    if (mermaidResizeObserver || typeof ResizeObserver === 'undefined' || !contentEl) { return; }
+    mermaidObservedWidth = mermaidContentWidth(null);
+    mermaidResizeObserver = new ResizeObserver(function(entries) {
+      var width = mermaidContentWidth(entries && entries[0]);
+      if (width <= 0) { return; }
+      if (Math.abs(cmuxMarkdownZoom - 1) <= 0.0001) {
+        mermaidObservedWidth = width;
+        return;
+      }
+      if (width === mermaidObservedWidth) { return; }
+      mermaidObservedWidth = width;
+      applyMermaidZoom(contentEl);
+    });
+    mermaidResizeObserver.observe(contentEl);
+  }
+
+  function applyMermaidZoomToSVG(svg) {
+    if (!svg) { return; }
+    var natural = mermaidIntrinsicSize(svg);
+    if (!natural) { return; }
+    if (Math.abs(cmuxMarkdownZoom - 1) <= 0.0001) {
+      mermaidRestoreOriginalSizing(svg);
+      svg.setAttribute('data-cmux-mermaid-zoom', '1');
+      return;
+    }
+    var base = mermaidCurrentBaseSize(svg, natural);
+    // WKWebView pageZoom scales markdown text metrics here, but Mermaid SVG bounds stay fixed.
+    var width = Math.max(1, base.width * cmuxMarkdownZoom);
+    var height = Math.max(1, base.height * cmuxMarkdownZoom);
+    svg.style.maxWidth = '';
+    svg.setAttribute('data-cmux-mermaid-scaled', '1');
+    svg.style.width = width + 'px';
+    svg.style.height = height + 'px';
+    svg.setAttribute('data-cmux-mermaid-zoom', String(cmuxMarkdownZoom));
+  }
+
+  function applyMermaidZoom(root) {
+    ensureMermaidResizeObserver();
+    var scope = root || contentEl;
+    if (!scope || !scope.querySelectorAll) { return; }
+    Array.prototype.forEach.call(scope.querySelectorAll('.cmux-mermaid svg'), applyMermaidZoomToSVG);
+  }
+
+  window.__cmuxSetMarkdownZoom = function(zoom) {
+    cmuxMarkdownZoom = normalizedMarkdownZoom(zoom);
+    mermaidObservedWidth = mermaidContentWidth(null);
+    applyMermaidZoom(contentEl);
+  };
+
   function renderMermaidBlocks() {
     if (typeof mermaid === 'undefined') { renderLibError('mermaid', 'library missing'); return; }
     try {
@@ -662,6 +1311,7 @@ html { scroll-behavior: smooth; }
       try {
         mermaid.render(id, src).then(function(res) {
           el.innerHTML = res.svg;
+          applyMermaidZoom(el);
           if (res.bindFunctions) { try { res.bindFunctions(el); } catch (e) {} }
         }).catch(function(err) {
           el.innerHTML = '<div class="cmux-render-error">Mermaid: '
@@ -895,6 +1545,13 @@ html { scroll-behavior: smooth; }
   }
 
   function markMarkdownFileLinks() {
+    contentEl.querySelectorAll('code:not([data-cmux-file])').forEach(function(code) {
+      if (code.closest && code.closest('pre, .cmux-source')) { return; }
+      var raw = code.textContent || '';
+      if (isMarkdownPathLike(raw)) {
+        code.setAttribute('data-cmux-file', escapeDataAttribute(raw));
+      }
+    });
     contentEl.querySelectorAll('a[href]').forEach(function(a) {
       var href = a.getAttribute('href') || '';
       if (isMarkdownPathLike(href)) {
@@ -915,6 +1572,12 @@ html { scroll-behavior: smooth; }
     if (el) { resolveMarkdownCandidate(el, false); }
   });
   contentEl.addEventListener('click', function(ev) {
+    if (ev.target && ev.target.closest && ev.target.closest('.cmux-remote-image-placeholder')) {
+      if (ev.target.closest('button')) { return; }
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
     var el = ev.target && ev.target.closest && ev.target.closest('code[data-cmux-file], a[href]');
     var rawPath = markdownCandidateForElement(el);
     if (!rawPath) { return; }
@@ -940,6 +1603,8 @@ html { scroll-behavior: smooth; }
       if (didReplaceContent) {
         contentEl.innerHTML = html;
       }
+      rewriteLocalImageSources();
+      rewriteRemoteImageSources();
       postProcessSpecialBlocks();
       if (didReplaceContent) {
         restoreMarkdownScrollState(scrollState);
@@ -952,11 +1617,43 @@ html { scroll-behavior: smooth; }
     }
   };
 
-  window.__cmuxRenderedHTML = function() {
-    if (!contentEl) { return ''; }
+  function cleanRenderedContentClone(options) {
+    if (!contentEl) { return null; }
+    options = options || {};
+    var restoreImageSources = options.restoreImageSources !== false;
     var clone = contentEl.cloneNode(true);
     clone.querySelectorAll('.cmux-code-copy-button').forEach(function(el) {
       el.remove();
+    });
+    clone.querySelectorAll('.cmux-remote-image-placeholder').forEach(function(el) {
+      el.remove();
+    });
+    clone.querySelectorAll('img[data-cmux-original-src]').forEach(function(el) {
+      var originalSrc = el.getAttribute('data-cmux-original-src') || '';
+      if (restoreImageSources && originalSrc) {
+        el.setAttribute('src', originalSrc);
+      } else if (!restoreImageSources) {
+        el.removeAttribute('src');
+      }
+      el.removeAttribute('data-cmux-original-src');
+    });
+    clone.querySelectorAll('img[data-cmux-remote-src]').forEach(function(el) {
+      var remoteSrc = unescapeDataAttribute(el.getAttribute('data-cmux-remote-src'));
+      if (restoreImageSources && remoteSrc) {
+        el.setAttribute('src', remoteSrc);
+        el.hidden = false;
+      } else if (!restoreImageSources) {
+        el.removeAttribute('src');
+      }
+    });
+    if (!restoreImageSources) {
+      clone.querySelectorAll('img').forEach(function(el) {
+        el.removeAttribute('src');
+        el.removeAttribute('srcset');
+      });
+    }
+    clone.querySelectorAll('.cmux-mermaid svg[data-cmux-mermaid-original-max-width]').forEach(function(el) {
+      mermaidRestoreOriginalSizing(el);
     });
     clone.querySelectorAll('*').forEach(function(el) {
       Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
@@ -969,11 +1666,34 @@ html { scroll-behavior: smooth; }
         el.removeAttribute('title');
       }
     });
+    return clone;
+  }
+
+  window.__cmuxRenderedHTML = function() {
+    var clone = cleanRenderedContentClone({ restoreImageSources: true });
+    if (!clone) { return ''; }
     return clone.innerHTML;
   };
 
   window.__cmuxRenderedText = function() {
-    return contentEl ? (contentEl.innerText || contentEl.textContent || '') : '';
+    var clone = cleanRenderedContentClone({ restoreImageSources: false });
+    if (!clone) { return ''; }
+    var wrapper = document.createElement('div');
+    var width = Math.max(1, Math.ceil(contentEl.getBoundingClientRect().width || contentEl.clientWidth || 800));
+    wrapper.setAttribute('aria-hidden', 'true');
+    wrapper.style.position = 'fixed';
+    wrapper.style.left = '-100000px';
+    wrapper.style.top = '0';
+    wrapper.style.width = width + 'px';
+    wrapper.style.pointerEvents = 'none';
+    wrapper.style.contain = 'layout style';
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
+    try {
+      return clone.innerText || clone.textContent || '';
+    } finally {
+      wrapper.remove();
+    }
   };
 
   var darkMql = window.matchMedia('(prefers-color-scheme: dark)');

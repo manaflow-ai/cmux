@@ -51,6 +51,32 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         )
     }
 
+    func testCmdNWorksWhenBrowserAddressBarFocused() {
+        let app = launchWithBrowserSetup()
+
+        app.typeKey("l", modifierFlags: [.command])
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0), "Expected browser omnibar after Cmd+L")
+
+        let marker = "cmdn-\(UUID().uuidString.prefix(8))"
+        app.typeText(marker)
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) {
+                ((omnibar.value as? String) ?? "").contains(marker)
+            },
+            "Expected Cmd+L to focus browser omnibar before Cmd+N. value=\(String(describing: omnibar.value))"
+        )
+
+        let baseline = loadKeyequiv()["addTabInvocations"].flatMap(Int.init) ?? 0
+        app.typeKey("n", modifierFlags: [.command])
+
+        XCTAssertTrue(
+            waitForKeyequivInt(key: "addTabInvocations", toBeAtLeast: baseline + 1, timeout: 5.0),
+            "Expected Cmd+N to reach app menu and create a new tab even when browser omnibar is first responder"
+        )
+    }
+
     func testCmdWWorksWhenWebViewFocusedAfterTabSwitch() {
         let app = launchWithBrowserSetup()
 
@@ -183,6 +209,82 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         )
     }
 
+    func testBrowserFocusModeRoutesPageShortcutsAndDoubleEscapeExits() {
+        let app = launchWithBrowserSetup(browserURL: makeBrowserFocusModePageURL())
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 10.0) { data in
+                data["browserPageTitle"] == "focus-ready"
+            },
+            "Expected the focus-mode test page to finish loading. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        let focusModeButton = app.buttons["BrowserFocusModeButton"].firstMatch
+        XCTAssertTrue(
+            focusModeButton.waitForExistence(timeout: 5.0),
+            "Expected browser focus-mode toolbar button to exist"
+        )
+        focusModeButton.click()
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserFocusModeActive"] == "true"
+            },
+            "Expected toolbar button to enter browser focus mode. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey("f", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "focus-cmdf-1"
+            },
+            "Expected Cmd+F to reach the page while focus mode is active. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey("p", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "focus-cmdp-1"
+            },
+            "Expected Cmd+P to reach the page while focus mode is active. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey("s", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "focus-cmds-1"
+            },
+            "Expected Cmd+S to reach the page while focus mode is active. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "focus-escape-1" &&
+                    data["browserFocusModeActive"] == "true" &&
+                    data["browserFocusModeExitArmed"] == "true"
+            },
+            "Expected first Escape to reach the page and arm focus-mode exit. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "focus-escape-1" &&
+                    data["browserFocusModeActive"] == "false" &&
+                    data["browserFocusModeExitArmed"] == "false"
+            },
+            "Expected second Escape to exit focus mode without reaching the page. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        let baselineAddTabInvocations = loadKeyequiv()["addTabInvocations"].flatMap(Int.init) ?? 0
+        app.typeKey("n", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForKeyequivInt(key: "addTabInvocations", toBeAtLeast: baselineAddTabInvocations + 1, timeout: 5.0),
+            "Expected Cmd+N to resume normal cmux routing after focus mode exit. data=\(loadKeyequiv())"
+        )
+    }
+
     private func launchWithBrowserSetup(browserURL: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -192,12 +294,11 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         if let browserURL {
             app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_BROWSER_URL"] = browserURL
         }
-        app.launch()
-        app.activate()
+        launchAndEnsureForeground(app)
 
         XCTAssertTrue(
-            waitForGotoSplit(keys: ["browserPanelId", "webViewFocused"], timeout: 10.0),
-            "Expected goto_split setup data to be written"
+            waitForGotoSplit(keys: ["browserPanelId", "webViewFocused"], timeout: 25.0),
+            "Expected goto_split setup data to be written. data=\(loadGotoSplit() ?? [:])"
         )
 
         if let setup = loadGotoSplit() {
@@ -205,6 +306,30 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         }
 
         return app
+    }
+
+    private func launchAndEnsureForeground(_ app: XCUIApplication) {
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
+
+        if app.state == .runningForeground { return }
+
+        // launch() can leave the app backgrounded on some runners. Bring it to
+        // the foreground so subsequent typeKey() input is routed to cmux and not
+        // the wrong target; tolerate runners where activation genuinely can't win.
+        if app.state == .runningBackground {
+            app.activate()
+            if app.state == .runningForeground { return }
+            XCTExpectFailure("App could not be foregrounded on this runner", options: options) {
+                XCTFail("cmux stayed backgrounded after activate(); key input may not reach it. state=\(app.state.rawValue)")
+            }
+            return
+        }
+
+        XCTFail("App failed to start. state=\(app.state.rawValue)")
     }
 
     private func makeBrowserHandledCmdFPageURL() -> String {
@@ -294,6 +419,46 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
                 event.preventDefault();
                 event.stopImmediatePropagation();
                 document.title = 'page-handled-cmdshiftf';
+              }
+            }, true);
+          </script>
+        </body>
+        </html>
+        """
+        return makeDataURL(html)
+    }
+
+    private func makeBrowserFocusModePageURL() -> String {
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>focus-loading</title>
+        </head>
+        <body tabindex="-1">
+          <main>Browser focus mode shortcut passthrough</main>
+          <script>
+            const counts = { f: 0, p: 0, s: 0, escape: 0 };
+            window.addEventListener('load', () => {
+              document.body.focus();
+              document.title = 'focus-ready';
+            });
+            window.addEventListener('keydown', (event) => {
+              const key = String(event.key || '').toLowerCase();
+              const plainCommand = event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey;
+              if (plainCommand && (key === 'f' || key === 'p' || key === 's')) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                counts[key] += 1;
+                document.title = `focus-cmd${key}-${counts[key]}`;
+                return;
+              }
+              if (!event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && key === 'escape') {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                counts.escape += 1;
+                document.title = `focus-escape-${counts.escape}`;
               }
             }, true);
           </script>
@@ -1080,7 +1245,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     // MARK: - Automation Socket Client (UI Tests)
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        waitForCondition(timeout: timeout) {
+        waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
             self.socketCommand("ping") == "PONG"
         }
     }

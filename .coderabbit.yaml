@@ -11,23 +11,98 @@ knowledge_base:
 
 reviews:
   profile: assertive
-  request_changes_workflow: true
+  request_changes_workflow: false
   path_instructions:
+    - path: "**/*"
+      instructions: |
+        Apply `.github/review-bot-rules/source-control-artifacts.md` during review. Flag local tool output, generated logs, screenshots, recordings, temp folders, dependency checkouts, caches, build output, and broad scratch directories that enter source control without a deliberate product, docs, fixture, build, or release reason.
     - path: "**/*.swift"
       instructions: |
         Apply the cmux custom Swift lint rules in `.github/review-bot-rules/` during review. Treat those files as the source of truth. Focus on production Swift changes and ignore test-only scaffolding unless it makes production behavior worse.
+    - path: "**/Sources/**/*.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/no-test-debug-seam-in-production-source.md` during review. For Swift files under a production `Sources/` path (not under `Tests/`), flag added test-only or debug-only seams: `#if DEBUG` (or other test-build-guarded) extensions/members that expose internal state for tests or a debugger with no production caller, members named like `debug…`/`…ForTesting`/`…ForTests`/`testOnly…`/`…TestHook`/`…TestSeam`/`_test…`, or visibility widened plus a wrapper accessor added "so the test can call it". Prefer reaching internal state from the test target via `@testable import` after widening `private` to `internal`; isolate genuinely debug-only facilities in a dedicated debug file or folder. Pass for `#if DEBUG` blocks gating real product behavior and existing seams not worsened.
+    - path: "**/Sources/**/*.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/no-ambient-global-state.md` during review. Flag new ambient global surface in production Swift: top-level (file-scope) `func` used as API, top-level mutable `var` or a stub class/struct holding a global flag/once-token, a caseless `enum`/empty `struct` used purely as a `static func`/`static let` namespace or a type whose API is mostly `static func`s, and new singletons (`static let shared`/`standard`/`default` or new app-delegate state) for runtime state that should be owned and injected. Prefer methods on a constructable, injectable owning type and `private`/`fileprivate` file-scope helpers. Pass for `static let` constants, enum cases, protocol/extension conformances, existing globals only touched incidentally, and platform/`@main` boundaries that require top-level declarations.
+    - path: "**/*.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/hot-path-allocating-formatting.md` during review. Flag per-call allocating formatting on hot or concurrent Swift paths (git index/signature encoding, terminal input/render, sidebar/feed/list rows, snapshot builders, per-byte/row/keystroke/frame loops): `String(format:)` with per-element conversions, a `NumberFormatter`/`DateFormatter`/`ISO8601DateFormatter`/`ByteCountFormatter` allocated per call inside a loop or row body, or repeated per-element string building where a preallocated buffer would avoid the churn. The canonical P0 is cmux PR https://github.com/manaflow-ai/cmux/pull/5347 (`String(format:)` byte-to-hex in the concurrent git-index snapshot path caused unbounded memory growth and user crashes). Pass for cold paths, reused/cached formatters, fixed-table buffer encoding, and tests.
+    - path: "**/*.{swift,ts,tsx,js,jsx,mjs,cjs}"
+      instructions: |
+        Apply `.github/review-bot-rules/reliability-single-source-of-truth.md` during review. For correctness-critical detection/identity (which agent is running, agent/session lifecycle and liveness, workspace/pane/surface identity, any value the UI trusts to enable controls or route input), flag deriving the value from a window/pane/terminal title, name, or process-argv heuristic; an "unreliable but better than nothing" fallback branch where a wrong value is a correctness bug; more than one disagreeing source of truth for the same fact; and a throttle/poll interval on the read that introduces a visible staleness window. Pass for reliable structured sources (session id, registered agent descriptor, typed lifecycle event), failing closed when the reliable signal is missing, genuinely cosmetic non-authoritative hints, and coalescing that does not delay the observable value.
+    - path: "web/**/*.{tsx,jsx}"
+      instructions: |
+        Apply `.github/review-bot-rules/react-base-ui-accessibility.md` during review. For custom React UI, require `@base-ui-components/react` or an existing local component when it provides the relevant dialog, popover, menu, checkbox, select, switch, tabs, tooltip, combobox, focus, or keyboard behavior. Pass for native semantic controls and for cases with no relevant primitive where the PR owns complete accessibility and keyboard behavior.
     - path: "**/Package.swift"
       instructions: |
         Apply the cmux custom Swift lint rules in `.github/review-bot-rules/`, especially the concurrency modernization, actor isolation, blocking runtime, file/package boundary, and architectural rethink rules.
-    - path: "GhosttyTabs.xcodeproj/**"
+    - path: "**/Package.resolved"
       instructions: |
-        Review project wiring against the cmux Swift lint rules. Flag project changes that enable app/runtime code paths which bypass Swift concurrency, logging, localization, or shared action-path expectations.
+        Apply `.github/review-bot-rules/swiftpm-package-resolved.md` during review. cmux-owned SwiftPM lockfiles are intentional source-of-truth files, not accidental artifacts; dependency pin changes must be visible in PR diffs.
+    - path: "**/.gitignore"
+      instructions: |
+        Apply `.github/review-bot-rules/swiftpm-package-resolved.md` during review. Flag cmux-owned package `.gitignore` files that ignore `Package.resolved`; vendored third-party directories may preserve upstream policy.
+    - path: "cmux.xcodeproj/**"
+      instructions: |
+        Review project wiring against the cmux Swift lint rules. Apply `.github/review-bot-rules/swiftpm-package-resolved.md` for SwiftPM package-reference changes: updates to Xcode-managed package references must include `cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`. Flag project changes that enable app/runtime code paths which bypass Swift concurrency, logging, localization, or shared action-path expectations.
     - path: "**/*.{ts,tsx,js,jsx,mjs,cjs,sh,zsh}"
       instructions: |
         Apply `.github/review-bot-rules/runtime-no-hacky-sleeps.md` during review. For production runtime, script, and build changes, flag fixed sleeps, timers, delayed dispatch, polling, or wall-clock waits used as synchronization. Pass for tests, pure presentation timing, dedicated cancellation-aware retry/timeout abstractions with tests, and existing delay code not worsened.
+    - path: "**/*.{swift,ts,tsx,js,jsx,mjs,cjs,sh,zsh}"
+      instructions: |
+        Apply `.github/review-bot-rules/algorithmic-complexity.md` during review. For production code over scalable user data, flag nested full-collection scans, per-target rescans for batch actions, repeated sort/filter/map work in hot paths, in-memory joins that belong in the data store, and unbenchmarked algorithm choices for paths expected to handle roughly 1000 workspaces or similar records. Pass for tiny fixed-size collections, tests and benchmark harnesses, existing inefficient code not worsened, and documented bounds with measurements.
+    - path: "**/*.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/swift-expensive-sync-load.md` during review. Flag heavy synchronous agent-history loads added to or moved onto the main actor or interactive paths (workspace/panel/tab/window close, SwiftUI body, didSet, menu/command-palette/shortcut evaluation, socket handlers). This includes `RestorableAgentSessionIndex.load()`, agent hook/session stores, `agent-turn-diff-baselines.json`, transcripts, trajectory files, workstream/event JSONL logs, broad directory scans, per-record syscalls, and large JSON/JSONL parsing. Require routing through `SharedLiveAgentIndex.shared`, a `Task.detached`/background actor/repository parser, or another off-main cached path. Pass for the cache/background loader itself and explicit cold-cache fallbacks guarded by a nil check.
+    - path: "Sources/TerminalController.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/browser-automation-webkit-waits-off-main.md` during review. Browser socket automation commands that wait on page JavaScript, WebKit callbacks, cookie-store callbacks, screenshots, or injected page hooks must run their blocking wait from the socket worker and use explicit main hops only for WebKit/AppKit access and state mutation. Pass for direct focus/show commands that do not wait.
+    - path: "Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Wire/ControlCommandExecutionPolicy.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/browser-automation-webkit-waits-off-main.md` during review. Any new browser command that waits on page JavaScript, WebKit callbacks, cookie-store callbacks, screenshots, or injected hooks must be in `socketWorkerMethods`, not `mainActorMethods`, with matching policy test coverage.
+    - path: "Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandExecutionPolicyTests.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/browser-automation-webkit-waits-off-main.md` during review. Policy tests must prove browser automation commands that can block on WebKit/page callbacks are socket-worker routed and are not listed as main-actor commands.
+    - path: "**/*.{swift,ts,tsx,js,jsx,mjs,cjs}"
+      instructions: |
+        Apply `.github/review-bot-rules/cache-substitution-correctness.md` during review. When the diff replaces a fresh authoritative read with a cached value in a persistence, history, undo, or snapshot path, require explicit handling of cold (never-loaded) and stale (older-than-source) caches, or a documented graceful-degradation rationale. Pass for transient non-persisted UI hints and documented staleness tolerance.
     - path: "**/*.{swift,ts,tsx,js,jsx,mjs,cjs}"
       instructions: |
         Apply `.github/review-bot-rules/user-facing-errors.md` during review. For production user-facing errors, alerts, command output, API error bodies, and recovery copy, flag implementation leaks such as upstream vendor names, internal provider names, environment variables, database or migration details, raw upstream messages, internal billing ids, or unredacted payloads.
+    - path: "**/*.{swift,ts,tsx,js,jsx,xcstrings,plist}"
+      instructions: |
+        Apply `.github/review-bot-rules/full-internationalization.md` during review. For production user-facing text, fail partial localization: Swift text must use localized APIs with matching translated string-catalog entries, app string catalogs and Info.plist text must include every supported locale in the touched catalog, and web UI, API response, rendered markdown, changelog, or user-facing data changes must read from `next-intl` or another locale-specific source and update every locale in `web/i18n/routing.ts` and `web/messages/`.
+    - path: "web/messages/**/*.json"
+      instructions: |
+        Apply `.github/review-bot-rules/full-internationalization.md` during review. Verify message key changes update every locale listed in `web/i18n/routing.ts` with matching entries in `web/messages/`.
+    - path: "web/data/**/*.json"
+      instructions: |
+        Apply `.github/review-bot-rules/full-internationalization.md` during review. Verify user-facing schema titles, descriptions, and data copy have matching localized message coverage for every locale listed in `web/i18n/routing.ts`.
+    - path: "web/app/**/*.{md,mdx}"
+      instructions: |
+        Apply `.github/review-bot-rules/full-internationalization.md` during review. Verify rendered markdown copy has matching localized message coverage for every locale listed in `web/i18n/routing.ts`.
+    - path: "CHANGELOG.md"
+      instructions: |
+        Apply `.github/review-bot-rules/full-internationalization.md` during review. Verify changelog copy rendered on the docs site has matching localized message coverage for every locale listed in `web/i18n/routing.ts`.
+    - path: "README.md"
+      instructions: |
+        Apply `.github/review-bot-rules/readme-site-feature-parity.md` during review. When the "## Features" section changes, flag feature names or factual claims that now contradict the homepage feature list (`home.feature.*` in `web/messages/en.json`) or FAQ (`home.faq*`). The README may stay the detailed superset; only shared features must use consistent names and non-contradicting claims.
+    - path: "web/app/[locale]/page.tsx"
+      instructions: |
+        Apply `.github/review-bot-rules/readme-site-feature-parity.md` during review. When the homepage feature list or FAQ structure changes, flag feature names or claims that contradict `README.md`'s "## Features" section.
+    - path: "web/messages/en.json"
+      instructions: |
+        Apply `.github/review-bot-rules/readme-site-feature-parity.md` during review. When `home.feature.*` or `home.faq*` copy changes, flag feature names or factual claims that contradict `README.md`'s "## Features" section (for example one surface says "Scriptable" and the other "Programmable"). Localization-only edits that preserve the English source meaning pass.
+    - path: "web/app/[locale]/(landing)/**/page.tsx"
+      instructions: |
+        Apply `.github/review-bot-rules/landing-page-registry-parity.md` during review. When a PR adds a new `(landing)` page, flag it if the new path is missing from any of `web/app/sitemap.ts`, `agentReadablePages` in `web/app/lib/agent-page-paths.ts`, the `ARTICLES` list in `web/app/[locale]/(landing)/guides/page.tsx`, or `landing.links` in `web/messages/en.json`. A sitemap page missing from `agentReadablePages` breaks `tests/agent-page-variants.test.ts`.
+    - path: "web/app/sitemap.ts"
+      instructions: |
+        Apply `.github/review-bot-rules/landing-page-registry-parity.md` during review. Flag a new landing path added here that is missing from `agentReadablePages` in `web/app/lib/agent-page-paths.ts` or from the `/guides` `ARTICLES` list, and flag `agentReadablePages` / sitemap drift.
+    - path: "web/app/lib/agent-page-paths.ts"
+      instructions: |
+        Apply `.github/review-bot-rules/landing-page-registry-parity.md` during review. Flag an `agentReadablePages` entry whose path is not in `web/app/sitemap.ts` (or vice versa), since the two registries must stay in sync.
 
   pre_merge_checks:
     custom_checks:
@@ -39,10 +114,26 @@ reviews:
         mode: error
         instructions: |
           For production Swift changes, fail when the diff introduces or materially expands blocking or timing-based synchronization from `.github/review-bot-rules/swift-blocking-runtime.md`: semaphores, blocking waits, sleeps, delayed dispatch, polling, main-queue sync, or manual locks where an actor or explicit signal should own synchronization. Pass for deterministic test-only scaffolding and short user-visible UI animation delays that do not use `Task.sleep`.
+      - name: "cmux browser automation off-main"
+        mode: error
+        instructions: |
+          For browser socket automation changes, fail when the diff violates `.github/review-bot-rules/browser-automation-webkit-waits-off-main.md`: a `browser.*` command that waits on page JavaScript, WebKit callbacks, cookie-store callbacks, screenshots, or injected page hooks is routed through `.mainActor` or the main `processV2Command` switch instead of `socketWorkerMethods` and the worker browser automation router. Also fail worker-lane commands that touch WebKit/AppKit or mutate browser state off main instead of using explicit main hops, or that lack policy tests proving socket-worker routing. Pass for direct focus/show commands that do not wait and existing debt not worsened.
+      - name: "cmux expensive synchronous load"
+        mode: error
+        instructions: |
+          For production Swift changes, fail when the diff adds or moves an expensive synchronous agent-history load onto the main actor or an interactive path per `.github/review-bot-rules/swift-expensive-sync-load.md`: `RestorableAgentSessionIndex.load()`, agent hook/session stores, `agent-turn-diff-baselines.json`, transcripts, trajectory files, workstream/event JSONL logs, broad directory scans, per-record syscalls, or large JSON/JSONL parsing in workspace/panel/tab/window close, SwiftUI body/didSet, menu/command-palette/shortcut evaluation, or socket handlers. Require `SharedLiveAgentIndex.shared`, a `Task.detached`/background actor/repository parser, or another off-main cached path that returns to MainActor only for UI/process launch work. Pass for the cache/background loader itself, explicit cold-cache fallbacks guarded by a nil check, and existing call sites not worsened.
+      - name: "cmux cache substitution correctness"
+        mode: error
+        instructions: |
+          For production Swift, TypeScript, and JavaScript changes, fail when the diff swaps a fresh authoritative read for a cached or opportunistic value in a persistence, history, undo, or snapshot path without handling cold (never-loaded) and stale (older-than-source) caches per `.github/review-bot-rules/cache-substitution-correctness.md`. Pass for transient non-persisted UI hints, a cold-cache fallback plus an event-driven or freshness-checked cache, or a documented graceful-degradation rationale at the call site.
       - name: "cmux no hacky sleeps"
         mode: error
         instructions: |
           For production non-Swift app/runtime changes in TypeScript, JavaScript, shell, or build/runtime scripts, fail when the diff violates `.github/review-bot-rules/runtime-no-hacky-sleeps.md`: fixed sleeps, delayed dispatch, timers, polling, or wall-clock waits used to paper over lifecycle, focus, rendering, socket, process, filesystem, network, teardown, startup, retry, or shared-state races. Swift sleeps are covered by `cmux Swift blocking runtime`. Pass for deterministic test-only scaffolding, purely presentation animation or progress timing, dedicated cancellation-aware retry/timeout abstractions with tests, and existing delay code not worsened.
+      - name: "cmux algorithmic complexity"
+        mode: error
+        instructions: |
+          For production Swift, TypeScript, JavaScript, shell, and runtime code, fail when the diff violates `.github/review-bot-rules/algorithmic-complexity.md`: nested full-collection scans, per-target rescans for batch actions, repeated sorting/filtering in hot UI/socket/search/process paths, in-memory joins that belong in the data store, or unbenchmarked slower algorithms on paths expected to handle about 1000 workspaces or similar user-owned records. Pass for tiny fixed-size collections, tests and benchmark harnesses, existing debt not worsened, and documented bounds with measurements.
       - name: "cmux Swift concurrency"
         mode: error
         instructions: |
@@ -55,6 +146,10 @@ reviews:
         mode: error
         instructions: |
           For production Swift changes, fail when the diff violates `.github/review-bot-rules/swift-file-package-boundaries.md`: new oversized files, large additions to already oversized files, mixed UI/state/persistence/network/parsing/protocol responsibilities in one file, or independently testable feature logic kept in the app target when it should live behind a small SwiftPM package target. Pass for existing oversized files touched incidentally, small UI/AppKit/Ghostty glue, generated/vendored/prototype/test code, and focused bug fixes that preserve a clear extraction path.
+      - name: "cmux SwiftPM lockfiles"
+        mode: error
+        instructions: |
+          For SwiftPM package, Xcode project, `.gitignore`, workflow, and dependency changes, fail when the diff violates `.github/review-bot-rules/swiftpm-package-resolved.md`: cmux-owned package `.gitignore` files must not ignore `Package.resolved`, external SwiftPM dependency resolution changes must include the relevant package-local `Package.resolved` diff, and Xcode project package-reference changes must include the root Xcode `Package.resolved` diff. Pass for vendored third-party directories preserving upstream policy.
       - name: "cmux Swift logging"
         mode: error
         instructions: |
@@ -63,6 +158,10 @@ reviews:
         mode: error
         instructions: |
           For production changes, fail when the diff violates `.github/review-bot-rules/user-facing-errors.md`: user-facing errors, alerts, command output, API error bodies, or recovery copy must not expose upstream vendor names, internal provider names, provider-specific flags, templates, snapshots, manifests, environment variables, database or migration details, raw upstream messages, billing item ids, billing customer ids, unrelated team ids, credentials, tokens, headers, private keys, refresh tokens, session ids, or unredacted payload dumps. Pass for tests, docs, operational runbooks, developer-only comments, safe generic terms like billing/team/Cloud VM service, and explicitly advanced help text for user-configured settings.
+      - name: "cmux full internationalization"
+        mode: error
+        instructions: |
+          For production changes, fail when the diff violates `.github/review-bot-rules/full-internationalization.md`: user-facing Swift text must use `String(localized:defaultValue:)` or an equivalent localized API with a matching translated string-catalog entry, app string catalog or Info.plist additions and edits must include translated entries for every locale already supported by the touched catalog, and web UI, metadata, API response, rendered markdown, changelog, or user-facing data changes must read from `next-intl` or another locale-specific source and update every locale listed in `web/i18n/routing.ts` with matching `web/messages/` entries. Pass for tests, operational docs not shown to end users, developer-only comments, debug-only logs, literal protocol/config tokens, and existing untranslated strings not worsened by the PR.
       - name: "cmux SwiftUI state layout"
         mode: error
         instructions: |
@@ -75,3 +174,31 @@ reviews:
         mode: error
         instructions: |
           For Swift changes that add or materially change standalone cmux-owned windows, fail when the diff violates `.github/review-bot-rules/swift-auxiliary-window-close-shortcuts.md`: user-visible NSWindow, NSPanel, NSWindowController, SwiftUI Window, or WindowGroup code without a stable cmux.* identifier and shared close-shortcut ownership through cmuxAuxiliaryWindowIdentifiers. Pass for main workspace windows, terminal panes, tabs, sheets, popovers, menus, test-only fixtures, and existing unregistered windows not worsened by the PR. If the deterministic CI script already catches the literal assignment, mention scripts/lint_auxiliary_window_close_shortcuts.py; otherwise explain the broader review-only pattern.
+      - name: "cmux source artifacts"
+        mode: error
+        instructions: |
+          For every changed path, fail when the diff violates `.github/review-bot-rules/source-control-artifacts.md`: local tool output, generated logs, screenshots, recordings, temp folders, dependency checkouts, caches, build output, DerivedData, package-manager downloads, or broad scratch directories enter source control without a deliberate product, docs, fixture, build, release, or test-system reason. Pass for intentional source files, configs, localization catalogs, review rules, durable docs assets, required fixtures, and artifact removals or ignore-only cleanup.
+      - name: "cmux no test or debug seam in production source"
+        mode: error
+        instructions: |
+          For Swift files under a production `Sources/` path (matching `**/Sources/**` and not under `**/Tests/**`), fail when the diff violates `.github/review-bot-rules/no-test-debug-seam-in-production-source.md`: a `#if DEBUG` (or other test-build-guarded) extension/member that exposes internal state only for tests or a debugger with no production caller, a member named like `debug…`/`…ForTesting`/`…ForTests`/`testOnly…`/`…TestHook`/`…TestSeam`/`_test…`, or visibility widened together with a wrapper accessor added so a test can call it. Require moving test observation into the test target via `@testable import` after widening `private` to `internal`, or isolating a genuinely debug-only facility in a dedicated debug file or folder. The canonical fix is https://github.com/manaflow-ai/cmux/pull/6452. Pass for `#if DEBUG` blocks that gate real product behavior, scaffolding inside `Tests/` or a test-support module, and existing seams not worsened by the PR.
+      - name: "cmux no ambient global state"
+        mode: error
+        instructions: |
+          For production Swift changes, fail when the diff violates `.github/review-bot-rules/no-ambient-global-state.md`: a new top-level (file-scope) `func` used as API, a new top-level mutable `var` or a stub class/struct holding a global flag/once-token, a caseless `enum`/empty `struct` used purely as a `static func`/`static let` namespace or a type whose API is mostly `static func`s, or a new singleton (`static let shared`/`standard`/`default`, or new app-delegate state) for runtime state that should be owned by a scoped type and injected at the app seam. Require moving state/behavior onto a constructable, injectable owning type and preferring `private`/`fileprivate` file-scope helpers. Pass for `static let` constants, enum cases, protocol/extension conformances, existing globals only touched incidentally, and platform/`@main` boundaries that require top-level declarations.
+      - name: "cmux hot path allocating formatting"
+        mode: error
+        instructions: |
+          For production Swift changes, fail when the diff violates `.github/review-bot-rules/hot-path-allocating-formatting.md`: per-call allocating formatting on a hot or concurrent path (git index/signature encoding, terminal input/render, sidebar/feed/list rows, snapshot builders, per-byte/row/keystroke/frame loops) such as `String(format:)` with per-element conversions, a `NumberFormatter`/`DateFormatter`/`ISO8601DateFormatter`/`ByteCountFormatter` allocated per call inside a loop or row body, or repeated per-element string building where a preallocated buffer would avoid the churn. The canonical P0 regression is https://github.com/manaflow-ai/cmux/pull/5347. Pass for cold paths, reused/cached formatters, fixed-table buffer encoding, tests/benchmarks, and existing formatting not moved into a hotter or concurrent path.
+      - name: "cmux reliability single source of truth"
+        mode: error
+        instructions: |
+          For production Swift, TypeScript, and JavaScript changes, fail when the diff violates `.github/review-bot-rules/reliability-single-source-of-truth.md`: a correctness-critical fact (which agent is running, agent/session lifecycle and liveness, workspace/pane/surface identity, or any value the UI trusts to enable controls or route input) derived from a window/pane/terminal title, name, or process-argv heuristic; an "unreliable but better than nothing" fallback branch where a wrong value is a correctness bug; more than one disagreeing source of truth for the same fact; or a throttle/poll interval on the read that introduces a visible staleness window. Require a single reliable structured source (session id, registered agent descriptor, typed lifecycle event) and failing closed when it is missing. Pass for genuinely cosmetic non-authoritative hints and coalescing that does not delay the observable value.
+      - name: "cmux React base UI"
+        mode: error
+        instructions: |
+          For React UI changes under `web/**/*.tsx` and `web/**/*.jsx`, fail when the diff violates `.github/review-bot-rules/react-base-ui-accessibility.md`: a custom dialog, popover, menu, context menu, checkbox, select, switch, tabs, tooltip, combobox, command menu, or other composite widget is built from raw elements, ad hoc ARIA, `tabIndex`, or hand-rolled keyboard handlers when `@base-ui-components/react` or an existing local component provides the relevant primitive. Pass for native semantic controls and for cases with no relevant primitive where the PR owns complete accessibility and keyboard behavior.
+      - name: "cmux landing page registry parity"
+        mode: error
+        instructions: |
+          When a PR adds a new marketing landing page under `web/app/[locale]/(landing)/<slug>/page.tsx`, fail when the diff violates `.github/review-bot-rules/landing-page-registry-parity.md`: the new path is missing from any of `web/app/sitemap.ts`, `agentReadablePages` in `web/app/lib/agent-page-paths.ts` (a sitemap page absent here breaks `tests/agent-page-variants.test.ts` and omits the `.md`/`.txt` and `llms.txt` variants), the `ARTICLES` list in `web/app/[locale]/(landing)/guides/page.tsx`, or a `landing.links` label plus an internal cross-link from a sibling page. Also fail when `agentReadablePages` and `sitemap.ts` drift (a path in one but not the other). Localization of the new copy is covered by the internationalization check. Pass for routes intentionally kept out of the sitemap (legal, deeplink, redirect-only) when excluded consistently, edits to existing landing pages, and existing drift the PR does not worsen.

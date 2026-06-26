@@ -1,17 +1,39 @@
-import XCTest
+import class XCTest.XCTestCase
+import func XCTest.XCTAssertEqual
+import func XCTest.XCTAssertFalse
+import func XCTest.XCTAssertGreaterThan
+import func XCTest.XCTAssertGreaterThanOrEqual
+import func XCTest.XCTAssertNil
+import func XCTest.XCTAssertNotEqual
+import func XCTest.XCTAssertNotNil
+import func XCTest.XCTAssertTrue
+import func XCTest.XCTFail
+import func XCTest.XCTUnwrap
 import Combine
 import AppKit
+import Testing
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import Network
+import CmuxBrowser
+import CmuxSettings
+import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+// The app target still declares a legacy duplicate of BrowserThemeMode; with
+// CmuxSettings imported unconditionally the name is ambiguous. Pin the app
+// type for theme tests and the package type for browser search settings.
+private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
+private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 #elseif canImport(cmux)
 @testable import cmux
+private typealias BrowserThemeMode = cmux.BrowserThemeMode
+private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 #endif
 
 var cmuxUnitTestInspectorAssociationKey: UInt8 = 0
@@ -114,6 +136,128 @@ private final class BrowserMarkedTextProbeTextView: NSTextView {
     }
 }
 
+final class BrowserAddressBarTrackingPolicyTests: XCTestCase {
+    func testNonPointerWebViewFocusPreservesTrackedAddressBarWithLiveOmnibarField() {
+        XCTAssertTrue(
+            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
+                BrowserAddressBarTrackingContext(
+                    trackedPanelMatchesWebView: true,
+                    omnibarResponderActive: false,
+                    preferredFocusIntentIsAddressBar: true,
+                    suppressesWebViewFocus: false,
+                    pointerInitiatedWebFocus: false,
+                    liveOmnibarFieldExists: true
+                )
+            )
+        )
+    }
+
+    func testPointerWebViewFocusCanClearTrackedAddressBar() {
+        XCTAssertFalse(
+            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
+                BrowserAddressBarTrackingContext(
+                    trackedPanelMatchesWebView: true,
+                    omnibarResponderActive: false,
+                    preferredFocusIntentIsAddressBar: true,
+                    suppressesWebViewFocus: true,
+                    pointerInitiatedWebFocus: true,
+                    liveOmnibarFieldExists: true
+                )
+            )
+        )
+    }
+
+    func testOtherPanelWebViewFocusDoesNotPreserveAddressBarTracking() {
+        XCTAssertFalse(
+            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
+                BrowserAddressBarTrackingContext(
+                    trackedPanelMatchesWebView: false,
+                    omnibarResponderActive: true,
+                    preferredFocusIntentIsAddressBar: true,
+                    suppressesWebViewFocus: true,
+                    pointerInitiatedWebFocus: false,
+                    liveOmnibarFieldExists: true
+                )
+            )
+        )
+    }
+}
+
+final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
+    @MainActor
+    func testSpecificWindowLookupDoesNotReturnFieldFromAnotherWindow() {
+        let panelId = UUID()
+        let registry = BrowserOmnibarNativeFieldRegistry.shared
+        let firstWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let secondWindow = NSWindow(
+            contentRect: NSRect(x: 20, y: 20, width: 320, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let firstContainer = NSView(frame: firstWindow.contentRect(forFrameRect: firstWindow.frame))
+        let secondContainer = NSView(frame: secondWindow.contentRect(forFrameRect: secondWindow.frame))
+        firstWindow.contentView = firstContainer
+        secondWindow.contentView = secondContainer
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        field.panelId = panelId
+        firstContainer.addSubview(field)
+        registry.register(field, panelId: panelId)
+
+        defer {
+            registry.unregister(field, panelId: panelId)
+            field.removeFromSuperview()
+            firstWindow.contentView = nil
+            secondWindow.contentView = nil
+            firstWindow.orderOut(nil)
+            secondWindow.orderOut(nil)
+        }
+
+        XCTAssertTrue(registry.field(for: panelId, in: firstWindow) === field)
+        XCTAssertNil(registry.field(for: panelId, in: secondWindow))
+    }
+
+    @MainActor
+    func testNilWindowLookupPrefersAttachedFieldBeforeDetachedField() {
+        let panelId = UUID()
+        let registry = BrowserOmnibarNativeFieldRegistry.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let attachedField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        attachedField.panelId = panelId
+        container.addSubview(attachedField)
+
+        let detachedField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        detachedField.panelId = panelId
+
+        registry.register(attachedField, panelId: panelId)
+        registry.register(detachedField, panelId: panelId)
+
+        defer {
+            registry.unregister(attachedField, panelId: panelId)
+            registry.unregister(detachedField, panelId: panelId)
+            attachedField.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(registry.field(for: panelId) === attachedField)
+    }
+}
+
 final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     private final class ActionSpy: NSObject {
         private(set) var invoked: Bool = false
@@ -164,6 +308,8 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
     private final class FieldEditorProbeTextView: NSTextView {
         private(set) var delegateReadCount = 0
+        private(set) var keyDownKeyCodes: [UInt16] = []
+        var reportsMarkedText = false
 
         override var delegate: NSTextViewDelegate? {
             get {
@@ -178,6 +324,26 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         override var isFieldEditor: Bool {
             get { true }
             set {}
+        }
+
+        override func keyDown(with event: NSEvent) {
+            keyDownKeyCodes.append(event.keyCode)
+        }
+
+        override func hasMarkedText() -> Bool {
+            reportsMarkedText
+        }
+
+        func resetKeyDownKeyCodes() {
+            keyDownKeyCodes.removeAll()
+        }
+    }
+
+    private final class FieldEditorProbeWindow: NSWindow {
+        let testFieldEditor = FieldEditorProbeTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+
+        override func fieldEditor(_ createFlag: Bool, for object: Any?) -> NSText? {
+            testFieldEditor
         }
     }
     func testCmdNRoutesToMainMenuWhenWebViewIsFirstResponder() {
@@ -214,6 +380,217 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
         XCTAssertTrue(webView.performKeyEquivalent(with: event!))
         XCTAssertTrue(spy.invoked)
+    }
+
+    func testCmdCCopyPreflightsIntoWebContentBeforeMainMenu() {
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "c", modifiers: [.command])
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === webView else { return nil }
+            forwardedEvents.append(event)
+            return true
+        }
+        defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil }
+
+        let event = makeKeyDownEvent(key: "c", modifiers: [.command], keyCode: 8) // kVK_ANSI_C
+        XCTAssertNotNil(event)
+
+        XCTAssertTrue(webView.performKeyEquivalent(with: event!))
+        XCTAssertEqual(forwardedEvents.count, 1)
+        XCTAssertEqual(forwardedEvents.first?.keyCode, 8)
+        XCTAssertFalse(spy.invoked)
+    }
+
+    func testCmdCCopyFallsBackToMainMenuWhenWebContentDoesNotHandleIt() {
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "c", modifiers: [.command])
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === webView else { return nil }
+            forwardedEvents.append(event)
+            return false
+        }
+        defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil }
+
+        let event = makeKeyDownEvent(key: "c", modifiers: [.command], keyCode: 8) // kVK_ANSI_C
+        XCTAssertNotNil(event)
+
+        XCTAssertTrue(webView.performKeyEquivalent(with: event!))
+        XCTAssertEqual(forwardedEvents.count, 1)
+        XCTAssertEqual(forwardedEvents.first?.keyCode, 8)
+        XCTAssertTrue(spy.invoked)
+    }
+
+    @MainActor
+    func testWindowCmdCCopyPreflightsFocusedBrowserChildIntoWebContentBeforeMainMenu() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "c", modifiers: [.command])
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let responder = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        webView.addSubview(responder)
+
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === webView else { return nil }
+            forwardedEvents.append(event)
+            return true
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(responder))
+        guard let event = makeKeyDownEvent(
+            key: "c",
+            modifiers: [.command],
+            keyCode: 8,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+C event")
+            return
+        }
+
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertEqual(forwardedEvents.count, 1)
+        XCTAssertEqual(forwardedEvents.first?.keyCode, 8)
+        XCTAssertFalse(spy.invoked)
+    }
+
+    @MainActor
+    func testWindowCmdCCopyFallsBackToMainMenuWhenFocusedBrowserChildDoesNotHandleIt() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "c", modifiers: [.command])
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let responder = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        webView.addSubview(responder)
+
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === webView else { return nil }
+            forwardedEvents.append(event)
+            return false
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(responder))
+        guard let event = makeKeyDownEvent(
+            key: "c",
+            modifiers: [.command],
+            keyCode: 8,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+C event")
+            return
+        }
+
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertEqual(forwardedEvents.count, 1)
+        XCTAssertEqual(forwardedEvents.first?.keyCode, 8)
+        XCTAssertTrue(spy.invoked)
+    }
+
+    @MainActor
+    func testWindowCmdCCopySuppressesSecondWebContentReplayWhenFocusedBrowserChildAndMenuDecline() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+
+        NSApp.mainMenu = NSMenu(title: "Main")
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let responder = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        webView.addSubview(responder)
+
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === webView else { return nil }
+            forwardedEvents.append(event)
+            return false
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(responder))
+        guard let event = makeKeyDownEvent(
+            key: "c",
+            modifiers: [.command],
+            keyCode: 8,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+C event")
+            return
+        }
+
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertEqual(forwardedEvents.count, 1)
+        XCTAssertEqual(forwardedEvents.first?.keyCode, 8)
     }
 
     func testReturnDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() {
@@ -682,6 +1059,246 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     @MainActor
+    func testWindowArrowForwardingRoutesFocusedOmnibarFieldEditorThroughKeyDown() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let panelId = UUID()
+        let window = FieldEditorProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
+        field.panelId = panelId
+        field.stringValue = "abcdef"
+        container.addSubview(field)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            field.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard field.currentEditor() === window.testFieldEditor else {
+            XCTFail("Expected the omnibar to use the probe field editor")
+            return
+        }
+
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        window.testFieldEditor.resetKeyDownKeyCodes()
+
+        guard let leftArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 123,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Left Arrow event")
+            return
+        }
+
+        XCTAssertTrue(window.performKeyEquivalent(with: leftArrowEvent))
+        XCTAssertEqual(
+            window.testFieldEditor.keyDownKeyCodes,
+            [123],
+            "A live omnibar field editor must receive plain arrows through keyDown so NSTextView can move the caret"
+        )
+    }
+
+    @MainActor
+    func testWindowArrowForwardingRoutesFocusedMarkedTextOmnibarFieldEditorThroughKeyDown() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let panelId = UUID()
+        let window = FieldEditorProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
+        field.panelId = panelId
+        field.stringValue = "ㄉㄚˋ"
+        container.addSubview(field)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            field.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard field.currentEditor() === window.testFieldEditor else {
+            XCTFail("Expected the omnibar to use the probe field editor")
+            return
+        }
+
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        window.testFieldEditor.resetKeyDownKeyCodes()
+        window.testFieldEditor.reportsMarkedText = true
+
+        guard let downArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 125,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Down Arrow event")
+            return
+        }
+
+        XCTAssertTrue(
+            window.performKeyEquivalent(with: downArrowEvent),
+            "Marked-text omnibar arrows must be delivered directly to the field editor instead of falling through to original key-equivalent handling"
+        )
+        XCTAssertEqual(window.testFieldEditor.keyDownKeyCodes, [125])
+    }
+
+    @MainActor
+    func testWindowArrowForwardingRestoresFocusedOmnibarBeforeBrowserFirstResponder() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let panelId = UUID()
+        let window = FieldEditorProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
+        field.panelId = panelId
+        field.stringValue = "abcdef"
+        container.addSubview(field)
+
+        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 360), configuration: WKWebViewConfiguration())
+        webView.allowsFirstResponderAcquisition = true
+        container.addSubview(webView)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            field.removeFromSuperview()
+            webView.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard field.currentEditor() === window.testFieldEditor else {
+            XCTFail("Expected the omnibar to use the probe field editor")
+            return
+        }
+
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        window.testFieldEditor.resetKeyDownKeyCodes()
+
+        XCTAssertTrue(window.makeFirstResponder(webView))
+        XCTAssertTrue(window.firstResponder === webView)
+
+        guard let leftArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 123,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Left Arrow event")
+            return
+        }
+
+        XCTAssertTrue(window.performKeyEquivalent(with: leftArrowEvent))
+        XCTAssertEqual(
+            window.testFieldEditor.keyDownKeyCodes,
+            [123],
+            "When the omnibar is still logically focused, transient WebView first-responder state must not steal plain arrows from the omnibar field editor"
+        )
+    }
+
+    @MainActor
+    func testWindowArrowForwardingConsumesMarkedTextOmnibarRestore() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let panelId = UUID()
+        let window = FieldEditorProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
+        field.panelId = panelId
+        field.stringValue = "abcdef"
+        container.addSubview(field)
+
+        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 360), configuration: WKWebViewConfiguration())
+        webView.allowsFirstResponderAcquisition = true
+        container.addSubview(webView)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            field.removeFromSuperview()
+            webView.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard field.currentEditor() === window.testFieldEditor else {
+            XCTFail("Expected the omnibar to use the probe field editor")
+            return
+        }
+
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        window.testFieldEditor.resetKeyDownKeyCodes()
+        window.testFieldEditor.reportsMarkedText = true
+
+        XCTAssertTrue(window.makeFirstResponder(webView))
+        XCTAssertTrue(window.firstResponder === webView)
+
+        guard let leftArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 123,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Left Arrow event")
+            return
+        }
+
+        XCTAssertTrue(
+            window.performKeyEquivalent(with: leftArrowEvent),
+            "After restoring the omnibar, the arrow must be delivered once instead of returning unhandled after mutating first responder"
+        )
+        XCTAssertEqual(window.testFieldEditor.keyDownKeyCodes, [123])
+    }
+
+    @MainActor
     func testWindowFirstResponderBypassBlocksSwizzledMakeFirstResponder() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
@@ -701,8 +1318,13 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
 
+        guard let bypass = AppDelegate.shared?.browserFirstResponderBypass else {
+            XCTFail("Expected AppDelegate.shared for the first-responder bypass the swizzle reads")
+            return
+        }
+
         _ = window.makeFirstResponder(nil)
-        cmuxWithWindowFirstResponderBypass {
+        bypass.withBypass {
             XCTAssertFalse(
                 window.makeFirstResponder(responder),
                 "Bypass scope should block transient first-responder changes during devtools auto-restore"
@@ -1281,6 +1903,20 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         XCTAssertFalse(panel.isShowingNewTabPage)
     }
 
+    func testBrowserPanelWithDeferredInitialURLIsNotNewTabPage() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/restored"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: url,
+            renderInitialNavigation: false
+        )
+
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.currentURL, url)
+        XCTAssertFalse(panel.isShowingNewTabPage)
+        XCTAssertEqual(panel.webViewLifecycleState, .deferredURL)
+    }
+
     func testBrowserPanelThemeModeUpdatesWebViewAppearance() {
         let panel = BrowserPanel(workspaceId: UUID())
 
@@ -1377,6 +2013,35 @@ final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
 
         XCTAssertEqual(alertSpy.beginSheetModalCallCount, 0)
         XCTAssertEqual(alertSpy.runModalCallCount, 1)
+    }
+
+    func testInsecureHTTPPromptDefersWhileBackgroundPreloadHasNoInteractiveHost() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            preloadInitialNavigationInBackground: true,
+            isRemoteWorkspace: false
+        )
+        defer {
+            panel.resetInsecureHTTPAlertHooksForTesting()
+            panel.close()
+        }
+
+        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+        XCTAssertNil(browserInteractiveModalHostWindow(for: panel.webView))
+
+        let alertSpy = BrowserInsecureHTTPAlertSpy()
+        panel.configureInsecureHTTPAlertHooksForTesting(
+            alertFactory: { alertSpy },
+            windowProvider: {
+                XCTFail("Background preload should not prompt on fallback windows")
+                return nil
+            }
+        )
+        panel.presentInsecureHTTPAlertForTesting(url: URL(string: "http://example.com")!)
+
+        XCTAssertEqual(alertSpy.beginSheetModalCallCount, 0)
+        XCTAssertEqual(alertSpy.runModalCallCount, 0)
     }
 }
 
@@ -1814,6 +2479,149 @@ final class BrowserJavaScriptDialogDelegateTests: XCTestCase {
 
 @MainActor
 final class BrowserSessionHistoryRestoreTests: XCTestCase {
+    private final class ProvisionalNavigationRaceServer {
+        enum ServerError: Error {
+            case listenerDidNotBecomeReady
+            case listenerPortUnavailable
+        }
+
+        private static let queueKey = DispatchSpecificKey<Void>()
+        private let listener: NWListener
+        private let queue = DispatchQueue(label: "cmux.browser.provisional-navigation-race-server")
+        private let lock = NSLock()
+        private var heldBConnections: [NWConnection] = []
+        private var receivedBRequest = false
+        private(set) var port: UInt16 = 0
+
+        init() throws {
+            let parameters = NWParameters.tcp
+            parameters.requiredLocalEndpoint = .hostPort(
+                host: NWEndpoint.Host("127.0.0.1"),
+                port: .any
+            )
+            listener = try NWListener(using: parameters)
+            queue.setSpecific(key: Self.queueKey, value: ())
+
+            let ready = DispatchSemaphore(value: 0)
+            listener.stateUpdateHandler = { state in
+                if case .ready = state {
+                    ready.signal()
+                }
+            }
+            listener.newConnectionHandler = { [weak self] connection in
+                self?.handle(connection)
+            }
+            listener.start(queue: queue)
+
+            guard ready.wait(timeout: .now() + 2.0) == .success else {
+                throw ServerError.listenerDidNotBecomeReady
+            }
+            guard let port = listener.port?.rawValue else {
+                throw ServerError.listenerPortUnavailable
+            }
+            self.port = port
+        }
+
+        var didReceiveBRequest: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return receivedBRequest
+        }
+
+        func url(path: String) -> URL {
+            URL(string: "http://127.0.0.1:\(port)\(path)")!
+        }
+
+        func releaseHeldBResponses() -> Int {
+            if DispatchQueue.getSpecific(key: Self.queueKey) != nil {
+                return releaseHeldBResponsesOnQueue()
+            }
+            return queue.sync {
+                releaseHeldBResponsesOnQueue()
+            }
+        }
+
+        private func releaseHeldBResponsesOnQueue() -> Int {
+            let connections: [NWConnection]
+            lock.lock()
+            connections = heldBConnections
+            heldBConnections.removeAll()
+            lock.unlock()
+
+            for connection in connections {
+                sendPage("B", on: connection)
+            }
+            return connections.count
+        }
+
+        func stop() {
+            listener.cancel()
+            _ = releaseHeldBResponses()
+        }
+
+        private func handle(_ connection: NWConnection) {
+            connection.start(queue: queue)
+            receiveRequest(on: connection)
+        }
+
+        private func receiveRequest(on connection: NWConnection, buffer: Data = Data()) {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { [weak self] data, _, _, error in
+                guard let self else { return }
+                if error != nil {
+                    connection.cancel()
+                    return
+                }
+
+                var nextBuffer = buffer
+                if let data {
+                    nextBuffer.append(data)
+                }
+
+                guard let requestText = String(data: nextBuffer, encoding: .utf8),
+                      requestText.contains("\r\n\r\n") else {
+                    self.receiveRequest(on: connection, buffer: nextBuffer)
+                    return
+                }
+
+                let requestLine = requestText.split(separator: "\r\n", maxSplits: 1).first ?? ""
+                let path = requestLine.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+                if path == "/b" {
+                    self.lock.lock()
+                    self.receivedBRequest = true
+                    self.heldBConnections.append(connection)
+                    self.lock.unlock()
+                    return
+                }
+
+                self.sendPage("A", on: connection)
+            }
+        }
+
+        private func sendPage(_ marker: String, on connection: NWConnection) {
+            let body = """
+            <!doctype html>
+            <html>
+            <head><title>Race \(marker)</title></head>
+            <body>
+            <script>window.__cmuxRacePage = "\(marker)";</script>
+            <main id="page">Race \(marker)</main>
+            </body>
+            </html>
+            """
+            let response = """
+            HTTP/1.1 200 OK\r
+            Content-Type: text/html; charset=utf-8\r
+            Content-Length: \(body.utf8.count)\r
+            Connection: close\r
+            \r
+            \(body)
+            """
+            connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
+                connection.cancel()
+            })
+        }
+    }
+
     private func writeBrowserFixturePage(
         at url: URL,
         title: String,
@@ -1833,6 +2641,29 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             XCTFail("Failed to write browser fixture page: \(error)", file: file, line: line)
             throw error
         }
+    }
+
+    private func waitUntil(
+        _ description: String,
+        timeout: TimeInterval = 5.0,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        predicate: () -> Bool
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate() {
+                return
+            }
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+
+        XCTFail("Timed out waiting for \(description)", file: file, line: line)
+        throw BrowserTestTimeout(description: description)
+    }
+
+    private struct BrowserTestTimeout: Error, CustomStringConvertible {
+        let description: String
     }
 
     private func waitForBrowserPanel(
@@ -1859,6 +2690,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
 
     func testSessionNavigationHistorySnapshotUsesRestoredStacks() {
         let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
 
         panel.restoreSessionNavigationHistory(
             backHistoryURLStrings: [
@@ -1887,6 +2719,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
 
     func testSessionNavigationHistoryBackAndForwardUpdateStacks() {
         let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
 
         panel.restoreSessionNavigationHistory(
             backHistoryURLStrings: [
@@ -1937,6 +2770,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             workspaceId: UUID(),
             initialURL: pageB
         )
+        defer { panel.close() }
         waitForBrowserPanel(panel, url: pageB)
 
         panel.restoreSessionNavigationHistory(
@@ -1961,11 +2795,52 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         waitForBrowserPanel(panel, url: pageA)
     }
 
+    func testBackDuringProvisionalNavigationDoesNotDesyncPublishedURLFromRenderedPage() throws {
+        let server = try ProvisionalNavigationRaceServer()
+        defer { server.stop() }
+
+        let pageA = server.url(path: "/a")
+        let pageB = server.url(path: "/b")
+        let panel = BrowserPanel(workspaceId: UUID(), initialURL: pageA)
+        defer { panel.close() }
+
+        waitForBrowserPanel(panel, url: pageA)
+        XCTAssertEqual(panel.pageTitle, "Race A")
+
+        panel.navigate(to: pageB)
+        try waitUntil("server to receive provisional page B request") {
+            server.didReceiveBRequest
+        }
+        try waitUntil("browser back availability during provisional page B navigation") {
+            panel.canGoBack && panel.webView.isLoading
+        }
+        XCTAssertFalse(panel.canGoForward)
+
+        panel.goBack()
+        try waitUntil("back action to expose page B as forward history before it can commit") {
+            panel.currentURL?.path == pageA.path && !panel.webView.isLoading
+                && panel.canGoForward
+        }
+
+        let releasedBResponseCount = server.releaseHeldBResponses()
+        XCTAssertGreaterThan(releasedBResponseCount, 0)
+        try waitUntil("browser to remain on page A after held page B response is released") {
+            !panel.webView.isLoading &&
+                panel.pageTitle == "Race A" &&
+                panel.currentURL?.path == pageA.path
+        }
+
+        let publishedURL = try XCTUnwrap(panel.currentURL)
+        XCTAssertEqual(publishedURL.path, pageA.path)
+        XCTAssertEqual(panel.pageTitle, "Race A")
+    }
+
     func testWebViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: URL(string: "https://example.com")
         )
+        defer { panel.close() }
         let oldWebView = panel.webView
         let oldInstanceID = panel.webViewInstanceID
 
@@ -1979,6 +2854,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
 
     func testWebViewReplacementPreservesEmptyNewTabRenderState() {
         let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
         XCTAssertFalse(panel.shouldRenderWebView)
 
         panel.debugSimulateWebContentProcessTermination()
@@ -1988,6 +2864,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
 
     func testResetSidebarContextClearsBrowserPanelsIntoNewTabState() throws {
         let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
         let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let contextPanelId = try XCTUnwrap(workspace.focusedPanelId)
         let browser = try XCTUnwrap(
@@ -2077,6 +2954,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         override var acceptsFirstResponder: Bool { true }
     }
 
+    private final class WKInspectorProbeWebView: WKWebView {
+    }
+
     private final class FakeInspector: NSObject {
         enum HideBehavior {
             case unsupported
@@ -2089,11 +2969,17 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         private(set) var hideCount = 0
         private(set) var closeCount = 0
         private let hideBehavior: HideBehavior
+        private let requiresAttachmentToShow: Bool
         private var visible = false
         private var attached = false
+        private weak var frontendWebView: WKWebView?
 
-        init(hideBehavior: HideBehavior = .unsupported) {
+        init(
+            hideBehavior: HideBehavior = .unsupported,
+            requiresAttachmentToShow: Bool = false
+        ) {
             self.hideBehavior = hideBehavior
+            self.requiresAttachmentToShow = requiresAttachmentToShow
             super.init()
         }
 
@@ -2120,6 +3006,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         @objc func show() {
             showCount += 1
+            guard !requiresAttachmentToShow ||
+                (attached && frontendWebView?.window != nil) else { return }
             visible = true
         }
 
@@ -2134,6 +3022,14 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             visible = false
             attached = false
         }
+
+        @objc func inspectorWebView() -> WKWebView? {
+            frontendWebView
+        }
+
+        func setFrontendWebView(_ webView: WKWebView?) {
+            frontendWebView = webView
+        }
     }
 
     override class func setUp() {
@@ -2142,10 +3038,14 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     private func makePanelWithInspector(
-        hideBehavior: FakeInspector.HideBehavior = .unsupported
+        hideBehavior: FakeInspector.HideBehavior = .unsupported,
+        requiresAttachmentToShow: Bool = false
     ) -> (BrowserPanel, FakeInspector) {
         let panel = BrowserPanel(workspaceId: UUID())
-        let inspector = FakeInspector(hideBehavior: hideBehavior)
+        let inspector = FakeInspector(
+            hideBehavior: hideBehavior,
+            requiresAttachmentToShow: requiresAttachmentToShow
+        )
         panel.webView.cmuxSetUnitTestInspector(inspector)
         return (panel, inspector)
     }
@@ -2175,6 +3075,56 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
 
+    private func waitForDetachedDeveloperToolsCloseResolutionDeadline(
+        until condition: () -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let productionMaxDuration: TimeInterval = 2.0
+        let productionPollInterval: TimeInterval = 0.35
+        let ciSchedulingMargin: TimeInterval = 0.5
+        let deadline = Date().addingTimeInterval(
+            productionMaxDuration + productionPollInterval + ciSchedulingMargin
+        )
+        while Date() < deadline {
+            if condition() { return }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTFail("Timed out waiting for detached DevTools close resolution", file: file, line: line)
+    }
+
+    private func closeBrowserPanel(_ panel: BrowserPanel) {
+        panel.close()
+        BrowserWindowPortalRegistry.detach(webView: panel.webView)
+        panel.webView.cmuxSetUnitTestInspector(nil)
+        panel.webView.removeFromSuperview()
+    }
+
+    private func closeWindow(_ window: NSWindow) {
+        window.contentView = nil
+        window.orderOut(nil)
+        window.close()
+    }
+
+    private func tearDownMainWindow(
+        _ window: NSWindow,
+        manager: TabManager
+    ) {
+        let browserPanels = manager.tabs.flatMap { workspace in
+            workspace.panels.values.compactMap { $0 as? BrowserPanel }
+        }
+        for workspace in manager.tabs {
+            workspace.teardownAllPanels()
+        }
+        for browserPanel in browserPanels {
+            BrowserWindowPortalRegistry.detach(webView: browserPanel.webView)
+            browserPanel.webView.cmuxSetUnitTestInspector(nil)
+            browserPanel.webView.removeFromSuperview()
+        }
+        closeWindow(window)
+        spinRunLoopOneTick()
+    }
+
     private func findWindowBrowserSlotView(in root: NSView) -> WindowBrowserSlotView? {
         if let slot = root as? WindowBrowserSlotView {
             return slot
@@ -2189,6 +3139,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testPaneCloseClosesVisibleInspectorSynchronouslyBeforeWebViewTeardown() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
@@ -2217,6 +3168,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             XCTFail("Expected main window with browser panel")
             return
         }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(window, manager: manager) }
 
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
@@ -2246,8 +3199,429 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
     }
 
+    func testDetachedInspectorWindowWillCloseWaitsForManualCloseState() {
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.title = "Web Inspector — example.com"
+        let frontendWebView = WKWebView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView?.addSubview(frontendWebView)
+        window.contentView?.addSubview(WKInspectorProbeView(frame: window.contentView?.bounds ?? .zero))
+        inspector.setFrontendWebView(frontendWebView)
+        defer { closeWindow(window) }
+
+        window.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.closeCount, 0)
+
+        window.close()
+
+        XCTAssertEqual(
+            inspector.closeCount,
+            0,
+            "A raw detached Web Inspector willClose can be WebKit's redock path, so cmux must not synchronously close _inspector before WebKit reports the final state"
+        )
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+
+        inspector.close()
+        waitForDetachedDeveloperToolsCloseResolutionDeadline {
+            inspector.closeCount == 1 &&
+                !panel.isDeveloperToolsVisible() &&
+                !panel.preferredDeveloperToolsVisible
+        }
+
+        XCTAssertEqual(inspector.closeCount, 1)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertFalse(panel.preferredDeveloperToolsVisible)
+    }
+
+    func testDetachedInspectorWillCloseDuringDockBackPreservesInspectorForWebKitAttach() {
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+        let mainWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let inspectorWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        inspectorWindow.isReleasedWhenClosed = false
+        defer {
+            closeWindow(inspectorWindow)
+            closeWindow(mainWindow)
+        }
+        guard let mainContentView = mainWindow.contentView,
+              let inspectorContentView = inspectorWindow.contentView else {
+            XCTFail("Expected test windows to have content views")
+            return
+        }
+
+        let attachedHost = NSView(frame: mainContentView.bounds)
+        mainContentView.addSubview(attachedHost)
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 260, height: attachedHost.bounds.height)
+        attachedHost.addSubview(panel.webView)
+        let attachedInspectorView = WKInspectorProbeView(
+            frame: NSRect(x: 260, y: 0, width: 260, height: attachedHost.bounds.height)
+        )
+        attachedHost.addSubview(attachedInspectorView)
+
+        inspectorWindow.title = "Web Inspector — example.com"
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: inspectorContentView.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        inspectorContentView.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+
+        mainWindow.makeKeyAndOrderFront(nil)
+        inspectorWindow.makeKeyAndOrderFront(nil)
+        mainWindow.displayIfNeeded()
+        inspectorWindow.displayIfNeeded()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.closeCount, 0)
+
+        inspectorWindow.close()
+
+        XCTAssertEqual(
+            inspector.closeCount,
+            0,
+            "Detached inspector willClose during redock must not close _inspector while WebKit is attaching the frontend back into the pane"
+        )
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+
+        waitForDeveloperToolsTransitions()
+
+        XCTAssertEqual(inspector.closeCount, 0)
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+    }
+
+    func testDetachedInspectorCloseButtonActionClosesBeforeWindowWillCloseNotification() {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        guard let mainWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected main window with browser panel")
+            return
+        }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(mainWindow, manager: manager) }
+
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if browserPanel.webView.superview == nil {
+            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
+            mainWindow.contentView?.addSubview(browserPanel.webView)
+        }
+
+        let inspectorWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        inspectorWindow.title = "Web Inspector — example.com"
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: inspectorWindow.contentView?.bounds ?? .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        inspectorWindow.contentView?.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+        defer { closeWindow(inspectorWindow) }
+
+        inspectorWindow.makeKeyAndOrderFront(nil)
+        inspectorWindow.makeKey()
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.closeCount, 0)
+
+        var willCloseNotificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: inspectorWindow,
+            queue: nil
+        ) { _ in
+            willCloseNotificationCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        let handled = NSApp.sendAction(
+            NSSelectorFromString("__close"),
+            to: inspectorWindow,
+            from: inspectorWindow.standardWindowButton(.closeButton)
+        )
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(
+            inspector.closeCount,
+            1,
+            "The close-button action must close the owning inspector before WebKit's NSWindowWillClose observer can run"
+        )
+        XCTAssertEqual(
+            willCloseNotificationCount,
+            0,
+            "The intercepted close-button action should not fall through to AppKit's window close path"
+        )
+        XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
+    }
+
+    func testDetachedInspectorNilTargetCloseActionUsesKeyWindow() {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        guard let mainWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected main window with browser panel")
+            return
+        }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(mainWindow, manager: manager) }
+
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if browserPanel.webView.superview == nil {
+            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
+            mainWindow.contentView?.addSubview(browserPanel.webView)
+        }
+
+        let inspectorWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        inspectorWindow.title = "Web Inspector — example.com"
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: inspectorWindow.contentView?.bounds ?? .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        inspectorWindow.contentView?.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+        defer { closeWindow(inspectorWindow) }
+
+        inspectorWindow.makeKeyAndOrderFront(nil)
+        inspectorWindow.makeKey()
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertEqual(inspector.closeCount, 0)
+        XCTAssertTrue(inspectorWindow.isKeyWindow)
+
+        let handled = NSApp.sendAction(NSSelectorFromString("__close"), to: nil, from: nil)
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(
+            inspector.closeCount,
+            1,
+            "Menu and keyboard close actions without an explicit target must still route through inspector teardown"
+        )
+        XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
+    }
+
+    func testDetachedInspectorNilTargetMenuItemCloseActionUsesKeyWindow() {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        guard let mainWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected main window with browser panel")
+            return
+        }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(mainWindow, manager: manager) }
+
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if browserPanel.webView.superview == nil {
+            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
+            mainWindow.contentView?.addSubview(browserPanel.webView)
+        }
+
+        let inspectorWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        inspectorWindow.title = "Web Inspector — example.com"
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: inspectorWindow.contentView?.bounds ?? .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        inspectorWindow.contentView?.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+        defer { closeWindow(inspectorWindow) }
+
+        inspectorWindow.makeKeyAndOrderFront(nil)
+        inspectorWindow.makeKey()
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertEqual(inspector.closeCount, 0)
+        XCTAssertTrue(inspectorWindow.isKeyWindow)
+
+        let menuItem = NSMenuItem(
+            title: "Close",
+            action: NSSelectorFromString("close:"),
+            keyEquivalent: "w"
+        )
+        let handled = NSApp.sendAction(NSSelectorFromString("close:"), to: nil, from: menuItem)
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(
+            inspector.closeCount,
+            1,
+            "Nil-target menu Close actions must resolve the key detached inspector window before AppKit posts willClose"
+        )
+        XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
+    }
+
+    func testNilTargetMainWindowCloseActionDoesNotCloseAttachedInspector() {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        guard let mainWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let contentView = mainWindow.contentView else {
+            XCTFail("Expected main window with browser panel")
+            return
+        }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(mainWindow, manager: manager) }
+
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if browserPanel.webView.superview == nil {
+            browserPanel.webView.frame = contentView.bounds
+            contentView.addSubview(browserPanel.webView)
+        }
+
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: NSRect(
+                x: contentView.bounds.midX,
+                y: 0,
+                width: contentView.bounds.midX,
+                height: contentView.bounds.height
+            ),
+            configuration: WKWebViewConfiguration()
+        )
+        contentView.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+
+        mainWindow.makeKeyAndOrderFront(nil)
+        mainWindow.makeKey()
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.closeCount, 0)
+
+        _ = NSApp.sendAction(NSSelectorFromString("__close"), to: nil, from: nil)
+
+        XCTAssertEqual(
+            inspector.closeCount,
+            0,
+            "Nil-target main-window Close actions must not be mistaken for detached inspector window closes"
+        )
+        XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
+    }
+
+    func testNilTargetControllerCloseActionDoesNotCloseDetachedInspector() {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        guard let mainWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected main window with browser panel")
+            return
+        }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(mainWindow, manager: manager) }
+
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if browserPanel.webView.superview == nil {
+            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
+            mainWindow.contentView?.addSubview(browserPanel.webView)
+        }
+
+        let inspectorWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        inspectorWindow.title = "Web Inspector — example.com"
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: inspectorWindow.contentView?.bounds ?? .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        inspectorWindow.contentView?.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+        defer { closeWindow(inspectorWindow) }
+
+        inspectorWindow.makeKeyAndOrderFront(nil)
+        inspectorWindow.makeKey()
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertEqual(inspector.closeCount, 0)
+
+        _ = NSApp.sendAction(NSSelectorFromString("close:"), to: nil, from: nil)
+
+        XCTAssertEqual(
+            inspector.closeCount,
+            0,
+            "Nil-target controller close: actions must not be treated as detached inspector window closes"
+        )
+        XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
+    }
+
     func testRestoreReopensInspectorAfterAttachWhenPreferredVisible() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
@@ -2263,8 +3637,153 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.showCount, 2)
     }
 
+    private func attachPanelWebViewToWindow(_ panel: BrowserPanel) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView?.addSubview(host)
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 180, height: host.bounds.height)
+        host.addSubview(panel.webView)
+        // Intentionally not made key / ordered front: consume's attach gate only
+        // needs webView.window != nil, and a key window + live WKWebView + runloop
+        // spin can recurse SwiftUI<->AppKit layout in the unit-test host.
+        return window
+    }
+
+    private func teardownWindowedPanel(_ panel: BrowserPanel, window: NSWindow) {
+        // Detach the live WKWebView from the window before any teardown so the
+        // window-close cascade never walks the web view's responder/layout tree
+        // (that path can recurse SwiftUI<->AppKit and overflow the stack here).
+        panel.webView.removeFromSuperview()
+        BrowserWindowPortalRegistry.detach(webView: panel.webView)
+        panel.webView.cmuxSetUnitTestInspector(nil)
+        window.contentView = nil
+        window.orderOut(nil)
+        panel.close()
+    }
+
+    func testManuallyClosedInspectorStaysClosedAfterNavigationReattach() {
+        let (panel, inspector) = makePanelWithInspector()
+        let window = attachPanelWebViewToWindow(panel)
+        defer { teardownWindowedPanel(panel, window: window) }
+
+        // User opens the Web Inspector; it attaches alongside the page.
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        panel.noteDeveloperToolsHostAttached()
+
+        // Let the inspector sit open past the manual-close detection grace so a
+        // later invisibility is unambiguously a deliberate close, and let the
+        // open transition settle.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+
+        // User closes the inspector via its own UI. cmux did not initiate this,
+        // so the persisted intent is still "visible" until the close is detected.
+        inspector.close()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        let showCountAfterClose = inspector.showCount
+
+        // User navigates to another page. While the DevTools intent is set the
+        // browser stays in local-inline hosting, so SwiftUI re-runs the same
+        // host-attach + after-attach restore that BrowserPanelView performs on
+        // every updateNSView.
+        panel.noteDeveloperToolsHostAttached()
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertFalse(
+            panel.isDeveloperToolsVisible(),
+            "A manually-closed Web Inspector must stay closed after navigating to another page"
+        )
+        XCTAssertFalse(
+            panel.preferredDeveloperToolsVisible,
+            "The persisted DevTools intent must follow the user's manual close instead of desyncing"
+        )
+        XCTAssertEqual(
+            inspector.showCount,
+            showCountAfterClose,
+            "Navigation after a manual inspector close must not re-show the inspector"
+        )
+    }
+
+    func testInspectorLeftOpenStaysOpenAcrossNavigationReattach() {
+        let (panel, inspector) = makePanelWithInspector()
+        let window = attachPanelWebViewToWindow(panel)
+        defer { teardownWindowedPanel(panel, window: window) }
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        panel.noteDeveloperToolsHostAttached()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+
+        // Navigate while the inspector is still open: it must persist, not close.
+        panel.noteDeveloperToolsHostAttached()
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(
+            panel.isDeveloperToolsVisible(),
+            "An inspector the user left open must persist across navigation"
+        )
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertEqual(inspector.closeCount, 0)
+    }
+
+    func testAttachedInspectorRevealReattachesFrontendAfterLayoutReentry() {
+        let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
+        defer { closeBrowserPanel(panel) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView?.addSubview(host)
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 180, height: host.bounds.height)
+        host.addSubview(panel.webView)
+        let inspectorView = WKInspectorProbeView(
+            frame: NSRect(x: 180, y: 0, width: 180, height: host.bounds.height)
+        )
+        host.addSubview(inspectorView)
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: inspectorView.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        inspectorView.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.attachCount, 1)
+        XCTAssertTrue(inspector.isAttached())
+
+        panel.noteDeveloperToolsHostAttached()
+        inspector.close()
+        XCTAssertFalse(inspector.isAttached())
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "unit-test-layout-reentry")
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(
+            inspector.isAttached(),
+            "Reveal after split/layout reentry must attach the inspector frontend before asking WebKit to show it"
+        )
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.attachCount, 2)
+    }
+
     func testSyncRespectsManualCloseAndPreventsUnexpectedRestore() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertEqual(inspector.showCount, 1)
@@ -2280,6 +3799,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testSyncCanPreserveVisibleIntentDuringDetachChurn() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertEqual(inspector.showCount, 1)
@@ -2295,6 +3815,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testSyncDoesNotRepublishHiddenDeveloperToolsIntentWhenInspectorAlreadyHidden() {
         let (panel, inspector) = makePanelWithInspector(hideBehavior: .hides)
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         waitForDeveloperToolsTransitions()
@@ -2323,6 +3844,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testForcedRefreshAfterAttachKeepsVisibleInspectorState() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
@@ -2344,6 +3866,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testRefreshRequestTracksPendingStateUntilRestoreRuns() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
@@ -2357,6 +3880,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testRapidToggleCoalescesToFinalVisibleIntentWithoutExtraInspectorCalls() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.toggleDeveloperTools())
         XCTAssertTrue(panel.toggleDeveloperTools())
@@ -2373,6 +3897,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testRapidToggleQueuesHideAfterOpenTransitionSettles() {
         let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.toggleDeveloperTools())
         XCTAssertTrue(panel.toggleDeveloperTools())
@@ -2388,6 +3913,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testToggleDeveloperToolsFallsBackToCloseWhenHideDoesNotConcealInspector() {
         let (panel, inspector) = makePanelWithInspector(hideBehavior: .noEffect)
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
@@ -2401,6 +3927,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testTransientHideAttachmentPreserveFollowsDeveloperToolsIntent() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
         XCTAssertTrue(panel.showDeveloperTools())
@@ -2411,6 +3938,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testWebViewDismantleKeepsPortalHostedWebViewAttachedWhenDeveloperToolsIntentIsVisible() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
         let paneId = PaneID(id: UUID())
         XCTAssertTrue(panel.showDeveloperTools())
 
@@ -2420,6 +3948,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        defer { closeWindow(window) }
         let anchor = NSView(frame: NSRect(x: 30, y: 30, width: 180, height: 140))
         window.contentView?.addSubview(anchor)
         window.makeKeyAndOrderFront(nil)
@@ -2441,6 +3970,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
         let coordinator = representable.makeCoordinator()
@@ -2448,11 +3978,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         WebViewRepresentable.dismantleNSView(anchor, coordinator: coordinator)
 
         XCTAssertNotNil(panel.webView.superview)
-        window.orderOut(nil)
     }
 
     func testWebViewDismantleKeepsPortalHostedWebViewAttachedWhenDeveloperToolsIntentIsHidden() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
         let paneId = PaneID(id: UUID())
         XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
 
@@ -2462,6 +3992,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        defer { closeWindow(window) }
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 200, height: 150))
         window.contentView?.addSubview(anchor)
         window.makeKeyAndOrderFront(nil)
@@ -2483,6 +4014,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
         let coordinator = representable.makeCoordinator()
@@ -2490,11 +4022,60 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         WebViewRepresentable.dismantleNSView(anchor, coordinator: coordinator)
 
         XCTAssertNotNil(panel.webView.superview)
-        window.orderOut(nil)
+    }
+
+    func testPortalBindDoesNotMoveInspectorFrontendOutOfDetachedWindowOwner() {
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            closeWindow(window)
+        }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let sourceSlot = WindowBrowserSlotView(frame: NSRect(x: 20, y: 20, width: 220, height: 180))
+        contentView.addSubview(sourceSlot)
+        let anchor = NSView(frame: NSRect(x: 280, y: 20, width: 220, height: 180))
+        contentView.addSubview(anchor)
+
+        panel.webView.frame = sourceSlot.bounds
+        sourceSlot.addSubview(panel.webView)
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: NSRect(x: 0, y: 0, width: sourceSlot.bounds.width, height: 72),
+            configuration: WKWebViewConfiguration()
+        )
+        sourceSlot.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        XCTAssertFalse(
+            panel.webView.superview === sourceSlot,
+            "The page web view should move to the portal host for this regression setup"
+        )
+        XCTAssertTrue(
+            frontendWebView.superview === sourceSlot,
+            "The portal must not reparent WKInspector frontend views; WebKit owns their window/controller lifecycle"
+        )
     }
 
     func testTransientHideAttachmentPreserveDisablesForSideDockedInspectorLayout() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
         XCTAssertTrue(panel.showDeveloperTools())
 
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
@@ -2514,6 +4095,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testTransientHideAttachmentPreserveStaysEnabledForBottomDockedInspectorLayout() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
         XCTAssertTrue(panel.showDeveloperTools())
 
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
@@ -2531,6 +4113,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testOffWindowReplacementLocalHostDoesNotStealVisibleDevToolsWebView() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
         XCTAssertTrue(panel.showDeveloperTools())
 
         let paneId = PaneID(id: UUID())
@@ -2544,6 +4127,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
 
@@ -2553,7 +4137,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        defer { window.orderOut(nil) }
+        window.isReleasedWhenClosed = false
+        defer {
+            closeWindow(window)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -2563,6 +4151,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         visibleHosting.frame = contentView.bounds
         visibleHosting.autoresizingMask = [.width, .height]
         contentView.addSubview(visibleHosting)
+        defer { visibleHosting.removeFromSuperview() }
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
@@ -2583,6 +4172,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         inspectorView.autoresizingMask = [.width]
         visibleSlot.addSubview(inspectorView)
+        defer { inspectorView.removeFromSuperview() }
         panel.webView.frame = NSRect(
             x: 0,
             y: inspectorView.frame.maxY,
@@ -2596,6 +4186,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         offWindowHosting.frame = detachedRoot.bounds
         offWindowHosting.autoresizingMask = [.width, .height]
         detachedRoot.addSubview(offWindowHosting)
+        defer { offWindowHosting.removeFromSuperview() }
         detachedRoot.layoutSubtreeIfNeeded()
         offWindowHosting.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -2614,6 +4205,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testVisibleReplacementLocalHostNormalizesBottomDockedInspectorFrames() {
         let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
         XCTAssertTrue(panel.showDeveloperTools())
 
         let paneId = PaneID(id: UUID())
@@ -2627,6 +4219,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
 
@@ -2636,7 +4229,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        defer { window.orderOut(nil) }
+        defer { closeWindow(window) }
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -2714,7 +4307,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 }
 
 
-final class BrowserOmnibarCommandNavigationTests: XCTestCase {
+final class BrowserOmnibarKeyboardNavigationTests: XCTestCase {
     func testArrowNavigationDeltaRequiresFocusedAddressBarAndNoModifierFlags() {
         XCTAssertNil(
             browserOmnibarSelectionDeltaForArrowNavigation(
@@ -2767,35 +4360,33 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
     }
 
-    func testCommandNavigationDeltaRequiresFocusedAddressBarAndCommandOrControlOnly() {
+    func testControlNavigationDeltaRequiresFocusedAddressBarAndControlOnly() {
         XCTAssertNil(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: false,
+                flags: [.control],
+                chars: "n"
+            )
+        )
+
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForControlNavigation(
+                hasFocusedAddressBar: true,
                 flags: [.command],
                 chars: "n"
             )
         )
 
-        XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
-                hasFocusedAddressBar: true,
-                flags: [.command],
-                chars: "n"
-            ),
-            1
-        )
-
-        XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.command],
                 chars: "p"
-            ),
-            -1
+            )
         )
 
         XCTAssertNil(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.command, .shift],
                 chars: "n"
@@ -2803,7 +4394,7 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control],
                 chars: "p"
@@ -2812,7 +4403,7 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control],
                 chars: "n"
@@ -2821,23 +4412,76 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
     }
 
-    func testCommandNavigationDeltaIgnoresCapsLockModifier() {
+    func testControlNavigationDeltaIgnoresCapsLockModifier() {
         XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control, .capsLock],
                 chars: "n"
             ),
             1
         )
-        XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.command, .capsLock],
                 chars: "p"
-            ),
-            -1
+            )
         )
+    }
+
+    func testMarkedTextBypassesOmnibarShortcutRoutingUnlessCommandModified() {
+        XCTAssertTrue(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: []
+            )
+        )
+        XCTAssertTrue(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: [.control]
+            )
+        )
+        XCTAssertTrue(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: [.function]
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: [.command]
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: false,
+                firstResponderHasMarkedText: true,
+                flags: []
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: false,
+                flags: []
+            )
+        )
+    }
+
+    func testControlNavigationRepeatLifecycleRequiresControlOnly() {
+        XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control]))
+        XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .capsLock]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .command]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .option]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .shift]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: []))
     }
 
     func testSubmitOnReturnIgnoresCapsLockModifier() {
@@ -2947,6 +4591,82 @@ final class BrowserIMEKeyDownRoutingTests: XCTestCase {
         XCTAssertFalse(consumed, "Keypad Enter should stay in the IME path while marked text is active")
         XCTAssertTrue(responder.hasMarkedText(), "Marked text should still be active until the input method commits it")
         XCTAssertEqual(responder.keyDownEvents.count, 0, "Keypad Enter should not be force-forwarded to the browser responder during IME composition")
+    }
+}
+
+
+private final class BrowserKeyboardHitTestCountingView: NSView {
+    private(set) var hitTestCount = 0
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        hitTestCount += 1
+        return super.hitTest(point)
+    }
+
+    func resetHitTestCount() {
+        hitTestCount = 0
+    }
+}
+
+
+@MainActor
+final class BrowserInputEventPerformanceTests: XCTestCase {
+    func testBrowserKeyDownDispatchDoesNotHitTestPointerOnlyOverlays() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = BrowserKeyboardHitTestCountingView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+
+        let slot = WindowBrowserSlotView(frame: contentView.bounds)
+        slot.autoresizingMask = [.width, .height]
+        contentView.addSubview(slot)
+
+        let webView = CmuxWebView(frame: slot.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        slot.addSubview(webView)
+        slot.pinHostedWebView(webView)
+        slot.setPaneDropContext(BrowserPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: PaneID(id: UUID())
+        ))
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(window.makeFirstResponder(webView))
+        contentView.resetHitTestCount()
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: NSPoint(x: 320, y: 210),
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ) else {
+            XCTFail("Failed to construct browser keyDown event")
+            return
+        }
+
+        window.sendEvent(event)
+
+        XCTAssertEqual(
+            contentView.hitTestCount,
+            0,
+            "Keyboard dispatch should not walk browser hit-test overlays; pointer routing owns hit-testing."
+        )
     }
 }
 
@@ -3217,6 +4937,139 @@ final class BrowserSearchEngineTests: XCTestCase {
         XCTAssertEqual(url.path, "/search")
         XCTAssertTrue(url.absoluteString.contains("q=hello%20world"))
     }
+
+    func testKagiSearchURL() throws {
+        let url = try XCTUnwrap(BrowserSearchEngine.kagi.searchURL(query: "hello world"))
+        XCTAssertEqual(url.host, "kagi.com")
+        XCTAssertEqual(url.path, "/search")
+        XCTAssertTrue(url.absoluteString.contains("q=hello%20world"))
+    }
+
+    func testAdditionalPresetSearchURLs() throws {
+        let expectations: [(BrowserSearchEngine, String, String)] = [
+            (.brave, "search.brave.com", "q=hello%20world"),
+            (.perplexity, "www.perplexity.ai", "q=hello%20world"),
+            (.exa, "exa.ai", "q=hello%20world"),
+            (.yahoo, "search.yahoo.com", "p=hello%20world"),
+            (.ecosia, "www.ecosia.org", "q=hello%20world"),
+            (.qwant, "www.qwant.com", "q=hello%20world"),
+            (.mojeek, "www.mojeek.com", "q=hello%20world"),
+            (.wikipedia, "en.wikipedia.org", "search=hello%20world"),
+            (.github, "github.com", "q=hello%20world"),
+            (.baidu, "www.baidu.com", "wd=hello%20world"),
+            (.yandex, "yandex.com", "text=hello%20world"),
+        ]
+
+        for (engine, host, encodedQuery) in expectations {
+            let url = try XCTUnwrap(engine.searchURL(query: "hello world"), engine.rawValue)
+            XCTAssertEqual(url.host, host, engine.rawValue)
+            XCTAssertTrue(url.absoluteString.contains(encodedQuery), engine.rawValue)
+        }
+    }
+
+    func testCustomSearchURLTemplateReplacesQueryPlaceholder() throws {
+        let store = BrowserSearchSettingsStore()
+        let url = try XCTUnwrap(store.searchURL(
+            fromTemplate: "https://search.example.test/find?q={query}&src=cmux",
+            query: "hello world"
+        ))
+
+        XCTAssertEqual(url.host, "search.example.test")
+        XCTAssertTrue(url.absoluteString.contains("q=hello%20world"))
+        XCTAssertTrue(url.absoluteString.contains("src=cmux"))
+    }
+
+    func testCustomSearchURLTemplateReplacesPercentPlaceholder() throws {
+        let store = BrowserSearchSettingsStore()
+        let url = try XCTUnwrap(store.searchURL(
+            fromTemplate: "https://search.example.test/find?term=%s",
+            query: "c++ && swift"
+        ))
+
+        XCTAssertEqual(url.host, "search.example.test")
+        XCTAssertTrue(url.absoluteString.contains("term=c%2B%2B%20%26%26%20swift"))
+    }
+
+    func testCustomSearchURLTemplateAppendsQueryItemWhenPlaceholderIsMissing() throws {
+        let store = BrowserSearchSettingsStore()
+        let url = try XCTUnwrap(store.searchURL(
+            fromTemplate: "https://search.example.test/find?source=cmux",
+            query: "hello world"
+        ))
+
+        XCTAssertEqual(url.host, "search.example.test")
+        XCTAssertTrue(url.absoluteString.contains("source=cmux"))
+        XCTAssertTrue(url.absoluteString.contains("q=hello%20world"))
+    }
+
+    func testCustomSearchURLTemplateFallbackEscapesPlusSigns() throws {
+        let store = BrowserSearchSettingsStore()
+        let url = try XCTUnwrap(store.searchURL(
+            fromTemplate: "https://search.example.test/find?source=cmux",
+            query: "c++ && swift"
+        ))
+
+        XCTAssertEqual(url.host, "search.example.test")
+        XCTAssertTrue(url.absoluteString.contains("source=cmux"))
+        XCTAssertTrue(url.absoluteString.contains("q=c%2B%2B%20%26%26%20swift"))
+        XCTAssertFalse(url.absoluteString.contains("q=c++"))
+    }
+
+    func testCustomSearchURLTemplateRejectsNonHTTPURLs() {
+        let store = BrowserSearchSettingsStore()
+        XCTAssertNil(store.searchURL(
+            fromTemplate: "file:///tmp/search?q={query}",
+            query: "hello world"
+        ))
+        XCTAssertFalse(store.isValidSearchURLTemplate("cmux://search?q={query}"))
+    }
+
+    func testCurrentSearchConfigurationUsesCustomProvider() throws {
+        let suiteName = "BrowserSearchEngineTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(BrowserSearchEngine.custom.rawValue, forKey: BrowserSearchSettingsStore.searchEngineKey)
+        defaults.set("Kagi Fast", forKey: BrowserSearchSettingsStore.customSearchEngineNameKey)
+        defaults.set("https://kagi.com/search?q={query}", forKey: BrowserSearchSettingsStore.customSearchEngineURLTemplateKey)
+
+        let configuration = BrowserSearchSettingsStore(defaults: defaults).currentConfiguration
+        let url = try XCTUnwrap(configuration.searchURL(query: "swift actors"))
+
+        XCTAssertEqual(configuration.displayName, "Kagi Fast")
+        XCTAssertEqual(configuration.remoteSuggestionsEngine, nil)
+        XCTAssertEqual(url.host, "kagi.com")
+        XCTAssertTrue(url.absoluteString.contains("q=swift%20actors"))
+    }
+
+    func testCurrentSearchConfigurationFallsBackForInvalidCustomURLTemplate() throws {
+        let configuration = BrowserSearchSettingsStore().configuration(
+            engineRaw: BrowserSearchEngine.custom.rawValue,
+            customName: "",
+            customURLTemplate: "ftp://search.example.test?q={query}"
+        )
+        let url = try XCTUnwrap(configuration.searchURL(query: "swift actors"))
+
+        XCTAssertEqual(configuration.displayName, BrowserSearchEngine.custom.displayName)
+        XCTAssertEqual(url.host, "www.google.com")
+        XCTAssertTrue(url.absoluteString.contains("q=swift%20actors"))
+    }
+
+    func testStaleRemoteSuggestionsSuppressedWhenProviderDoesNotSupportRemoteSuggestions() {
+        let suggestions = staleOmnibarRemoteSuggestionsForDisplay(
+            query: "swift",
+            previousRemoteQuery: "swi",
+            previousRemoteSuggestions: ["swift actors"],
+            allowsRemoteSuggestions: false
+        )
+
+        XCTAssertTrue(suggestions.isEmpty)
+    }
 }
 
 
@@ -3231,8 +5084,8 @@ final class BrowserSearchSettingsTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.removeObject(forKey: BrowserSearchSettings.searchSuggestionsEnabledKey)
-        XCTAssertTrue(BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: defaults))
+        defaults.removeObject(forKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey)
+        XCTAssertTrue(BrowserSearchSettingsStore(defaults: defaults).currentSearchSuggestionsEnabled)
     }
 
     func testCurrentSearchSuggestionsEnabledHonorsExplicitValue() {
@@ -3245,11 +5098,11 @@ final class BrowserSearchSettingsTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.set(false, forKey: BrowserSearchSettings.searchSuggestionsEnabledKey)
-        XCTAssertFalse(BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: defaults))
+        defaults.set(false, forKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey)
+        XCTAssertFalse(BrowserSearchSettingsStore(defaults: defaults).currentSearchSuggestionsEnabled)
 
-        defaults.set(true, forKey: BrowserSearchSettings.searchSuggestionsEnabledKey)
-        XCTAssertTrue(BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: defaults))
+        defaults.set(true, forKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey)
+        XCTAssertTrue(BrowserSearchSettingsStore(defaults: defaults).currentSearchSuggestionsEnabled)
     }
 }
 
@@ -3361,9 +5214,11 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         XCTAssertTrue(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(defaults: defaults))
     }
     func testSidebarPullRequestClickabilityDefaultAndStoredValues() {
-        XCTAssertTrue(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
-        defaults.set(true, forKey: SidebarPullRequestClickabilitySettings.key); XCTAssertTrue(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
-        defaults.set(false, forKey: SidebarPullRequestClickabilitySettings.key); XCTAssertFalse(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
+        let key = SettingCatalog().sidebar.makePullRequestsClickable
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        XCTAssertTrue(settings.value(for: key))
+        defaults.set(true, forKey: key.userDefaultsKey); XCTAssertTrue(settings.value(for: key))
+        defaults.set(false, forKey: key.userDefaultsKey); XCTAssertFalse(settings.value(for: key))
     }
     func testOpenCommandInterceptionDefaultsToCmuxBrowser() {
         XCTAssertTrue(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
@@ -3444,32 +5299,53 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
 }
 
 
-final class BrowserNavigableURLResolutionTests: XCTestCase {
-    func testResolvesFileSchemeAsNavigableURL() throws {
-        let resolved = try XCTUnwrap(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
-        XCTAssertTrue(resolved.isFileURL)
-        XCTAssertEqual(resolved.path, "/tmp/cmux-local-test.html")
+@Suite struct BrowserNavigableURLResolutionTests {
+    @Test func resolvesFileSchemeAsNavigableURL() throws {
+        let resolved = try #require(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
+        #expect(resolved.isFileURL)
+        #expect(resolved.path == "/tmp/cmux-local-test.html")
     }
 
-    func testResolvesBareLocalhostSubdomainAsHTTPURL() throws {
-        let resolved = try XCTUnwrap(resolveBrowserNavigableURL("api.localhost:3000"))
-        XCTAssertEqual(resolved.scheme, "http")
-        XCTAssertEqual(resolved.host, "api.localhost")
-        XCTAssertEqual(resolved.port, 3000)
+    @Test func resolvesBareLocalhostSubdomainAsHTTPURL() throws {
+        let resolved = try #require(resolveBrowserNavigableURL("api.localhost:3000"))
+        #expect(resolved.scheme == "http")
+        #expect(resolved.host == "api.localhost")
+        #expect(resolved.port == 3000)
 
-        let nested = try XCTUnwrap(resolveBrowserNavigableURL("deep.api.localhost/path"))
-        XCTAssertEqual(nested.scheme, "http")
-        XCTAssertEqual(nested.host, "deep.api.localhost")
-        XCTAssertEqual(nested.path, "/path")
+        let nested = try #require(resolveBrowserNavigableURL("deep.api.localhost/path"))
+        #expect(nested.scheme == "http")
+        #expect(nested.host == "deep.api.localhost")
+        #expect(nested.path == "/path")
     }
 
-    func testRejectsNonWebNonFileScheme() {
-        XCTAssertNil(resolveBrowserNavigableURL("mailto:test@example.com"))
-        XCTAssertNil(resolveBrowserNavigableURL("ftp://example.com/file.html"))
+    @Test func rejectsNonWebNonFileScheme() {
+        #expect(resolveBrowserNavigableURL("mailto:test@example.com") == nil)
+        #expect(resolveBrowserNavigableURL("ftp://example.com/file.html") == nil)
     }
 
-    func testRejectsHostOnlyFileURL() {
-        XCTAssertNil(resolveBrowserNavigableURL("file://example.html"))
+    @Test func resolvesDottedHostWithPortAsHTTPSURL() throws {
+        // URL(string: "example.com:8443") parses "example.com" as a scheme, so
+        // the resolver must recover the bare host:port shape instead of
+        // sending it to search (https://github.com/manaflow-ai/cmux/issues/5913:
+        // the omnibar inline completion displays history hosts this way).
+        let resolved = try #require(resolveBrowserNavigableURL("example.com:8443"))
+        #expect(resolved.scheme == "https")
+        #expect(resolved.host == "example.com")
+        #expect(resolved.port == 8443)
+
+        let withPath = try #require(resolveBrowserNavigableURL("example.com:8443/admin?tab=1"))
+        #expect(withPath.scheme == "https")
+        #expect(withPath.port == 8443)
+        #expect(withPath.path == "/admin")
+    }
+
+    @Test func keepsRejectingDottedSchemeInputsWithoutNumericPort() {
+        #expect(resolveBrowserNavigableURL("example.com:notaport") == nil)
+        #expect(resolveBrowserNavigableURL("example.com:99999") == nil)
+    }
+
+    @Test func rejectsHostOnlyFileURL() {
+        #expect(resolveBrowserNavigableURL("file://example.html") == nil)
     }
 }
 
@@ -3530,6 +5406,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let data = try XCTUnwrap(URL(string: "data:text/plain,hello"))
         let file = try XCTUnwrap(URL(string: "file:///tmp/cmux-local-test.html"))
         let blob = try XCTUnwrap(URL(string: "blob:https://example.com/550e8400-e29b-41d4-a716-446655440000"))
+        let diffViewer = try XCTUnwrap(URL(string: "cmux-diff-viewer://0123456789abcdef/diff.html"))
         let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
         let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
 
@@ -3539,8 +5416,36 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         XCTAssertFalse(browserShouldOpenURLExternally(data))
         XCTAssertFalse(browserShouldOpenURLExternally(file))
         XCTAssertFalse(browserShouldOpenURLExternally(blob))
+        XCTAssertFalse(browserShouldOpenURLExternally(diffViewer))
         XCTAssertFalse(browserShouldOpenURLExternally(javascript))
         XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
+    }
+
+    func testCustomAppSchemesRouteExternallyFromSubframes() throws {
+        let vscode = try XCTUnwrap(URL(string: "vscode://file/Users/example/project/README.md"))
+
+        XCTAssertTrue(browserShouldRouteExternalNavigation(vscode))
+        XCTAssertEqual(browserExternalNavigationAction(for: vscode), .promptToOpenApp(vscode))
+    }
+
+    func testEmbeddedSubframeNavigationStaysInWebView() throws {
+        let https = try XCTUnwrap(URL(string: "https://example.com/iframe"))
+
+        XCTAssertFalse(browserShouldRouteExternalNavigation(https))
+    }
+
+    func testIntentBrowserFallbackURLExtraction() throws {
+        let intent = try XCTUnwrap(URL(string: "intent://join/abc#Intent;scheme=zoommtg;package=us.zoom.videomeetings;S.browser_fallback_url=https%3A%2F%2Fzoom.us%2Fjoin%2Fabc;end"))
+        let fallback = try XCTUnwrap(URL(string: "https://zoom.us/join/abc"))
+
+        XCTAssertEqual(browserIntentFallbackURL(for: intent), fallback)
+        XCTAssertEqual(browserExternalNavigationAction(for: intent), .browserFallback(fallback))
+    }
+
+    func testIntentBrowserFallbackURLRejectsExternalSchemes() throws {
+        let intent = try XCTUnwrap(URL(string: "intent://open#Intent;S.browser_fallback_url=slack%3A%2F%2Fopen;end"))
+
+        XCTAssertNil(browserIntentFallbackURL(for: intent))
     }
 }
 

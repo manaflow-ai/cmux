@@ -45,20 +45,23 @@ class cmuxError(Exception):
     pass
 
 
-_APP_SUPPORT_DIR = os.path.expanduser("~/Library/Application Support/cmux")
-_STABLE_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "cmux.sock")
+# The control socket, markers, and password live in the non-TCC cmux state
+# directory (~/.local/state/cmux), not Application Support, so the separately
+# signed cmux CLI can touch them without the macOS "access data from other apps"
+# prompt (https://github.com/manaflow-ai/cmux/issues/5146).
+_STATE_DIR = os.path.expanduser("~/.local/state/cmux")
+_STABLE_SOCKET_PATH = os.path.join(_STATE_DIR, "cmux.sock")
 _LEGACY_STABLE_SOCKET_PATH = "/tmp/cmux.sock"
-_LAST_SOCKET_PATH_FILES = [
-    os.path.join(_APP_SUPPORT_DIR, "last-socket-path"),
-    "/tmp/cmux-last-socket-path",
-]
+_STABLE_BUNDLE_ID = "com.cmuxterm.app"
+_NIGHTLY_BUNDLE_ID = "com.cmuxterm.app.nightly"
+_STAGING_BUNDLE_ID = "com.cmuxterm.app.staging"
 _DEFAULT_DEBUG_BUNDLE_ID = "com.cmuxterm.app.debug"
 
 
-def _sanitize_tag_slug(raw: str) -> str:
+def _sanitize_marker_slug(raw: str) -> Optional[str]:
     cleaned = re.sub(r"[^a-z0-9]+", "-", (raw or "").strip().lower())
     cleaned = re.sub(r"-+", "-", cleaned).strip("-")
-    return cleaned or "agent"
+    return cleaned or None
 
 
 def _sanitize_bundle_suffix(raw: str) -> str:
@@ -75,21 +78,88 @@ def _quote_option_value(value: str) -> str:
     return f"\"{escaped}\""
 
 
+def _is_known_cmux_bundle_id(bundle_id: str) -> bool:
+    return (
+        bundle_id == _STABLE_BUNDLE_ID
+        or bundle_id == _NIGHTLY_BUNDLE_ID
+        or bundle_id.startswith(f"{_NIGHTLY_BUNDLE_ID}.")
+        or bundle_id == _STAGING_BUNDLE_ID
+        or bundle_id.startswith(f"{_STAGING_BUNDLE_ID}.")
+        or bundle_id == _DEFAULT_DEBUG_BUNDLE_ID
+        or bundle_id.startswith(f"{_DEFAULT_DEBUG_BUNDLE_ID}.")
+    )
+
+
 def _default_bundle_id() -> str:
-    override = os.environ.get("CMUX_BUNDLE_ID")
-    if override:
+    override = (os.environ.get("CMUX_BUNDLE_ID") or "").strip()
+    if override and _is_known_cmux_bundle_id(override):
         return override
 
     tag = os.environ.get("CMUX_TAG")
-    if tag:
+    if tag and _sanitize_marker_slug(tag):
         suffix = _sanitize_bundle_suffix(tag)
         return f"{_DEFAULT_DEBUG_BUNDLE_ID}.{suffix}"
 
     return _DEFAULT_DEBUG_BUNDLE_ID
 
 
+def _socket_variant() -> Tuple[str, Optional[str]]:
+    bundle_id = _default_bundle_id()
+    if bundle_id == _NIGHTLY_BUNDLE_ID:
+        return ("nightly", None)
+    if bundle_id.startswith(f"{_NIGHTLY_BUNDLE_ID}."):
+        suffix = bundle_id.removeprefix(f"{_NIGHTLY_BUNDLE_ID}.")
+        return ("nightly", _sanitize_marker_slug(suffix))
+    if bundle_id == _STAGING_BUNDLE_ID:
+        return ("staging", None)
+    if bundle_id.startswith(f"{_STAGING_BUNDLE_ID}."):
+        suffix = bundle_id.removeprefix(f"{_STAGING_BUNDLE_ID}.")
+        return ("staging", _sanitize_marker_slug(suffix))
+    if bundle_id == _DEFAULT_DEBUG_BUNDLE_ID:
+        tag = os.environ.get("CMUX_TAG", "").strip()
+        return ("dev", _sanitize_marker_slug(tag) if tag else None)
+    if bundle_id.startswith(f"{_DEFAULT_DEBUG_BUNDLE_ID}."):
+        suffix = bundle_id.removeprefix(f"{_DEFAULT_DEBUG_BUNDLE_ID}.")
+        return ("dev", _sanitize_marker_slug(suffix))
+    return ("stable", None)
+
+
+def _last_socket_path_files() -> List[str]:
+    variant, slug = _socket_variant()
+    marker = "last-socket-path"
+    tmp_marker = "/tmp/cmux-last-socket-path"
+
+    if variant == "nightly":
+        marker = f"nightly-{slug}-last-socket-path" if slug else "nightly-last-socket-path"
+        tmp_marker = f"/tmp/cmux-nightly-{slug}-last-socket-path" if slug else "/tmp/cmux-nightly-last-socket-path"
+    elif variant == "staging":
+        marker = f"staging-{slug}-last-socket-path" if slug else "staging-last-socket-path"
+        tmp_marker = f"/tmp/cmux-staging-{slug}-last-socket-path" if slug else "/tmp/cmux-staging-last-socket-path"
+    elif variant == "dev":
+        marker = f"dev-{slug}-last-socket-path" if slug else "dev-last-socket-path"
+        tmp_marker = f"/tmp/cmux-dev-{slug}-last-socket-path" if slug else "/tmp/cmux-dev-last-socket-path"
+
+    return [
+        os.path.join(_STATE_DIR, marker),
+        tmp_marker,
+    ]
+
+
+def _variant_socket_candidates() -> List[str]:
+    variant, slug = _socket_variant()
+    if variant == "nightly":
+        return [f"/tmp/cmux-nightly-{slug}.sock"] if slug else ["/tmp/cmux-nightly.sock"]
+    if variant == "staging":
+        return [f"/tmp/cmux-staging-{slug}.sock"] if slug else ["/tmp/cmux-staging.sock"]
+    if variant == "dev":
+        if slug:
+            return [f"/tmp/cmux-debug-{slug}.sock"]
+        return ["/tmp/cmux-debug.sock"]
+    return [_STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH]
+
+
 def _read_last_socket_path() -> Optional[str]:
-    for marker_path in _LAST_SOCKET_PATH_FILES:
+    for marker_path in _last_socket_path_files():
         try:
             with open(marker_path, "r", encoding="utf-8") as f:
                 path = f.read().strip()
@@ -119,52 +189,43 @@ def _can_connect(path: str, timeout: float = 0.15, retries: int = 4) -> bool:
 
 
 def _default_socket_path() -> str:
-    tag = os.environ.get("CMUX_TAG")
-    if tag:
-        slug = _sanitize_tag_slug(tag)
-        tagged_candidates = [
-            f"/tmp/cmux-debug-{slug}.sock",
-            f"/tmp/cmux-{slug}.sock",
-        ]
-        for path in tagged_candidates:
-            if os.path.exists(path) and _can_connect(path):
-                return path
-        # If nothing is connectable yet (e.g. the app is still starting),
-        # fall back to the first existing candidate.
-        for path in tagged_candidates:
-            if os.path.exists(path):
-                return path
-        # Prefer the debug naming convention when we have to guess.
-        return tagged_candidates[0]
+    bundle_id = _default_bundle_id()
 
     override = os.environ.get("CMUX_SOCKET_PATH")
     if override:
-        if os.path.exists(override) and _can_connect(override):
-            return override
+        variant, _ = _socket_variant()
+        stable_defaults = {_STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH}
+        is_stale_stable_default = variant != "stable" and override in stable_defaults
         # Treat stable defaults as implicit so old env values still migrate cleanly.
-        if not os.path.exists(override) and override not in {_STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH}:
-            return override
+        if not is_stale_stable_default:
+            if os.path.exists(override) and _can_connect(override):
+                return override
+            if not os.path.exists(override):
+                return override
 
     last_socket = _read_last_socket_path()
     if last_socket:
         if os.path.exists(last_socket) and _can_connect(last_socket):
             return last_socket
 
-    # Prefer the non-tagged sockets when present.
-    candidates = ["/tmp/cmux-debug.sock", _STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH]
+    candidates = _variant_socket_candidates()
     for path in candidates:
         if os.path.exists(path) and _can_connect(path):
             return path
 
-    # Otherwise, fall back to the newest discovered socket if there is one.
-    tagged = glob.glob("/tmp/cmux-debug-*.sock")
-    tagged.extend(glob.glob(os.path.join(_APP_SUPPORT_DIR, "cmux*.sock")))
-    tagged = [p for p in tagged if os.path.exists(p)]
-    if tagged:
-        tagged.sort(key=lambda p: os.path.getmtime(p), reverse=True)
-        for p in tagged:
-            if _can_connect(p, timeout=0.1, retries=2):
-                return p
+    if bundle_id == _DEFAULT_DEBUG_BUNDLE_ID:
+        tagged = glob.glob("/tmp/cmux-debug-*.sock")
+        tagged.extend(glob.glob(os.path.join(_STATE_DIR, "cmux*.sock")))
+        tagged = [
+            p for p in tagged
+            if os.path.exists(p)
+            and os.path.basename(p).startswith("cmux-debug-")
+        ]
+        if tagged:
+            tagged.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+            for p in tagged:
+                if _can_connect(p, timeout=0.1, retries=2):
+                    return p
 
     return candidates[0]
 

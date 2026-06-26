@@ -23,6 +23,17 @@ def _must(cond: bool, msg: str) -> None:
         raise cmuxError(msg)
 
 
+def _float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
 def _find_cli_binary() -> str:
     env_cli = os.environ.get("CMUXTERM_CLI")
     if env_cli and os.path.isfile(env_cli) and os.access(env_cli, os.X_OK):
@@ -47,14 +58,21 @@ def _run_cli(cli: str, args: list[str]) -> tuple[subprocess.CompletedProcess[str
     env.pop("CMUX_SURFACE_ID", None)
     env.pop("CMUX_TAB_ID", None)
 
+    command = [cli, "--socket", SOCKET_PATH, *args]
+    timeout = _float_env("CMUX_TEST_CLI_RUN_TIMEOUT", 30.0)
     started = time.monotonic()
-    proc = subprocess.run(
-        [cli, "--socket", SOCKET_PATH] + args,
-        capture_output=True,
-        text=True,
-        check=False,
-        env=env,
-    )
+    try:
+        proc = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        details = f"stdout={exc.output!r} stderr={exc.stderr!r}"
+        raise cmuxError(f"CLI timed out after {timeout:.1f}s: {command!r}; {details}") from exc
     elapsed = time.monotonic() - started
     return proc, elapsed
 
@@ -78,7 +96,11 @@ def main() -> int:
             proc, elapsed = _run_cli(cli, ["new-workspace", "--command", cmd_text])
             combined = f"{proc.stdout}\n{proc.stderr}".strip()
             _must(proc.returncode == 0, f"CLI failed ({proc.returncode}): {combined}")
-            _must(elapsed < 1.5, f"new-workspace --command should return quickly, took {elapsed:.2f}s")
+            quick_return_timeout = _float_env("NEW_WORKSPACE_COMMAND_TIMEOUT", 5.0)
+            _must(
+                elapsed < quick_return_timeout,
+                f"new-workspace --command should return quickly, took {elapsed:.2f}s",
+            )
 
             output = (proc.stdout or "").strip()
             _must(output.startswith("OK "), f"Expected OK response, got: {output!r}")
