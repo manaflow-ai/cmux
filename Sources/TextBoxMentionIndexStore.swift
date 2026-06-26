@@ -279,7 +279,7 @@ actor TextBoxMentionIndexStore {
                   seenDirectoryRelativePaths.insert(relativePath).inserted else {
                 return
             }
-            directoryCandidates.append(Self.directoryCandidate(
+            directoryCandidates.append(TextBoxMentionCandidate.directoryCandidate(
                 relativePath: relativePath,
                 directoryURL: directoryURL
             ))
@@ -304,7 +304,7 @@ actor TextBoxMentionIndexStore {
 
             let relativePath = standardizedURL.path.pathRelative(toRoot: rootPath)
             if fileCandidates.count < maxIndexedFiles {
-                fileCandidates.append(Self.fileCandidate(
+                fileCandidates.append(TextBoxMentionCandidate.fileCandidate(
                     relativePath: relativePath,
                     fileURL: standardizedURL,
                     fileName: name
@@ -315,7 +315,7 @@ actor TextBoxMentionIndexStore {
                 break
             }
         }
-        return sortedFileSystemCandidates(directoryCandidates + fileCandidates)
+        return TextBoxMentionCandidate.sortedFileSystemCandidates(directoryCandidates + fileCandidates)
     }
 
     private static func scanRootFileSystemCandidates(rootURL: URL) async -> [TextBoxMentionCandidate] {
@@ -357,19 +357,19 @@ actor TextBoxMentionIndexStore {
 
             let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
             if values?.isDirectory == true {
-                candidates.append(Self.directoryCandidate(
+                candidates.append(TextBoxMentionCandidate.directoryCandidate(
                     relativePath: relativePath,
                     directoryURL: url
                 ))
             } else if values?.isRegularFile == true {
-                candidates.append(Self.fileCandidate(
+                candidates.append(TextBoxMentionCandidate.fileCandidate(
                     relativePath: relativePath,
                     fileURL: url,
                     fileName: url.lastPathComponent
                 ))
             }
         }
-        return Array(sortedFileSystemCandidates(candidates).prefix(rootSuggestionLimit))
+        return Array(TextBoxMentionCandidate.sortedFileSystemCandidates(candidates).prefix(rootSuggestionLimit))
     }
 
     private static func scanFilesWithRipgrep(rootURL: URL) async -> [TextBoxMentionCandidate]? {
@@ -428,7 +428,7 @@ actor TextBoxMentionIndexStore {
             let directoryURL = rootURL
                 .appendingPathComponent(relativePath, isDirectory: true)
                 .standardizedFileURL
-            directoryCandidates.append(Self.directoryCandidate(
+            directoryCandidates.append(TextBoxMentionCandidate.directoryCandidate(
                 relativePath: relativePath,
                 directoryURL: directoryURL
             ))
@@ -452,7 +452,7 @@ actor TextBoxMentionIndexStore {
             appendDirectoryCandidates(containing: relativePath)
             let fileURL = rootURL.appendingPathComponent(relativePath, isDirectory: false).standardizedFileURL
             let name = fileURL.lastPathComponent
-            fileCandidates.append(Self.fileCandidate(
+            fileCandidates.append(TextBoxMentionCandidate.fileCandidate(
                 relativePath: relativePath,
                 fileURL: fileURL,
                 fileName: name
@@ -496,7 +496,7 @@ actor TextBoxMentionIndexStore {
             return nil
         }
 
-        return sortedFileSystemCandidates(directoryCandidates + fileCandidates)
+        return TextBoxMentionCandidate.sortedFileSystemCandidates(directoryCandidates + fileCandidates)
     }
 
     private static func scanDirectoryCandidateSeed(
@@ -533,7 +533,7 @@ actor TextBoxMentionIndexStore {
                 }
 
                 if seenRelativePaths.insert(relativePath).inserted {
-                    candidates.append(Self.directoryCandidate(
+                    candidates.append(TextBoxMentionCandidate.directoryCandidate(
                         relativePath: relativePath,
                         directoryURL: standardizedURL
                     ))
@@ -655,56 +655,6 @@ actor TextBoxMentionIndexStore {
         return Set(outputText
             .split(separator: "\n", omittingEmptySubsequences: true)
             .map(String.init))
-    }
-
-    private static func directoryCandidate(relativePath: String, directoryURL: URL) -> TextBoxMentionCandidate {
-        let normalizedPath = relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let displayTitle = "@\(normalizedPath)/"
-        let directoryName = directoryURL.lastPathComponent
-        return TextBoxMentionCandidate(
-            title: displayTitle,
-            subtitle: directoryURL.path.homeAbbreviatedPath,
-            targetPath: directoryURL.path,
-            systemImageName: "folder",
-            searchKey: "\(normalizedPath) \(directoryName) folder directory".lowercased(),
-            priority: directoryPriority(relativePath: normalizedPath)
-        )
-    }
-
-    private static func fileCandidate(
-        relativePath: String,
-        fileURL: URL,
-        fileName: String
-    ) -> TextBoxMentionCandidate {
-        TextBoxMentionCandidate(
-            title: "@\(relativePath)",
-            subtitle: fileURL.path.homeAbbreviatedPath,
-            targetPath: fileURL.path,
-            systemImageName: "doc",
-            searchKey: "\(relativePath) \(fileName)".lowercased(),
-            priority: filePriority(relativePath: relativePath)
-        )
-    }
-
-    private static func directoryPriority(relativePath: String) -> Int {
-        let depth = max(relativePath.split(separator: "/").count, 1)
-        return min((depth * 2) - 2, 40)
-    }
-
-    private static func filePriority(relativePath: String) -> Int {
-        let depth = max(relativePath.split(separator: "/").count, 1)
-        return min((depth * 2) - 1, 41)
-    }
-
-    private static func sortedFileSystemCandidates(
-        _ candidates: [TextBoxMentionCandidate]
-    ) -> [TextBoxMentionCandidate] {
-        candidates.sorted {
-            if $0.priority != $1.priority {
-                return $0.priority < $1.priority
-            }
-            return $0.title.localizedStandardCompare($1.title) == .orderedAscending
-        }
     }
 
     private static func normalizedDirectory(_ path: String?) -> String? {
