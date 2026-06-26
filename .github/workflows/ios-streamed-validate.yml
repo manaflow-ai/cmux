@@ -1,35 +1,19 @@
 name: iOS streamed-screenshot CI validation
 
-# Validates the REAL Mac-streamed screenshot pipeline on a Blacksmith macOS
-# runner: build + run the desktop cmux Mac app, run an agent terminal, pair an
-# iOS simulator to that Mac, and capture the live streamed terminal. This proves
-# (or disproves) that the pipeline works headless in CI before we wire it into
-# the App Store screenshot flow.
+# Validates the REAL Mac-streamed screenshot pipeline headless on a Blacksmith
+# macOS runner: stand up the dev web backend (local Postgres + Next.js), build +
+# run the desktop cmux Mac app, pair an iOS simulator to it, and capture the live
+# streamed terminal. Proves the pipeline works in CI before wiring it into the
+# App Store screenshot flow.
 #
-# The big unknowns this de-risks:
-#   1. Does the desktop Mac app run + cmuxd stream a terminal on a headless
-#      Blacksmith runner? (cmux streams terminal CONTENT, rendered on-device, so
-#      the Mac's own GUI rendering should not matter — this confirms it.)
-#   2. Can a simulator sign in + pair to that Mac entirely in CI (loopback)?
-#   3. Can we navigate the device into the workspace and capture the stream?
-#
-# Prerequisites (repo secrets / vars):
-#   - CMUX_DOGFOOD_STACK_EMAIL / CMUX_DOGFOOD_STACK_PASSWORD : a dogfood account to
-#     sign the simulator in as. NOT currently configured — this is the gate.
-#   - NEXT_PUBLIC_STACK_PROJECT_ID / NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY (vars)
-#     and STACK_SECRET_SERVER_KEY (secret) : already present (see cloud-vm-smoke).
-#
-# Manual only while it is being brought up.
+# Backend: the DEBUG build signs into localhost:3000 + the dev Stack project, so
+# we run the dev web app locally on the runner (no prod, no email verification).
+# The dev secret bundle (Stack keys etc., dogfood creds swapped to a DEDICATED CI
+# test account) is provided as CMUXTERM_DEV_ENV_B64.
 on:
   workflow_dispatch:
     inputs:
-      ref:
-        description: Branch or SHA
-        required: false
-        default: ""
-  # While bringing this up (the workflow isn't on the default branch yet, so
-  # workflow_dispatch via the API is unavailable), trigger it by pushing a change
-  # to this file on the feature branch. Controlled: only fires on edits to itself.
+      ref: { description: Branch or SHA, required: false, default: "" }
   push:
     branches: [feat-ios-appstore-prod-lane]
     paths: [".github/workflows/ios-streamed-validate.yml"]
@@ -40,9 +24,13 @@ permissions:
 jobs:
   validate:
     runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
-      STREAM_TAG: cistream
+      CMUX_PORT: "3000"
+      # Web env required by web/app/env.ts but unused by sign-in/pairing.
+      RESEND_API_KEY: "ci-dummy"
+      CMUX_FEEDBACK_FROM_EMAIL: "ci@cmux.com"
+      CMUX_FEEDBACK_RATE_LIMIT_ID: "ci-dummy"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -63,57 +51,59 @@ jobs:
         run: ./scripts/install-zig-ci.sh
 
       - name: Ensure iOS simulator runtime
-        run: |
-          set -euo pipefail
-          xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
+        run: xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
 
       - name: Provision GhosttyKit
         run: ./scripts/ensure-ghosttykit.sh
 
-      - name: Install bun + idb
+      - name: Install tools (bun, idb, postgres)
         run: |
           set -euo pipefail
           command -v bun >/dev/null 2>&1 || curl -fsSL https://bun.sh/install | bash
-          command -v idb >/dev/null 2>&1 || (brew tap facebook/fb && brew install idb-companion && pipx install fb-idb || pip3 install fb-idb)
+          command -v postgres >/dev/null 2>&1 || brew install postgresql@16 || true
+          command -v idb_companion >/dev/null 2>&1 || brew install idb-companion || true
+          python3 -m pip install --user fb-idb >/dev/null 2>&1 || pipx install fb-idb || true
 
-      - name: Start web dev server (sign-in / pairing backend)
+      - name: Materialize dev secret bundle
         env:
-          NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
-          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
-          STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
+          CMUXTERM_DEV_ENV_B64: ${{ secrets.CMUXTERM_DEV_ENV_B64 }}
         run: |
           set -euo pipefail
-          export PATH="$HOME/.bun/bin:$PATH"
-          ( cd web && bun install && CMUX_PORT=3000 bun dev > /tmp/webdev.log 2>&1 & )
-          for i in $(seq 1 60); do curl -fsS http://localhost:3000/ >/dev/null 2>&1 && break; sleep 3; done
-          curl -fsS http://localhost:3000/ >/dev/null
+          if [ -z "${CMUXTERM_DEV_ENV_B64:-}" ]; then
+            echo "::error::CMUXTERM_DEV_ENV_B64 secret missing (dev Stack bundle + dedicated CI account)." >&2; exit 1
+          fi
+          mkdir -p "$HOME/.secrets"
+          printf '%s' "$CMUXTERM_DEV_ENV_B64" | base64 --decode > "$HOME/.secrets/cmuxterm-dev.env"
+          chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
+
+      - name: Stand up dev web backend (Postgres + Next.js)
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.bun/bin:/opt/homebrew/opt/postgresql@16/bin:$PATH"
+          cd web && bun install
+          # local Postgres (port derived from CMUX_PORT) + migrations, mirroring local dev
+          bash scripts/db-local.sh up
+          bash scripts/db-local.sh migrate
+          # load dev secrets (Stack keys + dedicated CI account) + run the dev server
+          set -a; source scripts/load-dev-env.sh; set +a
+          nohup bun dev > /tmp/webdev.log 2>&1 &
+          for i in $(seq 1 80); do curl -fsS http://localhost:3000/ >/dev/null 2>&1 && break; sleep 3; done
+          curl -fsS http://localhost:3000/handler/sign-in >/dev/null
 
       - name: Build desktop Mac app (tag cistream)
         run: ./scripts/reload.sh --tag cistream
 
       - name: Build + install iOS sim app (tag cistream)
-        env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-        run: |
-          set -euo pipefail
-          if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ]; then
-            echo "::error::CMUX_DOGFOOD_STACK_EMAIL/PASSWORD secrets are required to sign in the simulator. This is the gating prerequisite for streamed-capture CI." >&2
-            exit 1
-          fi
-          ./ios/scripts/reload.sh --tag cistream --simulator "iPhone 17 Pro Max" --no-attach
+        run: ./ios/scripts/reload.sh --tag cistream --simulator "iPhone 17 Pro Max" --no-attach
 
-      - name: Capture one streamed terminal shot
-        env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+      - name: Pair simulator + capture one streamed terminal
         run: |
           set -euo pipefail
           export PATH="$HOME/.bun/bin:$PATH"
           SIM_ID="$(xcrun simctl list devices booted -j | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next(x["udid"] for r in d["devices"].values() for x in r if "Pro Max" in x["name"]))')"
-          # sign in + pair the sim to the cistream Mac app, then capture
+          xcrun simctl ui "$SIM_ID" appearance dark || true
           ./scripts/mobile-dev-launch.sh --tag cistream --simulator-id "$SIM_ID" --ensure-mac &
-          sleep 45
+          sleep 60
           python3 ios/scripts/capture-streamed.py --tag cistream --sim-id "$SIM_ID" --agents opencode --out /tmp/streamed-ci || true
 
       - name: Upload validation artifacts
