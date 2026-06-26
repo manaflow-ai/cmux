@@ -51,19 +51,24 @@ looks_like_bun_standalone() {
   strings -a "$path" 2>/dev/null | grep -Eq '(/\$bunfs/|StandaloneExecutable|Bun v[0-9]+\.[0-9]+\.[0-9]+)'
 }
 
+relative_to_app() {
+  local path="$1"
+  printf '%s\n' "${path#"$APP_PATH"/}"
+}
+
 violations=()
 
 while IFS= read -r -d '' file; do
-  if [ ! -x "$file" ] && [ ! -L "$file" ]; then
-    continue
-  fi
   name="$(basename "$file")"
   if ! is_allowed_binary_name "$name"; then
-    violations+=("unexpected executable: ${file#$APP_PATH/}")
+    violations+=("unexpected bundled bin entry: $(relative_to_app "$file")")
     continue
   fi
+  if [ ! -x "$file" ] && [ ! -L "$file" ]; then
+    violations+=("allowed bin entry is not executable: $(relative_to_app "$file")")
+  fi
   if looks_like_bun_standalone "$file"; then
-    violations+=("Bun standalone runtime signature: ${file#$APP_PATH/}")
+    violations+=("Bun standalone runtime signature: $(relative_to_app "$file")")
   fi
 done < <(find "$BIN_DIR" \( -type f -o -type l \) -print0)
 

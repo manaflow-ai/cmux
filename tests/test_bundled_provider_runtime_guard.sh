@@ -53,6 +53,35 @@ for forbidden in claude opencode codex pi bun bunx; do
   fi
 done
 
+NONEXEC_FORBIDDEN_APP="$TMP_DIR/bad-nonexec-bun/cmux.app"
+make_app "$NONEXEC_FORBIDDEN_APP"
+write_executable "$NONEXEC_FORBIDDEN_APP/Contents/Resources/bin/cmux" "#!/bin/sh"
+printf '%s\n' 'Bun v1.3.14 StandaloneExecutable /$bunfs/root' > "$NONEXEC_FORBIDDEN_APP/Contents/Resources/bin/bun"
+chmod 0644 "$NONEXEC_FORBIDDEN_APP/Contents/Resources/bin/bun"
+if "$VERIFY_SCRIPT" "$NONEXEC_FORBIDDEN_APP" >"$TMP_DIR/nonexec-bun.out" 2>&1; then
+  echo "FAIL: verifier allowed a non-executable bundled bun file" >&2
+  exit 1
+fi
+if ! grep -Fq "unexpected bundled bin entry: Contents/Resources/bin/bun" "$TMP_DIR/nonexec-bun.out"; then
+  echo "FAIL: non-executable bun rejection did not name the offending path" >&2
+  cat "$TMP_DIR/nonexec-bun.out" >&2
+  exit 1
+fi
+
+NONEXEC_ALLOWED_APP="$TMP_DIR/bad-nonexec-allowed/cmux.app"
+make_app "$NONEXEC_ALLOWED_APP"
+printf '%s\n' '#!/bin/sh' > "$NONEXEC_ALLOWED_APP/Contents/Resources/bin/cmux"
+chmod 0644 "$NONEXEC_ALLOWED_APP/Contents/Resources/bin/cmux"
+if "$VERIFY_SCRIPT" "$NONEXEC_ALLOWED_APP" >"$TMP_DIR/nonexec-allowed.out" 2>&1; then
+  echo "FAIL: verifier allowed a non-executable allowlisted bin entry" >&2
+  exit 1
+fi
+if ! grep -Fq "allowed bin entry is not executable: Contents/Resources/bin/cmux" "$TMP_DIR/nonexec-allowed.out"; then
+  echo "FAIL: non-executable allowlisted rejection did not name the offending path" >&2
+  cat "$TMP_DIR/nonexec-allowed.out" >&2
+  exit 1
+fi
+
 SYMLINK_APP="$TMP_DIR/bad-symlink/cmux.app"
 make_app "$SYMLINK_APP"
 write_executable "$SYMLINK_APP/Contents/Resources/bin/cmux" "#!/bin/sh"
