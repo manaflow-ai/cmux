@@ -162,6 +162,9 @@ jobs:
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
 
+      - name: Validate shipped-DMG signature verification gate
+        run: python3 tests/test_ci_released_dmg_signature_gate.py
+
       - name: Validate CI change area filter
         run: python3 tests/test_ci_change_areas.py
 
