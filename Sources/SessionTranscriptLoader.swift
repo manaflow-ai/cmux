@@ -20,88 +20,9 @@ struct SessionTranscriptLoader {
     private static let maxTurnTextCharacters = 40_000
     private static let newlineByte: UInt8 = 10
 
-    // Wrapping `Data(string.utf8)` in a helper keeps large needle array literals
-    // cheap to type-check. The Xcode 27 / Swift 6.4 expression solver otherwise
-    // times out on the bigger literals below ("unable to type-check this
-    // expression in reasonable time"), which Xcode 26 tolerated.
-    private static func needle(_ string: String) -> Data { Data(string.utf8) }
-
-    private static let claudeUserNeedles = [
-        Data(#""type":"user""#.utf8),
-        Data(#""type": "user""#.utf8),
-        Data(#""type":"assistant""#.utf8),
-        Data(#""type": "assistant""#.utf8)
-    ]
-    private static let codexResponseItemNeedles = [
-        Data(#""type":"response_item""#.utf8),
-        Data(#""type": "response_item""#.utf8)
-    ]
-    private static let codexPreviewNeedles = [
-        Data(#""role":"user""#.utf8),
-        Data(#""role": "user""#.utf8),
-        Data(#""role":"assistant""#.utf8),
-        Data(#""role": "assistant""#.utf8),
-        Data(#""type":"function_call""#.utf8),
-        Data(#""type": "function_call""#.utf8),
-        Data(#""type":"function_call_output""#.utf8),
-        Data(#""type": "function_call_output""#.utf8)
-    ]
-    private static let genericRoleNeedles = [
-        Data(#""role":"#.utf8),
-        Data(#""role": "#.utf8)
-    ]
-    private static let grokAssistantRoleNeedles = [
-        Data(#""role":"assistant""#.utf8),
-        Data(#""role": "assistant""#.utf8),
-        Data(#""type":"assistant""#.utf8),
-        Data(#""type": "assistant""#.utf8)
-    ]
-    private static let grokUserRoleNeedles = [
-        Data(#""role":"user""#.utf8),
-        Data(#""role": "user""#.utf8),
-        Data(#""type":"user""#.utf8),
-        Data(#""type": "user""#.utf8)
-    ]
-    private static let grokSystemRoleNeedles = [
-        Data(#""role":"system""#.utf8),
-        Data(#""role": "system""#.utf8),
-        Data(#""role":"developer""#.utf8),
-        Data(#""role": "developer""#.utf8),
-        Data(#""type":"system""#.utf8),
-        Data(#""type": "system""#.utf8),
-        Data(#""type":"developer""#.utf8),
-        Data(#""type": "developer""#.utf8)
-    ]
-    private static let grokToolRoleNeedles = [
-        needle(#""role":"tool""#),
-        needle(#""role": "tool""#),
-        needle(#""role":"tool_use""#),
-        needle(#""role": "tool_use""#),
-        needle(#""role":"tool_result""#),
-        needle(#""role": "tool_result""#),
-        needle(#""role":"function_call""#),
-        needle(#""role": "function_call""#),
-        needle(#""role":"function_call_output""#),
-        needle(#""role": "function_call_output""#),
-        needle(#""type":"tool""#),
-        needle(#""type": "tool""#),
-        needle(#""type":"tool_use""#),
-        needle(#""type": "tool_use""#),
-        needle(#""type":"tool_result""#),
-        needle(#""type": "tool_result""#),
-        needle(#""type":"function_call""#),
-        needle(#""type": "function_call""#),
-        needle(#""type":"function_call_output""#),
-        needle(#""type": "function_call_output""#)
-    ]
-    private static let grokRoleNeedles = [
-        needle(#""role":"#),
-        needle(#""role": "#)
-    ]
-        + grokAssistantRoleNeedles
-        + grokUserRoleNeedles
-        + grokSystemRoleNeedles
-        + grokToolRoleNeedles
+    /// Byte-level raw-line classifier, built once and reused for the per-line
+    /// `shouldParseRawLine` / `inferredRole` matching done by the parsers below.
+    private static let lineClassifier = SessionTranscriptLineClassifier()
 
     func load(entry: SessionEntry) async throws -> [SessionTranscriptTurn] {
         if entry.agent == .opencode {
@@ -210,12 +131,12 @@ struct SessionTranscriptLoader {
                 if remainingCapacity > 0 {
                     lineData.append(contentsOf: segment.prefix(remainingCapacity))
                 }
-                if shouldParseRawLine(
+                if lineClassifier.shouldParseRawLine(
                     lineData,
                     agent: agent,
                     usesGrokTranscriptLayout: usesGrokTranscriptLayout
                 ) {
-                    oversizedPreviewRole = inferredRole(
+                    oversizedPreviewRole = lineClassifier.inferredRole(
                         from: lineData,
                         agent: agent,
                         usesGrokTranscriptLayout: usesGrokTranscriptLayout
@@ -431,7 +352,7 @@ struct SessionTranscriptLoader {
         id: Int
     ) -> SessionTranscriptTurn? {
         guard !lineData.isEmpty,
-              shouldParseRawLine(lineData, agent: agent, usesGrokTranscriptLayout: usesGrokTranscriptLayout),
+              lineClassifier.shouldParseRawLine(lineData, agent: agent, usesGrokTranscriptLayout: usesGrokTranscriptLayout),
               let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
             return nil
         }
@@ -770,85 +691,6 @@ struct SessionTranscriptLoader {
         return output.enumerated().map { offset, turn in
             SessionTranscriptTurn(id: offset, role: turn.role, text: turn.text)
         }
-    }
-
-    private static func shouldParseRawLine(
-        _ data: Data,
-        agent: SessionAgent,
-        usesGrokTranscriptLayout: Bool
-    ) -> Bool {
-        if usesGrokTranscriptLayout {
-            return containsAny(data, needles: grokRoleNeedles)
-        }
-        switch agent {
-        case .claude:
-            return containsAny(data, needles: claudeUserNeedles)
-        case .codex:
-            return containsAny(data, needles: codexResponseItemNeedles)
-                && containsAny(data, needles: codexPreviewNeedles)
-        case .grok:
-            return containsAny(data, needles: grokRoleNeedles)
-        case .opencode, .rovodev:
-            return containsAny(data, needles: genericRoleNeedles)
-        case .registered:
-            return true
-        case .hermesAgent:
-            return false
-        }
-    }
-
-    private static func inferredRole(
-        from data: Data,
-        agent: SessionAgent,
-        usesGrokTranscriptLayout: Bool
-    ) -> SessionTranscriptRole? {
-        if usesGrokTranscriptLayout {
-            return inferredGrokRole(from: data)
-        }
-        switch agent {
-        case .claude:
-            if containsAny(data, needles: [Data(#""type":"assistant""#.utf8), Data(#""type": "assistant""#.utf8)]) {
-                return .assistant
-            }
-            if containsAny(data, needles: [Data(#""type":"user""#.utf8), Data(#""type": "user""#.utf8)]) {
-                return .user
-            }
-        case .codex, .opencode, .rovodev, .registered:
-            if containsAny(data, needles: [Data(#""role":"assistant""#.utf8), Data(#""role": "assistant""#.utf8)]) {
-                return .assistant
-            }
-            if containsAny(data, needles: [Data(#""role":"user""#.utf8), Data(#""role": "user""#.utf8)]) {
-                return .user
-            }
-            if containsAny(data, needles: [Data(#""type":"function_call""#.utf8), Data(#""type": "function_call""#.utf8)]) {
-                return .tool
-            }
-        case .grok:
-            return inferredGrokRole(from: data)
-        case .hermesAgent:
-            return nil
-        }
-        return nil
-    }
-
-    private static func inferredGrokRole(from data: Data) -> SessionTranscriptRole? {
-        if containsAny(data, needles: grokAssistantRoleNeedles) {
-            return .assistant
-        }
-        if containsAny(data, needles: grokUserRoleNeedles) {
-            return .user
-        }
-        if containsAny(data, needles: grokSystemRoleNeedles) {
-            return .system
-        }
-        if containsAny(data, needles: grokToolRoleNeedles) {
-            return .tool
-        }
-        return nil
-    }
-
-    private static func containsAny(_ data: Data, needles: [Data]) -> Bool {
-        needles.contains { data.range(of: $0) != nil }
     }
 
     private static func truncatedText(_ text: String, role: SessionTranscriptRole) -> String {

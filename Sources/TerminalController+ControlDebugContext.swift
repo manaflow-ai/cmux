@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxFoundation
 import CmuxSettings
 import CmuxShortcuts
 import Foundation
@@ -1113,13 +1114,6 @@ extension TerminalController: ControlDebugContext {
         return "OK"
     }
 
-    private struct PanelSnapshotState: Sendable {
-        let width: Int
-        let height: Int
-        let bytesPerRow: Int
-        let rgba: Data
-    }
-
     private static let panelSnapshotLock = NSLock()
 
     private static var panelSnapshots: [UUID: PanelSnapshotState] = [:]
@@ -1146,72 +1140,6 @@ extension TerminalController: ControlDebugContext {
         }
 
         return result
-    }
-
-    private static func makePanelSnapshot(from cgImage: CGImage) -> PanelSnapshotState? {
-        let width = cgImage.width
-        let height = cgImage.height
-        guard width > 0, height > 0 else { return nil }
-
-        let bytesPerPixel = 4
-        let bytesPerRow = width * bytesPerPixel
-        var data = Data(count: bytesPerRow * height)
-
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
-        let ok: Bool = data.withUnsafeMutableBytes { rawBuf in
-            guard let base = rawBuf.baseAddress else { return false }
-            guard let ctx = CGContext(
-                data: base,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: bytesPerRow,
-                space: colorSpace,
-                bitmapInfo: bitmapInfo
-            ) else { return false }
-            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
-        }
-        guard ok else { return nil }
-
-        return PanelSnapshotState(width: width, height: height, bytesPerRow: bytesPerRow, rgba: data)
-    }
-
-    private static func countChangedPixels(previous: PanelSnapshotState, current: PanelSnapshotState) -> Int {
-        // Any mismatch means we can't sensibly diff; treat as a fresh snapshot.
-        guard previous.width == current.width,
-              previous.height == current.height,
-              previous.bytesPerRow == current.bytesPerRow else {
-            return -1
-        }
-
-        let threshold = 8 // ignore tiny per-channel jitter
-        var changed = 0
-
-        previous.rgba.withUnsafeBytes { prevRaw in
-            current.rgba.withUnsafeBytes { curRaw in
-                guard let prev = prevRaw.bindMemory(to: UInt8.self).baseAddress,
-                      let cur = curRaw.bindMemory(to: UInt8.self).baseAddress else {
-                    return
-                }
-
-                let count = min(prevRaw.count, curRaw.count)
-                var i = 0
-                while i + 3 < count {
-                    let dr = abs(Int(prev[i]) - Int(cur[i]))
-                    let dg = abs(Int(prev[i + 1]) - Int(cur[i + 1]))
-                    let db = abs(Int(prev[i + 2]) - Int(cur[i + 2]))
-                    // Skip alpha channel at i+3.
-                    if dr + dg + db > threshold {
-                        changed += 1
-                    }
-                    i += 4
-                }
-            }
-        }
-
-        return changed
     }
 
     func panelSnapshot(_ args: String) -> String {
@@ -1262,7 +1190,7 @@ extension TerminalController: ControlDebugContext {
                 return
             }
 
-            guard let current = Self.makePanelSnapshot(from: cgImage) else {
+            guard let current = PanelSnapshotState(cgImage: cgImage) else {
                 result = "ERROR: Failed to read panel pixels"
                 return
             }
@@ -1270,7 +1198,7 @@ extension TerminalController: ControlDebugContext {
             var changedPixels = -1
             Self.panelSnapshotLock.lock()
             if let previous = Self.panelSnapshots[panelId] {
-                changedPixels = Self.countChangedPixels(previous: previous, current: current)
+                changedPixels = current.changedPixelCount(comparedTo: previous)
             }
             Self.panelSnapshots[panelId] = current
             Self.panelSnapshotLock.unlock()

@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import AppKit
+import CmuxFoundation
 import CmuxSettings
 
 #if canImport(cmux_DEV)
@@ -136,21 +137,22 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
 
 final class TitlebarControlsSizingPolicyTests: XCTestCase {
     func testSchedulePolicyRequiresMeaningfulViewSizeChange() {
-        XCTAssertFalse(titlebarControlsShouldScheduleForViewSizeChange(previous: .zero, current: .zero))
+        let policy = TitlebarControlsSizingPolicy()
+        XCTAssertFalse(policy.shouldSchedule(previous: .zero, current: .zero))
         XCTAssertTrue(
-            titlebarControlsShouldScheduleForViewSizeChange(
+            policy.shouldSchedule(
                 previous: .zero,
                 current: NSSize(width: 240, height: 38)
             )
         )
         XCTAssertFalse(
-            titlebarControlsShouldScheduleForViewSizeChange(
+            policy.shouldSchedule(
                 previous: NSSize(width: 240, height: 38),
                 current: NSSize(width: 240.2, height: 38.1)
             )
         )
         XCTAssertTrue(
-            titlebarControlsShouldScheduleForViewSizeChange(
+            policy.shouldSchedule(
                 previous: NSSize(width: 240, height: 38),
                 current: NSSize(width: 247, height: 38)
             )
@@ -158,14 +160,15 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 
     func testLayoutApplyPolicySkipsEquivalentSnapshots() {
+        let policy = TitlebarControlsSizingPolicy()
         let baseline = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 128, height: 22),
             containerHeight: 28,
             xOffset: 0,
             yOffset: 3
         )
-        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: nil, next: baseline))
-        XCTAssertFalse(titlebarControlsShouldApplyLayout(previous: baseline, next: baseline))
+        XCTAssertTrue(policy.shouldApplyLayout(previous: nil, next: baseline))
+        XCTAssertFalse(policy.shouldApplyLayout(previous: baseline, next: baseline))
 
         let changed = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 132, height: 22),
@@ -173,7 +176,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             xOffset: 0,
             yOffset: 3
         )
-        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: changed))
+        XCTAssertTrue(policy.shouldApplyLayout(previous: baseline, next: changed))
 
         let offsetChanged = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 128, height: 22),
@@ -181,7 +184,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             xOffset: 1,
             yOffset: 3
         )
-        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: offsetChanged))
+        XCTAssertTrue(policy.shouldApplyLayout(previous: baseline, next: offsetChanged))
     }
 
     func testTitlebarControlsListenForWindowGeometryChanges() {

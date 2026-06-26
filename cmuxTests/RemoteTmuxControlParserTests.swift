@@ -263,12 +263,12 @@ import Testing
         // Dedicated host-owned window lost its last session and another window is
         // open → close the whole window (the disconnect UX).
         #expect(
-            RemoteTmuxController.sessionEndAction(
+            RemoteTmuxSessionEndAction.resolve(
                 dedicatedWindowId: windowId, dedicatedWindowOwnedByEndingHost: true, otherMainWindowCount: 1
             ) == .closeDedicatedWindow(windowId)
         )
         #expect(
-            RemoteTmuxController.sessionEndAction(
+            RemoteTmuxSessionEndAction.resolve(
                 dedicatedWindowId: windowId, dedicatedWindowOwnedByEndingHost: true, otherMainWindowCount: 3
             ) == .closeDedicatedWindow(windowId)
         )
@@ -278,7 +278,7 @@ import Testing
         // Dedicated window but it is the ONLY window → don't close it (never leave
         // the user with zero windows); fall back to closing just the workspace.
         #expect(
-            RemoteTmuxController.sessionEndAction(
+            RemoteTmuxSessionEndAction.resolve(
                 dedicatedWindowId: UUID(), dedicatedWindowOwnedByEndingHost: true, otherMainWindowCount: 0
             ) == .closeWorkspace
         )
@@ -289,7 +289,7 @@ import Testing
         // dedicated window → closing the whole window would discard it. Close only
         // the dead workspace instead.
         #expect(
-            RemoteTmuxController.sessionEndAction(
+            RemoteTmuxSessionEndAction.resolve(
                 dedicatedWindowId: UUID(), dedicatedWindowOwnedByEndingHost: false, otherMainWindowCount: 2
             ) == .closeWorkspace
         )
@@ -299,12 +299,12 @@ import Testing
         // No dedicated window (host still has other sessions, or a shared/socket
         // mirror) → only the dead workspace closes, regardless of window count.
         #expect(
-            RemoteTmuxController.sessionEndAction(
+            RemoteTmuxSessionEndAction.resolve(
                 dedicatedWindowId: nil, dedicatedWindowOwnedByEndingHost: false, otherMainWindowCount: 0
             ) == .closeWorkspace
         )
         #expect(
-            RemoteTmuxController.sessionEndAction(
+            RemoteTmuxSessionEndAction.resolve(
                 dedicatedWindowId: nil, dedicatedWindowOwnedByEndingHost: true, otherMainWindowCount: 5
             ) == .closeWorkspace
         )
@@ -563,13 +563,13 @@ import Testing
 }
 
 /// Naming the kill-window confirmation dialog from the live foreground
-/// classification (`RemoteTmuxController.mirrorTabActivity`) so it can't lag the
+/// classification (`RemoteTmuxMirrorTabActivity.from`) so it can't lag the
 /// tab's own tmux automatic-rename.
 @Suite struct RemoteTmuxMirrorTabActivityTests {
     private typealias State = RemoteTmuxControlConnection.PaneForegroundState
 
     @Test @MainActor func namesTheActivePaneCommand() {
-        let activity = RemoteTmuxController.mirrorTabActivity(
+        let activity = RemoteTmuxMirrorTabActivity.from(
             states: [1: State(rawValue: "0|bash"), 2: State(rawValue: "0|sleep")],
             paneOrder: [1, 2], activePaneId: nil
         )
@@ -578,7 +578,7 @@ import Testing
     }
 
     @Test @MainActor func prefersTheFocusedPaneWhenSeveralAreActive() {
-        let activity = RemoteTmuxController.mirrorTabActivity(
+        let activity = RemoteTmuxMirrorTabActivity.from(
             states: [1: State(rawValue: "0|vim"), 2: State(rawValue: "0|sleep")],
             paneOrder: [1, 2], activePaneId: 2
         )
@@ -588,7 +588,7 @@ import Testing
     @Test @MainActor func namesAnActiveBackgroundPaneWhenTheFocusedOneIsIdle() {
         // Focused pane idle, another pane active → fall past the focused pane to
         // the active one in layout order (the deduped second half of the scan).
-        let activity = RemoteTmuxController.mirrorTabActivity(
+        let activity = RemoteTmuxMirrorTabActivity.from(
             states: [1: State(rawValue: "0|bash"), 2: State(rawValue: "0|sleep")],
             paneOrder: [1, 2], activePaneId: 1
         )
@@ -597,7 +597,7 @@ import Testing
     }
 
     @Test @MainActor func idleWindowHasNoNameAndIsNotActive() {
-        let activity = RemoteTmuxController.mirrorTabActivity(
+        let activity = RemoteTmuxMirrorTabActivity.from(
             states: [1: State(rawValue: "0|bash"), 2: State(rawValue: "0|zsh")],
             paneOrder: [1, 2], activePaneId: 1
         )
@@ -606,7 +606,7 @@ import Testing
     }
 
     @Test @MainActor func unclassifiedWindowIsIdle() {
-        let activity = RemoteTmuxController.mirrorTabActivity(
+        let activity = RemoteTmuxMirrorTabActivity.from(
             states: [:], paneOrder: [1, 2], activePaneId: nil
         )
         #expect(!activity.hasActiveCommand)

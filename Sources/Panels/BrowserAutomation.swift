@@ -373,7 +373,7 @@ enum BrowserImportAutomation {
 
         let browser = try selectedBrowser(from: browsers, params: params)
         let sourceProfiles = try selectedSourceProfiles(from: browser, params: params)
-        let domainFilters = BrowserDataImporter.parseDomainFilters(domainFilterText(from: params))
+        let domainFilters = BrowserDataImportService.parseDomainFilters(domainFilterText(from: params))
 
         let realizedPlan: RealizedBrowserImportExecutionPlan = try await MainActor.run {
             let destinationProfiles = BrowserProfileStore.shared.profiles
@@ -405,7 +405,13 @@ enum BrowserImportAutomation {
             return try BrowserImportPlanResolver().realize(plan: plan)
         }
 
-        return await BrowserDataImporter.importData(
+        let importService = await MainActor.run {
+            BrowserDataImportService(
+                sink: BrowserProfileStore.shared,
+                strings: .appLocalized
+            )
+        }
+        return await importService.importData(
             from: browser,
             plan: realizedPlan,
             scope: .cookiesOnly,

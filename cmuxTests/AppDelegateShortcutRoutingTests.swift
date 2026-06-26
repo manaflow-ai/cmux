@@ -1,6 +1,7 @@
 import XCTest
 import CmuxCommandPaletteUI
 import CmuxTerminal
+import CmuxWorkspaces
 import AppKit
 import Carbon.HIToolbox
 import Combine

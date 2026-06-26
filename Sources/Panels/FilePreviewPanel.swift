@@ -1,6 +1,7 @@
 import AppKit
 import AVKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import Combine
 import Foundation
@@ -8,24 +9,6 @@ import PDFKit
 import Quartz
 import SwiftUI
 import UniformTypeIdentifiers
-
-enum FilePreviewInteraction {
-    static let zoomStep: CGFloat = 1.25
-
-    static func hasZoomModifier(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        return flags.contains(.option) || flags.contains(.command)
-    }
-
-    static func zoomFactor(forScroll event: NSEvent) -> CGFloat {
-        let rawDelta = event.scrollingDeltaY != 0 ? event.scrollingDeltaY : event.deltaY
-        let normalizedDelta = event.hasPreciseScrollingDeltas ? rawDelta : rawDelta * 8
-        let factor = pow(1.0025, normalizedDelta)
-        guard factor.isFinite else { return 1 }
-        return min(max(factor, 0.2), 5.0)
-    }
-
-}
 
 struct FileExternalOpenApplication: Identifiable, Equatable, Sendable {
     let url: URL
@@ -2271,7 +2254,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             self?.zoomPDF(with: event, factor: factor)
         }
         pdfView.onScrollZoom = { [weak self] event in
-            self?.zoomPDF(with: event, factor: FilePreviewInteraction.zoomFactor(forScroll: event))
+            self?.zoomPDF(with: event, factor: FilePreviewZoomInteraction.standard.zoomFactor(forScroll: event))
         }
         pdfView.onScroll = { [weak self] in
             self?.updatePageControls()
@@ -2538,12 +2521,12 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
 
     @objc private func zoomOut() {
         pdfView.autoScales = false
-        setPDFScaleFactor(pdfView.scaleFactor / FilePreviewInteraction.zoomStep, preservingVisibleCenter: true)
+        setPDFScaleFactor(pdfView.scaleFactor / FilePreviewZoomInteraction.standard.step, preservingVisibleCenter: true)
     }
 
     @objc private func zoomIn() {
         pdfView.autoScales = false
-        setPDFScaleFactor(pdfView.scaleFactor * FilePreviewInteraction.zoomStep, preservingVisibleCenter: true)
+        setPDFScaleFactor(pdfView.scaleFactor * FilePreviewZoomInteraction.standard.step, preservingVisibleCenter: true)
     }
 
     @objc private func zoomToFit() {
@@ -3486,7 +3469,7 @@ final class FilePreviewImageContainerView: NSView {
             self?.zoomImage(with: event, factor: factor)
         }
         scrollView.onScrollZoom = { [weak self] event in
-            self?.zoomImage(with: event, factor: FilePreviewInteraction.zoomFactor(forScroll: event))
+            self?.zoomImage(with: event, factor: FilePreviewZoomInteraction.standard.zoomFactor(forScroll: event))
         }
         scrollView.onSmartMagnify = { [weak self] event in
             self?.toggleImageSmartZoom(with: event)
@@ -3540,12 +3523,12 @@ final class FilePreviewImageContainerView: NSView {
 
     @objc private func zoomOut() {
         isFitMode = false
-        setImageScale(scale / FilePreviewInteraction.zoomStep, preservingVisibleCenter: true)
+        setImageScale(scale / FilePreviewZoomInteraction.standard.step, preservingVisibleCenter: true)
     }
 
     @objc private func zoomIn() {
         isFitMode = false
-        setImageScale(scale * FilePreviewInteraction.zoomStep, preservingVisibleCenter: true)
+        setImageScale(scale * FilePreviewZoomInteraction.standard.step, preservingVisibleCenter: true)
     }
 
     @objc private func zoomToFit() {
@@ -3772,7 +3755,7 @@ private final class FilePreviewImageScrollView: NSScrollView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        if FilePreviewInteraction.hasZoomModifier(event), let onScrollZoom {
+        if FilePreviewZoomInteraction.standard.hasZoomModifier(event), let onScrollZoom {
             onScrollZoom(event)
         } else {
             super.scrollWheel(with: event)

@@ -743,6 +743,7 @@
 		E30780000000000000000014 /* SessionRemoteWorkspaceSnapshot+Restore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000013 /* SessionRemoteWorkspaceSnapshot+Restore.swift */; };
 		A5001670 /* SessionRestoredTerminalCommandStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001671 /* SessionRestoredTerminalCommandStore.swift */; };
 		A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */; };
+		F5320004A1B2C3D4E5F60718 /* SessionTranscriptLineClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320005A1B2C3D4E5F60718 /* SessionTranscriptLineClassifier.swift */; };
 		A5001672 /* SessionTranscriptLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001673 /* SessionTranscriptLoader.swift */; };
 		F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */; };
 		E30798000000000000000002 /* SessionWorkspaceLayoutSnapshot+NodeBuilding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30798000000000000000001 /* SessionWorkspaceLayoutSnapshot+NodeBuilding.swift */; };
@@ -1801,6 +1802,7 @@
 		E30780000000000000000013 /* SessionRemoteWorkspaceSnapshot+Restore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionRemoteWorkspaceSnapshot+Restore.swift"; sourceTree = "<group>"; };
 		A5001671 /* SessionRestoredTerminalCommandStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestoredTerminalCommandStore.swift; sourceTree = "<group>"; };
 		A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SessionSnapshotDebugBenchmark.swift; sourceTree = "<group>"; };
+		F5320005A1B2C3D4E5F60718 /* SessionTranscriptLineClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptLineClassifier.swift; sourceTree = "<group>"; };
 		A5001673 /* SessionTranscriptLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptLoader.swift; sourceTree = "<group>"; };
 		F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptTypes.swift; sourceTree = "<group>"; };
 		E30798000000000000000001 /* SessionWorkspaceLayoutSnapshot+NodeBuilding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionWorkspaceLayoutSnapshot+NodeBuilding.swift"; sourceTree = "<group>"; };
@@ -2955,6 +2957,7 @@
 				FE003006 /* SessionAgentPresentation.swift */,
 				FE003007 /* RovoDevTranscriptPreview.swift */,
 				F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */,
+				F5320005A1B2C3D4E5F60718 /* SessionTranscriptLineClassifier.swift */,
 				FE003002 /* SessionIndexView.swift */,
 				B7F9A601B7F9A601B7F9A601 /* RightSidebarChromeGeometryReporting.swift */,
 				B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */,
@@ -4166,6 +4169,7 @@
 				E30780000000000000000014 /* SessionRemoteWorkspaceSnapshot+Restore.swift in Sources */,
 				A5001670 /* SessionRestoredTerminalCommandStore.swift in Sources */,
 				A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */,
+				F5320004A1B2C3D4E5F60718 /* SessionTranscriptLineClassifier.swift in Sources */,
 				A5001672 /* SessionTranscriptLoader.swift in Sources */,
 				F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */,
 				E30798000000000000000002 /* SessionWorkspaceLayoutSnapshot+NodeBuilding.swift in Sources */,

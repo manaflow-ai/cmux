@@ -612,115 +612,17 @@ final class GotoSplitUITestRecorder: UITestRecording {
         completion: @escaping ([String: String]) -> Void
     ) {
         let expectedInputIdLiteral = awaitingInputId?.javaScriptStringLiteral ?? "null"
-        let script = """
-        (() => {
-          const expectedInputId = \(expectedInputIdLiteral);
-          const snapshot = () => {
-            try {
-              const active = document.activeElement;
-              if (!active) {
-                return {
-                  id: "",
-                  tag: "",
-                  type: "",
-                  editable: "false",
-                  trackedFocusStateId: "",
-                  focusTrackerInstalled: window.__cmuxAddressBarFocusTrackerInstalled === true ? "true" : "false"
-                };
-              }
-              const tag = (active.tagName || "").toLowerCase();
-              const type = (active.type || "").toLowerCase();
-              const editable =
-                !!active.isContentEditable ||
-                tag === "textarea" ||
-                (tag === "input" && type !== "hidden");
-              return {
-                id: typeof active.id === "string" ? active.id : "",
-                tag,
-                type,
-                editable: editable ? "true" : "false",
-                trackedFocusStateId:
-                  window.__cmuxAddressBarFocusState &&
-                  typeof window.__cmuxAddressBarFocusState.id === "string"
-                    ? window.__cmuxAddressBarFocusState.id
-                    : "",
-                focusTrackerInstalled:
-                  window.__cmuxAddressBarFocusTrackerInstalled === true ? "true" : "false"
-              };
-            } catch (_) {
-              return {
-                id: "",
-                tag: "",
-                type: "",
-                editable: "false",
-                trackedFocusStateId: "",
-                focusTrackerInstalled: "false"
-              };
-            }
-          };
-          const matchesExpectation = (state) =>
-            !expectedInputId || (typeof expectedInputId === "string" && state.id === expectedInputId);
-
-          const initial = snapshot();
-          if (matchesExpectation(initial)) {
-            return initial;
-          }
-
-          return new Promise((resolve) => {
-            let finished = false;
-            let observer = null;
-            const cleanups = [];
-            const finish = (value) => {
-              if (finished) return;
-              finished = true;
-              if (observer) observer.disconnect();
-              for (const cleanup of cleanups) {
-                try { cleanup(); } catch (_) {}
-              }
-              resolve(value);
-            };
-            const maybeFinish = () => {
-              const state = snapshot();
-              if (matchesExpectation(state)) {
-                finish(state);
-              }
-            };
-            const addListener = (target, eventName, options) => {
-              if (!target || typeof target.addEventListener !== "function") return;
-              const handler = () => maybeFinish();
-              target.addEventListener(eventName, handler, options);
-              cleanups.push(() => target.removeEventListener(eventName, handler, options));
-            };
-            try {
-              observer = new MutationObserver(() => maybeFinish());
-              observer.observe(document.documentElement || document, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                characterData: true
-              });
-            } catch (_) {}
-            addListener(document, "focusin", true);
-            addListener(document, "focusout", true);
-            addListener(document, "selectionchange", true);
-            addListener(document, "readystatechange", true);
-            addListener(window, "load", true);
-            const timeoutId = window.setTimeout(() => finish(snapshot()), 1500);
-            cleanups.push(() => window.clearTimeout(timeoutId));
-            maybeFinish();
-          });
-        })();
-        """
+        let script = ActiveElementProbeResult.script(expectedInputIdLiteral: expectedInputIdLiteral)
 
         panel.webView.evaluateJavaScript(script) { result, _ in
-            let payload = result as? [String: Any]
+            let probe = ActiveElementProbeResult(jsResult: result)
             completion([
-                "id": (payload?["id"] as? String) ?? "",
-                "tag": (payload?["tag"] as? String) ?? "",
-                "type": (payload?["type"] as? String) ?? "",
-                "editable": (payload?["editable"] as? String) ?? "false",
-                "trackedFocusStateId": (payload?["trackedFocusStateId"] as? String) ?? "",
-                "focusTrackerInstalled": (payload?["focusTrackerInstalled"] as? String) ?? "false"
+                "id": probe.id,
+                "tag": probe.tag,
+                "type": probe.type,
+                "editable": probe.editable,
+                "trackedFocusStateId": probe.trackedFocusStateId,
+                "focusTrackerInstalled": probe.focusTrackerInstalled
             ])
         }
     }

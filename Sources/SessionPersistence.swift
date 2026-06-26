@@ -174,31 +174,6 @@ struct SessionSidebarSnapshot: Codable, Sendable {
     var width: Double?
 }
 
-struct SessionStatusEntrySnapshot: Codable, Sendable {
-    var key: String
-    var value: String
-    var icon: String?
-    var color: String?
-    var timestamp: TimeInterval
-}
-
-struct SessionLogEntrySnapshot: Codable, Sendable {
-    var message: String
-    var level: String
-    var source: String?
-    var timestamp: TimeInterval
-}
-
-struct SessionProgressSnapshot: Codable, Sendable {
-    var value: Double
-    var label: String?
-}
-
-struct SessionGitBranchSnapshot: Codable, Sendable {
-    var branch: String
-    var isDirty: Bool
-}
-
 enum SurfaceResumeApprovalPolicy: String, Codable, CaseIterable, Sendable {
     case manual
     case prompt
@@ -1375,95 +1350,6 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
 }
 
 extension SessionTerminalPanelSnapshot: WorkspaceSessionRemoteRestoreTerminalSnapshot {}
-
-struct SessionAgentHibernationSnapshot: Codable, Sendable {
-    var hibernatedAt: TimeInterval
-    var lastActivityAt: TimeInterval
-}
-
-struct SessionTextBoxInputDraftSnapshot: Codable, Equatable, Sendable {
-    var isActive: Bool
-    var parts: [SessionTextBoxInputDraftPart]
-}
-
-struct SessionTextBoxInputDraftPart: Codable, Equatable, Sendable {
-    enum Kind: String, Codable, Sendable {
-        case text
-        case attachment
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case kind
-        case text
-        case attachment
-    }
-
-    let kind: Kind
-    let text: String?
-    let attachment: SessionTextBoxInputAttachmentSnapshot?
-
-    private init(kind: Kind, text: String?, attachment: SessionTextBoxInputAttachmentSnapshot?) {
-        self.kind = kind
-        self.text = text
-        self.attachment = attachment
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let kind = try container.decode(Kind.self, forKey: .kind)
-        let text = try container.decodeIfPresent(String.self, forKey: .text)
-        let attachment = try container.decodeIfPresent(
-            SessionTextBoxInputAttachmentSnapshot.self,
-            forKey: .attachment
-        )
-
-        switch kind {
-        case .text:
-            guard text != nil, attachment == nil else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: .text,
-                    in: container,
-                    debugDescription: "Text draft parts must contain text and no attachment."
-                )
-            }
-        case .attachment:
-            guard attachment != nil, text == nil else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: .attachment,
-                    in: container,
-                    debugDescription: "Attachment draft parts must contain an attachment and no text."
-                )
-            }
-        }
-
-        self.kind = kind
-        self.text = text
-        self.attachment = attachment
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(kind, forKey: .kind)
-        try container.encodeIfPresent(text, forKey: .text)
-        try container.encodeIfPresent(attachment, forKey: .attachment)
-    }
-
-    static func text(_ text: String) -> SessionTextBoxInputDraftPart {
-        SessionTextBoxInputDraftPart(kind: .text, text: text, attachment: nil)
-    }
-
-    static func attachment(_ attachment: SessionTextBoxInputAttachmentSnapshot) -> SessionTextBoxInputDraftPart {
-        SessionTextBoxInputDraftPart(kind: .attachment, text: nil, attachment: attachment)
-    }
-}
-
-struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Sendable {
-    var displayName: String
-    var submissionText: String
-    var submissionPath: String
-    var localPath: String?
-    var cleanupLocalPathWhenDisposed: Bool
-}
 
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?

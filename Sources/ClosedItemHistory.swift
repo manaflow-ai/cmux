@@ -1,5 +1,5 @@
 import Foundation
-import Combine
+import Observation
 import Bonsplit
 import OSLog
 
@@ -125,7 +125,8 @@ enum ClosedWindowRestoreValidation {
 }
 
 @MainActor
-final class ClosedItemHistoryStore: ObservableObject {
+@Observable
+final class ClosedItemHistoryStore {
     /// Records that the composition root (``AppDelegate``) has claimed ownership
     /// of the single recently-closed-history store, so the tail call sites
     /// reaching ``shared`` and the root's own ``AppDelegate/closedItemHistory``
@@ -165,8 +166,8 @@ final class ClosedItemHistoryStore: ObservableObject {
         compositionRootInstance = instance
     }
 
-    @Published private(set) var revision: UInt64 = 0
-    @Published private var records: [ClosedItemHistoryRecord] = []
+    private(set) var revision: UInt64 = 0
+    private var records: [ClosedItemHistoryRecord] = []
     private let capacity: Int?
     private let fileURL: URL?
     private let persistsRecordsSynchronously: Bool

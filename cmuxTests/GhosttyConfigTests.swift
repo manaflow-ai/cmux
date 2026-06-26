@@ -2083,17 +2083,17 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         // Out-of-range / invalid raw values that must be canonicalized.
         defaults.set("not-a-real-mode", forKey: BrowserThemeSettings.modeKey)
         defaults.set("not-a-real-variant", forKey: BrowserImportHintSettings.variantKey)
-        defaults.set(999, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
-        defaults.set(999.0, forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
-        defaults.set(-5.0, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+        defaults.set(999, forKey: BrowserToolbarAccessorySpacingStore.key)
+        defaults.set(999.0, forKey: BrowserProfilePopoverPaddingStore.horizontalPaddingKey)
+        defaults.set(-5.0, forKey: BrowserProfilePopoverPaddingStore.verticalPaddingKey)
 
         BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
 
         XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeSettings.defaultMode.rawValue)
         XCTAssertEqual(defaults.string(forKey: BrowserImportHintSettings.variantKey), BrowserImportHintSettings.defaultVariant.rawValue)
-        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing)
-        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey), BrowserProfilePopoverDebugSettings.defaultHorizontalPadding, accuracy: 0.0001)
-        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey), BrowserProfilePopoverDebugSettings.defaultVerticalPadding, accuracy: 0.0001)
+        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingStore.key), BrowserToolbarAccessorySpacingStore.defaultSpacing)
+        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverPaddingStore.horizontalPaddingKey), BrowserProfilePopoverPaddingStore.defaultHorizontalPadding, accuracy: 0.0001)
+        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverPaddingStore.verticalPaddingKey), BrowserProfilePopoverPaddingStore.defaultVerticalPadding, accuracy: 0.0001)
 
         // Registered fallbacks are available for keys that were never set.
         XCTAssertEqual(defaults.string(forKey: BrowserSearchSettingsStore.searchEngineKey), BrowserSearchSettingsStore.defaultSearchEngine.rawValue)
@@ -2106,18 +2106,18 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let validSpacing = BrowserToolbarAccessorySpacingDebugSettings.supportedValues.last ?? BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+        let validSpacing = BrowserToolbarAccessorySpacingStore.supportedValues.last ?? BrowserToolbarAccessorySpacingStore.defaultSpacing
         // Resolve the app-target theme mode via the app-only settings type; the bare
         // `BrowserThemeMode` is ambiguous here because this file also imports
         // `CmuxSettings`, which declares a same-named enum.
         let validThemeRaw = BrowserThemeSettings.mode(for: "dark").rawValue
         defaults.set(validThemeRaw, forKey: BrowserThemeSettings.modeKey)
-        defaults.set(validSpacing, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+        defaults.set(validSpacing, forKey: BrowserToolbarAccessorySpacingStore.key)
 
         BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
 
         XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), validThemeRaw)
-        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), validSpacing)
+        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingStore.key), validSpacing)
     }
 }
 

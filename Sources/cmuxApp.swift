@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxBrowser
 import CmuxFoundation
 import CmuxPanes
 import CmuxSidebarInterpreterClient
@@ -103,9 +104,9 @@ struct cmuxApp: App {
     // (`AppDelegate.closedItemHistory`, installed in
     // `applicationDidFinishLaunching`) owns the single instance; the transitional
     // ``ClosedItemHistoryStore/shared`` accessor used here for the history-menu
-    // `@StateObject` resolves to that same object, so the menu and the AppDelegate
+    // `@State` resolves to that same object, so the menu and the AppDelegate
     // call sites read one store.
-    @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
+    @State var closedItemHistoryStore = ClosedItemHistoryStore.shared
     @StateObject private var sidebarState = SidebarState()
     // De-singletonization stage b76: this `@StateObject` is the composition-root
     // owner of the single `KeyboardShortcutSettingsObserver`. `AppDelegate.configure`
@@ -118,14 +119,14 @@ struct cmuxApp: App {
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
-    @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+    @AppStorage(BrowserToolbarAccessorySpacingStore.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingStore.defaultSpacing
     @State private var browserFocusModeMenuRevision = 0
     @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
 
     private var browserToolbarAccessorySpacing: Int {
-        BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
+        BrowserToolbarAccessorySpacingStore.resolved(browserToolbarAccessorySpacingRaw)
     }
 
     init() {
@@ -569,7 +570,7 @@ struct cmuxApp: App {
                         defaultValue: "Browser Toolbar Button Spacing"
                     )
                 ) {
-                    ForEach(BrowserToolbarAccessorySpacingDebugSettings.supportedValues, id: \.self) { spacing in
+                    ForEach(BrowserToolbarAccessorySpacingStore.supportedValues, id: \.self) { spacing in
                         Button {
                             browserToolbarAccessorySpacingRaw = spacing
                         } label: {

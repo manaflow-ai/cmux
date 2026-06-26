@@ -1544,12 +1544,12 @@ final class DevBuildBannerDebugSettingsTests: XCTestCase {
 final class ShortcutHintLanePlannerTests: XCTestCase {
     func testAssignLanesKeepsSeparatedIntervalsOnSingleLane() {
         let intervals: [ClosedRange<CGFloat>] = [0...20, 28...40, 48...64]
-        XCTAssertEqual(ShortcutHintLanePlanner.assignLanes(for: intervals, minSpacing: 4), [0, 0, 0])
+        XCTAssertEqual(ShortcutHintLanePlanner(intervals: intervals, minSpacing: 4).lanes, [0, 0, 0])
     }
 
     func testAssignLanesStacksOverlappingIntervalsIntoAdditionalLanes() {
         let intervals: [ClosedRange<CGFloat>] = [0...20, 18...34, 22...38, 40...56]
-        XCTAssertEqual(ShortcutHintLanePlanner.assignLanes(for: intervals, minSpacing: 4), [0, 1, 2, 0])
+        XCTAssertEqual(ShortcutHintLanePlanner(intervals: intervals, minSpacing: 4).lanes, [0, 1, 2, 0])
     }
 }
 
@@ -1557,7 +1557,7 @@ final class ShortcutHintLanePlannerTests: XCTestCase {
 final class ShortcutHintHorizontalPlannerTests: XCTestCase {
     func testAssignRightEdgesResolvesOverlapWithMinimumSpacing() {
         let intervals: [ClosedRange<CGFloat>] = [0...20, 18...34, 30...46]
-        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 6)
+        let rightEdges = ShortcutHintHorizontalPlanner(intervals: intervals, minSpacing: 6).rightEdges
 
         XCTAssertEqual(rightEdges.count, intervals.count)
 
@@ -1572,13 +1572,13 @@ final class ShortcutHintHorizontalPlannerTests: XCTestCase {
 
     func testAssignRightEdgesKeepsAlreadySeparatedIntervalsInPlace() {
         let intervals: [ClosedRange<CGFloat>] = [0...12, 20...32, 40...52]
-        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 4)
+        let rightEdges = ShortcutHintHorizontalPlanner(intervals: intervals, minSpacing: 4).rightEdges
         XCTAssertEqual(rightEdges, [12, 32, 52])
     }
 
     func testAssignRightEdgesKeepsCrowdedHintsInsideLeadingEdge() {
         let intervals: [ClosedRange<CGFloat>] = [-2...24, 27...50, 50...76, 78...102, 104...128]
-        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 6)
+        let rightEdges = ShortcutHintHorizontalPlanner(intervals: intervals, minSpacing: 6).rightEdges
 
         let adjustedIntervals = zip(intervals, rightEdges).map { interval, rightEdge in
             let width = interval.upperBound - interval.lowerBound

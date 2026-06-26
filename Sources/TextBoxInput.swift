@@ -2,6 +2,7 @@ import AppKit
 import CmuxTerminal
 import Carbon.HIToolbox
 import CmuxSettingsUI
+import CmuxWorkspaces
 import Observation
 import SwiftUI
 import UniformTypeIdentifiers

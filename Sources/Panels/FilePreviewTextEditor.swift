@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import SwiftUI
 
 @MainActor
@@ -246,11 +247,11 @@ final class SavingTextView: NSTextView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        guard FilePreviewInteraction.hasZoomModifier(event) else {
+        guard FilePreviewZoomInteraction.standard.hasZoomModifier(event) else {
             super.scrollWheel(with: event)
             return
         }
-        adjustPreviewFontSize(by: FilePreviewInteraction.zoomFactor(forScroll: event))
+        adjustPreviewFontSize(by: FilePreviewZoomInteraction.standard.zoomFactor(forScroll: event))
     }
 
     override func smartMagnify(with event: NSEvent) {

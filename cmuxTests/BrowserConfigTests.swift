@@ -1703,51 +1703,53 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
 
     func testBrowserToolbarAccessorySpacingDefaultsToTwoWhenUnset() {
         let defaults = makeIsolatedDefaults()
-        defaults.removeObject(forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+        defaults.removeObject(forKey: BrowserToolbarAccessorySpacingStore.key)
 
         XCTAssertEqual(
-            BrowserToolbarAccessorySpacingDebugSettings.current(defaults: defaults),
-            BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+            BrowserToolbarAccessorySpacingStore(defaults: defaults).current(),
+            BrowserToolbarAccessorySpacingStore.defaultSpacing
         )
     }
 
     func testBrowserToolbarAccessorySpacingFallsBackToDefaultForUnsupportedValue() {
         let defaults = makeIsolatedDefaults()
-        defaults.set(99, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+        defaults.set(99, forKey: BrowserToolbarAccessorySpacingStore.key)
 
         XCTAssertEqual(
-            BrowserToolbarAccessorySpacingDebugSettings.current(defaults: defaults),
-            BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+            BrowserToolbarAccessorySpacingStore(defaults: defaults).current(),
+            BrowserToolbarAccessorySpacingStore.defaultSpacing
         )
     }
 
     func testBrowserProfilePopoverPaddingDefaultsWhenUnset() {
         let defaults = makeIsolatedDefaults()
-        defaults.removeObject(forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
-        defaults.removeObject(forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+        defaults.removeObject(forKey: BrowserProfilePopoverPaddingStore.horizontalPaddingKey)
+        defaults.removeObject(forKey: BrowserProfilePopoverPaddingStore.verticalPaddingKey)
 
+        let store = BrowserProfilePopoverPaddingStore(defaults: defaults)
         XCTAssertEqual(
-            BrowserProfilePopoverDebugSettings.currentHorizontalPadding(defaults: defaults),
-            BrowserProfilePopoverDebugSettings.defaultHorizontalPadding
+            store.currentHorizontalPadding(),
+            BrowserProfilePopoverPaddingStore.defaultHorizontalPadding
         )
         XCTAssertEqual(
-            BrowserProfilePopoverDebugSettings.currentVerticalPadding(defaults: defaults),
-            BrowserProfilePopoverDebugSettings.defaultVerticalPadding
+            store.currentVerticalPadding(),
+            BrowserProfilePopoverPaddingStore.defaultVerticalPadding
         )
     }
 
     func testBrowserProfilePopoverPaddingFallsBackForUnsupportedValues() {
         let defaults = makeIsolatedDefaults()
-        defaults.set(-3, forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
-        defaults.set(999, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+        defaults.set(-3, forKey: BrowserProfilePopoverPaddingStore.horizontalPaddingKey)
+        defaults.set(999, forKey: BrowserProfilePopoverPaddingStore.verticalPaddingKey)
 
+        let store = BrowserProfilePopoverPaddingStore(defaults: defaults)
         XCTAssertEqual(
-            BrowserProfilePopoverDebugSettings.currentHorizontalPadding(defaults: defaults),
-            BrowserProfilePopoverDebugSettings.defaultHorizontalPadding
+            store.currentHorizontalPadding(),
+            BrowserProfilePopoverPaddingStore.defaultHorizontalPadding
         )
         XCTAssertEqual(
-            BrowserProfilePopoverDebugSettings.currentVerticalPadding(defaults: defaults),
-            BrowserProfilePopoverDebugSettings.defaultVerticalPadding
+            store.currentVerticalPadding(),
+            BrowserProfilePopoverPaddingStore.defaultVerticalPadding
         )
     }
 

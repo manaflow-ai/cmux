@@ -170,6 +170,14 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
             + ["-o", "BatchMode=no", "-f", "-T", "--", destination, "true"]
     }
 
+    /// The dictionary key for a control connection / session mirror, scoped to this
+    /// host's full SSH connection identity (``connectionHash`` — destination + port
+    /// + identity), so the same destination reached on a different port or with a
+    /// different identity file never aliases onto another endpoint's connection.
+    func connectionKey(sessionName: String) -> String {
+        "\(connectionHash)\u{1}\(sessionName)"
+    }
+
     /// Single-quotes a value for safe interpolation into a `/bin/sh` command.
     static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
