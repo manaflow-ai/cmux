@@ -207,6 +207,24 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func sidebarWorkspaceListSnapshotIsReusedForWorkspaceStateUpdates() throws {
+        let manager = makeTabManager()
+        for _ in 0..<8 {
+            manager.addWorkspace(autoWelcomeIfNeeded: false)
+        }
+        let firstSnapshot = manager.sidebarWorkspaceListSnapshot
+        let firstVisibleRows = firstSnapshot.visibleWorkspaceRowIds
+        let firstTabIds = firstSnapshot.tabIds
+        let workspace = try #require(manager.tabs.first)
+
+        workspace.setCustomTitle("Agent updated title")
+
+        let secondSnapshot = manager.sidebarWorkspaceListSnapshot
+        #expect(firstSnapshot === secondSnapshot)
+        #expect(secondSnapshot.tabIds == firstTabIds)
+        #expect(secondSnapshot.visibleWorkspaceRowIds == firstVisibleRows)
+    }
+
     @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)

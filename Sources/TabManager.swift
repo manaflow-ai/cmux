@@ -206,6 +206,10 @@ class TabManager: ObservableObject {
         set { workspaces.workspaceGroups = newValue }
     }
 
+    var sidebarWorkspaceListSnapshot: SidebarWorkspaceListSnapshot {
+        SidebarWorkspaceListSnapshot(tabs: tabs, workspaceGroups: workspaceGroups)
+    }
+
     /// Legacy Combine bridge for the remaining `tabManager.$tabs`
     /// subscribers. Driven exclusively from `workspaceTabsWillChange(to:)`,
     /// so it emits the new value during willSet and replays the current
