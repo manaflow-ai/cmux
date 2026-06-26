@@ -3681,26 +3681,41 @@ struct CMUXCLI {
 
             case "base":
                 let baseAction = rest.first?.lowercased()
-                let baseArgs: [String]
                 if baseAction == nil || baseAction == "open" {
-                    baseArgs = baseAction == "open" ? Array(rest.dropFirst()) : rest
+                    let baseArgs = baseAction == "open" ? Array(rest.dropFirst()) : rest
+                    try runPersistentBaseOpenCommand(
+                        args: baseArgs,
+                        client: client,
+                        jsonOutput: jsonOutput,
+                        idFormat: idFormat,
+                        windowId: windowId
+                    )
+                } else if baseAction == "reset" {
+                    try runPersistentBaseResetCommand(
+                        args: Array(rest.dropFirst()),
+                        client: client,
+                        jsonOutput: jsonOutput,
+                        idFormat: idFormat,
+                        windowId: windowId
+                    )
                 } else if rest.first?.hasPrefix("-") == true {
-                    baseArgs = rest
+                    try runPersistentBaseOpenCommand(
+                        args: rest,
+                        client: client,
+                        jsonOutput: jsonOutput,
+                        idFormat: idFormat,
+                        windowId: windowId
+                    )
                 } else {
                     throw CLIError(message: """
-                        Usage: cmux vm base open [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d]
+                        Usage:
+                          cmux vm base open [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d]
+                          cmux vm base reset [--reason <text>] [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d]
 
-                        Base is your persistent personal cloud workspace. Opening it reuses
-                        the same VM instead of creating a throwaway VM.
+                        Base is your persistent cloud workspace. Opening it reuses the
+                        same VM. Reset creates a new Base generation and retains the old VM.
                         """)
                 }
-                try runPersistentBaseOpenCommand(
-                    args: baseArgs,
-                    client: client,
-                    jsonOutput: jsonOutput,
-                    idFormat: idFormat,
-                    windowId: windowId
-                )
 
             case "new", "create":
                 let (imageOpt, rem0) = parseOption(rest, name: "--image")
@@ -10372,14 +10387,10 @@ struct CMUXCLI {
         }
 
         let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
-        let idempotency = try Self.activeVMCreateIdempotency(image: nil, provider: "freestyle")
         let vmCreateStartedAt = Date()
         let response = try client.sendV2(
-            method: "vm.create",
-            params: [
-                "provider": "freestyle",
-                "idempotency_key": idempotency.key,
-            ],
+            method: "vm.base_open",
+            params: [:],
             responseTimeout: Self.vmCreateResponseTimeoutSeconds
         )
         logVMTiming(
@@ -10397,15 +10408,120 @@ struct CMUXCLI {
         let id = (response["id"] as? String) ?? "?"
         let provider = (response["provider"] as? String) ?? "freestyle"
         let image = (response["image"] as? String) ?? "?"
+        let base = response["base"] as? [String: Any]
+        let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue
         if detach {
             print("OK \(id)")
             print("  provider: \(provider)")
             print("  image:    \(image)")
             print("  base:     true")
+            if let generation {
+                print("  gen:      \(generation)")
+            }
             return
         }
 
         print("Opened Base \(id)")
+        if let generation {
+            print("Base generation \(generation).")
+        }
+        try vmOpenShell(
+            id: id,
+            workspaceName: Self.persistentCloudVMWorkspaceName,
+            windowRaw: targetWindow,
+            targetWorkspaceId: targetWorkspaceOpt,
+            forceSSH: false,
+            shouldPinWorkspaceToTop: true,
+            client: client,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat
+        )
+    }
+
+    private func runPersistentBaseResetCommand(
+        args: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowId: String?
+    ) throws {
+        let (reasonOpt, rem0) = parseOption(args, name: "--reason")
+        let (targetWorkspaceOpt, rem1) = parseOption(rem0, name: "--workspace")
+        let (windowOpt, rem2) = parseOption(rem1, name: "--window")
+        let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
+        let remaining = rem2.filter { $0 != "--detach" && $0 != "-d" }
+        if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
+            throw CLIError(message: """
+                vm base reset: unknown flag '\(unknown)'.
+
+                Known flags:
+                  --reason <text>
+                  --workspace <workspace-id>
+                  --window <id|ref|index>
+                  --detach, -d
+                """)
+        }
+        if let extra = remaining.first(where: { !Self.isFlagToken($0) }) {
+            throw CLIError(message: """
+                vm base reset: unexpected argument '\(extra)'.
+
+                Reset creates a new Base generation and retains the old VM.
+                """)
+        }
+
+        let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
+        var params: [String: Any] = [:]
+        if let reasonOpt, !reasonOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            params["reason"] = reasonOpt
+        }
+        let vmCreateStartedAt = Date()
+        let response = try client.sendV2(
+            method: "vm.base_reset",
+            params: params,
+            responseTimeout: Self.vmCreateResponseTimeoutSeconds
+        )
+        logVMTiming(
+            "base.reset",
+            vmID: (response["id"] as? String) ?? "?",
+            provider: (response["provider"] as? String) ?? "freestyle",
+            startedAt: vmCreateStartedAt
+        )
+
+        if jsonOutput {
+            print(jsonString(response))
+            return
+        }
+
+        let id = (response["id"] as? String) ?? "?"
+        let provider = (response["provider"] as? String) ?? "freestyle"
+        let image = (response["image"] as? String) ?? "?"
+        let base = response["base"] as? [String: Any]
+        let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue
+        let retainedProviderVmId = base?["retainedProviderVmId"] as? String
+        if detach {
+            print("OK \(id)")
+            print("  provider: \(provider)")
+            print("  image:    \(image)")
+            print("  base:     true")
+            print("  reset:    true")
+            if let generation {
+                print("  gen:      \(generation)")
+            }
+            if let retainedProviderVmId, !retainedProviderVmId.isEmpty {
+                print("  retained: \(retainedProviderVmId)")
+            }
+            return
+        }
+
+        print("Reset Base \(id)")
+        if let generation {
+            print("Base generation \(generation).")
+        }
+        if let retainedProviderVmId, !retainedProviderVmId.isEmpty {
+            print("Previous Base generation was retained as \(retainedProviderVmId).")
+        } else {
+            print("Previous Base generation was retained.")
+        }
         try vmOpenShell(
             id: id,
             workspaceName: Self.persistentCloudVMWorkspaceName,
@@ -15144,9 +15260,12 @@ struct CMUXCLI {
               ls                        List your cloud VMs.
               status <id>                Print provider, status, and image.
               base open [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
-                                        Open Base, your persistent personal cloud
-                                        workspace. Reuses the same VM instead of
-                                        creating a throwaway VM.
+                                        Open Base, your persistent cloud workspace.
+                                        Reuses the same VM every time.
+              base reset [--reason <text>] [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
+                                        Create a new Base generation. The previous
+                                        VM is retained so accidental resets are
+                                        recoverable.
               new [--image <template>] [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
                                         Create a new VM. By default, with no image or
                                         provider override, this is kept compatible with
@@ -15182,6 +15301,7 @@ struct CMUXCLI {
 
             Example:
               cmux vm base open
+              cmux vm base reset
               cmux vm new
               cmux vm ls
               cmux vm fork <id>

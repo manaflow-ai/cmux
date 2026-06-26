@@ -160,6 +160,80 @@ export const cloudVmUsageEvents = pgTable(
   ],
 );
 
+export const cloudVmBases = pgTable(
+  "cloud_vm_bases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    scopeType: text("scope_type").notNull(),
+    scopeId: text("scope_id").notNull(),
+    name: text("name").notNull().default("base"),
+    activeGeneration: integer("active_generation").notNull().default(0),
+    activeVmId: uuid("active_vm_id").references(() => cloudVms.id, { onDelete: "set null" }),
+    activeProvider: vmProvider("active_provider"),
+    activeProviderVmId: text("active_provider_vm_id"),
+    state: text("state").notNull().default("creating"),
+    createdByUserId: text("created_by_user_id").notNull(),
+    lastOpenedByUserId: text("last_opened_by_user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_bases_scope_name_unique").on(table.scopeType, table.scopeId, table.name),
+    index("cloud_vm_bases_active_vm_idx").on(table.activeVmId),
+    index("cloud_vm_bases_provider_vm_idx").on(table.activeProvider, table.activeProviderVmId),
+  ],
+);
+
+export const cloudVmBaseGenerations = pgTable(
+  "cloud_vm_base_generations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    baseId: uuid("base_id")
+      .notNull()
+      .references(() => cloudVmBases.id, { onDelete: "cascade" }),
+    generation: integer("generation").notNull(),
+    vmId: uuid("vm_id").references(() => cloudVms.id, { onDelete: "set null" }),
+    provider: vmProvider("provider"),
+    providerVmId: text("provider_vm_id"),
+    state: text("state").notNull().default("creating"),
+    createdByUserId: text("created_by_user_id").notNull(),
+    retainedAt: timestamp("retained_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_base_generations_base_generation_unique").on(table.baseId, table.generation),
+    index("cloud_vm_base_generations_vm_idx").on(table.vmId),
+    index("cloud_vm_base_generations_provider_vm_idx").on(table.provider, table.providerVmId),
+  ],
+);
+
+export const cloudVmBaseEvents = pgTable(
+  "cloud_vm_base_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    baseId: uuid("base_id")
+      .notNull()
+      .references(() => cloudVmBases.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    eventType: text("event_type").notNull(),
+    oldGeneration: integer("old_generation"),
+    newGeneration: integer("new_generation"),
+    oldVmId: uuid("old_vm_id").references(() => cloudVms.id, { onDelete: "set null" }),
+    newVmId: uuid("new_vm_id").references(() => cloudVms.id, { onDelete: "set null" }),
+    oldProviderVmId: text("old_provider_vm_id"),
+    newProviderVmId: text("new_provider_vm_id"),
+    reason: text("reason"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("cloud_vm_base_events_base_created_idx").on(table.baseId, table.createdAt),
+    index("cloud_vm_base_events_user_created_idx").on(table.userId, table.createdAt),
+  ],
+);
+
 /**
  * APNs device tokens for iOS push notifications. A row exists only after the
  * user explicitly opts in on their device (the feature is off by default), so

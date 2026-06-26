@@ -247,6 +247,14 @@ struct VMSummary {
     let image: String
     let status: String?
     let createdAt: Int64
+    let base: VMBaseSummary?
+}
+
+struct VMBaseSummary {
+    let id: String
+    let name: String
+    let generation: Int
+    let retainedProviderVmId: String?
 }
 
 struct VMExecResult {
@@ -372,7 +380,7 @@ actor VMClient {
             let createdAt = (dict["createdAt"] as? Int64)
                 ?? Int64((dict["createdAt"] as? Double) ?? 0)
             let status = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return VMSummary(id: id, provider: provider, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt)
+            return VMSummary(id: id, provider: provider, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt, base: nil)
         }
     }
 
@@ -407,7 +415,44 @@ actor VMClient {
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return VMSummary(id: id, provider: providerValue, image: imageValue, status: status?.isEmpty == false ? status : nil, createdAt: createdAt)
+        return VMSummary(id: id, provider: providerValue, image: imageValue, status: status?.isEmpty == false ? status : nil, createdAt: createdAt, base: nil)
+    }
+
+    func openBase(name: String? = nil) async throws -> VMSummary {
+        try await baseRequest(path: "/api/vm/base/open", name: name, reason: nil)
+    }
+
+    func resetBase(name: String? = nil, reason: String? = nil) async throws -> VMSummary {
+        try await baseRequest(path: "/api/vm/base/reset", name: name, reason: reason)
+    }
+
+    private func baseRequest(path: String, name: String?, reason: String?) async throws -> VMSummary {
+        var body: [String: Any] = [:]
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["name"] = name
+        }
+        if let reason, !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["reason"] = reason
+        }
+        let (data, http) = try await request(
+            "POST",
+            path: path,
+            jsonBody: body,
+            timeoutSeconds: Self.createTimeoutSeconds
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let id = obj["id"] as? String,
+              let providerValue = obj["provider"] as? String,
+              let imageValue = obj["image"] as? String
+        else {
+            throw VMClientError.malformedResponse("Cloud VM Base response was missing required fields.")
+        }
+        let serverCreatedAt = (obj["createdAt"] as? Int64)
+            ?? Int64((obj["createdAt"] as? Double) ?? 0)
+        let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
+        let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return VMSummary(id: id, provider: providerValue, image: imageValue, status: status?.isEmpty == false ? status : nil, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
     }
 
     func status(id: String) async throws -> VMSummary {
@@ -424,7 +469,7 @@ actor VMClient {
         let createdAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return VMSummary(id: id, provider: provider, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt)
+        return VMSummary(id: id, provider: provider, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt, base: nil)
     }
 
     func destroy(id: String) async throws {
@@ -485,7 +530,7 @@ actor VMClient {
         let snapshotID = obj["snapshotId"] as? String
         return (
             snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
-            vm: VMSummary(id: vmID, provider: provider, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt)
+            vm: VMSummary(id: vmID, provider: provider, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt, base: nil)
         )
     }
 
@@ -510,7 +555,7 @@ actor VMClient {
         let createdAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return VMSummary(id: id, provider: providerValue, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt)
+        return VMSummary(id: id, provider: providerValue, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt, base: nil)
     }
 
     func openSSH(id: String) async throws -> VMSSHEndpoint {
@@ -625,6 +670,25 @@ actor VMClient {
         default:
             throw VMClientError.malformedResponse("Cloud VM attach response used an unsupported transport type.")
         }
+    }
+
+    private func decodeBaseSummary(_ raw: Any?) -> VMBaseSummary? {
+        guard let obj = raw as? [String: Any] else { return nil }
+        guard let id = obj["id"] as? String, !id.isEmpty else { return nil }
+        let rawName = (obj["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let generation = (obj["generation"] as? Int)
+            ?? (obj["generation"] as? NSNumber)?.intValue
+            ?? Int((obj["generation"] as? Double) ?? 0)
+        let retainedRaw = obj["retainedProviderVmId"]
+        let retainedProviderVmId = retainedRaw.flatMap { value in
+            cloudVMIsNull(value) ? nil : (value as? String)
+        }
+        return VMBaseSummary(
+            id: id,
+            name: rawName?.isEmpty == false ? rawName! : "base",
+            generation: generation,
+            retainedProviderVmId: retainedProviderVmId
+        )
     }
 
     func exec(id: String, command: String, timeoutMs: Int = 30_000) async throws -> VMExecResult {

@@ -67,11 +67,13 @@ export default async function BasePage({
       <p>{t("openCreateDesc")}</p>
       <ul>
         <li>{t("openMeaning")}</li>
+        <li>{t("resetMeaning")}</li>
         <li>{t("createMeaning")}</li>
         <li>{t("forkMeaning")}</li>
       </ul>
       <CodeBlock lang="bash">{`# Current preview CLI
 cmux vm base open
+cmux vm base reset
 cmux vm ls
 cmux vm status <id>`}</CodeBlock>
       <p>{t("cliNamingDesc")}</p>

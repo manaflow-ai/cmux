@@ -29,6 +29,19 @@ extension TerminalController {
                 let vm = try await VMClient.shared.create(image: image, provider: provider, idempotencyKey: idempotencyKey)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
+        case "vm.base_open":
+            let name = Self.socketWorkerString(params["name"])
+            return v2VmCall(id: id) {
+                let vm = try await VMClient.shared.openBase(name: name)
+                return Self.socketWorkerVMSummaryPayload(vm)
+            }
+        case "vm.base_reset":
+            let name = Self.socketWorkerString(params["name"])
+            let reason = Self.socketWorkerString(params["reason"])
+            return v2VmCall(id: id) {
+                let vm = try await VMClient.shared.resetBase(name: name, reason: reason)
+                return Self.socketWorkerVMSummaryPayload(vm)
+            }
         case "vm.status":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.status requires `id`. Run `cmux vm ls` to find one.")
@@ -196,13 +209,22 @@ extension TerminalController {
     }
 
     private nonisolated static func socketWorkerVMSummaryPayload(_ vm: VMSummary) -> [String: Any] {
-        [
+        var payload: [String: Any] = [
             "id": vm.id,
             "provider": vm.provider,
             "image": vm.image,
             "status": vm.status ?? NSNull(),
             "createdAt": vm.createdAt,
         ]
+        if let base = vm.base {
+            payload["base"] = [
+                "id": base.id,
+                "name": base.name,
+                "generation": base.generation,
+                "retainedProviderVmId": base.retainedProviderVmId ?? NSNull(),
+            ]
+        }
+        return payload
     }
 
     private nonisolated static func socketWorkerStringArray(_ raw: Any?) -> [String] {

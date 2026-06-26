@@ -6,10 +6,13 @@ export type VmTimingStage =
   | "request_parse"
   | "entitlements"
   | "begin_create"
+  | "begin_base_open"
+  | "begin_base_reset"
   | "limit_reconcile"
   | "billing"
   | "provider_create"
   | "mark_running"
+  | "mark_base_running"
   | "usage_events"
   | "total";
 

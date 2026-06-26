@@ -35,6 +35,9 @@ import {
   VmRepository,
   VmRepositoryLive,
   type BeginCreateResult,
+  type BeginBaseCreateResult,
+  type CloudVmBaseGenerationRow,
+  type CloudVmBaseRow,
   type CloudVmSessionRow,
   type CloudVmStatus,
   type CloudVmLeaseKind,
@@ -50,6 +53,13 @@ export type VmEntry = {
   readonly imageVersion: string | null;
   readonly status: CloudVmStatus;
   readonly createdAt: number;
+};
+
+export type BaseVmEntry = VmEntry & {
+  readonly baseId: string;
+  readonly baseName: string;
+  readonly generation: number;
+  readonly retainedProviderVmId: string | null;
 };
 
 export type CloudVmSessionEntry = CloudVmSessionRow;
@@ -213,6 +223,209 @@ export function createVm(input: {
     yield* recordCreateSuccessEvents(repo, input, running);
 
     return vmEntryFromRow(running);
+  });
+}
+
+export function openBaseVm(input: {
+  readonly userId: string;
+  readonly billingCustomerType: BillingCustomerType;
+  readonly billingTeamId: string;
+  readonly billingPlanId: string;
+  readonly maxActiveVms: number;
+  readonly provider: ProviderId;
+  readonly image: string;
+  readonly imageVersion?: string | null;
+  readonly baseName?: string;
+  readonly bakedFreestyleSignedAdmin?: boolean;
+  readonly timing?: VmTimingSink;
+}): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const billing = yield* VmBillingGateway;
+    const create = yield* measureVmEffect(
+      input.timing,
+      "begin_base_open",
+      repo.beginBaseOpen(input),
+    );
+    return yield* finishBaseCreate(repo, providers, billing, input, create);
+  });
+}
+
+export function resetBaseVm(input: {
+  readonly userId: string;
+  readonly billingCustomerType: BillingCustomerType;
+  readonly billingTeamId: string;
+  readonly billingPlanId: string;
+  readonly maxActiveVms: number;
+  readonly provider: ProviderId;
+  readonly image: string;
+  readonly imageVersion?: string | null;
+  readonly baseName?: string;
+  readonly reason?: string | null;
+  readonly bakedFreestyleSignedAdmin?: boolean;
+  readonly timing?: VmTimingSink;
+}): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const billing = yield* VmBillingGateway;
+    const create = yield* measureVmEffect(
+      input.timing,
+      "begin_base_reset",
+      repo.beginBaseReset(input),
+    );
+    return yield* finishBaseCreate(repo, providers, billing, input, create);
+  });
+}
+
+function finishBaseCreate(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  billing: VmBillingGatewayShape,
+  input: {
+    readonly userId: string;
+    readonly billingCustomerType: BillingCustomerType;
+    readonly billingTeamId: string;
+    readonly billingPlanId: string;
+    readonly provider: ProviderId;
+    readonly image: string;
+    readonly imageVersion?: string | null;
+    readonly baseName?: string;
+    readonly bakedFreestyleSignedAdmin?: boolean;
+    readonly timing?: VmTimingSink;
+  },
+  create: BeginBaseCreateResult,
+): Effect.Effect<BaseVmEntry, VmWorkflowError, never> {
+  return Effect.gen(function* () {
+    if (create.kind === "existing") {
+      const existing = create.vm;
+      if (existing.status === "failed") {
+        return yield* Effect.fail(
+          new VmCreateFailedError({
+            idempotencyKey: existing.idempotencyKey ?? "",
+            message: existing.failureMessage ?? "previous Base create failed",
+          }),
+        );
+      }
+      if (!existing.providerVmId) {
+        return yield* Effect.fail(
+          new VmCreateInProgressError({ idempotencyKey: existing.idempotencyKey ?? "" }),
+        );
+      }
+      return baseVmEntryFromRows(create.base, create.generation, existing, null);
+    }
+
+    const idempotencyKey = create.vm.idempotencyKey ?? undefined;
+    const creditReservation = yield* reserveCreateCredit(billing, repo, {
+      ...input,
+      idempotencyKey,
+    }, create.vm);
+    yield* recordCreateRequestedEvents(repo, {
+      ...input,
+      idempotencyKey,
+    }, create.vm, creditReservation);
+
+    const handle = yield* measureVmEffect(
+      input.timing,
+      "provider_create",
+      providers.create(input.provider, {
+        image: input.image,
+        providerMetadata: create.vm.providerMetadata,
+        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+      }),
+    ).pipe(
+      Effect.tapError((err) =>
+        Effect.all([
+          refundCredit(billing, repo, create.vm, creditReservation),
+          repo.markBaseCreateFailed({
+            baseId: create.base.id,
+            generation: create.generation.generation,
+            vmId: create.vm.id,
+            userId: input.userId,
+            code: err.operation,
+            message: errorMessage(err.cause),
+          }),
+          repo.recordUsageEvent({
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+            billingPlanId: input.billingPlanId,
+            vmId: create.vm.id,
+            eventType: "vm.base.create.failed",
+            provider: input.provider,
+            imageId: input.image,
+            metadata: { operation: err.operation, message: errorMessage(err.cause), baseName: input.baseName ?? "base" },
+          }),
+        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+      ),
+    );
+
+    const running = yield* measureVmEffect(
+      input.timing,
+      "mark_base_running",
+      repo.markBaseCreateRunning({
+        baseId: create.base.id,
+        generation: create.generation.generation,
+        vmId: create.vm.id,
+        providerVmId: handle.providerVmId,
+        image: handle.image,
+        imageVersion: input.imageVersion ?? null,
+        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
+        userId: input.userId,
+      }),
+    ).pipe(
+      Effect.catchAll((err) =>
+        Effect.gen(function* () {
+          yield* providers.destroy(input.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
+          yield* refundCredit(billing, repo, create.vm, creditReservation);
+          yield* repo.markBaseCreateFailed({
+            baseId: create.base.id,
+            generation: create.generation.generation,
+            vmId: create.vm.id,
+            userId: input.userId,
+            code: "database_finalize_failed",
+            message: "Cloud VM Base state update failed.",
+          }).pipe(Effect.catchAll(() => Effect.void));
+          yield* recordCreateFailureEvent(
+            repo,
+            {
+              userId: input.userId,
+              billingTeamId: input.billingTeamId,
+              billingPlanId: input.billingPlanId,
+              provider: input.provider,
+              image: input.image,
+            },
+            create.vm,
+            "database_finalize_failed",
+            errorMessage(err.cause),
+          ).pipe(Effect.catchAll(() => Effect.void));
+          return yield* Effect.fail(err);
+        }),
+      ),
+    );
+
+    yield* recordCreateSuccessEvents(repo, { ...input, idempotencyKey }, running);
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: input.billingTeamId,
+      billingPlanId: input.billingPlanId,
+      vmId: running.id,
+      eventType: create.previousVm ? "vm.base.reset" : "vm.base.opened",
+      provider: input.provider,
+      imageId: input.image,
+      metadata: {
+        baseName: input.baseName ?? "base",
+        generation: create.generation.generation,
+        retainedProviderVmId: create.previousVm?.providerVmId ?? null,
+      },
+    }).pipe(Effect.catchAll(() => Effect.void));
+
+    return baseVmEntryFromRows(
+      create.base,
+      create.generation,
+      running,
+      create.previousVm?.providerVmId ?? null,
+    );
   });
 }
 
@@ -1225,6 +1438,21 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     imageVersion: row.imageVersion,
     status: row.status,
     createdAt: row.createdAt.getTime(),
+  };
+}
+
+function baseVmEntryFromRows(
+  base: CloudVmBaseRow,
+  generation: CloudVmBaseGenerationRow,
+  row: CloudVmRow,
+  retainedProviderVmId: string | null,
+): BaseVmEntry {
+  return {
+    ...vmEntryFromRow(row),
+    baseId: base.id,
+    baseName: base.name,
+    generation: generation.generation,
+    retainedProviderVmId,
   };
 }
 

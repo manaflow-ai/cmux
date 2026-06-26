@@ -30,8 +30,10 @@ import {
   destroyVm,
   execVm,
   listUserVms,
+  openBaseVm,
   openAttachEndpoint,
   openSshEndpoint,
+  resetBaseVm,
   restoreVm,
 } from "../services/vms/workflows";
 
@@ -88,6 +90,10 @@ describe("VM Effect workflows", () => {
       markBillingGrantApplied: () => Effect.void,
       deleteBillingGrant: () => Effect.void,
       beginCreate: () => Effect.succeed({ inserted: true, vm: requested }),
+      beginBaseOpen: () => Effect.fail(new Error("unused") as never),
+      beginBaseReset: () => Effect.fail(new Error("unused") as never),
+      markBaseCreateRunning: () => Effect.fail(new Error("unused") as never),
+      markBaseCreateFailed: () => Effect.void,
       activeLimitCandidates: () => Effect.succeed([]),
       reservePausedResume: () => Effect.succeed(null),
       markProviderObservedStatus: () => Effect.succeed(false),
@@ -236,6 +242,184 @@ describe("VM Effect workflows", () => {
     expect(vmCount).toBe("2");
     expect(usageCount).toBe("2");
     expect(imageVersion).toBe("test-version");
+  });
+
+  dbTest("opens Base as one stable VM per account scope", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+
+    let createCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "e2b" as const,
+            providerVmId: `provider-vm-base-open-${createCalls}`,
+            status: "running" as const,
+            image: "cmuxd-ws:test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = providerLayer(provider);
+    const first = await Effect.runPromise(openBaseVm({
+      userId: "user-base-open",
+      billingCustomerType: "team",
+      billingTeamId: "team-base-open",
+      billingPlanId: "free",
+      maxActiveVms: 5,
+      provider: "e2b",
+      image: "cmuxd-ws:test",
+      imageVersion: "test-version",
+    }).pipe(Effect.provide(layer)));
+    const second = await Effect.runPromise(openBaseVm({
+      userId: "user-base-open-teammate",
+      billingCustomerType: "team",
+      billingTeamId: "team-base-open",
+      billingPlanId: "free",
+      maxActiveVms: 5,
+      provider: "e2b",
+      image: "cmuxd-ws:test",
+      imageVersion: "test-version",
+    }).pipe(Effect.provide(layer)));
+    const otherTeam = await Effect.runPromise(openBaseVm({
+      userId: "user-base-open",
+      billingCustomerType: "team",
+      billingTeamId: "team-base-open-alt",
+      billingPlanId: "free",
+      maxActiveVms: 5,
+      provider: "e2b",
+      image: "cmuxd-ws:test",
+      imageVersion: "test-version",
+    }).pipe(Effect.provide(layer)));
+    const personal = await Effect.runPromise(openBaseVm({
+      userId: "user-base-open",
+      billingCustomerType: "user",
+      billingTeamId: "user-base-open",
+      billingPlanId: "free",
+      maxActiveVms: 5,
+      provider: "e2b",
+      image: "cmuxd-ws:test",
+      imageVersion: "test-version",
+    }).pipe(Effect.provide(layer)));
+    const personalReopen = await Effect.runPromise(openBaseVm({
+      userId: "user-base-open",
+      billingCustomerType: "user",
+      billingTeamId: "user-base-open",
+      billingPlanId: "free",
+      maxActiveVms: 5,
+      provider: "e2b",
+      image: "cmuxd-ws:test",
+      imageVersion: "test-version",
+    }).pipe(Effect.provide(layer)));
+
+    expect(second.providerVmId).toBe(first.providerVmId);
+    expect(otherTeam.providerVmId).not.toBe(first.providerVmId);
+    expect(personalReopen.providerVmId).toBe(personal.providerVmId);
+    expect(personal.providerVmId).not.toBe(first.providerVmId);
+    expect(first.generation).toBe(1);
+    expect(second.generation).toBe(1);
+    expect(personal.generation).toBe(1);
+    expect(createCalls).toBe(3);
+
+    const bases = await sql<{ scopeType: string; scopeId: string; activeProviderVmId: string; activeGeneration: number }[]>`
+      select scope_type as "scopeType", scope_id as "scopeId", active_provider_vm_id as "activeProviderVmId", active_generation as "activeGeneration"
+      from cloud_vm_bases
+      order by scope_type, scope_id
+    `;
+    expect(bases).toEqual([
+      { scopeType: "team", scopeId: "team-base-open", activeProviderVmId: first.providerVmId, activeGeneration: 1 },
+      { scopeType: "team", scopeId: "team-base-open-alt", activeProviderVmId: otherTeam.providerVmId, activeGeneration: 1 },
+      { scopeType: "user", scopeId: "user-base-open", activeProviderVmId: personal.providerVmId, activeGeneration: 1 },
+    ]);
+  });
+
+  dbTest("resets Base by retaining the previous generation", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+
+    let createCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "freestyle" as const,
+            providerVmId: `provider-vm-base-reset-${createCalls}`,
+            status: "running" as const,
+            image: "snapshot-test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = providerLayer(provider);
+    const first = await Effect.runPromise(openBaseVm({
+      userId: "user-base-reset",
+      billingCustomerType: "team",
+      billingTeamId: "team-base-reset",
+      billingPlanId: "free",
+      maxActiveVms: 1,
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: "test-version",
+    }).pipe(Effect.provide(layer)));
+    const reset = await Effect.runPromise(resetBaseVm({
+      userId: "user-base-reset",
+      billingCustomerType: "team",
+      billingTeamId: "team-base-reset",
+      billingPlanId: "free",
+      maxActiveVms: 1,
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: "test-version",
+      reason: "test reset",
+    }).pipe(Effect.provide(layer)));
+    const reopened = await Effect.runPromise(openBaseVm({
+      userId: "user-base-reset",
+      billingCustomerType: "team",
+      billingTeamId: "team-base-reset",
+      billingPlanId: "free",
+      maxActiveVms: 1,
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: "test-version",
+    }).pipe(Effect.provide(layer)));
+
+    expect(first.providerVmId).toBe("provider-vm-base-reset-1");
+    expect(reset.providerVmId).toBe("provider-vm-base-reset-2");
+    expect(reset.retainedProviderVmId).toBe(first.providerVmId);
+    expect(reset.generation).toBe(2);
+    expect(reopened.providerVmId).toBe(reset.providerVmId);
+    expect(createCalls).toBe(2);
+
+    const generations = await sql<{ generation: number; providerVmId: string; state: string; retained: boolean }[]>`
+      select generation, provider_vm_id as "providerVmId", state, retained_at is not null as retained
+      from cloud_vm_base_generations
+      order by generation
+    `;
+    expect(generations).toEqual([
+      { generation: 1, providerVmId: first.providerVmId, state: "retained", retained: true },
+      { generation: 2, providerVmId: reset.providerVmId, state: "active", retained: false },
+    ]);
+
+    const [{ vmCount }] = await sql<{ vmCount: string }[]>`
+      select count(*)::text as "vmCount"
+      from cloud_vms
+      where provider_vm_id in (${first.providerVmId}, ${reset.providerVmId})
+        and status = 'running'
+    `;
+    expect(vmCount).toBe("2");
   });
 
   dbTest("reuses an idempotency key after a terminal failed row", async () => {

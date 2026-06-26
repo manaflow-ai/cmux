@@ -5,6 +5,8 @@ const runVmWorkflow = mock(async () => {
   throw new Error("unauthenticated VM routes must not reach the VM workflow");
 });
 const createVm = mock(() => ({ workflow: "create" }));
+const openBaseVm = mock(() => ({ workflow: "base.open" }));
+const resetBaseVm = mock(() => ({ workflow: "base.reset" }));
 const listUserVms = mock(() => ({ workflow: "list" }));
 const getVm = mock(() => ({ workflow: "get" }));
 const destroyVm = mock(() => ({ workflow: "destroy" }));
@@ -40,12 +42,16 @@ mock.module("../services/vms/workflows", () => ({
   execVm,
   getVm,
   listUserVms,
+  openBaseVm,
   openAttachEndpoint,
   openSshEndpoint,
+  resetBaseVm,
   runVmWorkflow,
 }));
 
 const { GET, POST } = await import("../app/api/vm/route");
+const baseOpenRoute = await import("../app/api/vm/base/open/route");
+const baseResetRoute = await import("../app/api/vm/base/reset/route");
 const vmIdRoute = await import("../app/api/vm/[id]/route");
 const { DELETE } = vmIdRoute;
 const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
@@ -61,6 +67,8 @@ beforeEach(() => {
   getUser.mockResolvedValue(null);
   runVmWorkflow.mockClear();
   createVm.mockClear();
+  openBaseVm.mockClear();
+  resetBaseVm.mockClear();
   destroyVm.mockClear();
   execVm.mockClear();
   getVm.mockClear();
@@ -115,6 +123,21 @@ describe("VM REST auth", () => {
       expect(response.status).toBe(401);
       expect(await response.json()).toEqual({ error: "unauthorized" });
     }
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("rejects unauthenticated Base open and reset before reaching workflows", async () => {
+    const responses = await Promise.all([
+      baseOpenRoute.POST(new Request("https://cmux.test/api/vm/base/open", { method: "POST", body: "{}" })),
+      baseResetRoute.POST(new Request("https://cmux.test/api/vm/base/reset", { method: "POST", body: "{}" })),
+    ]);
+
+    for (const response of responses) {
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: "unauthorized" });
+    }
+    expect(openBaseVm).not.toHaveBeenCalled();
+    expect(resetBaseVm).not.toHaveBeenCalled();
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
