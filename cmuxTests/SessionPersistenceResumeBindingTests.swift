@@ -550,9 +550,14 @@ import Testing
     }
 
     private static func portableShellCommandPayload(from startupInput: String) throws -> String {
-        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(
-            startupInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
+        let trimmedInput = startupInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(trimmedInput)
+        if words.count == 2, words[0].value == "/bin/zsh" {
+            let scriptContents = try String(contentsOfFile: words[1].value, encoding: .utf8)
+            let scriptLines = scriptContents.split(separator: "\n", omittingEmptySubsequences: false)
+            let inlineInput = scriptLines.dropFirst(2).joined(separator: "\n")
+            return try portableShellCommandPayload(from: inlineInput)
+        }
         try #require(words.count == 3, "\(startupInput)")
         #expect(words[0].value == "/bin/sh", "\(startupInput)")
         #expect(words[1].value == "-c", "\(startupInput)")
