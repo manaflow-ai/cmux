@@ -22,8 +22,10 @@ public struct CommandShortcutCatalogEntry: Sendable, Equatable, Hashable, Identi
     /// Additional search keywords the host's matcher considers.
     public let keywords: [String]
 
+    /// `Identifiable` conformance — the stable command id.
     public var id: String { commandId }
 
+    /// Creates a catalog entry for one bindable Command Palette command.
     public init(commandId: String, title: String, subtitle: String, keywords: [String] = []) {
         self.commandId = commandId
         self.title = title

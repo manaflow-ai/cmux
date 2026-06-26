@@ -252,34 +252,26 @@ public extension SettingsHostActions {
     /// Default: a simple case-insensitive substring filter over the catalog so
     /// preview/test hosts still render a usable picker without the app's engine.
     func searchCommandShortcutCatalog(query: String, limit: Int) -> [CommandShortcutCatalogEntry] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let catalog = commandShortcutCatalog()
-        let filtered: [CommandShortcutCatalogEntry]
-        if trimmed.isEmpty {
-            filtered = catalog
-        } else {
-            let needle = trimmed.lowercased()
-            filtered = catalog.filter { entry in
-                entry.title.lowercased().contains(needle)
-                    || entry.subtitle.lowercased().contains(needle)
-                    || entry.keywords.contains { $0.lowercased().contains(needle) }
-            }
-        }
-        return limit >= 0 ? Array(filtered.prefix(limit)) : filtered
+        defaultCommandShortcutCatalogSearch(in: commandShortcutCatalog(), query: query, limit: limit)
     }
 
+    /// Default sidebar font size + range, for hosts without a Ghostty config.
     func sidebarFontSize() -> SettingsFontSize {
         SettingsFontSize(points: 12.5, minimum: 10, maximum: 20, defaultValue: 12.5)
     }
 
+    /// Default: reports success without persisting, for hosts with no config writer.
     func setSidebarFontSize(_ points: Double) async -> Bool { true }
 
+    /// Default workspace tab-bar font size + range, for hosts without a config.
     func surfaceTabBarFontSize() -> SettingsFontSize {
         SettingsFontSize(points: 11, minimum: 8, maximum: 14, defaultValue: 11)
     }
 
+    /// Default: reports success without persisting, for hosts with no config writer.
     func setSurfaceTabBarFontSize(_ points: Double) async -> Bool { true }
 
+    /// Default point-size formatter, trimming trailing zeros (e.g. `12`, `13.5`).
     func formattedFontSize(_ points: Double) -> String {
         let scaled = (points * 100).rounded()
         let whole = Int(scaled / 100)
@@ -311,4 +303,28 @@ public final class NoopSettingsHostActions: SettingsHostActions {
     /// package-only settings hosts.
     public func previewNotificationSound(value: String, customFilePath: String) {}
     public func browserHistoryEntryCount() -> Int? { nil }
+}
+
+/// Case-insensitive substring filter used by the default
+/// ``SettingsHostActions/searchCommandShortcutCatalog(query:limit:)`` so
+/// preview/test hosts render a usable picker without the app's ranking engine.
+/// File-private so it stays out of the public protocol surface.
+private func defaultCommandShortcutCatalogSearch(
+    in catalog: [CommandShortcutCatalogEntry],
+    query: String,
+    limit: Int
+) -> [CommandShortcutCatalogEntry] {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    let filtered: [CommandShortcutCatalogEntry]
+    if trimmed.isEmpty {
+        filtered = catalog
+    } else {
+        let needle = trimmed.lowercased()
+        filtered = catalog.filter { entry in
+            entry.title.lowercased().contains(needle)
+                || entry.subtitle.lowercased().contains(needle)
+                || entry.keywords.contains { $0.lowercased().contains(needle) }
+        }
+    }
+    return limit >= 0 ? Array(filtered.prefix(limit)) : filtered
 }
