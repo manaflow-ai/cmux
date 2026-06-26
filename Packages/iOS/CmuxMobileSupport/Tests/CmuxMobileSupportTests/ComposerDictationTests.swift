@@ -1,5 +1,5 @@
 import Testing
-@testable import CmuxMobileShellUI
+@testable import CmuxMobileSupport
 
 /// Host-testable coverage for the dictation text-merge and the state machine's
 /// pure transitions. The Speech / AVFoundation engine wiring is iOS-only and not

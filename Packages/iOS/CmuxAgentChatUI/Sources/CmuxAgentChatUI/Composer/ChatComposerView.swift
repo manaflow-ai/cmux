@@ -34,11 +34,13 @@ public struct ChatComposerView: View {
     #if os(iOS)
     @State private var pickedItems: [PhotosPickerItem] = []
     @State private var attachments: [ChatComposerAttachment] = []
+    @State private var dictation = ComposerDictationController()
     #endif
 
     @Environment(\.chatTheme) private var theme
 
     @ScaledMetric(relativeTo: .title) private var sendButtonSize: CGFloat = 36
+    private let controlHeight: CGFloat = 40
 
     private static let maxAttachmentDimension: CGFloat = 2048
     private static let jpegQuality: CGFloat = 0.85
@@ -79,6 +81,12 @@ public struct ChatComposerView: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("ChatComposerBar")
             .background(ChatComposerDebugAutofocusBridge())
+            .onDisappear { dictation.cancel() }
+            .onChange(of: isDraftFocused) { _, focused in
+                if !focused, !dictation.locksComposerField {
+                    dictation.stop()
+                }
+            }
         #else
         composerStack
             .padding(.horizontal, theme.horizontalMargin)
@@ -166,8 +174,9 @@ public struct ChatComposerView: View {
         HStack(alignment: .bottom, spacing: 8) {
             #if os(iOS)
             attachButton
+            micButton
             #endif
-            HStack(alignment: .bottom, spacing: 8) {
+            MobileComposerFieldContainer {
                 TextField(placeholder, text: $draft, axis: .vertical)
                     .lineLimit(1...6)
                     .font(isTerminal ? .system(.body, design: .monospaced) : .body)
@@ -176,21 +185,11 @@ public struct ChatComposerView: View {
                     .padding(.vertical, 3)
                     #if os(iOS)
                     .focused($isDraftFocused)
+                    .disabled(dictation.locksComposerField)
                     #endif
+            } trailing: {
                 sendButton
             }
-            .padding(.leading, 14)
-            .padding(.trailing, 6)
-            .padding(.vertical, 6)
-            .frame(minHeight: 40, alignment: .top)
-            #if os(iOS)
-            .mobileGlassField(cornerRadius: 20)
-            #else
-            .background(
-                Color.secondary.opacity(0.15),
-                in: .rect(cornerRadius: 18)
-            )
-            #endif
         }
     }
 
@@ -331,6 +330,7 @@ public struct ChatComposerView: View {
         // from the photo library.
         guard hasContent, !isStagingAttachments else { return }
         #if os(iOS)
+        dictation.cancel()
         let outbound = attachments.map(\.outbound)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #else
@@ -388,13 +388,14 @@ public struct ChatComposerView: View {
 
     private var attachButton: some View {
         PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
-            Image(systemName: "paperclip")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.secondary.opacity(0.8))
-                .frame(width: 36, height: 36)
+            MobileComposerIconLabel(
+                systemImage: "paperclip",
+                foregroundStyle: AnyShapeStyle(Color.secondary.opacity(0.8)),
+                size: controlHeight
+            )
         }
         .buttonStyle(.plain)
-        .mobileGlassCircle()
+        .accessibilityIdentifier("ChatComposerAttach")
         .accessibilityLabel(
             String(
                 localized: "chat.composer.attach.accessibility",
@@ -405,6 +406,31 @@ public struct ChatComposerView: View {
         .onChange(of: pickedItems) {
             let items = pickedItems
             Task { await loadPickedItems(items) }
+        }
+    }
+
+    private var micButton: some View {
+        let listening = dictation.state.isListening
+        return MobileComposerIconButton(
+            systemImage: "mic",
+            activeSystemImage: "mic.fill",
+            isActive: listening,
+            foregroundStyle: listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(Color.secondary.opacity(0.8)),
+            size: controlHeight,
+            pulsesWhenActive: true,
+            isDisabled: !dictation.isAvailable,
+            accessibilityIdentifier: "ChatComposerMic",
+            accessibilityLabel: listening
+                ? L10n.string("mobile.composer.mic.stop", defaultValue: "Stop dictation")
+                : L10n.string("mobile.composer.mic.start", defaultValue: "Start dictation")
+        ) {
+            toggleDictation()
+        }
+    }
+
+    private func toggleDictation() {
+        dictation.toggle(existingText: draft) { merged in
+            draft = merged
         }
     }
 

@@ -8,7 +8,7 @@ import Foundation
 /// resolved) -> `listening` (engine running, partials streaming) -> `stopping`
 /// (tearing down the engine/task) -> `idle`. A denied or unavailable recognizer
 /// lands in `unavailable`, a terminal rest state that disables the mic button.
-enum ComposerDictationState: Equatable {
+public enum ComposerDictationState: Equatable {
     /// Not listening; the mic button offers to start.
     case idle
     /// A tap was received and authorization is being resolved before the engine
@@ -24,7 +24,7 @@ enum ComposerDictationState: Equatable {
     case unavailable
 
     /// Whether the engine is actively capturing audio (drives the listening UI).
-    var isListening: Bool { self == .listening }
+    public var isListening: Bool { self == .listening }
 
     /// Whether dictation owns the composer text and the field must be locked
     /// (non-editable). True while ``listening`` (partials are streaming in) and
@@ -33,30 +33,30 @@ enum ComposerDictationState: Equatable {
     /// discarded by a later partial/final callback: the user simply cannot type
     /// until dictation fully settles to ``idle``. The mic toggle and send stay
     /// live, and send hard-cancels dictation back to ``idle``, re-enabling editing.
-    var locksComposerField: Bool { self == .listening || self == .stopping }
+    public var locksComposerField: Bool { self == .listening || self == .stopping }
 
     /// Whether a tap should be accepted to start dictation. Rejected while a
     /// request is in flight, while already listening, while stopping, or when the
     /// recognizer is unavailable.
-    var canStart: Bool { self == .idle }
+    public var canStart: Bool { self == .idle }
 
     /// Whether a tap should cancel a start whose authorization is still resolving.
     /// True only in ``requestingPermission``: a second tap there aborts the pending
     /// start and returns to idle so recognition never begins, rather than being
     /// ignored and letting the mic come on anyway when permission later resolves.
-    var canCancelPendingStart: Bool { self == .requestingPermission }
+    public var canCancelPendingStart: Bool { self == .requestingPermission }
 
     /// Whether a graceful stop can finalize from this state. True only while
     /// ``listening``: a graceful stop flushes buffered audio and waits for the
     /// recognition task's final result. From any other state there is no live
     /// session to finalize, so the controller hard-cancels instead.
-    var canFinalize: Bool { self == .listening }
+    public var canFinalize: Bool { self == .listening }
 
     /// Whether the controller is mid-teardown, waiting for the recognition task's
     /// final result before returning to idle. The mic is no longer capturing but
     /// the session has not fully settled. Distinguishes a graceful stop's transient
     /// wait from both the active ``listening`` state and the resting ``idle``.
-    var isStopping: Bool { self == .stopping }
+    public var isStopping: Bool { self == .stopping }
 }
 
 /// Pure text merger for live dictation, factored out so it is host-testable
@@ -67,8 +67,8 @@ enum ComposerDictationState: Equatable {
 /// composer always reads `base` + the latest transcript and never accumulates
 /// stale partials. The base is preserved verbatim so text the user typed before
 /// starting is never clobbered.
-struct ComposerDictationTextMerger: Sendable {
-    init() {}
+public struct ComposerDictationTextMerger: Sendable {
+    public init() {}
 
     /// Combine the captured base text with the current transcript.
     ///
@@ -85,7 +85,7 @@ struct ComposerDictationTextMerger: Sendable {
     ///   - base: The composer text captured when dictation started.
     ///   - transcript: The latest (partial or final) recognized transcript.
     /// - Returns: The text to write back into the composer.
-    func merged(base: String, transcript: String) -> String {
+    public func merged(base: String, transcript: String) -> String {
         let trimmedTranscript = transcript.drop(while: { $0.isWhitespace })
         if trimmedTranscript.isEmpty {
             return base

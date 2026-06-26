@@ -28,6 +28,7 @@ final class ChatTranscriptUITableView: UITableView {
     private var lastBoundsSize: CGSize = .zero
     private var lastContentSize: CGSize = .zero
     private var lastViewport: MobileScrollViewportSnapshot?
+    private(set) var composerOverlayBottomInset: CGFloat = 0
     var isKeyboardViewportExternallyDriven = false
     #if DEBUG
     private var recordedKeyboardAnimationID = 0
@@ -87,6 +88,25 @@ final class ChatTranscriptUITableView: UITableView {
         #endif
     }
 
+    func applyComposerOverlayBottomInset(_ bottomInset: CGFloat) {
+        let resolvedInset = max(0, ceil(bottomInset))
+        guard abs(composerOverlayBottomInset - resolvedInset) > 0.5
+            || abs(contentInset.bottom - resolvedInset) > 0.5
+        else {
+            return
+        }
+
+        let snapshot = keyboardViewportSnapshot()
+        composerOverlayBottomInset = resolvedInset
+        isKeyboardViewportExternallyDriven = true
+        contentInset.bottom = resolvedInset
+        var indicatorInsets = verticalScrollIndicatorInsets
+        indicatorInsets.bottom = resolvedInset
+        verticalScrollIndicatorInsets = indicatorInsets
+        restoreKeyboardViewport(snapshot)
+        isKeyboardViewportExternallyDriven = false
+    }
+
     private func recordViewport() {
         lastViewport = MobileScrollViewportSnapshot(
             contentOffsetY: contentOffset.y,
@@ -119,7 +139,7 @@ final class ChatTranscriptUITableView: UITableView {
         let presentationGap = composerPresentationMinY - presentationFrameMaxY
         recordKeyboardAnimationGap(presentationGap)
         return String(
-            format: "frameMinY=%.2f;frameMaxY=%.2f;frameHeight=%.2f;presentationFrameMaxY=%.2f;boundsHeight=%.2f;offsetY=%.2f;visibleBottomY=%.2f;contentHeight=%.2f;distanceFromBottom=%.2f;keyboardEvents=%d;keyboardOverlap=%.2f;keyboardTargetOverlap=%.2f;keyboardGuideOverlap=%.2f;keyboardBottomConstraint=%.2f;composerMinY=%.2f;composerPresentationMinY=%.2f;presentationGap=%.2f;keyboardAnimationActive=%d;keyboardAnimationProgress=%.2f;keyboardTransitionDuration=%.3f;maxAnimationPresentationGap=%.2f;keyboardAnimationSamples=%d",
+            format: "frameMinY=%.2f;frameMaxY=%.2f;frameHeight=%.2f;presentationFrameMaxY=%.2f;boundsHeight=%.2f;offsetY=%.2f;visibleBottomY=%.2f;contentHeight=%.2f;distanceFromBottom=%.2f;keyboardEvents=%d;keyboardOverlap=%.2f;keyboardTargetOverlap=%.2f;keyboardGuideOverlap=%.2f;keyboardBottomConstraint=%.2f;composerMinY=%.2f;composerPresentationMinY=%.2f;presentationGap=%.2f;composerOverlayBottomInset=%.2f;keyboardAnimationActive=%d;keyboardAnimationProgress=%.2f;keyboardTransitionDuration=%.3f;maxAnimationPresentationGap=%.2f;keyboardAnimationSamples=%d",
             locale: Locale(identifier: "en_US_POSIX"),
             frameInWindow.minY,
             frameInWindow.maxY,
@@ -138,6 +158,7 @@ final class ChatTranscriptUITableView: UITableView {
             keyboardDebugComposerMinY,
             composerPresentationMinY,
             presentationGap,
+            composerOverlayBottomInset,
             keyboardDebugAnimationActive ? 1 : 0,
             keyboardDebugAnimationProgress,
             keyboardDebugTransitionDuration,
