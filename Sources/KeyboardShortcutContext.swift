@@ -212,7 +212,7 @@ extension AppDelegate {
         }
 
         if let webView = shortcutOwningWebView(for: responder) {
-            return shortcutBrowserPanel(webView: webView, in: shortcutWindow)
+            return shortcutBrowserPanel(webView: webView)
         }
 
         if let panel = shortcutFocusedBrowserPanel(in: shortcutWindow) {
@@ -283,24 +283,48 @@ extension AppDelegate {
         return workspace.browserPanelIncludingDock(for: panelId)
     }
 
-    private func shortcutBrowserPanel(webView: WKWebView, in window: NSWindow?) -> BrowserPanel? {
-        guard let workspace = shortcutContextTabManager(in: window)?.selectedWorkspace else {
-            return nil
+    private func shortcutBrowserPanel(webView: WKWebView) -> BrowserPanel? {
+        // Fast path: the portal registry maps the webView to its owning pane id
+        // in O(1). Resolve that id against the candidate workspaces (main area +
+        // Dock) instead of comparing every panel's webView on each keystroke. A
+        // focused browser webView delivering a shortcut is always portal-hosted,
+        // so this covers the common case without the full panel scan.
+        if let context = BrowserWindowPortalRegistry.paneDropContext(for: webView) {
+            for manager in shortcutCandidateTabManagers() {
+                for workspace in manager.tabs {
+                    if let panel = workspace.browserPanelIncludingDock(for: context.panelId) {
+                        return panel
+                    }
+                }
+            }
         }
+        // Fallback for webViews not registered in a portal: scan candidate panels.
+        for manager in shortcutCandidateTabManagers() {
+            for workspace in manager.tabs {
+                for panel in workspace.panels.values {
+                    guard let browserPanel = panel as? BrowserPanel,
+                          browserPanel.webView === webView else {
+                        continue
+                    }
+                    return browserPanel
+                }
+            }
+        }
+        return nil
+    }
 
-        // Resolve through the portal registry's O(1) webView→pane index instead
-        // of a per-event linear scan over every panel in the workspace. This is
-        // reached only with the responder's owning webView (the focused browser
-        // delivering the shortcut), which is always portal-hosted and therefore
-        // registered. `browserPanelIncludingDock` returns the panel only when it
-        // belongs to this workspace (main area or Dock), so the previous explicit
-        // workspace-id pre-check is redundant — and using it here additionally
-        // covers Dock browser panels, which the old `workspace.panels` scan
-        // missed entirely.
-        guard let context = BrowserWindowPortalRegistry.paneDropContext(for: webView) else {
-            return nil
+    private func shortcutCandidateTabManagers() -> [TabManager] {
+        let candidates = [tabManager] + mainWindowContexts.values.map { Optional($0.tabManager) }
+        var seen = Set<ObjectIdentifier>()
+        var managers: [TabManager] = []
+        for candidate in candidates {
+            guard let candidate else { continue }
+            let id = ObjectIdentifier(candidate)
+            guard !seen.contains(id) else { continue }
+            seen.insert(id)
+            managers.append(candidate)
         }
-        return workspace.browserPanelIncludingDock(for: context.panelId)
+        return managers
     }
 
     private func shortcutOwningWebView(for responder: NSResponder?) -> WKWebView? {
