@@ -26,8 +26,10 @@ steady-state scroll layout in `Sources/ContentView.swift`
 (`workspaceScrollContent` and `workspaceRows`) and fails if either:
 
   1. reintroduces a whole-list measurement signature
-     (`GeometryReader`, `ProposedViewSize(... nil ...)`, `.sizeThatFits(`, or
-     the deleted `SidebarRowsFillLayout`), or
+     (`GeometryReader`, `ProposedViewSize(... nil ...)`, `.sizeThatFits(`, the
+     deleted `SidebarRowsFillLayout`, or ANY custom `Layout`-conforming type
+     discovered in the codebase being applied to the rows -- so renaming the
+     force-measuring layout does not dodge the guard), or
   2. drops one of the lazy-fill primitives the fix relies on
      (`LazyVStack(` in `workspaceRows`, `.frame(minHeight:` in
      `workspaceScrollContent`).
@@ -52,6 +54,7 @@ Exit codes:
 """
 
 import argparse
+import glob
 import os
 import re
 import sys
@@ -75,6 +78,17 @@ FORBIDDEN_PATTERNS = (
     (re.compile(r"\bProposedViewSize\s*\([^)]*\bnil\b"),
      "ProposedViewSize(..., nil) (proposing nil on an axis asks the LazyVStack "
      "for its natural size, realizing every row -- the #6210 force-measure)"),
+)
+
+# Declaration of a type conforming to SwiftUI's `Layout` protocol. A custom
+# Layout applied to the sidebar rows is the #6033/#6210 force-measure shape no
+# matter what the type is named, so the guard discovers every such type in the
+# codebase and bans ALL of their names from the guarded functions -- not just the
+# literal `SidebarRowsFillLayout`. This closes the "rename the layout to dodge the
+# guard" bypass (#6870 review).
+CUSTOM_LAYOUT_DECL = re.compile(
+    r"\b(?:struct|final\s+class|class|enum|extension)\s+([A-Z]\w*)\b[^{]*?\bLayout\b[^{]*?\{",
+    re.DOTALL,
 )
 
 # Lazy-fill primitives the #6188 fix depends on. Each must remain present in the
@@ -228,8 +242,36 @@ def extract_function_body(neutralized, func_name):
     return None
 
 
-def check_source(source):
+def find_custom_layout_type_names(paths):
+    """Return the set of type names conforming to SwiftUI's `Layout` protocol
+    across ``paths`` (comment/string-neutralized so a `: Layout` in prose is not
+    counted). Cheap-filtered to files that mention ``Layout`` at all.
+    """
+    names = set()
+    seen = set()
+    for path in paths:
+        try:
+            real = os.path.realpath(path)
+        except OSError:
+            continue
+        if real in seen:
+            continue
+        seen.add(real)
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                text = handle.read()
+        except OSError:
+            continue
+        if "Layout" not in text:
+            continue
+        for match in CUSTOM_LAYOUT_DECL.finditer(neutralize_swift(text)):
+            names.add(match.group(1))
+    return names
+
+
+def check_source(source, custom_layout_names=None):
     """Return a list of human-readable violation strings (empty == clean)."""
+    custom_layout_names = custom_layout_names or set()
     neutralized = neutralize_swift(source)
     violations = []
     bodies = {}
@@ -250,6 +292,20 @@ def check_source(source):
                 violations.append(
                     "{0}(...) reintroduces a forbidden whole-list measurement: "
                     "{1}".format(func_name, description)
+                )
+        # A custom Layout (under ANY name) applied to the rows wraps the
+        # LazyVStack and measures it every pass -- the #6210 shape. Banning the
+        # whole discovered set, not just the deleted name, blocks the rename
+        # dodge (#6870 review).
+        for name in sorted(custom_layout_names):
+            if re.search(r"\b" + re.escape(name) + r"\b", body):
+                violations.append(
+                    "{0}(...) applies the custom Layout `{1}` to the sidebar rows. "
+                    "A custom Layout wrapping the LazyVStack measures it on every "
+                    "pass (the #6210 force-measure shape, regardless of the type's "
+                    "name); size the rows with .frame(minHeight:) instead.".format(
+                        func_name, name
+                    )
                 )
 
     for func_name, pattern, description in REQUIRED_PRIMITIVES:
@@ -289,7 +345,19 @@ def main(argv=None):
               file=sys.stderr)
         return 1
 
-    violations = check_source(source)
+    # Discover custom Layout type names from the target file plus the whole
+    # Sources/ tree, so a renamed force-measuring layout defined in any file is
+    # still banned from the guarded functions.
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    layout_scan_paths = [target]
+    sources_dir = os.path.join(repo_root, "Sources")
+    if os.path.isdir(sources_dir):
+        layout_scan_paths.extend(
+            sorted(glob.glob(os.path.join(sources_dir, "**", "*.swift"), recursive=True))
+        )
+    custom_layout_names = find_custom_layout_type_names(layout_scan_paths)
+
+    violations = check_source(source, custom_layout_names)
     if violations:
         print("check-sidebar-lazy-layout: FAILED for {0}".format(target), file=sys.stderr)
         for violation in violations:

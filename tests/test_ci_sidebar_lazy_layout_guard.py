@@ -165,6 +165,31 @@ def main():
             False, "reintroduced SidebarRowsFillLayout fails",
         ) else 1
 
+        # (d2) A *renamed* custom Layout (not the literal old name) applied to the
+        # rows must fail, even when the force-measure lives in the layout type
+        # outside the two guarded functions. The guard discovers Layout-conforming
+        # types and bans all their names from the functions. (#6870 review)
+        renamed_layout = (
+            "import SwiftUI\n"
+            "struct RowsFillLayout: Layout {\n"
+            "    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {\n"
+            "        subviews.first?.sizeThatFits(ProposedViewSize(width: 10, height: nil)) ?? .zero\n"
+            "    }\n"
+            "    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {}\n"
+            "}\n"
+            + fixture(
+                "        RowsFillLayout {\n"
+                "            workspaceRows(renderContext: renderContext)\n"
+                "        }\n"
+                "        .frame(minHeight: minHeight, alignment: .top)",
+                GOOD_ROWS,
+            )
+        )
+        failures += 0 if expect(
+            run_guard(write_fixture(workdir, "RenamedLayout.swift", renamed_layout)),
+            False, "renamed custom Layout applied to rows fails",
+        ) else 1
+
         # (e) GeometryReader in steady-state scroll content.
         bad_geo = fixture(
             "        GeometryReader { proxy in\n"
