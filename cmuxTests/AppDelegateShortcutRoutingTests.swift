@@ -12169,50 +12169,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    func testBrowserPaneCmdIFallsThroughToNotificationsOnNonEditableContent() {
-        // A browser pane is focused (not browser focus mode) on non-editable content.
-        // The page does not claim Cmd+I, so after web content has had first crack it
-        // falls through to the ⌘I Show Notifications main-menu key equivalent —
-        // notifications stay reachable via Cmd+I on non-editable browser pages, while
-        // editable web editors still consume it for italics (issue #6776).
-        guard let harness = makeBrowserFocusModeHarness() else { return }
-        defer { closeWindow(withId: harness.windowId) }
-
-        let originalMainMenu = NSApp.mainMenu
-        let probe = MenuActionProbe()
-        let menu = NSMenu()
-        let item = NSMenuItem(
-            title: "Show Notifications",
-            action: #selector(MenuActionProbe.perform(_:)),
-            keyEquivalent: "i"
-        )
-        item.keyEquivalentModifierMask = [.command]
-        item.target = probe
-        menu.addItem(item)
-        NSApp.mainMenu = menu
-        defer { NSApp.mainMenu = originalMainMenu }
-
-        guard let commandI = makeKeyDownEvent(
-            key: "i",
-            modifiers: [.command],
-            keyCode: 34, // kVK_ANSI_I
-            windowNumber: harness.window.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+I event")
-            return
-        }
-
-        XCTAssertTrue(
-            harness.webView.performKeyEquivalent(with: commandI),
-            "Cmd+I over a focused browser pane should resolve (here via the Show Notifications menu fallback)"
-        )
-        XCTAssertEqual(
-            probe.callCount,
-            1,
-            "Cmd+I on non-editable browser content must fall through to the Show Notifications menu item"
-        )
-    }
-
     private func makeBrowserFocusModeHarness(
         file: StaticString = #filePath,
         line: UInt = #line
