@@ -129,7 +129,9 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let home = root.appendingPathComponent("home", isDirectory: true)
         let bin = home.appendingPathComponent(".local/bin", isDirectory: true)
+        let emptyPath = root.appendingPathComponent("empty-path", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: emptyPath, withIntermediateDirectories: true)
         let fakeTmux = bin.appendingPathComponent("tmux")
         try writeExecutable(
             at: fakeTmux,
@@ -149,7 +151,7 @@ import Testing
             command,
             environment: [
                 "HOME": home.path,
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PATH": emptyPath.path,
             ]
         )
 
