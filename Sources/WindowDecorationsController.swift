@@ -351,10 +351,10 @@ final class WindowDecorationsController {
                     debugSource: "titlebar.minimalSidebarControl"
                 )
             case .focusHistoryBack:
-                guard focusHistoryNavigationAvailability(preferredWindow: window).canNavigateBack else { return }
+                guard FocusHistoryNavigationAvailability.current(preferredWindow: window).canNavigateBack else { return }
                 AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)?.navigateBack()
             case .focusHistoryForward:
-                guard focusHistoryNavigationAvailability(preferredWindow: window).canNavigateForward else { return }
+                guard FocusHistoryNavigationAvailability.current(preferredWindow: window).canNavigateForward else { return }
                 AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)?.navigateForward()
             }
         }

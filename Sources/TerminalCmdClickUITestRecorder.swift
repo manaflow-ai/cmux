@@ -135,69 +135,6 @@ final class TerminalCmdClickUITestRecorder: UITestRecording {
             ]
         }
 
-        func doubleValue(_ value: Any?) -> Double? {
-            if let value = value as? Double {
-                return value
-            }
-            if let value = value as? NSNumber {
-                return value.doubleValue
-            }
-            return nil
-        }
-
-        func pointFromPayload(_ key: String, in terminalPanel: TerminalPanel) -> NSPoint? {
-            guard let payload = tokenPointPayload?[key] as? [String: Any],
-                  let x = doubleValue(payload["x"]),
-                  let yFromTop = doubleValue(payload["y"]) else {
-                return nil
-            }
-
-            let clampedX = min(max(CGFloat(x), 1), max(terminalPanel.hostedView.bounds.width - 1, 1))
-            let clampedYFromTop = min(
-                max(CGFloat(yFromTop), 1),
-                max(terminalPanel.hostedView.bounds.height - 1, 1)
-            )
-            return NSPoint(
-                x: clampedX,
-                y: terminalPanel.hostedView.bounds.height - clampedYFromTop
-            )
-        }
-
-        func pointForTokenColumnOffset(_ offset: Int, in terminalPanel: TerminalPanel) -> NSPoint? {
-            guard let selectionStart = pointFromPayload("tokenSelectionStartInTerminal", in: terminalPanel),
-                  let tokenCellMetrics = tokenPointPayload?["tokenCellMetrics"] as? [String: Any],
-                  let cellWidth = doubleValue(tokenCellMetrics["cellWidth"]) else {
-                return nil
-            }
-
-            let unclampedX = selectionStart.x + (CGFloat(offset) * CGFloat(cellWidth))
-            let clampedX = min(max(unclampedX, 1), max(terminalPanel.hostedView.bounds.width - 1, 1))
-            return NSPoint(x: clampedX, y: selectionStart.y)
-        }
-
-        func commandPoint(
-            from command: [String: Any],
-            defaultPayloadKey: String,
-            in terminalPanel: TerminalPanel
-        ) -> NSPoint? {
-            if let tokenColumnOffset = command["tokenColumnOffset"] as? Int {
-                return pointForTokenColumnOffset(tokenColumnOffset, in: terminalPanel)
-            }
-            if let tokenColumnOffset = command["tokenColumnOffset"] as? NSNumber {
-                return pointForTokenColumnOffset(tokenColumnOffset.intValue, in: terminalPanel)
-            }
-            return pointFromPayload(defaultPayloadKey, in: terminalPanel)
-        }
-
-        func loadCommand(at path: String) -> [String: Any]? {
-            let url = URL(fileURLWithPath: path)
-            guard let data = try? Data(contentsOf: url),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                return nil
-            }
-            return object
-        }
-
         func tokenPoints(in terminalPanel: TerminalPanel, visibleText: String) -> [String: Any]? {
             guard let surface = terminalPanel.surface.surface else { return nil }
             let bounds = terminalPanel.hostedView.bounds
@@ -310,7 +247,7 @@ final class TerminalCmdClickUITestRecorder: UITestRecording {
         ) {
             guard let commandPath,
                   !commandPath.isEmpty,
-                  let command = loadCommand(at: commandPath),
+                  let command = TerminalCmdClickPointResolver.loadCommand(at: commandPath),
                   let commandID = command["id"] as? String,
                   commandID != lastHandledCommandID else {
                 return
@@ -322,13 +259,16 @@ final class TerminalCmdClickUITestRecorder: UITestRecording {
                 "lastCommandAction": action,
                 "lastCommandSucceeded": "0"
             ]
+            let pointResolver = TerminalCmdClickPointResolver(
+                tokenPointPayload: tokenPointPayload,
+                bounds: terminalPanel.hostedView.bounds
+            )
 
             switch action {
             case "hover_token":
-                guard let hitPoint = commandPoint(
+                guard let hitPoint = pointResolver.commandPoint(
                     from: command,
-                    defaultPayloadKey: "tokenHitPointInTerminal",
-                    in: terminalPanel
+                    defaultPayloadKey: "tokenHitPointInTerminal"
                 ) else {
                     payload["lastCommandError"] = "Missing command point"
                     break
@@ -347,10 +287,9 @@ final class TerminalCmdClickUITestRecorder: UITestRecording {
                 }
 
             case "cmd_click_token":
-                guard let hitPoint = commandPoint(
+                guard let hitPoint = pointResolver.commandPoint(
                     from: command,
-                    defaultPayloadKey: "tokenHitPointInTerminal",
-                    in: terminalPanel
+                    defaultPayloadKey: "tokenHitPointInTerminal"
                 ) else {
                     payload["lastCommandError"] = "Missing command point"
                     break
@@ -379,10 +318,9 @@ final class TerminalCmdClickUITestRecorder: UITestRecording {
                 }
 
             case "stationary_cmd_click_token":
-                guard let hitPoint = commandPoint(
+                guard let hitPoint = pointResolver.commandPoint(
                     from: command,
-                    defaultPayloadKey: "tokenHitPointInTerminal",
-                    in: terminalPanel
+                    defaultPayloadKey: "tokenHitPointInTerminal"
                 ) else {
                     payload["lastCommandError"] = "Missing command point"
                     break
@@ -405,8 +343,8 @@ final class TerminalCmdClickUITestRecorder: UITestRecording {
                 }
 
             case "select_token_and_hold_command":
-                guard let selectionStart = pointFromPayload("tokenSelectionStartInTerminal", in: terminalPanel),
-                      let selectionEnd = pointFromPayload("tokenSelectionEndInTerminal", in: terminalPanel) else {
+                guard let selectionStart = pointResolver.pointFromPayload("tokenSelectionStartInTerminal"),
+                      let selectionEnd = pointResolver.pointFromPayload("tokenSelectionEndInTerminal") else {
                     payload["lastCommandError"] = "Missing token selection points"
                     break
                 }

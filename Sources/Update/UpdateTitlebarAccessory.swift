@@ -612,17 +612,17 @@ struct FocusHistoryNavigationAvailability: Equatable {
         canNavigateBack: false,
         canNavigateForward: false
     )
-}
 
-@MainActor
-func focusHistoryNavigationAvailability(preferredWindow: NSWindow?) -> FocusHistoryNavigationAvailability {
-    guard let manager = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: preferredWindow) else {
-        return .unavailable
+    @MainActor
+    static func current(preferredWindow: NSWindow?) -> FocusHistoryNavigationAvailability {
+        guard let manager = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: preferredWindow) else {
+            return .unavailable
+        }
+        return FocusHistoryNavigationAvailability(
+            canNavigateBack: manager.canNavigateBack,
+            canNavigateForward: manager.canNavigateForward
+        )
     }
-    return FocusHistoryNavigationAvailability(
-        canNavigateBack: manager.canNavigateBack,
-        canNavigateForward: manager.canNavigateForward
-    )
 }
 
 private struct TitlebarControlButtonStyle: ButtonStyle {
@@ -996,7 +996,7 @@ struct TitlebarControlsView: View {
     @MainActor
     private var focusHistoryNavigationAvailabilitySnapshot: FocusHistoryNavigationAvailability {
         let _ = focusHistoryAvailabilityRevision
-        return focusHistoryNavigationAvailability(preferredWindow: focusHistoryTargetWindow)
+        return FocusHistoryNavigationAvailability.current(preferredWindow: focusHistoryTargetWindow)
     }
 
     @MainActor
@@ -1343,13 +1343,13 @@ struct HiddenTitlebarSidebarControlsView: View {
                 case .newTab:
                     onNewTab()
                 case .focusHistoryBack:
-                    let availability = focusHistoryNavigationAvailability(
+                    let availability = FocusHistoryNavigationAvailability.current(
                         preferredWindow: hostWindowForFocusHistoryNavigation
                     )
                     guard availability.canNavigateBack else { return }
                     onFocusHistoryBack()
                 case .focusHistoryForward:
-                    let availability = focusHistoryNavigationAvailability(
+                    let availability = FocusHistoryNavigationAvailability.current(
                         preferredWindow: hostWindowForFocusHistoryNavigation
                     )
                     guard availability.canNavigateForward else { return }

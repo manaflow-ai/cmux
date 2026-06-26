@@ -2007,77 +2007,6 @@ final class WindowBrowserPortal: NSObject {
         return frameInWindow
     }
 
-    private static func frameExtendsOutsideBounds(_ frame: NSRect, bounds: NSRect, epsilon: CGFloat = 0.5) -> Bool {
-        frame.minX < bounds.minX - epsilon ||
-            frame.minY < bounds.minY - epsilon ||
-            frame.maxX > bounds.maxX + epsilon ||
-            frame.maxY > bounds.maxY + epsilon
-    }
-
-    private static func hasVisibleInspectorDescendant(in root: NSView) -> Bool {
-        var stack: [NSView] = [root]
-        while let current = stack.popLast() {
-            if current !== root {
-                if cmuxIsWebInspectorObject(current),
-                   !current.isHidden,
-                   current.alphaValue > 0,
-                   current.frame.width > 1,
-                   current.frame.height > 1 {
-                    return true
-                }
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
-    }
-
-    private static func inferredBottomDockedInspectorFrame(
-        in containerView: NSView,
-        primaryWebView: WKWebView,
-        epsilon: CGFloat = 1
-    ) -> NSRect? {
-        let pageFrame = primaryWebView.frame
-        let containerBounds = containerView.bounds
-
-        let candidates = containerView.subviews.compactMap { candidate -> NSRect? in
-            guard candidate !== primaryWebView else { return nil }
-            guard hasVisibleInspectorDescendant(in: candidate) else { return nil }
-
-            let frame = candidate.frame
-            guard frame.width > 1, frame.height > 1 else { return nil }
-            let overlapWidth = min(pageFrame.maxX, frame.maxX) - max(pageFrame.minX, frame.minX)
-            guard overlapWidth > min(pageFrame.width, frame.width) * 0.7 else { return nil }
-            guard frame.minY <= containerBounds.minY + epsilon else { return nil }
-            guard frame.maxY <= pageFrame.minY + epsilon else { return nil }
-            return frame
-        }
-
-        return candidates.max(by: { $0.height < $1.height })
-    }
-
-    private static func repairedBottomDockedPageFrame(
-        in containerView: NSView,
-        primaryWebView: WKWebView,
-        epsilon: CGFloat = 0.5
-    ) -> NSRect? {
-        let pageFrame = primaryWebView.frame
-        let containerBounds = containerView.bounds
-        guard frameExtendsOutsideBounds(pageFrame, bounds: containerBounds, epsilon: epsilon),
-              let inspectorFrame = inferredBottomDockedInspectorFrame(
-                  in: containerView,
-                  primaryWebView: primaryWebView
-              ) else {
-            return nil
-        }
-
-        return NSRect(
-            x: containerBounds.minX,
-            y: inspectorFrame.maxY,
-            width: containerBounds.width,
-            height: max(0, containerBounds.maxY - inspectorFrame.maxY)
-        )
-    }
-
 #if DEBUG
     private static func inspectorSubviewCount(in root: NSView) -> Int {
         var stack: [NSView] = [root]
@@ -3278,8 +3207,9 @@ final class WindowBrowserPortal: NSObject {
 #if DEBUG
         let inspectorSubviews = Self.inspectorSubviewCount(in: containerView)
 #endif
+        let bottomDockedInspectorGeometry = BottomDockedInspectorGeometry { cmuxIsWebInspectorObject($0) }
         if containerOwnsWebView,
-           let repairedBottomDockFrame = Self.repairedBottomDockedPageFrame(
+           let repairedBottomDockFrame = bottomDockedInspectorGeometry.repairedBottomDockedPageFrame(
                in: containerView,
                primaryWebView: webView
            ) {
@@ -3301,7 +3231,7 @@ final class WindowBrowserPortal: NSObject {
             )
 #endif
             refreshReasons.append("webFrameBottomDock")
-        } else if containerOwnsWebView && Self.frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
+        } else if containerOwnsWebView && preNormalizeWebFrame.extendsOutside(containerBounds) {
             let oldWebFrame = preNormalizeWebFrame
             CATransaction.begin()
             CATransaction.setDisableActions(true)
