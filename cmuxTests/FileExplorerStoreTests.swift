@@ -187,6 +187,43 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func testLocalFileTreeRefreshesExpandedFolderAfterNestedFileCreate() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-explorer-refresh-\(UUID().uuidString)", isDirectory: true)
+        let sourceURL = rootURL.appendingPathComponent("Sources", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try "initial\n".write(
+            to: sourceURL.appendingPathComponent("Initial.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let store = FileExplorerStore()
+        store.applyWorkspaceRoot(.local(workspaceId: UUID(), path: rootURL.path))
+        try await waitFor("root directory loaded") {
+            store.rootNodes.map(\.name) == ["Sources"]
+        }
+
+        let sourceNode = try #require(store.rootNodes.first { $0.name == "Sources" })
+        store.expand(node: sourceNode)
+        try await waitFor("expanded source directory loaded") {
+            store.rootNodes.first { $0.name == "Sources" }?.children?.map(\.name) == ["Initial.swift"]
+        }
+
+        try "created\n".write(
+            to: sourceURL.appendingPathComponent("Created.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try await waitFor("nested file create refreshed expanded directory") {
+            let childNames = store.rootNodes.first { $0.name == "Sources" }?.children?.map(\.name) ?? []
+            return childNames == ["Created.swift", "Initial.swift"]
+        }
+    }
+
+    @Test
     func testDisplayRootPathUsesTilde() {
         let provider = MockFileExplorerProvider(homePath: "/home/user")
         let store = FileExplorerStore()
@@ -800,7 +837,7 @@ struct FileSearchControllerTests {
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
             state: state,
-            onOpenFilePreview: { _ in }
+            onOpenFilePreview: { _, _, _ in }
         )
         let container = FileExplorerContainerView(
             coordinator: coordinator,
@@ -839,12 +876,12 @@ struct FileSearchControllerTests {
             let store = FileExplorerStore()
             let state = FileExplorerState()
             let searchController = SpyFileSearchController()
-            var openedPaths: [String] = []
+            var openedRequests: [(path: String, lineNumber: Int?, columnNumber: Int?)] = []
             let coordinator = FileExplorerPanelView.Coordinator(
                 store: store,
                 state: state,
-                onOpenFilePreview: { path in
-                    openedPaths.append(path)
+                onOpenFilePreview: { path, lineNumber, columnNumber in
+                    openedRequests.append((path, lineNumber, columnNumber))
                 }
             )
             let container = FileExplorerContainerView(
@@ -861,7 +898,7 @@ struct FileSearchControllerTests {
             KeyboardShortcutSettings.setShortcut(.unbound, for: .fileExplorerOpenSelectionFinderAlias)
 
             let searchField = try #require(Self.findSearchField(in: container))
-            let result = Self.searchResult(relativePath: "selected.txt")
+            let result = Self.searchResult(relativePath: "selected.txt", lineNumber: 42, columnNumber: 14)
             searchController.publish(FileSearchSnapshot(
                 query: "needle",
                 results: [result],
@@ -876,7 +913,11 @@ struct FileSearchControllerTests {
             )
 
             #expect(handled)
-            #expect(openedPaths == [result.path])
+            let openedRequest = try #require(openedRequests.first)
+            #expect(openedRequests.count == 1)
+            #expect(openedRequest.path == result.path)
+            #expect(openedRequest.lineNumber == 42)
+            #expect(openedRequest.columnNumber == 14)
         }
     }
 
@@ -888,7 +929,7 @@ struct FileSearchControllerTests {
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
             state: state,
-            onOpenFilePreview: { _ in }
+            onOpenFilePreview: { _, _, _ in }
         )
         let container = FileExplorerContainerView(
             coordinator: coordinator,
@@ -945,7 +986,7 @@ struct FileSearchControllerTests {
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
             state: state,
-            onOpenFilePreview: { _ in }
+            onOpenFilePreview: { _, _, _ in }
         )
         let container = FileExplorerContainerView(
             coordinator: coordinator,
@@ -1099,12 +1140,16 @@ struct FileSearchControllerTests {
         #expect(!(message.contains("%@")))
     }
 
-    private static func searchResult(relativePath: String) -> FileSearchResult {
+    private static func searchResult(
+        relativePath: String,
+        lineNumber: Int = 1,
+        columnNumber: Int = 1
+    ) -> FileSearchResult {
         FileSearchResult(
             path: "/tmp/cmux-find-content-revision-test/\(relativePath)",
             relativePath: relativePath,
-            lineNumber: 1,
-            columnNumber: 1,
+            lineNumber: lineNumber,
+            columnNumber: columnNumber,
             preview: "needle"
         )
     }

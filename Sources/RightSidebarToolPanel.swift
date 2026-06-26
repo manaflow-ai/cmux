@@ -86,7 +86,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         }
     }
 
-    func openFilePreview(_ filePath: String) {
+    func openFilePreview(_ filePath: String, lineNumber: Int?, columnNumber: Int?) {
         guard let workspace,
               let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
@@ -97,24 +97,44 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                 guard let workspace, let store else { return }
                 do {
                     let localURL = try await store.materializeRemoteFileForPreview(path: filePath)
-                    _ = workspace.openFileSurfaces(
+                    let panels = workspace.openFilePreviewSurfaces(
                         inPane: paneId,
                         filePaths: [localURL.path],
                         focus: true,
                         reuseExisting: true
                     )
+                    Self.applyFilePreviewNavigation(lineNumber: lineNumber, columnNumber: columnNumber, to: panels.first)
                 } catch {
                     NSSound.beep()
                 }
             }
             return
         }
-        _ = workspace.openFileSurfaces(
-            inPane: paneId,
-            filePaths: [filePath],
-            focus: true,
-            reuseExisting: true
-        )
+        if lineNumber != nil {
+            let panels = workspace.openFilePreviewSurfaces(
+                inPane: paneId,
+                filePaths: [filePath],
+                focus: true,
+                reuseExisting: true
+            )
+            Self.applyFilePreviewNavigation(lineNumber: lineNumber, columnNumber: columnNumber, to: panels.first)
+        } else {
+            _ = workspace.openFileSurfaces(
+                inPane: paneId,
+                filePaths: [filePath],
+                focus: true,
+                reuseExisting: true
+            )
+        }
+    }
+
+    private static func applyFilePreviewNavigation(
+        lineNumber: Int?,
+        columnNumber: Int?,
+        to panel: FilePreviewPanel?
+    ) {
+        guard let panel, let lineNumber else { return }
+        panel.navigateToTextPosition(lineNumber: lineNumber, columnNumber: columnNumber ?? 1)
     }
 
     var isFocusedInWorkspace: Bool {

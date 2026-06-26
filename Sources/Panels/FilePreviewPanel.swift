@@ -1000,6 +1000,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
     private weak var textView: NSTextView?
+    private var hasLoadedTextContent = false
+    private var pendingTextNavigation: (lineNumber: Int, columnNumber: Int)?
     private let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
 
@@ -1054,6 +1056,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
         focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
+        applyPendingTextNavigationIfReady()
     }
 
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
@@ -1068,6 +1071,16 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func retryPendingFocus() {
         focusCoordinator.fulfillPendingFocusIfNeeded()
+    }
+
+    func navigateToTextPosition(lineNumber: Int, columnNumber: Int) {
+        pendingTextNavigation = (
+            lineNumber: max(1, lineNumber),
+            columnNumber: max(1, columnNumber)
+        )
+        focusCoordinator.notePreferredIntent(.textEditor)
+        _ = restoreFocusIntent(.filePreview(.textEditor))
+        applyPendingTextNavigationIfReady()
     }
 
     func attachPDFPreview(root: NSView, primaryResponder: NSView) {
@@ -1187,6 +1200,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard previewMode == .text else {
             return Task {}
         }
+        hasLoadedTextContent = false
         textLoadGeneration += 1
         let generation = textLoadGeneration
         let fileURL = fileURL
@@ -1208,6 +1222,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         switch result {
         case .unavailable:
             guard replacingDirtyContent || !isDirty else {
+                hasLoadedTextContent = true
                 isFileUnavailable = true
                 return
             }
@@ -1215,12 +1230,16 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             originalTextContent = ""
             isDirty = false
             isFileUnavailable = true
+            hasLoadedTextContent = true
+            pendingTextNavigation = nil
             return
         case .loaded(let content, let encoding):
             if !replacingDirtyContent && isDirty {
                 originalTextContent = content
                 textEncoding = encoding
                 isFileUnavailable = false
+                hasLoadedTextContent = true
+                applyPendingTextNavigationIfReady()
                 return
             }
             textContent = content
@@ -1228,6 +1247,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             textEncoding = encoding
             isDirty = false
             isFileUnavailable = false
+            hasLoadedTextContent = true
+            applyPendingTextNavigationIfReady()
         }
     }
 
@@ -1279,6 +1300,49 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         case .quickLook:
             return .quickLook
         }
+    }
+
+    private func applyPendingTextNavigationIfReady() {
+        guard previewMode == .text,
+              hasLoadedTextContent,
+              let textView,
+              let pendingTextNavigation else {
+            return
+        }
+
+        if textView.string != textContent {
+            textView.string = textContent
+        }
+        let location = Self.textLocation(
+            lineNumber: pendingTextNavigation.lineNumber,
+            columnNumber: pendingTextNavigation.columnNumber,
+            in: textView.string
+        )
+        let textLength = (textView.string as NSString).length
+        let range = NSRange(location: min(location, textLength), length: 0)
+        textView.setSelectedRange(range)
+        textView.scrollRangeToVisible(range)
+        _ = textView.window?.makeFirstResponder(textView)
+        self.pendingTextNavigation = nil
+    }
+
+    private static func textLocation(lineNumber: Int, columnNumber: Int, in text: String) -> Int {
+        var index = text.startIndex
+        var currentLine = 1
+        while currentLine < lineNumber, index < text.endIndex {
+            let character = text[index]
+            index = text.index(after: index)
+            if character.isNewline {
+                currentLine += 1
+            }
+        }
+
+        var currentColumn = 1
+        while currentColumn < columnNumber, index < text.endIndex, !text[index].isNewline {
+            index = text.index(after: index)
+            currentColumn += 1
+        }
+        return index.utf16Offset(in: text)
     }
 }
 

@@ -1921,8 +1921,8 @@ struct ContentView: View {
             onResumeSession: { entry in
                 resumeSession(entry: entry)
             },
-            onOpenFilePreview: { filePath in
-                openFilePreviewFromSidebar(filePath: filePath)
+            onOpenFilePreview: { filePath, lineNumber, columnNumber in
+                openFilePreviewFromSidebar(filePath: filePath, lineNumber: lineNumber, columnNumber: columnNumber)
             },
             onOpenAsPane: { mode in
                 openRightSidebarToolPane(mode)
@@ -2302,7 +2302,7 @@ struct ContentView: View {
         _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
     }
 
-    private func openFilePreviewFromSidebar(filePath: String) {
+    private func openFilePreviewFromSidebar(filePath: String, lineNumber: Int?, columnNumber: Int?) {
         guard let workspace = tabManager.selectedWorkspace else { return }
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
@@ -2314,24 +2314,45 @@ struct ContentView: View {
                 guard let workspace else { return }
                 do {
                     let localURL = try await fileExplorerStore.materializeRemoteFileForPreview(path: filePath)
-                    _ = workspace.openFileSurfaces(
+                    let panels = workspace.openFilePreviewSurfaces(
                         inPane: paneId,
                         filePaths: [localURL.path],
                         focus: true,
                         reuseExisting: true
                     )
+                    Self.applyFilePreviewNavigation(lineNumber: lineNumber, columnNumber: columnNumber, to: panels.first)
                 } catch {
                     NSSound.beep()
                 }
             }
             return
         }
-        _ = workspace.openFileSurfaces(
-            inPane: paneId,
-            filePaths: [filePath],
-            focus: true,
-            reuseExisting: true
-        )
+        if lineNumber != nil {
+            let panels = workspace.openFilePreviewSurfaces(
+                inPane: paneId,
+                filePaths: [filePath],
+                focus: true,
+                reuseExisting: true
+            )
+            Self.applyFilePreviewNavigation(lineNumber: lineNumber, columnNumber: columnNumber, to: panels.first)
+        } else {
+            _ = workspace.openFileSurfaces(
+                inPane: paneId,
+                filePaths: [filePath],
+                focus: true,
+                reuseExisting: true
+            )
+        }
+    }
+
+    @MainActor
+    private static func applyFilePreviewNavigation(
+        lineNumber: Int?,
+        columnNumber: Int?,
+        to panel: FilePreviewPanel?
+    ) {
+        guard let panel, let lineNumber else { return }
+        panel.navigateToTextPosition(lineNumber: lineNumber, columnNumber: columnNumber ?? 1)
     }
 
     private func syncFileExplorerDirectory() {

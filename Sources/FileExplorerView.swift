@@ -37,7 +37,7 @@ enum FileExplorerPanelPlacement: Equatable {
 struct FileExplorerPanelView: NSViewRepresentable {
     @ObservedObject var store: FileExplorerStore
     @ObservedObject var state: FileExplorerState
-    let onOpenFilePreview: (String) -> Void
+    let onOpenFilePreview: FileExplorerPreviewOpenHandler
     var presentation: FileExplorerPanelPresentation = .files
     var placement: FileExplorerPanelPlacement = .rightSidebar
     var onFocus: (() -> Void)?
@@ -86,7 +86,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
         var store: FileExplorerStore
         var state: FileExplorerState
-        var onOpenFilePreview: (String) -> Void
+        var onOpenFilePreview: FileExplorerPreviewOpenHandler
         var placement: FileExplorerPanelPlacement
         var onFocus: (() -> Void)?
         var onContainerChange: ((FileExplorerContainerView?) -> Void)?
@@ -100,7 +100,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         init(
             store: FileExplorerStore,
             state: FileExplorerState,
-            onOpenFilePreview: @escaping (String) -> Void,
+            onOpenFilePreview: @escaping FileExplorerPreviewOpenHandler,
             placement: FileExplorerPanelPlacement = .rightSidebar,
             onFocus: (() -> Void)? = nil,
             onContainerChange: ((FileExplorerContainerView?) -> Void)? = nil
@@ -1461,14 +1461,19 @@ final class FileExplorerContainerView: NSView {
     fileprivate func openSelectedSearchResult() {
         let row = searchResultsView.selectedRow
         guard row >= 0, row < searchSnapshot.results.count else { return }
-        let path = searchSnapshot.results[row].path
+        let result = searchSnapshot.results[row]
         // Editor/preferred-editor actions operate on local file paths via
         // NSWorkspace; for non-local providers fall back to the cmux preview.
         guard coordinator.store.provider is LocalFileExplorerProvider else {
-            coordinator.onOpenFilePreview(path)
+            coordinator.onOpenFilePreview(result.path, result.lineNumber, result.columnNumber)
             return
         }
-        performFileExplorerFileOpen(path: path, onOpenFilePreview: coordinator.onOpenFilePreview)
+        performFileExplorerFileOpen(
+            path: result.path,
+            lineNumber: result.lineNumber,
+            columnNumber: result.columnNumber,
+            onOpenFilePreview: coordinator.onOpenFilePreview
+        )
     }
 
     @objc private func openSelectedSearchResultFromTable(_ sender: NSTableView) {
@@ -1477,7 +1482,7 @@ final class FileExplorerContainerView: NSView {
 
     @objc private func contextMenuOpenSearchResultInCmux(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
-        coordinator.onOpenFilePreview(result.path)
+        coordinator.onOpenFilePreview(result.path, result.lineNumber, result.columnNumber)
     }
 
     @objc private func contextMenuOpenSearchResultExternally(_ sender: NSMenuItem) {

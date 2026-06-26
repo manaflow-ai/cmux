@@ -123,7 +123,7 @@ struct RightSidebarPanelView: View {
     let titlebarHeight: CGFloat
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
-    let onOpenFilePreview: (String) -> Void
+    let onOpenFilePreview: FileExplorerPreviewOpenHandler
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
 

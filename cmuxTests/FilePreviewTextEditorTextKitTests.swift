@@ -45,4 +45,34 @@ struct FilePreviewTextEditorTextKitTests {
         #expect(textView.layoutManager != nil)
         #expect(textView.layoutManager?.allowsNonContiguousLayout == true)
     }
+
+    @Test("search navigation selects the requested loaded line and column")
+    func searchNavigationSelectsRequestedLoadedLineAndColumn() async throws {
+        let content = """
+        first
+        second
+        abcd needle
+        """
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-preview-navigation-\(UUID().uuidString)")
+            .appendingPathExtension("swift")
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            textLoader: { _ in .loaded(content, .utf8) }
+        )
+        defer { panel.close() }
+
+        panel.navigateToTextPosition(lineNumber: 3, columnNumber: 6)
+        await panel.loadTextContent().value
+
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = panel.textContent
+        panel.attachTextView(textView)
+
+        #expect(textView.selectedRange().location == (content as NSString).range(of: "needle").location)
+    }
 }

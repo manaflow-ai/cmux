@@ -365,7 +365,7 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
             state: state,
-            onOpenFilePreview: { _ in }
+            onOpenFilePreview: { _, _, _ in }
         )
         let container = FileExplorerContainerView(
             coordinator: coordinator,

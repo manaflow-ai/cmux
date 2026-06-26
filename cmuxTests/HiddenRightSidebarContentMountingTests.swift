@@ -69,7 +69,7 @@ struct HiddenRightSidebarContentMountingTests {
             titlebarHeight: 36,
             workspaceId: nil,
             onResumeSession: nil,
-            onOpenFilePreview: { _ in },
+            onOpenFilePreview: { _, _, _ in },
             onOpenAsPane: { _ in },
             onClose: {}
         )

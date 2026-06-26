@@ -752,8 +752,8 @@ final class FileExplorerStore: ObservableObject {
     /// Whether hidden files are shown. Set from FileExplorerState externally.
     var showHiddenFiles: Bool = false
 
-    /// Watches the root directory for filesystem changes (local only).
-    private var directoryWatcher: FileWatcher?
+    /// Watches the root directory recursively for filesystem changes (local only).
+    private var directoryWatcher: RecursivePathWatcher?
     private var directoryWatchTask: Task<Void, Never>?
     private var directoryWatchPath: String?
 
@@ -893,8 +893,7 @@ final class FileExplorerStore: ObservableObject {
         if provider is LocalFileExplorerProvider, !rootPath.isEmpty {
             guard directoryWatchPath != rootPath || directoryWatcher == nil else { return }
             stopDirectoryWatcher()
-            // Preserve the previous 0.3s coalescing as a leading-edge throttle.
-            let watcher = FileWatcher(path: rootPath, throttle: .milliseconds(300))
+            guard let watcher = RecursivePathWatcher(paths: [rootPath]) else { return }
             directoryWatcher = watcher
             directoryWatchPath = rootPath
             let events = watcher.events
@@ -911,7 +910,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     /// Cancels the directory-watch consumer and drops the watcher; the watcher's
-    /// deinit cancels its `DispatchSource`s synchronously.
+    /// deinit tears down its filesystem stream synchronously.
     private func stopDirectoryWatcher() {
         directoryWatchTask?.cancel()
         directoryWatchTask = nil
