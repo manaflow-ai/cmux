@@ -100,16 +100,13 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         return portableParentChangeDirectoryPrefix(TerminalStartupShellQuoting.singleQuoted(workingDirectory)) + payload
     }
 
-    private static func strippedPortableChangeDirectoryCommand(
-        from command: String,
-        workingDirectory: String
-    ) -> String? {
-        guard let innerCommand = portableShellCommandPayload(from: command) else { return nil }
-        let stripped = strippedLegacyChangeDirectoryPrefix(
-            from: innerCommand,
-            workingDirectory: workingDirectory
-        )
-        return stripped == innerCommand ? nil : stripped
+    private static func strippedPortableChangeDirectoryCommand(from command: String, workingDirectory: String) -> String? {
+        guard let parts = portableShellCommandParts(from: command) else { return nil }
+        let stripped = strippedLegacyChangeDirectoryPrefix(from: parts.payload, workingDirectory: workingDirectory)
+        guard stripped != parts.payload else { return nil }
+        let sh = TerminalStartupShellQuoting.shellToken("/bin/sh", allowingBareASCII: true)
+        let option = TerminalStartupShellQuoting.shellToken(parts.option, allowingBareASCII: true)
+        return "\(sh) \(option) \(literalSingleQuoted(stripped))"
     }
 
     private static func strippedLegacyChangeDirectoryPrefix(
@@ -137,12 +134,12 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && "
     }
 
-    private static func portableShellCommandPayload(from command: String) -> String? {
+    private static func portableShellCommandPayload(from command: String) -> String? { portableShellCommandParts(from: command)?.payload }
+
+    private static func portableShellCommandParts(from command: String) -> (option: String, payload: String)? {
         let words = shellWordRanges(command)
-        guard words.count == 3, words[0].value == "/bin/sh", words[1].value == "-c" || words[1].value == "-lc" else {
-            return nil
-        }
-        return words[2].value
+        guard words.count == 3, words[0].value == "/bin/sh", words[1].value == "-c" || words[1].value == "-lc" else { return nil }
+        return (words[1].value, words[2].value)
     }
 
     private static func strippedSavedWorkingDirectoryOptions(

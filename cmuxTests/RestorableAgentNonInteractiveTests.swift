@@ -38,21 +38,29 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
     }
 
     func testLegacyCwdGuardPreservesExplicitPortableShellWrapper() throws {
-        let json = """
-        {
-          "command": "{ cd -- '/tmp/project' 2>/dev/null || [ ! -d '/tmp/project' ]; } && /bin/sh -c 'FOO=bar codex resume session'",
-          "cwd": "/tmp/project",
-          "checkpointId": "session-shell-wrapper",
-          "source": "agent-hook",
-          "autoResume": true,
-          "updatedAt": 123
-        }
-        """
-        let binding = try JSONDecoder().decode(SurfaceResumeBindingSnapshot.self, from: Data(json.utf8))
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "{ cd -- '/tmp/project' 2>/dev/null || [ ! -d '/tmp/project' ]; } && /bin/sh -c 'FOO=bar codex resume session'",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            updatedAt: 123
+        )
 
         XCTAssertTrue(binding.command.hasPrefix("cd -- '/tmp/project'"), binding.command)
         XCTAssertTrue(binding.command.contains("/bin/sh -c 'FOO=bar codex resume session'"), binding.command)
         XCTAssertFalse(binding.command.hasPrefix("{ "), binding.command)
+    }
+
+    func testShellWrappedLegacyCwdGuardPreservesExplicitPortableShellWrapper() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: #"/bin/sh -lc '{ cd -- '\''/tmp/project'\'' 2>/dev/null || [ ! -d '\''/tmp/project'\'' ]; } && FOO=bar codex resume session'"#,
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            updatedAt: 123
+        )
+
+        XCTAssertTrue(binding.command.hasPrefix("cd -- '/tmp/project'"), binding.command)
+        XCTAssertTrue(binding.command.contains("/bin/sh -lc 'FOO=bar codex resume session'"), binding.command)
+        XCTAssertFalse(binding.command.contains("{ cd --"), binding.command)
     }
 
     func testNonInteractiveAgentLaunchesAreNotAutoRestored() {
