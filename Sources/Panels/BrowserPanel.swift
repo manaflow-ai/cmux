@@ -8290,7 +8290,7 @@ private extension NSObject {
 /// during WebKit callbacks), then moving the finished file to the user's
 /// Downloads folder unless the browser save-panel setting is enabled.
 class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
-    private static let maxDownloadDestinationCollisionRetries = 100
+    private nonisolated static let maxDownloadDestinationCollisionRetries = 100
 
     private struct DownloadState: Sendable {
         let tempURL: URL
