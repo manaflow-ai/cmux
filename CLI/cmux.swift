@@ -9921,6 +9921,12 @@ struct CMUXCLI {
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
             scriptLines.append(trimmedControlPathPreflight)
         }
+        // Note: the `[cmux] …` banners emitted by this wrapper (reconnect/agent
+        // notices and the final error banners below) are deliberately NOT
+        // localized. They are raw ANSI diagnostics baked into a generated POSIX
+        // shell script that runs in the user's terminal, not SwiftUI/AppKit copy,
+        // so they have no Localizable.xcstrings home and intentionally match the
+        // existing un-localized sibling banners in this function.
         scriptLines += [
             "rm -f -- \"$0\" 2>/dev/null || true",
             "CMUX_SSH_SESSION_ENDED=0",
@@ -10018,6 +10024,14 @@ struct CMUXCLI {
             // Classify the failure: a key-signing refusal means the agent is locked
             // (not that the host is unreachable), so it must not consume the network
             // reconnect budget. stderr was already streamed live by the tee above.
+            // ssh exits 255 for network, auth, and agent failures alike, so its exit
+            // code carries no structured signal — the OpenSSH client's stderr wording
+            // is the only in-band discriminator, and cmux drives the system OpenSSH
+            // client whose phrasing these patterns match. The check fails safe: only a
+            // positive, specific match diverts to the gentler agent-wait path; anything
+            // unmatched (a reworded/non-OpenSSH error) keeps the existing network-retry
+            // behavior, and the agent-wait path itself auto-recovers on unlock or
+            // degrades to the manual-reconnect banner.
             "  cmux_ssh_agent_locked=0",
             "  if [ \"$cmux_ssh_capture_active\" = 1 ] && [ \"$cmux_ssh_status\" -ne 0 ] && grep -qiE 'agent refused operation|sign_and_send_pubkey: signing failed' \"$cmux_ssh_stderr_capture\" 2>/dev/null; then cmux_ssh_agent_locked=1; fi",
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
