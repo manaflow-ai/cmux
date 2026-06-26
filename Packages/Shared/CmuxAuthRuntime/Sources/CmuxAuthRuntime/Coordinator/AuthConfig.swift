@@ -53,7 +53,9 @@ public struct AuthConfig: Equatable, Sendable {
         let defaultAPIBaseURL: String
         switch environment {
         case .development:
-            callbackURL = "http://localhost:3000/auth/callback"
+            callbackURL = AuthCallbackURLResolver(origin: URL(string: "http://localhost:3000")!)
+                .magicLinkCallbackURL()
+                .absoluteString
             defaultAPIBaseURL = "http://localhost:3000"
         case .production:
             callbackURL = AuthCallbackURLResolver(origin: URL(string: "https://cmux.com")!)
