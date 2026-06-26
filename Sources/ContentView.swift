@@ -1250,7 +1250,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func resumeSession(entry: SessionEntry) {
-        SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+        tabManager.resume(entry)
     }
 
     func openRightSidebarToolPane(_ mode: RightSidebarMode) {

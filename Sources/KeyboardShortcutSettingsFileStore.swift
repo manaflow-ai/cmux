@@ -61,8 +61,6 @@ final class CmuxSettingsFileStore {
     static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
     private static let legacySchemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
-    private static let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
-    private static let importedManagedDefaultsDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
     static let socketPasswordBackupIdentifier = "automation.socketPassword"
 
     static var defaultPrimaryPath: String {
@@ -95,6 +93,7 @@ final class CmuxSettingsFileStore {
     private let passwordStore: SocketControlPasswordStore
     private let appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment
     private let parser: SettingsFileParser
+    private let managedDefaultsRepository = ManagedDefaultsRepository(defaults: .standard)
     private let stateLock = NSLock()
 
     private var watchers: [FileWatcher] = []
@@ -129,12 +128,12 @@ final class CmuxSettingsFileStore {
         self.notificationCenter = notificationCenter
         self.appearanceEnvironment = appearanceEnvironment
         self.passwordStore = passwordStore
-        importedManagedDefaults = Self.loadImportedManagedDefaults()
         self.parser = SettingsFileParser(
             primaryPath: self.primaryPath,
             fallbackPaths: self.fallbackPaths,
             fileManager: self.fileManager
         )
+        importedManagedDefaults = loadImportedManagedDefaults()
 
         bootstrapPrimaryTemplateIfNeeded()
         // The app init path loads cmux.json before applying language/appearance
@@ -339,7 +338,7 @@ final class CmuxSettingsFileStore {
         applyLiveDefaultSideEffects: Bool,
         synchronizeManagedAppearanceTerminalTheme: Bool
     ) {
-        var backups = loadBackups()
+        var backups = managedDefaultsRepository.loadBackups()
         var sideEffects = ManagedDefaultBatchSideEffects()
         let currentManagedIdentifiers = Set(backups.keys)
         let nextManagedIdentifiers = Set(snapshot.managedUserDefaults.keys)
@@ -390,7 +389,7 @@ final class CmuxSettingsFileStore {
         }
         applyManagedCustomSettings(snapshot.managedCustomSettings)
         if updateBackups {
-            saveBackups(backups)
+            managedDefaultsRepository.saveBackups(backups)
         }
         if applyLiveDefaultSideEffects {
             var sideEffectsToApply = drainDeferredManagedDefaultSideEffects()
@@ -849,15 +848,14 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private static func loadImportedManagedDefaults() -> [String: ManagedSettingsValue] {
+    // Pure decode/encode of the imported-managed-defaults and backups caches now
+    // lives in ``ManagedDefaultsRepository`` (CmuxSettings). This file keeps only
+    // the app-coupled legacy-migration tail and retired-key cleanup, which read
+    // app-target setting catalogs the package cannot reference.
+
+    private func loadImportedManagedDefaults() -> [String: ManagedSettingsValue] {
         let defaults = UserDefaults.standard
-        var imported: [String: ManagedSettingsValue]
-        if let data = defaults.data(forKey: importedManagedDefaultsDefaultsKey),
-           let decoded = try? JSONDecoder().decode([String: ManagedSettingsValue].self, from: data) {
-            imported = decoded
-        } else {
-            imported = [:]
-        }
+        var imported = managedDefaultsRepository.loadImportedManagedDefaults()
 
         if imported[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] == nil,
            let legacyValue = defaults.object(
@@ -875,33 +873,8 @@ final class CmuxSettingsFileStore {
     }
 
     private func saveImportedManagedDefaults(_ imported: [String: ManagedSettingsValue]) {
-        let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: SidebarMatchTerminalBackgroundSettings.legacyAppliedSettingsFileDefaultKey)
-        guard !imported.isEmpty else {
-            defaults.removeObject(forKey: Self.importedManagedDefaultsDefaultsKey)
-            return
-        }
-        guard let data = try? JSONEncoder().encode(imported) else { return }
-        defaults.set(data, forKey: Self.importedManagedDefaultsDefaultsKey)
-    }
-
-    private func loadBackups() -> [String: ManagedDefaultBackupValue] {
-        let defaults = UserDefaults.standard
-        guard let data = defaults.data(forKey: Self.backupsDefaultsKey),
-              let backups = try? JSONDecoder().decode([String: ManagedDefaultBackupValue].self, from: data) else {
-            return [:]
-        }
-        return backups
-    }
-
-    private func saveBackups(_ backups: [String: ManagedDefaultBackupValue]) {
-        let defaults = UserDefaults.standard
-        if backups.isEmpty {
-            defaults.removeObject(forKey: Self.backupsDefaultsKey)
-            return
-        }
-        guard let data = try? JSONEncoder().encode(backups) else { return }
-        defaults.set(data, forKey: Self.backupsDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: SidebarMatchTerminalBackgroundSettings.legacyAppliedSettingsFileDefaultKey)
+        managedDefaultsRepository.saveImportedManagedDefaults(imported)
     }
 
 }

@@ -3,6 +3,7 @@ import Bonsplit
 import Carbon
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxShortcuts
 import CmuxWorkspaces
 import SwiftUI
 
@@ -987,6 +988,86 @@ enum KeyboardShortcutSettings {
     static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
     static func toggleBrowserDeveloperToolsShortcut() -> StoredShortcut { shortcut(for: .toggleBrowserDeveloperTools) }
     static func showBrowserJavaScriptConsoleShortcut() -> StoredShortcut { shortcut(for: .showBrowserJavaScriptConsole) }
+}
+
+extension KeyboardShortcutSettings.Action {
+    /// Resolves a `set_shortcut` debug-command name token to the action it
+    /// targets, or `nil` when the token is unrecognized. The accepted aliases
+    /// match the v1 `set_shortcut` control command exactly; callers lowercase
+    /// the token before resolving.
+    init?(debugSetShortcutName name: String) {
+        switch name {
+        case "focus_left", "focusleft":
+            self = .focusLeft
+        case "focus_right", "focusright":
+            self = .focusRight
+        case "focus_up", "focusup":
+            self = .focusUp
+        case "focus_down", "focusdown":
+            self = .focusDown
+        case "split_right", "splitright":
+            self = .splitRight
+        case "split_down", "splitdown":
+            self = .splitDown
+        case "workspace_digits", "workspace_number", "select_workspace_by_number":
+            self = .selectWorkspaceByNumber
+        case "surface_digits", "surface_number", "select_surface_by_number":
+            self = .selectSurfaceByNumber
+        default:
+            return nil
+        }
+    }
+}
+
+extension KeyboardShortcutSettings {
+    /// Parses and applies the v1 `set_shortcut <name> <combo|clear>` debug
+    /// command, returning the legacy `OK`/`ERROR: …` response string verbatim.
+    /// Lifted from the `TerminalController` debug command bodies; references no
+    /// controller state, so it lives with the shortcut store it mutates.
+    static func applyDebugSetShortcutCommand(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else {
+            return "ERROR: Usage: set_shortcut <name> <combo|clear>"
+        }
+
+        let name = parts[0].lowercased()
+        let combo = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let action = Action(debugSetShortcutName: name) else {
+            return "ERROR: Unknown shortcut name. Supported: focus_left, focus_right, focus_up, focus_down, split_right, split_down, workspace_digits, surface_digits"
+        }
+
+        if combo.lowercased() == "clear" || combo.lowercased() == "unbound" || combo.lowercased() == "none" {
+            clearShortcut(for: action)
+            return "OK"
+        }
+
+        if combo.lowercased() == "default" || combo.lowercased() == "reset" {
+            resetShortcut(for: action)
+            return "OK"
+        }
+
+        guard let parsed = ParsedShortcutCombo(combo: combo) else {
+            return "ERROR: Invalid combo. Example: cmd+ctrl+h"
+        }
+
+        let shortcut = StoredShortcut(
+            key: parsed.storedKey,
+            command: parsed.modifierFlags.contains(.command),
+            shift: parsed.modifierFlags.contains(.shift),
+            option: parsed.modifierFlags.contains(.option),
+            control: parsed.modifierFlags.contains(.control)
+        )
+        if action.usesNumberedDigitMatching,
+           action.normalizedRecordedShortcut(shortcut) == nil {
+            return "ERROR: Numbered shortcuts must use a digit key (1-9). Example: ctrl+1"
+        }
+
+        let storedShortcut = action.normalizedRecordedShortcut(shortcut) ?? shortcut
+        setShortcut(storedShortcut, for: action)
+        return "OK"
+    }
 }
 
 enum SystemWideHotkeySettings {

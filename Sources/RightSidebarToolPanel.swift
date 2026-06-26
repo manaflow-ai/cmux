@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Combine
 import SwiftUI
 
@@ -281,7 +282,7 @@ struct RightSidebarToolPanelView: View {
             SessionIndexView(
                 store: panel.sessionIndexStore,
                 onResume: { entry in
-                    SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                    tabManager.resume(entry)
                 }
             )
             .background(

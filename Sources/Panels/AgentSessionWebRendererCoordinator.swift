@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import UniformTypeIdentifiers
 import WebKit
 
@@ -131,7 +132,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     func unfocus() {
         guard let webView,
               let window = webView.window,
-              Self.responderChainContains(window.firstResponder, target: webView) else {
+              window.firstResponder?.responderChain(contains: webView) ?? false else {
             return
         }
         window.makeFirstResponder(nil)
@@ -741,16 +742,5 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         return url.scheme == currentURL.scheme &&
             url.host == currentURL.host &&
             url.path == currentURL.path
-    }
-
-    private static func responderChainContains(_ responder: NSResponder?, target: NSResponder) -> Bool {
-        var current = responder
-        while let item = current {
-            if item === target {
-                return true
-            }
-            current = item.nextResponder
-        }
-        return false
     }
 }
