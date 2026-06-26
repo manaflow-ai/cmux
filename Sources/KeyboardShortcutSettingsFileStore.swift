@@ -643,6 +643,26 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("doubleClickAction") {
             logInvalid("fileExplorer.doubleClickAction", sourcePath: sourcePath)
         }
+
+        if let raw = jsonString(section["sortBy"]) {
+            if let key = FileExplorerSortKey(rawValue: raw) {
+                snapshot.managedUserDefaults[FileExplorerSortSettings.sortKeyKey] = .string(key.rawValue)
+            } else {
+                logInvalid("fileExplorer.sortBy", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("sortBy") {
+            logInvalid("fileExplorer.sortBy", sourcePath: sourcePath)
+        }
+
+        if let raw = jsonString(section["sortOrder"]) {
+            if let order = FileExplorerSortOrder(rawValue: raw) {
+                snapshot.managedUserDefaults[FileExplorerSortSettings.sortOrderKey] = .string(order.rawValue)
+            } else {
+                logInvalid("fileExplorer.sortOrder", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("sortOrder") {
+            logInvalid("fileExplorer.sortOrder", sourcePath: sourcePath)
+        }
     }
 
     private func parseSidebarSection(
@@ -1572,6 +1592,11 @@ final class CmuxSettingsFileStore {
 
                 if change.defaultsKey == TerminalCopyOnSelectSettings.copyOnSelectKey {
                     TerminalCopyOnSelectSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey == FileExplorerSortSettings.sortKeyKey ||
+                    change.defaultsKey == FileExplorerSortSettings.sortOrderKey {
+                    FileExplorerSortSettings.notifyDidChange(notificationCenter: notificationCenter)
                 }
 
                 if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {

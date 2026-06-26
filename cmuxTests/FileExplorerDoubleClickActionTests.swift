@@ -126,3 +126,52 @@ import Testing
         )
     }
 }
+
+@Suite struct FileExplorerSortSettingsTests {
+    private func makeDefaults() -> UserDefaults {
+        let suiteName = "cmux-file-explorer-sort-tests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
+
+    @Test func defaultSortIsNameAscending() {
+        #expect(FileExplorerSortSettings.defaultValue == FileExplorerSortOptions(key: .name, order: .ascending))
+    }
+
+    @Test func parsesEachKnownSortKeyRawValue() {
+        #expect(FileExplorerSortSettings.sortKey(forRawValue: "name") == .name)
+        #expect(FileExplorerSortSettings.sortKey(forRawValue: "dateCreated") == .dateCreated)
+        #expect(FileExplorerSortSettings.sortKey(forRawValue: "dateModified") == .dateModified)
+    }
+
+    @Test func parsesEachKnownSortOrderRawValue() {
+        #expect(FileExplorerSortSettings.sortOrder(forRawValue: "ascending") == .ascending)
+        #expect(FileExplorerSortSettings.sortOrder(forRawValue: "descending") == .descending)
+    }
+
+    @Test func unknownSortValuesFallBackToDefaults() {
+        for raw in [nil, "", "modified", "date-created", "DESC", "newest"] {
+            #expect(FileExplorerSortSettings.sortKey(forRawValue: raw) == .name)
+            #expect(FileExplorerSortSettings.sortOrder(forRawValue: raw) == .ascending)
+        }
+    }
+
+    @Test func rawValuesMatchConfigSchema() {
+        #expect(FileExplorerSortKey.allCases.map(\.rawValue) == ["name", "dateCreated", "dateModified"])
+        #expect(FileExplorerSortOrder.allCases.map(\.rawValue) == ["ascending", "descending"])
+    }
+
+    @Test func resolvedOptionsRoundTripThroughUserDefaults() {
+        let defaults = makeDefaults()
+        let options = FileExplorerSortOptions(key: .dateModified, order: .descending)
+
+        FileExplorerSortSettings.setOptions(
+            options,
+            defaults: defaults,
+            notificationCenter: NotificationCenter()
+        )
+
+        #expect(FileExplorerSortSettings.resolvedOptions(defaults: defaults) == options)
+    }
+}

@@ -93,6 +93,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
         weak var containerView: FileExplorerContainerView?
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
+        private var lastContentRevision: Int = -1
+        private var lastSortRevision: Int = -1
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
@@ -179,9 +181,15 @@ struct FileExplorerPanelView: NSViewRepresentable {
             )
 
             let newCount = store.rootNodes.count
+            let newContentRevision = store.contentRevision
+            let newSortRevision = store.sortRevision
             withProgrammaticOutlineUpdate {
-                if newCount != lastRootNodeCount {
+                if newCount != lastRootNodeCount ||
+                    newContentRevision != lastContentRevision ||
+                    newSortRevision != lastSortRevision {
                     lastRootNodeCount = newCount
+                    lastContentRevision = newContentRevision
+                    lastSortRevision = newSortRevision
                     let expandedPaths = store.expandedPaths
                     outlineView.reloadData()
                     restoreExpansionState(expandedPaths, in: outlineView)
@@ -230,7 +238,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 return store.rootNodes.count
             }
             guard let node = item as? FileExplorerNode else { return 0 }
-            return node.sortedChildren?.count ?? 0
+            return node.children?.count ?? 0
         }
 
         func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
@@ -238,7 +246,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 return store.rootNodes[index]
             }
             guard let node = item as? FileExplorerNode,
-                  let children = node.sortedChildren else {
+                  let children = node.children else {
                 return FileExplorerNode(name: "", path: "", isDirectory: false)
             }
             return children[index]
@@ -697,6 +705,12 @@ final class FileExplorerContainerView: NSView {
         self.coordinator = coordinator
 
         super.init(frame: .zero)
+        headerView.onSelectSortKey = { [weak coordinator] key in
+            coordinator?.store.setSortKey(key)
+        }
+        headerView.onSelectSortOrder = { [weak coordinator] order in
+            coordinator?.store.setSortOrder(order)
+        }
         updateShortcutPlacement(coordinator.placement)
         configureSearchDebounce()
 
@@ -965,7 +979,7 @@ final class FileExplorerContainerView: NSView {
         let searchScopeChanged = workspaceRootChanged || nextRootPath != currentRootPath || nextProviderIsLocal != currentProviderIsLocal
         currentRootPath = nextRootPath; currentProviderIsLocal = nextProviderIsLocal
         currentWorkspaceRootIdentity = nextWorkspaceRootIdentity; currentContentRevision = nextContentRevision
-        headerView.update(displayPath: store.displayRootPath)
+        headerView.update(displayPath: store.displayRootPath, sortOptions: store.sortOptions)
         if workspaceRootChanged { cancelPendingSearchRefresh(); pendingSearchRefreshAfterSettled = false; searchController.cancel(clear: true); searchField.stringValue = ""; applySearchSnapshot(.empty) }
         if searchScopeChanged {
             pendingSearchRefreshAfterSettled = false

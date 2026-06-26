@@ -1171,6 +1171,20 @@
           "default": "preview",
           "description": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview.",
           "descriptionKey": "schemaDescriptions.fileExplorer.doubleClickAction"
+        },
+        "sortBy": {
+          "type": "string",
+          "enum": ["name", "dateCreated", "dateModified"],
+          "default": "name",
+          "description": "How the file explorer orders entries. `name` preserves the historical folders-first alphabetical order; date sorts use each entry's created or modified timestamp, with entries missing that timestamp placed last.",
+          "descriptionKey": "schemaDescriptions.fileExplorer.sortBy"
+        },
+        "sortOrder": {
+          "type": "string",
+          "enum": ["ascending", "descending"],
+          "default": "ascending",
+          "description": "Sort direction for the file explorer. Date sorting with `descending` places newer entries first.",
+          "descriptionKey": "schemaDescriptions.fileExplorer.sortOrder"
         }
       }
     },

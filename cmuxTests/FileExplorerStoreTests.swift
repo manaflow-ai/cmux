@@ -187,6 +187,58 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func testNameSortPreservesFoldersFirstThenAlphabetical() {
+        let nodes = [
+            FileExplorerNode(name: "z-file.txt", path: "/project/z-file.txt", isDirectory: false),
+            FileExplorerNode(name: "beta", path: "/project/beta", isDirectory: true),
+            FileExplorerNode(name: "alpha.txt", path: "/project/alpha.txt", isDirectory: false),
+            FileExplorerNode(name: "alpha", path: "/project/alpha", isDirectory: true),
+        ]
+
+        let sorted = FileExplorerNodeSorter.sorted(
+            nodes,
+            options: FileExplorerSortOptions(key: .name, order: .ascending)
+        )
+
+        #expect(sorted.map(\.name) == ["alpha", "beta", "alpha.txt", "z-file.txt"])
+    }
+
+    @Test
+    func testDateModifiedDescendingSortsNewestEntriesAcrossFilesAndFolders() {
+        let old = Date(timeIntervalSince1970: 100)
+        let newer = Date(timeIntervalSince1970: 200)
+        let newest = Date(timeIntervalSince1970: 300)
+        let nodes = [
+            FileExplorerNode(
+                name: "old-folder",
+                path: "/project/old-folder",
+                isDirectory: true,
+                modificationDate: old
+            ),
+            FileExplorerNode(
+                name: "new-report.png",
+                path: "/project/new-report.png",
+                isDirectory: false,
+                modificationDate: newest
+            ),
+            FileExplorerNode(
+                name: "middle.txt",
+                path: "/project/middle.txt",
+                isDirectory: false,
+                modificationDate: newer
+            ),
+            FileExplorerNode(name: "untimed.txt", path: "/project/untimed.txt", isDirectory: false),
+        ]
+
+        let sorted = FileExplorerNodeSorter.sorted(
+            nodes,
+            options: FileExplorerSortOptions(key: .dateModified, order: .descending)
+        )
+
+        #expect(sorted.map(\.name) == ["new-report.png", "middle.txt", "old-folder", "untimed.txt"])
+    }
+
+    @Test
     func testDisplayRootPathUsesTilde() {
         let provider = MockFileExplorerProvider(homePath: "/home/user")
         let store = FileExplorerStore()

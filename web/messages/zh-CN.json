@@ -841,7 +841,9 @@
         },
         "fileExplorer": {
           "description": "右侧边栏文件浏览器（文件树）设置。",
-          "doubleClickAction": "设置在文件浏览器中双击文件（或在搜索结果上按 Return）时执行的操作。`preview` 会打开 cmux 内置文件预览（默认和历史行为）。`defaultEditor` 会使用该文件类型的 macOS 默认应用打开。`preferredEditor` 会使用 `app.preferredEditor` 命令打开；未设置时回退到默认应用。仅适用于文件；目录始终展开/折叠，非本地（远程）文件浏览器始终打开 cmux 预览。"
+          "doubleClickAction": "设置在文件浏览器中双击文件（或在搜索结果上按 Return）时执行的操作。`preview` 会打开 cmux 内置文件预览（默认和历史行为）。`defaultEditor` 会使用该文件类型的 macOS 默认应用打开。`preferredEditor` 会使用 `app.preferredEditor` 命令打开；未设置时回退到默认应用。仅适用于文件；目录始终展开/折叠，非本地（远程）文件浏览器始终打开 cmux 预览。",
+          "sortBy": "How the file explorer orders entries. `name` preserves the historical folders-first alphabetical order; date sorts use each entry's created or modified timestamp, with entries missing that timestamp placed last.",
+          "sortOrder": "Sort direction for the file explorer. Date sorting with `descending` places newer entries first."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."

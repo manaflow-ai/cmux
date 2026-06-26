@@ -210,6 +210,176 @@ struct FileExplorerEntry: Sendable {
     let name: String
     let path: String
     let isDirectory: Bool
+    let creationDate: Date?
+    let modificationDate: Date?
+
+    init(
+        name: String,
+        path: String,
+        isDirectory: Bool,
+        creationDate: Date? = nil,
+        modificationDate: Date? = nil
+    ) {
+        self.name = name
+        self.path = path
+        self.isDirectory = isDirectory
+        self.creationDate = creationDate
+        self.modificationDate = modificationDate
+    }
+}
+
+enum FileExplorerSortKey: String, CaseIterable, Sendable {
+    case name
+    case dateCreated
+    case dateModified
+
+    var localizedTitle: String {
+        switch self {
+        case .name:
+            return String(localized: "fileExplorer.sort.key.name", defaultValue: "Name")
+        case .dateCreated:
+            return String(localized: "fileExplorer.sort.key.dateCreated", defaultValue: "Date Created")
+        case .dateModified:
+            return String(localized: "fileExplorer.sort.key.dateModified", defaultValue: "Date Modified")
+        }
+    }
+}
+
+enum FileExplorerSortOrder: String, CaseIterable, Sendable {
+    case ascending
+    case descending
+
+    var localizedTitle: String {
+        switch self {
+        case .ascending:
+            return String(localized: "fileExplorer.sort.order.ascending", defaultValue: "Ascending")
+        case .descending:
+            return String(localized: "fileExplorer.sort.order.descending", defaultValue: "Descending")
+        }
+    }
+}
+
+struct FileExplorerSortOptions: Equatable, Sendable {
+    let key: FileExplorerSortKey
+    let order: FileExplorerSortOrder
+
+    static let defaultValue = FileExplorerSortOptions(key: .name, order: .ascending)
+}
+
+enum FileExplorerSortSettings {
+    static let sortKeyKey = "fileExplorer.sortBy"
+    static let sortOrderKey = "fileExplorer.sortOrder"
+    static let didChangeNotification = Notification.Name("cmux.fileExplorerSortSettingsDidChange")
+    static let defaultValue = FileExplorerSortOptions.defaultValue
+
+    static func sortKey(forRawValue raw: String?) -> FileExplorerSortKey {
+        guard let raw, let key = FileExplorerSortKey(rawValue: raw) else {
+            return defaultValue.key
+        }
+        return key
+    }
+
+    static func sortOrder(forRawValue raw: String?) -> FileExplorerSortOrder {
+        guard let raw, let order = FileExplorerSortOrder(rawValue: raw) else {
+            return defaultValue.order
+        }
+        return order
+    }
+
+    static func resolvedOptions(defaults: UserDefaults = .standard) -> FileExplorerSortOptions {
+        FileExplorerSortOptions(
+            key: sortKey(forRawValue: defaults.string(forKey: sortKeyKey)),
+            order: sortOrder(forRawValue: defaults.string(forKey: sortOrderKey))
+        )
+    }
+
+    static func setOptions(
+        _ options: FileExplorerSortOptions,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        defaults.set(options.key.rawValue, forKey: sortKeyKey)
+        defaults.set(options.order.rawValue, forKey: sortOrderKey)
+        notifyDidChange(notificationCenter: notificationCenter)
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
+enum FileExplorerNodeSorter {
+    static func sorted(_ nodes: [FileExplorerNode], options: FileExplorerSortOptions) -> [FileExplorerNode] {
+        nodes.sorted { lhs, rhs in
+            isOrderedBefore(lhs, rhs, options: options)
+        }
+    }
+
+    private static func isOrderedBefore(
+        _ lhs: FileExplorerNode,
+        _ rhs: FileExplorerNode,
+        options: FileExplorerSortOptions
+    ) -> Bool {
+        switch options.key {
+        case .name:
+            if lhs.isDirectory != rhs.isDirectory {
+                return lhs.isDirectory
+            }
+            return orderedByName(lhs, rhs, order: options.order)
+        case .dateCreated:
+            if let result = orderedByDate(lhs.creationDate, rhs.creationDate, order: options.order) {
+                return result
+            }
+            return orderedByFallback(lhs, rhs)
+        case .dateModified:
+            if let result = orderedByDate(lhs.modificationDate, rhs.modificationDate, order: options.order) {
+                return result
+            }
+            return orderedByFallback(lhs, rhs)
+        }
+    }
+
+    private static func orderedByDate(_ lhs: Date?, _ rhs: Date?, order: FileExplorerSortOrder) -> Bool? {
+        switch (lhs, rhs) {
+        case let (lhs?, rhs?) where lhs != rhs:
+            return order == .ascending ? lhs < rhs : lhs > rhs
+        case (.some, nil):
+            return true
+        case (nil, .some):
+            return false
+        default:
+            return nil
+        }
+    }
+
+    private static func orderedByFallback(_ lhs: FileExplorerNode, _ rhs: FileExplorerNode) -> Bool {
+        if lhs.isDirectory != rhs.isDirectory {
+            return lhs.isDirectory
+        }
+        return orderedByName(lhs, rhs, order: .ascending)
+    }
+
+    private static func orderedByName(
+        _ lhs: FileExplorerNode,
+        _ rhs: FileExplorerNode,
+        order: FileExplorerSortOrder
+    ) -> Bool {
+        switch lhs.name.localizedCaseInsensitiveCompare(rhs.name) {
+        case .orderedAscending:
+            return order == .ascending
+        case .orderedDescending:
+            return order == .descending
+        case .orderedSame:
+            switch lhs.path.localizedCaseInsensitiveCompare(rhs.path) {
+            case .orderedAscending:
+                return order == .ascending
+            case .orderedDescending:
+                return order == .descending
+            case .orderedSame:
+                return false
+            }
+        }
+    }
 }
 
 final class FileExplorerNode: Identifiable {
@@ -217,24 +387,35 @@ final class FileExplorerNode: Identifiable {
     let name: String
     let path: String
     let isDirectory: Bool
+    let creationDate: Date?
+    let modificationDate: Date?
     var children: [FileExplorerNode]?
     var isLoading: Bool = false
     var error: String?
 
-    init(name: String, path: String, isDirectory: Bool) {
+    init(
+        name: String,
+        path: String,
+        isDirectory: Bool,
+        creationDate: Date? = nil,
+        modificationDate: Date? = nil
+    ) {
         self.id = path
         self.name = name
         self.path = path
         self.isDirectory = isDirectory
+        self.creationDate = creationDate
+        self.modificationDate = modificationDate
     }
 
     var isExpandable: Bool { isDirectory }
 
     var sortedChildren: [FileExplorerNode]? {
-        children?.sorted { a, b in
-            if a.isDirectory != b.isDirectory { return a.isDirectory }
-            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-        }
+        sortedChildren(using: .defaultValue)
+    }
+
+    func sortedChildren(using options: FileExplorerSortOptions) -> [FileExplorerNode]? {
+        children.map { FileExplorerNodeSorter.sorted($0, options: options) }
     }
 }
 
@@ -306,13 +487,24 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
 
     func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
         let fm = FileManager.default
-        let contents = try fm.contentsOfDirectory(atPath: path)
-        return contents.compactMap { name in
+        let contents = try fm.contentsOfDirectory(
+            at: URL(fileURLWithPath: path, isDirectory: true),
+            includingPropertiesForKeys: [.creationDateKey, .contentModificationDateKey],
+            options: []
+        )
+        return contents.compactMap { url in
+            let name = url.lastPathComponent
             guard showHidden || !name.hasPrefix(".") else { return nil }
-            let fullPath = (path as NSString).appendingPathComponent(name)
             var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: fullPath, isDirectory: &isDir) else { return nil }
-            return FileExplorerEntry(name: name, path: fullPath, isDirectory: isDir.boolValue)
+            guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else { return nil }
+            let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
+            return FileExplorerEntry(
+                name: name,
+                path: url.path,
+                isDirectory: isDir.boolValue,
+                creationDate: values?.creationDate,
+                modificationDate: values?.contentModificationDate
+            )
         }
     }
 }
@@ -675,32 +867,49 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         connection: SSHFileExplorerConnection,
         showHidden: Bool
     ) async throws -> [FileExplorerEntry] {
-        // Escape single quotes in path for shell safety
         let escapedPath = shellSingleQuote(path)
-        let lsFlags = showHidden ? "-1paFA" : "-1paF"
+        let showHiddenValue = showHidden ? "1" : "0"
         let output = try await runSSHCommand(
             connection: connection,
-            command: "ls \(lsFlags) \(escapedPath) 2>/dev/null"
+            command: """
+            dir=\(escapedPath)
+            show_hidden=\(showHiddenValue)
+            for entry in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do
+              [ -e "$entry" ] || [ -L "$entry" ] || continue
+              name=${entry##*/}
+              if [ "$name" = "." ] || [ "$name" = ".." ]; then
+                continue
+              fi
+              if [ "$show_hidden" != "1" ]; then
+                case "$name" in .*) continue ;; esac
+              fi
+              if [ -d "$entry" ]; then kind=d; else kind=f; fi
+              mtime=$(stat -c %Y "$entry" 2>/dev/null || stat -f %m "$entry" 2>/dev/null || printf '')
+              btime=$(stat -c %W "$entry" 2>/dev/null || stat -f %B "$entry" 2>/dev/null || printf '')
+              printf '%s\\t%s\\t%s\\t%s\\n' "$kind" "$mtime" "$btime" "$name"
+            done
+            """
         )
 
         let normalizedPath = path.hasSuffix("/") ? path : path + "/"
         return output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
-            let entry = String(line)
-            // Skip . and .. entries
-            guard entry != "./" && entry != "../" else { return nil }
-            let isDir = entry.hasSuffix("/")
-            let name = isDir ? String(entry.dropLast()) : entry
+            let parts = line.split(separator: "\t", maxSplits: 3, omittingEmptySubsequences: false)
+            guard parts.count == 4 else { return nil }
+            let name = String(parts[3])
             guard showHidden || !name.hasPrefix(".") else { return nil }
-            // Strip type indicators from -F flag (*, @, =, |) for files
-            let cleanName: String
-            if !isDir, let last = name.last, "*@=|".contains(last) {
-                cleanName = String(name.dropLast())
-            } else {
-                cleanName = name
-            }
-            let fullPath = normalizedPath + cleanName
-            return FileExplorerEntry(name: cleanName, path: fullPath, isDirectory: isDir)
+            return FileExplorerEntry(
+                name: name,
+                path: normalizedPath + name,
+                isDirectory: parts[0] == "d",
+                creationDate: dateFromEpochString(String(parts[2])),
+                modificationDate: dateFromEpochString(String(parts[1]))
+            )
         }
+    }
+
+    private static func dateFromEpochString(_ value: String) -> Date? {
+        guard let seconds = TimeInterval(value), seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
     }
 
     private static func shellSingleQuote(_ value: String) -> String {
@@ -744,6 +953,8 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var isRootLoading: Bool = false
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
+    @Published private(set) var sortOptions: FileExplorerSortOptions
+    @Published private(set) var sortRevision = 0
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
 
@@ -783,6 +994,25 @@ final class FileExplorerStore: ObservableObject {
 
     private var remoteHomeResolutionTask: Task<Void, Never>?
     private var remoteHomeResolutionKey: String?
+    private let sortDefaults: UserDefaults
+    private let notificationCenter: NotificationCenter
+    private var sortSettingsObserver: NSObjectProtocol?
+
+    init(
+        sortDefaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        self.sortDefaults = sortDefaults
+        self.notificationCenter = notificationCenter
+        self.sortOptions = FileExplorerSortSettings.resolvedOptions(defaults: sortDefaults)
+        self.sortSettingsObserver = notificationCenter.addObserver(
+            forName: FileExplorerSortSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applySortOptionsFromDefaults()
+        }
+    }
 
     var displayRootPath: String {
         if let sshProvider = provider as? SSHFileExplorerProvider {
@@ -982,6 +1212,21 @@ final class FileExplorerStore: ObservableObject {
         expandedPaths.contains(node.path)
     }
 
+    func setSortKey(_ key: FileExplorerSortKey) {
+        let nextOrder: FileExplorerSortOrder = sortOptions.key == .name && key != .name
+            ? .descending
+            : sortOptions.order
+        setSortOptions(FileExplorerSortOptions(key: key, order: nextOrder))
+    }
+
+    func setSortOrder(_ order: FileExplorerSortOrder) {
+        setSortOptions(FileExplorerSortOptions(key: sortOptions.key, order: order))
+    }
+
+    func setSortOptions(_ options: FileExplorerSortOptions) {
+        applySortOptions(options, persist: true)
+    }
+
     func select(node: FileExplorerNode?) {
         let path = node?.path
         let paths = path.map { Set([$0]) } ?? []
@@ -1059,13 +1304,16 @@ final class FileExplorerStore: ObservableObject {
             let entries = try await provider.listDirectory(path: path, showHidden: showHiddenFiles)
             try Task.checkCancellation()
             let children = entries.map { entry in
-                let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
+                let node = FileExplorerNode(
+                    name: entry.name,
+                    path: entry.path,
+                    isDirectory: entry.isDirectory,
+                    creationDate: entry.creationDate,
+                    modificationDate: entry.modificationDate
+                )
                 nodesByPath[entry.path] = node
                 return node
-            }.sorted { a, b in
-                if a.isDirectory != b.isDirectory { return a.isDirectory }
-                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-            }
+            }.sorted(using: sortOptions)
 
             if let parentNode {
                 parentNode.children = children
@@ -1129,6 +1377,38 @@ final class FileExplorerStore: ObservableObject {
         }
         prefetchWorkItems.removeAll()
         isRootLoading = false
+    }
+
+    private func applySortOptionsFromDefaults() {
+        applySortOptions(FileExplorerSortSettings.resolvedOptions(defaults: sortDefaults), persist: false)
+    }
+
+    private func applySortOptions(_ options: FileExplorerSortOptions, persist: Bool) {
+        guard sortOptions != options else { return }
+        sortOptions = options
+        resortLoadedNodes()
+        sortRevision &+= 1
+        if persist {
+            FileExplorerSortSettings.setOptions(
+                options,
+                defaults: sortDefaults,
+                notificationCenter: notificationCenter
+            )
+        }
+        objectWillChange.send()
+    }
+
+    private func resortLoadedNodes() {
+        rootNodes = sortNodes(rootNodes)
+        for node in nodesByPath.values {
+            if let children = node.children {
+                node.children = sortNodes(children)
+            }
+        }
+    }
+
+    private func sortNodes(_ nodes: [FileExplorerNode]) -> [FileExplorerNode] {
+        FileExplorerNodeSorter.sorted(nodes, options: sortOptions)
     }
 
     private func applyRemoteSSHWorkspaceRoot(
@@ -1303,8 +1583,17 @@ final class FileExplorerStore: ObservableObject {
     }
 
     deinit {
+        if let sortSettingsObserver {
+            notificationCenter.removeObserver(sortSettingsObserver)
+        }
         cancelRemoteHomeResolution()
         directoryWatchTask?.cancel()
+    }
+}
+
+private extension Array where Element == FileExplorerNode {
+    func sorted(using options: FileExplorerSortOptions) -> [FileExplorerNode] {
+        FileExplorerNodeSorter.sorted(self, options: options)
     }
 }
 

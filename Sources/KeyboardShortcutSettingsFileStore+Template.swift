@@ -213,6 +213,8 @@ extension CmuxSettingsFileStore {
             [
                 "fileExplorer": [
                     "doubleClickAction": FileExplorerDoubleClickActionSettings.defaultValue.rawValue,
+                    "sortBy": FileExplorerSortSettings.defaultValue.key.rawValue,
+                    "sortOrder": FileExplorerSortSettings.defaultValue.order.rawValue,
                 ],
             ],
             [

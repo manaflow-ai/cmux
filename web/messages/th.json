@@ -841,7 +841,9 @@
         },
         "fileExplorer": {
           "description": "การตั้งค่าตัวสำรวจไฟล์ (แผนผังไฟล์) ในแถบด้านขวา",
-          "doubleClickAction": "กำหนดว่าการดับเบิลคลิกไฟล์ในตัวสำรวจไฟล์ (หรือกด Return บนผลการค้นหา) จะทำอะไร `preview` เปิดตัวอย่างไฟล์ในตัวของ cmux (ค่าเริ่มต้นและพฤติกรรมเดิม) `defaultEditor` เปิดด้วยแอปเริ่มต้นของ macOS สำหรับชนิดไฟล์นั้น `preferredEditor` เปิดด้วยคำสั่ง `app.preferredEditor` และถ้าไม่ได้ตั้งค่าไว้จะกลับไปใช้แอปเริ่มต้น มีผลกับไฟล์เท่านั้น; ไดเรกทอรีจะขยาย/ยุบเสมอ และตัวสำรวจไฟล์ที่ไม่ใช่ในเครื่อง (รีโมต) จะเปิดตัวอย่างของ cmux เสมอ"
+          "doubleClickAction": "กำหนดว่าการดับเบิลคลิกไฟล์ในตัวสำรวจไฟล์ (หรือกด Return บนผลการค้นหา) จะทำอะไร `preview` เปิดตัวอย่างไฟล์ในตัวของ cmux (ค่าเริ่มต้นและพฤติกรรมเดิม) `defaultEditor` เปิดด้วยแอปเริ่มต้นของ macOS สำหรับชนิดไฟล์นั้น `preferredEditor` เปิดด้วยคำสั่ง `app.preferredEditor` และถ้าไม่ได้ตั้งค่าไว้จะกลับไปใช้แอปเริ่มต้น มีผลกับไฟล์เท่านั้น; ไดเรกทอรีจะขยาย/ยุบเสมอ และตัวสำรวจไฟล์ที่ไม่ใช่ในเครื่อง (รีโมต) จะเปิดตัวอย่างของ cmux เสมอ",
+          "sortBy": "How the file explorer orders entries. `name` preserves the historical folders-first alphabetical order; date sorts use each entry's created or modified timestamp, with entries missing that timestamp placed last.",
+          "sortOrder": "Sort direction for the file explorer. Date sorting with `descending` places newer entries first."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."

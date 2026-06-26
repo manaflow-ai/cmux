@@ -841,7 +841,9 @@
         },
         "fileExplorer": {
           "description": "Einstellungen für den Datei-Explorer (Dateibaum) in der rechten Seitenleiste.",
-          "doubleClickAction": "Legt fest, was ein Doppelklick auf eine Datei im Dateiexplorer bewirkt (oder Return bei einem Suchergebnis). `preview` öffnet die integrierte cmux-Dateivorschau (Standard und bisheriges Verhalten). `defaultEditor` öffnet die Datei mit der macOS-Standard-App für diesen Dateityp. `preferredEditor` öffnet mit dem Befehl `app.preferredEditor` und fällt auf die Standard-App zurück, wenn keiner gesetzt ist. Gilt nur für Dateien; Verzeichnisse werden immer ein-/ausgeklappt, und nicht-lokale (Remote-)Dateiexplorer öffnen immer die cmux-Vorschau."
+          "doubleClickAction": "Legt fest, was ein Doppelklick auf eine Datei im Dateiexplorer bewirkt (oder Return bei einem Suchergebnis). `preview` öffnet die integrierte cmux-Dateivorschau (Standard und bisheriges Verhalten). `defaultEditor` öffnet die Datei mit der macOS-Standard-App für diesen Dateityp. `preferredEditor` öffnet mit dem Befehl `app.preferredEditor` und fällt auf die Standard-App zurück, wenn keiner gesetzt ist. Gilt nur für Dateien; Verzeichnisse werden immer ein-/ausgeklappt, und nicht-lokale (Remote-)Dateiexplorer öffnen immer die cmux-Vorschau.",
+          "sortBy": "How the file explorer orders entries. `name` preserves the historical folders-first alphabetical order; date sorts use each entry's created or modified timestamp, with entries missing that timestamp placed last.",
+          "sortOrder": "Sort direction for the file explorer. Date sorting with `descending` places newer entries first."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
