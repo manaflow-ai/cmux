@@ -49,15 +49,20 @@ final class OfflineNotesStore {
     static let maxRetainedSentNotes = 100
     static let maxTotalNotes = 200
 
+    /// `dispatcher` and `reachability` default to `nil` and are constructed in
+    /// the body rather than as default arguments: their concrete types are
+    /// `@MainActor`-isolated, and default-argument expressions are evaluated in a
+    /// nonisolated context, so building them here (the init is `@MainActor`)
+    /// avoids a main-actor-isolation error. Tests inject fakes.
     init(
         fileURL: URL? = OfflineNotesStore.defaultFileURL(),
-        dispatcher: any OfflineNoteDispatching = OfflineNoteAgentDispatcher(),
-        reachability: any OfflineNotesReachabilityMonitoring = OfflineNotesNetworkReachability(),
+        dispatcher: (any OfflineNoteDispatching)? = nil,
+        reachability: (any OfflineNotesReachabilityMonitoring)? = nil,
         autostart: Bool = true
     ) {
         self.fileURL = fileURL
-        self.dispatcher = dispatcher
-        self.reachability = reachability
+        self.dispatcher = dispatcher ?? OfflineNoteAgentDispatcher()
+        self.reachability = reachability ?? OfflineNotesNetworkReachability()
         self.notes = Self.normalizedForLoad(Self.load(fileURL: fileURL))
         if autostart {
             start()
