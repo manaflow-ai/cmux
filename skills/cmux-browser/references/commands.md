@@ -94,7 +94,6 @@ cmux browser <surface> download wait --timeout-ms 10000
 
 ## Known WKWebView Gaps (`not_supported`)
 
-- `browser.viewport.set`
 - `browser.geolocation.set`
 - `browser.offline.set`
 - `browser.trace.start|stop`

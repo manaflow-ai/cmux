@@ -47,4 +47,27 @@ struct BrowserPanelSessionRestoreTests {
         #expect(history.backHistoryURLStrings == ["https://example.com/back"])
         #expect(history.forwardHistoryURLStrings == ["https://example.com/forward"])
     }
+
+    @Test
+    func sessionRestorePreservesMinimumViewportSize() throws {
+        let url = try #require(URL(string: "https://example.com/restored"))
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+
+        panel.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: url.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            minimumViewportWidth: 1400,
+            minimumViewportHeight: 900,
+            developerToolsVisible: false,
+            backHistoryURLStrings: nil,
+            forwardHistoryURLStrings: nil
+        ))
+
+        let viewportSize = try #require(panel.currentMinimumViewportSize())
+        #expect(viewportSize.width == 1400)
+        #expect(viewportSize.height == 900)
+    }
 }

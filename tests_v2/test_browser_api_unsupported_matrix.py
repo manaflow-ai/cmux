@@ -147,6 +147,7 @@ def main() -> int:
         viewport = c._call("browser.viewport.set", {"surface_id": sid, "width": 1400, "height": 900}) or {}
         _must(viewport.get("width") == 1400, f"browser.viewport.set did not echo width: {viewport}")
         _must(viewport.get("height") == 900, f"browser.viewport.set did not echo height: {viewport}")
+        c._call("browser.wait", {"surface_id": sid, "function": "window.innerWidth >= 1400", "timeout_ms": 5000})
         inner_width = c._call("browser.eval", {"surface_id": sid, "script": "window.innerWidth"}) or {}
         _must(int(inner_width.get("value") or 0) >= 1400, f"Expected viewport width >= 1400: {inner_width}")
 

@@ -280,6 +280,7 @@ def main() -> int:
 
         viewport = _run_cli_json(cli, ["browser", surface, "viewport", "1400", "900"])
         _must(int(viewport.get("width") or 0) == 1400, f"Expected viewport width echo via CLI: {viewport}")
+        _run_cli_json(cli, ["browser", surface, "wait", "--function", "window.innerWidth >= 1400", "--timeout-ms", "5000"])
         inner_width = _run_cli_json(cli, ["browser", surface, "eval", "window.innerWidth"])
         _must(int(inner_width.get("value") or 0) >= 1400, f"Expected CLI viewport width >= 1400: {inner_width}")
 

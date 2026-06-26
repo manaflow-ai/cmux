@@ -9526,8 +9526,34 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserViewportSet(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.viewport.set", details: "WKWebView does not provide a per-tab programmable viewport emulation API equivalent to CDP")
+    private func v2BrowserViewportSet(params: [String: Any]) -> V2CallResult {
+        guard let width = v2Double(params, "width"),
+              let height = v2Double(params, "height"),
+              width.isFinite,
+              height.isFinite,
+              width >= 0,
+              height >= 0 else {
+            return .err(code: "invalid_params", message: "browser.viewport.set requires non-negative width and height", data: nil)
+        }
+
+        return v2BrowserWithPanel(params: params) { tabManager, workspace, surfaceId, browserPanel in
+            let handled = browserPanel.setMinimumViewportSize(
+                width: CGFloat(width),
+                height: CGFloat(height)
+            )
+            let storedSize = browserPanel.currentMinimumViewportSize()
+            return .ok(v2BrowserActionPayload(
+                workspace: workspace,
+                surfaceId: surfaceId,
+                tabManager: tabManager,
+                extra: [
+                    "handled": handled,
+                    "width": Int((storedSize?.width ?? 0).rounded()),
+                    "height": Int((storedSize?.height ?? 0).rounded()),
+                    "magnification": Double(browserPanel.webView.magnification)
+                ]
+            ))
+        }
     }
 
     private func v2BrowserGeolocationSet(params _: [String: Any]) -> V2CallResult {

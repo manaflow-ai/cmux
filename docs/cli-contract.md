@@ -328,7 +328,7 @@ Browser subcommands:
 | `browser highlight` | Highlight an element. |
 | `browser state` | Save or load browser state. |
 | `browser addinitscript`, `browser addscript`, `browser addstyle` | Inject scripts or CSS. |
-| `browser viewport` | Set viewport size. |
+| `browser viewport` | Set minimum CSS viewport size. |
 | `browser geolocation`, `browser geo` | Set geolocation. |
 | `browser offline` | Toggle offline state. |
 | `browser trace` | Start or stop trace capture. |

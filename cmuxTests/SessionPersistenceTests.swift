@@ -478,6 +478,8 @@ final class SessionPersistenceTests: XCTestCase {
             profileID: profileID,
             shouldRenderWebView: true,
             pageZoom: 1.2,
+            minimumViewportWidth: 1400,
+            minimumViewportHeight: 900,
             developerToolsVisible: true,
             isMuted: true,
             omnibarVisible: false,
@@ -496,6 +498,8 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(decoded.profileID, source.profileID)
         XCTAssertEqual(decoded.isMuted, source.isMuted)
         XCTAssertEqual(decoded.omnibarVisible, false)
+        XCTAssertEqual(decoded.minimumViewportWidth, 1400)
+        XCTAssertEqual(decoded.minimumViewportHeight, 900)
         XCTAssertEqual(decoded.backHistoryURLStrings, source.backHistoryURLStrings)
         XCTAssertEqual(decoded.forwardHistoryURLStrings, source.forwardHistoryURLStrings)
     }
