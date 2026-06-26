@@ -13,11 +13,15 @@ import Foundation
 /// capture workspace or its terminal is gone, dispatch fails closed and the note
 /// stays queued for retry.
 ///
-/// Staging into the composer is the cleanest hand-off cmux supports natively —
-/// directly injecting a first prompt into a freshly-created agent session
-/// requires the web-renderer session handshake and is intentionally out of
-/// scope here. The store talks to this type only through the protocol, so that
-/// delivery can be upgraded later without touching the queue.
+/// We deliberately stage into the composer rather than auto-submitting (e.g. via
+/// the TextBox send path): this flush runs automatically in the background on
+/// reconnect, and submitting note text into whatever terminal is focused could
+/// run it unreviewed (e.g. as a shell command). Staging keeps delivery safe and
+/// visible — the user reviews and submits. Directly injecting a prompt into a
+/// freshly-created agent session would need the web-renderer session handshake
+/// and is out of scope. The store talks to this type only through the protocol,
+/// so delivery can be upgraded later (e.g. opt-in auto-submit) without touching
+/// the queue.
 @MainActor
 final class OfflineNoteAgentDispatcher: OfflineNoteDispatching {
     /// Resolves the workspace a note should be delivered to. Injectable for tests.

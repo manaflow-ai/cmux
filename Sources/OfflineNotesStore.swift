@@ -179,14 +179,15 @@ final class OfflineNotesStore {
     @ObservationIgnored private var isFlushing = false
     @ObservationIgnored private var hasStarted = false
 
-    /// Bounds so the app-lifetime queue and its backing file stay finite: a note
-    /// is truncated to ``maxNoteLength`` chars, at most ``maxRetainedSentNotes``
-    /// sent notes are kept (oldest first), and the queue holds ``maxTotalNotes``
-    /// total — past which ``addNote`` refuses new captures (never evicting unsent
-    /// work) rather than growing unbounded.
-    static let maxNoteLength = 100_000
-    static let maxRetainedSentNotes = 200
-    static let maxTotalNotes = 1_000
+    /// Bounds so the queue and its backing file stay small enough that the
+    /// synchronous capture write is cheap on the main actor: a note is truncated
+    /// to ``maxNoteLength`` chars, at most ``maxRetainedSentNotes`` sent notes are
+    /// kept (oldest first), and the queue holds ``maxTotalNotes`` total — past
+    /// which ``addNote`` refuses new captures (never evicting unsent work). The
+    /// worst-case file is ~``maxNoteLength`` × ``maxTotalNotes`` (well under 1 MB).
+    static let maxNoteLength = 4_000
+    static let maxRetainedSentNotes = 100
+    static let maxTotalNotes = 200
 
     init(
         fileURL: URL? = OfflineNotesStore.defaultFileURL(),
