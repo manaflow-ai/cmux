@@ -3471,19 +3471,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else {
             foregroundKey = nil
         }
+        // Filter rows the owning Mac has CONFIRMED closed (and any group they
+        // anchor) out of the per-Mac source up front, so BOTH the flat list AND the
+        // group headers drop a just-deleted workspace even when a stale
+        // `workspace.list` re-added it via any ingest (issue #6349). A group whose
+        // anchor was closed dissolves on the Mac; dropping it here lets its
+        // surviving members fall back to ungrouped rows, matching that.
+        let statesByMac = statesFilteringConfirmedClosed(workspacesByMac)
         var derived = workspaceAggregation.derivedWorkspaces(
-            statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
-        // Never surface a row the owning Mac has CONFIRMED closed, whichever ingest
-        // re-added it from a stale `workspace.list` snapshot (issue #6349). One
-        // Mac-scoped filter at this single derivation point covers every path; it
-        // runs before the anonymous reset below, so `macDeviceID` is the per-Mac key.
-        if !confirmedClosedWorkspaceIDsByMac.isEmpty {
-            derived.removeAll { workspace in
-                guard let macKey = workspace.macDeviceID else { return false }
-                return confirmedClosedWorkspaceIDsByMac[macKey]?
-                    .contains(workspace.rpcWorkspaceID.rawValue) == true
-            }
-        }
+            statesByMac: statesByMac, foregroundMacDeviceID: foregroundKey)
         // Stamp per-Mac user color/icon overrides from pairedMacs so every
         // workspace avatar matches its computer's customization (same place the
         // aggregation already assigned the automatic color index).
@@ -3518,7 +3514,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.selectedWorkspaceID = remapped?.id ?? derived.first?.id
         }
         workspaceGroups = workspaceAggregation.derivedGroups(
-            statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
+            statesByMac: statesByMac, foregroundMacDeviceID: foregroundKey)
+    }
+
+    /// Per-Mac state with each Mac's CONFIRMED-closed workspaces — and any group
+    /// they anchor — removed, so the flat list and group sections both exclude a
+    /// just-closed row while a stale list still reports it (#6349). A no-op (returns
+    /// the input) when nothing is tombstoned. Members of a dropped group survive and
+    /// degrade to ungrouped rows, matching the Mac's dissolve-on-anchor-close.
+    private func statesFilteringConfirmedClosed(
+        _ states: [String: MacWorkspaceState]
+    ) -> [String: MacWorkspaceState] {
+        guard !confirmedClosedWorkspaceIDsByMac.isEmpty else { return states }
+        var result = states
+        for (macKey, closedIDs) in confirmedClosedWorkspaceIDsByMac {
+            guard var state = result[macKey] else { continue }
+            state.workspaces.removeAll { closedIDs.contains($0.rpcWorkspaceID.rawValue) }
+            state.groups.removeAll { closedIDs.contains($0.anchorWorkspaceID.rawValue) }
+            result[macKey] = state
+        }
+        return result
     }
 
     /// Set the user's per-Mac customizations (name / color / icon), persist them

@@ -296,7 +296,38 @@ struct MobileWorkspaceCloseReconcileTests {
         #expect(has(mac: "mac-a", rpc: "mac-a-only"))
     }
 
-    private static func preview(id: String) -> MobileWorkspacePreview {
-        MobileWorkspacePreview(id: .init(rawValue: id), name: id, terminals: [])
+    /// A confirmed-closed workspace that anchors a group must also drop the stale
+    /// group header (the Mac dissolves the group when its anchor closes), so the
+    /// deleted row can't linger as a header that still targets the dead anchor id.
+    /// Surviving members degrade to ungrouped rows (issue #6349, grouped UI).
+    @Test func confirmedCloseDissolvesStaleGroupHeader() {
+        let store = MobileShellComposite.preview()
+        let groupID = MobileWorkspaceGroupPreview.ID(rawValue: "group-1")
+        store.confirmedClosedWorkspaceIDsByMac = ["mac-a": ["anchor-ws"]]
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a", displayName: "Mac A",
+                workspaces: [
+                    Self.preview(id: "anchor-ws", groupID: groupID),
+                    Self.preview(id: "member-ws", groupID: groupID),
+                ],
+                groups: [
+                    MobileWorkspaceGroupPreview(
+                        id: groupID, name: "Group", anchorWorkspaceID: .init(rawValue: "anchor-ws")),
+                ],
+                status: .connected),
+        ], foregroundMacDeviceID: "mac-a")
+
+        // Closed anchor gone from the flat list AND its stale group header is gone.
+        #expect(!store.workspaces.contains { $0.rpcWorkspaceID.rawValue == "anchor-ws" })
+        #expect(!store.workspaceGroups.contains { $0.anchorWorkspaceID.rawValue == "anchor-ws" })
+        // The surviving member stays (renders ungrouped once its group is gone).
+        #expect(store.workspaces.contains { $0.rpcWorkspaceID.rawValue == "member-ws" })
+    }
+
+    private static func preview(
+        id: String, groupID: MobileWorkspaceGroupPreview.ID? = nil
+    ) -> MobileWorkspacePreview {
+        MobileWorkspacePreview(id: .init(rawValue: id), name: id, groupID: groupID, terminals: [])
     }
 }
