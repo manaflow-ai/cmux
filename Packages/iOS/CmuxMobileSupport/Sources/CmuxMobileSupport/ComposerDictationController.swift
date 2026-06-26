@@ -1,7 +1,7 @@
 #if os(iOS)
 import AVFoundation
 import Foundation
-import Observation
+public import Observation
 import Speech
 
 /// On-device voice dictation for the composer text field.
@@ -25,10 +25,10 @@ import Speech
 /// to avoid a retain cycle through the recognition task.
 @MainActor
 @Observable
-final class ComposerDictationController {
+public final class ComposerDictationController {
     /// The current point in the dictation state machine. Drives the mic button's
     /// enabled/listening presentation.
-    private(set) var state: ComposerDictationState = .idle
+    public private(set) var state: ComposerDictationState = .idle
 
     /// The recognizer for the user's locale. `nil` when the locale is
     /// unsupported, which is surfaced as ``ComposerDictationState/unavailable``.
@@ -72,8 +72,8 @@ final class ComposerDictationController {
     /// before force-finishing cleanup, so the controller cannot hang in
     /// `.stopping` if no final result ever arrives.
     private static let finalizeTimeoutSeconds: Double = 2.5
-
-    init(textMerger: ComposerDictationTextMerger = ComposerDictationTextMerger()) {
+    /// Creates a dictation controller for the current speech-recognition locale.
+    public init(textMerger: ComposerDictationTextMerger = ComposerDictationTextMerger()) {
         self.textMerger = textMerger
         self.recognizer = SFSpeechRecognizer()
         // A nil recognizer (unsupported locale) is terminal: the mic is disabled.
@@ -86,7 +86,7 @@ final class ComposerDictationController {
     /// recognizer is permanently unavailable (unsupported locale, denied, or
     /// restricted); a transient busy state still leaves the button enabled so the
     /// user can toggle it off.
-    var isAvailable: Bool { state != .unavailable }
+    public var isAvailable: Bool { state != .unavailable }
 
     /// Whether dictation currently owns the composer text, so the field must be
     /// locked (non-editable) until dictation settles to idle. True while
@@ -95,7 +95,7 @@ final class ComposerDictationController {
     /// the field's `.disabled(...)` to this so a user edit made mid-dictation can
     /// never be clobbered by a later partial/final callback. The mic toggle and
     /// send remain usable while locked.
-    var locksComposerField: Bool { state.locksComposerField }
+    public var locksComposerField: Bool { state.locksComposerField }
 
     /// Toggle dictation: start if idle, stop if already listening, or cancel a
     /// pending start if authorization is still resolving.
@@ -109,7 +109,7 @@ final class ComposerDictationController {
     ///   - existingText: The composer's current text, captured as the merge base.
     ///   - onText: Receives merged text (base + transcript) on the main actor for
     ///     every partial and the final result.
-    func toggle(existingText: String, onText: @escaping (String) -> Void) {
+    public func toggle(existingText: String, onText: @escaping (String) -> Void) {
         if state.isListening {
             // The visible Stop button: finalize gracefully so the last spoken
             // words are not dropped.
@@ -207,7 +207,7 @@ final class ComposerDictationController {
     /// The latest partial is already committed to the composer (every partial
     /// wrote through `onText` while listening), so the user's words are preserved
     /// even if the final result is only a refinement or never arrives.
-    func stop() {
+    public func stop() {
         // Only a live listening session can be finalized. From any other state a
         // graceful stop is a no-op except for clearing a stuck-open mic: fall back
         // to a hard cancel so callers (focus loss, send) always settle the state.
@@ -235,7 +235,7 @@ final class ComposerDictationController {
     /// the session, and drop the callback. Used when the user navigates away
     /// (`onDisappear`, terminal switch) where losing the unrecognized tail is
     /// acceptable. Idempotent and safe to call from any state.
-    func cancel() {
+    public func cancel() {
         if state == .listening || state == .stopping { state = .stopping }
         teardown()
         // Preserve a terminal `unavailable`; otherwise return to idle. A cancel

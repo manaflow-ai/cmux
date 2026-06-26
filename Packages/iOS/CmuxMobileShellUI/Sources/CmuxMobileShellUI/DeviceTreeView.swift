@@ -7,12 +7,10 @@ import CmuxMobileSupport
 import SwiftUI
 
 /// The Computers screen: the Macs signed in to the user's account, each shown
-/// with its name, live/last-seen status, and workspace count. There is no longer
-/// a "connect to a device" step — workspaces from every computer already appear
-/// together in the main list — so this screen is now for *managing* computers:
-/// see their details (online state, when last seen, how many workspaces) and add
-/// or remove one. The data is the durable-object–backed device registry (with a
-/// paired-Mac fallback) plus live presence.
+/// with its name, live/last-seen status, and workspace count. The main workspace
+/// list owns the Mac picker; this screen manages the saved computer set and lets
+/// users inspect or remove one. The data is the durable-object–backed device
+/// registry (with a paired-Mac fallback) plus live presence.
 ///
 /// Snapshot boundary (see AGENTS.md): every row below the `List` takes an
 /// immutable ``MacComputerSnapshot`` value only — no `@Observable`/`store`
@@ -27,8 +25,10 @@ struct DeviceTreeView: View {
     var showAddDevice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
-    /// The computer pending a remove confirmation.
-    @State private var pendingRemoval: MacComputerSnapshot?
+    /// The computer whose destructive remove action is awaiting confirmation.
+    /// Stored at list scope so reusable rows do not own transient presentation
+    /// state while `List` is recycling swipe-action rows.
+    @State private var computerPendingRemovalID: String?
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -73,20 +73,20 @@ struct DeviceTreeView: View {
                 } else {
                     Section {
                         ForEach(computers) { computer in
-                            NavigationLink(value: computer.deviceId) {
-                                MacComputerRow(computer: computer)
-                            }
-                            .swipeActions(edge: .trailing) {
-                                removeButton(for: computer)
-                            }
-                            .contextMenu {
-                                removeButton(for: computer)
-                            }
+                            MacComputerRow(
+                                computer: computer,
+                                requestRemove: requestComputerRemoval,
+                                isConfirmingRemove: removalConfirmationBinding(for: computer.deviceId),
+                                confirmRemove: { _ in confirmComputerRemoval() }
+                            )
+                        }
+                        if showAddDevice != nil {
+                            addComputerRow
                         }
                     } footer: {
                         Text(L10n.string(
                             "mobile.computers.footer",
-                            defaultValue: "The Macs signed in to your account. Workspaces from every computer appear together in the main list."
+                            defaultValue: "The Macs signed in to your account. Use the workspace title picker to focus one Mac or show All Macs."
                         ))
                     }
                 }
@@ -100,10 +100,7 @@ struct DeviceTreeView: View {
             .toolbar {
                 if showAddDevice != nil {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            showAddDevice?()
-                            dismiss()
-                        } label: {
+                        Button(action: addComputer) {
                             Image(systemName: "plus")
                         }
                         .accessibilityLabel(L10n.string("mobile.computers.add", defaultValue: "Add Computer"))
@@ -133,45 +130,28 @@ struct DeviceTreeView: View {
                     await store.refreshComputersScreen()
                 }
             }
-            .confirmationDialog(
-                removeTitle(pendingRemoval),
-                isPresented: removalDialogBinding,
-                titleVisibility: .visible
-            ) {
-                if let pending = pendingRemoval {
-                    Button(
-                        L10n.string("mobile.computers.remove", defaultValue: "Remove"),
-                        role: .destructive
-                    ) {
-                        let deviceId = pending.deviceId
-                        pendingRemoval = nil
-                        Task {
-                            await store.forgetMac(macDeviceID: deviceId)
-                            await reload()
-                        }
-                    }
-                }
-                Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
-                    pendingRemoval = nil
-                }
-            } message: {
-                Text(removeMessage(pendingRemoval))
-            }
         }
         .accessibilityIdentifier("MobileDeviceTree")
     }
 
-    @ViewBuilder
-    private func removeButton(for computer: MacComputerSnapshot) -> some View {
-        Button(role: .destructive) {
-            pendingRemoval = computer
-        } label: {
+    /// End-of-list affordance mirroring the top-left toolbar button, so users who
+    /// scroll past their Macs can add another without scrolling back up. Same
+    /// action path (`addComputer`) as the toolbar button.
+    private var addComputerRow: some View {
+        Button(action: addComputer) {
             Label(
-                L10n.string("mobile.computers.remove", defaultValue: "Remove"),
-                systemImage: "trash"
+                L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
+                systemImage: "plus"
             )
         }
-        .accessibilityIdentifier("MobileComputerRemove-\(computer.deviceId)")
+        .accessibilityIdentifier("MobileComputersAddRow")
+    }
+
+    /// Present the add-device (pairing) flow, then dismiss this screen. Shared by
+    /// the top-left toolbar button and the end-of-list row.
+    private func addComputer() {
+        showAddDevice?()
+        dismiss()
     }
 
     @ViewBuilder
@@ -185,34 +165,32 @@ struct DeviceTreeView: View {
         }
     }
 
-    private var removalDialogBinding: Binding<Bool> {
+    private func requestComputerRemoval(_ deviceID: String) {
+        computerPendingRemovalID = deviceID
+    }
+
+    private func removalConfirmationBinding(for deviceID: String) -> Binding<Bool> {
         Binding(
-            get: { pendingRemoval != nil },
-            set: { presented in if !presented { pendingRemoval = nil } }
+            get: { computerPendingRemovalID == deviceID },
+            set: { isPresented in
+                if isPresented {
+                    computerPendingRemovalID = deviceID
+                } else if computerPendingRemovalID == deviceID {
+                    computerPendingRemovalID = nil
+                }
+            }
         )
     }
 
-    private func removeTitle(_ computer: MacComputerSnapshot?) -> String {
-        String(
-            format: L10n.string("mobile.computers.removeTitleFormat", defaultValue: "Remove %@?"),
-            computer?.title ?? ""
-        )
-    }
-
-    private func removeMessage(_ computer: MacComputerSnapshot?) -> String {
-        guard let computer, computer.aliasIDs.count > 1 else {
-            return L10n.string(
-                "mobile.computers.removeMessage",
-                defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
-            )
+    private func confirmComputerRemoval() {
+        guard let deviceID = computerPendingRemovalID else {
+            return
         }
-        return String(
-            format: L10n.string(
-                "mobile.computers.removeMessageRepresentativeFormat",
-                defaultValue: "This removes paired record %@. Other matching records may still appear."
-            ),
-            computer.deviceId
-        )
+        computerPendingRemovalID = nil
+        Task {
+            await store.forgetMac(macDeviceID: deviceID)
+            await reload()
+        }
     }
 
     private func reload() async {
