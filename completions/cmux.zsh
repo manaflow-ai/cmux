@@ -5,7 +5,6 @@
 # Source of truth:  topLevelCommandNames in CLI/cmux.swift + its usage() help.
 
 _cmux() {
-    local context state line
     local -a commands
     commands=(
         'agent-hibernation'
@@ -102,7 +101,9 @@ _cmux() {
         'read-screen'
         'refresh-surfaces'
         'reload-config'
+        'remote'
         'remote-daemon-status'
+        'remotes'
         'rename-tab'
         'rename-window'
         'rename-workspace'
@@ -128,6 +129,7 @@ _cmux() {
         'sidebar'
         'sidebar-state'
         'simulate-app-active'
+        'simulate-sidebar-drag'
         'split-off'
         'ssh'
         'ssh-session-attach'
@@ -157,15 +159,25 @@ _cmux() {
         return
     fi
     local cmd=${words[2]}
+    local prev=${words[CURRENT-1]}
     case $cmd in
         agent-hibernation)
             compadd -- off on ;;
         auth)
             compadd -- login logout status ;;
         break-pane)
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
             compadd -- --focus --no-focus --pane --surface --window --workspace ;;
         browser)
-            compadd -- addinitscript addscript addstyle console cookies devtools dialog disable download errors eval fill find focus-mode frame get highlight history identify import is open open-split profiles react-grab screenshot scroll select snapshot state storage tab type wait zoom --all --compact --cursor --dx --dy --focus --force --function --interactive --json --load-state --max-depth --out --path --return-to --selector --snapshot-after --surface --text --timeout-ms --url-contains ;;
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
+            if [[ $prev == --load-state ]]; then
+                compadd -- interactive complete; return
+            fi
+            compadd -- addinitscript addscript addstyle back check click console cookies dblclick devtools dialog disable download errors eval fill find focus focus-mode forward frame get get-url goto highlight history hover identify import is keydown keyup navigate open open-split press profiles react-grab reload screenshot scroll scroll-into-view select snapshot state storage tab type uncheck url wait zoom --all --compact --cursor --dx --dy --focus --force --function --interactive --json --load-state --max-depth --out --path --return-to --selector --snapshot-after --surface --text --timeout-ms --url-contains ;;
         capture-pane)
             compadd -- --lines --scrollback --surface --window --workspace ;;
         clear-history)
@@ -187,6 +199,15 @@ _cmux() {
         current-workspace)
             compadd -- --window ;;
         diff)
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
+            if [[ $prev == --layout ]]; then
+                compadd -- split unified; return
+            fi
+            if [[ $prev == --source ]]; then
+                compadd -- unstaged staged branch last-turn; return
+            fi
             compadd -- --base --branch --cwd --focus --font-size --last-turn --layout --no-focus --source --staged --surface --title --unstaged --window --workspace ;;
         dismiss-notification)
             compadd -- --all-read --id ;;
@@ -195,9 +216,14 @@ _cmux() {
         docs)
             compadd -- agents api browser dock settings shortcuts sidebars ;;
         drag-surface-to-split)
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
             compadd -- --focus --surface --window --workspace ;;
         events)
             compadd -- --after --category --cursor-file --limit --name --no-ack --no-heartbeat --reconnect ;;
+        feed)
+            compadd -- clear tui ;;
         feedback)
             compadd -- --body --email --image ;;
         find-window)
@@ -209,10 +235,13 @@ _cmux() {
         focus-window)
             compadd -- --window ;;
         hooks)
-            compadd -- feed --agent --event --project --source ;;
+            compadd -- feed setup uninstall --agent --event --project --source ;;
         identify)
             compadd -- --no-caller --surface --window --workspace ;;
         join-pane)
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
             compadd -- --focus --no-focus --pane --surface --target-pane --window --workspace ;;
         last-pane)
             compadd -- --window --workspace ;;
@@ -235,28 +264,67 @@ _cmux() {
         mark-notification-read)
             compadd -- --all --id --surface --window --workspace ;;
         markdown)
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
             compadd -- --focus ;;
         memory)
             compadd -- --all --groups --workspace ;;
         move-surface)
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
             compadd -- --after --before --focus --index --pane --surface --window --workspace ;;
         move-tab-to-new-workspace)
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
             compadd -- --focus --surface --tab --title --window --workspace ;;
         move-workspace-to-window)
             compadd -- --window --workspace ;;
         new-pane)
+            if [[ $prev == --direction ]]; then
+                compadd -- left right up down; return
+            fi
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
+            if [[ $prev == --type ]]; then
+                compadd -- terminal browser; return
+            fi
             compadd -- --direction --focus --type --url --window --workspace ;;
         new-split)
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
             compadd -- down left right up --focus --panel --surface --window --workspace ;;
         new-surface)
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
+            if [[ $prev == --provider ]]; then
+                compadd -- codex claude opencode; return
+            fi
+            if [[ $prev == --renderer ]]; then
+                compadd -- react solid; return
+            fi
+            if [[ $prev == --type ]]; then
+                compadd -- terminal browser agent-session; return
+            fi
             compadd -- --focus --pane --provider --renderer --type --url --window --workspace ;;
         new-workspace)
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
             compadd -- --command --cwd --description --focus --group --group-placement --group-reference --layout --name --window ;;
         next-window)
             compadd -- --window ;;
         notify)
             compadd -- --body --subtitle --surface --title --window --workspace ;;
         open)
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
             compadd -- --focus --no-focus --pane --surface --window --workspace ;;
         open-notification)
             compadd -- --id ;;
@@ -269,7 +337,15 @@ _cmux() {
         read-screen)
             compadd -- --lines --scrollback --surface --window --workspace ;;
         remote-daemon-status)
+            if [[ $prev == --arch ]]; then
+                compadd -- arm64 amd64; return
+            fi
+            if [[ $prev == --os ]]; then
+                compadd -- darwin linux; return
+            fi
             compadd -- --arch --os ;;
+        remotes)
+            compadd -- add list remove --json --route --tag ;;
         rename-tab)
             compadd -- --surface --tab --window --workspace ;;
         rename-window)
@@ -277,6 +353,9 @@ _cmux() {
         rename-workspace)
             compadd -- --window --workspace ;;
         reorder-surface)
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
             compadd -- --after --before --focus --index --surface --window --workspace ;;
         reorder-workspace)
             compadd -- --after --before --dry-run --index --window --workspace ;;
@@ -310,11 +389,19 @@ _cmux() {
             compadd -- open reload select validate ;;
         sidebar-state)
             compadd -- --window --workspace ;;
+        simulate-sidebar-drag)
+            compadd -- --duration-ms --from --steps --to --window ;;
         split-off)
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
             compadd -- --focus --surface --window --workspace ;;
         ssh)
             compadd -- --forward-agent --identity --name --no-focus --no-forward-agent --port --ssh-option --window ;;
         ssh-session-attach)
+            if [[ $prev == --split ]]; then
+                compadd -- left right up down; return
+            fi
             compadd -- --pane --session-id --split --workspace ;;
         ssh-session-cleanup)
             compadd -- --all --all-workspaces --session-id --workspace ;;
@@ -327,12 +414,24 @@ _cmux() {
         surface-health)
             compadd -- --window --workspace ;;
         swap-pane)
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
             compadd -- --focus --pane --target-pane --window --workspace ;;
         tab-action)
+            if [[ $prev == --focus ]]; then
+                compadd -- true false; return
+            fi
             compadd -- --action --focus --surface --tab --title --url --window --workspace ;;
         themes)
             compadd -- clear list set ;;
         top)
+            if [[ $prev == --format ]]; then
+                compadd -- tree tsv; return
+            fi
+            if [[ $prev == --sort ]]; then
+                compadd -- cpu mem proc; return
+            fi
             compadd -- --all --flat --format --processes --sort --window --workspace ;;
         tree)
             compadd -- --all --window --workspace ;;

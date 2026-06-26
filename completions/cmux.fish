@@ -103,7 +103,9 @@ complete -c cmux -n __cmux_needs_command -f -a 'previous-window'
 complete -c cmux -n __cmux_needs_command -f -a 'read-screen'
 complete -c cmux -n __cmux_needs_command -f -a 'refresh-surfaces'
 complete -c cmux -n __cmux_needs_command -f -a 'reload-config'
+complete -c cmux -n __cmux_needs_command -f -a 'remote'
 complete -c cmux -n __cmux_needs_command -f -a 'remote-daemon-status'
+complete -c cmux -n __cmux_needs_command -f -a 'remotes'
 complete -c cmux -n __cmux_needs_command -f -a 'rename-tab'
 complete -c cmux -n __cmux_needs_command -f -a 'rename-window'
 complete -c cmux -n __cmux_needs_command -f -a 'rename-workspace'
@@ -129,6 +131,7 @@ complete -c cmux -n __cmux_needs_command -f -a 'shortcuts'
 complete -c cmux -n __cmux_needs_command -f -a 'sidebar'
 complete -c cmux -n __cmux_needs_command -f -a 'sidebar-state'
 complete -c cmux -n __cmux_needs_command -f -a 'simulate-app-active'
+complete -c cmux -n __cmux_needs_command -f -a 'simulate-sidebar-drag'
 complete -c cmux -n __cmux_needs_command -f -a 'split-off'
 complete -c cmux -n __cmux_needs_command -f -a 'ssh'
 complete -c cmux -n __cmux_needs_command -f -a 'ssh-session-attach'
@@ -167,8 +170,12 @@ complete -c cmux -n '__fish_seen_subcommand_from break-pane' -l workspace
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'addinitscript'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'addscript'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'addstyle'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'back'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'check'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'click'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'console'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'cookies'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'dblclick'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'devtools'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'dialog'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'disable'
@@ -177,26 +184,39 @@ complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'errors'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'eval'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'fill'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'find'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'focus'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'focus-mode'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'forward'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'frame'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'get'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'get-url'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'goto'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'highlight'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'history'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'hover'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'identify'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'import'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'is'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'keydown'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'keyup'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'navigate'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'open'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'open-split'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'press'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'profiles'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'react-grab'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'reload'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'screenshot'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'scroll'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'scroll-into-view'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'select'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'snapshot'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'state'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'storage'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'tab'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'type'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'uncheck'
+complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'url'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'wait'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -f -a 'zoom'
 complete -c cmux -n '__fish_seen_subcommand_from browser' -l all
@@ -280,6 +300,8 @@ complete -c cmux -n '__fish_seen_subcommand_from events' -l name
 complete -c cmux -n '__fish_seen_subcommand_from events' -l no-ack
 complete -c cmux -n '__fish_seen_subcommand_from events' -l no-heartbeat
 complete -c cmux -n '__fish_seen_subcommand_from events' -l reconnect
+complete -c cmux -n '__fish_seen_subcommand_from feed' -f -a 'clear'
+complete -c cmux -n '__fish_seen_subcommand_from feed' -f -a 'tui'
 complete -c cmux -n '__fish_seen_subcommand_from feedback' -l body
 complete -c cmux -n '__fish_seen_subcommand_from feedback' -l email
 complete -c cmux -n '__fish_seen_subcommand_from feedback' -l image
@@ -294,6 +316,8 @@ complete -c cmux -n '__fish_seen_subcommand_from focus-panel' -l window
 complete -c cmux -n '__fish_seen_subcommand_from focus-panel' -l workspace
 complete -c cmux -n '__fish_seen_subcommand_from focus-window' -l window
 complete -c cmux -n '__fish_seen_subcommand_from hooks' -f -a 'feed'
+complete -c cmux -n '__fish_seen_subcommand_from hooks' -f -a 'setup'
+complete -c cmux -n '__fish_seen_subcommand_from hooks' -f -a 'uninstall'
 complete -c cmux -n '__fish_seen_subcommand_from hooks' -l agent
 complete -c cmux -n '__fish_seen_subcommand_from hooks' -l event
 complete -c cmux -n '__fish_seen_subcommand_from hooks' -l project
@@ -417,6 +441,12 @@ complete -c cmux -n '__fish_seen_subcommand_from read-screen' -l window
 complete -c cmux -n '__fish_seen_subcommand_from read-screen' -l workspace
 complete -c cmux -n '__fish_seen_subcommand_from remote-daemon-status' -l arch -f -a 'arm64 amd64'
 complete -c cmux -n '__fish_seen_subcommand_from remote-daemon-status' -l os -f -a 'darwin linux'
+complete -c cmux -n '__fish_seen_subcommand_from remotes' -f -a 'add'
+complete -c cmux -n '__fish_seen_subcommand_from remotes' -f -a 'list'
+complete -c cmux -n '__fish_seen_subcommand_from remotes' -f -a 'remove'
+complete -c cmux -n '__fish_seen_subcommand_from remotes' -l json
+complete -c cmux -n '__fish_seen_subcommand_from remotes' -l route
+complete -c cmux -n '__fish_seen_subcommand_from remotes' -l tag
 complete -c cmux -n '__fish_seen_subcommand_from rename-tab' -l surface
 complete -c cmux -n '__fish_seen_subcommand_from rename-tab' -l tab
 complete -c cmux -n '__fish_seen_subcommand_from rename-tab' -l window
@@ -496,6 +526,11 @@ complete -c cmux -n '__fish_seen_subcommand_from sidebar' -f -a 'select'
 complete -c cmux -n '__fish_seen_subcommand_from sidebar' -f -a 'validate'
 complete -c cmux -n '__fish_seen_subcommand_from sidebar-state' -l window
 complete -c cmux -n '__fish_seen_subcommand_from sidebar-state' -l workspace
+complete -c cmux -n '__fish_seen_subcommand_from simulate-sidebar-drag' -l duration-ms
+complete -c cmux -n '__fish_seen_subcommand_from simulate-sidebar-drag' -l from
+complete -c cmux -n '__fish_seen_subcommand_from simulate-sidebar-drag' -l steps
+complete -c cmux -n '__fish_seen_subcommand_from simulate-sidebar-drag' -l to
+complete -c cmux -n '__fish_seen_subcommand_from simulate-sidebar-drag' -l window
 complete -c cmux -n '__fish_seen_subcommand_from split-off' -l focus -f -a 'true false'
 complete -c cmux -n '__fish_seen_subcommand_from split-off' -l surface
 complete -c cmux -n '__fish_seen_subcommand_from split-off' -l window

@@ -83,6 +83,23 @@ def main() -> int:
     except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
         failures.append(f"could not list commands for coverage check: {exc}")
 
+    # Registry-coverage drift guard: every command documented in the usage()
+    # help must be in topLevelCommandNames, or completions silently miss it.
+    try:
+        proc = subprocess.run(  # noqa: S603
+            [sys.executable, str(GENERATOR), "--check"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if proc.returncode != 0:
+            failures.append(
+                f"registry-coverage drift: {proc.stderr.strip() or proc.stdout.strip()}"
+            )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        failures.append(f"could not run registry-coverage check: {exc}")
+
     bash_text = regenerated.get("bash", "")
     # Normalize quotes/newlines to spaces so first/last tokens against a `"`
     # boundary still match on whole-word check.

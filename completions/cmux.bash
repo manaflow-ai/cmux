@@ -18,7 +18,7 @@ _cmux() {
             *) cmd="${COMP_WORDS[i]}"; break ;;
         esac
     done
-    local commands="agent-hibernation auth bind-key break-pane browser browser-back browser-forward browser-reload browser-status capabilities capture-pane claude-teams clear-history clear-log clear-notifications clear-progress clear-status close-surface close-window close-workspace cloud codex codex-teams config copy-mode current-window current-workspace debug-terminals detach-tab diff disable-browser dismiss-notification display-message docs drag-surface-to-split enable-browser events feed feedback find-window focus-pane focus-panel focus-webview focus-window get-url help hooks identify is-webview-focused join-pane jump-to-unread last-pane last-window list-buffers list-log list-notifications list-pane-surfaces list-panels list-panes list-status list-windows list-workspaces log login logout mark-notification-read markdown memory mobile move-surface move-tab-to-new-workspace move-workspace-to-window navigate new-pane new-split new-surface new-window new-workspace next-window notify omc omo omx open open-browser open-notification paste-buffer ping pipe-pane popup previous-window read-screen refresh-surfaces reload-config remote-daemon-status rename-tab rename-window rename-workspace reorder-surface reorder-workspace reorder-workspaces resize-pane respawn-pane restore-session right-sidebar rpc select-workspace send send-key send-key-panel send-panel set-app-focus set-buffer set-progress set-status settings shortcuts sidebar sidebar-state simulate-app-active split-off ssh ssh-session-attach ssh-session-cleanup ssh-session-list ssh-tmux surface surface-health surface-resume swap-pane tab-action themes top tree trigger-flash unbind-key version vm wait-for welcome workspace workspace-action workspace-group"
+    local commands="agent-hibernation auth bind-key break-pane browser browser-back browser-forward browser-reload browser-status capabilities capture-pane claude-teams clear-history clear-log clear-notifications clear-progress clear-status close-surface close-window close-workspace cloud codex codex-teams config copy-mode current-window current-workspace debug-terminals detach-tab diff disable-browser dismiss-notification display-message docs drag-surface-to-split enable-browser events feed feedback find-window focus-pane focus-panel focus-webview focus-window get-url help hooks identify is-webview-focused join-pane jump-to-unread last-pane last-window list-buffers list-log list-notifications list-pane-surfaces list-panels list-panes list-status list-windows list-workspaces log login logout mark-notification-read markdown memory mobile move-surface move-tab-to-new-workspace move-workspace-to-window navigate new-pane new-split new-surface new-window new-workspace next-window notify omc omo omx open open-browser open-notification paste-buffer ping pipe-pane popup previous-window read-screen refresh-surfaces reload-config remote remote-daemon-status remotes rename-tab rename-window rename-workspace reorder-surface reorder-workspace reorder-workspaces resize-pane respawn-pane restore-session right-sidebar rpc select-workspace send send-key send-key-panel send-panel set-app-focus set-buffer set-progress set-status settings shortcuts sidebar sidebar-state simulate-app-active simulate-sidebar-drag split-off ssh ssh-session-attach ssh-session-cleanup ssh-session-list ssh-tmux surface surface-health surface-resume swap-pane tab-action themes top tree trigger-flash unbind-key version vm wait-for welcome workspace workspace-action workspace-group"
     if [[ -z $cmd ]]; then
         COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
         return
@@ -40,7 +40,7 @@ _cmux() {
             if [[ $prev == --load-state ]]; then
                 COMPREPLY=( $(compgen -W "interactive complete" -- "$cur") ); return
             fi
-            COMPREPLY=( $(compgen -W "addinitscript addscript addstyle console cookies devtools dialog disable download errors eval fill find focus-mode frame get highlight history identify import is open open-split profiles react-grab screenshot scroll select snapshot state storage tab type wait zoom --all --compact --cursor --dx --dy --focus --force --function --interactive --json --load-state --max-depth --out --path --return-to --selector --snapshot-after --surface --text --timeout-ms --url-contains" -- "$cur") ); return ;;
+            COMPREPLY=( $(compgen -W "addinitscript addscript addstyle back check click console cookies dblclick devtools dialog disable download errors eval fill find focus focus-mode forward frame get get-url goto highlight history hover identify import is keydown keyup navigate open open-split press profiles react-grab reload screenshot scroll scroll-into-view select snapshot state storage tab type uncheck url wait zoom --all --compact --cursor --dx --dy --focus --force --function --interactive --json --load-state --max-depth --out --path --return-to --selector --snapshot-after --surface --text --timeout-ms --url-contains" -- "$cur") ); return ;;
         capture-pane)
             COMPREPLY=( $(compgen -W "--lines --scrollback --surface --window --workspace" -- "$cur") ); return ;;
         clear-history)
@@ -85,6 +85,8 @@ _cmux() {
             COMPREPLY=( $(compgen -W "--focus --surface --window --workspace" -- "$cur") ); return ;;
         events)
             COMPREPLY=( $(compgen -W "--after --category --cursor-file --limit --name --no-ack --no-heartbeat --reconnect" -- "$cur") ); return ;;
+        feed)
+            COMPREPLY=( $(compgen -W "clear tui" -- "$cur") ); return ;;
         feedback)
             COMPREPLY=( $(compgen -W "--body --email --image" -- "$cur") ); return ;;
         find-window)
@@ -96,7 +98,7 @@ _cmux() {
         focus-window)
             COMPREPLY=( $(compgen -W "--window" -- "$cur") ); return ;;
         hooks)
-            COMPREPLY=( $(compgen -W "feed --agent --event --project --source" -- "$cur") ); return ;;
+            COMPREPLY=( $(compgen -W "feed setup uninstall --agent --event --project --source" -- "$cur") ); return ;;
         identify)
             COMPREPLY=( $(compgen -W "--no-caller --surface --window --workspace" -- "$cur") ); return ;;
         join-pane)
@@ -205,6 +207,8 @@ _cmux() {
                 COMPREPLY=( $(compgen -W "darwin linux" -- "$cur") ); return
             fi
             COMPREPLY=( $(compgen -W "--arch --os" -- "$cur") ); return ;;
+        remotes)
+            COMPREPLY=( $(compgen -W "add list remove --json --route --tag" -- "$cur") ); return ;;
         rename-tab)
             COMPREPLY=( $(compgen -W "--surface --tab --window --workspace" -- "$cur") ); return ;;
         rename-window)
@@ -248,6 +252,8 @@ _cmux() {
             COMPREPLY=( $(compgen -W "open reload select validate" -- "$cur") ); return ;;
         sidebar-state)
             COMPREPLY=( $(compgen -W "--window --workspace" -- "$cur") ); return ;;
+        simulate-sidebar-drag)
+            COMPREPLY=( $(compgen -W "--duration-ms --from --steps --to --window" -- "$cur") ); return ;;
         split-off)
             if [[ $prev == --focus ]]; then
                 COMPREPLY=( $(compgen -W "true false" -- "$cur") ); return

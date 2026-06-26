@@ -67,6 +67,10 @@ FLAG_RE = re.compile(r"(--[a-z][a-z0-9-]*|-[A-Za-z])\b")
 CHOICE_RE = re.compile(r"[<\[]([a-z][a-z0-9-]*(?:\|[a-z][a-z0-9-]*)+)[>\]]")
 # `--flag <a|b|c>` flag-value enums.
 FLAG_VALUE_RE = re.compile(r"(--[a-z][a-z0-9-]*)\s+<([a-z][a-z0-9-]*(?:\|[a-z][a-z0-9-]*)+)>")
+# Leading command token of a help line, plus space-delimited `a | b | c` alias
+# groups (the cmux convention for top-level aliases). Stops before a `cmd
+# sub|sub` subcommand group, which has no spaces around its pipes.
+LEAD_COMMAND_RE = re.compile(r"^[a-z][a-z0-9-]*(?:\s*\|\s*[a-z][a-z0-9-]*)*")
 
 # Type-descriptor tokens that appear inside `<...>` as metavariables, NOT as
 # literal values a user would type (e.g. `--pane <id|ref|index>`). A choice
@@ -189,14 +193,29 @@ def visible_commands(registry: list[str]) -> list[str]:
 
 
 def help_commands_region(help_text: str) -> list[str]:
+    """Lines under the `Commands:` header, up to the next top-level section.
+
+    Works whether the help text is dedented (`cmux help` from the binary, where
+    section headers sit at column 0) or raw from the source heredoc (where every
+    line keeps its Swift source indentation). A new section is any line that ends
+    with `:` and is indented no more than the `Commands:` header itself, so it
+    stops at `Environment:` in both modes.
+    """
     lines = help_text.splitlines()
-    try:
-        start = next(i for i, l in enumerate(lines) if l.strip() == "Commands:")
-    except StopIteration:
+    start = None
+    header_indent = 0
+    for i, line in enumerate(lines):
+        if line.strip() == "Commands:":
+            start = i
+            header_indent = len(line) - len(line.lstrip())
+            break
+    if start is None:
         return []
     region = []
     for line in lines[start + 1 :]:
-        if line and not line.startswith((" ", "\t")) and line.strip().endswith(":"):
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip())
+        if stripped and indent <= header_indent and stripped.endswith(":"):
             break  # next top-level section (e.g. "Environment:")
         region.append(line)
     return region
@@ -227,12 +246,22 @@ def parse_help(help_text: str, known: set[str]) -> dict[str, CommandSpec]:
         else:
             continue
 
-        # Subcommand: a bare word or choice group immediately after a single command.
+        # Subcommand: a bare word, an unbracketed `a|b|c` group, or a bracketed
+        # choice group immediately after a single command.
         sub: set[str] = set()
         if len(targets) == 1 and len(tokens) > 1:
             nxt = tokens[1]
+            pipe_parts = nxt.split("|")
             if re.fullmatch(r"[a-z][a-z0-9-]*", nxt) and nxt not in METAVARS:
                 sub.add(nxt)
+            elif len(pipe_parts) > 1 and all(
+                re.fullmatch(r"[a-z][a-z0-9-]*", p) for p in pipe_parts
+            ):
+                # Unbracketed pipe group of bare words = literal subcommand
+                # alternatives (e.g. `feed tui|clear`, `browser goto|navigate`,
+                # `browser url|get-url`). Placeholders are conventionally
+                # bracketed, so the METAVARS filter does not apply here.
+                sub.update(pipe_parts)
             for grp in CHOICE_RE.findall(" ".join(tokens[1:2])):
                 choices = grp.split("|")
                 if is_real_enum(choices):
@@ -252,6 +281,41 @@ def parse_help(help_text: str, known: set[str]) -> dict[str, CommandSpec]:
             for fl, vals in flag_values.items():
                 spec.flag_values.setdefault(fl, vals)
     return specs
+
+
+def help_top_level_commands(help_text: str) -> list[str]:
+    """Top-level command names documented in the `Commands:` help section.
+
+    The leading token of each command line, plus space-delimited `a | b | c`
+    alias groups (but not `cmd sub|sub` subcommand groups). Used to verify the
+    registry covers every documented command.
+    """
+    names: set[str] = set()
+    for raw in help_commands_region(help_text):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = LEAD_COMMAND_RE.match(line)
+        if not m:
+            continue
+        for tok in re.split(r"\s*\|\s*", m.group(0)):
+            if re.fullmatch(r"[a-z][a-z0-9-]*", tok):
+                names.add(tok)
+    return sorted(names)
+
+
+def registry_coverage_gaps(source_path: Path) -> list[str]:
+    """Commands documented in help but absent from the registry.
+
+    `topLevelCommandNames` is the source of truth for command names; help must
+    not document a top-level command the registry is unaware of, or completions
+    silently miss it (the byte-diff drift check would not catch that, since both
+    the committed scripts and the regeneration ride on the same registry).
+    Returns the missing names so the contract test can fail loudly.
+    """
+    registry = set(parse_registry(source_path))
+    documented = help_top_level_commands(extract_usage_heredoc(source_path))
+    return sorted(c for c in documented if c not in registry)
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +373,6 @@ def emit_bash(commands: list[str], specs: dict[str, CommandSpec]) -> str:
 
 def emit_zsh(commands: list[str], specs: dict[str, CommandSpec]) -> str:
     lines = ["#compdef cmux", HEADER.format(shell="zsh"), "_cmux() {"]
-    lines.append("    local context state line")
     lines.append("    local -a commands")
     lines.append("    commands=(")
     for name in commands:
@@ -320,6 +383,7 @@ def emit_zsh(commands: list[str], specs: dict[str, CommandSpec]) -> str:
     lines.append("        return")
     lines.append("    fi")
     lines.append("    local cmd=${words[2]}")
+    lines.append("    local prev=${words[CURRENT-1]}")
     lines.append("    case $cmd in")
     for name in commands:
         spec = specs.get(name)
@@ -328,6 +392,12 @@ def emit_zsh(commands: list[str], specs: dict[str, CommandSpec]) -> str:
         comp_words = sorted(spec.subcommands) + sorted(spec.flags)
         joined = " ".join(comp_words)
         lines.append(f"        {name})")
+        # Flag value enums (context-sensitive on the previous word), matching
+        # the bash and fish emitters.
+        for fl, vals in sorted(spec.flag_values.items()):
+            lines.append(f"            if [[ $prev == {fl} ]]; then")
+            lines.append(f"                compadd -- {' '.join(vals)}; return")
+            lines.append("            fi")
         lines.append(f"            compadd -- {joined} ;;")
     lines.append("    esac")
     lines.append("}")
@@ -390,11 +460,24 @@ def main() -> int:
     ap.add_argument("--shell", choices=sorted(EMITTERS), help="Emit one shell to stdout")
     ap.add_argument("--write", action="store_true", help="Write all scripts to --out-dir")
     ap.add_argument("--list-commands", action="store_true", help="Print visible command names, one per line, and exit")
+    ap.add_argument("--check", action="store_true", help="Verify topLevelCommandNames covers every command documented in usage(); exit nonzero on drift")
     args = ap.parse_args()
 
     if args.list_commands:
         for name in visible_commands(parse_registry(Path(args.source))):
             print(name)
+        return 0
+
+    if args.check:
+        gaps = registry_coverage_gaps(Path(args.source))
+        if gaps:
+            print(
+                "Commands documented in usage() but missing from "
+                f"topLevelCommandNames: {', '.join(gaps)}",
+                file=sys.stderr,
+            )
+            return 1
+        print("OK: topLevelCommandNames covers all documented commands")
         return 0
 
     outputs = build(args)
