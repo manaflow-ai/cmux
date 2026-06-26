@@ -18,6 +18,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case sessions
     case feed
     case dock
+    case notes
     case customSidebar = "custom-sidebar"
 
     var label: String {
@@ -27,6 +28,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
+        case .notes: return String(localized: "rightSidebar.mode.notes", defaultValue: "Notes")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
         }
     }
@@ -38,6 +40,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
+        case .notes: return "note.text"
         case .customSidebar: return "wand.and.stars"
         }
     }
@@ -49,6 +52,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
+        case .notes: return nil
         case .customSidebar: return nil
         }
     }
@@ -74,7 +78,7 @@ nonisolated enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .customSidebar:
+        case .sessions, .feed, .dock, .notes, .customSidebar:
             return false
         }
     }
@@ -146,6 +150,8 @@ struct RightSidebarPanelView: View {
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+    @AppStorage(RightSidebarBetaFeatureSettings.notesEnabledKey)
+    private var notesEnabled = RightSidebarBetaFeatureSettings.defaultNotesEnabled
 
     // Re-reading the observable store inside modeBar causes SwiftUI to
     // track the pending count so the badge updates live when hooks push
@@ -155,7 +161,7 @@ struct RightSidebarPanelView: View {
     }
 
     private var availableModes: [RightSidebarMode] {
-        RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
+        RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled, notesEnabled: notesEnabled)
     }
 
     private var modeBarItems: [RightSidebarModeBarItem] {
@@ -233,6 +239,7 @@ struct RightSidebarPanelView: View {
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        .onChange(of: notesEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
 
     private var modeBar: some View {
@@ -423,6 +430,8 @@ struct RightSidebarPanelView: View {
                 FeedPanelView()
             case .dock:
                 DockPanelView(rootDirectory: dockRootDirectory, workspaceId: workspaceId, store: dockStore)
+            case .notes:
+                OfflineNotesPanelView()
             case .customSidebar:
                 EmptyView()
             }

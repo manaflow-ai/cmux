@@ -636,6 +636,10 @@
 		A5001094 /* NotificationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001091 /* NotificationsPage.swift */; };
 		D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */; };
 		645645000000000000000002 /* NumberedShortcutSwapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645645000000000000000001 /* NumberedShortcutSwapTests.swift */; };
+		0FF11E7E000000000000A012 /* OfflineNoteAgentDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000A011 /* OfflineNoteAgentDispatcher.swift */; };
+		0FF11E7E000000000000A022 /* OfflineNotesPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000A021 /* OfflineNotesPanelView.swift */; };
+		0FF11E7E000000000000A002 /* OfflineNotesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000A001 /* OfflineNotesStore.swift */; };
+		0FF11E7E000000000000C002 /* OfflineNotesStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000C001 /* OfflineNotesStoreTests.swift */; };
 		4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */; };
 		9637C6D3170F4BE1A7EF6243 /* OmnibarSubmitDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */; };
 		0A0F00550000000000000001 /* OmpSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0F00550000000000000002 /* OmpSupportTests.swift */; };
@@ -1754,6 +1758,10 @@
 		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
 		D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/NSWindow+CmuxPeerWindow.swift"; sourceTree = "<group>"; };
 		645645000000000000000001 /* NumberedShortcutSwapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberedShortcutSwapTests.swift; sourceTree = "<group>"; };
+		0FF11E7E000000000000A011 /* OfflineNoteAgentDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNoteAgentDispatcher.swift; sourceTree = "<group>"; };
+		0FF11E7E000000000000A021 /* OfflineNotesPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNotesPanelView.swift; sourceTree = "<group>"; };
+		0FF11E7E000000000000A001 /* OfflineNotesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNotesStore.swift; sourceTree = "<group>"; };
+		0FF11E7E000000000000C001 /* OfflineNotesStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNotesStoreTests.swift; sourceTree = "<group>"; };
 		B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarAndToolsTests.swift; sourceTree = "<group>"; };
 		48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarSubmitDecisionTests.swift; sourceTree = "<group>"; };
 		0A0F00550000000000000002 /* OmpSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmpSupportTests.swift; sourceTree = "<group>"; };
@@ -2631,6 +2639,9 @@
 				C10D51700000000000000001 /* ClosedItemHistory.swift */,
 				D1FFC0DE000000000000D001 /* DiffCommentSubmissionPool.swift */,
 				D1FFC0DE000000000000A001 /* DiffCommentStore.swift */,
+				0FF11E7E000000000000A001 /* OfflineNotesStore.swift */,
+				0FF11E7E000000000000A011 /* OfflineNoteAgentDispatcher.swift */,
+				0FF11E7E000000000000A021 /* OfflineNotesPanelView.swift */,
 				E3309A04 /* TabManager+EqualizeSplits.swift */,
 				C5CC15CEAA80B779ADEE78AA /* WorkspaceActionDispatcher.swift */,
 				D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */,
@@ -3374,6 +3385,7 @@
 				B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */,
 				604500100000000000000004 /* WindowTitleTemplateTests.swift */,
 				D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */,
+				0FF11E7E000000000000C001 /* OfflineNotesStoreTests.swift */,
 				C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */,
 				C9A57402C9A57402C9A57402 /* WorkspaceGroupMoveToMenuStateTests.swift */,
 				FEED49850000000000000002 /* FeedEventClassificationTests.swift */,
@@ -4208,6 +4220,9 @@
 				B7F00002 /* NotificationSoundSettings.swift in Sources */,
 				A5001094 /* NotificationsPage.swift in Sources */,
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
+				0FF11E7E000000000000A012 /* OfflineNoteAgentDispatcher.swift in Sources */,
+				0FF11E7E000000000000A022 /* OfflineNotesPanelView.swift in Sources */,
+				0FF11E7E000000000000A002 /* OfflineNotesStore.swift in Sources */,
 				A9F200000000000000000017 /* OpenCodeEventStreamParser.swift in Sources */,
 				A9F200000000000000000018 /* OpenCodeEventTextAccumulator.swift in Sources */,
 				A9F200000000000000000019 /* OpenCodeProcessOutputDisposition.swift in Sources */,
@@ -4781,6 +4796,7 @@
 				D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */,
 				4E5F60720000000000000001 /* NotificationSoundSettingsTests.swift in Sources */,
 				645645000000000000000002 /* NumberedShortcutSwapTests.swift in Sources */,
+				0FF11E7E000000000000C002 /* OfflineNotesStoreTests.swift in Sources */,
 				4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */,
 				9637C6D3170F4BE1A7EF6243 /* OmnibarSubmitDecisionTests.swift in Sources */,
 				0A0F00550000000000000001 /* OmpSupportTests.swift in Sources */,

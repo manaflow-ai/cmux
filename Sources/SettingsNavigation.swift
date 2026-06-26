@@ -399,6 +399,7 @@ enum SettingsSearchIndex {
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),
         setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
+        setting(.betaFeatures, "notes", String(localized: "settings.betaFeatures.notes", defaultValue: "Notes"), "notes right sidebar offline queue agent tasks pending sent failed"),
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
@@ -462,6 +463,7 @@ enum SettingsSearchIndex {
     private static let settingsPathAnchorIDs: [String: String] = [
         "rightSidebar.beta.feed.enabled": settingID(for: .betaFeatures, idSuffix: "feed"),
         "rightSidebar.beta.dock.enabled": settingID(for: .betaFeatures, idSuffix: "dock"),
+        "rightSidebar.beta.notes.enabled": settingID(for: .betaFeatures, idSuffix: "notes"),
         "app.language": settingID(for: .app, idSuffix: "language"),
         "app.appearance": settingID(for: .app, idSuffix: "appearance"),
         "app.appIcon": settingID(for: .app, idSuffix: "app-icon"),
