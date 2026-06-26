@@ -29,11 +29,11 @@ final class OfflineNotesStore {
     @ObservationIgnored private let reachability: any OfflineNotesReachabilityMonitoring
     @ObservationIgnored private var isFlushing = false
     @ObservationIgnored private var hasStarted = false
-    // Single serial off-main writer: every mutation records the latest snapshot
-    // and one drain task writes it, so writes never overwrite newer state and the
-    // main actor only does an O(1) snapshot.
-    @ObservationIgnored private var pendingSnapshot: [OfflineNote]?
-    @ObservationIgnored private var writeTask: Task<Void, Never>?
+    // All disk writes go through one serial queue, so they have a total order: a
+    // slower write can never land after (and overwrite) a newer one, and only one
+    // write runs at a time (no concurrent encoder use). The main actor only
+    // snapshots the value-type queue (O(1) COW) and enqueues.
+    @ObservationIgnored private let writeQueue = DispatchQueue(label: "com.cmux.offline-notes.persist")
 
     /// Bounds so the queue and its backing file stay small enough that the
     /// synchronous capture write is cheap on the main actor: a note is truncated
@@ -270,43 +270,34 @@ final class OfflineNotesStore {
         }
     }
 
-    /// Enqueues a persist of the current queue. A single serial drain task writes
-    /// the **latest** snapshot off the main actor, so writes are serialized (a
-    /// slower write can never overwrite newer state), the main actor only does an
-    /// O(1) snapshot, and only one write runs at a time (no concurrent encoder
-    /// use). Durability on an immediate quit is guaranteed by
-    /// ``flushPendingPersistOnTermination()``.
+    /// Enqueues a write of the current queue onto the serial ``writeQueue``. The
+    /// main actor only snapshots `notes` (O(1) COW) and dispatches; the write
+    /// runs off the main actor. Because the queue is serial, writes apply in
+    /// enqueue order so the newest snapshot is always the last to land. Quit
+    /// durability is guaranteed by ``flushPendingPersistOnTermination()``.
     private func persist() {
-        guard fileURL != nil else { return }
-        pendingSnapshot = notes
-        guard writeTask == nil else { return }
-        writeTask = Task { [weak self] in
-            await self?.drainPersist()
-        }
+        guard let fileURL else { return }
+        let snapshot = notes
+        writeQueue.async { OfflineNotesStore.writeToDisk(snapshot, to: fileURL) }
     }
 
-    private func drainPersist() async {
-        while let snapshot = pendingSnapshot, let fileURL {
-            pendingSnapshot = nil
-            await Task.detached(priority: .utility) {
-                OfflineNotesStore.writeToDisk(snapshot, to: fileURL)
-            }.value
-        }
-        writeTask = nil
-    }
-
-    /// Awaits the in-flight write. Used by ``flush()`` so each hand-off is durable
-    /// before the next note is dispatched.
+    /// Awaits all writes enqueued so far. Used by ``flush()`` so each hand-off is
+    /// durable before the next note is dispatched. Returns immediately when no
+    /// writes are pending (e.g. tests with no backing file).
     func waitForPendingPersist() async {
-        await writeTask?.value
+        await withCheckedContinuation { continuation in
+            writeQueue.async { continuation.resume() }
+        }
     }
 
-    /// Synchronously writes the current queue. Called from `applicationWillTerminate`
-    /// so a freshly-captured note whose off-main write has not drained yet is still
-    /// durable on quit. No-op when nothing is pending.
+    /// Synchronously writes the current queue as the **final** write on the
+    /// serial queue. Called from `applicationWillTerminate` so a freshly-captured
+    /// note whose async write has not landed yet is durable on quit; being last
+    /// in the serial order, it cannot be overwritten by an earlier async write.
     func flushPendingPersistOnTermination() {
-        guard let fileURL, pendingSnapshot != nil || writeTask != nil else { return }
-        Self.writeToDisk(notes, to: fileURL)
+        guard let fileURL else { return }
+        let snapshot = notes
+        writeQueue.sync { OfflineNotesStore.writeToDisk(snapshot, to: fileURL) }
     }
 
     private nonisolated static func writeToDisk(_ notes: [OfflineNote], to fileURL: URL) {
@@ -347,8 +338,8 @@ final class OfflineNotesStore {
     }
 
     // Encoders/decoders are created fresh per call: `JSONEncoder`/`JSONDecoder`
-    // are mutable Foundation reference types and are not safe to share across the
-    // main-actor `persist()` and the detached flush writer running concurrently.
+    // are mutable Foundation reference types, so a per-write instance avoids any
+    // shared mutable state (the writes are also serialized on `writeQueue`).
     nonisolated static func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
