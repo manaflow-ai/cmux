@@ -76,6 +76,24 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
     }
 
+    @MainActor
+    func testDeleteComputersVerifierPasses() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_DELETE_COMPUTERS_VERIFIER": "1",
+        ])
+        defer { app.terminate() }
+
+        let status = app.staticTexts["DeleteComputersVerifierStatus"]
+        XCTAssertTrue(status.waitForExistence(timeout: 10))
+        XCTAssertEqual(status.label, "PASS")
+        XCTAssertTrue(app.staticTexts["halfRemovedAbsent=true"].exists)
+        XCTAssertTrue(app.staticTexts["halfRemainingPresent=true"].exists)
+        XCTAssertTrue(app.staticTexts["halfNoDisconnectedBanner=true"].exists)
+        XCTAssertTrue(app.staticTexts["refreshPreservedHalfList=true"].exists)
+        XCTAssertTrue(app.staticTexts["allRemoved=true"].exists)
+        XCTAssertTrue(app.staticTexts["refreshPreservedEmptyList=true"].exists)
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not
