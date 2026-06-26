@@ -2175,7 +2175,10 @@ final class CmuxConfigStore: ObservableObject {
 
     func loadAll() {
         var commands: [CmuxCommandDefinition] = []
-        var seenNames = Set<String>()
+        // Keyed by command identity (folder + name) so local overrides the
+        // matching global command, while same-named commands in different
+        // folders both load.
+        var seenCommandIDs = Set<String>()
         var sourcePaths: [String: String] = [:]
         var configuredNewWorkspaceCommandName: String?
         var configuredNewWorkspaceCommandSourcePath: String?
@@ -2229,9 +2232,9 @@ final class CmuxConfigStore: ObservableObject {
                 configuredSurfaceTabBarButtonSourcePath = localPath
             }
             for command in localConfig.commands {
-                if !seenNames.contains(command.name) {
+                if !seenCommandIDs.contains(command.id) {
                     commands.append(command)
-                    seenNames.insert(command.name)
+                    seenCommandIDs.insert(command.id)
                     if let localPath {
                         sourcePaths[command.id] = localPath
                     }
@@ -2264,9 +2267,9 @@ final class CmuxConfigStore: ObservableObject {
                 configuredSurfaceTabBarButtonSourcePath = globalConfigPath
             }
             for command in globalConfig.commands {
-                if !seenNames.contains(command.name) {
+                if !seenCommandIDs.contains(command.id) {
                     commands.append(command)
-                    seenNames.insert(command.name)
+                    seenCommandIDs.insert(command.id)
                     sourcePaths[command.id] = globalConfigPath
                 }
             }
