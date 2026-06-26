@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -99,6 +100,27 @@ extension CMUXCLIErrorOutputRegressionTests {
             timeout: 10
         )
         XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+    }
+
+    /// A non-regular top-level config (e.g. a FIFO) must error quickly, not
+    /// block the command reading it.
+    @Test func testSSHListDoesNotHangOnFIFOConfig() throws {
+        let cliPath = try bundledCLIPath()
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-fifo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fifoPath = dir.appendingPathComponent("config").path
+        XCTAssertEqual(mkfifo(fifoPath, 0o600), 0, "mkfifo failed")
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ssh", "list", "--config", fifoPath],
+            environment: scrubbedSSHListEnvironment(),
+            timeout: 8
+        )
+        XCTAssertFalse(result.timedOut, "ssh list hung on a FIFO config: \(result.stdout)")
         XCTAssertNotEqual(result.status, 0, result.stdout)
     }
 

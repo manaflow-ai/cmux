@@ -109,6 +109,17 @@ extension CMUXCLI {
     /// a typo'd path or permission problem is not silently shown as an empty
     /// config.
     static func loadSSHConfigHosts(configPath: String, requireReadable: Bool) throws -> [SSHConfigHost] {
+        // Guard the top-level read the same way include matches are guarded: a
+        // FIFO/device/socket would block `String(contentsOfFile:)` indefinitely,
+        // and this command is meant to be a fast, no-socket local read. A
+        // missing/non-regular default config means no hosts; an explicit
+        // --config that is missing or non-regular is a user error.
+        guard Self.isRegularFile(configPath) else {
+            if requireReadable {
+                throw CLIError(message: "ssh list: --config \(configPath) is not a readable file.")
+            }
+            return []
+        }
         let contents: String
         do {
             contents = try String(contentsOfFile: configPath, encoding: .utf8)
@@ -174,17 +185,24 @@ extension CMUXCLI {
             for index in 0..<Int(globResult.gl_pathc) {
                 guard let cString = pathv[index] else { continue }
                 // Only read regular files. `glob` can match directories, FIFOs,
-                // devices, or sockets; reading a FIFO via String(contentsOfFile:)
-                // would block `cmux ssh list` indefinitely and a device could
-                // consume unbounded resources. `stat` follows symlinks, so a
-                // symlink to a regular file (what ssh would read) is kept.
-                var info = stat()
-                guard stat(cString, &info) == 0,
-                      (Int32(info.st_mode) & S_IFMT) == S_IFREG else { continue }
-                matches.append(String(cString: cString))
+                // devices, or sockets; reading a FIFO would block `cmux ssh list`
+                // indefinitely and a device could consume unbounded resources.
+                let path = String(cString: cString)
+                if Self.isRegularFile(path) { matches.append(path) }
             }
         }
         return matches
+    }
+
+    /// Whether `path` resolves (through symlinks) to a regular file — the only
+    /// thing safe to read. `stat` follows symlinks, so a symlink to a regular
+    /// file (what ssh would read) is kept, while a FIFO, device, socket, or
+    /// directory is rejected before `String(contentsOfFile:)` can block or
+    /// consume unbounded resources.
+    private static func isRegularFile(_ path: String) -> Bool {
+        var info = stat()
+        guard path.withCString({ stat($0, &info) }) == 0 else { return false }
+        return (Int32(info.st_mode) & S_IFMT) == S_IFREG
     }
 
     private static func sshHostJSON(_ host: SSHConfigHost) -> [String: Any] {
