@@ -155,6 +155,8 @@ actor RemoteTmuxSSHTransport {
     /// login shell re-splits the result, so each remote token is single-quoted
     /// here; otherwise whitespace inside an argument (e.g. the tabs in a
     /// `list-sessions -F` format string) would be word-split on the remote.
+    /// A leading literal `tmux` is the `runTmux(_:)` contract and selects the
+    /// remote tmux resolver; other commands are treated as explicit remote argv.
     @discardableResult
     func run(_ remoteArgs: [String]) async throws -> RemoteTmuxCommandResult {
         try host.ensureControlSocketDirectory()

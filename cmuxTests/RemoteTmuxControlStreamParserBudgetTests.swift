@@ -8,6 +8,32 @@ import Testing
 #endif
 
 @Suite struct RemoteTmuxControlStreamParserBudgetTests {
+    @Test func stdoutBackpressureBudgetRejectsByPendingBytes() {
+        let budget = RemoteTmuxStdoutBackpressureBudget(maxPendingBytes: 10)
+
+        #expect(budget.reserve(byteCount: 6))
+        #expect(!budget.reserve(byteCount: 5))
+        #expect(budget.reserve(byteCount: 4))
+        #expect(!budget.reserve(byteCount: 1))
+    }
+
+    @Test func stdoutBackpressureBudgetReleasesConsumedBytes() {
+        let budget = RemoteTmuxStdoutBackpressureBudget(maxPendingBytes: 10)
+
+        #expect(budget.reserve(byteCount: 8))
+        budget.release(byteCount: 5)
+        #expect(budget.reserve(byteCount: 7))
+        #expect(!budget.reserve(byteCount: 1))
+    }
+
+    @Test func stdoutBackpressureBudgetRejectsAfterClose() {
+        let budget = RemoteTmuxStdoutBackpressureBudget(maxPendingBytes: 10)
+
+        #expect(budget.reserve(byteCount: 4))
+        budget.close()
+        #expect(!budget.reserve(byteCount: 1))
+    }
+
     @Test func pendingLineOverflowEmitsStreamErrorAndResetsParser() {
         var parser = RemoteTmuxControlStreamParser(maxBufferedLineBytes: 8, maxCommandBlockBytes: 1024)
 
