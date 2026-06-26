@@ -79,6 +79,7 @@
     "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs and a model gateway. Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
     "perMonth": "/month",
+    "perUserMonth": "/user/month",
     "free": {
       "name": "Free",
       "price": "$0",
@@ -110,11 +111,25 @@
         "Unlimited session history across all your machines"
       ]
     },
+    "team": {
+      "name": "Team",
+      "price": "$35",
+      "cta": "Start a team",
+      "featuresLead": "Everything in Pro, plus:",
+      "features": [
+        "Unified billing: one invoice for the whole team",
+        "Centralized seat management: add and remove members anytime",
+        "Pooled Cloud VM compute hours shared across the team",
+        "Shared team rules, settings, and workspace templates",
+        "Team-wide model gateway with per-member usage and cost analytics",
+        "Centralized admin and priority email support"
+      ]
+    },
     "enterprise": {
       "name": "Enterprise",
       "price": "Custom",
       "cta": "Contact sales",
-      "featuresLead": "Everything in Pro, plus:",
+      "featuresLead": "Everything in Team, plus:",
       "features": [
         "Self-hosted Cloud execution and networking, so nothing leaves your network",
         "Self-hosted model gateway with org-wide usage and cost analytics",
@@ -132,24 +147,28 @@
           "label": "Native macOS terminal, open source",
           "free": "true",
           "pro": "true",
+          "team": "true",
           "enterprise": "true"
         },
         {
           "label": "Local CLI agents with your own keys",
           "free": "true",
           "pro": "true",
+          "team": "true",
           "enterprise": "true"
         },
         {
           "label": "Vertical tabs, splits, notifications, socket API",
           "free": "true",
           "pro": "true",
+          "team": "true",
           "enterprise": "true"
         },
         {
           "label": "Session history",
           "free": "Local",
           "pro": "Unlimited",
+          "team": "Unlimited",
           "enterprise": "Unlimited",
           "vault": true
         },
@@ -157,6 +176,7 @@
           "label": "cmux Vault: cloud session backup",
           "free": "false",
           "pro": "true",
+          "team": "true",
           "enterprise": "true",
           "vault": true
         },
@@ -164,6 +184,7 @@
           "label": "Search across all your sessions",
           "free": "false",
           "pro": "true",
+          "team": "true",
           "enterprise": "true",
           "vault": true
         },
@@ -171,72 +192,91 @@
           "label": "Cloud agents on Cloud VMs",
           "free": "1 VM trial",
           "pro": "20 hrs/mo, then usage-based",
+          "team": "Pooled, usage-based",
           "enterprise": "Committed usage"
         },
         {
           "label": "Concurrent Cloud VMs",
           "free": "1",
           "pro": "Usage-based",
+          "team": "Usage-based",
           "enterprise": "Custom"
         },
         {
           "label": "Model gateway: routing and usage analytics",
           "free": "false",
           "pro": "true",
+          "team": "true",
           "enterprise": "true"
         },
         {
           "label": "iOS app",
           "free": "false",
           "pro": "true",
+          "team": "true",
           "enterprise": "true"
         },
         {
           "label": "Networking to reach your Mac",
           "free": "Bring your own",
           "pro": "Hosted",
+          "team": "Hosted",
           "enterprise": "Self-hosted"
+        },
+        {
+          "label": "Unified billing and seat management",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "SSO and SAML sign-in",
           "free": "false",
           "pro": "false",
+          "team": "false",
           "enterprise": "true"
         },
         {
           "label": "Self-hosted and air-gapped execution",
           "free": "false",
           "pro": "false",
+          "team": "false",
           "enterprise": "true"
         },
         {
           "label": "Centralized admin and shared team rules",
           "free": "false",
           "pro": "false",
+          "team": "true",
           "enterprise": "true"
         },
         {
           "label": "Audit logs: sessions, network, browser",
           "free": "false",
           "pro": "false",
+          "team": "false",
           "enterprise": "true"
         },
         {
           "label": "Committed usage and volume pricing",
           "free": "false",
           "pro": "false",
+          "team": "false",
           "enterprise": "true"
         },
         {
           "label": "SOC 2 and an SLA",
           "free": "false",
           "pro": "false",
+          "team": "false",
           "enterprise": "true"
         },
         {
           "label": "Support",
           "free": "Community",
           "pro": "Email",
+          "team": "Priority",
           "enterprise": "Dedicated"
         }
       ]
@@ -300,7 +340,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Not yet. Pro covers individuals today, and Enterprise covers organizations that need SSO, admin controls, and self-hosting. Reach out if you have team needs."
+          "a": "Yes. Team is $35 per user per month: unified billing for the whole team, centralized seat management, pooled Cloud VM hours, and shared team rules. Enterprise adds SSO, self-hosting, and audit logs."
         }
       ]
     }

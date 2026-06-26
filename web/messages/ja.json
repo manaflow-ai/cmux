@@ -79,6 +79,7 @@
     "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
     "title": "料金",
     "perMonth": "/月",
+    "perUserMonth": "/ユーザー/月",
     "free": {
       "name": "Free",
       "price": "$0",
@@ -110,11 +111,25 @@
         "すべてのマシンをまたいだ無制限のセッション履歴"
       ]
     },
+    "team": {
+      "name": "Team",
+      "price": "$35",
+      "cta": "チームを始める",
+      "featuresLead": "Pro のすべてに加えて:",
+      "features": [
+        "一元請求: チーム全体をまとめて1つの請求書に",
+        "シート管理: メンバーをいつでも追加・削除",
+        "チームで共有する Cloud VM のプール計算時間",
+        "共有のチームルール、設定、ワークスペーステンプレート",
+        "メンバーごとの使用量・コスト分析付きのチーム全体モデルゲートウェイ",
+        "一元管理と優先メールサポート"
+      ]
+    },
     "enterprise": {
       "name": "Enterprise",
       "price": "カスタム",
       "cta": "営業に問い合わせ",
-      "featuresLead": "Pro のすべてに加えて:",
+      "featuresLead": "Team のすべてに加えて:",
       "features": [
         "セルフホストのクラウド実行とネットワーク、ネットワーク外に何も出ません",
         "組織全体の使用量・コスト分析を備えたセルフホストのモデルゲートウェイ",
@@ -132,24 +147,28 @@
           "label": "ネイティブ macOS ターミナル、オープンソース",
           "free": "true",
           "pro": "true",
+          "team": "true",
           "enterprise": "true"
         },
         {
           "label": "自分のキーで使うローカル CLI エージェント",
           "free": "true",
           "pro": "true",
+          "team": "true",
           "enterprise": "true"
         },
         {
           "label": "縦型タブ、分割、通知、ソケット API",
           "free": "true",
           "pro": "true",
+          "team": "true",
           "enterprise": "true"
         },
         {
           "label": "セッション履歴",
           "free": "ローカル",
           "pro": "無制限",
+          "team": "無制限",
           "enterprise": "無制限",
           "vault": true
         },
@@ -157,6 +176,7 @@
           "label": "cmux Vault: クラウドセッションバックアップ",
           "free": "false",
           "pro": "true",
+          "team": "true",
           "enterprise": "true",
           "vault": true
         },
@@ -164,6 +184,7 @@
           "label": "すべてのセッションを横断検索",
           "free": "false",
           "pro": "true",
+          "team": "true",
           "enterprise": "true",
           "vault": true
         },
@@ -171,72 +192,91 @@
           "label": "Cloud VM 上のクラウドエージェント",
           "free": "VM 1台トライアル",
           "pro": "月20時間、以降従量課金",
+          "team": "プール制・従量課金",
           "enterprise": "コミット利用"
         },
         {
           "label": "同時 Cloud VM 数",
           "free": "1",
           "pro": "従量制",
+          "team": "従量制",
           "enterprise": "カスタム"
         },
         {
           "label": "モデルゲートウェイ: ルーティングと使用量分析",
           "free": "false",
           "pro": "true",
+          "team": "true",
           "enterprise": "true"
         },
         {
           "label": "iOS アプリ",
           "free": "false",
           "pro": "true",
+          "team": "true",
           "enterprise": "true"
         },
         {
           "label": "Mac に接続するネットワーク",
           "free": "持ち込み",
           "pro": "ホスト型",
+          "team": "ホスト型",
           "enterprise": "セルフホスト"
+        },
+        {
+          "label": "一元請求とシート管理",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
         },
         {
           "label": "SSO と SAML サインイン",
           "free": "false",
           "pro": "false",
+          "team": "false",
           "enterprise": "true"
         },
         {
           "label": "セルフホストとエアギャップ実行",
           "free": "false",
           "pro": "false",
+          "team": "false",
           "enterprise": "true"
         },
         {
           "label": "一元管理と共有チームルール",
           "free": "false",
           "pro": "false",
+          "team": "true",
           "enterprise": "true"
         },
         {
           "label": "監査ログ: セッション、ネットワーク、ブラウザ",
           "free": "false",
           "pro": "false",
+          "team": "false",
           "enterprise": "true"
         },
         {
           "label": "コミット利用とボリューム価格",
           "free": "false",
           "pro": "false",
+          "team": "false",
           "enterprise": "true"
         },
         {
           "label": "SOC 2 と SLA",
           "free": "false",
           "pro": "false",
+          "team": "false",
           "enterprise": "true"
         },
         {
           "label": "サポート",
           "free": "コミュニティ",
           "pro": "メール",
+          "team": "優先",
           "enterprise": "専任"
         }
       ]
@@ -300,7 +340,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "現時点ではまだありません。Pro は個人向け、Enterprise は SSO、管理機能、セルフホストが必要な組織向けです。チームでのニーズがあればお問い合わせください。"
+          "a": "はい。Team は1ユーザーあたり月額 $35 です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
         }
       ]
     }

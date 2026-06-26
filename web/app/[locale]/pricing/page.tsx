@@ -8,6 +8,10 @@ import { buildAlternates } from "../../../i18n/seo";
 // Pro CTA points at the download today; swap this for the real checkout URL
 // when the billing flow is public.
 const PRO_CTA_URL = DOWNLOAD_URL;
+// Team is per-seat ($35/user/month). Install is still the entry point, so the
+// Team CTA points at the download today; swap for the team checkout URL once
+// the billing flow is public.
+const TEAM_CTA_URL = DOWNLOAD_URL;
 const SALES_EMAIL = "founders@manaflow.com";
 
 // Feature flag: cmux Vault (cloud session backup, cross-session search, and
@@ -41,6 +45,7 @@ export default function PricingPage() {
   const proFeatures = SHOW_VAULT
     ? [...proBaseFeatures.slice(0, 2), ...proVaultFeatures, ...proBaseFeatures.slice(2)]
     : proBaseFeatures;
+  const teamFeatures = t.raw("team.features") as string[];
   const enterpriseFeatures = t.raw("enterprise.features") as string[];
   const compareRows = (t.raw("compare.rows") as CompareRow[]).filter(
     (row) => SHOW_VAULT || !row.vault,
@@ -62,7 +67,7 @@ export default function PricingPage() {
         <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
 
         {/* Tier cards */}
-        <div className="mt-10 grid gap-5 md:grid-cols-3 items-stretch">
+        <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4 items-stretch">
           {/* Free */}
           <PlanCard
             name={t("free.name")}
@@ -85,6 +90,17 @@ export default function PricingPage() {
             <PrimaryLink href={PRO_CTA_URL}>{t("pro.cta")}</PrimaryLink>
             <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
             <FeatureList items={proFeatures} />
+          </PlanCard>
+
+          {/* Team */}
+          <PlanCard
+            name={t("team.name")}
+            price={t("team.price")}
+            period={t("perUserMonth")}
+          >
+            <PrimaryLink href={TEAM_CTA_URL}>{t("team.cta")}</PrimaryLink>
+            <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
+            <FeatureList items={teamFeatures} />
           </PlanCard>
 
           {/* Enterprise */}
@@ -118,6 +134,10 @@ export default function PricingPage() {
                     price={`${t("pro.price")}${t("perMonth")}`}
                   />
                   <ColumnHead
+                    name={t("team.name")}
+                    price={`${t("team.price")}${t("perUserMonth")}`}
+                  />
+                  <ColumnHead
                     name={t("enterprise.name")}
                     price={t("enterprise.price")}
                   />
@@ -134,6 +154,7 @@ export default function PricingPage() {
                     </th>
                     <CompareCell value={row.free} />
                     <CompareCell value={row.pro} />
+                    <CompareCell value={row.team} />
                     <CompareCell value={row.enterprise} />
                   </tr>
                 ))}
@@ -334,6 +355,7 @@ type CompareRow = {
   label: string;
   free: string;
   pro: string;
+  team: string;
   enterprise: string;
   // Marks a row that only applies once cmux Vault ships (see SHOW_VAULT).
   vault?: boolean;
