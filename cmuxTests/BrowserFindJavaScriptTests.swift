@@ -1,4 +1,5 @@
 import XCTest
+import Testing
 import AppKit
 import WebKit
 
@@ -94,24 +95,30 @@ final class BrowserPopupDecisionTests: XCTestCase {
             )
         )
     }
+}
 
-    // MARK: - Blank-targeted scripted popups (#6649)
+// MARK: - Blank-targeted scripted popups (#6649)
 
-    func testBlankScriptedWindowOpenCreatesPopupForAboutBlank() throws {
+/// Swift Testing suite (cmux convention for new non-UI tests) covering the
+/// deferred-navigation popup predicate that fixes VS Code Web's inline auth popup
+/// opening about:blank on the first attempt.
+@Suite struct BrowserBlankScriptedPopupDecisionTests {
+    @Test func aboutBlankScriptedWindowOpenCreatesPopup() throws {
         // window.open("about:blank") with no features is the deferred-navigation
         // pattern (VS Code Web auth). It must return a live popup web view, even
         // though no window features were specified.
-        XCTAssertTrue(
+        let url = try #require(URL(string: "about:blank"))
+        #expect(
             browserNavigationShouldCreateBlankScriptedPopup(
                 navigationType: .other,
-                requestURL: try XCTUnwrap(URL(string: "about:blank"))
+                requestURL: url
             )
         )
     }
 
-    func testBlankScriptedWindowOpenCreatesPopupForNilURL() {
+    @Test func nilURLScriptedWindowOpenCreatesPopup() {
         // window.open() with no argument can surface a nil request URL.
-        XCTAssertTrue(
+        #expect(
             browserNavigationShouldCreateBlankScriptedPopup(
                 navigationType: .other,
                 requestURL: nil
@@ -119,24 +126,26 @@ final class BrowserPopupDecisionTests: XCTestCase {
         )
     }
 
-    func testBlankScriptedPopupIgnoresRealDestinationURL() throws {
+    @Test func realDestinationURLDoesNotUseBlankPopupPath() throws {
         // window.open("https://example.com") already carries its destination, so a
         // tab navigation works; do not force it onto the blank-popup path.
-        XCTAssertFalse(
-            browserNavigationShouldCreateBlankScriptedPopup(
+        let url = try #require(URL(string: "https://example.com/"))
+        #expect(
+            !browserNavigationShouldCreateBlankScriptedPopup(
                 navigationType: .other,
-                requestURL: try XCTUnwrap(URL(string: "https://example.com/"))
+                requestURL: url
             )
         )
     }
 
-    func testBlankScriptedPopupIgnoresLinkActivatedNavigation() throws {
+    @Test func linkActivatedNavigationDoesNotUseBlankPopupPath() throws {
         // A real link click (target=_blank) is .linkActivated, not scripted, and
         // must keep falling through to tab handling.
-        XCTAssertFalse(
-            browserNavigationShouldCreateBlankScriptedPopup(
+        let url = try #require(URL(string: "about:blank"))
+        #expect(
+            !browserNavigationShouldCreateBlankScriptedPopup(
                 navigationType: .linkActivated,
-                requestURL: try XCTUnwrap(URL(string: "about:blank"))
+                requestURL: url
             )
         )
     }
