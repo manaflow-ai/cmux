@@ -59,6 +59,9 @@ public struct MobileComposerFieldContainer<Header: View, Field: View, Trailing: 
     }
 }
 
+/// Header-less conveniences for the field container, used by callers (e.g. GUI
+/// chat) that render only the field and its trailing control inside the rounded
+/// glass shell.
 public extension MobileComposerFieldContainer where Header == EmptyView {
     /// Creates a shared field shell with no header — just the field row and its
     /// trailing control inside the rounded glass container. Layout is identical to
