@@ -117,7 +117,7 @@ public struct TextBoxSection: View {
     }
 
     private var defaultSubmitActionOptions: [TextBoxSettingsSubmitActionOption] {
-        TextBoxSettingsSubmitActionOption.normalizedOptions(
+        TextBoxSettingsSubmitActionOptions().normalizedOptions(
             configuredJSON: submitActions.current,
             currentID: defaultSubmitAction.current
         )

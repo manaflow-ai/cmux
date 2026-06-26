@@ -4992,12 +4992,9 @@ final class TextBoxInputTextView: NSTextView {
         mentionCompletionControlNavigationKey(for: event)
     }
 
-    func debugHandleConfiguredTextBoxShortcutForTesting(_ event: NSEvent) -> Bool {
-        handleConfiguredTextBoxShortcut(event)
-    }
 #endif
 
-    private func handleConfiguredTextBoxShortcut(_ event: NSEvent) -> Bool {
+    func handleConfiguredTextBoxShortcut(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown,
               !KeyboardShortcutRecorderActivity.isAnyRecorderActive,
               !RecorderHostButton.isActivelyRecording else {

@@ -868,7 +868,7 @@ struct TextBoxSubmitActionTests {
             return
         }
 
-        let handledByTextBoxShortcut = textView.debugHandleConfiguredTextBoxShortcutForTesting(shiftTabEvent)
+        let handledByTextBoxShortcut = textView.handleConfiguredTextBoxShortcut(shiftTabEvent)
 
         XCTAssertFalse(handledByTextBoxShortcut)
         XCTAssertEqual(cycleCount, 0)
