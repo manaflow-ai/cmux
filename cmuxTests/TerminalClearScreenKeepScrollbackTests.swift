@@ -137,6 +137,9 @@ struct TerminalClearScreenKeepScrollbackTests {
         try #"""
         #!/usr/bin/env bash
         set -euo pipefail
+        if [[ "${1:-}" == "__cmux-should-prepare-terminal-for-tui" ]]; then
+            exit 0
+        fi
         printf '\033[H'
         printf 'OLD \#(oldToken) row 1\r\n'
         printf 'OLD \#(oldToken) row 2\r\n'
