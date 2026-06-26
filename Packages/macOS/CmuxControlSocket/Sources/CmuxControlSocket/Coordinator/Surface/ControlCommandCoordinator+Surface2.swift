@@ -282,13 +282,18 @@ extension ControlCommandCoordinator {
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        var includeScrollback = bool(params, "scrollback") ?? false
+        // `scrollback` and `lines` are orthogonal: `scrollback` chooses whether to
+        // read terminal history (vs. the visible viewport) and `lines` bounds the
+        // tail returned. We must NOT force scrollback merely because `lines` is
+        // present — doing so made a bounded `--lines N` poll materialize and format
+        // the full terminal history on the main actor before trimming, which spiked
+        // CPU/memory under large scrollback (https://github.com/manaflow-ai/cmux/issues/6500).
+        // Callers that want a bounded scrollback tail pass both `scrollback` and
+        // `lines` (the `cmux read-screen --lines N` CLI does this for you).
+        let includeScrollback = bool(params, "scrollback") ?? false
         let lineLimit = int(params, "lines")
         if let lineLimit, lineLimit <= 0 {
             return .err(code: "invalid_params", message: "lines must be greater than 0", data: nil)
-        }
-        if lineLimit != nil {
-            includeScrollback = true
         }
         let resolution = context?.controlSurfaceReadText(
             routing: routing,
