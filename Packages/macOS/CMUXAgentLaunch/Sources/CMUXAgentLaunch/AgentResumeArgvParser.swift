@@ -96,6 +96,39 @@ public struct AgentResumeArgvParser: Sendable, Equatable {
         return !value.isEmpty && !value.hasPrefix("-") ? value : nil
     }
 
+    /// The first session id introduced by any of `options` in `--opt value` form (the following value
+    /// must not be `-`-prefixed) or by any of `valuePrefixes` in `--opt=value` form, scanning `arguments`
+    /// left to right; trimmed, `nil` when none carries a non-empty value.
+    ///
+    /// Unlike ``grokResumeSessionID(in:)`` the `valuePrefixes` are passed independently of `options`, so a
+    /// caller can accept `--resume=<id>` without also accepting `-r=<id>` (the Claude/Codex explicit-resume
+    /// shapes). A `=`-joined value is only trimmed, not rejected for a leading `-`.
+    public func sessionId(
+        in arguments: [String],
+        afterAnyOption options: Set<String>,
+        valuePrefixes: [String]
+    ) -> String? {
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            if options.contains(argument),
+               index + 1 < arguments.endIndex,
+               !arguments[index + 1].hasPrefix("-") {
+                return trimmedNonEmptyValue(arguments[index + 1])
+            }
+            for prefix in valuePrefixes where argument.hasPrefix(prefix) {
+                return trimmedNonEmptyValue(String(argument.dropFirst(prefix.count)))
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    private func trimmedNonEmptyValue(_ rawValue: String) -> String? {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
     /// The grok resume session id from `-r`/`--resume` (space- or `=`-joined), trimmed and
     /// non-option; `nil` when absent.
     public func grokResumeSessionID(in arguments: [String]) -> String? {

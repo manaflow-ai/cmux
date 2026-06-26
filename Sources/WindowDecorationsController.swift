@@ -422,7 +422,7 @@ final class WindowDecorationsController {
             window: window,
             contentView: contentView
         )
-        target.frame = minimalModeSidebarTitlebarControlsFrame(
+        target.frame = MinimalModeSidebarTitlebarControlsMetrics().controlsFrame(
             contentBounds: contentBounds,
             contentViewIsFlipped: contentView.isFlipped,
             trafficLightFrameInContent: trafficLightFrameInContent,

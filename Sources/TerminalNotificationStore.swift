@@ -495,20 +495,9 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func openNotificationSettings() {
-        guard let url = Self.notificationSettingsURL(bundleIdentifier: Bundle.main.bundleIdentifier) else { return }
+        guard let url = URL.notificationSettings(bundleIdentifier: Bundle.main.bundleIdentifier) else { return }
         logAuthorization("open settings url=\(url.absoluteString)")
         notificationSettingsURLOpener(url)
-    }
-
-    static func notificationSettingsURL(bundleIdentifier: String?) -> URL? {
-        if let bundleIdentifier = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !bundleIdentifier.isEmpty,
-           let encodedBundleIdentifier = bundleIdentifier.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
-            return URL(
-                string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(encodedBundleIdentifier)"
-            )
-        }
-        return URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")
     }
 
     func sendSettingsTestNotification() {
@@ -1743,10 +1732,10 @@ final class TerminalNotificationStore: ObservableObject {
         _ completion: @escaping (Bool, NotificationAuthorizationState) -> Void
     ) {
         let isAutomaticRequest = origin == .notificationDelivery
-        guard Self.shouldRequestAuthorization(
+        guard NotificationAuthorizationRequestGate(
             isAutomaticRequest: isAutomaticRequest,
             hasRequestedAutomaticAuthorization: hasRequestedAutomaticAuthorization
-        ) else {
+        ).shouldRequestAuthorization else {
             logAuthorization(
                 "request blocked origin=\(origin.rawValue) automatic=\(isAutomaticRequest) hasRequestedAutomatic=\(hasRequestedAutomaticAuthorization)"
             )
@@ -1816,28 +1805,13 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    static func shouldDeferAutomaticAuthorizationRequest(
-        status: UNAuthorizationStatus,
-        isAppActive: Bool
-    ) -> Bool {
-        status == .notDetermined && !isAppActive
-    }
-
-    static func shouldRequestAuthorization(
-        isAutomaticRequest: Bool,
-        hasRequestedAutomaticAuthorization: Bool
-    ) -> Bool {
-        guard isAutomaticRequest else { return true }
-        return !hasRequestedAutomaticAuthorization
-    }
-
     private static func shouldDeferAutomaticAuthorizationRequest(
         origin: AuthorizationRequestOrigin,
         status: UNAuthorizationStatus,
         isAppActive: Bool
     ) -> Bool {
         guard origin == .notificationDelivery else { return false }
-        return shouldDeferAutomaticAuthorizationRequest(status: status, isAppActive: isAppActive)
+        return status.shouldDeferAutomaticAuthorizationRequest(isAppActive: isAppActive)
     }
 
 #if DEBUG

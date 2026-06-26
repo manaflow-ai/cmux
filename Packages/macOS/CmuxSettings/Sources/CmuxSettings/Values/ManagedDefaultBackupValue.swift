@@ -17,6 +17,13 @@ public enum ManagedDefaultBackupValue: Codable, Equatable, Sendable {
     case stringArray([String])
     case stringDictionary([String: String])
 
+    /// The backup-map identifier under which the managed socket-control password's
+    /// pre-managed backup is stored. The socket password is a managed *custom*
+    /// setting (not a `UserDefaults` key), so it keys the `[String:
+    /// ManagedDefaultBackupValue]` backup map under this fixed identifier rather
+    /// than a real defaults key.
+    public static let socketPasswordBackupIdentifier = "automation.socketPassword"
+
     private enum Kind: String, Codable {
         case absent
         case bool

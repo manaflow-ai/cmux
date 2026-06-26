@@ -243,4 +243,61 @@ final class RemoteTmuxMirrorCommandRouter {
               target.mirror.connection.connectionState == .connected else { return false }
         return target.mirror.connection.send("kill-window -t @\(target.windowId)")
     }
+
+    // MARK: - Activity reads
+
+    /// ``RemoteTmuxMirrorTabActivity`` from the subscription-fed cache (≤~1s stale).
+    private func mirrorTabActivityFromCache(
+        target: (mirror: RemoteTmuxSessionMirror, windowId: Int)
+    ) -> RemoteTmuxMirrorTabActivity {
+        let connection = target.mirror.connection
+        let order = connection.windowsByID[target.windowId]?.paneIDsInOrder ?? []
+        var states: [Int: RemoteTmuxControlConnection.PaneForegroundState] = [:]
+        for paneId in order {
+            states[paneId] = connection.paneForegroundStates[paneId]
+        }
+        return RemoteTmuxMirrorTabActivity.from(
+            states: states, paneOrder: order,
+            activePaneId: connection.activePaneByWindow[target.windowId]
+        )
+    }
+
+    /// The cached activity answer for a mirrored window-tab, or `nil` when
+    /// `panelId` isn't a live mirrored window-tab. Used where a round trip
+    /// isn't warranted (the always-warn dialog path).
+    func cachedMirrorTabActivity(workspaceId: UUID, panelId: UUID) -> RemoteTmuxMirrorTabActivity? {
+        guard let target = mirrorWindowTarget(workspaceId: workspaceId, panelId: panelId) else { return nil }
+        return mirrorTabActivityFromCache(target: target)
+    }
+
+    /// Live, close-time variant of ``cachedMirrorTabActivity(workspaceId:panelId:)``:
+    /// asks tmux NOW (one round trip) instead of trusting the subscription cache,
+    /// which tmux only refreshes about once a second — so a command started right
+    /// before ⌘W still gets its confirmation, with the fresh command name for the
+    /// dialog. Falls back to the cached answer when the query can't run (link
+    /// down, reconnecting, target gone). `completion` runs exactly once, on the
+    /// main actor.
+    func queryMirrorTabActivity(
+        workspaceId: UUID, panelId: UUID, completion: @escaping (RemoteTmuxMirrorTabActivity) -> Void
+    ) {
+        guard let target = mirrorWindowTarget(workspaceId: workspaceId, panelId: panelId) else {
+            completion(RemoteTmuxMirrorTabActivity(hasActiveCommand: false, activeCommandName: nil))
+            return
+        }
+        // Strong captures: the router is app-lifetime and the completion
+        // fires exactly once (flushed on stream resets), so nothing can leak.
+        target.mirror.connection.queryWindowActivity(windowId: target.windowId) { states in
+            if let states {
+                let connection = target.mirror.connection
+                completion(RemoteTmuxMirrorTabActivity.from(
+                    states: states,
+                    paneOrder: connection.windowsByID[target.windowId]?.paneIDsInOrder
+                        ?? Array(states.keys).sorted(),
+                    activePaneId: connection.activePaneByWindow[target.windowId]
+                ))
+            } else {
+                completion(self.mirrorTabActivityFromCache(target: target))
+            }
+        }
+    }
 }

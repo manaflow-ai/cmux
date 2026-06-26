@@ -7,8 +7,8 @@ extension CmuxSettingsFileStore {
     static func defaultTemplate() -> String {
         var lines: [String] = [
             "{",
-            "  \"$schema\": \"\(schemaURLString)\",",
-            "  \"schemaVersion\": \(currentSchemaVersion),",
+            "  \"$schema\": \"\(CmuxSettingsFileSchema.current.schemaURLString)\",",
+            "  \"schemaVersion\": \(CmuxSettingsFileSchema.current.version),",
             "",
             "  // This file uses JSON with comments (JSONC).",
             "  // Uncomment and edit any setting to make it file-managed.",
