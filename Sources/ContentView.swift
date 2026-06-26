@@ -5884,63 +5884,44 @@ enum SidebarFontSizeProvider {
     }
 }
 
-struct SidebarTabItemSettingsSnapshot: Equatable {
-    let hidesAllDetails: Bool
-    let wrapsWorkspaceTitles: Bool
-    let showsWorkspaceDescription: Bool
-    let sidebarShortcutHintXOffset: Double
-    let sidebarShortcutHintYOffset: Double
-    let alwaysShowShortcutHints: Bool
-    let sidebarFontScale: CGFloat
-    let showsGitBranch: Bool
-    let usesVerticalBranchLayout: Bool
-    let stacksBranchAndDirectory: Bool
-    let usesLastSegmentPath: Bool
-    let showsGitBranchIcon: Bool
-    let showsSSH: Bool
-    let makesPullRequestsClickable: Bool
-    let openPullRequestLinksInCmuxBrowser: Bool
-    let openPortLinksInCmuxBrowser: Bool
-    let showsNotificationMessage: Bool
-    let activeTabIndicatorStyle: WorkspaceIndicatorStyle
-    let selectionColorHex: String?
-    let notificationBadgeColorHex: String?
-    let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
-    let iMessageModeEnabled: Bool
-
+// `SidebarTabItemSettingsSnapshot` is a pure value type that now lives in the
+// `CmuxSidebar` package. Its `UserDefaults`/`SettingCatalog`-reading construction
+// stays app-side here as a factory init that reads the app's defaults and folds
+// the result into the moved memberwise value.
+extension SidebarTabItemSettingsSnapshot {
     init(
         defaults: UserDefaults = .standard,
         sidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize
     ) {
-        sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
-        sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
-        alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
-        sidebarFontScale = SidebarTabItemFontScale.scale(for: sidebarFontSize)
+        let sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
+        let sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
+        let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
+        let sidebarFontScale = SidebarTabItemFontScale.scale(for: sidebarFontSize)
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let catalog = SettingCatalog()
-        showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
-        usesVerticalBranchLayout = settings.value(for: catalog.sidebar.branchVerticalLayout)
-        stacksBranchAndDirectory = settings.value(for: catalog.sidebar.stackBranchDirectory)
-        usesLastSegmentPath = settings.value(for: catalog.sidebar.pathLastSegmentOnly)
-        showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
-        showsSSH = Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: SidebarWorkspaceDetailDefaults.showSSH)
-        makesPullRequestsClickable = settings.value(for: catalog.sidebar.makePullRequestsClickable)
-        openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
+        let showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
+        let usesVerticalBranchLayout = settings.value(for: catalog.sidebar.branchVerticalLayout)
+        let stacksBranchAndDirectory = settings.value(for: catalog.sidebar.stackBranchDirectory)
+        let usesLastSegmentPath = settings.value(for: catalog.sidebar.pathLastSegmentOnly)
+        let showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
+        let showsSSH = Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: SidebarWorkspaceDetailDefaults.showSSH)
+        let makesPullRequestsClickable = settings.value(for: catalog.sidebar.makePullRequestsClickable)
+        let openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
             defaults: defaults
         )
-        openPortLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowser(
+        let openPortLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowser(
             defaults: defaults
         )
 
-        hidesAllDetails = settings.value(for: catalog.sidebar.hideAllDetails)
-        wrapsWorkspaceTitles = SidebarWorkspaceTitleWrapSettings.wraps(defaults: defaults)
+        let hidesAllDetails = settings.value(for: catalog.sidebar.hideAllDetails)
+        let wrapsWorkspaceTitles = SidebarWorkspaceTitleWrapSettings.wraps(defaults: defaults)
         let detailVisibility = SidebarWorkspaceDetailVisibility(
             showWorkspaceDescription: settings.value(for: catalog.sidebar.showWorkspaceDescription),
             showNotificationMessage: settings.value(for: catalog.sidebar.showNotificationMessage),
             hideAllDetails: hidesAllDetails
         )
-        showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
-        showsNotificationMessage = detailVisibility.showsNotificationMessage
+        let showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
+        let showsNotificationMessage = detailVisibility.showsNotificationMessage
 
         let showsMetadata = Self.bool(defaults: defaults, key: "sidebarShowStatusPills", defaultValue: SidebarWorkspaceDetailDefaults.showCustomMetadata)
         let showsLog = Self.bool(defaults: defaults, key: "sidebarShowLog", defaultValue: SidebarWorkspaceDetailDefaults.showLog)
@@ -5948,7 +5929,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         let showsBranchDirectory = Self.bool(defaults: defaults, key: "sidebarShowBranchDirectory", defaultValue: SidebarWorkspaceDetailDefaults.showBranchDirectory)
         let showsPullRequests = Self.bool(defaults: defaults, key: "sidebarShowPullRequest", defaultValue: SidebarWorkspaceDetailDefaults.showPullRequests)
         let showsPorts = Self.bool(defaults: defaults, key: "sidebarShowPorts", defaultValue: SidebarWorkspaceDetailDefaults.showPorts)
-        visibleAuxiliaryDetails = SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+        let visibleAuxiliaryDetails = SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
             showMetadata: showsMetadata,
             showLog: showsLog,
             showProgress: showsProgress,
@@ -5958,10 +5939,35 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
             hideAllDetails: hidesAllDetails
         )
 
-        activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
-        selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
-        notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
-        iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
+        let activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
+        let selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
+        let notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
+        let iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
+
+        self.init(
+            hidesAllDetails: hidesAllDetails,
+            wrapsWorkspaceTitles: wrapsWorkspaceTitles,
+            showsWorkspaceDescription: showsWorkspaceDescription,
+            sidebarShortcutHintXOffset: sidebarShortcutHintXOffset,
+            sidebarShortcutHintYOffset: sidebarShortcutHintYOffset,
+            alwaysShowShortcutHints: alwaysShowShortcutHints,
+            sidebarFontScale: sidebarFontScale,
+            showsGitBranch: showsGitBranch,
+            usesVerticalBranchLayout: usesVerticalBranchLayout,
+            stacksBranchAndDirectory: stacksBranchAndDirectory,
+            usesLastSegmentPath: usesLastSegmentPath,
+            showsGitBranchIcon: showsGitBranchIcon,
+            showsSSH: showsSSH,
+            makesPullRequestsClickable: makesPullRequestsClickable,
+            openPullRequestLinksInCmuxBrowser: openPullRequestLinksInCmuxBrowser,
+            openPortLinksInCmuxBrowser: openPortLinksInCmuxBrowser,
+            showsNotificationMessage: showsNotificationMessage,
+            activeTabIndicatorStyle: activeTabIndicatorStyle,
+            selectionColorHex: selectionColorHex,
+            notificationBadgeColorHex: notificationBadgeColorHex,
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails,
+            iMessageModeEnabled: iMessageModeEnabled
+        )
     }
 
     private static func bool(
@@ -5972,7 +5978,6 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         guard defaults.object(forKey: key) != nil else { return defaultValue }
         return defaults.bool(forKey: key)
     }
-
 }
 
 // `SidebarDragState`, `SidebarWorkspaceDragRegistry`, and the DEBUG-only

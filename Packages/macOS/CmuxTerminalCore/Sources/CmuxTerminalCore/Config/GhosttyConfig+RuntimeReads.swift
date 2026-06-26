@@ -143,6 +143,75 @@ extension GhosttyConfig {
         return unspecifiedFallbackValue
     }
 
+    /// Folds a freshly parsed on-disk `resolved` config back onto the legacy
+    /// `baseline` bundle, applying ``resolvedAppearanceValue(parsedValue:baselineValue:unspecifiedFallbackValue:hasParsedDirective:hasDirective:)``
+    /// per appearance directive. `fallbackForUnspecified` supplies each value
+    /// when neither the parsed config nor the baseline declared the directive.
+    public static func resolvedDefaultBackgroundValues(
+        resolved: GhosttyConfig,
+        baseline: DefaultBackgroundValues,
+        fallbackForUnspecified: DefaultBackgroundValues
+    ) -> DefaultBackgroundValues {
+        DefaultBackgroundValues(
+            backgroundColor: resolvedAppearanceValue(
+                parsedValue: resolved.backgroundColor,
+                baselineValue: baseline.backgroundColor,
+                unspecifiedFallbackValue: fallbackForUnspecified.backgroundColor,
+                hasParsedDirective: resolved.hasParsedBackgroundColor,
+                hasDirective: resolved.hasBackgroundColorDirective
+            ),
+            backgroundOpacity: resolvedAppearanceValue(
+                parsedValue: resolved.backgroundOpacity,
+                baselineValue: baseline.backgroundOpacity,
+                unspecifiedFallbackValue: fallbackForUnspecified.backgroundOpacity,
+                hasParsedDirective: resolved.hasParsedBackgroundOpacity,
+                hasDirective: resolved.hasBackgroundOpacityDirective
+            ),
+            backgroundBlur: resolvedAppearanceValue(
+                parsedValue: resolved.backgroundBlur,
+                baselineValue: baseline.backgroundBlur,
+                unspecifiedFallbackValue: fallbackForUnspecified.backgroundBlur,
+                hasParsedDirective: resolved.hasParsedBackgroundBlur,
+                hasDirective: resolved.hasBackgroundBlurDirective
+            ),
+            foregroundColor: resolvedAppearanceValue(
+                parsedValue: resolved.foregroundColor,
+                baselineValue: baseline.foregroundColor,
+                unspecifiedFallbackValue: fallbackForUnspecified.foregroundColor,
+                hasParsedDirective: resolved.hasParsedForegroundColor,
+                hasDirective: resolved.hasForegroundColorDirective
+            ),
+            cursorColor: resolvedAppearanceValue(
+                parsedValue: resolved.cursorColor,
+                baselineValue: baseline.cursorColor,
+                unspecifiedFallbackValue: fallbackForUnspecified.cursorColor,
+                hasParsedDirective: resolved.hasParsedCursorColor,
+                hasDirective: resolved.hasCursorColorDirective
+            ),
+            cursorTextColor: resolvedAppearanceValue(
+                parsedValue: resolved.cursorTextColor,
+                baselineValue: baseline.cursorTextColor,
+                unspecifiedFallbackValue: fallbackForUnspecified.cursorTextColor,
+                hasParsedDirective: resolved.hasParsedCursorTextColor,
+                hasDirective: resolved.hasCursorTextColorDirective
+            ),
+            selectionBackground: resolvedAppearanceValue(
+                parsedValue: resolved.selectionBackground,
+                baselineValue: baseline.selectionBackground,
+                unspecifiedFallbackValue: fallbackForUnspecified.selectionBackground,
+                hasParsedDirective: resolved.hasParsedSelectionBackground,
+                hasDirective: resolved.hasSelectionBackgroundDirective
+            ),
+            selectionForeground: resolvedAppearanceValue(
+                parsedValue: resolved.selectionForeground,
+                baselineValue: baseline.selectionForeground,
+                unspecifiedFallbackValue: fallbackForUnspecified.selectionForeground,
+                hasParsedDirective: resolved.hasParsedSelectionForeground,
+                hasDirective: resolved.hasSelectionForegroundDirective
+            )
+        )
+    }
+
     /// Whether ghostty's `focus-follows-mouse` directive is enabled in `config`.
     public static func focusFollowsMouseEnabled(in config: ghostty_config_t?) -> Bool {
         guard let config else { return false }

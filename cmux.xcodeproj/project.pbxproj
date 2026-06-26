@@ -368,6 +368,7 @@
 		DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */; };
 		DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */; };
 		A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */; };
+		DEB6C0DE00000000000000A0 /* DebugWindowControlsContentProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEB6C0DE00000000000000A1 /* DebugWindowControlsContentProvider.swift */; };
 		A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001F000000000000000002 /* DetachedFolderDragIcon.swift */; };
 		B05553C10000000000000001 /* DetachedFolderPathLookupCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B05553C10000000000000002 /* DetachedFolderPathLookupCache.swift */; };
 		B0555303B0555303B0555303 /* DetachedFolderPathLookupCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0555304B0555304B0555304 /* DetachedFolderPathLookupCacheTests.swift */; };
@@ -1421,6 +1422,7 @@
 		DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolver.swift; sourceTree = "<group>"; };
 		DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolverTests.swift; sourceTree = "<group>"; };
 		A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DebugLogging.swift; sourceTree = "<group>"; };
+		DEB6C0DE00000000000000A1 /* DebugWindowControlsContentProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugWindowControlsContentProvider.swift; sourceTree = "<group>"; };
 		A5001F000000000000000002 /* DetachedFolderDragIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderDragIcon.swift; sourceTree = "<group>"; };
 		B05553C10000000000000002 /* DetachedFolderPathLookupCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderPathLookupCache.swift; sourceTree = "<group>"; };
 		B0555304B0555304B0555304 /* DetachedFolderPathLookupCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderPathLookupCacheTests.swift; sourceTree = "<group>"; };
@@ -2365,6 +2367,7 @@
 				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
 				A11EAB000000000000000001 /* AppearanceSettings.swift */,
 				A1577A00DEB60000000000A1 /* StartupAppearanceDebugReloader.swift */,
+				DEB6C0DE00000000000000A1 /* DebugWindowControlsContentProvider.swift */,
 				A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */,
 				D7C6F5000000000000000001 /* GhosttyTitleChange.swift */,
 				D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */,
@@ -3877,6 +3880,7 @@
 				C0DE00000000000000000FF2 /* ControlBrowserEvalAwaiter+BrowserCookieStoreAwaiting.swift in Sources */,
 				DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */,
 				A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */,
+				DEB6C0DE00000000000000A0 /* DebugWindowControlsContentProvider.swift in Sources */,
 				A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */,
 				B05553C10000000000000001 /* DetachedFolderPathLookupCache.swift in Sources */,
 				DE71CE000000000000000004 /* DeviceRegistryClient.swift in Sources */,

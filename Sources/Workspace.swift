@@ -2247,14 +2247,11 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
 
-    private struct PendingRemoteDisconnectReplacement {
-        let target: String
-        let reconnectCommand: String?
-    }
-
     /// Display target and reconnect command for the remote terminal that just disconnected.
     /// Set right before `createReplacementTerminalPanel()` so the replacement terminal stays
     /// visibly disconnected instead of falling through to a local login shell.
+    /// The value type lives in `CmuxRemoteWorkspace`
+    /// (`PendingRemoteDisconnectReplacement`).
     private var pendingRemoteDisconnectReplacement: PendingRemoteDisconnectReplacement?
     var remoteDisconnectPlaceholderPanelIds: Set<UUID> = []
 
@@ -2402,15 +2399,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             url.deleteLastPathComponent()
         }
         return nil
-    }
-
-    private static func isProxyOnlyRemoteError(_ detail: String) -> Bool {
-        let lowered = detail.lowercased()
-        return lowered.contains("remote proxy")
-            || lowered.contains("proxy_unavailable")
-            || lowered.contains("local daemon proxy")
-            || lowered.contains("proxy failure")
-            || lowered.contains("daemon transport")
     }
 
     private var preservesProxyFailureWhileSSHTerminalIsAlive: Bool {
@@ -5536,7 +5524,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         target: String
     ) {
         let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let proxyOnlyError = trimmedDetail.map(Self.isProxyOnlyRemoteError) ?? false
+        let proxyOnlyError = trimmedDetail.map(\.indicatesProxyOnlyRemoteError) ?? false
         let preserveConnectedStateForRetry =
             (state == .connecting || state == .reconnecting) &&
                 preservesProxyFailureWhileSSHTerminalIsAlive &&

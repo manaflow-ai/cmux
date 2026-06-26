@@ -1508,22 +1508,6 @@ class GhosttyApp {
         GhosttyConfig.defaultBackgroundValues(from: config, baseline: Self.fallbackAppearanceConfig)
     }
 
-    private func resolvedAppearanceValue<T>(
-        parsedValue: T,
-        baselineValue: T,
-        unspecifiedFallbackValue: T,
-        hasParsedDirective: Bool,
-        hasDirective: Bool
-    ) -> T {
-        GhosttyConfig.resolvedAppearanceValue(
-            parsedValue: parsedValue,
-            baselineValue: baselineValue,
-            unspecifiedFallbackValue: unspecifiedFallbackValue,
-            hasParsedDirective: hasParsedDirective,
-            hasDirective: hasDirective
-        )
-    }
-
     private func updateDefaultBackgroundFromResolvedGhosttyConfig(
         source: String,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
@@ -1553,63 +1537,20 @@ class GhosttyApp {
         let fallbackForUnspecified = Self.configDiscovery.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance()
             ? defaultBackgroundValues(from: nil)
             : baseline
+        let resolvedValues = GhosttyConfig.resolvedDefaultBackgroundValues(
+            resolved: resolved,
+            baseline: baseline,
+            fallbackForUnspecified: fallbackForUnspecified
+        )
         applyDefaultBackground(
-            color: resolvedAppearanceValue(
-                parsedValue: resolved.backgroundColor,
-                baselineValue: baseline.backgroundColor,
-                unspecifiedFallbackValue: fallbackForUnspecified.backgroundColor,
-                hasParsedDirective: resolved.hasParsedBackgroundColor,
-                hasDirective: resolved.hasBackgroundColorDirective
-            ),
-            opacity: resolvedAppearanceValue(
-                parsedValue: resolved.backgroundOpacity,
-                baselineValue: baseline.backgroundOpacity,
-                unspecifiedFallbackValue: fallbackForUnspecified.backgroundOpacity,
-                hasParsedDirective: resolved.hasParsedBackgroundOpacity,
-                hasDirective: resolved.hasBackgroundOpacityDirective
-            ),
-            backgroundBlur: resolvedAppearanceValue(
-                parsedValue: resolved.backgroundBlur,
-                baselineValue: baseline.backgroundBlur,
-                unspecifiedFallbackValue: fallbackForUnspecified.backgroundBlur,
-                hasParsedDirective: resolved.hasParsedBackgroundBlur,
-                hasDirective: resolved.hasBackgroundBlurDirective
-            ),
-            foregroundColor: resolvedAppearanceValue(
-                parsedValue: resolved.foregroundColor,
-                baselineValue: baseline.foregroundColor,
-                unspecifiedFallbackValue: fallbackForUnspecified.foregroundColor,
-                hasParsedDirective: resolved.hasParsedForegroundColor,
-                hasDirective: resolved.hasForegroundColorDirective
-            ),
-            cursorColor: resolvedAppearanceValue(
-                parsedValue: resolved.cursorColor,
-                baselineValue: baseline.cursorColor,
-                unspecifiedFallbackValue: fallbackForUnspecified.cursorColor,
-                hasParsedDirective: resolved.hasParsedCursorColor,
-                hasDirective: resolved.hasCursorColorDirective
-            ),
-            cursorTextColor: resolvedAppearanceValue(
-                parsedValue: resolved.cursorTextColor,
-                baselineValue: baseline.cursorTextColor,
-                unspecifiedFallbackValue: fallbackForUnspecified.cursorTextColor,
-                hasParsedDirective: resolved.hasParsedCursorTextColor,
-                hasDirective: resolved.hasCursorTextColorDirective
-            ),
-            selectionBackground: resolvedAppearanceValue(
-                parsedValue: resolved.selectionBackground,
-                baselineValue: baseline.selectionBackground,
-                unspecifiedFallbackValue: fallbackForUnspecified.selectionBackground,
-                hasParsedDirective: resolved.hasParsedSelectionBackground,
-                hasDirective: resolved.hasSelectionBackgroundDirective
-            ),
-            selectionForeground: resolvedAppearanceValue(
-                parsedValue: resolved.selectionForeground,
-                baselineValue: baseline.selectionForeground,
-                unspecifiedFallbackValue: fallbackForUnspecified.selectionForeground,
-                hasParsedDirective: resolved.hasParsedSelectionForeground,
-                hasDirective: resolved.hasSelectionForegroundDirective
-            ),
+            color: resolvedValues.backgroundColor,
+            opacity: resolvedValues.backgroundOpacity,
+            backgroundBlur: resolvedValues.backgroundBlur,
+            foregroundColor: resolvedValues.foregroundColor,
+            cursorColor: resolvedValues.cursorColor,
+            cursorTextColor: resolvedValues.cursorTextColor,
+            selectionBackground: resolvedValues.selectionBackground,
+            selectionForeground: resolvedValues.selectionForeground,
             source: "\(source).resolvedGhosttyConfig",
             scope: scope,
             forceNotify: forceNotify

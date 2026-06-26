@@ -58,7 +58,7 @@ import CmuxTerminal
 ///   `CmuxAppKitSupportUI`; its app couplings invert behind the
 ///   `StartupAppearanceReloading` seam (conformed app-side by
 ///   `StartupAppearanceDebugReloader`) with localized strings resolved app-side
-///   (`AppDelegate.startupAppearanceDebugStrings`). No `#if DEBUG` content view
+///   (`DebugWindowControlsContentProvider.startupAppearanceDebugStrings`). No `#if DEBUG` content view
 ///   remains in this file.
 /// - **Root anchors:** the `BuildFlavor` typealias (the value type lives in
 ///   `CmuxFoundation`) and the file-scope `telemetrySettings` constant (the one
@@ -1272,7 +1272,7 @@ struct cmuxApp: App {
 // debug windows, reads the app-target browser-devtools settings, and copies a
 // combined config payload that interpolates app-target settings enums), so the
 // app target injects the open-actions, the browser-devtools option rows, and the
-// combined-config closure through `AppDelegate.debugWindowControlsContentView`.
+// combined-config closure through `DebugWindowControlsContentProvider.debugWindowControlsContentView`.
 
 // The About and Acknowledgments windows (`AboutWindowController`,
 // `AcknowledgmentsWindowController`) plus their content views (`AboutPanelView`,
@@ -1321,7 +1321,7 @@ struct cmuxApp: App {
 // view's app couplings are inverted behind the `StartupAppearanceReloading` seam
 // (resolved appearance mode, startup-config cache invalidation, running-app
 // reload), conformed app-side by `StartupAppearanceDebugReloader`. Its localized
-// labels are resolved app-side (`AppDelegate.startupAppearanceDebugStrings`) and
+// labels are resolved app-side (`DebugWindowControlsContentProvider.startupAppearanceDebugStrings`) and
 // injected as `StartupAppearanceDebugStrings`, so `String(localized:)` binds to
 // the app bundle and keeps its non-English translations. The preview profile and
 // synthetic config contents come from `CmuxTerminalCore`. Nothing of this panel
