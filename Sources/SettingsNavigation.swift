@@ -13,6 +13,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case browser
     case browserImport
     case globalHotkey
+    case appshots
     case keyboardShortcuts
     case workspaceColors
     case settingsJSON
@@ -48,6 +49,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.browser.import", defaultValue: "Import Browser Data")
         case .globalHotkey:
             return String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey")
+        case .appshots:
+            return String(localized: "settings.section.appshots", defaultValue: "Appshots")
         case .keyboardShortcuts:
             return String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")
         case .settingsJSON:
@@ -85,6 +88,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "square.and.arrow.down"
         case .globalHotkey:
             return "keyboard.badge.ellipsis"
+        case .appshots:
+            return "camera.viewfinder"
         case .keyboardShortcuts:
             return "keyboard"
         case .settingsJSON:
@@ -122,6 +127,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) browser import data bookmarks history cookies"
         case .globalHotkey:
             return "\(title) system wide shortcut"
+        case .appshots:
+            return "\(title) appshot screenshot capture frontmost window accessibility screen recording agent context hotkey permissions"
         case .keyboardShortcuts:
             return "\(title) keybindings commands chords"
         case .settingsJSON:

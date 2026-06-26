@@ -67,6 +67,7 @@ enum KeyboardShortcutSettings {
         case reloadConfiguration
         case showHideAllWindows
         case globalSearch
+        case sendAppshot
         case newWindow
         case closeWindow
         case toggleFullScreen
@@ -192,6 +193,7 @@ enum KeyboardShortcutSettings {
             case .reloadConfiguration: return String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration")
             case .showHideAllWindows: return String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide All Windows")
             case .globalSearch: return String(localized: "shortcut.globalSearch.label", defaultValue: "Global Search")
+            case .sendAppshot: return String(localized: "shortcut.sendAppshot.label", defaultValue: "Send Appshot to Active Agent")
             case .newWindow: return String(localized: "shortcut.newWindow.label", defaultValue: "New Window")
             case .closeWindow: return String(localized: "shortcut.closeWindow.label", defaultValue: "Close Window")
             case .toggleFullScreen: return String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen")
@@ -330,6 +332,10 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: ".", command: true, shift: false, option: true, control: true)
             case .globalSearch:
                 return StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
+            case .sendAppshot:
+                // Ctrl+Option+Cmd+A ("Appshot"): a system-wide hotkey shape that
+                // avoids macOS's ⌘⇧3/4/5 screenshot chords and every cmux default.
+                return StoredShortcut(key: "a", command: true, shift: false, option: true, control: true)
             case .newWindow:
                 return StoredShortcut(key: "n", command: true, shift: true, option: false, control: false)
             case .closeWindow:
@@ -695,7 +701,7 @@ enum KeyboardShortcutSettings {
             // Preserve invalid settings-file values for the show/hide hotkey so managed
             // configuration remains visible instead of silently falling back to defaults.
             // Runtime registration still rejects unsupported Carbon hotkey shapes.
-            if usesNumberedDigitMatching || self == .globalSearch {
+            if usesNumberedDigitMatching || self == .globalSearch || self == .sendAppshot {
                 return nil
             }
             return shortcut
@@ -707,7 +713,7 @@ enum KeyboardShortcutSettings {
             }
 
             switch self {
-            case .showHideAllWindows, .globalSearch:
+            case .showHideAllWindows, .globalSearch, .sendAppshot:
                 return KeyboardShortcutSettings.normalizedSystemWideHotkeyShortcutResult(
                     shortcut,
                     for: self,
@@ -973,6 +979,7 @@ enum KeyboardShortcutSettings {
             if action.usesNumberedDigitMatching ||
                 action == .showHideAllWindows ||
                 action == .globalSearch ||
+                action == .sendAppshot ||
                 !action.allowsChordShortcut {
                 return nil
             }
@@ -1202,10 +1209,12 @@ final class SystemWideHotkeyController {
     private static let hotKeyIDs: [KeyboardShortcutSettings.Action: UInt32] = [
         .showHideAllWindows: 1,
         .globalSearch: 2,
+        .sendAppshot: 3,
     ]
     private static let systemWideActions: [KeyboardShortcutSettings.Action] = [
         .showHideAllWindows,
         .globalSearch,
+        .sendAppshot,
     ]
 
     private var hotKeyRefs: [KeyboardShortcutSettings.Action: EventHotKeyRef] = [:]
@@ -1369,7 +1378,7 @@ final class SystemWideHotkeyController {
         switch action {
         case .showHideAllWindows:
             return SystemWideHotkeySettings.isEnabled()
-        case .globalSearch:
+        case .globalSearch, .sendAppshot:
             return true
         default:
             assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
@@ -1462,6 +1471,8 @@ final class SystemWideHotkeyController {
             AppDelegate.shared?.toggleApplicationVisibilityFromGlobalHotkey()
         case .globalSearch:
             AppDelegate.shared?.toggleGlobalSearchPaletteFromGlobalHotkey()
+        case .sendAppshot:
+            AppshotController.shared.triggerFromGlobalHotkey()
         default:
             assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
             break

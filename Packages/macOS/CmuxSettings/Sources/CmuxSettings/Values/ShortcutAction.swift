@@ -16,6 +16,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case reloadConfiguration
     case showHideAllWindows
     case globalSearch
+    /// Captures the frontmost macOS window (screenshot + Accessibility text)
+    /// and sends it into the active agent. Works as a system-wide hotkey even
+    /// when cmux is not frontmost.
+    case sendAppshot
     case newWindow
     case closeWindow
     case toggleFullScreen
@@ -169,7 +173,7 @@ extension ShortcutAction {
     public var group: Group {
         switch self {
         case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch,
-             .newWindow, .closeWindow, .toggleFullScreen, .quit:
+             .sendAppshot, .newWindow, .closeWindow, .toggleFullScreen, .quit:
             return .app
         case .toggleSidebar, .newTab, .newBrowserWorkspace, .openFolder, .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
@@ -322,6 +326,8 @@ extension ShortcutAction {
         case .reloadConfiguration: return "Reload Configuration"
         case .showHideAllWindows: return "Show/Hide All Windows"
         case .globalSearch: return "Global Search"
+        case .sendAppshot:
+            return String(localized: "shortcut.sendAppshot.label", defaultValue: "Send Appshot to Active Agent")
         case .newWindow: return "New Window"
         case .closeWindow: return "Close Window"
         case .toggleFullScreen: return "Toggle Full Screen"

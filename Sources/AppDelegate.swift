@@ -1462,6 +1462,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sentryStartMemoryContextRefresh()
         }
         SystemWideHotkeyController.shared.start()
+        AppshotController.shared.start()
         AgentHibernationController.shared.start()
         RendererRealizationController.shared.start()
         NSApp.servicesProvider = self
@@ -9211,6 +9212,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "surface_id": surfaceId,
             "text": text + "\r",
         ])
+    }
+
+    // MARK: - Appshot delivery
+
+    /// Resolves the agent surface the user is currently working with — the
+    /// focused terminal panel of the front cmux window's selected workspace.
+    /// Used by ``AppshotController`` to anchor the 60-second recency rule.
+    func appshotFocusedAgentRef() -> (workspaceId: UUID, panelId: UUID)? {
+        guard let context = preferredMainWindowContextForWorkspaceCreation(debugSource: "appshot.focusedAgent"),
+              let workspace = context.tabManager.selectedWorkspace,
+              let panel = workspace.focusedTerminalPanel else { return nil }
+        return (workspace.id, panel.id)
+    }
+
+    /// Whether the given terminal surface still exists (used before routing an
+    /// appshot to a remembered surface).
+    func appshotSurfaceExists(workspaceId: UUID, panelId: UUID) -> Bool {
+        guard let manager = tabManagerFor(tabId: workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
+        return workspace.terminalPanel(for: panelId) != nil
+    }
+
+    /// Appends the appshot context to an existing agent surface and submits it
+    /// (terminal-mode Return). Returns `false` if the surface vanished so the
+    /// caller can fall back to a new thread. Deliberately does not steal focus
+    /// from the frontmost app, so consecutive appshots keep capturing it.
+    @discardableResult
+    func sendAppshotText(_ text: String, workspaceId: UUID, panelId: UUID) -> Bool {
+        guard let manager = tabManagerFor(tabId: workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == workspaceId }),
+              workspace.terminalPanel(for: panelId) != nil else { return false }
+        manager.focusTab(workspaceId, surfaceId: panelId, suppressFlash: true)
+        sendTextWhenReady(text + "\r", to: workspace, preferredPanelId: panelId)
+        return true
+    }
+
+    /// Opens a fresh workspace with the appshot context staged in its terminal
+    /// (no trailing Return, so a plain shell does not execute it). Does not
+    /// bring cmux to the front. Returns the new surface for recency tracking.
+    func openAppshotInNewWorkspace(_ text: String) -> (workspaceId: UUID, panelId: UUID)? {
+        guard let workspace = addWorkspaceInPreferredMainWindow(
+            initialTerminalInput: text,
+            shouldBringToFront: false,
+            debugSource: "appshot.newThread"
+        ), let panelId = workspace.focusedPanelId else { return nil }
+        return (workspace.id, panelId)
     }
 
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {

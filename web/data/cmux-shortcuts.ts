@@ -44,6 +44,18 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Global search", ja: "グローバル検索" },
         note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
       },
+      {
+        id: "sendAppshot",
+        combos: [["⌃", "⌥", "⌘", "A"]],
+        description: {
+          en: "Send appshot to active agent",
+          ja: "アクティブなエージェントにアプリショットを送信",
+        },
+        note: {
+          en: "system-wide hotkey; captures the frontmost window (screenshot + text) and sends it to the agent",
+          ja: "システム全体のホットキー。最前面のウィンドウ（スクリーンショット + テキスト）をキャプチャしてエージェントに送信します",
+        },
+      },
       { id: "commandPalette", combos: [["⌘", "⇧", "P"]], description: { en: "Command palette", ja: "コマンドパレット" } },
       {
         id: "commandPaletteNext",

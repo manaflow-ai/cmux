@@ -496,6 +496,9 @@ public struct SettingsWindowRoot: View {
         )
         .id(anchorID(for: .globalHotkey))
 
+        AppshotsSection()
+            .id(anchorID(for: .appshots))
+
         KeyboardShortcutsSection(
             jsonStore: jsonStore,
             catalog: catalog,
