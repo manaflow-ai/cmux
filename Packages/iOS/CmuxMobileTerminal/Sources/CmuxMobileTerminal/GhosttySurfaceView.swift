@@ -1062,6 +1062,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             name: UIResponder.keyboardWillChangeFrameNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAccessoryConfigurationChanged),
+            name: TerminalAccessoryConfiguration.didChangeNotification,
+            object: nil
+        )
     }
 
     @objc private func handleAppWillResignActive() {
@@ -1132,14 +1138,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// still lands even if the toolbar UI is absent.
     private var reservedToolbarHeight: CGFloat = 0
     /// Height of the docked accessory bar reserved in the grid geometry so the
-    /// bottom TUI rows stay visible above it. Locked to the bar's actual button-row
-    /// height (`TerminalInputTextView.dockedButtonRowHeight`) so the grid reserves
-    /// EXACTLY the strip the buttons occupy — no taller. Round 3 reserved 44 while
-    /// the strip was only 34, so the extra 10pt rendered as bar background below
-    /// the buttons (the "gap below" Lawrence kept seeing). Matching them keeps the
-    /// toolbar's live top edge equal to the viewport edge; any whole-cell render
-    /// remainder stays inside the terminal viewport instead of becoming toolbar fill.
-    private static let persistentToolbarHeight: CGFloat = TerminalInputTextView.dockedButtonRowHeight
+    /// bottom TUI rows stay visible above it. Locked to the bar's actual configured
+    /// row-stack height so the grid reserves exactly the strip the buttons occupy.
+    private var persistentToolbarHeight: CGFloat {
+        TerminalInputTextView.dockedButtonRowHeight(rowCount: TerminalAccessoryConfiguration.shared.rowCount)
+    }
     /// The docked accessory bar. Positioned by ``bottomDockFrames()`` with the
     /// SAME bottom-occupancy math as the grid reservation, so its top is always
     /// flush with the grid bottom (no gap) and its bottom rests on the keyboard
@@ -1477,7 +1480,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// height again. Idempotent: a no-op when already in the target state.
     private func updateDockedToolbarVisibility() {
         let shouldShow = dockedToolbarShouldBeVisible
-        let reserved: CGFloat = shouldShow ? Self.persistentToolbarHeight : 0
+        let reserved: CGFloat = shouldShow ? persistentToolbarHeight : 0
         guard dockedToolbar?.isHidden != !shouldShow || reservedToolbarHeight != reserved else { return }
         dockedToolbar?.isHidden = !shouldShow
         // The composer band rides with the toolbar: hide it when the chrome is
@@ -1487,6 +1490,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         composerContainer.isHidden = !shouldShow || composerContainer.subviews.isEmpty
         reservedToolbarHeight = reserved
         layoutRenderedTerminalForCurrentViewport()
+        setNeedsGeometrySync()
+        setNeedsLayout()
+    }
+
+    @objc private func handleAccessoryConfigurationChanged() {
+        updateDockedToolbarVisibility()
+        layoutBottomDock()
+        layoutRenderedTerminalForCurrentViewport()
+        layoutZoomOverlay()
         setNeedsGeometrySync()
         setNeedsLayout()
     }
@@ -1816,12 +1828,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the composer is now the chrome closest to the keyboard, with the always-visible
     /// toolbar above it.
     ///
-    /// The toolbar's button row is bottom-pinned inside its container (see
-    /// `TerminalInputTextView.dockedButtonRowHeight`), so the controls always hug the
-    /// band's bottom. The toolbar's TOP is the live terminal viewport bottom. The
-    /// rendered layer is independently bottom-pinned to that same viewport while
-    /// async libghostty resize catches up, so the keyboard transition has one moving
-    /// bottom edge instead of a dock edge derived from stale render readback.
+    /// The toolbar's row stack is bottom-pinned inside its container (see
+    /// `TerminalInputTextView.dockedButtonRowHeight(rowCount:)`), so the controls
+    /// always hug the band's bottom. The toolbar's TOP is the live terminal
+    /// viewport bottom. The rendered layer is independently bottom-pinned to that
+    /// same viewport while async libghostty resize catches up, so the keyboard
+    /// transition has one moving bottom edge instead of a dock edge derived from
+    /// stale render readback.
     ///
     /// While the HIDE button has suppressed the chrome (``chromeHidden``) the dock is
     /// off screen (both frames `.zero`); the grid reservation matches (it reserves 0),
@@ -1837,7 +1850,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let width = bounds.width
         let effectiveComposerHeight = chromeHidden ? 0 : composerBandHeight
         // Composer band sits directly above the keyboard (or the safe-area inset),
-        // pinned to the bottom edge; the toolbar's button band reserves
+        // pinned to the bottom edge; the toolbar's row stack reserves
         // `persistentToolbarHeight` directly above the composer. At height 0 the band
         // frame is a zero-height strip AT `bottomEdge` (composerTop == bottomEdge), so a
         // close animates a smooth downward height-collapse into the toolbar/keyboard
@@ -1845,9 +1858,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let composerTop = bottomEdge - effectiveComposerHeight
         let composerFrame = CGRect(x: 0, y: max(0, composerTop), width: width, height: effectiveComposerHeight)
         // Toolbar's reserved bottom is the composer's top (or the bottom edge with no
-        // composer), and its reserved top is one button-row band above that.
+        // composer), and its reserved top is one configured row-stack band above that.
         let toolbarBottom = effectiveComposerHeight > 0 ? composerTop : bottomEdge
-        let toolbarReservedTop = toolbarBottom - Self.persistentToolbarHeight
+        let toolbarReservedTop = toolbarBottom - persistentToolbarHeight
         let toolbarTop = max(0, toolbarReservedTop)
         let toolbarFrame = CGRect(x: 0, y: toolbarTop, width: width, height: toolbarBottom - toolbarTop)
         return (composerFrame, toolbarFrame)
@@ -2184,6 +2197,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     deinit {
+        NotificationCenter.default.removeObserver(self)
         stopKeyboardHeightAnimation()
         disposeSurface()
     }

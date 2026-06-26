@@ -95,4 +95,60 @@ struct TerminalAccessoryLayoutReducerTests {
         #expect(layout.order == [2, 0, 3, 1])
         #expect(layout.visibleOrder == [2, 0])
     }
+
+    @Test("saved rows are honored and missing actions append to the last row")
+    func savedRowsForwardCompat() {
+        let layout = reducer.load(savedRows: [[2, 0], [1]], savedEnabled: [2, 1], rowCount: 2)
+        #expect(layout.rows == [[2, 0], [1, 3]])
+        #expect(layout.visibleRows == [[2], [1]])
+        #expect(layout.order == [2, 0, 1, 3])
+    }
+
+    @Test("empty rows are preserved so row count persists")
+    func emptyRowsPersist() {
+        let layout = reducer.load(savedRows: [[2], []], savedEnabled: nil, rowCount: 3)
+        #expect(layout.rows == [[2], [], [0, 1, 3]])
+        #expect(layout.visibleRows == [[2], [], [0, 1, 3]])
+    }
+
+    @Test("row count reduction merges overflow rows into the last retained row")
+    func reducingRowCountMergesOverflow() {
+        let layout = TerminalAccessoryLayoutReducer<Int>.Layout(
+            rows: [[0], [1, 2], [3]],
+            enabled: Set([0, 1, 2, 3])
+        )
+        let reduced = reducer.setRowCount(2, in: layout)
+        #expect(reduced.rows == [[0], [1, 2, 3]])
+    }
+
+    @Test("row count increase appends empty rows")
+    func increasingRowCountAppendsEmptyRows() {
+        let layout = TerminalAccessoryLayoutReducer<Int>.Layout(
+            rows: [[0, 1, 2, 3]],
+            enabled: Set([0, 1, 2, 3])
+        )
+        let expanded = reducer.setRowCount(3, in: layout)
+        #expect(expanded.rows == [[0, 1, 2, 3], [], []])
+    }
+
+    @Test("row-local move reorders only that row")
+    func rowLocalMove() {
+        let layout = TerminalAccessoryLayoutReducer<Int>.Layout(
+            rows: [[0, 1], [2, 3]],
+            enabled: Set([0, 1, 2, 3])
+        )
+        let moved = reducer.move(from: IndexSet(integer: 0), to: 2, inRow: 1, in: layout)
+        #expect(moved.rows == [[0, 1], [3, 2]])
+    }
+
+    @Test("moving an item to another row preserves enabled state")
+    func moveItemToRow() {
+        let layout = TerminalAccessoryLayoutReducer<Int>.Layout(
+            rows: [[0, 1], [2, 3]],
+            enabled: Set([0, 2])
+        )
+        let moved = reducer.move(1, toRow: 1, in: layout)
+        #expect(moved.rows == [[0], [2, 3, 1]])
+        #expect(moved.enabled == Set([0, 2]))
+    }
 }
