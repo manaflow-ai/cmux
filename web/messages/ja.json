@@ -962,7 +962,10 @@
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
           "scrollSpeed": "ターミナルのスクロールホイールとトラックパッドの移動量に適用される倍率です。値を大きくするとスクロールが速くなり、小さくすると遅くなります。",
           "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
-          "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。"
+          "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。",
+          "focusedSplitBorder": "ワークスペースが複数のペインに分割されているとき、フォーカス中のペインをアクセントカラーの枠線で囲み、どの分割がアクティブかを一目で分かるようにします。非フォーカス分割の減光を補完します。false で無効にします。",
+          "focusedSplitBorderColor": "フォーカス中の分割枠線の色を上書きする任意の #RRGGBB 16進数です。null の場合はシステムのアクセントカラーに従います。",
+          "focusedSplitBorderWidth": "フォーカス中の分割枠線の線幅（ポイント単位、0.5〜8）です。"
         },
         "browser": {
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",

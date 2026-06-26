@@ -67,6 +67,26 @@ Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM
 
 Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
 
+## `terminal.focusedSplitBorder`
+
+When a workspace is split into multiple panes (⌘D), cmux outlines the focused pane with an accent-colored border so the active split is unmistakable — useful when several splits show similar content. It complements the unfocused-split dimming (see below): unfocused splits are dimmed, the focused split is outlined. The border only appears while the workspace has more than one pane.
+
+```json
+{
+  "terminal": {
+    "focusedSplitBorder": true,
+    "focusedSplitBorderColor": "#3B82F6",
+    "focusedSplitBorderWidth": 2
+  }
+}
+```
+
+- `focusedSplitBorder`: show the border around the focused split pane. Default: `true`. Toggle it from **Settings > Terminal > Focused Split Border**.
+- `focusedSplitBorderColor`: optional `#RRGGBB` hex override for the border color. Omit or set `null` to follow the system accent color. Default: `null`.
+- `focusedSplitBorderWidth`: border stroke width, in points. Default: `2`. Range: `0.5`-`8`.
+
+To dim the unfocused splits instead of (or in addition to) the border, set Ghostty's `unfocused-split-opacity` in your Ghostty config (**Settings > Terminal > Edit Ghostty Config**); for example `unfocused-split-opacity = 0.7`.
+
 ## `automation.workspaceAutoNaming`
 
 Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short sidebar and tab names using each agent's own binary, and refreshes them as the conversation topic shifts. See [workspace-auto-naming.md](workspace-auto-naming.md) for the supported adapter list and full behavior.

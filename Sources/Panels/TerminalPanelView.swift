@@ -12,6 +12,12 @@ struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
     @AppStorage(NotificationPaneRingSettings.enabledKey)
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
+    @AppStorage(TerminalFocusedSplitBorderSettings.enabledKey)
+    private var focusedSplitBorderEnabled = TerminalFocusedSplitBorderSettings.defaultEnabled
+    @AppStorage(TerminalFocusedSplitBorderSettings.colorHexKey)
+    private var focusedSplitBorderColorHex = TerminalFocusedSplitBorderSettings.defaultColorHex
+    @AppStorage(TerminalFocusedSplitBorderSettings.widthKey)
+    private var focusedSplitBorderWidth = TerminalFocusedSplitBorderSettings.defaultWidth
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
     private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
     @State private var terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
@@ -74,6 +80,9 @@ struct TerminalPanelView: View {
                 showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
+                showsFocusBorder: isSplit && isFocused && focusedSplitBorderEnabled,
+                focusBorderColor: TerminalFocusedSplitBorderSettings.resolvedColor(colorHex: focusedSplitBorderColorHex),
+                focusBorderWidth: TerminalFocusedSplitBorderSettings.sanitizedWidth(focusedSplitBorderWidth),
                 searchState: panel.searchState,
                 reattachToken: panel.viewReattachToken,
                 onFocus: { _ in

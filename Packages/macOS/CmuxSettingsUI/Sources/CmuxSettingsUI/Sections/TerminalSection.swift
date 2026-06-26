@@ -19,6 +19,7 @@ public struct TerminalSection: View {
     @State private var activeScrollSpeedDragValue: Double?
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
+    @State private var focusedSplitBorder: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
@@ -42,6 +43,7 @@ public struct TerminalSection: View {
         _scrollSpeed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.scrollSpeed))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
+        _focusedSplitBorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.focusedSplitBorder))
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
@@ -67,6 +69,7 @@ public struct TerminalSection: View {
             scrollSpeed,
             scrollBar,
             copyOnSelect,
+            focusedSplitBorder,
             autoResume,
             hibernation,
             idleSeconds,
@@ -227,6 +230,19 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalCopyOnSelectToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.focusedSplitBorder"),
+                String(localized: "settings.terminal.focusedSplitBorder", defaultValue: "Focused Split Border"),
+                subtitle: focusedSplitBorder.current
+                    ? String(localized: "settings.terminal.focusedSplitBorder.subtitleOn", defaultValue: "Outlines the focused pane with an accent border while a workspace is split, so the active split is unmistakable. Override the color and width with terminal.focusedSplitBorderColor / terminal.focusedSplitBorderWidth in cmux.json.")
+                    : String(localized: "settings.terminal.focusedSplitBorder.subtitleOff", defaultValue: "The focused split pane is not outlined. cmux still dims unfocused terminal splits when unfocused-split-opacity is below 1.")
+            ) {
+                Toggle("", isOn: Binding(get: { focusedSplitBorder.current }, set: { focusedSplitBorder.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalFocusedSplitBorderToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

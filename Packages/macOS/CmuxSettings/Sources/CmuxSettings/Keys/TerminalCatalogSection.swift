@@ -111,6 +111,33 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.textBoxMaxLines"
     )
 
+    /// Whether to outline the focused pane with an accent border while a
+    /// workspace is split into multiple panes. Complements the unfocused-split
+    /// dimming so the active split is unambiguous. On by default.
+    ///
+    /// The `userDefaultsKey` values below mirror the raw key constants in the
+    /// app's `TerminalFocusedSplitBorderSettings`; keep the two in sync.
+    public let focusedSplitBorder = DefaultsKey<Bool>(
+        id: "terminal.focusedSplitBorder",
+        defaultValue: true,
+        userDefaultsKey: "terminalFocusedSplitBorderEnabled"
+    )
+
+    /// Optional `#RRGGBB` override for the focused-split border color. Empty
+    /// follows the system accent color.
+    public let focusedSplitBorderColor = DefaultsKey<String>(
+        id: "terminal.focusedSplitBorderColor",
+        defaultValue: "",
+        userDefaultsKey: "terminalFocusedSplitBorderColorHex"
+    )
+
+    /// Focused-split border stroke width, in points.
+    public let focusedSplitBorderWidth = DefaultsKey<Double>(
+        id: "terminal.focusedSplitBorderWidth",
+        defaultValue: 2.0,
+        userDefaultsKey: "terminalFocusedSplitBorderWidth"
+    )
+
     public let resumeCommands = JSONKey<[String]>(
         id: "terminal.resumeCommands",
         defaultValue: []
