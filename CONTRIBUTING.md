@@ -84,6 +84,9 @@ Run the same gitleaks scan used by CI from the repository root:
 ./scripts/secret-scan.sh
 ```
 
+This scans the current working tree. It is not a replacement for deeper
+history scans such as `gitleaks git` when auditing past commits.
+
 ## Rebuilding GhosttyKit
 
 If you make changes to the ghostty submodule, rebuild the xcframework:

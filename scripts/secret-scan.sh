@@ -43,9 +43,16 @@ ensure_gitleaks() {
     return
   fi
 
-  if command -v gitleaks >/dev/null 2>&1; then
-    command -v gitleaks
-    return
+  local system_gitleaks installed_version
+  system_gitleaks="$(command -v gitleaks || true)"
+  if [[ -n "$system_gitleaks" ]]; then
+    installed_version="$("$system_gitleaks" version 2>/dev/null | awk 'NR == 1 { print $1 }')"
+    installed_version="${installed_version#v}"
+    if [[ "$installed_version" == "$GITLEAKS_VERSION" ]]; then
+      printf '%s\n' "$system_gitleaks"
+      return
+    fi
+    echo "Ignoring system gitleaks ${installed_version:-unknown}; using pinned ${GITLEAKS_VERSION}" >&2
   fi
 
   local os arch cache_dir asset archive checksum selected_checksum base_url
@@ -89,11 +96,13 @@ scan_dir() {
 }
 
 self_test() {
-  local gitleaks_bin allowed_root blocked_root fixture_token
+  local gitleaks_bin allowed_root blocked_root fixture_token out_file err_file
   gitleaks_bin="$(ensure_gitleaks)"
   allowed_root="$(mktemp -d)"
   blocked_root="$(mktemp -d)"
-  trap 'rm -rf "${allowed_root:-}" "${blocked_root:-}"' RETURN
+  out_file="$(mktemp)"
+  err_file="$(mktemp)"
+  trap 'rm -rf "${allowed_root:-}" "${blocked_root:-}"; rm -f "${out_file:-}" "${err_file:-}"' RETURN
   fixture_token="$(printf 'gh%s_%s%s' "p" "0123456789abcdef" "ABCDEF0123456789abcd")"
 
   mkdir -p "$allowed_root/Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests"
@@ -109,19 +118,19 @@ let leak = "${fixture_token}"
 EOF
 
   set +e
-  scan_dir "$gitleaks_bin" "$blocked_root" >/tmp/cmux-gitleaks-self-test.out 2>/tmp/cmux-gitleaks-self-test.err
+  scan_dir "$gitleaks_bin" "$blocked_root" >"$out_file" 2>"$err_file"
   local rc=$?
   set -e
   if [[ "$rc" -eq 0 ]]; then
     echo "Expected seeded leak outside allowlisted paths to fail gitleaks." >&2
-    cat /tmp/cmux-gitleaks-self-test.out >&2
-    cat /tmp/cmux-gitleaks-self-test.err >&2
+    cat "$out_file" >&2
+    cat "$err_file" >&2
     return 1
   fi
   if [[ "$rc" -ne 1 ]]; then
     echo "Gitleaks failed unexpectedly while checking seeded leak (exit $rc)." >&2
-    cat /tmp/cmux-gitleaks-self-test.out >&2
-    cat /tmp/cmux-gitleaks-self-test.err >&2
+    cat "$out_file" >&2
+    cat "$err_file" >&2
     return "$rc"
   fi
 
