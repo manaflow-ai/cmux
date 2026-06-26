@@ -8355,11 +8355,13 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     private nonisolated static func moveTemporaryDownloadToDownloads(
         tempURL: URL,
         suggestedFilename: String,
+        sourceURL: URL,
         filenameResolver: BrowserDownloadFilenameResolver,
         fileManager: FileManager = .default
     ) throws -> URL {
         let directory = filenameResolver.downloadsDirectory(fileManager: fileManager)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+        try tempURL.cmuxApplyWebDownloadQuarantine(sourceURL: sourceURL)
         var lastCollisionError: Error?
         for _ in 0..<Self.maxDownloadDestinationCollisionRetries {
             let destinationURL = filenameResolver.uniqueDownloadDestination(
@@ -8384,6 +8386,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     private func presentSavePanel(
         tempURL: URL,
         suggestedFilename: String,
+        sourceURL: URL,
         filenameResolver: BrowserDownloadFilenameResolver
     ) {
         onDownloadReadyToSave?(suggestedFilename)
@@ -8399,6 +8402,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
                 return
             }
             do {
+                try tempURL.cmuxApplyWebDownloadQuarantine(sourceURL: sourceURL)
                 if FileManager.default.fileExists(atPath: destURL.path) {
                     _ = try FileManager.default.replaceItemAt(destURL, withItemAt: tempURL)
                 } else {
@@ -8467,6 +8471,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
                 self.presentSavePanel(
                     tempURL: info.tempURL,
                     suggestedFilename: suggestedFilename,
+                    sourceURL: info.sourceURL,
                     filenameResolver: filenameResolver
                 )
                 return
@@ -8477,6 +8482,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
                     try Self.moveTemporaryDownloadToDownloads(
                         tempURL: info.tempURL,
                         suggestedFilename: suggestedFilename,
+                        sourceURL: info.sourceURL,
                         filenameResolver: filenameResolver
                     )
                 }

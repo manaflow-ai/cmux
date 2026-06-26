@@ -1622,6 +1622,7 @@ final class CmuxWebView: WKWebView {
     private func finishSessionDownload(
         data: Data,
         saveName: String,
+        sourceURL: URL?,
         traceID: String,
         logCategory: String,
         sender: Any?,
@@ -1673,6 +1674,7 @@ final class CmuxWebView: WKWebView {
                 self.writeSessionDownloadDataInBackground(
                     data,
                     destinationURL: destURL,
+                    sourceURL: sourceURL,
                     replaceExisting: true,
                     completion: completeWrite
                 )
@@ -1688,6 +1690,7 @@ final class CmuxWebView: WKWebView {
         autoSaveSessionDownloadDataInBackground(
             data,
             saveName: saveName,
+            sourceURL: sourceURL,
             filenameResolver: filenameResolver,
             traceID: traceID,
             logCategory: logCategory,
@@ -1698,12 +1701,18 @@ final class CmuxWebView: WKWebView {
     private func writeSessionDownloadDataInBackground(
         _ data: Data,
         destinationURL: URL,
+        sourceURL: URL?,
         replaceExisting: Bool,
         completion: @escaping (Result<URL, Error>) -> Void
     ) {
         Task { @MainActor in
             let result = await Task.detached(priority: .utility) {
-                Self.writeSessionDownloadData(data, to: destinationURL, replaceExisting: replaceExisting)
+                Self.writeSessionDownloadData(
+                    data,
+                    to: destinationURL,
+                    sourceURL: sourceURL,
+                    replaceExisting: replaceExisting
+                )
             }.value
             completion(result)
         }
@@ -1712,6 +1721,7 @@ final class CmuxWebView: WKWebView {
     private func autoSaveSessionDownloadDataInBackground(
         _ data: Data,
         saveName: String,
+        sourceURL: URL?,
         filenameResolver: BrowserDownloadFilenameResolver,
         traceID: String,
         logCategory: String,
@@ -1722,6 +1732,7 @@ final class CmuxWebView: WKWebView {
                 Self.autoSaveSessionDownloadData(
                     data,
                     saveName: saveName,
+                    sourceURL: sourceURL,
                     filenameResolver: filenameResolver
                 )
             }.value
@@ -1737,6 +1748,7 @@ final class CmuxWebView: WKWebView {
     private nonisolated static func autoSaveSessionDownloadData(
         _ data: Data,
         saveName: String,
+        sourceURL: URL?,
         filenameResolver: BrowserDownloadFilenameResolver
     ) -> Result<URL, Error> {
         Result {
@@ -1751,7 +1763,12 @@ final class CmuxWebView: WKWebView {
                     fileManager: fileManager
                 )
                 do {
-                    try writeSessionDownloadDataWithoutReplacing(data, to: destinationURL, fileManager: fileManager)
+                    try writeSessionDownloadDataWithoutReplacing(
+                        data,
+                        to: destinationURL,
+                        sourceURL: sourceURL,
+                        fileManager: fileManager
+                    )
                     return destinationURL
                 } catch {
                     guard fileManager.fileExists(atPath: destinationURL.path) else {
@@ -1767,33 +1784,71 @@ final class CmuxWebView: WKWebView {
     private nonisolated static func writeSessionDownloadData(
         _ data: Data,
         to destinationURL: URL,
+        sourceURL: URL?,
         replaceExisting: Bool
     ) -> Result<URL, Error> {
         Result {
             if replaceExisting {
-                try data.write(to: destinationURL, options: .atomic)
+                try writeSessionDownloadDataReplacing(
+                    data,
+                    to: destinationURL,
+                    sourceURL: sourceURL,
+                    fileManager: .default
+                )
             } else {
-                try writeSessionDownloadDataWithoutReplacing(data, to: destinationURL, fileManager: .default)
+                try writeSessionDownloadDataWithoutReplacing(
+                    data,
+                    to: destinationURL,
+                    sourceURL: sourceURL,
+                    fileManager: .default
+                )
             }
             return destinationURL
+        }
+    }
+
+    private nonisolated static func writeSessionDownloadDataReplacing(
+        _ data: Data,
+        to destinationURL: URL,
+        sourceURL: URL?,
+        fileManager: FileManager
+    ) throws {
+        let tempURL = temporarySessionDownloadURL(for: destinationURL)
+        do {
+            try data.write(to: tempURL, options: .atomic)
+            try tempURL.cmuxApplyWebDownloadQuarantine(sourceURL: sourceURL)
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                _ = try fileManager.replaceItemAt(destinationURL, withItemAt: tempURL)
+            } else {
+                try fileManager.moveItem(at: tempURL, to: destinationURL)
+            }
+        } catch {
+            try? fileManager.removeItem(at: tempURL)
+            throw error
         }
     }
 
     private nonisolated static func writeSessionDownloadDataWithoutReplacing(
         _ data: Data,
         to destinationURL: URL,
+        sourceURL: URL?,
         fileManager: FileManager
     ) throws {
-        let tempURL = destinationURL
-            .deletingLastPathComponent()
-            .appendingPathComponent(".cmux-\(UUID().uuidString).download", isDirectory: false)
+        let tempURL = temporarySessionDownloadURL(for: destinationURL)
         do {
             try data.write(to: tempURL, options: .atomic)
+            try tempURL.cmuxApplyWebDownloadQuarantine(sourceURL: sourceURL)
             try fileManager.moveItem(at: tempURL, to: destinationURL)
         } catch {
             try? fileManager.removeItem(at: tempURL)
             throw error
         }
+    }
+
+    private nonisolated static func temporarySessionDownloadURL(for destinationURL: URL) -> URL {
+        destinationURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(".cmux-\(UUID().uuidString).download", isDirectory: false)
     }
 
     func downloadURLViaSession(
@@ -1852,6 +1907,7 @@ final class CmuxWebView: WKWebView {
                 self.finishSessionDownload(
                     data: parsed.data,
                     saveName: saveName,
+                    sourceURL: url,
                     traceID: traceID,
                     logCategory: "data",
                     sender: sender,
@@ -1875,6 +1931,7 @@ final class CmuxWebView: WKWebView {
                     self.finishSessionDownload(
                         data: data,
                         saveName: saveName,
+                        sourceURL: url,
                         traceID: traceID,
                         logCategory: "file",
                         sender: sender,
@@ -1951,6 +2008,7 @@ final class CmuxWebView: WKWebView {
                     self.finishSessionDownload(
                         data: data,
                         saveName: saveName,
+                        sourceURL: url,
                         traceID: traceID,
                         logCategory: "response",
                         sender: sender,

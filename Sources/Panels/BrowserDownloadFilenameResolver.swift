@@ -1,4 +1,5 @@
 import Foundation
+import CoreServices
 import ImageIO
 import CmuxSettings
 import UniformTypeIdentifiers
@@ -353,5 +354,46 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
             return preferred
         }
         return "img"
+    }
+}
+
+extension URL {
+    func cmuxApplyWebDownloadQuarantine(sourceURL: URL?) throws {
+        guard let sourceURL,
+              !sourceURL.isFileURL else {
+            return
+        }
+
+        var quarantineProperties: [String: Any] = [
+            kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String,
+            kLSQuarantineTimeStampKey as String: Date(),
+            kLSQuarantineAgentNameKey as String: Self.cmuxDownloadQuarantineAgentName(),
+        ]
+        if let bundleIdentifier = Bundle.main.bundleIdentifier,
+           !bundleIdentifier.isEmpty {
+            quarantineProperties[kLSQuarantineAgentBundleIdentifierKey as String] = bundleIdentifier
+        }
+        if Self.cmuxCanStoreDownloadSourceURL(sourceURL) {
+            quarantineProperties[kLSQuarantineDataURLKey as String] = sourceURL
+            quarantineProperties[kLSQuarantineOriginURLKey as String] = sourceURL
+        }
+
+        var resourceValues = URLResourceValues()
+        resourceValues.quarantineProperties = quarantineProperties
+        var fileURL = self
+        try fileURL.setResourceValues(resourceValues)
+    }
+
+    private static func cmuxDownloadQuarantineAgentName() -> String {
+        let candidate = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "cmux"
+        let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "cmux" : trimmed
+    }
+
+    private static func cmuxCanStoreDownloadSourceURL(_ sourceURL: URL) -> Bool {
+        let scheme = sourceURL.scheme?.lowercased()
+        return scheme == "http" || scheme == "https"
     }
 }

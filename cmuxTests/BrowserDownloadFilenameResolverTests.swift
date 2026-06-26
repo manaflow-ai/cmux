@@ -1,4 +1,5 @@
 import Foundation
+import CoreServices
 import Testing
 import UniformTypeIdentifiers
 import WebKit
@@ -158,6 +159,47 @@ import WebKit
         #expect(destination.deletingLastPathComponent().path == directory.path)
         #expect(destination.lastPathComponent.hasPrefix("report-"))
         #expect(destination.pathExtension == "pdf")
+    }
+
+    @Test func webDownloadQuarantineMetadataMarksRemoteDownloads() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-download-quarantine-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let fileURL = directory.appendingPathComponent("report.csv", isDirectory: false)
+        try Data("download".utf8).write(to: fileURL)
+        let sourceURL = try #require(URL(string: "https://example.test/report.csv"))
+
+        try fileURL.cmuxApplyWebDownloadQuarantine(sourceURL: sourceURL)
+
+        let properties = try #require(
+            fileURL.resourceValues(forKeys: [.quarantinePropertiesKey]).quarantineProperties
+        )
+        #expect(properties[kLSQuarantineTypeKey as String] as? String == kLSQuarantineTypeWebDownload as String)
+        #expect(properties[kLSQuarantineAgentNameKey as String] as? String != nil)
+        #expect(properties[kLSQuarantineTimeStampKey as String] is Date)
+    }
+
+    @Test func webDownloadQuarantineMetadataSkipsLocalFileSources() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-download-quarantine-local-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let fileURL = directory.appendingPathComponent("local-copy.txt", isDirectory: false)
+        try Data("download".utf8).write(to: fileURL)
+
+        try fileURL.cmuxApplyWebDownloadQuarantine(sourceURL: URL(fileURLWithPath: "/tmp/source.txt"))
+
+        let properties = try fileURL.resourceValues(forKeys: [.quarantinePropertiesKey]).quarantineProperties
+        #expect(properties == nil)
     }
 
     @MainActor

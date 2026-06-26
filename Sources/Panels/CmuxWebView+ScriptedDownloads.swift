@@ -34,6 +34,7 @@ extension CmuxWebView {
         let blobDownloadInFlight = false;
         let lastTrustedActivationMs = 0;
         let lastDownloadPostMs = 0;
+        let armSubframeDownloadObserver = () => {};
         const handledAnchors = typeof WeakSet === "function" ? new WeakSet() : null;
 
         try {
@@ -59,15 +60,26 @@ extension CmuxWebView {
 
         const noteTrustedActivation = (event) => {
           try {
-            if (event && event.isTrusted) lastTrustedActivationMs = Date.now();
+            if (event && event.isTrusted) {
+              lastTrustedActivationMs = Date.now();
+              armSubframeDownloadObserver();
+            }
           } catch (_) {}
+        };
+
+        const hasRecentTrustedActivation = () => {
+          try {
+            return Date.now() - lastTrustedActivationMs <= trustedActivationWindowMs;
+          } catch (_) {
+            return false;
+          }
         };
 
         const hasUserActivation = (event) => {
           try {
             if (event && event.isTrusted) return true;
             if (navigator.userActivation && navigator.userActivation.isActive) return true;
-            return Date.now() - lastTrustedActivationMs <= trustedActivationWindowMs;
+            return hasRecentTrustedActivation();
           } catch (_) {
             return false;
           }
@@ -215,10 +227,6 @@ extension CmuxWebView {
           return "";
         };
 
-        ["pointerdown", "mousedown", "keydown", "click"].forEach((eventName) => {
-          document.addEventListener(eventName, noteTrustedActivation, true);
-        });
-
         const interceptAnchorDownload = (anchor, event) => {
           try {
             if (!hasUserActivation(event)) return false;
@@ -256,8 +264,31 @@ extension CmuxWebView {
         }, true);
 
         if (!isMainFrame && typeof MutationObserver === "function") {
+          let observerDisconnectTimer = 0;
+          let observer = null;
+          const disconnectObserver = () => {
+            try {
+              if (observerDisconnectTimer) {
+                clearTimeout(observerDisconnectTimer);
+                observerDisconnectTimer = 0;
+              }
+              observer?.disconnect();
+            } catch (_) {}
+          };
+          const scheduleObserverDisconnect = () => {
+            try {
+              if (observerDisconnectTimer) clearTimeout(observerDisconnectTimer);
+              const remaining = trustedActivationWindowMs - (Date.now() - lastTrustedActivationMs);
+              if (remaining <= 0) {
+                disconnectObserver();
+                return;
+              }
+              observerDisconnectTimer = setTimeout(disconnectObserver, remaining + 50);
+            } catch (_) {}
+          };
           const inspectAddedNode = (node) => {
             try {
+              if (!hasRecentTrustedActivation()) return;
               if (!node || node.nodeType !== 1) return;
               const candidates = [];
               const tag = String(node.tagName || "").toUpperCase();
@@ -267,13 +298,18 @@ extension CmuxWebView {
               for (const anchor of candidates) {
                 if (interceptAnchorDownload(anchor, null)) {
                   handledAnchors?.add(anchor);
+                  disconnectObserver();
                   return;
                 }
               }
             } catch (_) {}
           };
-          const observer = new MutationObserver((mutations) => {
+          observer = new MutationObserver((mutations) => {
             try {
+              if (!hasRecentTrustedActivation()) {
+                disconnectObserver();
+                return;
+              }
               for (const mutation of mutations) {
                 for (const node of mutation.addedNodes || []) {
                   inspectAddedNode(node);
@@ -281,8 +317,20 @@ extension CmuxWebView {
               }
             } catch (_) {}
           });
-          observer.observe(document.documentElement || document, { childList: true, subtree: true });
+          armSubframeDownloadObserver = () => {
+            try {
+              if (!hasRecentTrustedActivation()) return;
+              const root = document.documentElement || document;
+              if (!root) return;
+              observer.observe(root, { childList: true, subtree: true });
+              scheduleObserverDisconnect();
+            } catch (_) {}
+          };
         }
+
+        ["pointerdown", "mousedown", "keydown", "click"].forEach((eventName) => {
+          document.addEventListener(eventName, noteTrustedActivation, true);
+        });
 
         const anchorPrototype = window.HTMLAnchorElement?.prototype ?? null;
         const originalAnchorClick = anchorPrototype?.click ?? null;
