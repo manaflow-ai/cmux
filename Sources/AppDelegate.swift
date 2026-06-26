@@ -2395,8 +2395,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog(
                 "session.restore.start windows=\(startupSnapshot?.windows.count ?? 0) " +
-                    "primaryFrame={\(debugSessionRectDescription(primaryWindowSnapshot.frame))} " +
-                    "primaryDisplay={\(debugSessionDisplayDescription(primaryWindowSnapshot.display))}"
+                    "primaryFrame={\(primaryWindowSnapshot.frame?.debugLogDescription ?? "nil")} " +
+                    "primaryDisplay={\(primaryWindowSnapshot.display?.debugLogDescription ?? "nil")}"
             )
 #endif
             applySessionWindowSnapshot(
@@ -2428,8 +2428,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for (index, windowSnapshot) in additionalWindows.enumerated() {
             cmuxDebugLog(
                 "session.restore.enqueueAdditional idx=\(index + 1) " +
-                    "frame={\(debugSessionRectDescription(windowSnapshot.frame))} " +
-                    "display={\(debugSessionDisplayDescription(windowSnapshot.display))}"
+                    "frame={\(windowSnapshot.frame?.debugLogDescription ?? "nil")} " +
+                    "display={\(windowSnapshot.display?.debugLogDescription ?? "nil")}"
             )
         }
 #endif
@@ -2512,8 +2512,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxDebugLog(
             "session.restore.apply window=\(context.windowId.uuidString.prefix(8)) " +
                 "liveWin=\(window?.windowNumber ?? -1) " +
-                "snapshotFrame={\(debugSessionRectDescription(snapshot.frame))} " +
-                "snapshotDisplay={\(debugSessionDisplayDescription(snapshot.display))}"
+                "snapshotFrame={\(snapshot.frame?.debugLogDescription ?? "nil")} " +
+                "snapshotDisplay={\(snapshot.display?.debugLogDescription ?? "nil")}"
         )
 #endif
         context.tabManager.restoreSessionSnapshot(snapshot.tabManager)
@@ -2534,7 +2534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog(
                 "session.restore.frameApplied window=\(context.windowId.uuidString.prefix(8)) " +
-                    "applied={\(debugNSRectDescription(window.frame))}"
+                    "applied={\(SessionRectSnapshot(window.frame).debugLogDescription)}"
             )
 #endif
         }
@@ -3142,37 +3142,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let selectedWorkspace = windowSnapshot.tabManager.selectedWorkspaceIndex.map(String.init) ?? "nil"
             cmuxDebugLog(
                 "session.save.window idx=\(index) " +
-                    "frame={\(debugSessionRectDescription(windowSnapshot.frame))} " +
-                    "display={\(debugSessionDisplayDescription(windowSnapshot.display))} " +
+                    "frame={\(windowSnapshot.frame?.debugLogDescription ?? "nil")} " +
+                    "display={\(windowSnapshot.display?.debugLogDescription ?? "nil")} " +
                     "workspaces=\(workspaceCount) selected=\(selectedWorkspace)"
             )
         }
-    }
-
-    private func debugSessionRectDescription(_ rect: SessionRectSnapshot?) -> String {
-        guard let rect else { return "nil" }
-        return "x=\(debugSessionNumber(rect.x)) y=\(debugSessionNumber(rect.y)) " +
-            "w=\(debugSessionNumber(rect.width)) h=\(debugSessionNumber(rect.height))"
-    }
-
-    private func debugNSRectDescription(_ rect: NSRect?) -> String {
-        guard let rect else { return "nil" }
-        return "x=\(debugSessionNumber(Double(rect.origin.x))) " +
-            "y=\(debugSessionNumber(Double(rect.origin.y))) " +
-            "w=\(debugSessionNumber(Double(rect.size.width))) " +
-            "h=\(debugSessionNumber(Double(rect.size.height)))"
-    }
-
-    private func debugSessionDisplayDescription(_ display: SessionDisplaySnapshot?) -> String {
-        guard let display else { return "nil" }
-        let displayIdText = display.displayID.map(String.init) ?? "nil"
-        return "id=\(displayIdText) " +
-            "frame={\(debugSessionRectDescription(display.frame))} " +
-            "visible={\(debugSessionRectDescription(display.visibleFrame))}"
-    }
-
-    private func debugSessionNumber(_ value: Double) -> String {
-        String(format: "%.1f", value)
     }
 #endif
 
@@ -6567,7 +6541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog(
                 "mainWindow.initialFrameApplied source=\(restoredFrame == nil ? "persistedGeometry" : "sessionSnapshot") window=\(windowId.uuidString.prefix(8)) " +
-                    "applied={\(debugNSRectDescription(window.frame))}"
+                    "applied={\(SessionRectSnapshot(window.frame).debugLogDescription)}"
             )
 #endif
         }

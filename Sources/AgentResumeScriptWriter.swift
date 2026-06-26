@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 /// Writes (and prunes) the throwaway zsh launcher scripts cmux drops into a
@@ -46,7 +47,7 @@ struct AgentResumeScriptWriter {
                 "rm -f -- \"$0\" 2>/dev/null || true"
             ]
             if returnToLoginShell {
-                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
+                lines.append(contentsOf: TerminalStartupReturnShellScript().commandThenReturnLines(
                     command: command,
                     workingDirectory: workingDirectory
                 ))

@@ -1059,7 +1059,7 @@ final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
             ),
         ]
 
-        let merged = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).buildSuggestions(
+        let merged = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).buildSuggestions(
             query: "go",
             engineName: "Google",
             historyEntries: entries,
@@ -1080,7 +1080,7 @@ final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
     }
 
     func testStaleRemoteSuggestionsKeptForNearbyEdits() {
-        let stale = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).staleRemoteSuggestionsForDisplay(
+        let stale = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).staleRemoteSuggestionsForDisplay(
             query: "go t",
             previousRemoteQuery: "go",
             previousRemoteSuggestions: ["go tutorial", "go json", "golang tips"],
@@ -1091,7 +1091,7 @@ final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
     }
 
     func testStaleRemoteSuggestionsTrimAndRespectLimit() {
-        let stale = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).staleRemoteSuggestionsForDisplay(
+        let stale = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).staleRemoteSuggestionsForDisplay(
             query: "gooo",
             previousRemoteQuery: "goo",
             previousRemoteSuggestions: [" go tutorial ", "", "go json", "   ", "go fmt"],
@@ -1102,7 +1102,7 @@ final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
     }
 
     func testStaleRemoteSuggestionsDroppedForUnrelatedQuery() {
-        let stale = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).staleRemoteSuggestionsForDisplay(
+        let stale = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).staleRemoteSuggestionsForDisplay(
             query: "python",
             previousRemoteQuery: "go",
             previousRemoteSuggestions: ["go tutorial", "go json"],
@@ -1141,7 +1141,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             ),
         ]
 
-        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).buildSuggestions(
+        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).buildSuggestions(
             query: "n",
             engineName: "Google",
             historyEntries: entries,
@@ -1179,7 +1179,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             ),
         ]
 
-        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).buildSuggestions(
+        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).buildSuggestions(
             query: "gm",
             engineName: "Google",
             historyEntries: entries,
@@ -1225,7 +1225,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             ),
         ]
 
-        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).buildSuggestions(
+        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).buildSuggestions(
             query: "gm",
             engineName: "Google",
             historyEntries: entries,
@@ -1270,7 +1270,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             ),
         ]
 
-        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).buildSuggestions(
+        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).buildSuggestions(
             query: "gm",
             engineName: "Google",
             historyEntries: entries,
@@ -1313,7 +1313,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             ),
         ]
 
-        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).buildSuggestions(
+        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).buildSuggestions(
             query: "ne",
             engineName: "Google",
             historyEntries: entries,
@@ -1358,7 +1358,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             ),
         ]
 
-        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).buildSuggestions(
+        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).buildSuggestions(
             query: "gm",
             engineName: "Google",
             historyEntries: entries,

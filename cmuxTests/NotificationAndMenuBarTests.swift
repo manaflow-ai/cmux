@@ -733,13 +733,13 @@ final class NotificationDockBadgeTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
+        XCTAssertTrue(NotificationDefaultsToggle.dockBadge.isEnabled(defaults: defaults))
 
-        defaults.set(false, forKey: NotificationBadgeSettings.dockBadgeEnabledKey)
-        XCTAssertFalse(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
+        defaults.set(false, forKey: NotificationDefaultsToggle.dockBadge.key)
+        XCTAssertFalse(NotificationDefaultsToggle.dockBadge.isEnabled(defaults: defaults))
 
-        defaults.set(true, forKey: NotificationBadgeSettings.dockBadgeEnabledKey)
-        XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
+        defaults.set(true, forKey: NotificationDefaultsToggle.dockBadge.key)
+        XCTAssertTrue(NotificationDefaultsToggle.dockBadge.isEnabled(defaults: defaults))
     }
 
     func testNotificationPaneFlashPreferenceDefaultsToEnabled() {
@@ -752,13 +752,13 @@ final class NotificationDockBadgeTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        XCTAssertTrue(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
+        XCTAssertTrue(NotificationDefaultsToggle.paneFlash.isEnabled(defaults: defaults))
 
-        defaults.set(false, forKey: NotificationPaneFlashSettings.enabledKey)
-        XCTAssertFalse(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
+        defaults.set(false, forKey: NotificationDefaultsToggle.paneFlash.key)
+        XCTAssertFalse(NotificationDefaultsToggle.paneFlash.isEnabled(defaults: defaults))
 
-        defaults.set(true, forKey: NotificationPaneFlashSettings.enabledKey)
-        XCTAssertTrue(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
+        defaults.set(true, forKey: NotificationDefaultsToggle.paneFlash.key)
+        XCTAssertTrue(NotificationDefaultsToggle.paneFlash.isEnabled(defaults: defaults))
     }
 
     func testMenuBarExtraPreferenceDefaultsToVisible() {

@@ -112,13 +112,11 @@ final class RemoteTmuxControlConnection {
 
     // MARK: Reconnect state
 
-    /// The current reconnect backoff task (a single sleeping `Task` between
-    /// attempts); cancelled on `stop()` / genuine end so a dead connection stops
-    /// retrying.
-    private var reconnectTask: Task<Void, Never>?
-    /// Number of reconnect attempts since the last successful connect, driving the
-    /// capped exponential backoff. Reset to 0 on a successful connect.
-    private var reconnectAttemptCount = 0
+    /// Reconnect-backoff sub-model. Owns the single sleeping `Task` between attempts
+    /// and the capped-exponential attempt counter. This connection drives it through
+    /// the ``RemoteTmuxReconnectHost`` conformance below (the `.reconnecting` phase
+    /// check, the ssh respawn, and the diagnostics ring) and attaches itself in `init`.
+    private let reconnect = RemoteTmuxReconnectController()
     /// stderr text captured for the in-flight spawn, inspected when a reconnect
     /// attempt's process exits to tell "session genuinely gone" from "host still
     /// unreachable". Reset at the start of each spawn.
@@ -130,11 +128,6 @@ final class RemoteTmuxControlConnection {
     private let clientSize = RemoteTmuxClientSizeController()
     private var pendingPostAttachAction: PostAttachAction?
 
-    /// Base reconnect backoff (seconds); doubled each attempt up to ``reconnectMaxDelaySeconds``.
-    private static let reconnectBaseDelaySeconds: Double = 1
-    /// Cap on the reconnect backoff (seconds). Retries continue indefinitely at this
-    /// interval until the network returns or the session is found to be gone.
-    private static let reconnectMaxDelaySeconds: Double = 10
     /// Cap on captured stderr (bytes) so a noisy/hostile remote can't grow it unbounded.
     private static let maxStderrBytes = 8 * 1024
     /// Cap queued stdin bytes while the dedicated writer is backpressured. Above
@@ -165,6 +158,7 @@ final class RemoteTmuxControlConnection {
         self.sessionName = sessionName
         self.createIfMissing = createIfMissing
         clientSize.attach(host: self)
+        reconnect.attach(host: self)
     }
 
     // MARK: - Observers
@@ -683,8 +677,7 @@ final class RemoteTmuxControlConnection {
     /// (``stop()``) and a genuine remote end (`%exit`).
     private func cancelScheduledWork() {
         failPendingActivityQueries()
-        reconnectTask?.cancel()
-        reconnectTask = nil
+        reconnect.cancel()
         clientSize.reset()
         pendingPostAttachAction = nil
     }
@@ -783,11 +776,10 @@ final class RemoteTmuxControlConnection {
             if sessionGone {
                 record("reconnect-session-gone")
                 connectionState = .ended
-                reconnectTask?.cancel()
-                reconnectTask = nil
+                reconnect.cancel()
                 observers.notifyExit()
             } else {
-                scheduleReconnectAttempt()
+                reconnect.scheduleAttempt()
             }
         }
     }
@@ -804,34 +796,9 @@ final class RemoteTmuxControlConnection {
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingActivityQueries()
         teardownProcessHandles()
-        reconnectAttemptCount = 0
+        reconnect.resetAttempts()
         connectionState = .reconnecting
-        scheduleReconnectAttempt()
-    }
-
-    /// Schedules the next reconnect attempt after a capped exponential backoff.
-    private func scheduleReconnectAttempt() {
-        let attempt = reconnectAttemptCount
-        reconnectAttemptCount += 1
-        let delay = min(
-            Self.reconnectMaxDelaySeconds,
-            Self.reconnectBaseDelaySeconds * pow(2, Double(attempt))
-        )
-        record("reconnect-scheduled attempt=\(attempt) delay=\(delay)")
-        reconnectTask?.cancel()
-        // A bounded, cancellable backoff before the next attempt (not a poll/settle):
-        // cancelled by stop()/genuine end, re-armed by each failed attempt. `do/catch`
-        // (not `try?`) so a cancelled sleep returns immediately — the previously
-        // scheduled task can't fall through and double-spawn a second ssh client.
-        reconnectTask = Task { @MainActor [weak self] in
-            do {
-                try await ContinuousClock().sleep(for: .seconds(delay))
-            } catch {
-                return
-            }
-            guard let self, self.connectionState == .reconnecting else { return }
-            self.attemptReconnectSpawn()
-        }
+        reconnect.scheduleAttempt()
     }
 
     /// Re-spawns the ssh control client for a reconnect attempt. Always attach-only
@@ -844,7 +811,7 @@ final class RemoteTmuxControlConnection {
         do {
             try spawnProcess(createIfMissing: false)
         } catch {
-            scheduleReconnectAttempt()
+            reconnect.scheduleAttempt()
         }
     }
 
@@ -886,9 +853,7 @@ final class RemoteTmuxControlConnection {
                 // first size apply (debounced send, reconnect re-seed, or the
                 // first-connect list-windows result).
                 clientSize.armAttachRedrawKick()
-                reconnectAttemptCount = 0
-                reconnectTask?.cancel()
-                reconnectTask = nil
+                reconnect.handleConnected()
                 // Do not send here: `.enter` precedes the attach result block, so a
                 // command queued now could be consumed by that result and shift the
                 // FIFO. The attach-block drain queues list-windows once alignment is safe.
@@ -1203,5 +1168,23 @@ extension RemoteTmuxControlConnection: RemoteTmuxClientSizeHost {
         #if DEBUG
         cmuxDebugLog(message())
         #endif
+    }
+}
+
+// MARK: - RemoteTmuxReconnectHost
+
+/// Phase/respawn/diagnostics seam the ``reconnect`` sub-model drives. Keeps the
+/// connection-state machine, the ssh respawn (``attemptReconnectSpawn()``), and the
+/// diagnostics ring on this side, exposing only a `.reconnecting` phase check, a
+/// respawn trigger, and an event string to the package controller.
+extension RemoteTmuxControlConnection: RemoteTmuxReconnectHost {
+    var isReconnecting: Bool { connectionState == .reconnecting }
+
+    func performReconnectAttempt() {
+        attemptReconnectSpawn()
+    }
+
+    func recordReconnectEvent(_ message: String) {
+        record(message)
     }
 }

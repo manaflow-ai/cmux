@@ -945,13 +945,13 @@ struct FileSearchControllerTests {
         let configuredPath = "/nix/store/custom-ripgrep/bin/rg"
         let fallbackPath = "/usr/local/bin/rg"
 
-        let executable = RipgrepExecutableResolver.resolve(
+        let executable = RipgrepExecutableResolver(
             configuredPath: configuredPath,
             environment: ["PATH": ""],
             userName: "nixuser",
             homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == configuredPath || $0 == fallbackPath }
-        )
+        ).resolve()
 
         #expect(executable?.url.path == configuredPath)
     }
@@ -961,13 +961,13 @@ struct FileSearchControllerTests {
         let configuredPath = "~/.nix-profile/bin/rg"
         let expandedPath = "/Users/nixuser/.nix-profile/bin/rg"
 
-        let executable = RipgrepExecutableResolver.resolve(
+        let executable = RipgrepExecutableResolver(
             configuredPath: configuredPath,
             environment: ["PATH": ""],
             userName: "nixuser",
             homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == expandedPath }
-        )
+        ).resolve()
 
         #expect(executable?.url.path == expandedPath)
     }
@@ -977,13 +977,13 @@ struct FileSearchControllerTests {
         let nixProfilePath = "/etc/profiles/per-user/nixuser/bin/rg"
         let pathFallback = "/tmp/bin/rg"
 
-        let executable = RipgrepExecutableResolver.resolve(
+        let executable = RipgrepExecutableResolver(
             configuredPath: nil,
             environment: ["PATH": "/tmp/bin"],
             userName: "nixuser",
             homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == nixProfilePath || $0 == pathFallback }
-        )
+        ).resolve()
 
         #expect(executable?.url.path == nixProfilePath)
     }
@@ -993,13 +993,13 @@ struct FileSearchControllerTests {
         let homeManagerProfilePath = "/Users/nixuser/.nix-profile/bin/rg"
         let pathFallback = "/tmp/bin/rg"
 
-        let executable = RipgrepExecutableResolver.resolve(
+        let executable = RipgrepExecutableResolver(
             configuredPath: nil,
             environment: ["PATH": "/tmp/bin"],
             userName: "nixuser",
             homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == homeManagerProfilePath || $0 == pathFallback }
-        )
+        ).resolve()
 
         #expect(executable?.url.path == homeManagerProfilePath)
     }
@@ -1009,13 +1009,13 @@ struct FileSearchControllerTests {
         let perUserProfilePath = "/nix/var/nix/profiles/per-user/nixuser/profile/bin/rg"
         let pathFallback = "/tmp/bin/rg"
 
-        let executable = RipgrepExecutableResolver.resolve(
+        let executable = RipgrepExecutableResolver(
             configuredPath: nil,
             environment: ["PATH": "/tmp/bin"],
             userName: "nixuser",
             homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == perUserProfilePath || $0 == pathFallback }
-        )
+        ).resolve()
 
         #expect(executable?.url.path == perUserProfilePath)
     }
@@ -1025,22 +1025,22 @@ struct FileSearchControllerTests {
         let configuredPath = "/nix/store/missing-ripgrep/bin/rg"
         let fallbackPath = "/usr/local/bin/rg"
 
-        let resolution = RipgrepExecutableResolver.resolution(
+        let resolution = RipgrepExecutableResolver(
             configuredPath: configuredPath,
             environment: ["PATH": ""],
             userName: "nixuser",
             homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == fallbackPath }
-        )
+        ).resolution()
 
         #expect(resolution == .configuredPathNotExecutable(configuredPath))
-        #expect(RipgrepExecutableResolver.resolve(
+        #expect(RipgrepExecutableResolver(
             configuredPath: configuredPath,
             environment: ["PATH": ""],
             userName: "nixuser",
             homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == fallbackPath }
-        ) == nil)
+        ).resolve() == nil)
     }
 
     @Test
@@ -1097,7 +1097,7 @@ struct FileSearchControllerTests {
     }
 
     private nonisolated static func hasRipgrep() -> Bool {
-        RipgrepExecutableResolver.resolve(configuredPath: nil) != nil
+        RipgrepExecutableResolver(configuredPath: nil).resolve() != nil
     }
 
     private static func findSearchField(in root: NSView) -> NSSearchField? {
