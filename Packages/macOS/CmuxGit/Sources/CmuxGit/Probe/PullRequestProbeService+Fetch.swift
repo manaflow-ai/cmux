@@ -145,9 +145,22 @@ extension PullRequestProbeService {
             page += 1
         }
 
+        let checkStatuses = await pullRequestCheckStatuses(
+            repoSlug: repoSlug,
+            session: session,
+            authHeader: authHeader
+        )
+        let pullRequestsWithCheckStatuses = Self.applyingCheckStatuses(
+            checkStatuses.byNumber,
+            byBranch: checkStatuses.byBranch,
+            to: allPullRequests
+        )
+
         let recentWindowEntry = WorkspacePullRequestRepoCacheEntry(
             fetchedAt: fetchTimestamp,
-            pullRequestsByBranch: Self.pullRequestMapByNormalizedBranch(from: allPullRequests)
+            pullRequestsByBranch: Self.pullRequestMapByNormalizedBranch(from: pullRequestsWithCheckStatuses),
+            ciStatusesByPullRequestNumber: checkStatuses.byNumber,
+            ciStatusesByBranch: checkStatuses.byBranch
         )
         let unresolvedBranches = Self.unresolvedBranches(
             normalizedCandidateBranches,
@@ -241,7 +254,11 @@ extension PullRequestProbeService {
         for (branch, result) in branchResults {
             switch result {
             case .found(let pullRequest):
-                pullRequestsByBranch[branch] = pullRequest
+                let ciStatus = baseEntry.ciStatusesByPullRequestNumber[pullRequest.number]
+                    ?? baseEntry.ciStatusesByBranch[branch]
+                pullRequestsByBranch[branch] = ciStatus.map {
+                    Self.applyingCheckStatus($0, to: pullRequest)
+                } ?? pullRequest
                 knownAbsentBranches.remove(branch)
             case .notFound:
                 knownAbsentBranches.insert(branch)
@@ -254,6 +271,8 @@ extension PullRequestProbeService {
             cacheEntry: WorkspacePullRequestRepoCacheEntry(
                 fetchedAt: refreshedAt,
                 pullRequestsByBranch: pullRequestsByBranch,
+                ciStatusesByPullRequestNumber: baseEntry.ciStatusesByPullRequestNumber,
+                ciStatusesByBranch: baseEntry.ciStatusesByBranch,
                 knownAbsentBranches: knownAbsentBranches
             ),
             transientBranches: transientBranches

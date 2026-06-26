@@ -173,6 +173,7 @@ public struct PullRequestProbeService: Sendable {
                         number: matchedPullRequest.number,
                         urlString: matchedPullRequest.url,
                         statusRawValue: status.rawValue,
+                        ciStatusRawValue: matchedPullRequest.ciStatus.rawValue,
                         branch: candidate.branch
                     )
                 )

@@ -1,5 +1,5 @@
 public import Foundation
-public import CmuxGit
+import CmuxGit
 
 // MARK: - Applying refresh results, poll-deadline math, and tracking bookkeeping.
 
@@ -90,6 +90,7 @@ extension PullRequestPollService {
             case .resolved(let resolvedPullRequest):
                 workspacePullRequestTransientFailureCountByKey[key] = 0
                 guard let status = PullRequestStatus(rawValue: resolvedPullRequest.statusRawValue),
+                      let ciStatus = PullRequestCheckStatus(rawValue: resolvedPullRequest.ciStatusRawValue),
                       let url = URL(string: resolvedPullRequest.urlString) else {
                     continue
                 }
@@ -101,6 +102,7 @@ extension PullRequestPollService {
                         label: "PR",
                         url: url,
                         status: status,
+                        ciStatus: ciStatus,
                         branch: resolvedPullRequest.branch,
                         isStale: false
                     )
@@ -133,6 +135,7 @@ extension PullRequestPollService {
                             label: currentPullRequest.label,
                             url: currentPullRequest.url,
                             status: currentPullRequest.status,
+                            ciStatus: currentPullRequest.ciStatus,
                             branch: currentPullRequest.branch,
                             isStale: true
                         )

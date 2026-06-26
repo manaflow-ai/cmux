@@ -194,6 +194,7 @@ final class WorkspaceCustomSidebarPullRequestContextTests: XCTestCase {
         }
         XCTAssertEqual(fields["number"], .int(5314))
         XCTAssertEqual(fields["status"], .string("open"))
+        XCTAssertEqual(fields["ciStatus"], .string("neutral"))
         XCTAssertEqual(fields["url"], .string("https://github.com/manaflow-ai/cmux/pull/5314"))
         XCTAssertEqual(fields["stale"], .bool(false))
     }

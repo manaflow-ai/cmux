@@ -71,11 +71,18 @@ import CmuxGit
 
     /// `gh pr merge` hints flip an open badge to merged synchronously
     /// (optimistic reconcile before the verifying refresh lands).
-    @Test func mergeCommandHintReconcilesOpenBadge() async throws {
+    @Test func mergeCommandHintReconcilesOpenBadgeAndPreservesCIStatus() async throws {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: nil)
-        host.workspaces[0].state.panels[panelId]?.badge = badge(number: 42, status: .open)
+        host.workspaces[0].state.panels[panelId]?.badge = SidebarPullRequestBadge(
+            number: 42,
+            label: "PR",
+            url: URL(string: "https://github.com/o/r/pull/42")!,
+            status: .open,
+            ciStatus: .failure,
+            branch: "feature/x"
+        )
         let service = makeService(host: host, clock: ManualGitPollClock())
 
         service.handleWorkspacePullRequestCommandHint(
@@ -86,6 +93,7 @@ import CmuxGit
         )
 
         #expect(host.workspaces[0].state.panels[panelId]?.badge?.status == .merged)
+        #expect(host.workspaces[0].state.panels[panelId]?.badge?.ciStatus == .failure)
         #expect(host.workspaces[0].state.panels[panelId]?.badge?.isStale == false)
     }
 
