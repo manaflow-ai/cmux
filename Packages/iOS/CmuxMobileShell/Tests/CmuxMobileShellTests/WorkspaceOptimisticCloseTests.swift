@@ -80,6 +80,24 @@ import Testing
         #expect(store.workspaces.map(\.id.rawValue) == ["A", "B", "C"])
     }
 
+    @Test func concurrentRollbacksRestoreOriginalOrderRegardlessOfOrder() throws {
+        let store = makeStore(ids: ["A", "B", "C", "D"], selected: "A")
+
+        // Two optimistic closes in flight at once (B then D), as if both swipes
+        // landed before either backend close returned.
+        let rollbackB = try #require(store.removeWorkspaceOptimistically(id: "B"))
+        let rollbackD = try #require(store.removeWorkspaceOptimistically(id: "D"))
+        #expect(store.workspaces.map(\.id.rawValue) == ["A", "C"])
+
+        // Both closes fail and roll back in the OPPOSITE order they started; anchoring
+        // to surviving neighbors keeps the row order intact (an absolute-index restore
+        // would have produced [A, B, D, C]).
+        store.restoreWorkspace(rollbackB)
+        store.restoreWorkspace(rollbackD)
+
+        #expect(store.workspaces.map(\.id.rawValue) == ["A", "B", "C", "D"])
+    }
+
     @Test func removeOptimisticallyReturnsNilForUnknownID() {
         let store = makeStore(ids: ["A", "B"], selected: "A")
 
