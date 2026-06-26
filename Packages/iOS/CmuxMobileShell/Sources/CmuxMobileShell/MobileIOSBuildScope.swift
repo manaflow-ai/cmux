@@ -2,8 +2,9 @@ public import Foundation
 
 /// Identifies the running iOS app build for local paired-Mac scoping.
 ///
-/// Tagged DEBUG installs have distinct bundle ids and home-screen labels, but
-/// the tag is the human and build-system identity users reason about. Release
+/// Tagged DEBUG installs have distinct bundle ids and home-screen labels.
+/// Storage follows the installed bundle suffix so equivalent raw tags that
+/// sanitize to the same bundle id also share the same saved-Mac scope. Release
 /// builds intentionally return `nil` so they keep the stable, unscoped saved-Mac
 /// list.
 public struct MobileIOSBuildScope: Sendable, Equatable {
@@ -19,16 +20,16 @@ public struct MobileIOSBuildScope: Sendable, Equatable {
         infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) -> MobileIOSBuildScope? {
-        if let value = infoDictionary?["CMUXDevTag"] as? String,
-           let scope = MobileIOSBuildScope(value),
-           scope.value != "default" {
-            return scope
-        }
-
         let prefix = "dev.cmux.ios."
         if let bundleIdentifier,
            bundleIdentifier.hasPrefix(prefix),
            let scope = MobileIOSBuildScope(String(bundleIdentifier.dropFirst(prefix.count))) {
+            return scope
+        }
+
+        if let value = infoDictionary?["CMUXDevTag"] as? String,
+           let scope = MobileIOSBuildScope(value),
+           scope.value != "default" {
             return scope
         }
 
