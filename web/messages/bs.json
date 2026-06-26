@@ -966,7 +966,7 @@
       "commandVariables": "Varijable komande",
       "commandVariablesDesc": "Dodajte rezervirana mjesta u komandu i cmux će zatražiti svaku vrijednost prije pokretanja. Ponovo upotrijebite isti naziv da ga popunite na više mjesta odjednom.",
       "commandVariablesDefaultNote": "Dodajte zadanu vrijednost iza znaka jednakosti unutar rezerviranog mjesta da unaprijed popunite upit.",
-      "commandVariablesTemplateNote": "Samo obični identifikatori postaju varijable, pa se predlošci koji koriste vodeće tačke, razmake ili cijevi izvršavaju nepromijenjeni. Stavite obrnutu kosu crtu ispred rezerviranog mjesta da ostane doslovno."
+      "commandVariablesTemplateNote": "Varijable postaju samo rezervirana mjesta s običnim identifikatorom koja nisu pod navodnicima; rezervirana mjesta unutar navodnika (i ostali tekst predloška) izvršavaju se nepromijenjeni."
     },
     "keyboardShortcuts": {
       "title": "Prečice na tastaturi",

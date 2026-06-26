@@ -966,7 +966,7 @@
       "commandVariables": "命令变量",
       "commandVariablesDesc": "在命令中添加占位符，cmux 会在运行前提示输入每个值。重复使用相同的名称即可一次性填充多个位置。",
       "commandVariablesDefaultNote": "在占位符内的等号后添加默认值，可为提示预填内容。",
-      "commandVariablesTemplateNote": "只有简单标识符才会成为变量，因此使用前导点、空格或竖线的模板会原样运行。在占位符前加反斜杠可保留其字面形式。"
+      "commandVariablesTemplateNote": "只有不在引号内的简单标识符占位符才会成为变量；引号内的占位符（及其他模板文本）会原样运行。"
     },
     "keyboardShortcuts": {
       "title": "快捷键",

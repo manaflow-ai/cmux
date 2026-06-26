@@ -966,7 +966,7 @@
       "commandVariables": "Kommandovariabler",
       "commandVariablesDesc": "Legg til plassholdere i en kommando, så ber cmux om hver verdi før den kjøres. Bruk det samme navnet på nytt for å fylle det inn flere steder samtidig.",
       "commandVariablesDefaultNote": "Legg til en standardverdi etter et likhetstegn inne i en plassholder for å forhåndsutfylle ledeteksten.",
-      "commandVariablesTemplateNote": "Bare enkle identifikatorer blir variabler, så maler som bruker innledende punktum, mellomrom eller rør kjøres uendret. Sett en omvendt skråstrek foran en plassholder for å beholde den bokstavelig."
+      "commandVariablesTemplateNote": "Bare plassholdere med enkel identifikator uten anførselstegn blir variabler; plassholdere inne i anførselstegn (og annen maltekst) kjøres uendret."
     },
     "keyboardShortcuts": {
       "title": "Tastatursnarveier",

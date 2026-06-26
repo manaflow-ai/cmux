@@ -966,7 +966,7 @@
       "commandVariables": "命令變數",
       "commandVariablesDesc": "在命令中加入佔位符，cmux 會在執行前提示輸入每個值。重複使用相同的名稱即可一次填入多個位置。",
       "commandVariablesDefaultNote": "在佔位符內的等號後加入預設值，即可為提示預先填入內容。",
-      "commandVariablesTemplateNote": "只有簡單識別碼才會成為變數，因此使用前導點、空格或管線的範本會原樣執行。在佔位符前加上反斜線即可保留其字面形式。"
+      "commandVariablesTemplateNote": "只有不在引號內的簡單識別碼佔位符才會成為變數；引號內的佔位符（及其他範本文字）會原樣執行。"
     },
     "keyboardShortcuts": {
       "title": "鍵盤快捷鍵",

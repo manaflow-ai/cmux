@@ -966,7 +966,7 @@
       "commandVariables": "Zmienne polecenia",
       "commandVariablesDesc": "Dodaj symbole zastępcze do polecenia, a cmux poprosi o każdą wartość przed jego uruchomieniem. Użyj tej samej nazwy ponownie, aby wypełnić ją w wielu miejscach naraz.",
       "commandVariablesDefaultNote": "Dodaj wartość domyślną po znaku równości wewnątrz symbolu zastępczego, aby wstępnie wypełnić monit.",
-      "commandVariablesTemplateNote": "Tylko proste identyfikatory stają się zmiennymi, więc szablony używające początkowych kropek, spacji lub potoków są uruchamiane bez zmian. Poprzedź symbol zastępczy ukośnikiem wstecznym, aby zachować go dosłownie."
+      "commandVariablesTemplateNote": "Zmiennymi stają się tylko symbole zastępcze z prostym identyfikatorem bez cudzysłowów; symbole w cudzysłowach (i inny tekst szablonu) są uruchamiane bez zmian."
     },
     "keyboardShortcuts": {
       "title": "Skróty klawiszowe",

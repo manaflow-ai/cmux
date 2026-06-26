@@ -966,7 +966,7 @@
       "commandVariables": "Variables de commande",
       "commandVariablesDesc": "Ajoutez des espaces réservés à une commande et cmux demande chaque valeur avant de l'exécuter. Réutilisez le même nom pour le renseigner à plusieurs endroits à la fois.",
       "commandVariablesDefaultNote": "Ajoutez une valeur par défaut après un signe égal à l'intérieur d'un espace réservé pour préremplir l'invite.",
-      "commandVariablesTemplateNote": "Seuls les identifiants simples deviennent des variables ; les modèles utilisant des points en tête, des espaces ou des barres verticales s'exécutent sans changement. Faites précéder un espace réservé d'une barre oblique inverse pour le garder littéral."
+      "commandVariablesTemplateNote": "Seuls les espaces réservés à identifiant simple et sans guillemets deviennent des variables ; les espaces réservés entre guillemets (et tout autre texte de modèle) s'exécutent sans changement."
     },
     "keyboardShortcuts": {
       "title": "Raccourcis clavier",

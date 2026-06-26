@@ -63,36 +63,37 @@ final class CmuxCommandTemplateTests: XCTestCase {
         XCTAssertEqual(variables("echo {{}} {{   }}"), [])
     }
 
-    func testShellSyntaxIsNotMistakenForVariables() {
-        // Names with shell-special characters keep the braces literal so
-        // ordinary shell snippets are never treated as variables.
+    func testUnquotedNonIdentifierIsRejected() {
+        // At an unquoted position, only bare identifiers are variables; shell
+        // snippets and template expressions keep the braces literal.
         XCTAssertEqual(variables("echo {{ $(date) }}"), [])
-        XCTAssertEqual(variables("awk '{{ print $1 | sort }}'"), [])
         XCTAssertEqual(variables("echo {{1+1}}"), [])
         XCTAssertEqual(variables("echo {{a/b}}"), [])
+        XCTAssertEqual(variables("gomplate -i {{ .Env.FOO }}"), [])
+        XCTAssertEqual(variables("echo {{ name | upper }}"), [])
     }
 
-    func testTemplateExpressionsAreLeftUntouched() {
-        // Go/Handlebars-style templates (leading dot, internal spaces, pipes,
-        // functions) must not be mistaken for cmux variables, so existing
-        // templated shell commands keep running unchanged.
+    func testQuotedPlaceholdersAreLeftLiteral() {
+        // A placeholder inside single or double quotes is template text, not a
+        // cmux variable, so existing quoted template commands run unchanged.
+        XCTAssertEqual(variables("helm --set-template '{{tag}}'"), [])
+        XCTAssertEqual(variables("echo \"{{x}}\""), [])
         XCTAssertEqual(variables("gomplate -i '{{ .Env.FOO }}'"), [])
-        XCTAssertEqual(variables("echo '{{ range .Items }}'"), [])
-        XCTAssertEqual(variables("echo '{{ name | upper }}'"), [])
-        XCTAssertEqual(variables("echo '{{.value}}'"), [])
-        XCTAssertEqual(substitute("gomplate -i '{{ .Env.FOO }}'", ["FOO": "x"]),
-                       "gomplate -i '{{ .Env.FOO }}'")
+        // Even when the author wraps a bare identifier in quotes it is not
+        // intercepted (and therefore cannot be unsafely re-quoted).
+        XCTAssertEqual(variables("deploy '{{branch}}'"), [])
+        XCTAssertEqual(substitute("helm --set-template '{{tag}}'", ["tag": "v1"]),
+                       "helm --set-template '{{tag}}'")
+        XCTAssertEqual(substitute("deploy '{{branch}}'", ["branch": "main; rm -rf /"]),
+                       "deploy '{{branch}}'")
     }
 
-    func testBackslashEscapeProducesLiteralBraces() {
-        // `\{{name}}` is not a variable and the backslash is stripped on run.
-        XCTAssertEqual(variables("echo \\{{name}}"), [])
-        XCTAssertEqual(substitute("echo \\{{name}}", [:]), "echo {{name}}")
-        // An escaped and an unescaped occurrence can coexist; only the real
-        // variable is substituted (and shell-quoted).
-        let mixed = "echo \\{{env}} {{env}}"
-        XCTAssertEqual(variables(mixed).map(\.name), ["env"])
-        XCTAssertEqual(substitute(mixed, ["env": "prod"]), "echo {{env}} 'prod'")
+    func testMixedQuotedAndUnquotedOccurrences() {
+        // Only the unquoted occurrence is a variable; the quoted one stays literal.
+        let command = "deploy {{env}} --label '{{env}}'"
+        XCTAssertEqual(variables(command).map(\.name), ["env"])
+        XCTAssertEqual(substitute(command, ["env": "prod"]),
+                       "deploy 'prod' --label '{{env}}'")
     }
 
     func testNewlineInsidePlaceholderIsIgnored() {

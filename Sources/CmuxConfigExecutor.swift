@@ -149,10 +149,9 @@ struct CmuxConfigExecutor {
         let template = CmuxCommandTemplate(rawValue: rawCommand)
         let variables = template.variables
         guard !variables.isEmpty else {
-            // No variables to prompt for, but still strip any escaped
-            // `\{{…}}` placeholders so they run as literal `{{…}}`.
+            // No unquoted `{{variable}}` placeholders; run the command as-is.
             return authorizeSanitizedShellCommand(
-                template.substituting([:]),
+                rawCommand,
                 confirm: confirm,
                 actionID: actionID,
                 target: target,

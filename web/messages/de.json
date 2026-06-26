@@ -966,7 +966,7 @@
       "commandVariables": "Befehlsvariablen",
       "commandVariablesDesc": "Füge einem Befehl Platzhalter hinzu; cmux fragt vor der Ausführung nach jedem Wert. Verwende denselben Namen erneut, um ihn an mehreren Stellen gleichzeitig auszufüllen.",
       "commandVariablesDefaultNote": "Füge nach einem Gleichheitszeichen innerhalb eines Platzhalters einen Standardwert hinzu, um die Eingabeaufforderung vorzubelegen.",
-      "commandVariablesTemplateNote": "Nur einfache Bezeichner werden zu Variablen, daher werden Vorlagen mit führenden Punkten, Leerzeichen oder Pipes unverändert ausgeführt. Stelle einem Platzhalter einen Backslash voran, um ihn wörtlich zu behalten."
+      "commandVariablesTemplateNote": "Nur Platzhalter mit einfachem Bezeichner ohne Anführungszeichen werden zu Variablen; Platzhalter innerhalb von Anführungszeichen (und anderer Vorlagentext) werden unverändert ausgeführt."
     },
     "keyboardShortcuts": {
       "title": "Tastaturkürzel",

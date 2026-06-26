@@ -1159,7 +1159,7 @@
       "commandVariables": "Command variables",
       "commandVariablesDesc": "Add placeholders to a command and cmux prompts for each value before running it. Reuse the same placeholder name to fill it in several places at once.",
       "commandVariablesDefaultNote": "Add a default value after an equals sign inside a placeholder to pre-fill the prompt.",
-      "commandVariablesTemplateNote": "Only bare identifiers become variables, so templates that use leading dots, spaces, or pipes run unchanged. Prefix a placeholder with a backslash to keep it literal."
+      "commandVariablesTemplateNote": "Only unquoted bare-identifier placeholders become variables; placeholders inside quotes (and other template text) run unchanged."
     },
     "keyboardShortcuts": {
       "title": "Keyboard Shortcuts",

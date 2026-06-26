@@ -966,7 +966,7 @@
       "commandVariables": "Komut değişkenleri",
       "commandVariablesDesc": "Bir komuta yer tutucular ekleyin; cmux çalıştırmadan önce her değeri sorar. Aynı adı yeniden kullanarak birden çok yeri tek seferde doldurun.",
       "commandVariablesDefaultNote": "İstemi önceden doldurmak için bir yer tutucu içindeki eşittir işaretinden sonra bir varsayılan değer ekleyin.",
-      "commandVariablesTemplateNote": "Yalnızca düz tanımlayıcılar değişken olur; bu nedenle baştaki noktalar, boşluklar veya borular kullanan şablonlar değişmeden çalışır. Bir yer tutucuyu olduğu gibi bırakmak için önüne ters eğik çizgi koyun."
+      "commandVariablesTemplateNote": "Yalnızca tırnak içinde olmayan düz tanımlayıcı yer tutucular değişken olur; tırnak içindeki yer tutucular (ve diğer şablon metni) değişmeden çalışır."
     },
     "keyboardShortcuts": {
       "title": "Klavye Kısayolları",

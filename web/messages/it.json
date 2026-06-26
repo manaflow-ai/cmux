@@ -966,7 +966,7 @@
       "commandVariables": "Variabili del comando",
       "commandVariablesDesc": "Aggiungi segnaposto a un comando e cmux chiederà ogni valore prima di eseguirlo. Riutilizza lo stesso nome per compilarlo in più punti contemporaneamente.",
       "commandVariablesDefaultNote": "Aggiungi un valore predefinito dopo un segno di uguale all'interno di un segnaposto per precompilare il prompt.",
-      "commandVariablesTemplateNote": "Solo gli identificatori semplici diventano variabili, quindi i template che usano punti iniziali, spazi o pipe vengono eseguiti senza modifiche. Anteponi una barra rovesciata a un segnaposto per mantenerlo letterale."
+      "commandVariablesTemplateNote": "Diventano variabili solo i segnaposto con identificatore semplice e senza virgolette; i segnaposto tra virgolette (e altro testo di template) vengono eseguiti senza modifiche."
     },
     "keyboardShortcuts": {
       "title": "Scorciatoie da tastiera",

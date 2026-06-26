@@ -966,7 +966,7 @@
       "commandVariables": "Variables del comando",
       "commandVariablesDesc": "Añade marcadores a un comando y cmux pedirá cada valor antes de ejecutarlo. Reutiliza el mismo nombre para rellenarlo en varios lugares a la vez.",
       "commandVariablesDefaultNote": "Añade un valor predeterminado después de un signo igual dentro de un marcador para rellenar el campo previamente.",
-      "commandVariablesTemplateNote": "Solo los identificadores simples se convierten en variables, así que las plantillas con puntos iniciales, espacios o tuberías se ejecutan sin cambios. Antepón una barra invertida a un marcador para mantenerlo literal."
+      "commandVariablesTemplateNote": "Solo los marcadores con identificador simple y sin comillas se convierten en variables; los marcadores entre comillas (y otro texto de plantilla) se ejecutan sin cambios."
     },
     "keyboardShortcuts": {
       "title": "Atajos de teclado",

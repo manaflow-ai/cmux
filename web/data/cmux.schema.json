@@ -63,7 +63,7 @@
           },
           "command": {
             "type": "string",
-            "description": "Shell command to run. Use {{name}} placeholders (optionally {{name=default}}) to prompt for values before running, for example \"bin/deploy --env {{environment}}\". Each entered value is inserted as a single POSIX-quoted shell argument. Only bare identifiers ([A-Za-z_][A-Za-z0-9_-]*) are treated as variables, so Go/Handlebars-style templates such as {{ .Env.FOO }} run unchanged; prefix a placeholder with a backslash (\\{{name}}) to keep a literal {{name}}."
+            "description": "Shell command to run. Use {{name}} placeholders (optionally {{name=default}}) at unquoted positions to prompt for values before running, for example \"bin/deploy --env {{environment}}\". Each entered value is inserted as a single POSIX-quoted shell argument. Only bare identifiers ([A-Za-z_][A-Za-z0-9_-]*) at unquoted positions are treated as variables; a placeholder inside single or double quotes (e.g. '{{tag}}') and other template expressions such as {{ .Env.FOO }} run unchanged."
           },
           "folder": {
             "type": "string",

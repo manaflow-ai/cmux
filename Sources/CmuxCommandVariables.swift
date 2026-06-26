@@ -23,7 +23,7 @@ struct CmuxCommandVariable: Equatable, Sendable {
 /// namespace.
 ///
 /// Grammar (deliberately narrow so it does not regress shell commands that
-/// embed Go/Handlebars-style `{{…}}` templates):
+/// embed Go/Handlebars/Mustache-style `{{…}}` templates):
 /// - A placeholder is `{{` … `}}` whose inner text contains no `{`, `}`, or
 ///   newline.
 /// - The name is the text before an optional `=`; the text after `=` is a
@@ -31,9 +31,13 @@ struct CmuxCommandVariable: Equatable, Sendable {
 /// - The name must be a *bare identifier*: a letter or `_` followed by letters,
 ///   digits, `_`, or `-`. Anything else — a leading `.` (`{{ .Env.FOO }}`),
 ///   internal spaces (`{{ range .Items }}`), pipes, or function calls — is left
-///   completely untouched and runs as-is.
-/// - Prefix the placeholder with a backslash (`\{{name}}`) to force a literal
-///   `{{name}}`; cmux strips the backslash and never prompts for it.
+///   completely untouched.
+/// - A placeholder is only treated as a cmux variable when it appears at an
+///   **unquoted** shell position. A `{{name}}` inside single or double quotes
+///   (e.g. `gomplate -i '{{tag}}'`) is left literal and runs unchanged, so
+///   existing template commands are not intercepted. This also means the
+///   substituted value is always inserted at an unquoted position, where it can
+///   be safely POSIX-quoted as a single argument.
 struct CmuxCommandTemplate {
     /// The raw command string, exactly as written in `cmux.json`.
     let rawValue: String
@@ -100,20 +104,24 @@ struct CmuxCommandTemplate {
     // MARK: - Scanning
 
     private enum Token {
-        /// Text emitted verbatim (plain text, escaped placeholders with the
-        /// backslash removed, and unrecognized `{{…}}` template expressions).
+        /// Text emitted verbatim (plain text, quoted text, and unrecognized
+        /// `{{…}}` template expressions).
         case literal(String)
         /// A recognized variable placeholder; `raw` is the original `{{…}}`
         /// text used when no value is supplied.
         case variable(CmuxCommandVariable, raw: String)
     }
 
+    /// Walks the command tracking single/double shell-quote state, recognizing a
+    /// `{{identifier}}` placeholder only when it appears at an unquoted position.
     private func scan() -> [Token] {
         let command = rawValue
         var tokens: [Token] = []
         var literalStart = command.startIndex
         var index = command.startIndex
         let end = command.endIndex
+        var inSingleQuote = false
+        var inDoubleQuote = false
 
         func flushLiteral(upTo upperBound: String.Index) {
             if literalStart < upperBound {
@@ -122,49 +130,43 @@ struct CmuxCommandTemplate {
         }
 
         while index < end {
-            guard let open = command.range(of: "{{", range: index..<end) else { break }
-            guard let close = command.range(of: "}}", range: open.upperBound..<end) else {
-                // No closing braces remain; everything left is literal text.
-                break
+            let character = command[index]
+
+            if !inSingleQuote, !inDoubleQuote, character == "{" {
+                let afterFirstBrace = command.index(after: index)
+                if afterFirstBrace < end, command[afterFirstBrace] == "{" {
+                    let innerStart = command.index(after: afterFirstBrace)
+                    if let close = command.range(of: "}}", range: innerStart..<end) {
+                        let inner = command[innerStart..<close.lowerBound]
+                        let innerHasIllegalCharacter = inner.contains { c in
+                            c == "{" || c == "}" || c == "\n" || c == "\r"
+                        }
+                        if !innerHasIllegalCharacter, let parsed = Self.parse(inner: String(inner)) {
+                            flushLiteral(upTo: index)
+                            tokens.append(
+                                .variable(
+                                    CmuxCommandVariable(name: parsed.name, defaultValue: parsed.defaultValue),
+                                    raw: String(command[index..<close.upperBound])
+                                )
+                            )
+                            index = close.upperBound
+                            literalStart = index
+                            continue
+                        }
+                    }
+                    // Not a recognized placeholder; skip past "{{" and keep
+                    // scanning the contents for quote state.
+                    index = innerStart
+                    continue
+                }
             }
 
-            let inner = command[open.upperBound..<close.lowerBound]
-            let innerHasIllegalCharacter = inner.contains { character in
-                character == "{" || character == "}" || character == "\n" || character == "\r"
+            if character == "'", !inDoubleQuote {
+                inSingleQuote.toggle()
+            } else if character == "\"", !inSingleQuote {
+                inDoubleQuote.toggle()
             }
-            if innerHasIllegalCharacter {
-                // Not a clean placeholder; keep the "{{" in the literal run.
-                index = open.upperBound
-                continue
-            }
-
-            let isEscaped = open.lowerBound > command.startIndex
-                && command[command.index(before: open.lowerBound)] == "\\"
-            if isEscaped {
-                // Drop the escaping backslash and emit a literal "{{…}}".
-                let backslash = command.index(before: open.lowerBound)
-                flushLiteral(upTo: backslash)
-                tokens.append(.literal(String(command[open.lowerBound..<close.upperBound])))
-                literalStart = close.upperBound
-                index = close.upperBound
-                continue
-            }
-
-            if let parsed = Self.parse(inner: String(inner)) {
-                flushLiteral(upTo: open.lowerBound)
-                tokens.append(
-                    .variable(
-                        CmuxCommandVariable(name: parsed.name, defaultValue: parsed.defaultValue),
-                        raw: String(command[open.lowerBound..<close.upperBound])
-                    )
-                )
-                literalStart = close.upperBound
-                index = close.upperBound
-            } else {
-                // A `{{…}}` that is not a bare identifier (template expression);
-                // keep it in the literal run unchanged.
-                index = close.upperBound
-            }
+            index = command.index(after: index)
         }
 
         flushLiteral(upTo: end)
