@@ -334,10 +334,11 @@ struct ShortcutValidationBanner: View {
 struct CommandShortcutConflictChecker {
     /// Built-in action overrides from `shortcuts.bindings`.
     let actionBindings: [String: StoredShortcut]
-    /// User-defined cmux config action shortcuts (cmux.json `actions`), keyed by
-    /// display label. Dispatched before custom command shortcuts at runtime, so
-    /// a command must not be allowed to bind a keystroke one of these owns.
-    let configuredActionShortcuts: [String: StoredShortcut]
+    /// User-defined cmux config action shortcuts (cmux.json `actions`) as
+    /// `(displayLabel, shortcut)` pairs. Dispatched before custom command
+    /// shortcuts at runtime, so a command must not be allowed to bind a keystroke
+    /// one of these owns. A list, not a map: action titles may collide.
+    let configuredActionShortcuts: [(label: String, shortcut: StoredShortcut)]
     /// Other commands' bindings from `shortcuts.commands`.
     let commandShortcuts: [String: StoredShortcut]
     /// Resolves a command id to its display title for the banner.
@@ -363,10 +364,10 @@ struct CommandShortcutConflictChecker {
                 return action.displayName
             }
         }
-        for (label, existing) in configuredActionShortcuts {
-            guard !existing.isUnbound else { continue }
-            if numberedAwareStrokesConflict(stroke.first, numbered: false, existing.first, numbered: false) {
-                return label
+        for entry in configuredActionShortcuts {
+            guard !entry.shortcut.isUnbound else { continue }
+            if numberedAwareStrokesConflict(stroke.first, numbered: false, entry.shortcut.first, numbered: false) {
+                return entry.label
             }
         }
         for (commandId, existing) in commandShortcuts where commandId != excludingCommandId {

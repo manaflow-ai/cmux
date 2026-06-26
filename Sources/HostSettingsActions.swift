@@ -401,17 +401,17 @@ final class HostSettingsActions: SettingsHostActions {
     ///
     /// cmux.json is global, so any live window's config store carries the same
     /// `actions`; the first available one is used.
-    func configuredActionShortcuts() -> [String: CmuxSettings.StoredShortcut] {
+    func configuredActionShortcuts() -> [(label: String, shortcut: CmuxSettings.StoredShortcut)] {
         guard let store = AppDelegate.shared?.mainWindowContexts.values
             .lazy.compactMap({ $0.cmuxConfigStore }).first else {
-            return [:]
+            return []
         }
-        var result: [String: CmuxSettings.StoredShortcut] = [:]
-        for action in store.shortcutActions() {
-            guard let shortcut = action.shortcut, !shortcut.isUnbound else { continue }
-            result[action.title] = Self.packageStoredShortcut(from: shortcut)
+        // A list, not a title-keyed map: action titles are free-form and may
+        // collide, and dropping a duplicate would hide a real conflict.
+        return store.shortcutActions().compactMap { action in
+            guard let shortcut = action.shortcut, !shortcut.isUnbound else { return nil }
+            return (label: action.title, shortcut: Self.packageStoredShortcut(from: shortcut))
         }
-        return result
     }
 
     /// Bridges the app's flat ``StoredShortcut`` to the package

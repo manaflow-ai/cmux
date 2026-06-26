@@ -23,7 +23,7 @@ struct CommandShortcutConflictTests {
 
     private func checker(
         actionBindings: [String: StoredShortcut] = [:],
-        configuredActionShortcuts: [String: StoredShortcut] = [:],
+        configuredActionShortcuts: [(label: String, shortcut: StoredShortcut)] = [],
         commandShortcuts: [String: StoredShortcut] = [:],
         title: @escaping (String) -> String = { $0 }
     ) -> CommandShortcutConflictChecker {
@@ -86,12 +86,27 @@ struct CommandShortcutConflictTests {
         // the same keystroke (the key router runs configured actions first).
         let existing = single("y", command: true, option: true, control: true)
         let label = checker(
-            configuredActionShortcuts: ["Run tests": existing]
+            configuredActionShortcuts: [(label: "Run tests", shortcut: existing)]
         ).conflictLabel(
             stroke: single("y", command: true, option: true, control: true),
             excludingCommandId: nil
         )
         #expect(label == "Run tests")
+    }
+
+    @Test func conflictsWithConfiguredActionDespiteDuplicateTitles() {
+        // Two configured actions share a title but bind different keys; the list
+        // (not a title-keyed map) must keep both so neither shortcut is hidden.
+        let label = checker(
+            configuredActionShortcuts: [
+                (label: "Custom", shortcut: single("j", command: true, option: true, control: true)),
+                (label: "Custom", shortcut: single("k", command: true, option: true, control: true)),
+            ]
+        ).conflictLabel(
+            stroke: single("k", command: true, option: true, control: true),
+            excludingCommandId: nil
+        )
+        #expect(label == "Custom")
     }
 
     @Test func conflictsWithConfiguredActionChordPrefix() {
@@ -102,7 +117,7 @@ struct CommandShortcutConflictTests {
             second: ShortcutStroke(key: "n")
         )
         let label = checker(
-            configuredActionShortcuts: ["Chord action": chord]
+            configuredActionShortcuts: [(label: "Chord action", shortcut: chord)]
         ).conflictLabel(
             stroke: single("b", control: true),
             excludingCommandId: nil
