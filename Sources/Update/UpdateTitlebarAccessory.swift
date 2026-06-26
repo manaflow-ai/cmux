@@ -1474,16 +1474,16 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
         private func refreshMouseMovedTracking(in window: NSWindow) {
             guard !isTrackingMouseMovedEvents || mouseMovedWindow !== window else { return }
             stopMouseMovedTracking()
-            WindowMouseMovedEventsCoordinator.enable(for: window, owner: self)
+            WindowMouseMovedEventsCoordinator.shared.enable(for: window, owner: self)
             mouseMovedWindow = window
             isTrackingMouseMovedEvents = true
         }
 
         private func stopMouseMovedTracking() {
             if let mouseMovedWindow {
-                WindowMouseMovedEventsCoordinator.disable(for: mouseMovedWindow, owner: self)
+                WindowMouseMovedEventsCoordinator.shared.disable(for: mouseMovedWindow, owner: self)
             } else {
-                WindowMouseMovedEventsCoordinator.disableOwner(self)
+                WindowMouseMovedEventsCoordinator.shared.disableOwner(self)
             }
             mouseMovedWindow = nil
             isTrackingMouseMovedEvents = false
