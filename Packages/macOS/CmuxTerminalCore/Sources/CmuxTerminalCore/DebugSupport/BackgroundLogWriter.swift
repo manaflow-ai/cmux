@@ -11,87 +11,108 @@ import QuartzCore
 /// AttributeGraph updates — see
 /// https://github.com/manaflow-ai/cmux/issues/5833.
 ///
-/// Callers now pay only for capturing a few cheap timing values (`Date`,
-/// `systemUptime`, `CACurrentMediaTime`, and the calling thread's main/background
-/// label). All string formatting and file I/O run on a single dedicated serial
-/// queue against one long-lived file handle, so emitting a log line never blocks
-/// the calling thread on disk.
-///
-/// Ordering and the monotonic `seq=` counter are preserved because the drain
-/// queue is serial and FIFO.
-public final class BackgroundLogWriter: @unchecked Sendable {
-    private let fileURL: URL
-    private let startUptime: TimeInterval
-    private let queue: DispatchQueue
+/// Callers (`log(_:isMainThread:)`) only capture a few cheap timing values and
+/// `yield` them onto an `AsyncStream`; a single long-lived consumer task owns the
+/// `FileHandle`, the `seq` counter, and the `DateFormatter`, so those mutable
+/// fields get task-local isolation with no shared state — the type is therefore
+/// plain `Sendable` (no `@unchecked` escape hatch) and uses no locks or
+/// dispatch-queue barriers. `AsyncStream` delivers yields in FIFO order to its
+/// one consumer, which preserves emission order and the monotonic `seq=` field.
+public final class BackgroundLogWriter: Sendable {
+    /// One emitted event, with its timing captured on the calling thread. All
+    /// fields are value types so the entry crosses to the consumer task as
+    /// `Sendable` data.
+    private struct Entry: Sendable {
+        let message: String
+        let date: Date
+        let uptimeMs: Double
+        let mediaTime: Double
+        let threadLabel: String
+    }
 
-    // Everything below is confined to `queue`; it must never be read or written
-    // from any other thread. The class is `@unchecked Sendable` on the strength
-    // of that confinement.
-    private var handle: FileHandle?
-    private var handleResolved = false
-    private var sequence: UInt64 = 0
-    private let timestampFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
+    private let startUptime: TimeInterval
+    private let continuation: AsyncStream<Entry>.Continuation
 
     /// Creates a writer that appends to `fileURL`. `startUptime` is the
     /// `ProcessInfo.systemUptime` baseline used to compute the relative
     /// `t+…ms` field; capture it once at app launch so every line shares the
     /// same origin.
     public init(fileURL: URL, startUptime: TimeInterval) {
-        self.fileURL = fileURL
         self.startUptime = startUptime
-        self.queue = DispatchQueue(label: "com.cmuxterm.background-log", qos: .utility)
+        // `.unbounded` matches the prior `queue.async` backlog (lines are never
+        // dropped). The consumer drains continuously, so the buffer is ~empty in
+        // steady state and only grows transiently while opt-in debug logging is on.
+        let (stream, continuation) = AsyncStream<Entry>.makeStream(bufferingPolicy: .unbounded)
+        self.continuation = continuation
+        // One detached consumer for the lifetime of the writer: it must outlive
+        // every (unstructured) caller of `log`, so it is intentionally not a child
+        // of any caller's task tree. It does not capture `self`, so the writer can
+        // deinit and end the stream.
+        Task.detached(priority: .utility) {
+            await BackgroundLogWriter.consume(stream, fileURL: fileURL)
+        }
     }
 
-    /// Enqueues `message` for asynchronous append and returns immediately.
-    ///
-    /// `isMainThread` is supplied by the caller because the drain queue is never
-    /// the main thread; capturing it here on the calling thread preserves the
-    /// `thread=main`/`thread=background` field's meaning.
-    public func log(_ message: String, isMainThread: Bool) {
-        // Captured on the calling thread (all cheap, no formatting / no I/O).
-        let capturedDate = Date()
-        let uptimeMs = (ProcessInfo.processInfo.systemUptime - startUptime) * 1000
-        let mediaTime = CACurrentMediaTime()
-        let threadLabel = isMainThread ? "main" : "background"
+    deinit {
+        // Ends the consumer's `for await` loop so it does not outlive the writer
+        // (matters for tests that create short-lived writers).
+        continuation.finish()
+    }
 
-        queue.async { [self] in
+    /// Captures `message` plus cheap timing values on the calling thread and
+    /// enqueues them for asynchronous append; returns immediately.
+    ///
+    /// `isMainThread` is supplied by the caller because the consumer task is never
+    /// the main thread; capturing it here preserves the `thread=main`/
+    /// `thread=background` field's meaning.
+    public func log(_ message: String, isMainThread: Bool) {
+        continuation.yield(
+            Entry(
+                message: message,
+                date: Date(),
+                uptimeMs: (ProcessInfo.processInfo.systemUptime - startUptime) * 1000,
+                mediaTime: CACurrentMediaTime(),
+                threadLabel: isMainThread ? "main" : "background"
+            )
+        )
+    }
+
+    /// The single consumer: formats each entry and appends it through one
+    /// long-lived handle, in stream (FIFO) order. All mutable state is local to
+    /// this task.
+    private static func consume(_ stream: AsyncStream<Entry>, fileURL: URL) async {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var handle: FileHandle?
+        var handleResolved = false
+        var sequence: UInt64 = 0
+
+        for await entry in stream {
             sequence &+= 1
-            let frame60 = Int((mediaTime * 60.0).rounded(.down))
-            let frame120 = Int((mediaTime * 120.0).rounded(.down))
+            let frame60 = Int((entry.mediaTime * 60.0).rounded(.down))
+            let frame120 = Int((entry.mediaTime * 120.0).rounded(.down))
             let line =
-                "\(timestampFormatter.string(from: capturedDate)) seq=\(sequence) t+\(String(format: "%.3f", uptimeMs))ms thread=\(threadLabel) frame60=\(frame60) frame120=\(frame120) cmux bg: \(message)\n"
-            guard let data = line.data(using: .utf8), let handle = resolvedHandle() else { return }
+                "\(formatter.string(from: entry.date)) seq=\(sequence) t+\(String(format: "%.3f", entry.uptimeMs))ms thread=\(entry.threadLabel) frame60=\(frame60) frame120=\(frame120) cmux bg: \(entry.message)\n"
+
+            if !handleResolved {
+                handleResolved = true
+                handle = openHandle(fileURL: fileURL)
+            }
+            guard let data = line.data(using: .utf8), let handle else { continue }
             try? handle.write(contentsOf: data)
         }
+        try? handle?.close()
     }
 
-    /// Blocks until every previously-enqueued line has been written. For tests
-    /// and orderly shutdown only; production callers never need it.
-    public func drain() {
-        queue.sync {}
-    }
-
-    // MARK: - Queue-confined
-
-    /// Lazily opens (and seeks to end of) the single long-lived file handle on
-    /// the serial queue. Returns `nil` if the file cannot be opened; subsequent
-    /// calls keep returning the cached result rather than retrying per line.
-    private func resolvedHandle() -> FileHandle? {
-        if handleResolved {
-            return handle
-        }
-        handleResolved = true
+    /// Opens (and seeks to end of) the single long-lived file handle, creating the
+    /// file if needed. Called once by the consumer on its first entry.
+    private static func openHandle(fileURL: URL) -> FileHandle? {
         let path = fileURL.path
         if FileManager.default.fileExists(atPath: path) == false {
             FileManager.default.createFile(atPath: path, contents: nil)
         }
-        let opened = try? FileHandle(forWritingTo: fileURL)
-        try? opened?.seekToEnd()
-        handle = opened
-        return opened
+        let handle = try? FileHandle(forWritingTo: fileURL)
+        try? handle?.seekToEnd()
+        return handle
     }
 }
