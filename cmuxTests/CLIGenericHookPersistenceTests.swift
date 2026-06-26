@@ -583,26 +583,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ]
 
         func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startMockServer(
-                listenerFD: listenerFD,
-                state: state,
-                connectionCount: 4
-            ) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
-                case "feed.push":
-                    return self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
-            }
+            let serverHandled = startAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 4)
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "hermes-agent", subcommand],
@@ -1393,26 +1374,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "GROK_HOME": grokHome.path,
         ]
 
-        startDetachedMockServer(
-            listenerFD: listenerFD,
-            state: state,
-            connectionCount: 80
-        ) { line in
-            guard let payload = self.jsonObject(line) else {
-                return "OK"
-            }
-            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-            }
-            switch method {
-            case "surface.list":
-                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
-            case "feed.push":
-                return self.v2Response(id: id, ok: true, result: [:])
-            default:
-                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-            }
-        }
+        startDetachedAgentHookMockServer(listenerFD: listenerFD, state: state, surfaceId: surfaceId, connectionCount: 80)
 
         func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
             let result = runProcess(
