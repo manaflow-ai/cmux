@@ -6121,6 +6121,23 @@
         }
       }
     },
+    "mobile.toolbar.editor.addStepHeader": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Step"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手順を追加"
+          }
+        }
+      }
+    },
     "mobile.toolbar.editor.addTextStep": {
       "extractionState": "manual",
       "localizations": {
@@ -6185,6 +6202,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "claude --dangerously-skip-permissions"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.deleteStep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Step"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手順を削除"
           }
         }
       }
@@ -6372,6 +6406,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "入力後に実行"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.stepHeaderFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step %d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手順 %d"
           }
         }
       }

@@ -133,7 +133,7 @@ struct CustomToolbarActionEditorView: View {
             ToolbarKeyComboFields(modifiers: $keyModifiers, key: $selectedKey)
                 .accessibilityIdentifier("CustomActionKeyComboFields")
 
-            if keyComboPayload?.output == nil {
+            if keyComboPayload == nil {
                 Text(L10n.string(
                     "mobile.toolbar.editor.unsupportedCombo",
                     defaultValue: "This key combo is not supported yet."
@@ -151,15 +151,31 @@ struct CustomToolbarActionEditorView: View {
         }
     }
 
-    private var macroSection: some View {
-        Section {
-            ForEach($macroSteps) { step in
-                ToolbarMacroStepEditor(step: step)
-            }
-            .onDelete { offsets in
-                macroSteps.remove(atOffsets: offsets)
-            }
+    @ViewBuilder private var macroSection: some View {
+        ForEach(macroSteps.indices, id: \.self) { index in
+            Section {
+                ToolbarMacroStepEditor(step: $macroSteps[index])
 
+                Button(role: .destructive) {
+                    macroSteps.remove(at: index)
+                } label: {
+                    Label(
+                        L10n.string("mobile.toolbar.editor.deleteStep", defaultValue: "Delete Step"),
+                        systemImage: "trash"
+                    )
+                }
+                .accessibilityIdentifier("CustomActionDeleteStepButton-\(index + 1)")
+            } header: {
+                VStack(alignment: .leading, spacing: 2) {
+                    if index == macroSteps.startIndex {
+                        Text(L10n.string("mobile.toolbar.editor.macroHeader", defaultValue: "Macro Steps"))
+                    }
+                    Text(macroStepTitle(index: index + 1))
+                }
+            }
+        }
+
+        Section {
             Button {
                 macroSteps.append(.textStep())
             } label: {
@@ -180,7 +196,7 @@ struct CustomToolbarActionEditorView: View {
             }
             .accessibilityIdentifier("CustomActionAddKeyStepButton")
         } header: {
-            Text(L10n.string("mobile.toolbar.editor.macroHeader", defaultValue: "Macro Steps"))
+            Text(L10n.string("mobile.toolbar.editor.addStepHeader", defaultValue: "Add Step"))
         } footer: {
             Text(L10n.string(
                 "mobile.toolbar.editor.macroFooter",
@@ -227,6 +243,11 @@ struct CustomToolbarActionEditorView: View {
 
     private var isValid: Bool {
         !trimmedTitle.isEmpty && payload != nil
+    }
+
+    private func macroStepTitle(index: Int) -> String {
+        let format = L10n.string("mobile.toolbar.editor.stepHeaderFormat", defaultValue: "Step %d")
+        return String(format: format, index)
     }
 
     private func save() {
