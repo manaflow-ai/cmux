@@ -74,7 +74,7 @@ struct FeedPanelView: View {
     }
 
     @State private var filter: Filter = .actionable
-    @StateObject private var viewModel = FeedPanelViewModel()
+    @State private var viewModel = FeedPanelViewModel()
 
     var body: some View {
         VStack(spacing: 0) {
