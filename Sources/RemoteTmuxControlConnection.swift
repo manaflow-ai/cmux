@@ -148,10 +148,11 @@ final class RemoteTmuxControlConnection {
     /// parse) can't drift.
     let commandBuilder = RemoteTmuxControlCommandBuilder()
 
-    /// `ESC[?1049h` — enter the alternate screen, emitted to a mirror surface when
-    /// the remote pane is on the alternate screen (see ``capturePane(paneId:)``).
-    private static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
-    private static let altScreenExitSequence = Data("\u{1b}[?1049l".utf8)
+    /// Pure escape-sequence constants + the capture-paint builder used to seed a
+    /// mirror surface from the remote pane (alt-screen enter/exit, the reconnect
+    /// re-seed clear, and the capture-pane repaint). Held as a value and called as
+    /// `mirrorSeed.xxx`; see ``RemoteTmuxMirrorSeedSequences``.
+    let mirrorSeed = RemoteTmuxMirrorSeedSequences()
 
     init(host: RemoteTmuxHost, sessionName: String, createIfMissing: Bool = false) {
         self.host = host
@@ -832,7 +833,7 @@ final class RemoteTmuxControlConnection {
         clientSize.scheduleAttachRedrawKickIfNeeded()
         for window in windowsByID.values {
             for paneId in window.paneIDsInOrder {
-                observers.emitPaneOutput(paneId, Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8))
+                observers.emitPaneOutput(paneId, mirrorSeed.reconnectReseedClear)
                 seedPane(paneId: paneId)
             }
         }
@@ -1048,8 +1049,7 @@ final class RemoteTmuxControlConnection {
             // tmux's real prompt cursor — otherwise echoed input lands a line below
             // the prompt. The `.paneState` seed then repositions the cursor within
             // the visible screen.
-            let painted = "\u{1b}[H\u{1b}[2J" + lines.joined(separator: "\r\n")
-            if let data = painted.data(using: .utf8) {
+            if let data = mirrorSeed.capturePaint(rows: lines) {
                 observers.emitPaneOutput(paneId, data)
             }
         case let .paneState(paneId):
@@ -1087,9 +1087,9 @@ final class RemoteTmuxControlConnection {
             // remote pane is now on primary, force it back (1049l) so the capture doesn't
             // paint onto a stale alt screen.
             if lines.first?.trimmingCharacters(in: .whitespaces) == "1" {
-                observers.emitPaneOutput(paneId, Self.altScreenEnterSequence)
+                observers.emitPaneOutput(paneId, mirrorSeed.altScreenEnter)
             } else {
-                observers.emitPaneOutput(paneId, Self.altScreenExitSequence)
+                observers.emitPaneOutput(paneId, mirrorSeed.altScreenExit)
             }
         case .other:
             break

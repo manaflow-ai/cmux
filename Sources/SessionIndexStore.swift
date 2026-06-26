@@ -685,22 +685,6 @@ final class SessionIndexStore {
         var errors: [String]
     }
 
-    /// Thread-safe accumulator passed down to per-agent helpers so they can
-    /// report failures (e.g. SQL prepare errors when an agent bumps its
-    /// schema) without requiring the helpers to throw across actor boundaries.
-    final class ErrorBag: @unchecked Sendable {
-        private let lock = NSLock()
-        private var messages: [String] = []
-        func add(_ msg: String) {
-            lock.lock(); defer { lock.unlock() }
-            messages.append(msg)
-        }
-        func snapshot() -> [String] {
-            lock.lock(); defer { lock.unlock() }
-            return messages
-        }
-    }
-
     /// Paginated on-demand search across the full filesystem (Claude/Codex) and
     /// SQLite (OpenCode). Empty query is allowed and returns the most-recent
     /// entries (used when the user just opens the popover and scrolls).

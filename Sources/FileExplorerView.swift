@@ -558,7 +558,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
 /// Pure AppKit container holding the header bar and outline view.
 @MainActor
-final class FileExplorerContainerView: NSView {
+final class FileExplorerContainerView: NSView, FileExplorerFocusHosting {
     private let headerView: FileExplorerHeaderView
     private let searchBarView: NSView
     private let searchField: FileExplorerSearchField

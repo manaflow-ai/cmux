@@ -250,15 +250,6 @@ final class FeedCoordinator: @unchecked Sendable {
 // MARK: - In-app attention surfacing
 
 extension FeedCoordinator {
-    /// Identifies the sidebar slot an attention overlay lights up. Overlays
-    /// are refcounted by this key so overlapping blocking decisions on the
-    /// same agent/panel don't clear each other's needs-input badge.
-    struct AttentionTarget: Hashable, Sendable {
-        let workspaceId: UUID
-        let panelId: UUID?
-        let statusKey: String
-    }
-
     /// The localized "Needs input" sidebar status the overlay sets. Exposed so
     /// ``concludeBlockingDecisionAttention(_:)`` can confirm it's still the
     /// value we wrote before clearing it (rather than one an agent hook
@@ -423,7 +414,7 @@ private final class PendingWaiter: @unchecked Sendable {
     /// reply can fire) and read when the decision concludes, so the
     /// needs-input overlay is cleared exactly once. Guarded by
     /// `FeedCoordinator.waiterLock`.
-    var attentionTarget: FeedCoordinator.AttentionTarget?
+    var attentionTarget: AttentionTarget?
 
     init(semaphore: DispatchSemaphore) {
         self.semaphore = semaphore

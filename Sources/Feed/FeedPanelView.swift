@@ -726,7 +726,7 @@ private struct FeedKeyboardFocusBridge: NSViewRepresentable {
     }
 }
 
-final class FeedKeyboardFocusView: NSView {
+final class FeedKeyboardFocusView: NSView, FeedFocusHosting {
     var onEscape: (() -> Void)?
     var onMoveSelection: ((Int) -> Void)?
     var onActivateSelection: (() -> Void)?

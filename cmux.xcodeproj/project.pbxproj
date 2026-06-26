@@ -383,6 +383,7 @@
 		DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */; };
 		A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */; };
 		DEB6C0DE00000000000000A0 /* DebugWindowControlsContentProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEB6C0DE00000000000000A1 /* DebugWindowControlsContentProvider.swift */; };
+		D7EFA110000000000000001 /* DefaultTerminalRegistrationError+LocalizedCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7EFA110000000000000002 /* DefaultTerminalRegistrationError+LocalizedCopy.swift */; };
 		A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001F000000000000000002 /* DetachedFolderDragIcon.swift */; };
 		B05553C10000000000000001 /* DetachedFolderPathLookupCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B05553C10000000000000002 /* DetachedFolderPathLookupCache.swift */; };
 		B0555303B0555303B0555303 /* DetachedFolderPathLookupCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0555304B0555304B0555304 /* DetachedFolderPathLookupCacheTests.swift */; };
@@ -984,6 +985,7 @@
 		C0DE7B230000000000000001 /* TextBoxMentionCompletionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B230000000000000002 /* TextBoxMentionCompletionDetector.swift */; };
 		C0DE7B300000000000000001 /* TextBoxMentionCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B300000000000000002 /* TextBoxMentionCompletionTests.swift */; };
 		C0DE7B320000000000000001 /* TextBoxMentionFileIndexRefreshTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B320000000000000002 /* TextBoxMentionFileIndexRefreshTask.swift */; };
+		C0DE7B500000000000000001 /* TextBoxMentionFileSystemScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B500000000000000002 /* TextBoxMentionFileSystemScanner.swift */; };
 		C0DE7B270000000000000001 /* TextBoxMentionIndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B270000000000000002 /* TextBoxMentionIndexStore.swift */; };
 		C0DE7B200000000000000001 /* TextBoxMentionKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B200000000000000002 /* TextBoxMentionKind.swift */; };
 		C0DE7B240000000000000001 /* TextBoxMentionMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B240000000000000002 /* TextBoxMentionMarkdown.swift */; };
@@ -1505,6 +1507,7 @@
 		DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolverTests.swift; sourceTree = "<group>"; };
 		A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DebugLogging.swift; sourceTree = "<group>"; };
 		DEB6C0DE00000000000000A1 /* DebugWindowControlsContentProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugWindowControlsContentProvider.swift; sourceTree = "<group>"; };
+		D7EFA110000000000000002 /* DefaultTerminalRegistrationError+LocalizedCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DefaultTerminalRegistrationError+LocalizedCopy.swift"; sourceTree = "<group>"; };
 		A5001F000000000000000002 /* DetachedFolderDragIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderDragIcon.swift; sourceTree = "<group>"; };
 		B05553C10000000000000002 /* DetachedFolderPathLookupCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderPathLookupCache.swift; sourceTree = "<group>"; };
 		B0555304B0555304B0555304 /* DetachedFolderPathLookupCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderPathLookupCacheTests.swift; sourceTree = "<group>"; };
@@ -2095,6 +2098,7 @@
 		C0DE7B230000000000000002 /* TextBoxMentionCompletionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionCompletionDetector.swift; sourceTree = "<group>"; };
 		C0DE7B300000000000000002 /* TextBoxMentionCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionCompletionTests.swift; sourceTree = "<group>"; };
 		C0DE7B320000000000000002 /* TextBoxMentionFileIndexRefreshTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionFileIndexRefreshTask.swift; sourceTree = "<group>"; };
+		C0DE7B500000000000000002 /* TextBoxMentionFileSystemScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionFileSystemScanner.swift; sourceTree = "<group>"; };
 		C0DE7B270000000000000002 /* TextBoxMentionIndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionIndexStore.swift; sourceTree = "<group>"; };
 		C0DE7B200000000000000002 /* TextBoxMentionKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionKind.swift; sourceTree = "<group>"; };
 		C0DE7B240000000000000002 /* TextBoxMentionMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionMarkdown.swift; sourceTree = "<group>"; };
@@ -2631,6 +2635,7 @@
 				C0DE7B280000000000000002 /* TextBoxMentionCompletionController.swift */,
 				C0DE7B230000000000000002 /* TextBoxMentionCompletionDetector.swift */,
 				C0DE7B320000000000000002 /* TextBoxMentionFileIndexRefreshTask.swift */,
+				C0DE7B500000000000000002 /* TextBoxMentionFileSystemScanner.swift */,
 				C0DE7B270000000000000002 /* TextBoxMentionIndexStore.swift */,
 				C0DE7B200000000000000002 /* TextBoxMentionKind.swift */,
 				C0DE7B240000000000000002 /* TextBoxMentionMarkdown.swift */,
@@ -2858,6 +2863,7 @@
 				C3873004C3873004C3873004 /* GhosttyCrashReportMetadata.swift */,
 				C3677002000000000000002 /* CmuxExternalURLSchemeDefaults.swift */,
 				C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */,
+				D7EFA110000000000000002 /* DefaultTerminalRegistrationError+LocalizedCopy.swift */,
 				C3677005000000000000002 /* CmuxExternalLinkPromptPresenter.swift */,
 				D5C0CE7A0000000000000002 /* AppDelegate+SocketListenerLifecycleHost.swift */,
 				E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */,
@@ -4102,6 +4108,7 @@
 				DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */,
 				A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */,
 				DEB6C0DE00000000000000A0 /* DebugWindowControlsContentProvider.swift in Sources */,
+				D7EFA110000000000000001 /* DefaultTerminalRegistrationError+LocalizedCopy.swift in Sources */,
 				A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */,
 				B05553C10000000000000001 /* DetachedFolderPathLookupCache.swift in Sources */,
 				DE71CE000000000000000004 /* DeviceRegistryClient.swift in Sources */,
@@ -4517,6 +4524,7 @@
 				C0DE7B280000000000000001 /* TextBoxMentionCompletionController.swift in Sources */,
 				C0DE7B230000000000000001 /* TextBoxMentionCompletionDetector.swift in Sources */,
 				C0DE7B320000000000000001 /* TextBoxMentionFileIndexRefreshTask.swift in Sources */,
+				C0DE7B500000000000000001 /* TextBoxMentionFileSystemScanner.swift in Sources */,
 				C0DE7B270000000000000001 /* TextBoxMentionIndexStore.swift in Sources */,
 				C0DE7B200000000000000001 /* TextBoxMentionKind.swift in Sources */,
 				C0DE7B240000000000000001 /* TextBoxMentionMarkdown.swift in Sources */,

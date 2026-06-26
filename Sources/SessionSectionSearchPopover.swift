@@ -420,7 +420,7 @@ private struct PopoverRow: View, Equatable {
         .onHover { isHovered = $0 }
         .onTapGesture(count: 2) { onActivate() }
         .onDrag {
-            sessionDragItemProvider(for: entry)
+            entry.dragItemProvider()
         }
         .help(entry.cwdLabel ?? entry.displayTitle)
         .contextMenu {

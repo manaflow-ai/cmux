@@ -1,6 +1,7 @@
 import AppKit
 import ObjectiveC
 import CmuxAppKitSupportUI
+import CmuxSidebar
 import CmuxTerminal
 #if DEBUG
 import Bonsplit
@@ -11,10 +12,9 @@ private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
 final class WindowTerminalHostView: NSView {
     override var isOpaque: Bool { false }
-    private static let sidebarLeadingEdgeEpsilon: CGFloat = 1
-    private static let minimumVisibleLeadingContentWidth: CGFloat = 24
-    private var cachedSidebarDividerX: CGFloat?
-    private var sidebarDividerMissCount = 0
+    private var sidebarResizerPassThroughPolicy = PortalSidebarResizerPassThroughPolicy(
+        bandPolicy: SidebarResizeInteraction.bandPolicy
+    )
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: SplitDividerCursorKind?
 #if DEBUG
@@ -238,67 +238,21 @@ final class WindowTerminalHostView: NSView {
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
         // The sidebar resizer handle is implemented in SwiftUI. When terminals
         // are portal-hosted, this AppKit host can otherwise sit above the handle
-        // and steal hover/mouse events.
-        let visibleHostedViews = subviews.compactMap { $0 as? GhosttySurfaceScrollView }
+        // and steal hover/mouse events. The view supplies the visible hosted
+        // surface frames; the cached-divider inference lives in the policy.
+        let hostedSurfaces = subviews.compactMap { $0 as? GhosttySurfaceScrollView }
             .filter { !$0.isHidden && $0.window != nil && $0.frame.width > 1 && $0.frame.height > 1 }
-
-        if shouldPassThroughToTrailingSidebarResizer(at: point, visibleHostedViews: visibleHostedViews) {
-            return true
-        }
-
-        // If content is flush to the leading edge, sidebar is effectively hidden.
-        // In that state, treating any internal split edge as a sidebar divider
-        // steals split-divider cursor/drag behavior.
-        let hasLeadingContent = visibleHostedViews.contains {
-            $0.frame.minX <= Self.sidebarLeadingEdgeEpsilon
-                && $0.frame.maxX > Self.minimumVisibleLeadingContentWidth
-        }
-        if hasLeadingContent {
-            if cachedSidebarDividerX != nil {
-                sidebarDividerMissCount += 1
-                if sidebarDividerMissCount >= 2 {
-                    cachedSidebarDividerX = nil
-                    sidebarDividerMissCount = 0
-                }
+            .map {
+                PortalSidebarResizerPassThroughPolicy.HostedSurfaceFrame(
+                    frame: $0.frame,
+                    isRightSidebarDockSurface: $0.isRightSidebarDockSurface
+                )
             }
-            return false
-        }
-
-        // Ignore transient 0-origin hosts while layouts churn (e.g. workspace
-        // creation/switching). They can temporarily report minX=0 and would
-        // otherwise clear divider pass-through, causing hover flicker.
-        let dividerCandidates = visibleHostedViews
-            .map(\.frame.minX)
-            .filter { $0 > Self.sidebarLeadingEdgeEpsilon }
-        if let leftMostEdge = dividerCandidates.min() {
-            cachedSidebarDividerX = leftMostEdge
-            sidebarDividerMissCount = 0
-        } else if cachedSidebarDividerX != nil {
-            // Keep cache briefly for layout churn, but clear if we miss repeatedly
-            // so stale divider positions don't steal pointer routing.
-            sidebarDividerMissCount += 1
-            if sidebarDividerMissCount >= 4 {
-                cachedSidebarDividerX = nil
-                sidebarDividerMissCount = 0
-            }
-        }
-
-        guard let dividerX = cachedSidebarDividerX else {
-            return false
-        }
-
-        return SidebarResizeInteraction.Edge.leading.hitRange(dividerX: dividerX).contains(point.x)
-    }
-
-    private func shouldPassThroughToTrailingSidebarResizer(
-        at point: NSPoint,
-        visibleHostedViews: [GhosttySurfaceScrollView]
-    ) -> Bool {
-        let contentHostedViews = visibleHostedViews.filter { !$0.isRightSidebarDockSurface }
-        guard let rightMostEdge = contentHostedViews.map(\.frame.maxX).max() else { return false }
-        let trailingGap = bounds.maxX - rightMostEdge
-        guard trailingGap > Self.minimumVisibleLeadingContentWidth else { return false }
-        return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightMostEdge).contains(point.x)
+        return sidebarResizerPassThroughPolicy.shouldPassThrough(
+            at: point,
+            bounds: bounds,
+            hostedSurfaces: hostedSurfaces
+        )
     }
 
     private func updateDividerCursor(at point: NSPoint) {
