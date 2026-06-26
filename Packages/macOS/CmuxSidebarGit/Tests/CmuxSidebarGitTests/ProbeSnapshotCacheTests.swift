@@ -76,6 +76,35 @@ import CmuxGit
         #expect(generations == [nil])
     }
 
+    @Test(
+        .timeLimit(.minutes(1)),
+        arguments: ["directoryChange", "branchCleared", "unexpectedReason"]
+    )
+    func nonWatcherRefreshReasonsBypassTrackedSnapshotCacheGeneration(reason: String) async throws {
+        let directory = "/tmp/repo"
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(metadata: .repository(branch: "feature/x"))
+        let service = makeService(host: host, reader: reader, clock: clock)
+
+        service.workspaceGitTrackedDirectoryByKey[key] = directory
+        service.markWorkspaceGitSnapshotCacheEligible(directory: directory)
+
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: reason
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        await reader.waitForTrackedPathEventGenerationProbe()
+
+        let generations = await reader.probedTrackedPathEventGenerations
+        #expect(generations == [nil])
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func filesystemEventGenerationIsPassedToMetadataReader() async throws {
         let directory = "/tmp/repo"
