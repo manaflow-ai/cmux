@@ -179,7 +179,11 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         defer { operation?.clearCancellationHandler() }
 
         if let stdin, let pipe = process.standardInput as? Pipe {
-            pipe.fileHandleForWriting.write(stdin)
+            // Feeding stdin is best-effort: the child may have already exited and
+            // closed its read end, which would make Foundation's
+            // FileHandle.write(_:) raise an NSException (SIGABRT). Swallow the
+            // broken pipe instead. See https://github.com/manaflow-ai/cmux/issues/5750
+            pipe.fileHandleForWriting.writeIgnoringBrokenPipe(stdin)
             try? pipe.fileHandleForWriting.close()
         }
 
