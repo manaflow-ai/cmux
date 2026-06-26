@@ -581,6 +581,9 @@ reload_finalize() {
   echo "==> reload succeeded in ${elapsed}s"
   echo "==> log: $RELOAD_LOG"
   if [[ -n "${APP_PATH:-}" ]]; then
+    if [[ -n "${CMUX_RELOAD_APP_PATH_OUTPUT:-}" ]]; then
+      printf '%s\n' "$APP_PATH" > "$CMUX_RELOAD_APP_PATH_OUTPUT"
+    fi
     echo
     echo "App path:"
     echo "  $APP_PATH"

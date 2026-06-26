@@ -27,11 +27,8 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
-      base_ref: ${{ steps.pr.outputs.base_ref }}
-      head_ref: ${{ steps.pr.outputs.head_ref }}
       head_repo: ${{ steps.pr.outputs.head_repo }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
-      is_fork: ${{ steps.pr.outputs.is_fork }}
       short_sha: ${{ steps.pr.outputs.short_sha }}
     steps:
       - name: Resolve and validate requested PR head
@@ -76,11 +73,14 @@ jobs:
 
             const baseRepo = `${context.repo.owner}/${context.repo.repo}`.toLowerCase();
             const headRepo = pull.head.repo.full_name;
-            core.setOutput('base_ref', pull.base.ref);
-            core.setOutput('head_ref', pull.head.ref);
+            if (headRepo.toLowerCase() === baseRepo) {
+              throw new Error(
+                `PR #${prNumber} is not from an external fork; use the regular PR checks or reload-build workflow instead.`
+              );
+            }
+
             core.setOutput('head_repo', headRepo);
             core.setOutput('head_sha', actualHeadSha);
-            core.setOutput('is_fork', String(headRepo.toLowerCase() !== baseRepo));
             core.setOutput('short_sha', actualHeadSha.slice(0, 12));
 
             await core.summary
@@ -98,7 +98,6 @@ jobs:
     env:
       APPROVED_HEAD_REPO: ${{ needs.resolve-pr.outputs.head_repo }}
       APPROVED_HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
-      APPROVED_IS_FORK: ${{ needs.resolve-pr.outputs.is_fork }}
       APPROVED_PR_NUMBER: ${{ inputs.pr_number }}
       BUILD_TAG: pr-${{ inputs.pr_number }}-${{ needs.resolve-pr.outputs.short_sha }}
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -136,8 +135,11 @@ jobs:
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/approved-fork-artifact.log"
-          ./scripts/reload.sh --tag "$BUILD_TAG" --swift-frontend-workaround 2>&1 | tee "$log"
-          app_path="$(awk '/^App path:/{getline; sub(/^  /,""); print; exit}' "$log")"
+          app_path_file="$RUNNER_TEMP/approved-fork-app-path.txt"
+          CMUX_RELOAD_APP_PATH_OUTPUT="$app_path_file" \
+            ./scripts/reload.sh --tag "$BUILD_TAG" --swift-frontend-workaround 2>&1 | tee "$log"
+          [ -s "$app_path_file" ] || { echo "reload.sh did not write app path" >&2; exit 1; }
+          app_path="$(tr -d '\n' < "$app_path_file")"
           [ -n "$app_path" ] && [ -d "$app_path" ] || { echo "could not locate built app" >&2; exit 1; }
 
           mkdir -p artifact/logs
@@ -157,7 +159,6 @@ jobs:
               "build_tag": os.environ["BUILD_TAG"],
               "head_repo": os.environ["APPROVED_HEAD_REPO"],
               "head_sha": os.environ["APPROVED_HEAD_SHA"],
-              "is_fork": os.environ["APPROVED_IS_FORK"] == "true",
               "pr_number": int(os.environ["APPROVED_PR_NUMBER"]),
               "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
               "run_id": os.environ["GITHUB_RUN_ID"],

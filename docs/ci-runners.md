@@ -119,6 +119,9 @@ permissions, does not reference repository secrets, and uploads `app.zip`,
 `approved-pr-<number>-<short-sha>-macos` artifact. Share the run's artifact link
 with the contributor after the workflow finishes.
 
+The resolver rejects same-repository PRs so this path stays dedicated to
+external forks.
+
 ## Guard
 
 `tests/test_ci_self_hosted_guard.sh` (run by the `workflow-guard-tests` job)

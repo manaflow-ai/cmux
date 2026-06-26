@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW_FILE="$ROOT_DIR/.github/workflows/approved-fork-artifact.yml"
 CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 DOC_FILE="$ROOT_DIR/docs/ci-runners.md"
+RELOAD_FILE="$ROOT_DIR/scripts/reload.sh"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -19,14 +20,19 @@ for needle in \
   "approved_head_sha:" \
   "contents: read" \
   "pull-requests: read" \
+  "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0" \
+  "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2" \
   "github.rest.pulls.get" \
   "approved_head_sha must be the full 40-character hexadecimal pull_request.head.sha" \
   "actualHeadSha !== approvedHeadSha" \
   "pull.state !== 'open'" \
+  "is not from an external fork" \
   "repository: \${{ needs.resolve-pr.outputs.head_repo }}" \
   "ref: \${{ needs.resolve-pr.outputs.head_sha }}" \
   "persist-credentials: false" \
+  "CMUX_RELOAD_APP_PATH_OUTPUT=\"\$app_path_file\"" \
   "./scripts/reload.sh --tag \"\$BUILD_TAG\" --swift-frontend-workaround" \
+  "reload.sh did not write app path" \
   "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1" \
   "artifact/provenance.json" \
   "retention-days: 14"; do
@@ -35,8 +41,12 @@ for needle in \
   fi
 done
 
-if grep -Eq 'secrets\.|id-token:[[:space:]]*write|contents:[[:space:]]*write|pull-requests:[[:space:]]*write' "$WORKFLOW_FILE"; then
+if grep -Eq 'secrets\.|secrets:[[:space:]]*inherit|id-token:[[:space:]]*write|contents:[[:space:]]*write|pull-requests:[[:space:]]*write' "$WORKFLOW_FILE"; then
   fail "approved fork artifact workflow must not request write permissions or repository secrets"
+fi
+
+if ! grep -Fq 'CMUX_RELOAD_APP_PATH_OUTPUT' "$RELOAD_FILE"; then
+  fail "reload.sh must support CMUX_RELOAD_APP_PATH_OUTPUT for machine-readable app path handoff"
 fi
 
 if ! awk '
