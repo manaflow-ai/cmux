@@ -29,6 +29,7 @@ import {
   createVm,
   destroyVm,
   execVm,
+  listUserVms,
   openAttachEndpoint,
   openSshEndpoint,
   restoreVm,
@@ -152,7 +153,7 @@ describe("VM Effect workflows", () => {
     expect(usageEventAttempts).toBe(2);
   });
 
-  dbTest("creates one provider VM per user idempotency key and records usage", async () => {
+  dbTest("creates one provider VM per account-scoped idempotency key and records usage", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
 
@@ -163,7 +164,7 @@ describe("VM Effect workflows", () => {
           createCalls += 1;
           return {
             provider: "e2b" as const,
-            providerVmId: "provider-vm-idem-1",
+            providerVmId: `provider-vm-idem-${createCalls}`,
             status: "running" as const,
             image: "cmuxd-ws:test",
             createdAt: Date.now(),
@@ -190,22 +191,50 @@ describe("VM Effect workflows", () => {
     const layer = providerLayer(provider);
     const first = await Effect.runPromise(program.pipe(Effect.provide(layer)));
     const second = await Effect.runPromise(program.pipe(Effect.provide(layer)));
+    const sameTeamOtherUser = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-idem-teammate",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-idem",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "e2b",
+        image: "cmuxd-ws:test",
+        imageVersion: "test-version",
+        idempotencyKey: "idem-1",
+      }).pipe(Effect.provide(layer)),
+    );
+    const sameUserDifferentTeam = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-idem",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-idem-alt",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "e2b",
+        image: "cmuxd-ws:test",
+        imageVersion: "test-version",
+        idempotencyKey: "idem-1",
+      }).pipe(Effect.provide(layer)),
+    );
 
     expect(first).toEqual(second);
-    expect(createCalls).toBe(1);
+    expect(sameTeamOtherUser.providerVmId).toBe(first.providerVmId);
+    expect(sameUserDifferentTeam.providerVmId).not.toBe(first.providerVmId);
+    expect(createCalls).toBe(2);
 
     const [{ vmCount }] = await sql<{ vmCount: string }[]>`
-      select count(*)::text as "vmCount" from cloud_vms where user_id = 'user-workflow-idem'
+      select count(*)::text as "vmCount" from cloud_vms where idempotency_key = 'idem-1'
     `;
     const [{ usageCount }] = await sql<{ usageCount: string }[]>`
       select count(*)::text as "usageCount" from cloud_vm_usage_events
-      where user_id = 'user-workflow-idem' and event_type = 'vm.created'
+      where event_type = 'vm.created' and metadata->>'idempotencyKeySet' = 'true'
     `;
     const [{ imageVersion }] = await sql<{ imageVersion: string | null }[]>`
-      select image_version as "imageVersion" from cloud_vms where user_id = 'user-workflow-idem'
+      select image_version as "imageVersion" from cloud_vms where user_id = 'user-workflow-idem' and billing_team_id = 'team-workflow-idem'
     `;
-    expect(vmCount).toBe("1");
-    expect(usageCount).toBe("1");
+    expect(vmCount).toBe("2");
+    expect(usageCount).toBe("2");
     expect(imageVersion).toBe("test-version");
   });
 
@@ -373,7 +402,11 @@ describe("VM Effect workflows", () => {
     };
 
     const endpoint = await Effect.runPromise(
-      openSshEndpoint({ userId: "user-workflow-resume-ssh", providerVmId: "provider-vm-resume-ssh" }).pipe(
+      openSshEndpoint({
+        userId: "user-workflow-resume-ssh",
+        billingTeamId: "team-workflow-resume-ssh",
+        providerVmId: "provider-vm-resume-ssh",
+      }).pipe(
         Effect.provide(providerLayer(provider)),
       ),
     );
@@ -552,6 +585,7 @@ describe("VM Effect workflows", () => {
       const error = await Effect.runPromise(
         openAttachEndpoint({
           userId: "user-workflow-resume-limit",
+          billingTeamId: "team-workflow-resume-limit",
           providerVmId: "provider-vm-resume-paused",
         }).pipe(
           Effect.flip,
@@ -1209,7 +1243,11 @@ describe("VM Effect workflows", () => {
     const layer = providerLayer(provider);
 
     await Effect.runPromise(
-      destroyVm({ userId: "user-workflow-reuse-slot", providerVmId: "provider-vm-reuse-old" }).pipe(
+      destroyVm({
+        userId: "user-workflow-reuse-slot",
+        billingTeamId: "team-workflow-reuse-slot",
+        providerVmId: "provider-vm-reuse-old",
+      }).pipe(
         Effect.provide(layer),
       ),
     );
@@ -1606,6 +1644,62 @@ describe("VM Effect workflows", () => {
     expect(attachCalls).toBe(0);
   });
 
+  dbTest("allows a teammate to list and attach a team-owned VM", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-owner', 'team-workflow-shared', 'free', 'freestyle', 'provider-vm-shared-team', 'snapshot-test', 'running')
+    `;
+
+    let attachCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () => Effect.fail(new Error("unused") as never),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () =>
+        Effect.sync(() => {
+          attachCalls += 1;
+          return {
+            transport: "websocket" as const,
+            url: "wss://example.invalid/pty",
+            headers: {},
+            token: "pty-token-shared",
+            sessionId: "pty-session-shared",
+            attachmentId: "attachment-shared",
+            expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
+          };
+        }),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = providerLayer(provider);
+
+    const listed = await Effect.runPromise(
+      listUserVms("user-workflow-teammate", "team-workflow-shared").pipe(Effect.provide(layer)),
+    );
+    expect(listed.map((entry) => entry.providerVmId)).toEqual(["provider-vm-shared-team"]);
+
+    const endpoint = await Effect.runPromise(
+      openAttachEndpoint({
+        userId: "user-workflow-teammate",
+        billingTeamId: "team-workflow-shared",
+        providerVmId: "provider-vm-shared-team",
+      }).pipe(Effect.provide(layer)),
+    );
+    expect(endpoint.transport).toBe("websocket");
+    expect(attachCalls).toBe(1);
+
+    const wrongAccountError = await Effect.runPromise(
+      openAttachEndpoint({
+        userId: "user-workflow-teammate",
+        billingTeamId: "team-workflow-other",
+        providerVmId: "provider-vm-shared-team",
+      }).pipe(Effect.flip, Effect.provide(layer)),
+    );
+    expect(wrongAccountError).toBeInstanceOf(VmNotFoundError);
+  });
+
   dbTest("does not destroy, exec, or mint SSH for another user's VM", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
@@ -1791,6 +1885,7 @@ describe("VM Effect workflows", () => {
       requireDaemon: true,
       sessionId: "session-ios-1",
       attachmentId: "attach-ios-1",
+      providerMetadata: {},
     });
     const sessions = await sql<{ providerSessionId: string; title: string | null; attachmentCount: number; metadata: Record<string, unknown> }[]>`
       select provider_session_id as "providerSessionId", title, attachment_count as "attachmentCount", metadata

@@ -1,6 +1,7 @@
 import {
   jsonResponse,
   notFoundVm,
+  resolveVmRouteAccountScope,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
@@ -25,10 +26,13 @@ export async function GET(
     "/api/vm/[id]/sessions failed",
     async ({ user, span }) => {
       const { id } = await params;
+      const account = resolveVmRouteAccountScope(user, request);
+      if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
       try {
         const sessions = await runVmWorkflow(listVmSessions({
           userId: user.id,
+          billingTeamId: account.entitlements.billingTeamId,
           providerVmId: id,
         }));
         return jsonResponse({ sessions: sessions.map(sessionPayload) });
@@ -64,11 +68,14 @@ export async function POST(
         }, 400);
       }
       const title = optionalString(body.title);
+      const account = resolveVmRouteAccountScope(user, request);
+      if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
       if (sessionId) setSpanAttributes(span, { "cmux.vm.session.id": sessionId });
       try {
         const result = await runVmWorkflow(openVmSession({
           userId: user.id,
+          billingTeamId: account.entitlements.billingTeamId,
           providerVmId: id,
           sessionId,
           attachmentId,

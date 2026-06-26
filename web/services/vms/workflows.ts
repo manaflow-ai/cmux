@@ -74,11 +74,15 @@ export function listUserVms(userId: string, billingTeamId?: string | null) {
   });
 }
 
-export function getVm(input: { readonly userId: string; readonly providerVmId: string }) {
+export function getVm(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly providerVmId: string;
+}) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
     const providerVmId = vm.providerVmId ?? input.providerVmId;
     const getStatus = providers.getStatus;
     if (!getStatus) return vmEntryFromRow(vm);
@@ -214,13 +218,14 @@ export function createVm(input: {
 
 export function snapshotVm(input: {
   readonly userId: string;
+  readonly billingTeamId?: string | null;
   readonly providerVmId: string;
   readonly name?: string;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
     const snapshot = yield* (providers.snapshot
       ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
       : Effect.fail(new VmProviderOperationError({
@@ -296,7 +301,7 @@ export function forkVm(input: {
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     const source = yield* ensureUserVmRunning(
-      yield* requireUserVm(input.userId, input.providerVmId),
+      yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId),
       repo,
       providers,
       "fork",
@@ -443,6 +448,7 @@ export function forkVm(input: {
 
     const snapshot = yield* snapshotVm({
       userId: input.userId,
+      billingTeamId: source.billingTeamId,
       providerVmId: input.providerVmId,
       name: input.name,
     });
@@ -556,11 +562,15 @@ function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"):
   return status;
 }
 
-export function destroyVm(input: { readonly userId: string; readonly providerVmId: string }) {
+export function destroyVm(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly providerVmId: string;
+}) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
 
     yield* revokeActiveIdentities(vm);
     yield* providers.destroy(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
@@ -584,6 +594,7 @@ export function destroyVm(input: { readonly userId: string; readonly providerVmI
 
 export function execVm(input: {
   readonly userId: string;
+  readonly billingTeamId?: string | null;
   readonly providerVmId: string;
   readonly command: string;
   readonly timeoutMs: number;
@@ -591,7 +602,7 @@ export function execVm(input: {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
     });
@@ -611,6 +622,7 @@ export function execVm(input: {
 
 type OpenAttachEndpointInput = {
   readonly userId: string;
+  readonly billingTeamId?: string | null;
   readonly providerVmId: string;
   readonly options?: AttachOptions;
   readonly sessionTitle?: string | null;
@@ -625,6 +637,7 @@ export function openAttachEndpoint(input: OpenAttachEndpointInput) {
 
 export function openVmSession(input: {
   readonly userId: string;
+  readonly billingTeamId?: string | null;
   readonly providerVmId: string;
   readonly sessionId?: string;
   readonly attachmentId?: string;
@@ -634,6 +647,7 @@ export function openVmSession(input: {
   const attachmentId = input.attachmentId?.trim() || `attach-${randomUUID()}`;
   return openAttachEndpointResult({
     userId: input.userId,
+    billingTeamId: input.billingTeamId,
     providerVmId: input.providerVmId,
     sessionTitle: input.title,
     options: {
@@ -646,11 +660,12 @@ export function openVmSession(input: {
 
 export function listVmSessions(input: {
   readonly userId: string;
+  readonly billingTeamId?: string | null;
   readonly providerVmId: string;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
     return yield* repo.listVmSessions({ userId: input.userId, vmId: vm.id });
   });
 }
@@ -660,7 +675,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* ensureUserVmRunning(
-      yield* requireUserVm(input.userId, input.providerVmId),
+      yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId),
       repo,
       providers,
       "attach",
@@ -715,13 +730,14 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
 
 export function openSshEndpoint(input: {
   readonly userId: string;
+  readonly billingTeamId?: string | null;
   readonly providerVmId: string;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* ensureUserVmRunning(
-      yield* requireUserVm(input.userId, input.providerVmId),
+      yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId),
       repo,
       providers,
       "ssh",
@@ -798,10 +814,10 @@ function ensureUserVmRunning(
   });
 }
 
-function requireUserVm(userId: string, providerVmId: string) {
+function requireUserVm(userId: string, providerVmId: string, billingTeamId?: string | null) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    const vm = yield* repo.findUserVm({ userId, providerVmId });
+    const vm = yield* repo.findUserVm({ userId, billingTeamId, providerVmId });
     if (!vm || !vm.providerVmId) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
     }

@@ -1,6 +1,7 @@
 import {
   jsonResponse,
   notFoundVm,
+  resolveVmRouteAccountScope,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
@@ -34,12 +35,15 @@ export async function POST(
         }, 400);
       }
       const sessionTitle = optionalString(body.title ?? body.sessionTitle ?? body.session_title);
+      const account = resolveVmRouteAccountScope(user, request);
+      if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
       setSpanAttributes(span, { "cmux.vm.attach.require_daemon": requireDaemon });
       if (sessionId) setSpanAttributes(span, { "cmux.vm.attach.session_id": sessionId });
       try {
         const endpoint = await runVmWorkflow(openAttachEndpoint({
           userId: user.id,
+          billingTeamId: account.entitlements.billingTeamId,
           providerVmId: id,
           sessionTitle,
           options: { requireDaemon, sessionId, attachmentId },

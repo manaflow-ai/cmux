@@ -68,9 +68,9 @@ export const cloudVms = pgTable(
   (table) => [
     index("cloud_vms_user_status_idx").on(table.userId, table.status),
     index("cloud_vms_billing_team_status_idx").on(table.billingTeamId, table.status),
-    uniqueIndex("cloud_vms_user_idempotency_key_unique")
-      .on(table.userId, table.idempotencyKey)
-      .where(sql`${table.idempotencyKey} is not null`),
+    uniqueIndex("cloud_vms_billing_team_idempotency_key_unique")
+      .on(table.billingTeamId, table.idempotencyKey)
+      .where(sql`${table.billingTeamId} is not null and ${table.idempotencyKey} is not null`),
     uniqueIndex("cloud_vms_provider_vm_id_unique")
       .on(table.provider, table.providerVmId)
       .where(sql`${table.providerVmId} is not null`),

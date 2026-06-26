@@ -80,6 +80,7 @@ export type VmRepositoryShape = {
   }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly findUserVm: (input: {
     readonly userId: string;
+    readonly billingTeamId?: string | null;
     readonly providerVmId: string;
   }) => Effect.Effect<CloudVmRow | null, VmDatabaseError>;
   readonly markDestroyed: (id: string) => Effect.Effect<void, VmDatabaseError>;
@@ -159,16 +160,37 @@ function pgErrorCode(cause: unknown): string | null {
 }
 
 async function findByIdempotencyKey(
-  userId: string,
+  billingTeamId: string,
   idempotencyKey: string,
 ): Promise<CloudVmRow | null> {
   const db = cloudDb();
   const [existing] = await db
     .select()
     .from(cloudVms)
-    .where(and(eq(cloudVms.userId, userId), eq(cloudVms.idempotencyKey, idempotencyKey)))
+    .where(idempotencyScopeWhere({ billingTeamId, idempotencyKey }))
     .limit(1);
   return existing ?? null;
+}
+
+function idempotencyScopeWhere(input: {
+  readonly billingTeamId: string;
+  readonly idempotencyKey: string;
+}) {
+  return and(
+    eq(cloudVms.idempotencyKey, input.idempotencyKey),
+    eq(cloudVms.billingTeamId, input.billingTeamId),
+  );
+}
+
+function accountScopeWhere(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+}) {
+  const billingTeamId = input.billingTeamId?.trim();
+  if (!billingTeamId) {
+    return and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId));
+  }
+  return eq(cloudVms.billingTeamId, billingTeamId);
 }
 
 export const VmRepositoryLive = Layer.succeed(VmRepository, {
@@ -179,10 +201,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       return await db
         .select()
         .from(cloudVms)
-        .where(teamId
-          ? and(eq(cloudVms.userId, userId), eq(cloudVms.billingTeamId, teamId), ne(cloudVms.status, "destroyed"))
-          : and(eq(cloudVms.userId, userId), ne(cloudVms.status, "destroyed"))
-        )
+        .where(and(
+          accountScopeWhere({ userId, billingTeamId: teamId }),
+          ne(cloudVms.status, "destroyed"),
+        ))
         .orderBy(desc(cloudVms.createdAt));
     }),
 
@@ -256,7 +278,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
               const [existing] = await tx
                 .select()
                 .from(cloudVms)
-                .where(and(eq(cloudVms.userId, input.userId), eq(cloudVms.idempotencyKey, idempotencyKey)))
+                .where(idempotencyScopeWhere({ billingTeamId: input.billingTeamId, idempotencyKey }))
                 .limit(1);
               if (existing) {
                 if (existing.status !== "failed" && existing.status !== "destroyed") {
@@ -270,7 +292,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
               const [existing] = await tx
                 .select()
                 .from(cloudVms)
-                .where(and(eq(cloudVms.userId, input.userId), eq(cloudVms.idempotencyKey, idempotencyKey)))
+                .where(idempotencyScopeWhere({ billingTeamId: input.billingTeamId, idempotencyKey }))
                 .limit(1);
               if (existing) {
                 if (existing.status !== "failed" && existing.status !== "destroyed") {
@@ -289,10 +311,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
               .where(
                 and(
                   inArray(cloudVms.status, ["provisioning", "running"]),
-                  or(
-                    eq(cloudVms.billingTeamId, input.billingTeamId),
-                    and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId)),
-                  ),
+                  eq(cloudVms.billingTeamId, input.billingTeamId),
                 ),
               );
             const activeCount = Number(active?.total ?? 0);
@@ -322,7 +341,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           });
         } catch (err) {
           if (idempotencyKey && pgErrorCode(err) === "23505") {
-            const existing = await findByIdempotencyKey(input.userId, idempotencyKey);
+            const existing = await findByIdempotencyKey(input.billingTeamId, idempotencyKey);
             if (existing) return { inserted: false as const, vm: existing };
           }
           throw err;
@@ -343,10 +362,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           and(
             eq(cloudVms.status, "running"),
             isNotNull(cloudVms.providerVmId),
-            or(
-              eq(cloudVms.billingTeamId, input.billingTeamId),
-              and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId)),
-            ),
+            accountScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
           ),
         );
     }),
@@ -365,19 +381,17 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             .where(
               and(
                 eq(cloudVms.id, input.id),
-                eq(cloudVms.userId, input.userId),
+                accountScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
                 eq(cloudVms.providerVmId, input.providerVmId),
               ),
             )
             .limit(1);
           if (!current || current.status !== "paused") return current ?? null;
 
-          const teamScope = input.billingTeamId
-            ? or(
-                eq(cloudVms.billingTeamId, input.billingTeamId),
-                and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId)),
-              )
-            : and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId));
+          const teamScope = accountScopeWhere({
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+          });
           const [active] = await tx
             .select({ total: count() })
             .from(cloudVms)
@@ -472,13 +486,12 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       const db = cloudDb();
       const teamScope = input.billingTeamId
         ? eq(cloudVmUsageEvents.billingTeamId, input.billingTeamId)
-        : isNull(cloudVmUsageEvents.billingTeamId);
+        : and(isNull(cloudVmUsageEvents.billingTeamId), eq(cloudVmUsageEvents.userId, input.userId));
       const [event] = await db
         .select({ id: cloudVmUsageEvents.id })
         .from(cloudVmUsageEvents)
         .where(
           and(
-            eq(cloudVmUsageEvents.userId, input.userId),
             teamScope,
             eq(cloudVmUsageEvents.provider, input.provider),
             eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
@@ -497,7 +510,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .from(cloudVms)
         .where(
           and(
-            eq(cloudVms.userId, input.userId),
+            accountScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
             eq(cloudVms.providerVmId, input.providerVmId),
             ne(cloudVms.status, "destroyed"),
           ),
@@ -571,7 +584,6 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .select()
         .from(cloudVmSessions)
         .where(and(
-          eq(cloudVmSessions.userId, input.userId),
           eq(cloudVmSessions.vmId, input.vmId),
           ne(cloudVmSessions.status, "closed"),
         ))

@@ -2,6 +2,11 @@ import type { Span } from "@opentelemetry/api";
 import { recordSpanError, withApiRouteSpan, type MaybeAttributes } from "../telemetry";
 import { unauthorized, verifyRequest, type AuthedUser } from "./auth";
 import {
+  isVmBillingTeamResolutionError,
+  resolveVmEntitlements,
+  type VmEntitlements,
+} from "./entitlements";
+import {
   isVmBillingError,
   isVmDatabaseError,
   isVmProviderOperationError,
@@ -173,6 +178,58 @@ export function notFoundVm(vmId: string): Response {
     message: `Cloud VM ${vmId} was not found.`,
     action: "Run `cmux vm ls` to see available Cloud VMs. If the VM stopped while idle, start a new one with `cmux vm new`.",
     details: { vmId },
+  });
+}
+
+export type VmRouteAccountScope =
+  | {
+    readonly ok: true;
+    readonly requestedBillingTeamId: string | null;
+    readonly entitlements: VmEntitlements;
+  }
+  | {
+    readonly ok: false;
+    readonly response: Response;
+  };
+
+export function resolveVmRouteAccountScope(
+  user: AuthedUser,
+  request: Request,
+  options: { readonly requireTeam?: boolean } = {},
+): VmRouteAccountScope {
+  const requestedBillingTeamId = requestedVmTeamIdFromRequest(request);
+  try {
+    return {
+      ok: true,
+      requestedBillingTeamId,
+      entitlements: resolveVmEntitlements(user, process.env, {
+        requestedBillingTeamId,
+        requireTeam: options.requireTeam ?? false,
+      }),
+    };
+  } catch (err) {
+    if (isVmBillingTeamResolutionError(err)) {
+      return { ok: false, response: vmBillingTeamErrorResponse(err) };
+    }
+    throw err;
+  }
+}
+
+export function vmBillingTeamErrorResponse(err: {
+  readonly code: "vm_billing_team_required" | "vm_billing_team_not_found";
+  readonly status: number;
+  readonly message: string;
+}): Response {
+  return vmErrorResponse({
+    error: err.code,
+    status: err.status,
+    message: err.code === "vm_billing_team_not_found"
+      ? "That team is not available for this account."
+      : "cmux needs to know which team should own this Cloud VM.",
+    action: err.code === "vm_billing_team_not_found"
+      ? "Switch to a team you belong to, or run `cmux auth login` again and retry with the correct team id."
+      : "Select a team in cmux, or pass the team id with `X-Cmux-Team-Id`.",
+    reason: err.message,
   });
 }
 

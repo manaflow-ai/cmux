@@ -1,6 +1,7 @@
 import {
   jsonResponse,
   notFoundVm,
+  resolveVmRouteAccountScope,
   vmErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
@@ -31,9 +32,16 @@ export async function POST(
       }
       const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : undefined;
       const { id } = await params;
+      const account = resolveVmRouteAccountScope(user, request);
+      if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id, "cmux.snapshot.named": !!name });
       try {
-        const snapshot = await runVmWorkflow(snapshotVm({ userId: user.id, providerVmId: id, name }));
+        const snapshot = await runVmWorkflow(snapshotVm({
+          userId: user.id,
+          billingTeamId: account.entitlements.billingTeamId,
+          providerVmId: id,
+          name,
+        }));
         return jsonResponse({ snapshotId: snapshot.id, id: snapshot.id, name: snapshot.name ?? null, createdAt: snapshot.createdAt });
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);

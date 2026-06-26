@@ -46,7 +46,8 @@ mock.module("../services/vms/workflows", () => ({
 }));
 
 const { GET, POST } = await import("../app/api/vm/route");
-const { DELETE } = await import("../app/api/vm/[id]/route");
+const vmIdRoute = await import("../app/api/vm/[id]/route");
+const { DELETE } = vmIdRoute;
 const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
 const execRoute = await import("../app/api/vm/[id]/exec/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
@@ -496,6 +497,104 @@ describe("VM REST auth", () => {
     expect(listTeams).toHaveBeenCalledTimes(1);
     expect(await response.json()).toMatchObject({
       vms: [{ id: "provider-vm-team-2", provider: "e2b" }],
+    });
+  });
+
+  test("passes the selected Stack team to VM child route workflows", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const context = { params: Promise.resolve({ id: "provider-vm-team-1" }) };
+
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-team-1",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      status: "running",
+      createdAt: 1_777_000_000_000,
+    });
+    await vmIdRoute.GET(
+      new Request("https://cmux.test/api/vm/provider-vm-team-1"),
+      context,
+    );
+    expect(getVm).toHaveBeenCalledWith({
+      userId: "user-1",
+      billingTeamId: "team-1",
+      providerVmId: "provider-vm-team-1",
+    });
+
+    runVmWorkflow.mockResolvedValue(undefined);
+    await DELETE(
+      new Request("https://cmux.test/api/vm/provider-vm-team-1", {
+        method: "DELETE",
+        headers: { origin: "https://cmux.test" },
+      }),
+      context,
+    );
+    expect(destroyVm).toHaveBeenCalledWith({
+      userId: "user-1",
+      billingTeamId: "team-1",
+      providerVmId: "provider-vm-team-1",
+    });
+
+    runVmWorkflow.mockResolvedValue({
+      transport: "websocket",
+      url: "wss://example.invalid/pty",
+      headers: {},
+      token: "token",
+      sessionId: "session-1",
+      attachmentId: "attach-1",
+      expiresAtUnix: 1_777_000_300,
+    });
+    await attachRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-team-1/attach-endpoint", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: "{}",
+      }),
+      context,
+    );
+    expect(openAttachEndpoint).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "user-1",
+      billingTeamId: "team-1",
+      providerVmId: "provider-vm-team-1",
+    }));
+
+    runVmWorkflow.mockResolvedValue({
+      transport: "ssh",
+      host: "vm-ssh.example.invalid",
+      port: 22,
+      username: "cmux",
+      publicKeyFingerprint: null,
+      credential: { kind: "password", value: "token" },
+    });
+    await sshRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-team-1/ssh-endpoint", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+      }),
+      context,
+    );
+    expect(openSshEndpoint).toHaveBeenCalledWith({
+      userId: "user-1",
+      billingTeamId: "team-1",
+      providerVmId: "provider-vm-team-1",
+    });
+
+    runVmWorkflow.mockResolvedValue({ exitCode: 0, stdout: "", stderr: "" });
+    await execRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-team-1/exec", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ command: "true" }),
+      }),
+      context,
+    );
+    expect(execVm).toHaveBeenCalledWith({
+      userId: "user-1",
+      billingTeamId: "team-1",
+      providerVmId: "provider-vm-team-1",
+      command: "true",
+      timeoutMs: 30_000,
     });
   });
 

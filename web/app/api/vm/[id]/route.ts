@@ -1,6 +1,7 @@
 import {
   jsonResponse,
   notFoundVm,
+  resolveVmRouteAccountScope,
   withAuthedVmApiRoute,
 } from "../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../services/telemetry";
@@ -20,9 +21,15 @@ export async function GET(
     "/api/vm/[id] GET failed",
     async ({ user, span }) => {
       const { id } = await params;
+      const account = resolveVmRouteAccountScope(user, request);
+      if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
       try {
-        const vm = await runVmWorkflow(getVm({ userId: user.id, providerVmId: id }));
+        const vm = await runVmWorkflow(getVm({
+          userId: user.id,
+          billingTeamId: account.entitlements.billingTeamId,
+          providerVmId: id,
+        }));
         return jsonResponse({
           id: vm.providerVmId,
           provider: vm.provider,
@@ -50,9 +57,15 @@ export async function DELETE(
     "/api/vm/[id] DELETE failed",
     async ({ user, span }) => {
       const { id } = await params;
+      const account = resolveVmRouteAccountScope(user, request);
+      if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
       try {
-        await runVmWorkflow(destroyVm({ userId: user.id, providerVmId: id }));
+        await runVmWorkflow(destroyVm({
+          userId: user.id,
+          billingTeamId: account.entitlements.billingTeamId,
+          providerVmId: id,
+        }));
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);
         throw err;
