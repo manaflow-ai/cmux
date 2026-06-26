@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCore
 import Testing
 
 #if canImport(cmux_DEV)
@@ -114,5 +115,71 @@ struct RightSidebarKeyboardNavigationTests {
             isARepeat: false,
             keyCode: keyCode
         )
+    }
+}
+
+/// Regression coverage for
+/// https://github.com/manaflow-ai/cmux/issues/5471: the Files sidebar tree must
+/// re-root when the shell `cd`s inside a `cmux ssh` (remote SSH workspace)
+/// session. The remote shell reports its cwd over the relay
+/// (`surface.report_pwd`), which updates the focused remote terminal's workspace
+/// `currentDirectory`; the file-explorer root is derived from that value, so the
+/// tree follows the remote cwd.
+@MainActor
+@Suite("Right sidebar file tree remote SSH root")
+struct RightSidebarFileTreeRemoteRootTests {
+    @Test("Remote SSH file tree root follows the focused terminal's reported cwd")
+    func remoteSSHFileTreeRootFollowsReportedWorkingDirectory() throws {
+        let workspace = Workspace()
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "deploy@cmux-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64071,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh deploy@cmux-host"
+        )
+
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        #expect(workspace.isRemoteWorkspace)
+
+        let panelID = try #require(workspace.focusedTerminalPanel?.id)
+        #expect(workspace.isRemoteTerminalSurface(panelID))
+
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: nil,
+            target: "deploy@cmux-host"
+        )
+
+        // Initial cwd reported by the remote shell integration on first prompt.
+        #expect(workspace.updatePanelDirectory(panelId: panelID, directory: "/home/deploy"))
+        #expect(workspace.currentDirectory == "/home/deploy")
+        #expect(
+            Self.remoteRootPath(RightSidebarToolPanel.fileExplorerWorkspaceRoot(for: workspace))
+                == "/home/deploy"
+        )
+
+        // `cd /home/deploy/project` inside the SSH session — the tree must follow.
+        #expect(workspace.updatePanelDirectory(panelId: panelID, directory: "/home/deploy/project"))
+        #expect(workspace.currentDirectory == "/home/deploy/project")
+
+        let root = RightSidebarToolPanel.fileExplorerWorkspaceRoot(for: workspace)
+        #expect(Self.remoteRootPath(root) == "/home/deploy/project")
+        #expect(Self.isRemoteAvailable(root))
+    }
+
+    private static func remoteRootPath(_ root: FileExplorerWorkspaceRoot) -> String? {
+        guard case let .remoteSSH(_, _, _, rootPath, _, _) = root else { return nil }
+        return rootPath
+    }
+
+    private static func isRemoteAvailable(_ root: FileExplorerWorkspaceRoot) -> Bool {
+        guard case let .remoteSSH(_, _, _, _, isAvailable, _) = root else { return false }
+        return isAvailable
     }
 }
