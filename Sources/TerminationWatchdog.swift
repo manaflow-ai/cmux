@@ -34,6 +34,27 @@ final class TerminationWatchdog: Sendable {
     /// ~30s hang watchdog by a wide margin.
     static let defaultDeadline: TimeInterval = 8
 
+    /// Schedules `fire` to run once after `deadline` seconds. Injectable so tests
+    /// advance the deadline by hand instead of sleeping for real.
+    typealias DeadlineScheduler =
+        @Sendable (_ deadline: TimeInterval, _ fire: @escaping @Sendable () -> Void) -> Void
+
+    /// Production scheduler: a raw `Thread` that sleeps then fires. A raw Thread,
+    /// deliberately NOT a GCD queue or `DispatchSourceTimer` — the wedged
+    /// termination this guards against can sit on Foundation, GCD, or run-loop
+    /// infrastructure, so the firing path must depend on none of it. The thread
+    /// parks only during the brief quit window and is reclaimed when the process
+    /// exits (the common path, well before the deadline).
+    static let threadScheduler: DeadlineScheduler = { deadline, fire in
+        let thread = Thread {
+            Thread.sleep(forTimeInterval: deadline)
+            fire()
+        }
+        thread.name = "com.cmuxterm.termination-watchdog"
+        thread.stackSize = 128 * 1024
+        thread.start()
+    }
+
     // A lock, not an actor: `arm()` is called synchronously from the terminate
     // delegate methods and the deadline fires on a raw `Thread`, both outside any
     // async context — and by design this must not depend on the Swift concurrency
@@ -45,20 +66,28 @@ final class TerminationWatchdog: Sendable {
     // and read by the watchdog/test threads.
     nonisolated(unsafe) private var isArmed = false
     private let onFire: @Sendable () -> Void
+    private let scheduleDeadline: DeadlineScheduler
 
-    /// - Parameter onFire: invoked at most once, on the watchdog thread, when
-    ///   the deadline elapses. It MUST stay lock-free and non-blocking — it runs
-    ///   precisely when termination is suspected to be wedged, so any Foundation,
-    ///   filesystem, or lock work before exiting could itself stall and
-    ///   reintroduce the unbounded hang. The default is a bare `_exit`; tests
-    ///   inject an observer in its place.
-    init(onFire: @escaping @Sendable () -> Void = { _exit(EXIT_SUCCESS) }) {
+    /// - Parameters:
+    ///   - onFire: invoked at most once, on the scheduler's thread, when the
+    ///     deadline elapses. It MUST stay lock-free and non-blocking — it runs
+    ///     precisely when termination is suspected to be wedged, so any
+    ///     Foundation, filesystem, or lock work before exiting could itself stall
+    ///     and reintroduce the unbounded hang. The default is a bare `_exit`.
+    ///   - scheduleDeadline: how the deadline is scheduled. Defaults to
+    ///     ``threadScheduler``; tests inject a synchronous capture so they can
+    ///     advance the deadline by hand.
+    init(
+        onFire: @escaping @Sendable () -> Void = { _exit(EXIT_SUCCESS) },
+        scheduleDeadline: @escaping DeadlineScheduler = TerminationWatchdog.threadScheduler
+    ) {
         self.onFire = onFire
+        self.scheduleDeadline = scheduleDeadline
     }
 
     /// Arms the one-shot deadline. Idempotent: repeated calls — multiple quit
-    /// attempts, or several commit sites arming for one request — never stack
-    /// threads, so `onFire` runs at most once.
+    /// attempts, or several commit sites arming for one request — schedule the
+    /// deadline only once, so `onFire` runs at most once.
     func arm(deadline: TimeInterval = TerminationWatchdog.defaultDeadline) {
         lock.lock()
         if isArmed {
@@ -68,19 +97,6 @@ final class TerminationWatchdog: Sendable {
         isArmed = true
         lock.unlock()
 
-        // A raw Thread + Thread.sleep, deliberately NOT a GCD queue or
-        // DispatchSourceTimer: the wedged termination we guard against can sit on
-        // Foundation, GCD, or run-loop infrastructure, so the firing path must
-        // depend on none of it. The thread parks only during the brief quit
-        // window and is reclaimed when the process exits (the common path, well
-        // before the deadline). `onFire` must likewise stay lock-free.
-        let onFire = self.onFire
-        let thread = Thread {
-            Thread.sleep(forTimeInterval: deadline)
-            onFire()
-        }
-        thread.name = "com.cmuxterm.termination-watchdog"
-        thread.stackSize = 128 * 1024
-        thread.start()
+        scheduleDeadline(deadline, onFire)
     }
 }

@@ -9,43 +9,78 @@ import Testing
 
 @Suite
 struct TerminationWatchdogTests {
-    /// The watchdog must fire its exit handler after the deadline, from a
-    /// background thread that does not depend on the main run loop — the whole
-    /// point is to bound a quit that has already wedged the main thread
-    /// (https://github.com/manaflow-ai/cmux/issues/6758). Without a functioning
-    /// `arm`, the handler never runs and this times out.
+    /// Arming is idempotent: repeated calls (multiple quit attempts, or both the
+    /// primary and backstop commit sites arming for one request) schedule the
+    /// deadline exactly once, and nothing fires before the deadline elapses.
+    ///
+    /// Deterministic by construction — the injected scheduler captures the
+    /// deadline handler instead of sleeping, so no real time is involved
+    /// (https://github.com/manaflow-ai/cmux/issues/6758).
     @Test
-    func armFiresExitHandlerAfterDeadline() async {
-        let fired = DispatchSemaphore(value: 0)
-        let watchdog = TerminationWatchdog { fired.signal() }
+    func repeatedArmingSchedulesTheDeadlineExactlyOnce() {
+        let scheduler = CapturingScheduler()
+        let counter = FireCounter()
+        let watchdog = TerminationWatchdog(
+            onFire: { counter.increment() },
+            scheduleDeadline: scheduler.schedule
+        )
 
-        watchdog.arm(deadline: 0.05)
+        watchdog.arm(deadline: 8)
+        watchdog.arm(deadline: 8)
+        watchdog.arm(deadline: 8)
 
-        let result = fired.wait(timeout: .now() + 3)
-        #expect(result == .success)
+        #expect(scheduler.scheduledCount == 1)
+        #expect(counter.value == 0)
     }
 
-    /// Arming is idempotent: repeated calls (multiple quit attempts, or both the
-    /// primary and backstop commit sites arming for one request) must never
-    /// stack threads, so the exit handler runs at most once.
+    /// When the deadline elapses, the watchdog runs its handler exactly once.
     @Test
-    func armIsIdempotentAndFiresExactlyOnce() async throws {
+    func elapsedDeadlineFiresTheHandlerExactlyOnce() {
+        let scheduler = CapturingScheduler()
         let counter = FireCounter()
-        let watchdog = TerminationWatchdog { counter.increment() }
+        let watchdog = TerminationWatchdog(
+            onFire: { counter.increment() },
+            scheduleDeadline: scheduler.schedule
+        )
 
-        watchdog.arm(deadline: 0.05)
-        watchdog.arm(deadline: 0.05)
-        watchdog.arm(deadline: 0.05)
+        watchdog.arm(deadline: 8)
+        scheduler.fireAll()  // advance virtual time to the deadline
 
-        // Wait well past the deadline so any stacked thread would have fired.
-        try await Task.sleep(for: .milliseconds(600))
         #expect(counter.value == 1)
+    }
+
+    /// Captures scheduled deadline handlers instead of sleeping, so tests advance
+    /// time by hand and stay deterministic.
+    private final class CapturingScheduler: Sendable {
+        private let lock = NSLock()
+        // SAFETY: guarded by `lock`.
+        nonisolated(unsafe) private var fires: [@Sendable () -> Void] = []
+
+        var schedule: TerminationWatchdog.DeadlineScheduler {
+            { [self] _, fire in
+                lock.lock()
+                fires.append(fire)
+                lock.unlock()
+            }
+        }
+
+        var scheduledCount: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return fires.count
+        }
+
+        func fireAll() {
+            lock.lock()
+            let snapshot = fires
+            lock.unlock()
+            for fire in snapshot { fire() }
+        }
     }
 
     private final class FireCounter: Sendable {
         private let lock = NSLock()
-        // SAFETY: guarded by `lock`; incremented from the watchdog thread and
-        // read from the test thread.
+        // SAFETY: guarded by `lock`.
         nonisolated(unsafe) private var stored = 0
 
         func increment() {
