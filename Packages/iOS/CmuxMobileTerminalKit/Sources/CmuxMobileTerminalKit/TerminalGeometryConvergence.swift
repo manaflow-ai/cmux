@@ -91,11 +91,18 @@ public struct TerminalGeometryConvergence: Sendable, Equatable {
     ///   ``Tick/settled`` and ``Tick/timedOut``.
     public mutating func tick(now: Double, presented: Bool) -> Tick {
         guard deadline > 0 else { return .idle }
-        // PRE-FIX behavior (the bug this type exists to remove): the redraw
-        // burst gives up after a fixed hold, regardless of whether a frame has
-        // actually presented at the settled size. When no good frame lands in
-        // that window the terminal is left blank / typed text invisible.
-        if now >= armedAt + Self.minimumHold {
+        // Give up only at the wall-clock deadline so a layer that never settles
+        // cannot pump the main queue forever.
+        if now >= deadline {
+            disarm()
+            return .timedOut
+        }
+        // Stop early once a frame has actually presented at the current size —
+        // but not before the minimum hold, so a transient mid-animation match on
+        // a stale-but-matching size cannot disarm us while the resize is still
+        // in flight. Until then, keep requesting a (coalesced) redraw so a good
+        // frame eventually lands and is NOT discarded.
+        if presented, now >= armedAt + Self.minimumHold {
             disarm()
             return .settled
         }
