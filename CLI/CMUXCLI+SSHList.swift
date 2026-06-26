@@ -133,13 +133,15 @@ extension CMUXCLI {
         do {
             contents = try String(contentsOfFile: configPath, encoding: .utf8)
         } catch {
-            if requireReadable {
-                throw CLIError(message: String(
-                    localized: "cli.sshlist.configReadError",
-                    defaultValue: "ssh list: cannot read --config \(configPath): \(error.localizedDescription)"
-                ))
-            }
-            return []
+            // The path is a regular file (the guard above passed), so a read
+            // failure here is a permission or decoding problem, not a missing
+            // config — surface it for the default config too instead of silently
+            // reporting no hosts.
+            let label = requireReadable ? "--config \(configPath)" : configPath
+            throw CLIError(message: String(
+                localized: "cli.sshlist.configReadError",
+                defaultValue: "ssh list: cannot read \(label): \(String(describing: error))"
+            ))
         }
         // OpenSSH resolves every relative `Include` in a user configuration
         // under `~/.ssh` — even with an explicit `-F`/`--config` path the base

@@ -392,8 +392,10 @@ import Testing
         let hosts = parser.hosts(configText: "Include loop\n") { argument in
             argument == "loop" ? [selfInclude] : []
         }
-        // Terminates (bounded depth) and still collects the concrete host.
-        #expect(hosts.contains { $0.alias == "leaf" })
+        // Terminates (bounded depth) and collects the concrete host exactly
+        // once despite the cycle re-emitting it at every level (seenAliases
+        // dedups), so the output stays bounded.
+        #expect(hosts.filter { $0.alias == "leaf" }.count == 1)
     }
 
     @Test func hostIsCodableRoundTrip() throws {
