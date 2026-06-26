@@ -118,46 +118,47 @@ export default function PricingPage() {
           </PlanCard>
         </div>
 
-        {/* Compare plans (header row is sticky under the 48px h-12 site header) */}
+        {/* Compare plans. Header row is sticky under the 48px h-12 site header.
+            No overflow-x wrapper: an overflow container becomes a scroll context
+            on both axes and would anchor the sticky header to itself instead of
+            the page. */}
         <section className="mt-16">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-[15px]">
-              <thead>
-                <tr>
-                  <th className="sticky top-12 z-20 bg-background border-b border-border py-3 pr-4 text-left align-bottom font-medium min-w-[12rem]" />
-                  <ColumnHead name={t("free.name")} price={t("free.price")} />
-                  <ColumnHead
-                    name={t("pro.name")}
-                    price={`${t("pro.price")}${t("perMonth")}`}
-                  />
-                  <ColumnHead
-                    name={t("team.name")}
-                    price={`${t("team.price")}${t("perUserMonth")}`}
-                  />
-                  <ColumnHead
-                    name={t("enterprise.name")}
-                    price={t("enterprise.price")}
-                  />
+          <table className="w-full border-separate border-spacing-0 text-[15px]">
+            <thead>
+              <tr>
+                <th className="sticky top-12 z-20 bg-background border-b border-border py-3 pr-4 text-left align-bottom font-medium min-w-[12rem]" />
+                <ColumnHead name={t("free.name")} price={t("free.price")} />
+                <ColumnHead
+                  name={t("pro.name")}
+                  price={`${t("pro.price")}${t("perMonth")}`}
+                />
+                <ColumnHead
+                  name={t("team.name")}
+                  price={`${t("team.price")}${t("perUserMonth")}`}
+                />
+                <ColumnHead
+                  name={t("enterprise.name")}
+                  price={t("enterprise.price")}
+                />
+              </tr>
+            </thead>
+            <tbody>
+              {compareRows.map((row, i) => (
+                <tr key={i}>
+                  <th
+                    scope="row"
+                    className="border-b border-border py-3 pr-4 text-left font-normal align-top"
+                  >
+                    {row.label}
+                  </th>
+                  <CompareCell value={row.free} />
+                  <CompareCell value={row.pro} />
+                  <CompareCell value={row.team} />
+                  <CompareCell value={row.enterprise} />
                 </tr>
-              </thead>
-              <tbody>
-                {compareRows.map((row, i) => (
-                  <tr key={i} className="border-b border-border">
-                    <th
-                      scope="row"
-                      className="py-3 pr-4 text-left font-normal align-top"
-                    >
-                      {row.label}
-                    </th>
-                    <CompareCell value={row.free} />
-                    <CompareCell value={row.pro} />
-                    <CompareCell value={row.team} />
-                    <CompareCell value={row.enterprise} />
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </section>
 
         {/* Cloud VM sizes */}
@@ -381,7 +382,7 @@ function ColumnHead({ name, price }: { name: string; price: string }) {
 }
 
 function CompareCell({ value }: { value: string }) {
-  const base = "px-4 py-3 text-left align-top";
+  const base = "border-b border-border px-4 py-3 text-left align-top";
   if (value === "true") {
     return (
       <td className={base}>
