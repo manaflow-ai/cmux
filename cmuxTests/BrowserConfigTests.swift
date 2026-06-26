@@ -15,14 +15,13 @@ import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
-// The app target still declares a legacy duplicate of BrowserThemeMode; with
-// CmuxSettings imported unconditionally the name is ambiguous. Pin the app
-// type for theme tests and the package type for browser search settings.
-private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
+// BrowserThemeMode and BrowserSearchEngine are shared CmuxSettings value types;
+// pin them to the package so the names are unambiguous here.
+private typealias BrowserThemeMode = CmuxSettings.BrowserThemeMode
 private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 #elseif canImport(cmux)
 @testable import cmux
-private typealias BrowserThemeMode = cmux.BrowserThemeMode
+private typealias BrowserThemeMode = CmuxSettings.BrowserThemeMode
 private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 #endif
 

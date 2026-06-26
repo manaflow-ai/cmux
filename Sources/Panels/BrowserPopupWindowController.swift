@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxBrowser
+import CmuxSettings
 import ObjectiveC
 import WebKit
 

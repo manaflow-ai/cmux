@@ -20,13 +20,12 @@ import CmuxTerminalCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
-// The app target still declares legacy duplicates of these CmuxSettings
-// value types; with CmuxSettings imported unconditionally the names are
-// ambiguous. These tests exercise the app-side paths, so pin the app types.
-private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
+// BrowserThemeMode is a shared CmuxSettings value type; pin it to the package
+// so the name is unambiguous here.
+private typealias BrowserThemeMode = CmuxSettings.BrowserThemeMode
 #elseif canImport(cmux)
 @testable import cmux
-private typealias BrowserThemeMode = cmux.BrowserThemeMode
+private typealias BrowserThemeMode = CmuxSettings.BrowserThemeMode
 #endif
 
 final class SidebarPathFormatterTests: XCTestCase {

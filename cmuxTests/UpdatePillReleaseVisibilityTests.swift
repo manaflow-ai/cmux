@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSettings
 import CmuxWindowing
@@ -427,50 +428,50 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
 
     func testMinimalModeHoverTrackerPassesMouseMovedThroughWhenButtonsAreVisible() {
         XCTAssertTrue(
-            minimalModePassthroughHoverTrackerCapturesHit(
+            PassthroughHoverHitDecision(
                 capturesPassiveHits: true,
                 eventType: .mouseMoved,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: true
-            ),
+            ).capturesHit,
             "Expected the hidden minimal-mode hover tracker to capture passive hover so controls reveal"
         )
 
         XCTAssertFalse(
-            minimalModePassthroughHoverTrackerCapturesHit(
+            PassthroughHoverHitDecision(
                 capturesPassiveHits: false,
                 eventType: .mouseMoved,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: true
-            ),
+            ).capturesHit,
             "Expected revealed minimal-mode buttons to receive mouseMoved so their hover style can update"
         )
     }
 
     func testMinimalModeHoverTrackerDoesNotCaptureMouseDownOrDraggedHover() {
         XCTAssertFalse(
-            minimalModePassthroughHoverTrackerCapturesHit(
+            PassthroughHoverHitDecision(
                 capturesPassiveHits: true,
                 eventType: .leftMouseDown,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: true
-            )
+            ).capturesHit
         )
         XCTAssertFalse(
-            minimalModePassthroughHoverTrackerCapturesHit(
+            PassthroughHoverHitDecision(
                 capturesPassiveHits: true,
                 eventType: .mouseMoved,
                 pressedMouseButtons: 1,
                 boundsContainsPoint: true
-            )
+            ).capturesHit
         )
         XCTAssertFalse(
-            minimalModePassthroughHoverTrackerCapturesHit(
+            PassthroughHoverHitDecision(
                 capturesPassiveHits: true,
                 eventType: .mouseMoved,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: false
-            )
+            ).capturesHit
         )
     }
 }
