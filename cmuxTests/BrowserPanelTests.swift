@@ -300,6 +300,32 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         XCTAssertEqual(manager.blockers(for: snapshot), [])
         XCTAssertEqual(delegate.discardRequestCount, 0)
     }
+
+    func testFocusedBrowserPanelBlocksHiddenWebViewDiscard() throws {
+        let workspace = Workspace(initialSurface: .browser)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? BrowserPanel)
+        defer { panel.close() }
+
+        let url = try XCTUnwrap(URL(string: "about:blank"))
+        panel.navigate(to: url)
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+
+        let hiddenAt = Date(timeIntervalSince1970: 6_000)
+        panel.noteWebViewVisibility(false, reason: "test.portalHidden", now: hiddenAt)
+        workspace.focusPanel(panel.id)
+
+        let originalWebView = panel.webView
+        XCTAssertFalse(
+            panel.discardHiddenWebViewForSystemMemoryPressure(now: hiddenAt.addingTimeInterval(1)),
+            "Focused browser panes must not be memory-discarded while still active in the workspace."
+        )
+        XCTAssertTrue(panel.webView === originalWebView)
+    }
 }
 
 @MainActor
