@@ -163,6 +163,7 @@ import Testing
         let dashDash = try #require(args.firstIndex(of: "--"))
         #expect(args[dashDash + 1] == "-oProxyCommand=evil")
         let remoteCommand = args[dashDash + 2]
+        #expect(!remoteCommand.contains("\n"))
         #expect(remoteCommand.contains("/opt/homebrew/bin"))
         #expect(remoteCommand.hasSuffix("'cmux-remote-tmux' '-CC' 'attach-session' '-t' 'work session'"))
     }
