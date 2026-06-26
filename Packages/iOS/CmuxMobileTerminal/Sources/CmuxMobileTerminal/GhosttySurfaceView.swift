@@ -328,10 +328,28 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// VoiceOver label for icon-only accessory actions.
     public var accessibilityLabel: String? {
         switch self {
-        case .escape, .tab, .returnKey,
-             .upArrow, .downArrow, .leftArrow, .rightArrow,
-             .home, .end, .pageUp, .pageDown:
-            return settingsDisplayName
+        case .escape:
+            return String(localized: "terminal.shortcut.name.escape", defaultValue: "Escape")
+        case .tab:
+            return String(localized: "terminal.shortcut.name.tab", defaultValue: "Tab")
+        case .returnKey:
+            return String(localized: "terminal.shortcut.name.return", defaultValue: "Return")
+        case .upArrow:
+            return String(localized: "terminal.shortcut.name.upArrow", defaultValue: "Up Arrow")
+        case .downArrow:
+            return String(localized: "terminal.shortcut.name.downArrow", defaultValue: "Down Arrow")
+        case .leftArrow:
+            return String(localized: "terminal.shortcut.name.leftArrow", defaultValue: "Left Arrow")
+        case .rightArrow:
+            return String(localized: "terminal.shortcut.name.rightArrow", defaultValue: "Right Arrow")
+        case .home:
+            return String(localized: "terminal.shortcut.name.home", defaultValue: "Home")
+        case .end:
+            return String(localized: "terminal.shortcut.name.end", defaultValue: "End")
+        case .pageUp:
+            return String(localized: "terminal.shortcut.name.pageUp", defaultValue: "Page Up")
+        case .pageDown:
+            return String(localized: "terminal.shortcut.name.pageDown", defaultValue: "Page Down")
         case .zoomOut:
             return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
         case .zoomIn:

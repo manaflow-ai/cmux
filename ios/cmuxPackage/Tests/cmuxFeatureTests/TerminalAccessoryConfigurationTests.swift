@@ -92,12 +92,29 @@ struct TerminalAccessoryConfigurationTests {
             .zoomOut: "minus.magnifyingglass",
             .zoomIn: "plus.magnifyingglass",
         ]
+        let expectedAccessibilityLabels: [TerminalInputAccessoryAction: String] = [
+            .paste: "Paste",
+            .tab: "Tab",
+            .escape: "Escape",
+            .returnKey: "Return",
+            .upArrow: "Up Arrow",
+            .downArrow: "Down Arrow",
+            .leftArrow: "Left Arrow",
+            .rightArrow: "Right Arrow",
+            .home: "Home",
+            .end: "End",
+            .pageUp: "Page Up",
+            .pageDown: "Page Down",
+            .zoomOut: "Zoom Out",
+            .zoomIn: "Zoom In",
+        ]
 
         for action in compactIconActions {
             #expect(enabledBuiltins.contains(action))
             #expect(action.symbolName == expectedSymbols[action])
             let label = try #require(action.accessibilityLabel)
-            #expect(!label.isEmpty)
+            let expectedLabel = try #require(expectedAccessibilityLabels[action])
+            #expect(label == expectedLabel)
         }
         #expect(TerminalInputAccessoryAction.claude.symbolName == nil)
         #expect(TerminalInputAccessoryAction.codex.symbolName == nil)
