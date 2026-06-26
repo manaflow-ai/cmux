@@ -49,6 +49,36 @@ import Testing
         #expect(try await feature.loadAll(stackUserID: "user-1", teamID: "team-a").first?.teamID == "team-a")
     }
 
+    @Test func selectedTeamStillReadsTeamlessRowsInCurrentScope() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let feature = IOSBuildScopedPairedMacStore(inner: inner, scope: try #require(MobileIOSBuildScope("feature")))
+        let other = IOSBuildScopedPairedMacStore(inner: inner, scope: try #require(MobileIOSBuildScope("other")))
+
+        try await feature.upsert(
+            macDeviceID: "teamless",
+            displayName: "Teamless",
+            routes: [try route("10.0.0.1")],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await other.upsert(
+            macDeviceID: "other-scope",
+            displayName: "Other",
+            routes: [try route("10.0.0.2")],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        let rows = try await feature.loadAll(stackUserID: "user-1", teamID: "team-a")
+        #expect(rows.map(\.macDeviceID) == ["teamless"])
+        #expect(rows.first?.teamID == nil)
+    }
+
     @Test func removeAllOnlyDeletesCurrentBuildScope() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }

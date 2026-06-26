@@ -40,8 +40,19 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     public func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
-        try await inner.loadAll(stackUserID: stackUserID, teamID: scopedTeamID(teamID))
-            .compactMap(unscoped)
+        var byID: [String: MobilePairedMac] = [:]
+        for mac in try await inner.loadAll(stackUserID: stackUserID, teamID: scopedTeamID(teamID)).compactMap(unscoped) {
+            byID[mac.macDeviceID] = mac
+        }
+        if normalizedTeamID(teamID) != nil {
+            for mac in try await inner.loadAll(stackUserID: stackUserID, teamID: scopedTeamID(nil)).compactMap(unscoped) {
+                byID[mac.macDeviceID] = byID[mac.macDeviceID] ?? mac
+            }
+        }
+        return byID.values.sorted { lhs, rhs in
+            if lhs.lastSeenAt != rhs.lastSeenAt { return lhs.lastSeenAt > rhs.lastSeenAt }
+            return lhs.macDeviceID < rhs.macDeviceID
+        }
     }
 
     public func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
@@ -87,8 +98,13 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     private func scopedTeamID(_ teamID: String?) -> String {
-        let team = teamID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let team = normalizedTeamID(teamID) ?? ""
         return "\(team)\(Self.separator)\(scope.serializedScope)"
+    }
+
+    private func normalizedTeamID(_ teamID: String?) -> String? {
+        let team = teamID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return team.isEmpty ? nil : team
     }
 
     private func unscoped(_ mac: MobilePairedMac) -> MobilePairedMac? {

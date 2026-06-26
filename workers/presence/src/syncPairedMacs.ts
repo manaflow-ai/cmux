@@ -302,6 +302,34 @@ export function relabelSnapshot<P>(page: SyncSnapshotFrame<P>): SyncSnapshotFram
   return { ...page, collection: PAIRED_MACS_COLLECTION };
 }
 
+async function seedScopedBackupFromUnscopedIfNeeded(
+  storage: SyncStorage,
+  userId: string,
+  scopedCollection: string,
+  nowMs: number,
+): Promise<void> {
+  const scopedHead = await storage.get<number>(`${SYNC_HEAD_PREFIX}${scopedCollection}`);
+  if (scopedHead !== undefined) return;
+
+  const unscopedRecords = await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection(userId));
+  const ordered = [...unscopedRecords].sort((a, b) => a.rev - b.rev);
+  for (const stored of ordered) {
+    if (stored.deleted) {
+      await tombstoneRecord(storage, scopedCollection, stored.id, nowMs, { createIfMissing: true });
+      continue;
+    }
+    await upsertRecord<PairedMacBackupRecord>(
+      storage,
+      scopedCollection,
+      stored.id,
+      stored.payload,
+      nowMs,
+      pairedMacShapeEqual,
+      (record) => record.lastSeenAt,
+    );
+  }
+}
+
 /** Count the live (non-tombstone) backup records a user currently has, to
  * enforce the per-user cap on NEW ids. */
 /** Apply a batch of backup ops for one user against their physical collection,
@@ -320,6 +348,9 @@ export async function applyBackupOps(
   const scope = normalizeClientScope(clientScope);
   if (scope && !(await hasScopedCollectionCapacity(storage, userId, collection))) {
     return [];
+  }
+  if (scope) {
+    await seedScopedBackupFromUnscopedIfNeeded(storage, userId, collection, nowMs);
   }
   // One listing gives both the live count (cap on visible Macs) AND the total
   // record count (live + RETAINED tombstones). Capping the total bounds storage
