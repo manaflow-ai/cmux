@@ -151,20 +151,18 @@ extension MobileShellComposite {
         await refreshAfterWorkspaceMutation(target)
     }
 
-    /// Record a Mac-confirmed `workspace.close`: tombstone the id (filtered in
-    /// ``setForegroundWorkspaceState``) and prune the row from the owning Mac's
-    /// source of truth so the sidebar drops it atomically with the close (#6349).
+    /// Record a Mac-confirmed `workspace.close`: tombstone the id under its owning
+    /// Mac and re-derive so the sidebar drops the row atomically with the close.
+    /// ``recomputeDerivedWorkspaceState`` filters tombstoned rows from the derived
+    /// list and group headers (and retires the tombstone once the Mac's authoritative
+    /// list stops reporting it), so no per-ingest bookkeeping is needed (#6349).
     private func recordConfirmedWorkspaceClose(
         localID: MobileWorkspacePreview.ID,
         target: WorkspaceMutationTarget
     ) {
         let key = target.isForeground ? foregroundMacKey : (target.macDeviceID ?? foregroundMacKey)
         confirmedClosedWorkspaceIDsByMac[key, default: []].insert(localID.rawValue)
-        guard var state = workspacesByMac[key] else { return }
-        let before = state.workspaces.count
-        state.workspaces.removeAll { $0.rpcWorkspaceID == localID || $0.id == localID }
-        guard state.workspaces.count != before else { return }
-        workspacesByMac[key] = state
+        recomputeDerivedWorkspaceState()
     }
 
     private func workspaceMutationParams(id: MobileWorkspacePreview.ID) -> [String: Any] {

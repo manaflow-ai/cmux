@@ -136,6 +136,36 @@ struct MobileWorkspaceCloseReconcileTests {
         #expect(store.workspaces.contains { $0.rpcWorkspaceID.rawValue == "member-ws" })
     }
 
+    /// Tombstone retirement happens at the single derivation chokepoint, so ANY
+    /// secondary-Mac authoritative ingest (live subscription refresh OR pull-to-
+    /// refresh) that drops the closed id retires the tombstone — no per-ingest
+    /// reconcile call required (issue #6349, secondary refresh paths).
+    @Test func secondaryAuthoritativeListRetiresTombstone() {
+        let store = MobileShellComposite.preview()
+        store.confirmedClosedWorkspaceIDsByMac = ["mac-b": ["closed-id"]]
+        func seed(secondaryHasClosed: Bool) {
+            var macB = [Self.preview(id: "b1")]
+            if secondaryHasClosed { macB.insert(Self.preview(id: "closed-id"), at: 0) }
+            store.setWorkspaceStatesForTesting([
+                "mac-a": MacWorkspaceState(
+                    macDeviceID: "mac-a", displayName: "Mac A",
+                    workspaces: [Self.preview(id: "a1")], status: .connected),
+                "mac-b": MacWorkspaceState(
+                    macDeviceID: "mac-b", displayName: "Mac B", workspaces: macB, status: .connected),
+            ], foregroundMacDeviceID: "mac-a")
+        }
+
+        // Secondary still lists the closed id (stale): tombstone kept, row filtered.
+        seed(secondaryHasClosed: true)
+        #expect(store.confirmedClosedWorkspaceIDsByMac["mac-b"]?.contains("closed-id") == true)
+        #expect(!store.workspaces.contains { $0.macDeviceID == "mac-b" && $0.rpcWorkspaceID.rawValue == "closed-id" })
+
+        // Secondary's authoritative list catches up: the tombstone is retired.
+        seed(secondaryHasClosed: false)
+        #expect(store.confirmedClosedWorkspaceIDsByMac["mac-b"] == nil)
+        #expect(store.workspaces.contains { $0.macDeviceID == "mac-b" && $0.rpcWorkspaceID.rawValue == "b1" })
+    }
+
     private static func preview(
         id: String, groupID: MobileWorkspaceGroupPreview.ID? = nil
     ) -> MobileWorkspacePreview {
