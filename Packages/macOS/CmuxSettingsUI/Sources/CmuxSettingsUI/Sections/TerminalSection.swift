@@ -333,7 +333,7 @@ public struct TerminalSection: View {
                 searchAnchorID: "setting:terminal:memory-guardrail",
                 String(localized: "settings.terminal.memoryGuardrail", defaultValue: "Runaway Memory Guardrail"),
                 subtitle: memGuardrailEnabled.current
-                    ? String(localized: "settings.terminal.memoryGuardrail.subtitleOn", defaultValue: "cmux warns you with a badge and a banner when one pane's process tree uses too much memory, so a single leak can't crash the whole app.")
+                    ? String(localized: "settings.terminal.memoryGuardrail.subtitleOn", defaultValue: "cmux notifies you when one pane's process tree uses too much memory, so you can stop a single leak before it OOM-suspends the whole app.")
                     : String(localized: "settings.terminal.memoryGuardrail.subtitleOff", defaultValue: "No warning is shown when a pane's process tree grows large. A leaking process can OOM-suspend the entire app.")
             ) {
                 Toggle("", isOn: Binding(get: { memGuardrailEnabled.current }, set: { memGuardrailEnabled.set($0) }))
