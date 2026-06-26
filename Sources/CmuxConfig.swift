@@ -3041,7 +3041,10 @@ final class CmuxConfigStore: ObservableObject {
         commands: [CmuxCommandDefinition],
         sourcePaths: [String: String]
     ) -> NewWorkspaceCommandResolution {
-        guard let command = commands.first(where: { $0.name == commandName }) else {
+        // The reference may be a folder-aware command id (from a generated
+        // action) or a display name (from user config); match id first.
+        guard let command = commands.first(where: { $0.id == commandName })
+            ?? commands.first(where: { $0.name == commandName }) else {
             return newWorkspaceResolutionIssue(
                 kind: .newWorkspaceCommandNotFound,
                 settingName: settingName,
@@ -3097,7 +3100,9 @@ final class CmuxConfigStore: ObservableObject {
         commands: [CmuxCommandDefinition],
         sourcePaths: [String: String]
     ) -> CmuxResolvedCommand? {
-        guard let command = commands.first(where: { $0.name == commandName }) else {
+        // Accept a folder-aware command id or a display name (id first).
+        guard let command = commands.first(where: { $0.id == commandName })
+            ?? commands.first(where: { $0.name == commandName }) else {
             NSLog("[CmuxConfig] %@ '%@' does not match any loaded command", settingName, commandName)
             return nil
         }
