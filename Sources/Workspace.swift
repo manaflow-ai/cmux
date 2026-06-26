@@ -364,10 +364,14 @@ extension Workspace {
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
 
+        let snapshotResumeBinding = Self.resumeBindingForSessionSnapshot(
+            resumeBinding,
+            restorableAgent: restorableAgent
+        )
         let compatibleIndexedRestorableAgent = restorableAgent.flatMap {
             Self.restorableAgentForSessionRestore(
                 $0,
-                resumeBinding: resumeBinding
+                resumeBinding: snapshotResumeBinding
             )
         }
         if restorableAgent != nil, compatibleIndexedRestorableAgent == nil {
@@ -391,12 +395,12 @@ extension Workspace {
         let effectiveHibernationState = hibernationState.flatMap { state in
             Self.restorableAgentForSessionRestore(
                 state.agent,
-                resumeBinding: resumeBinding
+                resumeBinding: snapshotResumeBinding
             ) == nil ? nil : state
         }
         let effectiveRestorableAgent = Self.restorableAgentForSessionRestore(
             effectiveHibernationState?.agent ?? restoredAgentSnapshotsByPanelId[panelId],
-            resumeBinding: resumeBinding
+            resumeBinding: snapshotResumeBinding
         )
 
         let panelTitle = panelTitle(panelId: panelId)
@@ -476,7 +480,7 @@ extension Workspace {
                 }
             }()
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
-                resumeBinding,
+                snapshotResumeBinding,
                 autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults) && (agentWasRunning ?? true),
                 promptForApproval: false,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
@@ -522,7 +526,7 @@ extension Workspace {
                         lastActivityAt: $0.lastActivityAt.timeIntervalSince1970
                     )
                 },
-                resumeBinding: resumeBinding,
+                resumeBinding: snapshotResumeBinding,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
@@ -928,6 +932,18 @@ extension Workspace {
             return binding
         }
         return binding.retargetingWorkingDirectory(resolvedWorkingDirectory)
+    }
+
+    nonisolated private static func resumeBindingForSessionSnapshot(
+        _ binding: SurfaceResumeBindingSnapshot?,
+        restorableAgent: SessionRestorableAgentSnapshot?
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard let binding else { return nil }
+        if binding.isAgentHookBinding,
+           shouldPreferRestorableAgentSnapshot(restorableAgent, over: binding) {
+            return nil
+        }
+        return binding
     }
 
     nonisolated private static func shouldPreferRestorableAgentSnapshot(

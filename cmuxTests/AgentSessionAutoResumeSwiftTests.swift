@@ -363,6 +363,54 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     @MainActor
+    @Test func sessionSnapshotPersistsNewerClaudeAgentSnapshotOverOlderPoisonedBinding() throws {
+        let source = Workspace()
+        let sourcePanelId = try #require(source.focusedPanelId)
+        let freshSessionId = "claude-fresh-live-snapshot-session"
+        let staleSessionId = "claude-stale-live-binding-session"
+        let freshCwd = "/tmp/cmux-claude-fresh-live"
+        let staleCwd = "/tmp/cmux-claude-stale-live"
+        let freshAgent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: freshSessionId,
+            workingDirectory: freshCwd,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude"],
+                workingDirectory: freshCwd,
+                environment: nil,
+                capturedAt: 1_777_777_778,
+                source: "process"
+            )
+        )
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(freshAgent, panelId: sourcePanelId)
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "Claude",
+                kind: "claude",
+                command: "{ cd -- '\(staleCwd)' 2>/dev/null || [ ! -d '\(staleCwd)' ]; } && 'bash' '--resume' '\(staleSessionId)' '-c'",
+                cwd: staleCwd,
+                checkpointId: staleSessionId,
+                source: "agent-hook",
+                autoResume: true,
+                updatedAt: 1_777_777_777
+            ),
+        ])
+
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        let terminalSnapshot = try #require(snapshot.panels.first?.terminal)
+
+        #expect(terminalSnapshot.agent?.sessionId == freshSessionId)
+        #expect(terminalSnapshot.resumeBinding == nil)
+    }
+
+    @MainActor
     @Test func crossKindAgentHookResumeBindingDoesNotRetainStaleClaudeSnapshot() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
