@@ -241,6 +241,9 @@ extension CMUXCLI {
            !FileManager.default.isExecutableFile(atPath: executable) {
             return (false, "opencode_executable_missing")
         }
+        if sessionsListOpenCodeVersionProbeSupportsFork(record) {
+            return (true, "available")
+        }
         return (false, "opencode_version_unverified")
     }
 
@@ -260,6 +263,90 @@ extension CMUXCLI {
             return executablePath
         }
         return record.launchCommand?.arguments.first.flatMap(sessionsListNormalized)
+    }
+
+    private func sessionsListOpenCodeVersionProbeSupportsFork(_ record: ClaudeHookSessionRecord) -> Bool {
+        guard let executable = sessionsListOpenCodeProbeExecutable(record) else {
+            return false
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [executable, "--version"]
+        process.environment = sessionsListOpenCodeProbeEnvironment(record)
+        if let workingDirectory = sessionsListNormalized(record.launchCommand?.workingDirectory ?? record.cwd),
+           sessionsListDirectoryExists(atPath: workingDirectory) {
+            process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
+        }
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do {
+            try process.run()
+        } catch {
+            return false
+        }
+        guard ((try? waitForProcessExit(process, timeout: 2.0)) ?? false) else {
+            process.terminate()
+            _ = try? waitForProcessExit(process, timeout: 0.5)
+            return false
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        return sessionsListOpenCodeVersionSupportsFork(output)
+    }
+
+    private func sessionsListOpenCodeProbeEnvironment(_ record: ClaudeHookSessionRecord) -> [String: String] {
+        let safeBaseKeys = ["HOME", "LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "PATH", "TMPDIR", "USER"]
+        var environment: [String: String] = [:]
+        let baseEnvironment = ProcessInfo.processInfo.environment
+        for key in safeBaseKeys {
+            if let value = baseEnvironment[key],
+               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                environment[key] = value
+            }
+        }
+        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(
+            from: record.launchCommand?.environment ?? [:]
+        )
+        for (key, value) in selectedEnvironment {
+            environment[key] = value
+        }
+        if let path = record.launchCommand?.environment?["PATH"],
+           !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            environment["PATH"] = path
+        } else if environment["PATH"] == nil {
+            environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        }
+        return environment
+    }
+
+    private func sessionsListOpenCodeVersionSupportsFork(_ output: String) -> Bool {
+        guard let version = sessionsListFirstSemanticVersion(in: output) else {
+            return false
+        }
+        return version >= (1, 14, 50)
+    }
+
+    private func sessionsListFirstSemanticVersion(in output: String) -> (Int, Int, Int)? {
+        let pattern = #"\b(\d+)\.(\d+)\.(\d+)\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(
+                  in: output,
+                  range: NSRange(output.startIndex..<output.endIndex, in: output)
+              ),
+              match.numberOfRanges == 4,
+              let majorRange = Range(match.range(at: 1), in: output),
+              let minorRange = Range(match.range(at: 2), in: output),
+              let patchRange = Range(match.range(at: 3), in: output),
+              let major = Int(output[majorRange]),
+              let minor = Int(output[minorRange]),
+              let patch = Int(output[patchRange]) else {
+            return nil
+        }
+        return (major, minor, patch)
     }
 
     private func sessionsListForkArguments(
