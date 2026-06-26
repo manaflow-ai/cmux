@@ -289,7 +289,7 @@ extension TerminalSurface {
         return events
     }
 
-    /// Returns the byte-like scalar length for a complete terminal string control sequence.
+    /// Returns the byte-like scalar length for a complete terminal control sequence.
     private static func terminalControlSequenceLength(
         _ scalars: [Unicode.Scalar],
         from start: Int
@@ -297,6 +297,8 @@ extension TerminalSurface {
         guard start + 1 < scalars.count, scalars[start].value == 0x1B else { return nil }
 
         switch scalars[start + 1].value {
+        case 0x5B: // CSI: ESC [ ... final-byte
+            return csiControlSequenceLength(scalars, from: start)
         case 0x5D: // OSC: ESC ] ... (BEL | ST)
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
         case 0x50, 0x5E, 0x5F: // DCS / PM / APC: ESC P/^/_ ... ST
@@ -304,6 +306,25 @@ extension TerminalSurface {
         default:
             return nil
         }
+    }
+
+    /// Finds the terminator for a complete CSI sequence.
+    private static func csiControlSequenceLength(
+        _ scalars: [Unicode.Scalar],
+        from start: Int
+    ) -> Int? {
+        var index = start + 2
+        while index < scalars.count {
+            let value = scalars[index].value
+            if (0x40...0x7E).contains(value) {
+                return index - start + 1
+            }
+            guard (0x20...0x3F).contains(value) else {
+                return nil
+            }
+            index += 1
+        }
+        return nil
     }
 
     /// Finds the terminator for ESC-prefixed string controls without accepting partial sequences.
