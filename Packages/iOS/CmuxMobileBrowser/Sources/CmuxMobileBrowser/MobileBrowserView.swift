@@ -50,7 +50,12 @@ public struct MobileBrowserView: UIViewRepresentable {
         configuration.websiteDataStore = .default()
         configuration.allowsInlineMediaPlayback = true
         let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.allowsBackForwardNavigationGestures = true
+        // Off, by design: the browser pane is pushed onto the workspace
+        // `NavigationStack`, and the web view's own left-edge back-swipe would
+        // otherwise eat the standard iOS edge swipe that returns to the workspace
+        // list (issue #6634). Web history stays reachable through the chrome
+        // bar's back/forward buttons.
+        webView.allowsBackForwardNavigationGestures = false
         return webView
     }
 
