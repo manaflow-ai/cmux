@@ -80,6 +80,61 @@ import Testing
         #expect(!startupInput.contains(executablePath), "\(startupInput)")
     }
 
+    @Test func agentHookBindingWithCwdRewritesStaleCodexExecutableInsidePortableShellWrapper() throws {
+        let staleExecutablePath = Self.homeManagedExecutablePath(
+            executableName: "codex",
+            ".nvm",
+            "versions",
+            "node",
+            "cmux-missing-\(UUID().uuidString)",
+            "bin"
+        )
+        let cwd = "/tmp/cmux portable codex repo"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "'\(staleExecutablePath)' 'resume' 'session-portable-codex'",
+            cwd: cwd,
+            checkpointId: "session-portable-codex",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+        let payload = try Self.portableShellCommandPayload(from: startupInput)
+
+        #expect(payload.contains("cd -- '\(cwd)'"), "\(payload)")
+        #expect(payload.contains("codex 'resume' 'session-portable-codex'"), "\(payload)")
+        #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
+    }
+
+    @Test func agentHookBindingWithCwdRewritesStaleClaudeExecutableInsidePortableShellWrapper() throws {
+        let staleExecutablePath = Self.homeManagedExecutablePath(
+            executableName: "claude",
+            ".nvm",
+            "versions",
+            "node",
+            "cmux-missing-\(UUID().uuidString)",
+            "bin"
+        )
+        let cwd = "/tmp/cmux portable claude repo"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "'\(staleExecutablePath)' '--resume' 'session-portable-claude'",
+            cwd: cwd,
+            checkpointId: "session-portable-claude",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+        let payload = try Self.portableShellCommandPayload(from: startupInput)
+
+        #expect(payload.contains("cd -- '\(cwd)'"), "\(payload)")
+        #expect(payload.contains("CMUX_CLAUDE_WRAPPER_SHIM"), "\(payload)")
+        #expect(payload.contains("session-portable-claude"), "\(payload)")
+        #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
+    }
+
     @Test func agentHookBindingRewritesSupportedLocalManagedExecutablePaths() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-surface-resume-stale-managed-\(UUID().uuidString)", isDirectory: true)
@@ -350,11 +405,12 @@ import Testing
         )
         let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredLocalPanel.id))
         let restoredInput = try #require(restoredPanel.surface.debugInitialInputForTesting())
+        let restoredPayload = try Self.portableShellCommandPayload(from: restoredInput)
         #expect(restoredPanel.surface.debugInitialCommand() == nil)
         #expect(restoredPanel.requestedWorkingDirectory == nil)
-        #expect(restoredInput.contains("codex 'resume' 'session-local-resume'"), "\(restoredInput)")
-        #expect(restoredInput.contains(localDirectory), "\(restoredInput)")
-        #expect(!restoredInput.contains(staleExecutablePath), "\(restoredInput)")
+        #expect(restoredPayload.contains("codex 'resume' 'session-local-resume'"), "\(restoredPayload)")
+        #expect(restoredPayload.contains(localDirectory), "\(restoredPayload)")
+        #expect(!restoredPayload.contains(staleExecutablePath), "\(restoredPayload)")
     }
 
     @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {
@@ -491,5 +547,15 @@ import Testing
             directory.appendPathComponent(component, isDirectory: true)
         }
         return directory.appendingPathComponent(executableName, isDirectory: false).path
+    }
+
+    private static func portableShellCommandPayload(from startupInput: String) throws -> String {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(
+            startupInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        try #require(words.count == 3, "\(startupInput)")
+        #expect(words[0].value == "/bin/sh", "\(startupInput)")
+        #expect(words[1].value == "-c", "\(startupInput)")
+        return words[2].value
     }
 }
