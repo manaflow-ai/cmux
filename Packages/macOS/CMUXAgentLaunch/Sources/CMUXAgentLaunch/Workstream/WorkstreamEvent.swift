@@ -64,11 +64,17 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case userPromptSubmit = "UserPromptSubmit"
         case preToolUse = "PreToolUse"
         case postToolUse = "PostToolUse"
+        /// Codex compaction is about to start.
+        case preCompact = "PreCompact"
+        /// Codex compaction completed.
+        case postCompact = "PostCompact"
         case permissionRequest = "PermissionRequest"
         case askUserQuestion = "AskUserQuestion"
         case exitPlanMode = "ExitPlanMode"
         case todoWrite = "TodoWrite"
         case stop = "Stop"
+        /// Codex started a subagent run.
+        case subagentStart = "SubagentStart"
         case subagentStop = "SubagentStop"
         case notification = "Notification"
     }

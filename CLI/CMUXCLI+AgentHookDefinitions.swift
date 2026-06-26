@@ -66,7 +66,7 @@ extension CMUXCLI {
         }
 
         enum PostInstallAction {
-            case codexConfigToml // write codex_hooks = true to config.toml on install, remove on uninstall
+            case codexConfigToml // write hooks = true to config.toml on install, remove on uninstall
         }
 
         /// Resolves the config directory, respecting env override if set.
@@ -164,7 +164,15 @@ extension CMUXCLI {
                 .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
             ],
-            feedHookEvents: ["PreToolUse", "PermissionRequest"],
+            feedHookEvents: [
+                "PreToolUse",
+                "PermissionRequest",
+                "PostToolUse",
+                "PreCompact",
+                "PostCompact",
+                "SubagentStart",
+                "SubagentStop",
+            ],
             postInstallAction: .codexConfigToml
         ),
         AgentHookDef(
@@ -403,14 +411,20 @@ extension CMUXCLI {
 
     static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
         let inline: String
+        let noOpCommand = feedHookNoOpShellCommand(for: def, agentEvent: agentEvent)
         switch def.format {
         case .kiroAgentJSON:
             inline = exitTwoPropagatingAgentHookShellCommand(
                 "cmux hooks feed --source \(def.name) --event \(agentEvent)",
-                for: def
+                for: def,
+                noOpCommand: noOpCommand
             )
         default:
-            inline = agentHookShellCommand("cmux hooks feed --source \(def.name) --event \(agentEvent)", for: def)
+            inline = agentHookShellCommand(
+                "cmux hooks feed --source \(def.name) --event \(agentEvent)",
+                for: def,
+                noOpCommand: noOpCommand
+            )
         }
         if def.name == "codex" {
             return codexPersistentHookScriptCommand(inline, eventTag: "feed-\(agentEvent)")
@@ -418,18 +432,47 @@ extension CMUXCLI {
         return inline
     }
 
+    private static func feedHookNoOpShellCommand(for def: AgentHookDef, agentEvent: String) -> String {
+        let normalized = (def.name == "codex" ? "posttooluse" : agentEvent)
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+        switch normalized {
+        case "posttooluse", "posttoolcall":
+            return "cat >/dev/null 2>/dev/null || true; echo '{}'"
+        default:
+            return "echo '{}'"
+        }
+    }
+
+    private static func shellNoOpSnippet(_ noOpCommand: String) -> String {
+        noOpCommand == "echo '{}'" ? noOpCommand : "{ \(noOpCommand); }"
+    }
+
     private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
     private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
 
-    private static func agentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
-        if usesPinnedHookDispatch(def) { return pinnedAgentHookShellCommand(command, for: def) }
+    private static func agentHookShellCommand(
+        _ command: String,
+        for def: AgentHookDef,
+        noOpCommand: String = "echo '{}'"
+    ) -> String {
+        if usesPinnedHookDispatch(def) {
+            return pinnedAgentHookShellCommand(command, for: def, noOpCommand: noOpCommand)
+        }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
-        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || echo '{}'; else echo '{}'; fi"
+        let noOpSnippet = shellNoOpSnippet(noOpCommand)
+        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || \(noOpSnippet); else \(noOpSnippet); fi"
     }
 
-    private static func exitTwoPropagatingAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
+    private static func exitTwoPropagatingAgentHookShellCommand(
+        _ command: String,
+        for def: AgentHookDef,
+        noOpCommand: String = "echo '{}'"
+    ) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
-        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; status=$?; if [ \"$status\" -eq 2 ]; then exit 2; fi; if [ \"$status\" -ne 0 ]; then echo '{}'; fi; else echo '{}'; fi"
+        let noOpSnippet = shellNoOpSnippet(noOpCommand)
+        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; status=$?; if [ \"$status\" -eq 2 ]; then exit 2; fi; if [ \"$status\" -ne 0 ]; then \(noOpSnippet); fi; else \(noOpSnippet); fi"
     }
 
     private static func usesPinnedHookDispatch(_ def: AgentHookDef) -> Bool {
@@ -440,9 +483,14 @@ extension CMUXCLI {
         def.name == "antigravity" ? antigravityPinnedHookMarker : grokPinnedHookMarker
     }
 
-    private static func pinnedAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
+    private static func pinnedAgentHookShellCommand(
+        _ command: String,
+        for def: AgentHookDef,
+        noOpCommand: String = "echo '{}'"
+    ) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         let socketPath = pinnedAgentHookSocketPath()
+        let noOpSnippet = shellNoOpSnippet(noOpCommand)
         let shellTraceStart = pinnedHookShellTraceCommand(
             agentName: def.name,
             phase: "start",
@@ -475,11 +523,11 @@ extension CMUXCLI {
                 routedArguments: routedArguments,
                 socketPath: socketPath
             )
-            dispatch = "if [ -x \(quotedCLIPath) ]; then \(primaryInvocation); elif command -v cmux >/dev/null 2>&1; then \(fallbackInvocation); else echo '{}'; fi"
+            dispatch = "if [ -x \(quotedCLIPath) ]; then \(primaryInvocation); elif command -v cmux >/dev/null 2>&1; then \(fallbackInvocation); else \(noOpSnippet); fi"
         } else {
-            dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || echo '{}'"
+            dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || \(noOpSnippet)"
         }
-        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); echo '{}'; } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
+        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); \(noOpCommand); } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
     }
 
     private static func pinnedHookInvocation(

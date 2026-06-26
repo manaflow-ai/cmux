@@ -11,10 +11,16 @@ public struct PresenceMap: Equatable, Sendable {
     public struct DeviceSummary: Equatable, Sendable {
         public var online: Bool
         public var lastSeenAt: Date
+        /// The host's build-channel label (`"DEV · tag"`, `"Nightly"`, `"Stable"`,
+        /// …), derived from its reported bundle id + tag. `nil` when not
+        /// identifiable (older host). See ``MacBuildChannel``.
+        public var buildLabel: String?
 
-        public init(online: Bool, lastSeenAt: Date) {
+        /// Create one device-level presence rollup.
+        public init(online: Bool, lastSeenAt: Date, buildLabel: String? = nil) {
             self.online = online
             self.lastSeenAt = lastSeenAt
+            self.buildLabel = buildLabel
         }
     }
 
@@ -77,13 +83,24 @@ public struct PresenceMap: Equatable, Sendable {
         guard let instances = instancesByDevice[deviceId], !instances.isEmpty else { return nil }
         var online = false
         var lastSeenMs = -Double.infinity
+        // Pick the instance to label the build from: prefer an online one (the
+        // build actually running), then the freshest. A device usually has one.
+        var labelInstance: PresenceInstance?
         for instance in instances.values {
             online = online || instance.online
             lastSeenMs = max(lastSeenMs, instance.lastSeenAt)
+            if let current = labelInstance {
+                let better = (instance.online && !current.online)
+                    || (instance.online == current.online && instance.lastSeenAt > current.lastSeenAt)
+                if better { labelInstance = instance }
+            } else {
+                labelInstance = instance
+            }
         }
         return DeviceSummary(
             online: online,
-            lastSeenAt: Date(timeIntervalSince1970: lastSeenMs / 1000)
+            lastSeenAt: Date(timeIntervalSince1970: lastSeenMs / 1000),
+            buildLabel: MacBuildChannel().label(bundleID: labelInstance?.bundleId, tag: labelInstance?.tag)
         )
     }
 }

@@ -739,13 +739,17 @@ final class AgentChatSessionRegistry {
         case .userPromptSubmit, .preToolUse, .postToolUse, .todoWrite:
             if case .working = previous { return previous }
             return .working(since: event.receivedAt)
+        case .preCompact, .postCompact:
+            // Compaction is lifecycle telemetry. It can occur while a session
+            // is idle, so it must not create a synthetic working state.
+            return previous
         case .permissionRequest, .askUserQuestion, .exitPlanMode, .notification:
             if case .needsInput = previous { return previous }
             return .needsInput(since: event.receivedAt)
         case .stop:
             return .idle
-        case .subagentStop:
-            // A Task subagent finishing says nothing about the parent
+        case .subagentStart, .subagentStop:
+            // Task subagent lifecycle says nothing about the parent
             // session's activity; keep the current state.
             return previous
         case .sessionEnd:
