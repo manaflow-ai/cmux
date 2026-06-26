@@ -107,6 +107,19 @@ struct TerminalAccessoryConfigurationTests {
         #expect(reloaded.displayOrder.last == id(.control))
     }
 
+    @Test("selecting an item's current toolbar row preserves row order")
+    func movingItemToCurrentRowIsNoOp() {
+        let config = TerminalAccessoryConfiguration(defaults: freshDefaults())
+        config.setRowCount(2)
+        config.moveItem(id(.tab), toRow: 1)
+        config.moveItem(id(.escape), toRow: 1)
+        let rowsBeforeSameRowMove = config.displayRows
+
+        config.moveItem(id(.tab), toRow: 1)
+
+        #expect(config.displayRows == rowsBeforeSameRowMove)
+    }
+
     @Test("hiding a modifier persists across reload and keeps it in the order")
     func hideModifierPersists() {
         let defaults = freshDefaults()
