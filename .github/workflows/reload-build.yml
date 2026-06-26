@@ -288,6 +288,14 @@ jobs:
           xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
           xcrun simctl bootstatus "$SIMULATOR_ID" -b
 
+          build_log="$IOS_DERIVED_DATA/logs/video-build.log"
+          xcodebuild \
+            -workspace ios/cmux.xcworkspace \
+            -scheme cmux-ios \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath "$IOS_DERIVED_DATA" \
+            build-for-testing 2>&1 | tee "$build_log"
+
           video_path="$GITHUB_WORKSPACE/artifact/cmux-$VIDEO_PLATFORM-$BUILD_TAG-$DEVICE_FAMILY.mp4"
           record_log="$RUNNER_TEMP/sim-record.log"
           xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 --force "$video_path" >"$record_log" 2>&1 &
@@ -312,7 +320,7 @@ jobs:
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath "$IOS_DERIVED_DATA" \
             -only-testing:"$TEST_FILTER" \
-            test 2>&1 | tee "$test_log"
+            test-without-building 2>&1 | tee "$test_log"
 
           cleanup_recording
           trap - EXIT
