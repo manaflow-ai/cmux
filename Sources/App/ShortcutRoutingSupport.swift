@@ -351,10 +351,6 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
     let normalizedChars = chars.lowercased()
 
     if normalizedFlags == [.command] {
-        if keyCode == 49 {
-            return false
-        }
-
         if normalizedChars == "a"
             || normalizedChars == "c"
             || normalizedChars == "v"
@@ -365,7 +361,7 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
         }
 
         switch keyCode {
-        case 51, 117, 123, 124:
+        case 49, 51, 117, 123, 124:
             return false
         default:
             break
