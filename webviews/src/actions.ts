@@ -39,6 +39,27 @@ export function diffSourceDetail(payload: any): string {
   return parts.join(" | ");
 }
 
+export function buildStageCommitCommand(repoRoot: string | undefined, message: string): string {
+  const trimmedRepoRoot = repoRoot?.trim() ?? "";
+  if (trimmedRepoRoot === "") {
+    throw new Error("Missing repository path");
+  }
+
+  const normalizedMessage = message.replace(/\r\n?/g, "\n").trim();
+  if (normalizedMessage === "") {
+    throw new Error("Missing commit message");
+  }
+
+  const newline = String.fromCharCode(10);
+  const commitMessage = normalizedMessage.endsWith(newline) ? normalizedMessage : `${normalizedMessage}${newline}`;
+  const delimiter = safeHereDocDelimiter(commitMessage, "CMUX_COMMIT_MESSAGE");
+  const quotedRepoRoot = shellSingleQuote(trimmedRepoRoot);
+  return [
+    `git -C ${quotedRepoRoot} add --all && git -C ${quotedRepoRoot} commit -F - <<'${delimiter}'`,
+    commitMessage + delimiter,
+  ].join(newline);
+}
+
 export async function copyGitApplyCommand(
   patchURL: string | undefined,
   label: DiffViewerLabelResolver,
@@ -54,12 +75,28 @@ export async function copyGitApplyCommand(
   const patchText = await response.text();
   const newline = String.fromCharCode(10);
   const patch = patchText.endsWith(newline) ? patchText : `${patchText}${newline}`;
-  const delimiter = safeGitApplyDelimiter(patch);
+  const delimiter = safeHereDocDelimiter(patch, "CMUX_DIFF_PATCH");
   const command = `git apply <<'${delimiter}'${newline}${patch}${delimiter}`;
+  await copyText(command, fallbackTextarea);
+  return label("copiedGitApplyCommand");
+}
+
+export async function copyStageCommitCommand(
+  repoRoot: string | undefined,
+  message: string,
+  label: DiffViewerLabelResolver,
+  fallbackTextarea: HTMLTextAreaElement | null,
+): Promise<string> {
+  const command = buildStageCommitCommand(repoRoot, message);
+  await copyText(command, fallbackTextarea);
+  return label("copiedStageCommitCommand");
+}
+
+async function copyText(text: string, fallbackTextarea: HTMLTextAreaElement | null): Promise<void> {
   if (navigator.clipboard?.writeText) {
     try {
-      await navigator.clipboard.writeText(command);
-      return label("copiedGitApplyCommand");
+      await navigator.clipboard.writeText(text);
+      return;
     } catch {
       // WebKit can expose Clipboard API but reject after the async patch fetch loses user activation.
     }
@@ -67,21 +104,24 @@ export async function copyGitApplyCommand(
   if (!fallbackTextarea) {
     throw new Error("Clipboard API unavailable");
   }
-  fallbackTextarea.value = command;
+  fallbackTextarea.value = text;
   fallbackTextarea.select();
   if (!document.execCommand("copy")) {
     throw new Error("Clipboard copy failed");
   }
-  return label("copiedGitApplyCommand");
 }
 
-function safeGitApplyDelimiter(patch: string): string {
-  const lines = new Set(patch.split(/\r?\n/));
-  let delimiter = "CMUX_DIFF_PATCH";
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function safeHereDocDelimiter(text: string, base: string): string {
+  const lines = new Set(text.split(/\r?\n/));
+  let delimiter = base;
   let index = 0;
   while (lines.has(delimiter)) {
     index += 1;
-    delimiter = `CMUX_DIFF_PATCH_${index}`;
+    delimiter = `${base}_${index}`;
   }
   return delimiter;
 }

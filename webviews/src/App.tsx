@@ -4,7 +4,7 @@ import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
+import { copyGitApplyCommand, copyStageCommitCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
 import { BranchBasePicker, type BranchPickerPayload } from "./BranchBasePicker";
 import { lineTextFor, type CommentFileDiff } from "./comments/anchor";
@@ -348,6 +348,18 @@ export function App({ config, initialStatus }: ConfigProps) {
             dispatch({ type: "set-copy-feedback", message: label("copyFailedGitApplyCommand") });
           }
         }}
+        onCopyStageCommit={repoRoot == null ? null : async () => {
+          const commitMessage = window.prompt(label("commitMessage"));
+          if (commitMessage == null) {
+            return;
+          }
+          try {
+            const message = await copyStageCommitCommand(repoRoot, commitMessage, label, copyFallbackRef.current);
+            dispatch({ type: "set-copy-feedback", message });
+          } catch {
+            dispatch({ type: "set-copy-feedback", message: label("copyFailedStageCommitCommand") });
+          }
+        }}
         onJump={scrollToItem}
         onNavigate={(url) => {
           setStatus(createDiffViewerStatus(label("loadingDiff"), { pending: true }));
@@ -546,6 +558,7 @@ function Toolbar({
   dispatch,
   label,
   onCopyGitApply,
+  onCopyStageCommit,
   onJump,
   onNavigate,
   onReload,
@@ -556,6 +569,7 @@ function Toolbar({
   dispatch: React.Dispatch<AppAction>;
   label: DiffViewerLabelResolver;
   onCopyGitApply: () => void;
+  onCopyStageCommit: (() => void) | null;
   onJump: (itemId: string) => void;
   onNavigate: (url: string) => void;
   onReload: () => void;
@@ -671,6 +685,7 @@ function Toolbar({
           externalURL={externalURL}
           label={label}
           onCopyGitApply={onCopyGitApply}
+          onCopyStageCommit={onCopyStageCommit}
           onReload={onReload}
           onSetLayout={onSetLayout}
           state={state}
@@ -913,6 +928,7 @@ function OptionsMenu({
   externalURL,
   label,
   onCopyGitApply,
+  onCopyStageCommit,
   onReload,
   onSetLayout,
   state,
@@ -921,6 +937,7 @@ function OptionsMenu({
   externalURL: string | null;
   label: DiffViewerLabelResolver;
   onCopyGitApply: () => void;
+  onCopyStageCommit: (() => void) | null;
   onReload: () => void;
   onSetLayout: (layout: DiffViewerLayout) => void;
   state: AppState;
@@ -970,6 +987,9 @@ function OptionsMenu({
       </div>
       <div className="menu-separator" />
       <MenuButton icon="clipboard" label={label("copyGitApplyCommand")} onClick={onCopyGitApply} />
+      {onCopyStageCommit ? (
+        <MenuButton icon="clipboard" label={label("copyStageCommitCommand")} onClick={onCopyStageCommit} />
+      ) : null}
     </div>
   );
 }

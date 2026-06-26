@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { copyGitApplyCommand, resolveDiffNavigationURL } from "../src/actions";
+import { buildStageCommitCommand, copyGitApplyCommand, copyStageCommitCommand, resolveDiffNavigationURL } from "../src/actions";
 import { createDiffViewerLabelResolver } from "../src/labels";
 
 const originalGlobals = new Map<string, any>();
@@ -75,6 +75,39 @@ test("copyGitApplyCommand fails when the textarea fallback cannot copy", async (
   const label = createDiffViewerLabelResolver(undefined);
 
   await expect(copyGitApplyCommand("/patch.diff", label, textarea)).rejects.toThrow("Clipboard copy failed");
+});
+
+test("buildStageCommitCommand quotes repo paths and avoids message delimiter collisions", () => {
+  const command = buildStageCommitCommand("/tmp/cmux user's repo", "Ship review\nCMUX_COMMIT_MESSAGE\n");
+
+  expect(command).toBe(
+    "git -C '/tmp/cmux user'\"'\"'s repo' add --all && " +
+      "git -C '/tmp/cmux user'\"'\"'s repo' commit -F - <<'CMUX_COMMIT_MESSAGE_1'\n" +
+      "Ship review\n" +
+      "CMUX_COMMIT_MESSAGE\n" +
+      "CMUX_COMMIT_MESSAGE_1",
+  );
+});
+
+test("copyStageCommitCommand falls back to a React-owned textarea", async () => {
+  const dom = new JSDOM("<!doctype html><html><body><textarea></textarea></body></html>");
+  const textarea = dom.window.document.querySelector("textarea");
+  expect(textarea).toBeTruthy();
+  (globalThis as any).navigator = {};
+  (globalThis as any).document = dom.window.document;
+  let copied = false;
+  dom.window.document.execCommand = (command: string) => {
+    copied = command === "copy";
+    return copied;
+  };
+
+  const label = createDiffViewerLabelResolver(undefined);
+  const message = await copyStageCommitCommand("/tmp/repo", "Review changes", label, textarea);
+
+  expect(message).toBe(label("copiedStageCommitCommand"));
+  expect(copied).toBe(true);
+  expect(textarea?.value).toContain("git -C '/tmp/repo' add --all");
+  expect(textarea?.value).toContain("Review changes");
 });
 
 test("resolveDiffNavigationURL strips query and fragment for custom scheme rewrites", () => {

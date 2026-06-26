@@ -110,6 +110,59 @@ test("App reports copy failure without replacing the current status screen", asy
   expect(dom.window.document.getElementById("status-text")?.textContent).toBe("Rendered diff");
 });
 
+test("App copies a stage and commit command for repo-backed diffs", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+  dom.window.document.execCommand = (command: string) => command === "copy";
+  (dom.window as any).prompt = () => "Review changes";
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          repoRoot: "/tmp/repo",
+          statusMessage: "Rendered diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  dom.window.document.getElementById("options-button")?.click();
+  await waitFor(() => Boolean(stageCommitButton()));
+  stageCommitButton()?.click();
+
+  await waitFor(() => dom?.window.document.getElementById("copy-feedback")?.textContent === "Copied stage & commit command");
+  expect(copyFallbackValue()).toContain("git -C '/tmp/repo' add --all");
+  expect(copyFallbackValue()).toContain("Review changes");
+});
+
+test("App hides the stage and commit command when no repository path is available", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          statusMessage: "Rendered diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  dom.window.document.getElementById("options-button")?.click();
+  await waitFor(() => Boolean(copyGitApplyButton()));
+  expect(stageCommitButton()).toBeUndefined();
+});
+
 test("files sidebar width can be changed from the resize separator", async () => {
   dom = createDom();
   installDomGlobals(dom, () => {
@@ -225,6 +278,15 @@ function renderApp(element: React.ReactNode): void {
 function copyGitApplyButton(): HTMLButtonElement | undefined {
   return Array.from(dom?.window.document.querySelectorAll<HTMLButtonElement>(".menu-item") ?? [])
     .find((button) => button.textContent?.includes("Copy git apply command"));
+}
+
+function stageCommitButton(): HTMLButtonElement | undefined {
+  return Array.from(dom?.window.document.querySelectorAll<HTMLButtonElement>(".menu-item") ?? [])
+    .find((button) => button.textContent?.includes("Copy stage & commit command"));
+}
+
+function copyFallbackValue(): string | undefined {
+  return dom?.window.document.querySelector<HTMLTextAreaElement>(".copy-fallback-textarea")?.value;
 }
 
 function contentFilesWidth(): string | undefined {
