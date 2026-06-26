@@ -1,154 +1,5 @@
 import Foundation
-import Network
 import Observation
-
-/// Lifecycle status of a captured offline note as it moves through the queue.
-///
-/// The three user-facing states called out in the feature request — pending,
-/// sent, and failed — are surfaced directly; ``sending`` is a transient
-/// in-flight state that collapses back to ``pending`` if the app is relaunched
-/// mid-dispatch (see ``OfflineNotesStore``'s load normalization).
-enum OfflineNoteStatus: String, Codable, Sendable, CaseIterable {
-    /// Captured locally, waiting to be handed off to an agent (offline, or
-    /// queued until the next flush).
-    case pending
-    /// Hand-off to an agent is in progress.
-    case sending
-    /// Successfully delivered to an agent.
-    case sent
-    /// Hand-off failed; the note is preserved and can be retried.
-    case failed
-}
-
-/// A note captured by the user — typically while offline — and queued so cmux
-/// can turn it into an agent task once connectivity is restored.
-///
-/// Notes are value types persisted as a JSON array so they survive app
-/// restarts. Each note records enough state to render its status and support
-/// retries without losing the original text.
-struct OfflineNote: Codable, Equatable, Identifiable, Sendable {
-    var id: UUID
-    var text: String
-    /// Workspace this note was captured in; delivery targets it (not whatever is
-    /// active at flush time), so a note never lands in an unrelated workspace.
-    var workspaceID: UUID?
-    var status: OfflineNoteStatus
-    var createdAt: Date
-    var updatedAt: Date
-    /// When the note was successfully delivered to an agent.
-    var sentAt: Date?
-    /// Number of dispatch attempts so far (drives retry display / backoff).
-    var attemptCount: Int
-    /// Human-readable reason for the most recent failure, if any.
-    var lastError: String?
-
-    init(
-        id: UUID = UUID(),
-        text: String,
-        workspaceID: UUID? = nil,
-        status: OfflineNoteStatus = .pending,
-        createdAt: Date = Date(),
-        updatedAt: Date = Date(),
-        sentAt: Date? = nil,
-        attemptCount: Int = 0,
-        lastError: String? = nil
-    ) {
-        self.id = id
-        self.text = text
-        self.workspaceID = workspaceID
-        self.status = status
-        self.createdAt = createdAt
-        self.updatedAt = updatedAt
-        self.sentAt = sentAt
-        self.attemptCount = attemptCount
-        self.lastError = lastError
-    }
-}
-
-/// Delivers a queued note to an agent. Conformers throw to mark the note
-/// ``OfflineNoteStatus/failed`` (the note is preserved and retryable).
-///
-/// Modeling delivery as a seam keeps ``OfflineNotesStore`` fully testable (the
-/// store is exercised against an in-memory fake) and lets the concrete agent
-/// hand-off evolve independently of the queue semantics.
-@MainActor
-protocol OfflineNoteDispatching: AnyObject {
-    func dispatch(_ note: OfflineNote) async throws
-}
-
-/// Failure reasons surfaced by the default dispatcher. `LocalizedError` so the
-/// stored `lastError` reads cleanly in the notes list.
-enum OfflineNoteDispatchError: LocalizedError, Equatable {
-    /// No cmux window/workspace is available to receive the note.
-    case noActiveWorkspace
-    /// The active workspace has no focused agent surface to stage the note into.
-    case noComposerTarget
-
-    var errorDescription: String? {
-        switch self {
-        case .noActiveWorkspace:
-            return String(
-                localized: "offlineNotes.dispatch.error.noActiveWorkspace",
-                defaultValue: "Open a cmux window to send this note to an agent."
-            )
-        case .noComposerTarget:
-            return String(
-                localized: "offlineNotes.dispatch.error.noComposerTarget",
-                defaultValue: "Focus a terminal so cmux can send this note to its agent."
-            )
-        }
-    }
-}
-
-/// Observes whether the machine currently has network connectivity and reports
-/// changes. Abstracted behind a protocol so the store can be driven by a fake
-/// in tests instead of the real `NWPathMonitor`.
-@MainActor
-protocol OfflineNotesReachabilityMonitoring: AnyObject {
-    /// Best current knowledge of connectivity. Conservatively `false` until the
-    /// first real reading arrives.
-    var isOnline: Bool { get }
-    /// Invoked on the main actor whenever connectivity changes.
-    var onChange: (@MainActor (Bool) -> Void)? { get set }
-    func start()
-    func stop()
-}
-
-/// `NWPathMonitor`-backed reachability used in the running app.
-@MainActor
-final class OfflineNotesNetworkReachability: OfflineNotesReachabilityMonitoring {
-    private let monitor = NWPathMonitor()
-    private let queue = DispatchQueue(label: "com.cmux.offline-notes.reachability")
-    private var started = false
-    private var hasDeliveredInitial = false
-
-    /// Pessimistic until the monitor delivers its first path so we never claim
-    /// online before it is proven.
-    private(set) var isOnline: Bool = false
-    var onChange: (@MainActor (Bool) -> Void)?
-
-    func start() {
-        guard !started else { return }
-        started = true
-        monitor.pathUpdateHandler = { [weak self] path in
-            let online = path.status == .satisfied
-            Task { @MainActor in
-                guard let self else { return }
-                let changed = self.isOnline != online || !self.hasDeliveredInitial
-                self.isOnline = online
-                self.hasDeliveredInitial = true
-                if changed {
-                    self.onChange?(online)
-                }
-            }
-        }
-        monitor.start(queue: queue)
-    }
-
-    func stop() {
-        monitor.cancel()
-    }
-}
 
 /// Persisted queue of user-captured notes that become agent tasks once the
 /// machine is back online.
@@ -178,6 +29,11 @@ final class OfflineNotesStore {
     @ObservationIgnored private let reachability: any OfflineNotesReachabilityMonitoring
     @ObservationIgnored private var isFlushing = false
     @ObservationIgnored private var hasStarted = false
+    // Single serial off-main writer: every mutation records the latest snapshot
+    // and one drain task writes it, so writes never overwrite newer state and the
+    // main actor only does an O(1) snapshot.
+    @ObservationIgnored private var pendingSnapshot: [OfflineNote]?
+    @ObservationIgnored private var writeTask: Task<Void, Never>?
 
     /// Bounds so the queue and its backing file stay small enough that the
     /// synchronous capture write is cheap on the main actor: a note is truncated
@@ -314,7 +170,7 @@ final class OfflineNotesStore {
     /// the same pass) so a persistently-failing dispatcher cannot spin.
     ///
     /// Each note's terminal state is persisted (off the main actor, awaited via
-    /// ``persistOffMainAndWait()``) before the next note is dispatched, so a crash
+    /// ``waitForPendingPersist()``) before the next note is dispatched, so a crash
     /// mid-flush can't replay a note that was already staged. The transient
     /// ``OfflineNoteStatus/sending`` state is not persisted; it is recovered as
     /// ``OfflineNoteStatus/pending`` on next launch (see ``normalizedForLoad(_:)``).
@@ -358,7 +214,8 @@ final class OfflineNotesStore {
             // Durably record this note's terminal state (off the main actor)
             // before dispatching the next one, so a crash can't replay a note
             // that was already staged into the composer.
-            await persistOffMainAndWait()
+            persist()
+            await waitForPendingPersist()
         }
     }
 
@@ -413,25 +270,43 @@ final class OfflineNotesStore {
         }
     }
 
-    /// Persists the current queue **synchronously**. Used by discrete user
-    /// mutations (capture/delete/retry/clear) so a note is durable the moment it
-    /// is captured — quitting immediately afterward cannot lose it. It is one
-    /// small atomic write, so the main-actor cost is negligible; the higher-volume
-    /// flush path uses ``persistOffMainAndWait()`` instead.
+    /// Enqueues a persist of the current queue. A single serial drain task writes
+    /// the **latest** snapshot off the main actor, so writes are serialized (a
+    /// slower write can never overwrite newer state), the main actor only does an
+    /// O(1) snapshot, and only one write runs at a time (no concurrent encoder
+    /// use). Durability on an immediate quit is guaranteed by
+    /// ``flushPendingPersistOnTermination()``.
     private func persist() {
-        guard let fileURL else { return }
-        Self.writeToDisk(notes, to: fileURL)
+        guard fileURL != nil else { return }
+        pendingSnapshot = notes
+        guard writeTask == nil else { return }
+        writeTask = Task { [weak self] in
+            await self?.drainPersist()
+        }
     }
 
-    /// Persists the current queue off the main actor and awaits the write. Used
-    /// inside ``flush()`` so draining a backlog never blocks the main actor on
-    /// repeated disk I/O, while each hand-off is still durable before the next.
-    private func persistOffMainAndWait() async {
-        guard let fileURL else { return }
-        let snapshot = notes
-        await Task.detached(priority: .utility) {
-            OfflineNotesStore.writeToDisk(snapshot, to: fileURL)
-        }.value
+    private func drainPersist() async {
+        while let snapshot = pendingSnapshot, let fileURL {
+            pendingSnapshot = nil
+            await Task.detached(priority: .utility) {
+                OfflineNotesStore.writeToDisk(snapshot, to: fileURL)
+            }.value
+        }
+        writeTask = nil
+    }
+
+    /// Awaits the in-flight write. Used by ``flush()`` so each hand-off is durable
+    /// before the next note is dispatched.
+    func waitForPendingPersist() async {
+        await writeTask?.value
+    }
+
+    /// Synchronously writes the current queue. Called from `applicationWillTerminate`
+    /// so a freshly-captured note whose off-main write has not drained yet is still
+    /// durable on quit. No-op when nothing is pending.
+    func flushPendingPersistOnTermination() {
+        guard let fileURL, pendingSnapshot != nil || writeTask != nil else { return }
+        Self.writeToDisk(notes, to: fileURL)
     }
 
     private nonisolated static func writeToDisk(_ notes: [OfflineNote], to fileURL: URL) {

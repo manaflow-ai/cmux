@@ -2000,6 +2000,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         closeAllWebInspectorsBeforeAppTeardown()
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
+        if RightSidebarBetaFeatureSettings.isNotesEnabled() {
+            OfflineNotesStore.shared.flushPendingPersistOnTermination()
+        }
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()

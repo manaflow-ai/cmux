@@ -89,7 +89,8 @@ struct OfflineNotesStoreTests {
         let note = first.addNote("ship the offline notes feature")
         #expect(note != nil)
         #expect(first.notes.count == 1)
-        // addNote persists synchronously, so the note is already durable on disk.
+        // Persistence is coalesced + off-main; wait for the write to land on disk.
+        await first.waitForPendingPersist()
 
         // A fresh store instance (simulating an app restart) reloads from disk.
         let reloaded = makeStore(fileURL: url, reachability: FakeReachability(isOnline: false), autostart: false)
