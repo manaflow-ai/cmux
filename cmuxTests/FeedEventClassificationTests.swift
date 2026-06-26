@@ -112,14 +112,15 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "AskUserQuestion").actionable == true)
     }
 
-    /// Codex runs `PermissionRequest` hooks before its own approval reviewer,
-    /// so Feed must keep both pre-tool events and permission requests as
-    /// telemetry. Otherwise "Approve for me" gets bypassed by cmux's Feed UI.
+    /// Codex `PreToolUse` is still telemetry so cmux does not preempt Codex's
+    /// own reviewer. `PermissionRequest` is different: Codex is now waiting
+    /// in its TUI, so cmux must surface a non-blocking approval-wait row
+    /// instead of erasing the event as ordinary tool-start telemetry.
     @Test func codexPreToolUseIsTelemetry() {
         #expect(classify("codex", "PreToolUse", tool: "shell").actionable == false)
         #expect(classify("codex", "beforeShellExecution", tool: "shell").actionable == false)
         #expect(classify("codex", "beforeShellExecution", tool: "shell").name == "PreToolUse")
-        #expect(classify("codex", "PermissionRequest", tool: "shell").name == "PreToolUse")
+        #expect(classify("codex", "PermissionRequest", tool: "shell").name == "ApprovalWait")
         #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == false)
     }
 
