@@ -1350,9 +1350,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private var shouldSyncFileExplorerStore: Bool {
-        FileExplorerRootSyncPolicy.shouldSyncFileExplorerStore(
-            isRightSidebarVisible: fileExplorerState.isVisible,
-            mode: fileExplorerState.mode
+        fileExplorerState.mode.shouldSyncFileExplorerStore(
+            isRightSidebarVisible: fileExplorerState.isVisible
         )
     }
 

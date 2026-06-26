@@ -41,35 +41,6 @@ extension RightSidebarMode {
     }
 }
 
-nonisolated enum RightSidebarContentMountPolicy {
-    static func shouldMountContent(isRightSidebarVisible: Bool, hasMountedContent: Bool) -> Bool {
-        isRightSidebarVisible || hasMountedContent
-    }
-}
-
-nonisolated enum FileExplorerRootSyncPolicy {
-    static func shouldSyncFileExplorerStore(isRightSidebarVisible: Bool, mode: RightSidebarMode) -> Bool {
-        guard isRightSidebarVisible else { return false }
-        switch mode {
-        case .files, .find:
-            return true
-        case .sessions, .feed, .dock:
-            return false
-        }
-    }
-}
-
-nonisolated enum RightSidebarDirectoryContext {
-    static func normalizedDirectory(_ directory: String?) -> String? {
-        let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    static func dockRootDirectory(workspaceDirectory: String?, fallbackDirectory: String?) -> String? {
-        normalizedDirectory(workspaceDirectory) ?? normalizedDirectory(fallbackDirectory)
-    }
-}
-
 extension RightSidebarMode {
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
         modeShortcut(for: event, allowingAction: { _ in true })
@@ -370,7 +341,7 @@ struct RightSidebarPanelView: View {
 
     @ViewBuilder
     private var contentForMode: some View {
-        if RightSidebarContentMountPolicy.shouldMountContent(isRightSidebarVisible: fileExplorerState.isVisible, hasMountedContent: hasMountedRightSidebarContent) {
+        if RightSidebarMode.shouldMountContent(isRightSidebarVisible: fileExplorerState.isVisible, hasMountedContent: hasMountedRightSidebarContent) {
             switch fileExplorerState.mode {
             case .files:
                 FileExplorerPanelView(
@@ -406,7 +377,7 @@ struct RightSidebarPanelView: View {
     }
 
     private var dockRootDirectory: String? {
-        RightSidebarDirectoryContext.dockRootDirectory(
+        RightSidebarMode.dockRootDirectory(
             workspaceDirectory: tabManager.selectedWorkspace?.currentDirectory,
             fallbackDirectory: sessionIndexStore.currentDirectory
         )
