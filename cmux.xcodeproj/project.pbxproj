@@ -123,8 +123,8 @@
 		BC000011 /* BrowserChromeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC000001 /* BrowserChromeStyle.swift */; };
 		E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */; };
 		C10D517B0000000000000002 /* BrowserDevToolsIconColorOption+DevToolsColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D517B0000000000000001 /* BrowserDevToolsIconColorOption+DevToolsColor.swift */; };
-		C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */; };
 		C59240010000000000000003 /* BrowserDownloadFilenameResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */; };
+		1482031301087617B2718338 /* BrowserDownloadLocalizedInit.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A965C03CEDC40A7DCED34D /* BrowserDownloadLocalizedInit.swift */; };
 		BE0EE0010000000000000001 /* BrowserExternalNavigationPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE0EE0010000000000000002 /* BrowserExternalNavigationPresenter.swift */; };
 		A5008381 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008380 /* BrowserFindJavaScriptTests.swift */; };
 		A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008372 /* BrowserFindWebViewEvaluator.swift */; };
@@ -1348,8 +1348,8 @@
 		BC000001 /* BrowserChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserChromeStyle.swift; sourceTree = "<group>"; };
 		970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
 		C10D517B0000000000000001 /* BrowserDevToolsIconColorOption+DevToolsColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserDevToolsIconColorOption+DevToolsColor.swift"; sourceTree = "<group>"; };
-		C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadFilenameResolver.swift; sourceTree = "<group>"; };
 		C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDownloadFilenameResolverTests.swift; sourceTree = "<group>"; };
+		F5A965C03CEDC40A7DCED34D /* BrowserDownloadLocalizedInit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserDownloadLocalizedInit.swift"; sourceTree = "<group>"; };
 		BE0EE0010000000000000002 /* BrowserExternalNavigationPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserExternalNavigationPresenter.swift; sourceTree = "<group>"; };
 		A5008380 /* BrowserFindJavaScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScriptTests.swift; sourceTree = "<group>"; };
 		A5008372 /* BrowserFindWebViewEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserFindWebViewEvaluator.swift; sourceTree = "<group>"; };
@@ -3030,7 +3030,6 @@
 				BE0EE0010000000000000002 /* BrowserExternalNavigationPresenter.swift */,
 				B7E3ME010000000000000002 /* BrowserThemeMode+Presentation.swift */,
 				C62530010000000000000002 /* BrowserPanelReloadMode.swift */,
-				C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */,
 				C6255D010000000000000002 /* CmuxWebView+ScriptedDownloads.swift */,
 				B3770BA00000000000000002 /* BrowserAutomation.swift */,
 				FB0CA0510000000000000002 /* BrowserPanel+FocusedBrowserActing.swift */,
@@ -3146,6 +3145,7 @@
 				A5001424 /* PDFPreviewChromeDebugWindowController.swift */,
 				A5001426 /* FilePreviewPDFSizing.swift */,
 				A5001428 /* FilePreviewPDFViewport.swift */,
+				F5A965C03CEDC40A7DCED34D /* BrowserDownloadLocalizedInit.swift */,
 				AC8366BD38105398873AD532 /* OmnibarSuggestion+App.swift */,
 				74F8FE480B2CEBB6AC5CACE0 /* MarkdownLibraryInjector.swift */,
 				B6B56E928542DB2D5E390E07 /* FilePreviewPDFChromeStyleVariant+Title.swift */,
@@ -4141,7 +4141,7 @@
 				BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */,
 				BC000011 /* BrowserChromeStyle.swift in Sources */,
 				C10D517B0000000000000002 /* BrowserDevToolsIconColorOption+DevToolsColor.swift in Sources */,
-				C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */,
+				1482031301087617B2718338 /* BrowserDownloadLocalizedInit.swift in Sources */,
 				BE0EE0010000000000000001 /* BrowserExternalNavigationPresenter.swift in Sources */,
 				A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */,
 				B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */,
