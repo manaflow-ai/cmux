@@ -8,3 +8,16 @@ enum AutoNamingSanitizationOutcome: Equatable, Sendable {
     /// The response did not contain a usable title.
     case unusable
 }
+
+extension AutoNamingSanitizationOutcome {
+    var sanitizedAction: (title: String, shouldApply: Bool, confirmNoOpSuccess: Bool)? {
+        switch self {
+        case .title(let title):
+            return (title, true, false)
+        case .unchanged(let title):
+            return (title, true, true)
+        case .unusable:
+            return nil
+        }
+    }
+}

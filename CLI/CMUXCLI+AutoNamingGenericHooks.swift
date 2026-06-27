@@ -354,6 +354,16 @@ extension CMUXCLI {
             )
             confirmedTitle = applyResult.confirmedTitle
             countFailure = applyResult.countsTowardBackoff
+            if confirmedTitle == nil, action.confirmNoOpSuccess, !applyResult.countsTowardBackoff {
+                confirmedTitle = confirmAutoNamingSuccess(
+                    workspaceId: workspaceId,
+                    agent: summarizerAgent,
+                    client: client,
+                    telemetryKey: telemetryKey,
+                    telemetry: telemetry
+                ) ? action.title : nil
+                countFailure = confirmedTitle == nil
+            }
         } else {
             confirmedTitle = confirmAutoNamingSuccess(
                 workspaceId: workspaceId,
@@ -376,17 +386,17 @@ extension CMUXCLI {
         currentTitle: String?,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
-    ) -> (title: String, shouldApply: Bool)? {
-        switch engine.sanitizeResponseOutcome(rawResponse, currentTitle: currentTitle) {
-        case .title(let title):
-            return (title, true)
-        case .unchanged(let title):
+    ) -> (title: String, shouldApply: Bool, confirmNoOpSuccess: Bool)? {
+        let outcome = engine.sanitizeResponseOutcome(rawResponse, currentTitle: currentTitle)
+        switch outcome {
+        case .title:
+            break
+        case .unchanged:
             telemetry.breadcrumb("\(telemetryKey).unchanged")
-            return (title, true)
         case .unusable:
             telemetry.breadcrumb("\(telemetryKey).unusable-response")
-            return nil
         }
+        return outcome.sanitizedAction
     }
 
     func confirmAutoNamingSuccess(

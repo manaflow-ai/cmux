@@ -25,10 +25,9 @@ struct AutoNamingRecentMessageCache: Sendable {
             guard eventSeen.insert(key).inserted else { continue }
             eventMessages.append(normalized)
         }
-        var progressCount = normalizedBatchKey == nil ? 0 : eventMessages.count
+        let progressCount = eventMessages.count
         for normalized in eventMessages {
             guard seen.insert(dedupKey(normalized)).inserted else { continue }
-            if normalizedBatchKey == nil { progressCount += 1 }
             recent.append(normalized)
         }
         if recent.count > maxMessages {

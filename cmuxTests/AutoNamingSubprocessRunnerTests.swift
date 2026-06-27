@@ -23,6 +23,26 @@ import Testing
         #expect(output == "Good title\n")
     }
 
+    @Test func waitsUntilOriginalDeadlineForDescendantStdout() throws {
+        let root = try temporaryDirectory(named: "autoname-runner-stdout-deadline")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = try executableScript(in: root, named: "summarizer", body: """
+        ( sleep 0.6; printf ' title\\n' ) &
+        printf 'Good'
+        exit 0
+        """)
+
+        let output = AutoNamingSubprocessRunner().run(
+            executable: script,
+            arguments: [],
+            prompt: "",
+            environment: processEnvironment(),
+            timeout: 2
+        )
+
+        #expect(output == "Good title\n")
+    }
+
     @Test func leaderExitWithOpenDescendantStdoutFailsAndCleansProcessGroup() throws {
         let root = try temporaryDirectory(named: "autoname-runner-stdout-timeout")
         defer { try? FileManager.default.removeItem(at: root) }

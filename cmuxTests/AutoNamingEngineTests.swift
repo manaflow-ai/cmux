@@ -223,6 +223,20 @@ import Testing
         #expect(next.messages == first.messages)
     }
 
+    @Test func hookMessageCacheCountsRepeatedUnbatchedEventsAsProgress() {
+        let cache = AutoNamingRecentMessageCache(maxMessages: 24, maxMessageCharacters: 1_000)
+        let first = cache.appending([
+            AutoNamingTranscriptMessage(role: "user", text: "continue")
+        ], batchKey: nil, to: [], recentBatchKeys: [])
+        let repeated = cache.appending([
+            AutoNamingTranscriptMessage(role: "USER", text: " continue ")
+        ], batchKey: nil, to: first.messages, recentBatchKeys: first.batchKeys)
+
+        #expect(first.progressCount == 1)
+        #expect(repeated.progressCount == 1)
+        #expect(repeated.messages == first.messages)
+    }
+
     @Test func extractionDiagnosticsExposeMalformedOrUnknownFormats() throws {
         let extraction = engine.extractClaudeTranscript(fromTranscriptLines: [
             "not json",
@@ -321,6 +335,16 @@ import Testing
         #expect(engine.sanitizeResponseOutcome("Fix auth bug", currentTitle: "Fix auth bug") == .unchanged("Fix auth bug"))
         #expect(engine.sanitizeResponseOutcome("Fix auth bug", currentTitle: nil) == .title("Fix auth bug"))
         #expect(engine.sanitizeResponse("Fix auth bug", currentTitle: "Other title") == "Fix auth bug")
+    }
+
+    @Test func unchangedTitleActionAllowsIdempotentApplyAndNoOpConfirmation() throws {
+        let action = try #require(
+            engine.sanitizeResponseOutcome("Fix auth bug", currentTitle: "Fix auth bug").sanitizedAction
+        )
+
+        #expect(action.title == "Fix auth bug")
+        #expect(action.shouldApply)
+        #expect(action.confirmNoOpSuccess)
     }
 
     // MARK: - Environment policy

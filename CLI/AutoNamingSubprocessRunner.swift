@@ -163,9 +163,7 @@ struct AutoNamingSubprocessRunner: Sendable {
                     closeFD(&stdinFD)
                     return (nil, true, false)
                 }
-                let postExitDrainDeadline = Date().addingTimeInterval(
-                    min(max(0, deadline.timeIntervalSinceNow), 0.25)
-                )
+                let postExitDrainDeadline = deadline
                 if !stdoutEOF {
                     while true {
                         let withinLimit = drainAvailableOutput(
