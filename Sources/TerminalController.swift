@@ -8620,6 +8620,9 @@ class TerminalController {
             queue.removeAll { v2DownloadID(from: $0) == downloadID }
         }
         queue.append(event)
+        if queue.count > Self.v2ConsumedBrowserDownloadIDLimit {
+            queue.removeFirst(queue.count - Self.v2ConsumedBrowserDownloadIDLimit)
+        }
         v2BrowserDownloadEventsBySurface[surfaceId] = queue
     }
 
@@ -8644,12 +8647,8 @@ class TerminalController {
     }
 
     private func v2IsTerminalBrowserDownloadEvent(_ event: [String: Any]) -> Bool {
-        switch event["type"] as? String {
-        case "saved", "cancelled", "failed":
-            return true
-        default:
-            return false
-        }
+        let type = event["type"] as? String
+        return type == "saved" || type == "cancelled" || type == "failed"
     }
 
     private func v2ShouldStoreBrowserDownloadEvent(_ event: [String: Any], surfaceId: UUID) -> Bool {
