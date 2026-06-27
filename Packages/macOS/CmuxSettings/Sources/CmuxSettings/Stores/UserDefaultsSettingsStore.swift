@@ -377,8 +377,7 @@ public actor UserDefaultsSettingsStore {
                     consumedSourceSequence = snapshot.consumedSourceSequence
                     let currentEvent = snapshot.event
                     if currentEvent.value != lastYieldedEvent.value,
-                       currentEvent.mutationSource == nil,
-                       currentEvent.supersededMutationSource == nil {
+                       currentEvent.mutationSource == nil {
                         await self.recordAcceptedMutation(nil, for: key.userDefaultsKey)
                     }
                     if !isBackingDefaultsNotification {
