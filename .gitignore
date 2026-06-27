@@ -64,3 +64,4 @@ artifacts/
 
 # tmux verbose debug logs (tmux -v) that land in the cwd
 tmux-*.log
+push_err.txt

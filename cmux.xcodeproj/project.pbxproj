@@ -1090,6 +1090,7 @@
 		E3B7A40000000000000005C0 /* Workspace+SurfaceLifecycleHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000005C1 /* Workspace+SurfaceLifecycleHosting.swift */; };
 		E3D000000000000000000001 /* Workspace+SurfaceSplitWorkspaceHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D000000000000000000002 /* Workspace+SurfaceSplitWorkspaceHandle.swift */; };
 		E3C9F1000000000000000A10 /* Workspace+SurfaceTeardownHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3C9F1000000000000000A11 /* Workspace+SurfaceTeardownHosting.swift */; };
+		F62F663E1DE5BB85478EDC8F /* Workspace+TerminalAgentContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7F42D21104E0E25CA24F370 /* Workspace+TerminalAgentContext.swift */; };
 		5EA8A275682B6260C143DC1E /* Workspace+TerminalInputSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CD0C8784628E8438058C1C1 /* Workspace+TerminalInputSelection.swift */; };
 		E3B7A4000000000000000D40 /* Workspace+WorkspaceContextMenuHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000D41 /* Workspace+WorkspaceContextMenuHosting.swift */; };
 		E3D40D0000000000000000A0 /* Workspace+WorkspaceDropHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D40D0000000000000000A1 /* Workspace+WorkspaceDropHosting.swift */; };
@@ -2241,6 +2242,7 @@
 		E3B7A40000000000000005C1 /* Workspace+SurfaceLifecycleHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceLifecycleHosting.swift"; sourceTree = "<group>"; };
 		E3D000000000000000000002 /* Workspace+SurfaceSplitWorkspaceHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceSplitWorkspaceHandle.swift"; sourceTree = "<group>"; };
 		E3C9F1000000000000000A11 /* Workspace+SurfaceTeardownHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceTeardownHosting.swift"; sourceTree = "<group>"; };
+		D7F42D21104E0E25CA24F370 /* Workspace+TerminalAgentContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TerminalAgentContext.swift"; sourceTree = "<group>"; };
 		4CD0C8784628E8438058C1C1 /* Workspace+TerminalInputSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TerminalInputSelection.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000D41 /* Workspace+WorkspaceContextMenuHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceContextMenuHosting.swift"; sourceTree = "<group>"; };
 		E3D40D0000000000000000A1 /* Workspace+WorkspaceDropHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceDropHosting.swift"; sourceTree = "<group>"; };
@@ -3144,6 +3146,7 @@
 				CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */,
 				A5001611 /* SessionPersistence.swift */,
 				4CD0C8784628E8438058C1C1 /* Workspace+TerminalInputSelection.swift */,
+				D7F42D21104E0E25CA24F370 /* Workspace+TerminalAgentContext.swift */,
 				14F283838842222BA3A8A34A /* Workspace+FocusedPaneCloseTargetHosting.swift */,
 				1BDF3CF5C10F309A24A4B35D /* Workspace+ClosedBrowserPanelReopenWorkspaceHandle.swift */,
 				FBCB6663D5E4C122F50B23F2 /* TranscriptContentFragments.swift */,
@@ -4731,6 +4734,7 @@
 				E3B7A40000000000000005C0 /* Workspace+SurfaceLifecycleHosting.swift in Sources */,
 				E3D000000000000000000001 /* Workspace+SurfaceSplitWorkspaceHandle.swift in Sources */,
 				E3C9F1000000000000000A10 /* Workspace+SurfaceTeardownHosting.swift in Sources */,
+				F62F663E1DE5BB85478EDC8F /* Workspace+TerminalAgentContext.swift in Sources */,
 				5EA8A275682B6260C143DC1E /* Workspace+TerminalInputSelection.swift in Sources */,
 				E3B7A4000000000000000D40 /* Workspace+WorkspaceContextMenuHosting.swift in Sources */,
 				E3D40D0000000000000000A0 /* Workspace+WorkspaceDropHosting.swift in Sources */,
