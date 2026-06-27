@@ -2,6 +2,7 @@
 import AppKit
 import Bonsplit
 import CmuxTestSupport
+import CmuxWorkspaces
 import Foundation
 
 /// Records bonsplit tab-drag UI-test state for the

@@ -108,33 +108,6 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     }
 }
 
-struct TitlebarControlsStyleConfig {
-    let spacing: CGFloat
-    let iconSize: CGFloat
-    let buttonSize: CGFloat
-    let badgeSize: CGFloat
-    let badgeOffset: CGSize
-    let groupBackground: Bool
-    let groupPadding: EdgeInsets
-    let buttonBackground: Bool
-    let buttonCornerRadius: CGFloat
-    let hoverBackground: Bool
-}
-
-/// Vertical-lift positioning constant for the titlebar controls accessory.
-struct TitlebarControlsVisualMetrics {
-    /// Points the controls content is lifted within its container.
-    let verticalLift: CGFloat
-
-    /// The lift applied to the titlebar controls accessory.
-    static let standard = TitlebarControlsVisualMetrics(verticalLift: 0)
-
-    /// Applies the vertical lift to a computed y-offset.
-    func liftedYOffset(_ yOffset: CGFloat) -> CGFloat {
-        yOffset + verticalLift
-    }
-}
-
 extension TitlebarControlsStyleConfig {
     /// Point size for the notification badge label, derived from the badge diameter.
     var notificationBadgeFontSize: CGFloat {
@@ -1227,11 +1200,6 @@ struct HiddenTitlebarSidebarControlsView: View {
         }
         return NSApp.keyWindow ?? NSApp.mainWindow
     }
-}
-
-enum TitlebarControlsVisibilityMode {
-    case alwaysVisible
-    case onHover
 }
 
 private struct PassthroughHoverTrackingView: NSViewRepresentable {
