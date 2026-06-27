@@ -43,7 +43,7 @@ public final class FeedInlineNativeTextView: NSTextView {
         window.makeFirstResponder(nil)
     }
 
-    override func mouseDown(with event: NSEvent) {
+    override public func mouseDown(with event: NSEvent) {
 #if DEBUG
         logDebugEvent("feed.editor.mouseDown frBefore=\(window?.firstResponder.feedInlineResponderDebugSummary)")
 #endif
@@ -51,7 +51,7 @@ public final class FeedInlineNativeTextView: NSTextView {
         super.mouseDown(with: event)
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    override public func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.type == .keyDown, event.keyCode == 53 {
 #if DEBUG
             logDebugEvent("feed.editor.escape fr=\(window?.firstResponder.feedInlineResponderDebugSummary)")
@@ -62,7 +62,7 @@ public final class FeedInlineNativeTextView: NSTextView {
         return super.performKeyEquivalent(with: event)
     }
 
-    override func keyDown(with event: NSEvent) {
+    override public func keyDown(with event: NSEvent) {
         let normalizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let shouldSubmit = (event.keyCode == 36 || event.keyCode == 76)
             && normalizedFlags.intersection([.shift, .option, .command, .control]).isEmpty
@@ -73,12 +73,12 @@ public final class FeedInlineNativeTextView: NSTextView {
         super.keyDown(with: event)
     }
 
-    override func resetCursorRects() {
+    override public func resetCursorRects() {
         super.resetCursorRects()
         addCursorRect(bounds, cursor: .iBeam)
     }
 
-    override func becomeFirstResponder() -> Bool {
+    override public func becomeFirstResponder() -> Bool {
         let didBecomeFirstResponder = super.becomeFirstResponder()
         if didBecomeFirstResponder {
             Self.activeEditor = self
@@ -90,7 +90,7 @@ public final class FeedInlineNativeTextView: NSTextView {
         return didBecomeFirstResponder
     }
 
-    override func resignFirstResponder() -> Bool {
+    override public func resignFirstResponder() -> Bool {
         let didResignFirstResponder = super.resignFirstResponder()
         if didResignFirstResponder, Self.activeEditor === self {
             Self.activeEditor = nil

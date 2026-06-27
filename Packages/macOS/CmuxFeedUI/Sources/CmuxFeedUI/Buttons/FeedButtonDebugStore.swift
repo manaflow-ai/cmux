@@ -232,7 +232,7 @@ private struct FeedButtonDebugStoreEnvironmentKey: EnvironmentKey {
     /// names `UserDefaults.standard`. Override via
     /// `.environment(\.feedButtonDebugStore, …)` to inject a scoped
     /// `UserDefaults(suiteName:)` in tests.
-    static let defaultValue = FeedButtonDebugStore(defaults: .standard)
+    nonisolated(unsafe) static let defaultValue = FeedButtonDebugStore(defaults: .standard)
 }
 
 extension EnvironmentValues {

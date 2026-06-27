@@ -57,11 +57,16 @@ public final class NotificationsPopoverVisibilityState: ObservableObject, @unche
     /// showing) a popover in `windowNumber`, hopping to the main thread if needed.
     /// A `nil` `source` sets the source-less aggregate and clears per-source state.
     public func setShown(_ newValue: Bool, source: AnyObject?, windowNumber: Int? = nil) {
+        // Reduce the source to its `Sendable` identity before any actor hop so a
+        // non-`Sendable` `AnyObject` never crosses into the main-actor closure.
+        // `setShownOnMain` only ever used the source for `ObjectIdentifier`, so
+        // this is behavior-identical.
+        let sourceID = source.map(ObjectIdentifier.init)
         if Thread.isMainThread {
-            setShownOnMain(newValue, source: source, windowNumber: windowNumber)
+            setShownOnMain(newValue, sourceID: sourceID, windowNumber: windowNumber)
         } else {
             DispatchQueue.main.async { [weak self] in
-                self?.setShown(newValue, source: source, windowNumber: windowNumber)
+                self?.setShownOnMain(newValue, sourceID: sourceID, windowNumber: windowNumber)
             }
         }
     }
@@ -90,9 +95,8 @@ public final class NotificationsPopoverVisibilityState: ObservableObject, @unche
         )
     }
 
-    private func setShownOnMain(_ newValue: Bool, source: AnyObject?, windowNumber: Int?) {
-        if let source {
-            let id = ObjectIdentifier(source)
+    private func setShownOnMain(_ newValue: Bool, sourceID: ObjectIdentifier?, windowNumber: Int?) {
+        if let id = sourceID {
             if newValue {
                 shownPopoverIDs.insert(id)
                 if let windowNumber {
