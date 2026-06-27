@@ -27,6 +27,31 @@ import Testing
 
         #expect(didAcknowledge)
         #expect(actionDelegate.retryRequestCount == 1)
+        #expect(actionDelegate.retryPreserveInstallIntentValues == [false])
+        #expect(model.state == .checking(.init(cancel: {})))
+    }
+
+    @Test func transientDownloadFailureDuringInstallPreservesInstallIntent() async {
+        let model = UpdateStateModel()
+        let actionDelegate = RecordingUpdateActionDelegate()
+        let driver = UpdateDriver(model: model, log: NullUpdateLog(), clock: ImmediateUpdateClock())
+        driver.actionDelegate = actionDelegate
+        model.setState(.downloading(.init(cancel: {}, expectedLength: nil, progress: 0)))
+
+        driver.showUpdaterError(
+            Self.sparkleDownloadHTTPError(
+                statusCode: 504,
+                statusText: "gateway timed out",
+                urlString: "https://github.com/manaflow-ai/cmux/releases/download/v0.64.14/cmux-macos.dmg"
+            ),
+            acknowledgement: {}
+        )
+
+        for _ in 0..<5 {
+            await Task.yield()
+        }
+
+        #expect(actionDelegate.retryPreserveInstallIntentValues == [true])
         #expect(model.state == .checking(.init(cancel: {})))
     }
 

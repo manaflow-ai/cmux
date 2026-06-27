@@ -221,8 +221,11 @@ public final class UpdateController {
     /// Retry after a transient Sparkle download failure. Unlike a user-started fresh check,
     /// this preserves any in-progress install/attempt intent so a retried archive download can
     /// continue silently after Sparkle finds the same update again.
-    public func retryAfterTransientFailure() {
-        let shouldPreserveInstallIntent = isForceInstalling || isAttemptingUpdate
+    ///
+    /// - Parameter preservingInstallIntent: Whether the retry request came from a Sparkle
+    ///   install/download phase whose update choice should be auto-confirmed again.
+    public func retryAfterTransientFailure(preservingInstallIntent: Bool = false) {
+        let shouldPreserveInstallIntent = preservingInstallIntent || isForceInstalling || isAttemptingUpdate
         log.append("retrying update after transient download failure (preserveInstallIntent=\(shouldPreserveInstallIntent))")
         checkForUpdatesWhenReady(preservingInstallIntent: shouldPreserveInstallIntent)
     }

@@ -100,7 +100,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             error: error,
             retry: { [weak self] in
                 self?.model.setState(.idle)
-                self?.actionDelegate?.updaterRequestsRetryCheckForUpdates()
+                self?.actionDelegate?.updaterRequestsRetryCheckForUpdates(preservingInstallIntent: false)
             },
             dismiss: { [weak self] in
                 self?.model.setState(.idle)
@@ -225,6 +225,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             return false
         }
 
+        let preservingInstallIntent = shouldPreserveInstallIntentForTransientRetry()
         transientErrorRetryFailureCount = nextFailureCount
         transientErrorRetryTask?.cancel()
         log.append("transient update download error; retry \(nextFailureCount)/\(retryPolicy.maximumRetryCount) in \(String(format: "%.0f", retryDelay))s")
@@ -239,9 +240,18 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             guard !Task.isCancelled else { return }
             self.transientErrorRetryTask = nil
             self.shouldPreserveRetryStateForNextCheck = true
-            self.actionDelegate?.updaterRequestsRetryCheckForUpdates()
+            self.actionDelegate?.updaterRequestsRetryCheckForUpdates(preservingInstallIntent: preservingInstallIntent)
         }
         return true
+    }
+
+    private func shouldPreserveInstallIntentForTransientRetry() -> Bool {
+        switch model.state {
+        case .downloading, .extracting, .installing:
+            return true
+        default:
+            return false
+        }
     }
 
     private func cancelPendingTransientErrorRetry() {
