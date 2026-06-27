@@ -322,7 +322,50 @@ import Testing
         #expect(await tokenStarted.isSet() == false)
     }
 
-    @Test func eventSubscriptionUsesStackTokenEvenWithAttachToken() async throws {
+    @Test func macWideEventSubscriptionDoesNotWaitForStackToken() async throws {
+        let tokenStarted = AsyncFlag()
+        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let transport = QueuedCancellationProbeTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessTokenProvider: {
+                await tokenStarted.set()
+                return "fresh-stack-token"
+            },
+            now: { Self.fixedNow }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Self.fixedNow.addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.events.subscribe",
+            params: [
+                "stream_id": "events",
+                "topics": ["workspace.updated"],
+            ]
+        )
+        let frame = try await sentFrame(client: client, transport: transport, request: request)
+
+        #expect(frame.method == "mobile.events.subscribe")
+        #expect(frame.attachToken == "ticket-secret")
+        #expect(frame.stackAccessToken == nil)
+        #expect(frame.hasAuth)
+        #expect(await tokenStarted.isSet() == false)
+    }
+
+    @Test func scopedEventSubscriptionUsesStackToken() async throws {
         let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(

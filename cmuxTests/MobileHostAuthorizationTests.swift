@@ -701,7 +701,30 @@ struct MobileHostAuthorizationTests {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        #expect(error == nil && MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: MobileHostRPCRequest(id: "events", method: "mobile.events.subscribe", params: ["topics": ["terminal.render_grid"]], auth: request.auth))?.code == "forbidden")
+        let eventRequest = MobileHostRPCRequest(
+            id: "events",
+            method: "mobile.events.subscribe",
+            params: ["topics": ["terminal.render_grid"]],
+            auth: request.auth
+        )
+        #expect(error == nil)
+        #expect(MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: eventRequest) == nil)
+    }
+    @Test func testWorkspaceScopedAttachTicketRejectsEventSubscription() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "events",
+            method: "mobile.events.subscribe",
+            params: ["topics": ["terminal.render_grid"]],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error?.code == "forbidden")
     }
     @Test func testStackUserIDAuthorizationRequiresSignedInMacUser() throws {
         #expect(throws: (any Error).self) {
