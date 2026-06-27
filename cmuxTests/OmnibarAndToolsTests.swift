@@ -1032,7 +1032,7 @@ final class BrowserOmnibarFieldEditorResolutionTests: XCTestCase {
         }
 
         XCTAssertEqual(
-            browserOmnibarPanelId(for: editor),
+            BrowserOmnibarNativeFieldRegistry.shared.omnibarPanelId(for: editor),
             panelId,
             "A live omnibar field editor must resolve to its owning omnibar field even when AppKit leaves a stale browser responder chain behind"
         )
