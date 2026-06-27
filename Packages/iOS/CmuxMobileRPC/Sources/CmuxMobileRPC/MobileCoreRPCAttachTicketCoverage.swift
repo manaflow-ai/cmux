@@ -38,6 +38,10 @@ struct MobileCoreRPCAttachTicketCoverage {
     }
 
     func ticketCoversWorkspaceCreateRequest(ticket: CmxAttachTicket) -> Bool {
+        ticketCoversMacWideRequest(ticket: ticket)
+    }
+
+    func ticketCoversMacWideRequest(ticket: CmxAttachTicket) -> Bool {
         let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
         return ticketWorkspaceID.isEmpty
     }

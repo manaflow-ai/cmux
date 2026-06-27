@@ -341,6 +341,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             )
         case "workspace.create":
             return !ticketCoverage.ticketCoversWorkspaceCreateRequest(ticket: ticket)
+        case "workspace.group.collapse", "workspace.group.expand":
+            return !ticketCoverage.ticketCoversMacWideRequest(ticket: ticket)
         case "workspace.action", "workspace.close":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
@@ -357,7 +359,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport",
-             "mobile.terminal.scroll", "terminal.scroll":
+             "mobile.terminal.scroll", "terminal.scroll",
+             "mobile.terminal.mouse", "terminal.mouse":
             return !ticketCoverage.ticketCoversTerminalRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value,
