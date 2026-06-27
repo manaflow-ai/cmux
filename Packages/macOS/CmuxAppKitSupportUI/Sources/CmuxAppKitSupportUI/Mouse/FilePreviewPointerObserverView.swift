@@ -11,7 +11,11 @@ public import AppKit
 public final class FilePreviewPointerObserverView: NSView {
     /// Invoked when a left-mouse-down lands inside this view's bounds.
     public var onPointerDown: (() -> Void)?
-    private var eventMonitor: Any?
+    // The token is set/cleared only on the main thread (this is a main-thread
+    // AppKit view); the lone cross-isolation read is its removal in the
+    // nonisolated deinit, which runs after all main-thread access has ceased,
+    // so `nonisolated(unsafe)` is safe here.
+    private nonisolated(unsafe) var eventMonitor: Any?
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

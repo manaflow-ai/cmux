@@ -49,7 +49,11 @@ public struct DragCancelMonitor: NSViewRepresentable {
     private final class DragCancelMonitorView: NSView {
         var isDragActive: (() -> Bool)?
         var onCancel: (() -> Void)?
-        private var monitor: Any?
+        // The token is set/cleared only on the main thread (this is a
+        // main-thread AppKit view); the lone cross-isolation read is its
+        // removal in the nonisolated deinit, which runs after all main-thread
+        // access has ceased, so `nonisolated(unsafe)` is safe here.
+        private nonisolated(unsafe) var monitor: Any?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
