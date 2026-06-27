@@ -8630,7 +8630,9 @@ class TerminalController {
             v2BrowserDownloadEventsBySurface[surfaceId] = remaining
             guard v2ShouldStoreBrowserDownloadEvent(first, surfaceId: surfaceId) else { continue }
             if (first["type"] as? String) != "started" {
-                v2MarkBrowserDownloadEventConsumed(first, surfaceId: surfaceId)
+                if v2IsTerminalBrowserDownloadEvent(first) {
+                    v2MarkBrowserDownloadEventConsumed(first, surfaceId: surfaceId)
+                }
                 return first
             }
         }

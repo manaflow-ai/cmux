@@ -4,7 +4,7 @@
 34629	CLI/cmux.swift
 17854	Sources/AppDelegate.swift
 16109	Sources/ContentView.swift
-13967	Sources/TerminalController.swift
+13969	Sources/TerminalController.swift
 12838	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12237	Sources/GhosttyTerminalView.swift
@@ -57,7 +57,7 @@
 1680	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1656	Sources/FileExplorerView.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
-1664	cmuxTests/TerminalControllerSocketSecurityTests.swift
+1667	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1581	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1500	cmuxUITests/MultiWindowNotificationsUITests.swift
