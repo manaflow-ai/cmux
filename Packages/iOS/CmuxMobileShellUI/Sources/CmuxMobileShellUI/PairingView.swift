@@ -14,6 +14,8 @@ import AppKit
 struct PairingView: View {
     @Binding var pairingCode: String
     let pairingChecklist: MobilePairingChecklist
+    let connectionError: String?
+    let connectionErrorGuidance: String?
     let versionWarning: String?
     let connectPairingCode: () async -> Void
     let acceptVersionWarning: () async -> Void
@@ -124,6 +126,25 @@ struct PairingView: View {
                     Text(L10n.string("mobile.pairing.checks.title", defaultValue: "Pairing checks"))
                 } footer: {
                     Text(L10n.string("mobile.pairing.checks.help", defaultValue: "Each step updates independently so you can see whether the connection, account, or trust check needs attention."))
+                }
+
+                if let genericPairingError {
+                    Section {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(genericPairingError)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("MobilePairingError")
+                            if let genericPairingGuidance {
+                                Text(genericPairingGuidance)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .accessibilityIdentifier("MobilePairingErrorGuidance")
+                            }
+                        }
+                    }
                 }
 
                 #if os(iOS)
@@ -258,6 +279,17 @@ struct PairingView: View {
             return .idle
         }
         return pairingChecklist
+    }
+
+    private var genericPairingError: String? {
+        guard !displayedPairingChecklist.hasFailure else { return nil }
+        let trimmed = connectionError?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var genericPairingGuidance: String? {
+        let trimmed = connectionErrorGuidance?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     @ViewBuilder

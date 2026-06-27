@@ -241,10 +241,9 @@ struct CMUXMobileRootView: View {
         PairingView(
             pairingCode: $store.pairingCode,
             pairingChecklist: store.pairingChecklist,
+            connectionError: store.connectionError, connectionErrorGuidance: store.connectionErrorGuidance,
             versionWarning: store.pairingVersionWarning,
-            connectPairingCode: {
-                await store.connectPairingInput()
-            },
+            connectPairingCode: { await store.connectPairingInput() },
             acceptVersionWarning: {
                 let result = await store.acceptPairingVersionWarning()
                 clearAttachTicketAuthentication(after: result)
