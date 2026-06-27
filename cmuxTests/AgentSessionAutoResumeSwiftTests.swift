@@ -363,7 +363,7 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     @MainActor
-    @Test func sessionRestorePrefersNewerCodexAgentSnapshotOverOlderPoisonedBinding() throws {
+    @Test func sessionRestorePrefersCodexAgentSnapshotOverPoisonedBindingWithSyntheticNewerTimestamp() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
@@ -405,7 +405,9 @@ struct AgentSessionAutoResumeSwiftTests {
                     checkpointId: staleSessionId,
                     source: "agent-hook",
                     autoResume: true,
-                    updatedAt: 1_777_777_777
+                    // Older cmux builds could synthesize and persist a fresh timestamp
+                    // while decoding a legacy poisoned binding without `updatedAt`.
+                    updatedAt: 1_777_777_779
                 )
                 panelSnapshot.terminal = terminalSnapshot
                 snapshot.panels[0] = panelSnapshot
