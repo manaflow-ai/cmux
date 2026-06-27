@@ -40,10 +40,12 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.allowsSelection = false
         tableView.accessibilityIdentifier = "ChatTranscriptTableView"
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             tableView.topEdgeEffect.style = .soft
             tableView.bottomEdgeEffect.style = .soft
         }
+        #endif
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
         context.coordinator.attach(tableView)
@@ -361,6 +363,7 @@ private struct ChatTranscriptTableConfiguration {
     }
 
     @ViewBuilder
+    @MainActor
     func view(for item: ChatTranscriptTableItem, tableWidth: CGFloat) -> some View {
         itemView(for: item)
             .padding(.horizontal, theme.horizontalMargin)
@@ -374,6 +377,7 @@ private struct ChatTranscriptTableConfiguration {
     }
 
     @ViewBuilder
+    @MainActor
     private func itemView(for item: ChatTranscriptTableItem) -> some View {
         switch item {
         case .loadingMore:

@@ -382,19 +382,24 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     }
 
     private func configureScrollEdgeEffect(for tableView: ChatTranscriptUITableView) {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             tableView.topEdgeEffect.style = .soft
             tableView.bottomEdgeEffect.style = .soft
         }
+        #endif
     }
 
     private func configureContentScrollView(for tableView: ChatTranscriptUITableView?) {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             setContentScrollView(tableView, for: [.top, .bottom])
         }
+        #endif
     }
 
     private func configureComposerScrollEdgeInteraction(for tableView: ChatTranscriptUITableView?) {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             guard let tableView else {
                 if let interaction = composerScrollEdgeInteraction {
@@ -420,6 +425,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
                 scrollEdgeInteractionTableView = tableView
             }
         }
+        #endif
     }
 
     private func updateComposerVisibility() {
