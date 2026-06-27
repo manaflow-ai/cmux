@@ -739,19 +739,6 @@ enum FileExplorerSelectionRestoration {
 /// because NSOutlineView data source/delegate methods are called on the main thread
 /// but are not annotated @MainActor.
 final class FileExplorerStore: ObservableObject {
-    private static let recursiveWatcherIgnoredDirectoryNames: Set<String> = [
-        ".build",
-        ".git",
-        ".next",
-        ".swiftpm",
-        ".turbo",
-        "DerivedData",
-        "build",
-        "dist",
-        "node_modules",
-        "target",
-    ]
-
     @Published var rootPath: String = ""
     @Published var rootNodes: [FileExplorerNode] = []
     @Published private(set) var isRootLoading: Bool = false
@@ -1300,7 +1287,17 @@ final class FileExplorerStore: ObservableObject {
 
     private static func recursiveWatcherExcludedPaths(under rootPath: String) -> [String] {
         let rootURL = URL(fileURLWithPath: rootPath).standardizedFileURL
-        return recursiveWatcherIgnoredDirectoryNames
+        let ignoredDirectoryNames = [
+            ".build",
+            ".git",
+            ".next",
+            ".swiftpm",
+            "DerivedData",
+            "build",
+            "dist",
+            "node_modules",
+        ]
+        return ignoredDirectoryNames
             .map { rootURL.appendingPathComponent($0, isDirectory: true).path }
             .sorted()
     }

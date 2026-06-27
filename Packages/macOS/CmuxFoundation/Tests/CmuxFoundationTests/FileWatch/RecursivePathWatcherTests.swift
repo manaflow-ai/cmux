@@ -54,6 +54,21 @@ private actor GateClock: FileWatchClock {
         await watcher?.stop()
     }
 
+    @Test func exclusionPathsAreLimitedAndCanPointAtMissingSubtrees() async {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-watch-exclusions-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let exclusions = (0..<10).map {
+            directory.appendingPathComponent("ignored-\($0)", isDirectory: true).path
+        }
+
+        let watcher = RecursivePathWatcher(paths: [directory.path], excludedPaths: exclusions)
+        #expect(watcher != nil)
+        #expect(watcher?.excludedPaths == Array(exclusions.prefix(8)))
+        await watcher?.stop()
+    }
+
     /// A burst of events inside one throttle window coalesces into a single
     /// yield, a fresh event re-arms the throttle, and `stop()` finishes the
     /// stream. This is the leading-edge behavior the watcher provides: react once

@@ -27,6 +27,7 @@ import Foundation
 /// after `FSEventStreamInvalidate`. No callback ever touches a freed instance,
 /// so a separately retained context box is unnecessary.
 final class FileSystemEventStream: @unchecked Sendable {
+    private static let maximumExclusionPathCount = 8
     private static let queueSpecificKey = DispatchSpecificKey<UInt8>()
     private static let queue: DispatchQueue = {
         let queue = DispatchQueue(label: "com.cmux.recursive-path-watcher", qos: .utility)
@@ -71,6 +72,7 @@ final class FileSystemEventStream: @unchecked Sendable {
         guard !paths.isEmpty else { return nil }
         self.onEvent = onEvent
         self.stream = nil
+        let effectiveExcludedPaths = Array(excludedPaths.prefix(Self.maximumExclusionPathCount))
 
         var context = FSEventStreamContext(
             version: 0,
@@ -92,8 +94,11 @@ final class FileSystemEventStream: @unchecked Sendable {
             return nil
         }
         self.stream = stream
-        if !excludedPaths.isEmpty {
-            _ = FSEventStreamSetExclusionPaths(stream, excludedPaths as CFArray)
+        if !effectiveExcludedPaths.isEmpty {
+            guard FSEventStreamSetExclusionPaths(stream, effectiveExcludedPaths as CFArray) else {
+                stop()
+                return nil
+            }
         }
         FSEventStreamSetDispatchQueue(stream, Self.queue)
         guard FSEventStreamStart(stream) else {

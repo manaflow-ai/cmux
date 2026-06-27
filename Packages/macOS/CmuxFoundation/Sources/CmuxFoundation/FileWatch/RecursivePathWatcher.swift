@@ -32,6 +32,8 @@ import Foundation
 /// and applies the throttle. The pump's lifetime is the raw stream's: ``stop()``
 /// and `deinit` finish it.
 public actor RecursivePathWatcher {
+    private static let maximumFSEventExclusionPathCount = 8
+
     /// The paths this watcher observes, as passed to ``init(paths:clock:)``.
     ///
     /// Exposed so callers can compare against a freshly resolved set and skip
@@ -79,8 +81,9 @@ public actor RecursivePathWatcher {
         clock: any FileWatchClock = SystemFileWatchClock()
     ) {
         guard !paths.isEmpty else { return nil }
+        let effectiveExcludedPaths = Array(excludedPaths.prefix(Self.maximumFSEventExclusionPathCount))
         self.watchedPaths = paths
-        self.excludedPaths = excludedPaths
+        self.excludedPaths = effectiveExcludedPaths
         self.clock = clock
         let (events, eventsContinuation) = AsyncStream<Void>.makeStream()
         self.events = events
@@ -93,7 +96,7 @@ public actor RecursivePathWatcher {
         // actor mid-init.
         guard let eventStream = FileSystemEventStream(
             paths: paths,
-            excludedPaths: excludedPaths,
+            excludedPaths: effectiveExcludedPaths,
             latency: Self.streamLatency,
             onEvent: { rawContinuation.yield(()) }
         ) else {

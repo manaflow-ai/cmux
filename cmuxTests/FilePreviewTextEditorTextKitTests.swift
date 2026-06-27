@@ -175,14 +175,13 @@ struct FilePreviewTextEditorTextKitTests {
         panel.updateTextContent("dirty needle\n")
         #expect(panel.isDirty)
 
-        panel.navigateToTextPosition(lineNumber: 1, columnNumber: 7)
-        loader.result = FilePreviewTextLoader.Result.unavailable
-        await panel.loadTextContent(replacingDirtyContent: false).value
-
         let textView = SavingTextView.makeFilePreviewTextView()
         textView.string = panel.textContent
         textView.setSelectedRange(NSRange(location: 0, length: 0))
         panel.attachTextView(textView)
+
+        loader.result = FilePreviewTextLoader.Result.unavailable
+        await panel.navigateToTextPosition(lineNumber: 1, columnNumber: 7)?.value
 
         #expect(textView.selectedRange().location == 0)
     }
@@ -208,13 +207,12 @@ struct FilePreviewTextEditorTextKitTests {
         panel.updateTextContent("dirty\nfirst\nneedle\n")
         #expect(panel.isDirty)
 
-        panel.navigateToTextPosition(lineNumber: 2, columnNumber: 1)
-        await panel.loadTextContent(replacingDirtyContent: false).value
-
         let textView = SavingTextView.makeFilePreviewTextView()
         textView.string = panel.textContent
         textView.setSelectedRange(NSRange(location: 0, length: 0))
         panel.attachTextView(textView)
+
+        await panel.navigateToTextPosition(lineNumber: 2, columnNumber: 1)?.value
 
         #expect(textView.selectedRange().location == 0)
     }

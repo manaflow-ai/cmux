@@ -1073,15 +1073,20 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         focusCoordinator.fulfillPendingFocusIfNeeded()
     }
 
-    func navigateToTextPosition(lineNumber: Int?, columnNumber: Int?) {
-        guard let lineNumber else { return }
+    @discardableResult
+    func navigateToTextPosition(lineNumber: Int?, columnNumber: Int?) -> Task<Void, Never>? {
+        guard let lineNumber else { return nil }
         pendingTextNavigation = (
             lineNumber: max(1, lineNumber),
             columnNumber: max(1, columnNumber ?? 1)
         )
         focusCoordinator.notePreferredIntent(.textEditor)
         _ = restoreFocusIntent(.filePreview(.textEditor))
+        if isDirty {
+            return loadTextContent(replacingDirtyContent: false)
+        }
         applyPendingTextNavigationIfReady()
+        return nil
     }
 
     func attachPDFPreview(root: NSView, primaryResponder: NSView) {

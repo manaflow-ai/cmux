@@ -21,7 +21,7 @@
 6077	Sources/TextBoxInput.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
 5573	cmuxTests/BrowserConfigTests.swift
-4568	Sources/Panels/FilePreviewPanel.swift
+4573	Sources/Panels/FilePreviewPanel.swift
 4478	Sources/cmuxApp.swift
 4367	cmuxTests/BrowserPanelTests.swift
 4187	Sources/BrowserWindowPortal.swift
@@ -62,7 +62,7 @@
 1547	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1500	cmuxUITests/MultiWindowNotificationsUITests.swift
 1499	cmuxTests/OmnibarAndToolsTests.swift
-1469	Sources/FileExplorerStore.swift
+1466	Sources/FileExplorerStore.swift
 1433	Sources/RemoteTmuxControlConnection.swift
 1384	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
