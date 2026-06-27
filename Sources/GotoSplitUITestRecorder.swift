@@ -3,6 +3,7 @@ import AppKit
 import Bonsplit
 import CmuxFoundation
 import CmuxPanes
+import CmuxTerminal
 import CmuxTestSupport
 import Combine
 import Foundation

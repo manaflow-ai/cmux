@@ -1,3 +1,4 @@
+import CmuxTerminal
 import Foundation
 
 /// Owns a `.ghosttyDidSetTitle` observer and delivers typed title changes.
