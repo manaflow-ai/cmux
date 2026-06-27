@@ -114,9 +114,6 @@ public struct AgentLaunchCaptureTrust: Sendable, Equatable {
                 index = arguments.index(index, offsetBy: 2)
                 continue
             }
-            if argument == "--" || !argument.hasPrefix("-") {
-                return false
-            }
             return false
         }
         return sawShellStartupOnlyFlag
