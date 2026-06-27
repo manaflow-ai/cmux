@@ -397,7 +397,6 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error?.code == "forbidden")
@@ -421,12 +420,13 @@ struct MobileHostAuthorizationTests {
 
         #expect(error?.code == "forbidden")
     }
-    @Test func testAttachTicketAcceptsUnscopedWorkspaceListForPairedDevice() throws {
+    @Test(arguments: [[String: String](), ["workspace_id": "other-workspace"]])
+    func testScopedAttachTicketRejectsWorkspaceListOutsideScope(params: [String: String]) throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "workspace-list",
             method: "workspace.list",
-            params: [:],
+            params: params.mapValues { $0 as Any },
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
                 stackAccessToken: nil
@@ -435,7 +435,7 @@ struct MobileHostAuthorizationTests {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        #expect(error == nil)
+        #expect(error?.code == "forbidden")
     }
     @Test func testTerminalScopedAttachTicketAcceptsScopedWorkspaceList() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
