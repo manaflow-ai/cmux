@@ -1,7 +1,5 @@
 import XCTest
 import Foundation
-import AppKit
-import CoreGraphics
 
 final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     private var dataPath = ""
@@ -581,10 +579,8 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             "Expected inline completion display to avoid injecting an https:// prefix unless typed."
         )
 
-        XCTAssertTrue(
-            postBackspaceAndEscapeToDebugApp(),
-            "Expected targeted Backspace and Escape key events to post to debug app pid"
-        )
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
 
         var valueAfterDelete = ""
         let revealedTypedPrefix = waitForCondition(timeout: 3.0) {
@@ -750,46 +746,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             return nil
         }
         return object
-    }
-
-    private func postBackspaceAndEscapeToDebugApp() -> Bool {
-        postKeySequenceToDebugApp(keyCodes: [51, 53])
-    }
-
-    private func postKeySequenceToDebugApp(keyCodes: [CGKeyCode]) -> Bool {
-        guard let processID = waitForAppProcessIdentifier(),
-              let source = CGEventSource(stateID: .hidSystemState) else {
-            return false
-        }
-
-        for keyCode in keyCodes {
-            guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
-                  let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
-                return false
-            }
-            keyDown.flags = []
-            keyUp.flags = []
-            keyDown.postToPid(processID)
-            keyUp.postToPid(processID)
-        }
-        return true
-    }
-
-    private func waitForAppProcessIdentifier(timeout: TimeInterval = 3.0) -> pid_t? {
-        var resolvedProcessID: pid_t?
-        _ = waitForCondition(timeout: timeout) {
-            resolvedProcessID = self.appProcessIdentifier()
-            return (resolvedProcessID ?? 0) > 0
-        }
-        return resolvedProcessID
-    }
-
-    private func appProcessIdentifier(bundleIdentifier: String = "com.cmuxterm.app.debug") -> pid_t? {
-        let candidates = NSRunningApplication
-            .runningApplications(withBundleIdentifier: bundleIdentifier)
-            .filter { !$0.isTerminated }
-        return candidates.first(where: { $0.isActive })?.processIdentifier ??
-            candidates.first?.processIdentifier
     }
 
     private func typeQueryAndWaitForSuggestions(
