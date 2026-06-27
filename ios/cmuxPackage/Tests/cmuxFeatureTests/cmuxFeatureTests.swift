@@ -1073,7 +1073,7 @@ final class TerminalOutputCollector {
         routes: [route],
         expiresAt: Date().addingTimeInterval(60),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace"),
     ])
@@ -1109,7 +1109,7 @@ final class TerminalOutputCollector {
         routes: [route],
         expiresAt: Date().addingTimeInterval(60),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
         try rpcResultFrame(
             result: [
@@ -1182,7 +1182,7 @@ final class TerminalOutputCollector {
         routes: [route],
         expiresAt: Date().addingTimeInterval(60),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
         try rpcResultFrame(
             result: [
@@ -1252,7 +1252,7 @@ final class TerminalOutputCollector {
         routes: [route],
         expiresAt: Date().addingTimeInterval(60),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
         try rpcErrorFrame(message: "Full list not supported"),
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
@@ -1288,7 +1288,7 @@ final class TerminalOutputCollector {
         routes: [route],
         expiresAt: Date().addingTimeInterval(60),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
     ])
@@ -1333,7 +1333,7 @@ final class TerminalOutputCollector {
         routes: [fallbackRoute, preferredRoute],
         expiresAt: Date().addingTimeInterval(60),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Fallback Workspace"),
     ])
@@ -2207,7 +2207,7 @@ final class TerminalOutputCollector {
         routes: [route],
         expiresAt: Date(timeIntervalSince1970: 2_000_000_000),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let router = RemoteCreateWorkspaceRouter()
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -2355,7 +2355,7 @@ final class TerminalOutputCollector {
         routes: [route],
         expiresAt: Date().addingTimeInterval(60),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(
             workspaceID: "live-workspace",
@@ -2661,6 +2661,9 @@ final class TerminalOutputCollector {
 
 private struct MissingTestStackAccessToken: Error {}
 
+private let testMacUserID = "user-1"
+private let testMacUserEmail = "user@example.com"
+
 private struct TestIdentityProvider: MobileIdentityProviding {
     let currentUserIDValue: String?
     let currentUserEmailValue: String?
@@ -2728,6 +2731,24 @@ private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
 }
 
 private extension CmxAttachTicket {
+    func boundToTestMacAccountForTest() throws -> CmxAttachTicket {
+        try CmxAttachTicket(
+            version: version,
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            macDeviceID: macDeviceID,
+            macDisplayName: macDisplayName,
+            macUserEmail: testMacUserEmail,
+            macUserID: testMacUserID,
+            macPairingCompatibilityVersion: macPairingCompatibilityVersion,
+            macAppVersion: macAppVersion,
+            macAppBuild: macAppBuild,
+            routes: routes,
+            expiresAt: expiresAt,
+            authToken: authToken
+        )
+    }
+
     func withCurrentMacPairingCompatibilityVersionForTest() throws -> CmxAttachTicket {
         guard macPairingCompatibilityVersion == nil else {
             return self

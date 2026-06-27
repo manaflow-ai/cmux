@@ -157,6 +157,7 @@ import Testing
         let scopedTicket = try #require(store.durableAttachTicket(for: scopedMac))
         #expect(scopedTicket.workspaceID == "workspace-a")
         #expect(scopedTicket.terminalID == "terminal-a")
+        #expect(scopedTicket.macUserID == "user-1")
 
         var unknownScopeMac = scopedMac
         unknownScopeMac.attachTokenWorkspaceID = nil
