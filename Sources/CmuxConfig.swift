@@ -475,7 +475,7 @@ extension CmuxResolvedConfigAction {
             next.keywords = keywords
         }
         next.palette = definition.palette ?? next.palette
-        next.shortcut = definition.shortcut ?? next.shortcut
+        next.shortcut = definition.shortcut.map(CmuxSettings.StoredShortcut.init) ?? next.shortcut
         if let icon = definition.icon {
             next.icon = icon
             next.iconSourcePath = sourcePath
@@ -505,7 +505,7 @@ extension CmuxResolvedConfigAction {
             subtitle: definition.subtitle,
             keywords: definition.keywords ?? [],
             palette: definition.palette ?? true,
-            shortcut: definition.shortcut,
+            shortcut: definition.shortcut.map(CmuxSettings.StoredShortcut.init),
             icon: definition.icon ?? action.defaultButtonIcon,
             tooltip: definition.tooltip,
             action: action,

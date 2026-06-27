@@ -1681,6 +1681,17 @@ struct ShortcutStroke: Equatable, Hashable {
     ]
 }
 
+extension CmuxSettings.StoredShortcut {
+    /// Temporary bridge from the legacy flat in-app ``StoredShortcut`` to the
+    /// package stroke-based type. Used where config parsing still yields the flat
+    /// app type but a package consumer (e.g. `CmuxResolvedConfigAction.shortcut`)
+    /// needs the package type. Remove once the flat->stroke consolidation deletes
+    /// the duplicate app type.
+    init(_ appShortcut: StoredShortcut) {
+        self.init(first: appShortcut.firstStroke, second: appShortcut.secondStroke)
+    }
+}
+
 /// A keyboard shortcut that can be stored in UserDefaults
 struct StoredShortcut: Codable, Equatable, Hashable {
     /// Temporary bridge from the package `CmuxSettings.StoredShortcut` (stroke-based)
