@@ -58,4 +58,32 @@ import Testing
         #expect(!report.contains("aaaabbbbccccdddd"))
         #expect(report.contains("<redacted>"))
     }
+
+    @Test func reportPreservesOSLogUnavailableStatus() {
+        let builder = MobileDiagnosticsReportBuilder()
+        let report = builder.buildReport(
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            app: MobileDiagnosticsAppInfo(
+                version: "1.2.3",
+                build: "456",
+                bundleIdentifier: "com.cmux.test",
+                deviceModel: "iPhone17,2",
+                osVersion: "iOS 26.0"
+            ),
+            auth: MobileDiagnosticsAuthState(isSignedIn: false, lastError: nil),
+            connection: MobileDiagnosticsConnectionState(state: "disconnected", host: nil, lastError: nil),
+            events: [],
+            structuredEventLog: nil,
+            debugLog: nil,
+            osLogEntries: [
+                MobileDiagnosticsOSLogEntry.unavailableStatus(
+                    date: Date(timeIntervalSince1970: 1_700_000_020),
+                    message: "OSLog unavailable"
+                ),
+            ]
+        )
+
+        #expect(report.contains("Recent OSLog\nOSLog unavailable\n"))
+        #expect(!report.contains("OSLog entries omitted from shared report: 1"))
+    }
 }

@@ -166,11 +166,8 @@ struct WorkspaceDiagnosticsSheet: View {
             )
         } catch {
             return [
-                MobileDiagnosticsOSLogEntry(
+                MobileDiagnosticsOSLogEntry.unavailableStatus(
                     date: generatedAt,
-                    subsystem: "cmux",
-                    category: "diagnostics",
-                    level: "error",
                     message: L10n.string(
                         "mobile.diagnostics.report.osLogUnavailable",
                         defaultValue: "OSLog unavailable"

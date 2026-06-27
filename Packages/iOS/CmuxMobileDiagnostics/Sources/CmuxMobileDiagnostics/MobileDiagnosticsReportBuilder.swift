@@ -165,6 +165,13 @@ public struct MobileDiagnosticsReportBuilder: Sendable {
             lines.append("")
             return
         }
+        if entries.count == 1,
+           entries[0].isUnavailableStatus,
+           let message = nonEmpty(entries[0].message) {
+            lines.append(message)
+            lines.append("")
+            return
+        }
         lines.append(
             String(
                 format: localized(
