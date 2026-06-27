@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 import Testing
 
 #if canImport(cmux_DEV)
@@ -92,6 +93,40 @@ import Testing
 
         #expect(resolver.transcriptPath(for: Self.codexRecord(sessionID: staleSessionID)) == nil)
         #expect(resolver.transcriptPath(for: Self.codexRecord(sessionID: recentSessionID)) == recentRollout.path)
+    }
+
+    @MainActor
+    @Test("Codex history resolves fallback transcript for ended sessions")
+    func codexHistoryResolvesFallbackForEndedSession() async throws {
+        let fm = FileManager.default
+        let home = fm.temporaryDirectory
+            .appendingPathComponent("agentchat-resolver-codex-ended-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: home) }
+
+        let sessionID = "ended-session-with-valid-meta"
+        let rollout = try Self.writeCodexRollout(home: home, sessionID: sessionID)
+        let registry = AgentChatSessionRegistry()
+        _ = registry.noteHookEvent(
+            WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .sessionStart,
+                source: "codex",
+                receivedAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+        registry.update(sessionID: sessionID) { record in
+            record.state = .ended
+            record.transcriptPath = nil
+        }
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            resolver: Self.codexResolver(home: home)
+        )
+
+        let page = await service.history(sessionID: sessionID, beforeSeq: nil, limit: 20)
+
+        #expect(page != nil)
+        #expect(service.sessionRecord(sessionID: sessionID)?.transcriptPath == rollout.path)
     }
 
     private static func codexRecord(sessionID: String) -> AgentChatSessionRecord {

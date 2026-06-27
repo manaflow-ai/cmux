@@ -484,8 +484,7 @@ final class AgentChatTranscriptService {
 
     private func applyDirectCodexTranscriptResolution(_ resolved: String?, sessionID: String) {
         guard let record = registry.record(sessionID: sessionID),
-              record.agentKind == .codex,
-              record.state != .ended else {
+              record.agentKind == .codex else {
             return
         }
         guard let resolved else {
