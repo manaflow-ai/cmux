@@ -578,19 +578,15 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             decisionHandler(.cancel)
             return
         }
-        subframeDownloadIntents.updateIfNeeded(
-            navigationAction,
-            hasUserActivation: browserNavigationHasSimpleUserActivation()
-        )
+        let hasUserActivation = browserNavigationHasSimpleUserActivation()
+        subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
 
         // Only guard main-frame navigations
         guard navigationAction.targetFrame?.isMainFrame != false else {
             if navigationAction.shouldPerformDownload {
-                if browserShouldBlockInsecureHTTPURL(url) {
-                    decisionHandler(.cancel)
-                } else {
-                    decisionHandler(.download)
-                }
+                let hasRecordedIntent = subframeDownloadIntents.consume(for: url)
+                guard hasUserActivation || hasRecordedIntent else { decisionHandler(.cancel); return }
+                decisionHandler(browserShouldBlockInsecureHTTPURL(url) ? .cancel : .download)
                 return
             }
             decisionHandler(.allow)

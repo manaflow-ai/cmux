@@ -229,10 +229,8 @@ import WebKit
             buttonNumber: navigationAction.buttonNumber,
             hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
         )
-        subframeDownloadIntents.updateIfNeeded(
-            navigationAction,
-            hasUserActivation: browserNavigationHasSimpleUserActivation()
-        )
+        let hasUserActivation = browserNavigationHasSimpleUserActivation()
+        subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
 #if DEBUG
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
@@ -288,14 +286,20 @@ import WebKit
         }
 
         if navigationAction.shouldPerformDownload {
-            if navigationAction.targetFrame?.isMainFrame == false,
-               let url = navigationAction.request.url,
-               shouldBlockInsecureHTTPSubframeDownload?(url) == true {
-                #if DEBUG
-                cmuxDebugLog("browser.nav.decidePolicy.action kind=cancelDownload reason=insecureHTTPSubframe url=\(url.absoluteString)")
-                #endif
-                decisionHandler(.cancel)
-                return
+            if navigationAction.targetFrame?.isMainFrame == false {
+                guard let url = navigationAction.request.url else {
+                    decisionHandler(.cancel)
+                    return
+                }
+                let hasRecordedIntent = subframeDownloadIntents.consume(for: url)
+                guard hasUserActivation || hasRecordedIntent else { decisionHandler(.cancel); return }
+                if shouldBlockInsecureHTTPSubframeDownload?(url) == true {
+                    #if DEBUG
+                    cmuxDebugLog("browser.nav.decidePolicy.action kind=cancelDownload reason=insecureHTTPSubframe url=\(url.absoluteString)")
+                    #endif
+                    decisionHandler(.cancel)
+                    return
+                }
             }
             decisionHandler(.download)
             return
