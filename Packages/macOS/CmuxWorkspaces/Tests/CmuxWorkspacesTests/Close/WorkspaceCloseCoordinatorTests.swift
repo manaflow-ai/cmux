@@ -124,6 +124,39 @@ private final class StubCloseHost: WorkspaceCloseHosting {
         events.append("closeWindow")
         return closeWindowResult
     }
+
+    // Child-exit-path effects.
+    var keepsPersistentRemoteIds: Set<UUID> = []
+    var demoteAfterChildExitIds: Set<UUID> = []
+    var panelCounts: [UUID: Int] = [:]
+    func keepsPersistentRemoteSurfaceOpenAfterChildExit(_ tab: StubTab, surfaceId: UUID) -> Bool {
+        keepsPersistentRemoteIds.contains(tab.id)
+    }
+    func shouldDemoteWorkspaceAfterChildExit(_ tab: StubTab, surfaceId: UUID) -> Bool {
+        demoteAfterChildExitIds.contains(tab.id)
+    }
+    func panelCount(_ tab: StubTab) -> Int { panelCounts[tab.id] ?? 1 }
+    func markRemoteTerminalSessionEnded(_ tab: StubTab, surfaceId: UUID) {
+        events.append("markRemoteEnded")
+    }
+    func markPersistentRemotePTYAttachFailed(_ tab: StubTab, surfaceId: UUID) {
+        events.append("markPersistentFailed")
+    }
+    func closeRuntimeSurface(tabId: UUID, surfaceId: UUID) {
+        events.append("closeRuntimeSurface")
+    }
+    @discardableResult
+    func closeWindowForLastChildExit(workspaceId: UUID) -> Bool {
+        events.append("closeWindowChildExit")
+        return closeWindowResult
+    }
+    func logChildExitCloseDecision(
+        _ tab: StubTab,
+        surfaceId: UUID,
+        workspaceCount: Int,
+        handlesRemoteExitThroughWorkspace: Bool,
+        keepsPersistentRemoteSurfaceOpen: Bool
+    ) {}
 }
 
 /// A scoped, empty `UserDefaults`-backed settings client + catalog for the

@@ -39,7 +39,7 @@ final class WindowDecorationsController {
     }
 
     func apply(to window: NSWindow) {
-        if isMainWorkspaceWindow(window), WorkspacePresentationModeSettings.isMinimal() {
+        if window.isMainWorkspaceWindow, WorkspacePresentationModeSettings.isMinimal() {
             WindowMouseMovedEventsCoordinator.shared.enable(for: window, owner: self)
         } else {
             WindowMouseMovedEventsCoordinator.shared.disable(for: window, owner: self)
@@ -214,7 +214,7 @@ final class WindowDecorationsController {
         guard MinimalModeTitlebarBand.isMinimalModeWindowTitlebarClickCandidate(
             isMinimalMode: WorkspacePresentationModeSettings.isMinimal(),
             isFullScreen: window.styleMask.contains(.fullScreen),
-            isMainWindow: isMainWorkspaceWindow(window),
+            isMainWindow: window.isMainWorkspaceWindow,
             locationInWindow: locationInWindow,
             contentBounds: contentBounds,
             titlebarBandHeight: minimalModeTitlebarDoubleClickBandHeight(for: window)
@@ -264,7 +264,7 @@ final class WindowDecorationsController {
 
         let screenPoint = NSEvent.mouseLocation
         for window in NSApp.windows.reversed() {
-            guard isMainWorkspaceWindow(window),
+            guard window.isMainWorkspaceWindow,
                   window.isVisible,
                   !window.isMiniaturized,
                   window.frame.insetBy(dx: -1, dy: -1).contains(screenPoint) else {
@@ -374,7 +374,7 @@ final class WindowDecorationsController {
     }
 
     private func applyMinimalModeSidebarTitlebarClickTarget(to window: NSWindow) {
-        let shouldInstall = isMainWorkspaceWindow(window)
+        let shouldInstall = window.isMainWorkspaceWindow
             && WorkspacePresentationModeSettings.isMinimal()
             && !window.styleMask.contains(.fullScreen)
             && minimalModeSidebarTitlebarControlsAreAvailable(in: window)

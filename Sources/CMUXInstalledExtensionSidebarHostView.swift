@@ -483,53 +483,28 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         identity: AppExtensionIdentity,
         effectiveGrant: CMUXSidebarExtensionEffectiveGrant
     ) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Image(systemName: "puzzlepiece.extension")
-                    .font(.system(size: 22, weight: .medium))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(String.localizedStringWithFormat(
-                        String(localized: "sidebar.extensions.access.review.title", defaultValue: "Review access for %@"),
-                        effectiveGrant.manifest.displayName
-                    ))
-                    .font(.system(size: 15, weight: .semibold))
-                    Text(identity.bundleIdentifier)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
+        ExtensionAccessReviewSheet(
+            bundleIdentifier: identity.bundleIdentifier,
+            grant: effectiveGrant,
+            strings: ExtensionAccessReviewSheetStrings(
+                reviewTitle: String.localizedStringWithFormat(
+                    String(localized: "sidebar.extensions.access.review.title", defaultValue: "Review access for %@"),
+                    effectiveGrant.manifest.displayName
+                ),
+                reviewDetail: String(localized: "sidebar.extensions.access.review.detail", defaultValue: "CMUX will only share the following data and actions if you allow this request."),
+                manifestLabel: String(localized: "sidebar.extensions.details.manifest", defaultValue: "Configuration"),
+                keepLimited: String(localized: "sidebar.extensions.access.keepLimited", defaultValue: "Keep Limited"),
+                allow: String(localized: "sidebar.extensions.access.allow", defaultValue: "Allow Requested Access")
+            ),
+            onKeepLimited: {
+                keepLimitedAccess(identity: identity, effectiveGrant: effectiveGrant)
+                isShowingAccessReview = false
+            },
+            onAllow: {
+                grantRequestedAccess(identity: identity, effectiveGrant: effectiveGrant)
+                isShowingAccessReview = false
             }
-
-            Text(String(localized: "sidebar.extensions.access.review.detail", defaultValue: "CMUX will only share the following data and actions if you allow this request."))
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: 8) {
-                ExtensionDetailRow(
-                    title: String(localized: "sidebar.extensions.details.manifest", defaultValue: "Configuration"),
-                    value: "\(effectiveGrant.manifest.id) · API \(effectiveGrant.manifest.minimumAPIVersion.major).\(effectiveGrant.manifest.minimumAPIVersion.minor)"
-                )
-                Divider()
-                ExtensionPermissionSection(grant: effectiveGrant)
-            }
-
-            HStack(spacing: 8) {
-                Spacer()
-                Button(String(localized: "sidebar.extensions.access.keepLimited", defaultValue: "Keep Limited")) {
-                    keepLimitedAccess(identity: identity, effectiveGrant: effectiveGrant)
-                    isShowingAccessReview = false
-                }
-                .keyboardShortcut(.cancelAction)
-                Button(String(localized: "sidebar.extensions.access.allow", defaultValue: "Allow Requested Access")) {
-                    grantRequestedAccess(identity: identity, effectiveGrant: effectiveGrant)
-                    isShowingAccessReview = false
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(18)
-        .frame(width: 420, alignment: .leading)
+        )
     }
 
     private func shouldShowAccessBanner(

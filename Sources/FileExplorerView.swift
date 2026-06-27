@@ -452,26 +452,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
             return outlineView.selectedRow
         }
 
-        private struct SelectionResolution {
-            let row: Int
-            let isExact: Bool
-        }
-        private func selectionResolution(for path: String, in outlineView: NSOutlineView) -> SelectionResolution? {
-            var bestAncestor: (row: Int, pathLength: Int)?
+        private func selectionResolution(for path: String, in outlineView: NSOutlineView) -> FileExplorerSelectionResolution? {
+            var candidates: [(row: Int, path: String)] = []
             for row in 0..<outlineView.numberOfRows {
                 guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
-                if node.path == path {
-                    return SelectionResolution(row: row, isExact: true)
-                }
-                if Self.path(node.path, isAncestorOf: path) {
-                    let length = node.path.count
-                    if bestAncestor == nil || length > bestAncestor!.pathLength {
-                        bestAncestor = (row, length)
-                    }
-                }
+                candidates.append((row, node.path))
             }
-            guard let bestAncestor else { return nil }
-            return SelectionResolution(row: bestAncestor.row, isExact: false)
+            return FileExplorerSelectionResolution.resolve(target: path, in: candidates)
         }
 
         private func selectRow(
@@ -498,14 +485,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
             isUpdatingOutlineProgrammatically = true
             defer { isUpdatingOutlineProgrammatically = wasUpdating }
             body()
-        }
-
-        private static func path(_ ancestor: String, isAncestorOf descendant: String) -> Bool {
-            guard ancestor != descendant else { return false }
-            if ancestor == "/" {
-                return descendant.hasPrefix("/")
-            }
-            return descendant.hasPrefix(ancestor + "/")
         }
 
         // MARK: - Drag-to-Preview

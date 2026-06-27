@@ -34,8 +34,9 @@ struct SessionTranscriptLoader {
         }
         if entry.agent == .hermesAgent {
             let sessionId = entry.sessionId
+            let reader = HermesTranscriptReader(maxPreviewTurns: Self.maxPreviewTurns)
             return try await Task.detached(priority: .userInitiated) {
-                try Self.loadHermesAgentSynchronously(sessionId: sessionId)
+                try reader.load(sessionId: sessionId)
             }.value
         }
         guard let url = entry.fileURL else {
@@ -308,33 +309,6 @@ struct SessionTranscriptLoader {
         }
 
         return SessionTranscriptTurn.coalesce(turns)
-    }
-
-    private static func loadHermesAgentSynchronously(sessionId: String) throws -> [SessionTranscriptTurn] {
-        do {
-            let turns = try HermesAgentIndex.loadTranscript(sessionId: sessionId, limit: maxPreviewTurns + 1)
-            let didHitTurnLimit = turns.count > maxPreviewTurns
-            var previewTurns: [SessionTranscriptTurn] = turns.prefix(maxPreviewTurns).enumerated().compactMap { index, turn -> SessionTranscriptTurn? in
-                let role: SessionTranscriptRole = (turn.toolName?.isEmpty == false) ? .tool : (SessionTranscriptRole(transcriptRaw: turn.role) ?? .event)
-                let text: String
-                if role == .tool, let toolName = turn.toolName, !toolName.isEmpty {
-                    text = [toolName, turn.content].joined(separator: "\n\n")
-                } else {
-                    text = turn.content
-                }
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return nil }
-                return SessionTranscriptTurn(id: index, role: role, text: SessionTranscriptTurn.truncatedText(trimmed, role: role))
-            }
-            if didHitTurnLimit {
-                SessionTranscriptTurn.appendTurnLimitMarker(to: &previewTurns, id: previewTurns.count)
-            }
-            return SessionTranscriptTurn.coalesce(previewTurns)
-        } catch HermesAgentIndexError.missingDatabase {
-            throw SessionTranscriptLoadError.missingFile
-        } catch let HermesAgentIndexError.sqlite(message) {
-            throw SessionTranscriptLoadError.databaseError(message)
-        }
     }
 
     private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? { sqlite3_column_text(stmt, index).map { String(cString: $0) } }
