@@ -219,6 +219,20 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                     f"{shell_name} path preservation exited {result.returncode}: "
                     f"{(result.stdout + result.stderr).strip()}"
                 )
+            if shell_name == "zsh" and output != expected_path:
+                entries = output.split(":")
+                first_entry = str(first)
+                last_entry = str(last)
+                shim_entry = str(shim_root)
+                if not entries or entries[0] != shim_entry:
+                    failures.append(f"{shell_name} expected shim first in PATH, got {output!r}")
+                if shim_entry in entries[1:]:
+                    failures.append(f"{shell_name} expected shim only once in PATH, got {output!r}")
+                if first_entry not in entries or last_entry not in entries:
+                    failures.append(f"{shell_name} expected user PATH entries in PATH, got {output!r}")
+                elif entries.index(first_entry) >= entries.index(last_entry):
+                    failures.append(f"{shell_name} expected user PATH order to be preserved, got {output!r}")
+                continue
             if output != expected_path:
                 failures.append(f"{shell_name} expected PATH {expected_path!r}, got {output!r}")
 
