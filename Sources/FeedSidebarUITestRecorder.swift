@@ -136,7 +136,7 @@ final class FeedSidebarUITestRecorder: UITestRecording {
         resultPath: String,
         remainingAttempts: Int = 75
     ) {
-        let pending = FeedCoordinator.shared.snapshot(pendingOnly: false).contains { item in
+        let pending = FeedCoordinator.shared.socketRouter.snapshot(pendingOnly: false).contains { item in
             guard item.status.isPending else { return false }
             if case .permissionRequest(let itemRequestId, _, _, _) = item.payload {
                 return itemRequestId == requestId
