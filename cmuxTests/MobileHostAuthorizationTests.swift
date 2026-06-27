@@ -71,7 +71,7 @@ struct MobileHostAuthorizationTests {
             auth: nil
         )
 
-        let result = await MobileHostService.shared.debugAuthorizationError(for: request)
+        let result = await MobileHostService.shared.authorizationError(for: request)
 
         guard case let .failure(error) = result else {
             return #expect(Bool(false), "workspace.list should require mobile authorization")
@@ -86,7 +86,7 @@ struct MobileHostAuthorizationTests {
             auth: nil
         )
 
-        let result = await MobileHostService.shared.debugAuthorizationError(for: request)
+        let result = await MobileHostService.shared.authorizationError(for: request)
 
         #expect(result == nil)
     }
@@ -124,7 +124,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let result = await service.debugAuthorizationError(for: request)
+        let result = await service.authorizationError(for: request)
 
         #expect(result == nil)
     }
@@ -346,7 +346,7 @@ struct MobileHostAuthorizationTests {
             auth: nil
         )
 
-        let result = await MobileHostService.shared.debugAuthorizationError(for: request)
+        let result = await MobileHostService.shared.authorizationError(for: request)
 
         guard case let .failure(error) = result else {
             return #expect(Bool(false), "mobile.attach_ticket.create should require mobile authorization")
@@ -382,7 +382,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let result = await service.debugAuthorizationError(for: request)
+        let result = await service.authorizationError(for: request)
 
         #expect(result == nil)
     }

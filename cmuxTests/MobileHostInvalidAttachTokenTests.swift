@@ -21,7 +21,7 @@ struct MobileHostInvalidAttachTokenTests {
             )
         )
 
-        let result = await MobileHostService.shared.debugAuthorizationError(for: request)
+        let result = await MobileHostService.shared.authorizationError(for: request)
 
         guard case let .failure(error) = result else {
             return #expect(Bool(false), "workspace.list should reject an unknown attach token")

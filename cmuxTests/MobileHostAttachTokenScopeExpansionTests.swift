@@ -42,8 +42,8 @@ struct MobileHostAttachTokenScopeExpansionTests {
             )
         )
 
-        #expect(await service.debugAuthorizationError(for: createRequest) == nil)
-        service.debugRecordCreatedResourcesForTesting(
+        #expect(await service.authorizationError(for: createRequest) == nil)
+        service.recordCreatedResourcesIfNeeded(
             request: createRequest,
             result: .ok(["created_workspace_id": "stack-created-workspace"])
         )
@@ -61,7 +61,7 @@ struct MobileHostAttachTokenScopeExpansionTests {
             )
         )
 
-        let replayResult = await service.debugAuthorizationError(for: replayRequest)
+        let replayResult = await service.authorizationError(for: replayRequest)
         guard case let .failure(error) = replayResult else {
             return #expect(Bool(false), "Stack-authorized workspace.create must not expand the attach-token scope")
         }
