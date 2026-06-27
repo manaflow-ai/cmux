@@ -74,4 +74,85 @@ public protocol SurfaceCreationHosting: AnyObject {
     /// Emits the DEBUG-only `zoom.inherit fallback=lastKnownFont …` log line the
     /// legacy fallback branch logged. A no-op in release builds.
     func logInheritanceFallback(fontPoints: Float)
+
+    // MARK: Create-tab live state
+
+    /// The bonsplit pane that currently holds focus, used to decide whether a new
+    /// surface auto-focuses when the caller passes no explicit `focus`, mirroring
+    /// the legacy `focus ?? (bonsplitController.focusedPaneId == paneId)` read.
+    /// Shared witness with `SplitMoveReorderHosting.focusedBonsplitPaneId`.
+    var focusedBonsplitPaneId: PaneID? { get }
+
+    /// The currently focused pane's panel id, captured before the new surface is
+    /// registered so the non-focus-split branch can restore it. Mirrors the
+    /// legacy `let previousFocusedPanelId = focusedPanelId` read.
+    var focusedPanelId: UUID? { get }
+
+    /// The focused terminal panel's hosted Ghostty scroll view as an opaque
+    /// reference, captured before registration and handed back to
+    /// ``preserveSurfaceFocusAfterNonFocusSplit(preferredPanelId:splitPanelId:previousHostedView:)``.
+    /// The package never names the app's `GhosttySurfaceScrollView`, so the host
+    /// carries it as `AnyObject?` and downcasts in the witness. Mirrors the legacy
+    /// `let previousHostedView = focusedTerminalPanel?.hostedView` read.
+    var focusedTerminalHostedView: AnyObject? { get }
+
+    /// Constructs the app's `ProjectPanel` for `projectURL`, registers it in the
+    /// workspace panel and panel-title registries, and returns its Sendable
+    /// descriptor. Mirrors the legacy
+    /// `let projectPanel = ProjectPanel(projectURL: url); panels[projectPanel.id]
+    /// = projectPanel; panelTitles[projectPanel.id] = projectPanel.displayTitle`
+    /// prelude. The registries stay app-side behind this witness.
+    func registerProjectPanel(projectURL: URL) -> SurfaceTabDescriptor
+
+    /// Creates the bonsplit tab for an already-registered surface descriptor and,
+    /// on success, records the surface→panel mapping. Returns the new tab id, or
+    /// `nil` when `bonsplitController.createTab` fails (the caller then rolls the
+    /// registration back via ``discardPanelRegistration(id:)``). Mirrors the
+    /// legacy `bonsplitController.createTab(title:icon:kind:isDirty:isLoading:
+    /// isPinned:inPane:)` call and the subsequent
+    /// `surfaceIdToPanelId[newTabId] = projectPanel.id` write.
+    func createSurfaceTab(descriptor: SurfaceTabDescriptor, kind: String, inPane paneId: PaneID) -> TabID?
+
+    /// Reorders the new tab to `index` within its pane, mirroring the legacy
+    /// `bonsplitController.reorderTab(newTabId, toIndex: targetIndex)`. Shared
+    /// witness with `SplitMoveReorderHosting.reorderTab(_:toIndex:)`.
+    @discardableResult
+    func reorderTab(_ tabId: TabID, toIndex index: Int) -> Bool
+
+    /// Publishes the `cmux.surface.created` lifecycle event for the new surface,
+    /// mirroring the legacy `publishCmuxSurfaceCreated(…)` call. Shared witness
+    /// with the `Workspace` lifecycle-event method.
+    func publishCmuxSurfaceCreated(_ surfaceId: UUID, paneId: PaneID?, kind: String, origin: String, focused: Bool)
+
+    /// Focuses the pane that received the new surface, mirroring the legacy
+    /// `bonsplitController.focusPane(paneId)`. Shared witness with
+    /// `SplitMoveReorderHosting.focusPane(_:)`.
+    func focusPane(_ paneId: PaneID)
+
+    /// Selects the new tab, mirroring the legacy
+    /// `bonsplitController.selectTab(newTabId)`. Shared witness with
+    /// `SplitMoveReorderHosting.selectTab(_:)`.
+    func selectTab(_ tabId: TabID)
+
+    /// Applies the workspace's tab-selection side effects for the focused new tab,
+    /// mirroring the legacy `applyTabSelection(tabId:inPane:)`. Shared witness with
+    /// `SplitMoveReorderHosting.applyTabSelection(tabId:inPane:)`.
+    func applyTabSelection(tabId: TabID, inPane paneId: PaneID)
+
+    /// Preserves focus on the previously focused panel when a new surface is
+    /// created without focus intent, mirroring the legacy
+    /// `preserveFocusAfterNonFocusSplit(preferredPanelId:splitPanelId:previousHostedView:)`.
+    /// `previousHostedView` is the opaque value from ``focusedTerminalHostedView``;
+    /// the witness downcasts it to the app's hosted-view type.
+    func preserveSurfaceFocusAfterNonFocusSplit(preferredPanelId: UUID?, splitPanelId: UUID, previousHostedView: AnyObject?)
+
+    /// Rolls back a panel registration when tab creation fails, mirroring the
+    /// legacy `panels.removeValue(forKey:); panelTitles.removeValue(forKey:)`
+    /// failure branch.
+    func discardPanelRegistration(id: UUID)
+
+    /// Reloads the registered project panel after the tab is wired up, mirroring
+    /// the legacy `projectPanel.reload()`. The host resolves the typed panel by
+    /// `id` and reloads it; a no-op if the id no longer maps to a project panel.
+    func reloadProjectPanel(id: UUID)
 }

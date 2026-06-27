@@ -374,6 +374,84 @@ public final class SurfaceCreationCoordinator {
         URL(fileURLWithPath: (projectPath as NSString).expandingTildeInPath).standardizedFileURL
     }
 
+    /// Creates a project surface tab in `paneId`, mirroring the legacy
+    /// `Workspace.newProjectSurface(inPane:projectPath:focus:targetIndex:)` body
+    /// step for step. The coordinator owns the create-tab orchestration; every
+    /// live read and registry/bonsplit mutation is driven through
+    /// ``SurfaceCreationHosting`` so the workspace registries and
+    /// `BonsplitController` stay app-side. The package cannot name the app's
+    /// `ProjectPanel`, so this returns the new panel's `id` (`nil` on guard
+    /// failure or a failed tab insert) and the workspace maps it back to the
+    /// typed panel via `panels[id] as? ProjectPanel`.
+    ///
+    /// The order is exact: guard the empty path, standardize the URL, read the
+    /// focus decision and the previously focused panel/hosted-view before
+    /// registration, register the panel (descriptor), create the tab (rolling the
+    /// registration back on failure), reorder when an index is given, publish the
+    /// created event, then either focus the new tab (focus pane → select tab →
+    /// apply selection) or preserve focus on the previous panel, and finally
+    /// reload the project panel.
+    ///
+    /// - Parameters:
+    ///   - paneId: the pane that receives the new project surface.
+    ///   - projectPath: the requested project directory path (may begin with `~`).
+    ///   - focus: explicit focus intent, or `nil` to auto-focus only when
+    ///     `paneId` is already the focused pane.
+    ///   - targetIndex: an optional tab index to reorder the new tab to.
+    ///   - host: the workspace live-state seam.
+    /// - Returns: the new project panel's id, or `nil` when the path is empty or
+    ///   the bonsplit tab could not be created.
+    @discardableResult
+    public func newProjectSurface(
+        inPane paneId: PaneID,
+        projectPath: String,
+        focus: Bool?,
+        targetIndex: Int?,
+        host: any SurfaceCreationHosting
+    ) -> UUID? {
+        guard !projectPath.isEmpty else { return nil }
+        let url = standardizedProjectURL(projectPath: projectPath)
+        let shouldFocusNewTab = focus ?? (host.focusedBonsplitPaneId == paneId)
+        let previousFocusedPanelId = host.focusedPanelId
+        let previousHostedView = host.focusedTerminalHostedView
+
+        let descriptor = host.registerProjectPanel(projectURL: url)
+
+        guard let newTabId = host.createSurfaceTab(
+            descriptor: descriptor,
+            kind: SurfaceKind.project.rawValue,
+            inPane: paneId
+        ) else {
+            host.discardPanelRegistration(id: descriptor.id)
+            return nil
+        }
+
+        if let targetIndex {
+            _ = host.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        host.publishCmuxSurfaceCreated(
+            descriptor.id,
+            paneId: paneId,
+            kind: SurfaceKind.project.rawValue,
+            origin: "project_tab",
+            focused: shouldFocusNewTab
+        )
+        if shouldFocusNewTab {
+            host.focusPane(paneId)
+            host.selectTab(newTabId)
+            host.applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            host.preserveSurfaceFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: descriptor.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        host.reloadProjectPanel(id: descriptor.id)
+        return descriptor.id
+    }
+
     /// Promotes the inherited surface config so the pane is held open after a
     /// startup command exits, mirroring the legacy inline block in
     /// `Workspace.newTerminalSplitLocal`/`newTerminalSurfaceLocal`:
