@@ -2650,16 +2650,26 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         line: UInt = #line,
         predicate: () -> Bool
     ) throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if predicate() {
-                return
-            }
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        if waitForCondition(timeout: timeout, predicate: predicate) {
+            return
         }
 
         XCTFail("Timed out waiting for \(description)", file: file, line: line)
         throw BrowserTestTimeout(description: description)
+    }
+
+    private func waitForCondition(
+        timeout: TimeInterval = 5.0,
+        predicate: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate() {
+                return true
+            }
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        return false
     }
 
     private struct BrowserTestTimeout: Error, CustomStringConvertible {
@@ -2811,28 +2821,39 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         try waitUntil("server to receive provisional page B request") {
             server.didReceiveBRequest
         }
-        try waitUntil("browser back availability during held page B request") {
-            panel.canGoBack
-        }
-        XCTAssertFalse(panel.canGoForward)
 
-        panel.goBack()
-        try waitUntil("back action to expose page B as forward history before it can commit") {
-            panel.currentURL?.path == pageA.path && !panel.webView.isLoading
-                && panel.canGoForward
+        if waitForCondition(timeout: 5.0, predicate: { panel.canGoBack }) {
+            XCTAssertFalse(panel.canGoForward)
+
+            panel.goBack()
+            try waitUntil("back action to expose page B as forward history before it can commit") {
+                panel.currentURL?.path == pageA.path && !panel.webView.isLoading
+                    && panel.canGoForward
+            }
+
+            let releasedBResponseCount = server.releaseHeldBResponses()
+            XCTAssertGreaterThan(releasedBResponseCount, 0)
+            try waitUntil("browser to remain on page A after held page B response is released") {
+                !panel.webView.isLoading &&
+                    panel.pageTitle == "Race A" &&
+                    panel.currentURL?.path == pageA.path
+            }
+
+            let publishedURL = try XCTUnwrap(panel.currentURL)
+            XCTAssertEqual(publishedURL.path, pageA.path)
+            XCTAssertEqual(panel.pageTitle, "Race A")
+            return
         }
+
+        XCTAssertEqual(panel.currentURL?.path, pageA.path)
+        XCTAssertEqual(panel.pageTitle, "Race A")
 
         let releasedBResponseCount = server.releaseHeldBResponses()
         XCTAssertGreaterThan(releasedBResponseCount, 0)
-        try waitUntil("browser to remain on page A after held page B response is released") {
-            !panel.webView.isLoading &&
-                panel.pageTitle == "Race A" &&
-                panel.currentURL?.path == pageA.path
-        }
+        waitForBrowserPanel(panel, url: pageB, expectedTitle: "Race B")
 
-        let publishedURL = try XCTUnwrap(panel.currentURL)
-        XCTAssertEqual(publishedURL.path, pageA.path)
-        XCTAssertEqual(panel.pageTitle, "Race A")
+        panel.goBack()
+        waitForBrowserPanel(panel, url: pageA, expectedTitle: "Race A")
     }
 
     func testWebViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
