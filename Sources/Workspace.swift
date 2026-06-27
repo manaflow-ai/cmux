@@ -48,6 +48,81 @@ private struct SessionPaneRestoreEntry {
     let snapshot: SessionPaneLayoutSnapshot
 }
 
+struct TerminalSplitPaneTintAssignment {
+    var source: NSColor?
+    var newPane: NSColor?
+}
+
+enum TerminalSplitPaneTintPlanner {
+    private static let paletteHexes = [
+        "#6EA8FE",
+        "#F2CC60",
+        "#7BD88F",
+        "#FF9F7A",
+        "#C89CFF",
+        "#6DD6D6",
+        "#FF8FB3",
+        "#B7D66A",
+    ]
+    private static let opacityOnDarkBackground: CGFloat = 0.18
+    private static let opacityOnLightBackground: CGFloat = 0.14
+
+    static func nextColor(baseColor: NSColor, usedHexes: Set<String>) -> NSColor? {
+        let palette = paletteHexes.compactMap { hex -> NSColor? in
+            guard let accentColor = NSColor(hex: hex) else { return nil }
+            return tintColor(baseColor: baseColor, accentColor: accentColor)
+        }
+        guard !palette.isEmpty else { return nil }
+        if let unusedColor = palette.first(where: { !usedHexes.contains($0.hexString()) }) {
+            return unusedColor
+        }
+        return palette[usedHexes.count % palette.count]
+    }
+
+    static func assignmentForTerminalSplit(
+        baseColor: NSColor,
+        usedHexes: Set<String>,
+        sourceNeedsTint: Bool,
+        newPaneNeedsTint: Bool
+    ) -> TerminalSplitPaneTintAssignment {
+        var usedHexes = usedHexes
+        var sourceColor: NSColor?
+        if sourceNeedsTint, let color = nextColor(baseColor: baseColor, usedHexes: usedHexes) {
+            sourceColor = color
+            usedHexes.insert(color.hexString())
+        }
+        let newPaneColor = newPaneNeedsTint
+            ? nextColor(baseColor: baseColor, usedHexes: usedHexes)
+            : nil
+        return TerminalSplitPaneTintAssignment(source: sourceColor, newPane: newPaneColor)
+    }
+
+    private static func tintColor(baseColor: NSColor, accentColor: NSColor) -> NSColor? {
+        guard let base = baseColor.usingColorSpace(.sRGB),
+              let accent = accentColor.usingColorSpace(.sRGB) else {
+            return nil
+        }
+        let opacity = base.isLightColor ? opacityOnLightBackground : opacityOnDarkBackground
+        var baseRed: CGFloat = 0
+        var baseGreen: CGFloat = 0
+        var baseBlue: CGFloat = 0
+        var baseAlpha: CGFloat = 0
+        var accentRed: CGFloat = 0
+        var accentGreen: CGFloat = 0
+        var accentBlue: CGFloat = 0
+        var accentAlpha: CGFloat = 0
+        base.getRed(&baseRed, green: &baseGreen, blue: &baseBlue, alpha: &baseAlpha)
+        accent.getRed(&accentRed, green: &accentGreen, blue: &accentBlue, alpha: &accentAlpha)
+        let tintOpacity = opacity * accentAlpha
+        return NSColor(
+            srgbRed: baseRed * (1 - tintOpacity) + accentRed * tintOpacity,
+            green: baseGreen * (1 - tintOpacity) + accentGreen * tintOpacity,
+            blue: baseBlue * (1 - tintOpacity) + accentBlue * tintOpacity,
+            alpha: baseAlpha
+        )
+    }
+}
+
 extension Workspace {
     func sessionSnapshot(
         includeScrollback: Bool,
@@ -2159,19 +2234,6 @@ final class Workspace: Identifiable, ObservableObject {
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
-    private static let automaticSplitPaneTintPaletteHexes = [
-        "#6EA8FE",
-        "#F2CC60",
-        "#7BD88F",
-        "#FF9F7A",
-        "#C89CFF",
-        "#6DD6D6",
-        "#FF8FB3",
-        "#B7D66A",
-    ]
-    private static let automaticSplitPaneTintOpacityOnDarkBackground: CGFloat = 0.18
-    private static let automaticSplitPaneTintOpacityOnLightBackground: CGFloat = 0.14
-
     let id: UUID
     /// When this workspace instance came into existence in this app session
     /// (creation, or restore at launch). The mobile list's last-activity
@@ -6945,42 +7007,7 @@ final class Workspace: Identifiable, ObservableObject {
         baseColor: NSColor,
         usedHexes: Set<String>
     ) -> NSColor? {
-        let palette = automaticSplitPaneTintPaletteHexes.compactMap { hex -> NSColor? in
-            guard let accentColor = NSColor(hex: hex) else { return nil }
-            return automaticSplitPaneTintColor(baseColor: baseColor, accentColor: accentColor)
-        }
-        guard !palette.isEmpty else { return nil }
-        if let unusedColor = palette.first(where: { !usedHexes.contains($0.hexString()) }) {
-            return unusedColor
-        }
-        return palette[usedHexes.count % palette.count]
-    }
-
-    private static func automaticSplitPaneTintColor(baseColor: NSColor, accentColor: NSColor) -> NSColor? {
-        guard let base = baseColor.usingColorSpace(.sRGB),
-              let accent = accentColor.usingColorSpace(.sRGB) else {
-            return nil
-        }
-        let opacity = base.isLightColor
-            ? automaticSplitPaneTintOpacityOnLightBackground
-            : automaticSplitPaneTintOpacityOnDarkBackground
-        var baseRed: CGFloat = 0
-        var baseGreen: CGFloat = 0
-        var baseBlue: CGFloat = 0
-        var baseAlpha: CGFloat = 0
-        var accentRed: CGFloat = 0
-        var accentGreen: CGFloat = 0
-        var accentBlue: CGFloat = 0
-        var accentAlpha: CGFloat = 0
-        base.getRed(&baseRed, green: &baseGreen, blue: &baseBlue, alpha: &baseAlpha)
-        accent.getRed(&accentRed, green: &accentGreen, blue: &accentBlue, alpha: &accentAlpha)
-        let tintOpacity = opacity * accentAlpha
-        return NSColor(
-            srgbRed: baseRed * (1 - tintOpacity) + accentRed * tintOpacity,
-            green: baseGreen * (1 - tintOpacity) + accentGreen * tintOpacity,
-            blue: baseBlue * (1 - tintOpacity) + accentBlue * tintOpacity,
-            alpha: baseAlpha
-        )
+        TerminalSplitPaneTintPlanner.nextColor(baseColor: baseColor, usedHexes: usedHexes)
     }
 
     private func applyAutomaticSplitPaneTints(sourcePanelId: UUID, newPanel: TerminalPanel) {
@@ -6992,19 +7019,20 @@ final class Workspace: Identifiable, ObservableObject {
                 return terminalPanel.surface.paneBackgroundOverrideColor?.hexString()
             }
         )
+        let sourcePanel = terminalPanel(for: sourcePanelId)
+        let assignment = TerminalSplitPaneTintPlanner.assignmentForTerminalSplit(
+            baseColor: baseColor,
+            usedHexes: usedHexes,
+            sourceNeedsTint: sourcePanel.map { $0.surface.paneBackgroundOverrideColor == nil } ?? false,
+            newPaneNeedsTint: newPanel.surface.paneBackgroundOverrideColor == nil
+        )
 
-        if let sourcePanel = terminalPanel(for: sourcePanelId),
-           sourcePanel.surface.paneBackgroundOverrideColor == nil,
-           let sourceColor = Self.automaticSplitPaneTintColor(baseColor: baseColor, usedHexes: usedHexes) {
-            sourcePanel.surface.paneBackgroundOverrideColor = sourceColor
-            usedHexes.insert(sourceColor.hexString())
+        if let sourceColor = assignment.source {
+            sourcePanel?.surface.paneBackgroundOverrideColor = sourceColor
         }
-
-        guard newPanel.surface.paneBackgroundOverrideColor == nil,
-              let newColor = Self.automaticSplitPaneTintColor(baseColor: baseColor, usedHexes: usedHexes) else {
-            return
+        if let newPaneColor = assignment.newPane {
+            newPanel.surface.paneBackgroundOverrideColor = newPaneColor
         }
-        newPanel.surface.paneBackgroundOverrideColor = newColor
     }
 
     /// Create a new split with a terminal panel

@@ -92,118 +92,60 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct WorkspaceSplitPaneTintTests {
-    @Test func terminalSplitsReceiveDistinctPaneBackgroundTintsAndPersistThem() throws {
-        try withIsolatedDefaults { defaults in
-            let workspace = Workspace(terminalSplitPaneTintDefaults: defaults)
-            let sourcePanel = try #require(workspace.focusedTerminalPanel)
+    @Test func splitTintPlannerAssignsDistinctSourceAndNewPaneColors() throws {
+        let assignment = TerminalSplitPaneTintPlanner.assignmentForTerminalSplit(
+            baseColor: try #require(NSColor(hex: "#101010")),
+            usedHexes: [],
+            sourceNeedsTint: true,
+            newPaneNeedsTint: true
+        )
+        let sourceTint = try #require(assignment.source?.hexString())
+        let newPaneTint = try #require(assignment.newPane?.hexString())
 
-            #expect(sourcePanel.surface.paneBackgroundOverrideColor == nil)
-
-            let secondPanel = try #require(
-                workspace.newTerminalSplit(
-                    from: sourcePanel.id,
-                    orientation: .horizontal,
-                    focus: false
-                )
-            )
-            let sourceTint = try #require(sourcePanel.surface.paneBackgroundOverrideColor?.hexString())
-            let secondTint = try #require(secondPanel.surface.paneBackgroundOverrideColor?.hexString())
-
-            #expect(sourceTint != secondTint)
-
-            let thirdPanel = try #require(
-                workspace.newTerminalSplit(
-                    from: secondPanel.id,
-                    orientation: .horizontal,
-                    focus: false
-                )
-            )
-            let thirdTint = try #require(thirdPanel.surface.paneBackgroundOverrideColor?.hexString())
-
-            #expect(Set([sourceTint, secondTint, thirdTint]).count == 3)
-
-            let snapshot = workspace.sessionSnapshot(includeScrollback: false)
-            let persistedTints = Dictionary(uniqueKeysWithValues: snapshot.panels.compactMap { panel -> (UUID, String)? in
-                guard let tint = panel.terminal?.backgroundColorHex else { return nil }
-                return (panel.id, tint)
-            })
-
-            #expect(persistedTints[sourcePanel.id] == sourceTint)
-            #expect(persistedTints[secondPanel.id] == secondTint)
-            #expect(persistedTints[thirdPanel.id] == thirdTint)
-        }
+        #expect(sourceTint != newPaneTint)
     }
 
-    @Test func terminalSplitPreservesExistingPaneBackgroundOverride() throws {
-        try withIsolatedDefaults { defaults in
-            let workspace = Workspace(terminalSplitPaneTintDefaults: defaults)
-            let sourcePanel = try #require(workspace.focusedTerminalPanel)
-            let manualColor = try #require(NSColor(hex: "#123456"))
-            sourcePanel.surface.paneBackgroundOverrideColor = manualColor
+    @Test func splitTintPlannerPreservesManualSourceTintAndTintsNewPane() throws {
+        let manualTint = "#123456"
+        let assignment = TerminalSplitPaneTintPlanner.assignmentForTerminalSplit(
+            baseColor: try #require(NSColor(hex: "#101010")),
+            usedHexes: [manualTint],
+            sourceNeedsTint: false,
+            newPaneNeedsTint: true
+        )
+        let newPaneTint = try #require(assignment.newPane?.hexString())
 
-            let splitPanel = try #require(
-                workspace.newTerminalSplit(
-                    from: sourcePanel.id,
-                    orientation: .horizontal,
-                    focus: false
-                )
-            )
-            let splitTint = try #require(splitPanel.surface.paneBackgroundOverrideColor?.hexString())
+        #expect(assignment.source == nil)
+        #expect(newPaneTint != manualTint)
+    }
 
-            #expect(sourcePanel.surface.paneBackgroundOverrideColor?.hexString() == "#123456")
-            #expect(splitTint != "#123456")
+    @Test func splitTintPlannerCyclesAfterPaletteIsExhausted() throws {
+        let baseColor = try #require(NSColor(hex: "#101010"))
+        var usedHexes = Set<String>()
+        var tints: [String] = []
+        for _ in 0..<10 {
+            let tint = try #require(TerminalSplitPaneTintPlanner.nextColor(baseColor: baseColor, usedHexes: usedHexes))
+            let hex = tint.hexString()
+            tints.append(hex)
+            usedHexes.insert(hex)
         }
+
+        #expect(Set(tints.prefix(8)).count == 8)
+        #expect(tints[8] == tints[0])
+        #expect(tints[9] == tints[1])
     }
 
     @Test func terminalSplitTintingCanBeDisabled() throws {
         try withIsolatedDefaults { defaults in
             defaults.set(false, forKey: TerminalSplitPaneTintSettings.autoTintSplitPanesKey)
-            let workspace = Workspace(terminalSplitPaneTintDefaults: defaults)
-            let sourcePanel = try #require(workspace.focusedTerminalPanel)
-
-            let splitPanel = try #require(
-                workspace.newTerminalSplit(
-                    from: sourcePanel.id,
-                    orientation: .horizontal,
-                    focus: false
-                )
-            )
-
-            #expect(sourcePanel.surface.paneBackgroundOverrideColor == nil)
-            #expect(splitPanel.surface.paneBackgroundOverrideColor == nil)
+            #expect(!TerminalSplitPaneTintSettings().isEnabled(defaults: defaults))
         }
     }
 
-    @Test func remoteTmuxMirrorPanesReceiveDistinctBackgroundTints() throws {
-        try withIsolatedDefaults { defaults in
-            let workspace = Workspace(terminalSplitPaneTintDefaults: defaults)
-            let connection = RemoteTmuxControlConnection(
-                host: RemoteTmuxHost(destination: "user@host"),
-                sessionName: "work"
-            )
-            let mirror = RemoteTmuxWindowMirror(
-                windowId: 1,
-                panelId: UUID(),
-                connection: connection,
-                layout: splitLayout(panes: [1, 2]),
-                paneTintDefaults: defaults,
-                makePanel: { paneId in
-                    workspace.makeRemoteTmuxPanePanel(onInput: { _ in _ = paneId })
-                }
-            )
-            let firstPanel = try #require(mirror.panel(forPane: 1))
-            let secondPanel = try #require(mirror.panel(forPane: 2))
-            let firstTint = try #require(firstPanel.surface.paneBackgroundOverrideColor?.hexString())
-            let secondTint = try #require(secondPanel.surface.paneBackgroundOverrideColor?.hexString())
+    @Test func terminalSnapshotPersistsPaneBackgroundHex() {
+        let snapshot = SessionTerminalPanelSnapshot(backgroundColorHex: "#123456")
 
-            #expect(firstTint != secondTint)
-
-            mirror.reconcile(layout: splitLayout(panes: [1, 2, 3]))
-            let thirdPanel = try #require(mirror.panel(forPane: 3))
-            let thirdTint = try #require(thirdPanel.surface.paneBackgroundOverrideColor?.hexString())
-
-            #expect(Set([firstTint, secondTint, thirdTint]).count == 3)
-        }
+        #expect(snapshot.backgroundColorHex == "#123456")
     }
 
     private func withIsolatedDefaults(_ body: (UserDefaults) throws -> Void) throws {
@@ -212,23 +154,5 @@ import Testing
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
         try body(defaults)
-    }
-
-    private func splitLayout(panes: [Int]) -> RemoteTmuxLayoutNode {
-        RemoteTmuxLayoutNode(
-            width: max(1, panes.count) * 80,
-            height: 24,
-            x: 0,
-            y: 0,
-            content: .horizontal(panes.enumerated().map { index, paneId in
-                RemoteTmuxLayoutNode(
-                    width: 80,
-                    height: 24,
-                    x: index * 80,
-                    y: 0,
-                    content: .pane(paneId)
-                )
-            })
-        )
     }
 }

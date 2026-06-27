@@ -113,7 +113,7 @@ final class RemoteTmuxWindowMirror {
         for paneId in paneIDsInOrder {
             guard let panel = panelsByPaneId[paneId],
                   panel.surface.paneBackgroundOverrideColor == nil,
-                  let color = Workspace.automaticSplitPaneTintColor(baseColor: baseColor, usedHexes: usedHexes) else {
+                  let color = TerminalSplitPaneTintPlanner.nextColor(baseColor: baseColor, usedHexes: usedHexes) else {
                 continue
             }
             panel.surface.paneBackgroundOverrideColor = color
