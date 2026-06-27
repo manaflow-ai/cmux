@@ -53,10 +53,10 @@ struct CustomToolbarMenuEditorView: View {
                 }
 
                 Section {
-                    ForEach($items) { item in
+                    ForEach(Array(items.indices), id: \.self) { index in
                         itemEditor(
-                            item,
-                            ordinal: itemOrdinal(id: item.wrappedValue.id)
+                            $items[index],
+                            ordinal: index + 1
                         )
                     }
 
@@ -165,13 +165,6 @@ struct CustomToolbarMenuEditorView: View {
             .accessibilityIdentifier("CustomMenuItemRemoveButton.\(item.wrappedValue.id.uuidString)")
         }
         .padding(.vertical, 4)
-    }
-
-    private func itemOrdinal(id: UUID) -> Int {
-        guard let index = items.firstIndex(where: { $0.id == id }) else {
-            return 1
-        }
-        return index + 1
     }
 
     private func removeItem(id: UUID) {
