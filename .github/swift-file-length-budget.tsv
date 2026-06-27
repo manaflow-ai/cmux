@@ -4,7 +4,7 @@
 34629	CLI/cmux.swift
 17854	Sources/AppDelegate.swift
 16109	Sources/ContentView.swift
-13913	Sources/TerminalController.swift
+13957	Sources/TerminalController.swift
 12838	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12237	Sources/GhosttyTerminalView.swift
@@ -14,7 +14,7 @@
 7952	Sources/Panels/BrowserPanelView.swift
 7366	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
-6895	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+6900	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6217	cmuxTests/GhosttyConfigTests.swift
 6183	Sources/TabManager.swift
@@ -39,7 +39,7 @@
 2565	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
-2395	Sources/Mobile/MobileHostService.swift
+2399	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
 2242	Sources/TerminalNotificationStore.swift
 2233	Sources/TerminalWindowPortal.swift
@@ -59,7 +59,7 @@
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
 1581	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
-1547	cmuxTests/TerminalControllerSocketSecurityTests.swift
+1548	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1500	cmuxUITests/MultiWindowNotificationsUITests.swift
 1499	cmuxTests/OmnibarAndToolsTests.swift
 1447	Sources/FileExplorerStore.swift
@@ -69,8 +69,8 @@
 1373	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1363	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
+1324	cmuxTests/MobileHostAuthorizationTests.swift
 1295	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
-1295	cmuxTests/MobileHostAuthorizationTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1277	cmuxTests/RestorableAgentSessionIndexTests.swift
 1258	Sources/Feed/FeedCoordinator.swift
