@@ -34,11 +34,16 @@ import Testing
     @Test func immediatePairingRetryDoesNotStartSecondStuckConnect() async throws {
         let transport = CountingSlowIgnoringCancellationTransport()
         let runtime = PairingDeadlineRuntime(
-            transportFactory: CountingSlowIgnoringCancellationTransportFactory(transport: transport)
+            transportFactory: CountingSlowIgnoringCancellationTransportFactory(transport: transport),
+            pairingAttemptTimeoutNanoseconds: 500_000_000
         )
         let store = makeStore(runtime: runtime)
 
-        let first = await store.connectPairingURLResult(Self.qrURL)
+        let firstTask = Task {
+            await store.connectPairingURLResult(Self.qrURL)
+        }
+        await transport.waitForConnectCount(1)
+        let first = await firstTask.value
         let second = await store.connectPairingURLResult(Self.qrURL)
 
         #expect(first == .failed)
