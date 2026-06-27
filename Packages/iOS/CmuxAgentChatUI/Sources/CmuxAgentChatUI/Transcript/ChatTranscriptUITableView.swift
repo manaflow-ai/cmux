@@ -3,8 +3,9 @@ import CmuxMobileSupport
 import Foundation
 import UIKit
 
+@MainActor
 final class ChatTranscriptUITableView: UITableView {
-    var afterLayout: ((
+    var afterLayout: (@MainActor (
         _ oldBoundsSize: CGSize,
         _ oldContentSize: CGSize,
         _ oldViewport: MobileScrollViewportSnapshot?
