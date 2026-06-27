@@ -22,20 +22,6 @@ final class ChatScrollEdgeCoordinator {
         clearTopContentScrollViewController()
     }
 
-    func topChromeInset(for owner: UIViewController) -> CGFloat {
-        guard #available(iOS 26.0, *),
-              let window = owner.view.window,
-              let navigationBar = nearestNavigationBar(from: owner)
-        else { return 0 }
-
-        let viewFrame = owner.view.convert(owner.view.bounds, to: window)
-        let navigationFrame = navigationBar.convert(navigationBar.bounds, to: window)
-        guard viewFrame.minY <= navigationFrame.maxY,
-              viewFrame.maxY >= navigationFrame.minY
-        else { return 0 }
-        return max(0, navigationFrame.maxY - viewFrame.minY)
-    }
-
     private func configureEdgeEffect(for tableView: ChatTranscriptUITableView?) {
         guard let tableView else { return }
         if #available(iOS 26.0, *) {
@@ -116,39 +102,6 @@ final class ChatScrollEdgeCoordinator {
         // owner to register the top content scroll view with. Returning the
         // topmost parent here would install scroll-edge state on an unrelated
         // controller, so report "none" and let the caller fall back to `owner`.
-        return nil
-    }
-
-    private func nearestNavigationBar(from owner: UIViewController) -> UINavigationBar? {
-        if let navigationBar = owner.navigationController?.navigationBar {
-            return navigationBar
-        }
-        var current = owner.parent
-        while let controller = current {
-            if let navigationController = controller as? UINavigationController {
-                return navigationController.navigationBar
-            }
-            if let navigationBar = controller.navigationController?.navigationBar {
-                return navigationBar
-            }
-            current = controller.parent
-        }
-        return owner.view.window?.rootViewController.flatMap(firstNavigationController(in:))?.navigationBar
-    }
-
-    private func firstNavigationController(in controller: UIViewController) -> UINavigationController? {
-        if let navigationController = controller as? UINavigationController {
-            return navigationController
-        }
-        // Only descend into the rooted (non-modal) child hierarchy. Traversing
-        // `presentedViewController` could attach the chat's top scroll-edge
-        // interaction to a navigation bar inside an unrelated sheet/fullscreen
-        // modal layered above the chat.
-        for child in controller.children {
-            if let navigationController = firstNavigationController(in: child) {
-                return navigationController
-            }
-        }
         return nil
     }
 }

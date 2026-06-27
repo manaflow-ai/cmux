@@ -197,7 +197,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             isHandlingLayout = true
             defer { isHandlingLayout = false }
 
-            if tableView.isKeyboardViewportExternallyDriven {
+            if tableView.isViewportInsetsExternallyDriven {
                 updateBottomState(from: tableView)
                 return
             }
