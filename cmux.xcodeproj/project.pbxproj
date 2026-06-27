@@ -206,6 +206,7 @@
 		B900001AA1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */; };
 		B900001BA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900001CA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift */; };
 		C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00020000000000000002 /* CloudVMActionLauncher.swift */; };
+		C10D0E4100000000000C1E22 /* CloudVMHTTPError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D0E4000000000000C1E22 /* CloudVMHTTPError.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
 		C1ADE20002A1B2C3D4E5F719 /* cmux-claude-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */; };
 		A5001623 /* cmux.sdef in Resources */ = {isa = PBXBuildFile; fileRef = A5001622 /* cmux.sdef */; };
@@ -1424,6 +1425,7 @@
 		B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceConfirmDialogUITests.swift; sourceTree = "<group>"; };
 		B900001CA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspacesConfirmDialogUITests.swift; sourceTree = "<group>"; };
 		C10D00020000000000000002 /* CloudVMActionLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMActionLauncher.swift; sourceTree = "<group>"; };
+		C10D0E4000000000000C1E22 /* CloudVMHTTPError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudVMHTTPError.swift; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
 		C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-claude-wrapper"; sourceTree = SOURCE_ROOT; };
@@ -2557,6 +2559,7 @@
 			isa = PBXGroup;
 			children = (
 				9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */,
+				C10D0E4000000000000C1E22 /* CloudVMHTTPError.swift */,
 				REE0CA0000000000000000A1 /* RemotesClient.swift */,
 				REE0CA0000000000000000D1 /* RemoteRouteSpec.swift */,
 				D1F0A00100000000000000A2 /* PhonePushClient.swift */,
@@ -4166,6 +4169,7 @@
 				C10D51710000000000000002 /* ClosedItemHistoryPersistenceActor.swift in Sources */,
 				C10D517A0000000000000002 /* ClosedItemHistoryRecordMutation.swift in Sources */,
 				C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */,
+				C10D0E4100000000000C1E22 /* CloudVMHTTPError.swift in Sources */,
 				A5001654 /* CmuxActionTrust.swift in Sources */,
 				E3309A07 /* cmuxApp+EqualizeSplitsMenu.swift in Sources */,
 				C4160A010000000000000001 /* cmuxApp+HistoryMenu.swift in Sources */,
