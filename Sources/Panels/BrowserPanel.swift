@@ -137,59 +137,9 @@ func browserShouldPersistInsecureHTTPAllowlistSelection(
     return response == .alertFirstButtonReturn || response == .alertSecondButtonReturn
 }
 
-func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
-    var preparedRequest = request
-    // Match browser behavior for ordinary loads while preserving method/body/headers.
-    preparedRequest.cachePolicy = .useProtocolCachePolicy
-    return preparedRequest
-}
-
-/// Carries the request and one-shot HTTP bypass needed to seed a retargeted tab.
-struct BrowserNewTabNavigationSeed {
-    let url: URL
-    let initialRequest: URLRequest
-    let bypassInsecureHTTPHostOnce: String?
-}
-
-/// Preserves the original request metadata for a retargeted new-tab navigation.
-func browserNewTabNavigationSeed(
-    from request: URLRequest,
-    bypassInsecureHTTPHostOnce: String? = nil
-) -> BrowserNewTabNavigationSeed? {
-    guard let url = request.url else { return nil }
-    return BrowserNewTabNavigationSeed(
-        url: url,
-        initialRequest: request,
-        bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
-    )
-}
-
 /// Mirrors the opener's WebKit browsing context for popup windows.
 struct BrowserPopupBrowserContext {
     let websiteDataStore: WKWebsiteDataStore
-}
-
-func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager = .default) -> URL? {
-    guard fileURL.isFileURL, fileURL.path.hasPrefix("/") else { return nil }
-    let path = fileURL.path
-    var isDirectory: ObjCBool = false
-    if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
-        return fileURL
-    }
-
-    let parent = fileURL.deletingLastPathComponent()
-    guard !parent.path.isEmpty, parent.path.hasPrefix("/") else { return nil }
-    return parent
-}
-
-@discardableResult
-func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
-    guard let url = request.url else { return nil }
-    if url.isFileURL {
-        guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
-        return webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
-    }
-    return webView.load(browserPreparedNavigationRequest(request))
 }
 
 func browserInteractiveModalHostWindow(_ window: NSWindow?) -> NSWindow? {
@@ -764,11 +714,6 @@ final class BrowserPanel: Panel, ObservableObject {
     private var remoteProxyEndpoint: BrowserProxyEndpoint?
     @Published private(set) var remoteWorkspaceStatus: BrowserRemoteWorkspaceStatus?
     private var usesRemoteWorkspaceProxy: Bool
-    private struct PendingRemoteNavigation {
-        let request: URLRequest
-        let recordTypedNavigation: Bool
-        let preserveRestoredSessionHistory: Bool
-    }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
     private let bypassesRemoteWorkspaceProxy: Bool
     /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
@@ -3252,7 +3197,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if recordTypedNavigation {
             historyStore.recordTypedNavigation(url: originalURL)
         }
-        browserLoadRequest(effectiveRequest, in: webView)
+        webView.browserLoadRequest(effectiveRequest)
     }
 
     private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
@@ -3722,7 +3667,7 @@ extension BrowserPanel {
 
     /// Opens a request in a sibling browser tab without dropping request metadata.
     func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil) {
-        guard let seed = browserNewTabNavigationSeed(
+        guard let seed = BrowserNewTabNavigationSeed.make(
             from: request,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         ) else {
@@ -6185,7 +6130,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
                 if let requestNavigation {
                     requestNavigation(navigationAction.request, .currentTab)
                 } else {
-                    browserLoadRequest(navigationAction.request, in: webView)
+                    webView.browserLoadRequest(navigationAction.request)
                 }
             }
             return nil
