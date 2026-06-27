@@ -34,6 +34,7 @@ public actor UserDefaultsSettingsStore {
     /// instance inside a private unchecked-Sendable wrapper and expose only
     /// typed operations.
     private let storage: UserDefaultsSettingsStorage
+    private let observedMutationWatermarks = UserDefaultsSettingsObservedMutationWatermarks()
     private var mutationSources: [String: UserDefaultsSettingsMutationSourceRecord] = [:]
     private var supersededMutationSources: [
         String: [(source: UserDefaultsSettingsMutationSource, sequence: UInt64)]
@@ -128,6 +129,7 @@ public actor UserDefaultsSettingsStore {
         for entry in keys {
             guard case let .userDefaults(storageKey, suite, _) = entry.kind else { continue }
             recordSourceLessMutation(for: storageKey)
+            observedMutationWatermarks.clearKnownValue(for: storageKey)
             let defaults: UserDefaults
             if let suite, let custom = UserDefaults(suiteName: suite) {
                 defaults = custom
@@ -158,7 +160,14 @@ public actor UserDefaultsSettingsStore {
                 sequence: sequence,
                 value: value
             )
+            observedMutationWatermarks.recordMutationSource(
+                source,
+                sequence: sequence,
+                value: value,
+                for: storageKey
+            )
         } else {
+            observedMutationWatermarks.recordKnownValue(value, for: storageKey)
             recordSourceLessMutation(for: storageKey, recordsAcceptedMutation: false)
         }
     }
@@ -179,6 +188,7 @@ public actor UserDefaultsSettingsStore {
             )
         }
         mutationSources.removeValue(forKey: storageKey)
+        observedMutationWatermarks.clearMutationSource(for: storageKey)
     }
 
     private func shouldAcceptMutationSource(
@@ -187,7 +197,11 @@ public actor UserDefaultsSettingsStore {
     ) -> Bool {
         guard let source else { return true }
 
-        guard let acceptedOrder = acceptedMutationLogicalOrders[storageKey] else {
+        let acceptedOrder = max(
+            acceptedMutationLogicalOrders[storageKey] ?? 0,
+            observedMutationWatermarks.acceptedLogicalOrder(for: storageKey) ?? 0
+        )
+        guard acceptedOrder > 0 else {
             return true
         }
 
@@ -351,6 +365,9 @@ public actor UserDefaultsSettingsStore {
     ) -> AsyncStream<UserDefaultsSettingsValueEvent<Value>> {
         let initialConsumedSourceSequence = mutationSourceSequences[key.userDefaultsKey] ?? 0
         let storage = self.storage
+        let observedMutationWatermarks = self.observedMutationWatermarks
+        let storageKey = key.userDefaultsKey
+        observedMutationWatermarks.recordKnownValue(storage.value(for: key), for: storageKey)
         return AsyncStream<UserDefaultsSettingsValueEvent<Value>>(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let (signals, signalContinuation) = AsyncStream<(
                 isBackingDefaultsNotification: Bool,
@@ -361,9 +378,15 @@ public actor UserDefaultsSettingsStore {
 
             let observer = storage.addDidChangeObserver { [weak self] isBackingDefaultsNotification in
                 guard self != nil else { return }
+                let logicalOrder = DispatchTime.now().uptimeNanoseconds
+                observedMutationWatermarks.recordObservedValue(
+                    storage.value(for: key),
+                    logicalOrder: logicalOrder,
+                    for: storageKey
+                )
                 signalContinuation.yield((
                     isBackingDefaultsNotification,
-                    DispatchTime.now().uptimeNanoseconds
+                    logicalOrder
                 ))
             }
 
