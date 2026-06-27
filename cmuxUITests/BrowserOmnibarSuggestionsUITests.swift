@@ -3,6 +3,7 @@ import Foundation
 
 final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     private var dataPath = ""
+    private var diagnosticsPath = ""
     private var socketPath = ""
     private var launchTag = ""
     private var browserHistorySeedJSON: String?
@@ -11,14 +12,17 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         dataPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(UUID().uuidString).json"
+        diagnosticsPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(UUID().uuidString).diagnostics.json"
         socketPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(UUID().uuidString).sock"
         launchTag = "ui-omnibar-\(UUID().uuidString.prefix(8))"
         browserHistorySeedJSON = nil
         try? FileManager.default.removeItem(atPath: dataPath)
+        try? FileManager.default.removeItem(atPath: diagnosticsPath)
         try? FileManager.default.removeItem(atPath: socketPath)
         try? FileManager.default.removeItem(atPath: "\(socketPath).lock")
-        addTeardownBlock { [dataPath, socketPath] in
+        addTeardownBlock { [dataPath, diagnosticsPath, socketPath] in
             try? FileManager.default.removeItem(atPath: dataPath)
+            try? FileManager.default.removeItem(atPath: diagnosticsPath)
             try? FileManager.default.removeItem(atPath: socketPath)
             try? FileManager.default.removeItem(atPath: "\(socketPath).lock")
         }
@@ -667,26 +671,100 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     }
 
     private func configureSocketLaunch(_ app: XCUIApplication) {
+        app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
     }
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
-            self.socketCommand("ping") == "PONG"
+        var resolvedPath: String?
+        let ready = waitForControlSocketReady(
+            pingTimeout: timeout,
+            socketFileExists: {
+                self.socketCandidates().contains { FileManager.default.fileExists(atPath: $0) } ||
+                    self.controlSocketDiagnosticsReportReady(self.loadDiagnostics())
+            },
+            pingReturnsPong: {
+                let originalPath = self.socketPath
+                for candidate in self.socketCandidates() {
+                    guard FileManager.default.fileExists(atPath: candidate) else { continue }
+                    self.socketPath = candidate
+                    if self.socketCommand("ping") == "PONG" {
+                        resolvedPath = candidate
+                        return true
+                    }
+                    self.socketPath = originalPath
+                }
+                let diagnostics = self.loadDiagnostics()
+                if self.controlSocketDiagnosticsReportReady(diagnostics),
+                   let expectedPath = diagnostics["socketExpectedPath"],
+                   !expectedPath.isEmpty {
+                    resolvedPath = expectedPath
+                    return true
+                }
+                return false
+            }
+        )
+        if let resolvedPath {
+            socketPath = resolvedPath
         }
+        return ready
     }
 
     private func socketReadinessFailureMessage() -> String {
-        "Expected control socket at \(socketPath)"
+        "Expected control socket at \(socketPath). diagnostics=\(loadDiagnostics()) candidates=\(socketCandidates())"
     }
 
     private func socketCommand(_ command: String) -> String? {
-        controlSocketCommandViaNetcat(command, socketPath: socketPath)
+        let originalPath = socketPath
+        for candidate in socketCandidates() {
+            guard FileManager.default.fileExists(atPath: candidate) else { continue }
+            socketPath = candidate
+            if let response = controlSocketCommandViaNetcat(command, socketPath: candidate) {
+                return response
+            }
+        }
+        socketPath = originalPath
+        return nil
+    }
+
+    private func socketCandidates() -> [String] {
+        var candidates = [socketPath, taggedSocketPath()]
+        if let expectedPath = loadDiagnostics()["socketExpectedPath"], !expectedPath.isEmpty {
+            candidates.append(expectedPath)
+        }
+        var seen = Set<String>()
+        candidates.removeAll { !seen.insert($0).inserted }
+        return candidates
+    }
+
+    private func taggedSocketPath() -> String {
+        let slug = launchTag
+            .lowercased()
+            .replacingOccurrences(of: ".", with: "-")
+            .replacingOccurrences(of: "_", with: "-")
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+        return "/tmp/cmux-debug-\(slug).sock"
+    }
+
+    private func loadDiagnostics() -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: diagnosticsPath)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        var diagnostics: [String: String] = [:]
+        for (key, value) in object {
+            diagnostics[key] = String(describing: value)
+        }
+        return diagnostics
     }
 
     private struct SeedEntry {
