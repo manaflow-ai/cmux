@@ -1,5 +1,5 @@
 import AppKit
-import Foundation
+public import Foundation
 
 /// Plays notification sounds through `NSSound` and keeps each playing sound
 /// alive until it finishes.
