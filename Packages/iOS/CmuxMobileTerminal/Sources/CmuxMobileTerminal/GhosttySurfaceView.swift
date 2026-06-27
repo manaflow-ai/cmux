@@ -2163,13 +2163,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         fatalError("init(coder:) is not supported")
     }
 
-    deinit {
-        displayLink?.invalidate()
-        if let surface {
-            let surfaceHandle = GhosttySurfaceQueueHandle(surface: surface)
-            Task { @MainActor in Self.unregister(surface: surfaceHandle.surface) }
-            Self.enqueueSurfaceFree(surfaceHandle, bridge: bridge)
-        }
+    isolated deinit {
+        stopKeyboardHeightAnimation()
+        disposeSurface()
     }
 
     public override class var layerClass: AnyClass {
