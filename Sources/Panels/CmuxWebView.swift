@@ -25,13 +25,10 @@ final class CmuxWebView: WKWebView {
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
     // middle-click so navigation delegates can recover intent reliably.
-    private struct MiddleClickIntent {
-        let webViewID: ObjectIdentifier
-        let uptime: TimeInterval
-    }
-
-    private static var lastMiddleClickIntent: MiddleClickIntent?
-    private static let middleClickIntentMaxAge: TimeInterval = 0.8
+    // The freshness value + age/identity predicate live in
+    // BrowserMiddleClickIntent (CmuxBrowser); this slot keeps the process-wide
+    // most-recent intent and clears it on expiry.
+    private static var lastMiddleClickIntent: BrowserMiddleClickIntent?
     private static let pasteAsPlainTextFocusContract = BrowserPasteAsPlainTextFocusContract()
     private static let browserFocusModeContextMenuItemIdentifier =
         NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
@@ -60,17 +57,20 @@ final class CmuxWebView: WKWebView {
         guard let webView = webView as? CmuxWebView else { return false }
         guard let intent = lastMiddleClickIntent else { return false }
 
-        let age = ProcessInfo.processInfo.systemUptime - intent.uptime
-        if age > middleClickIntentMaxAge {
+        switch intent.evaluate(
+            forWebViewID: ObjectIdentifier(webView),
+            asOf: ProcessInfo.processInfo.systemUptime
+        ) {
+        case .expired:
             lastMiddleClickIntent = nil
             return false
+        case .fresh(let matches):
+            return matches
         }
-
-        return intent.webViewID == ObjectIdentifier(webView)
     }
 
     private static func recordMiddleClickIntent(for webView: CmuxWebView) {
-        lastMiddleClickIntent = MiddleClickIntent(
+        lastMiddleClickIntent = BrowserMiddleClickIntent(
             webViewID: ObjectIdentifier(webView),
             uptime: ProcessInfo.processInfo.systemUptime
         )

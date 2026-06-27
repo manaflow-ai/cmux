@@ -631,12 +631,17 @@ extension TerminalController: ControlWorkspaceContext {
 
 #if DEBUG
         cmuxDebugLog(
-            "workspace.remote.configure.request workspace=\(workspaceId.uuidString.prefix(8)) " +
-            "target=\(destination) transport=\(config.transport.rawValue) port=\(config.port.map(String.init) ?? "nil") " +
-            "autoConnect=\(parsed.autoConnect ? 1 : 0) relayPort=\(config.relayPort.map(String.init) ?? "nil") " +
-            "localSocket=\(config.localSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? config.localSocketPath! : "nil") " +
-            "sshAuthSock=\(parsed.agentSocketPath?.isEmpty == false ? 1 : 0) " +
-            "sshOptions=\(parsed.sshOptions.joined(separator: "|"))"
+            controlCommandCoordinator.configureWorkspaceRemoteRequestLogLine(
+                workspaceID: workspaceId,
+                destination: destination,
+                transportRaw: config.transport.rawValue,
+                port: config.port,
+                autoConnect: parsed.autoConnect,
+                relayPort: config.relayPort,
+                localSocketPath: config.localSocketPath,
+                agentSocketPath: parsed.agentSocketPath,
+                sshOptions: parsed.sshOptions
+            )
         )
 #endif
 

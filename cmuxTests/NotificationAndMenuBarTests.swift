@@ -1712,7 +1712,7 @@ final class MenuBarNotificationLineFormatterTests: XCTestCase {
             isRead: false
         )
 
-        let line = MenuBarNotificationLineFormatter.plainTitle(notification: notification, tabTitle: "workspace-1")
+        let line = MenuBarNotificationLine(notification: notification, tabTitle: "workspace-1").plainTitle
         XCTAssertTrue(line.hasPrefix("● Build finished"))
         XCTAssertTrue(line.contains("All checks passed"))
         XCTAssertTrue(line.contains("workspace-1"))
@@ -1730,7 +1730,7 @@ final class MenuBarNotificationLineFormatterTests: XCTestCase {
             isRead: true
         )
 
-        let line = MenuBarNotificationLineFormatter.plainTitle(notification: notification, tabTitle: nil)
+        let line = MenuBarNotificationLine(notification: notification, tabTitle: nil).plainTitle
         XCTAssertTrue(line.hasPrefix("  Deploy"))
         XCTAssertTrue(line.contains("staging"))
     }
@@ -1747,12 +1747,12 @@ final class MenuBarNotificationLineFormatterTests: XCTestCase {
             isRead: false
         )
 
-        let title = MenuBarNotificationLineFormatter.menuTitle(
+        let title = MenuBarNotificationLine(
             notification: notification,
             tabTitle: "workspace-with-a-very-long-name",
             maxWidth: 120,
             maxLines: 3
-        )
+        ).menuTitle
 
         XCTAssertLessThanOrEqual(title.components(separatedBy: "\n").count, 3)
         XCTAssertTrue(title.hasSuffix("…"))
@@ -1770,12 +1770,12 @@ final class MenuBarNotificationLineFormatterTests: XCTestCase {
             isRead: false
         )
 
-        let title = MenuBarNotificationLineFormatter.menuTitle(
+        let title = MenuBarNotificationLine(
             notification: notification,
             tabTitle: "w1",
             maxWidth: 320,
             maxLines: 3
-        )
+        ).menuTitle
 
         XCTAssertFalse(title.hasSuffix("…"))
     }

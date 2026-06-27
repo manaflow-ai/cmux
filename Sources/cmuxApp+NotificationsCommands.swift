@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CmuxNotifications
 
 extension cmuxApp {
     @CommandsBuilder
@@ -54,7 +55,7 @@ extension cmuxApp {
 
     private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
         let tabTitle = appDelegate.tabTitle(for: notification.tabId)
-        return MenuBarNotificationLineFormatter.menuTitle(notification: notification, tabTitle: tabTitle)
+        return MenuBarNotificationLine(notification: notification, tabTitle: tabTitle).menuTitle
     }
 
     private func openNotificationFromMainMenu(_ notification: TerminalNotification) {
