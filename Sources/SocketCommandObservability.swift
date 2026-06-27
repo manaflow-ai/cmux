@@ -94,13 +94,13 @@ nonisolated struct SocketCommandObservability: Sendable {
             let lane = method.lowercased() == "ping" ? ExecutionLane.socketWorker : .mainActor
             return Command(
                 protocolName: .v1,
-                method: sanitizedToken(method),
+                method: Self.sanitizedToken(method),
                 peerPid: peerPid,
                 executionLane: executionLaneOverride ?? lane
             )
         }
 
-        guard let method = topLevelJSONMethod(in: trimmed[...]), !method.isEmpty else {
+        guard let method = Self.topLevelJSONMethod(in: trimmed[...]), !method.isEmpty else {
             return Command(
                 protocolName: .v2,
                 method: "<invalid-json>",
@@ -113,7 +113,7 @@ nonisolated struct SocketCommandObservability: Sendable {
         let lane: ExecutionLane = policy.runsOnSocketWorker ? .socketWorker : .mainActor
         return Command(
             protocolName: .v2,
-            method: sanitizedToken(method),
+            method: Self.sanitizedToken(method),
             peerPid: peerPid,
             executionLane: executionLaneOverride ?? lane
         )
@@ -192,7 +192,7 @@ nonisolated struct SocketCommandObservability: Sendable {
         }
         if trimmed.hasPrefix("{") {
             let prefix = trimmed.prefix(4096)
-            if topLevelJSONResponseStatus(in: prefix) == .error { return .error }
+            if Self.topLevelJSONResponseStatus(in: prefix) == .error { return .error }
         }
         return .ok
     }
@@ -205,7 +205,7 @@ nonisolated struct SocketCommandObservability: Sendable {
 
         var excerpt: [String] = []
         for line in lines[start...] {
-            if excerpt.count >= maxSampleExcerptLines {
+            if excerpt.count >= Self.maxSampleExcerptLines {
                 break
             }
             if !excerpt.isEmpty,
@@ -222,7 +222,7 @@ nonisolated struct SocketCommandObservability: Sendable {
         }
 
         guard !excerpt.isEmpty else { return nil }
-        return truncated(excerpt.joined(separator: "\n"), maxCharacters: maxSampleExcerptCharacters)
+        return Self.truncated(excerpt.joined(separator: "\n"), maxCharacters: Self.maxSampleExcerptCharacters)
     }
 
     private func logSlowCompletion(_ completion: Completion) {
@@ -264,7 +264,7 @@ nonisolated struct SocketCommandObservability: Sendable {
 
     static func fileNameComponent(_ value: String) -> String {
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-        let cleaned = sanitizedToken(value).unicodeScalars.map { scalar -> String in
+        let cleaned = Self.sanitizedToken(value).unicodeScalars.map { scalar -> String in
             allowed.contains(scalar) ? String(scalar) : "-"
         }.joined()
         return cleaned == "<empty>" ? "empty" : String(cleaned.prefix(96))
