@@ -334,8 +334,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         hotSpot: NSCursor.resizeLeftRight.hotSpot
     )
     nonisolated private static let commandPaletteQueryScopePolicy = CommandPaletteQueryScopePolicy()
-    private static let commandPaletteVisiblePreviewResultLimit = 48
-    private static let commandPaletteVisiblePreviewCandidateLimit = 128
     private static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
     private static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
@@ -2521,46 +2519,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         )
     }
 
-    private func refreshCommandPaletteSearchCorpus(
-        force: Bool = false,
-        query: String? = nil
-    ) {
-        let effectiveQuery = Self.commandPaletteRefreshQuery(
-            stateQuery: commandPalettePresentation.query,
-            observedQuery: query
-        )
-        commandPaletteCoordinator.refreshSearchCorpus(
-            force: force,
-            query: effectiveQuery,
-            host: commandPaletteSearchCorpusHost()
-        )
-    }
-
     private func cancelCommandPaletteSearch() {
         commandPaletteCoordinator.cancelSearch()
     }
 
     private func cancelCommandPaletteSearchIndexBuild() {
         commandPaletteCoordinator.cancelSearchIndexBuild()
-    }
-
-    nonisolated static func commandPaletteForkPriorityBoost(commandId: String, query: String) -> Int {
-        commandPaletteQueryScopePolicy.forkPriorityBoost(commandId: commandId, query: query)
-    }
-
-    private func setCommandPaletteVisibleResults(
-        _ results: [CommandPaletteSearchResult],
-        scope: CommandPaletteListScope,
-        fingerprint: Int?
-    ) {
-        commandPaletteCoordinator.setVisibleResults(
-            results,
-            scope: scope,
-            fingerprint: fingerprint,
-            presentation: commandPalettePresentation,
-            emptyStateText: commandPaletteEmptyStateText,
-            shouldShowEmptyState: { commandPaletteShouldShowEmptyState }
-        )
     }
 
     private func syncCommandPaletteOverlayCommandListState() {
@@ -2576,215 +2540,15 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         forceSearchCorpusRefresh: Bool = false,
         preservePendingActivation: Bool = false
     ) {
-        let effectiveQuery = Self.commandPaletteRefreshQuery(
-            stateQuery: commandPalettePresentation.query,
-            observedQuery: query
+        commandPaletteCoordinator.scheduleResultsRefresh(
+            query: query,
+            forceSearchCorpusRefresh: forceSearchCorpusRefresh,
+            preservePendingActivation: preservePendingActivation,
+            presentation: commandPalettePresentation,
+            emptyStateText: commandPaletteEmptyStateText,
+            corpusHost: commandPaletteSearchCorpusHost(),
+            listHost: self
         )
-        let scope = Self.commandPaletteListScope(for: effectiveQuery)
-        let matchingQuery = Self.commandPaletteQueryForMatching(
-            query: effectiveQuery,
-            scope: scope
-        )
-
-        refreshCommandPaletteSearchCorpus(
-            force: forceSearchCorpusRefresh,
-            query: effectiveQuery
-        )
-
-        commandPaletteCoordinator.searchRequestID &+= 1
-        let requestID = commandPaletteCoordinator.searchRequestID
-        let fingerprint = commandPaletteCoordinator.cachedCorpusFingerprint
-        let searchCorpus = commandPaletteCoordinator.searchCorpus
-        let searchCorpusByID = commandPaletteCoordinator.searchCorpusByID
-        let searchIndex = commandPaletteCoordinator.nucleoSearchIndex
-        let commandsByID = commandPaletteCoordinator.searchCommandsByID
-        let usageHistory = commandPalettePresentation.usageHistoryByCommandId
-        let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(matchingQuery).isEmpty
-        let historyTimestamp = Date().timeIntervalSince1970
-        let additionalScoreBoost: (String, Bool) -> Int = { commandId, _ in
-            Self.commandPaletteForkPriorityBoost(commandId: commandId, query: matchingQuery)
-        }
-        let visiblePreviewResultLimit = Self.commandPaletteVisiblePreviewResultLimit
-        if preservePendingActivation {
-            commandPalettePresentation.pendingActivation = commandPalettePresentation.pendingActivation?.rebased(
-                toRequestID: requestID
-            )
-        } else {
-            commandPalettePresentation.pendingActivation = nil
-        }
-        cancelCommandPaletteSearch()
-        if CommandPaletteSearchOrchestrator.shouldSynchronouslySeedResults(
-            hasVisibleResultsForScope: commandPaletteCoordinator.visibleResultsScope == scope,
-            hasSearchIndex: searchIndex != nil,
-            corpusCount: searchCorpus.count
-        ) {
-            let matches = CommandPaletteSearchOrchestrator().resolvedSearchMatches(
-                searchIndex: searchIndex,
-                searchCorpus: searchCorpus,
-                searchCorpusByID: searchCorpusByID,
-                query: matchingQuery,
-                usageHistory: usageHistory,
-                queryIsEmpty: queryIsEmpty,
-                historyTimestamp: historyTimestamp,
-                additionalScoreBoost: additionalScoreBoost
-            )
-            commandPaletteCoordinator.cachedResults = CommandPaletteCoordinator.materializedSearchResults(
-                matches: matches,
-                commandsByID: commandsByID
-            )
-            let resultIDs = commandPaletteCoordinator.cachedResults.map(\.id)
-            let pendingActivationResolution = commandPalettePresentation.pendingActivation.resolution(
-                requestID: requestID,
-                resultIDs: resultIDs
-            )
-            commandPaletteCoordinator.resolvedSearchRequestID = requestID
-            commandPaletteCoordinator.resolvedSearchScope = scope
-            commandPaletteCoordinator.resolvedSearchFingerprint = fingerprint
-            commandPaletteCoordinator.resolvedMatchingQuery = matchingQuery
-            commandPaletteCoordinator.isSearchPending = false
-            setCommandPaletteVisibleResults(
-                commandPaletteCoordinator.cachedResults,
-                scope: scope,
-                fingerprint: fingerprint
-            )
-            if pendingActivationResolution.shouldClearPendingActivation {
-                commandPalettePresentation.pendingActivation = nil
-            }
-            commandPalettePresentation.resultsRevision &+= 1
-            if let resolvedActivation = pendingActivationResolution.resolvedActivation {
-                runCommandPaletteResolvedActivation(resolvedActivation)
-            }
-            return
-        }
-        let previewCandidateCommandIDs: [String]
-        if commandPaletteCoordinator.visibleResultsScope == scope,
-           commandPaletteCoordinator.visibleResultsFingerprint == fingerprint,
-           !commandPaletteCoordinator.visibleResults.isEmpty {
-            previewCandidateCommandIDs = CommandPaletteSearchOrchestrator.previewCandidateCommandIDs(
-                resultIDs: commandPaletteCoordinator.visibleResults.map(\.id),
-                limit: Self.commandPaletteVisiblePreviewCandidateLimit
-            )
-        } else {
-            previewCandidateCommandIDs = []
-        }
-        let shouldApplyPreviewResults = scope == .commands || !previewCandidateCommandIDs.isEmpty
-        commandPaletteCoordinator.isSearchPending = true
-        syncCommandPaletteOverlayCommandListState()
-
-        commandPaletteCoordinator.searchTask = Task.detached(priority: .userInitiated) {
-            let previewMatches = shouldApplyPreviewResults
-                ? CommandPaletteSearchOrchestrator().previewSearchMatches(
-                    scope: scope,
-                    searchIndex: searchIndex,
-                    searchCorpus: searchCorpus,
-                    candidateCommandIDs: previewCandidateCommandIDs,
-                    searchCorpusByID: searchCorpusByID,
-                    query: matchingQuery,
-                    usageHistory: usageHistory,
-                    queryIsEmpty: queryIsEmpty,
-                    historyTimestamp: historyTimestamp,
-                    additionalScoreBoost: additionalScoreBoost,
-                    resultLimit: visiblePreviewResultLimit
-                )
-                : []
-
-            guard !Task.isCancelled else { return }
-
-            await MainActor.run {
-                let currentScope = Self.commandPaletteListScope(for: commandPalettePresentation.query)
-                let currentMatchingQuery = Self.commandPaletteQueryForMatching(
-                    query: commandPalettePresentation.query,
-                    scope: currentScope
-                )
-                let shouldApplyPreview = commandPaletteCoordinator.searchRequestID == requestID
-                    && isCommandPalettePresented
-                    && currentScope == scope
-                    && currentMatchingQuery == matchingQuery
-                    && commandPaletteCoordinator.cachedCorpusFingerprint == fingerprint
-                    && commandPaletteCoordinator.isSearchPending
-                guard shouldApplyPreview else {
-                    return
-                }
-                guard shouldApplyPreviewResults else {
-                    return
-                }
-
-                let previewResults = CommandPaletteCoordinator.materializedSearchResults(
-                    matches: previewMatches,
-                    commandsByID: commandPaletteCoordinator.searchCommandsByID
-                )
-                setCommandPaletteVisibleResults(
-                    previewResults,
-                    scope: scope,
-                    fingerprint: fingerprint
-                )
-                updateCommandPaletteScrollTarget(resultCount: previewResults.count, animated: false)
-                syncCommandPaletteOverlayCommandListState()
-                syncCommandPaletteDebugStateForObservedWindow()
-            }
-
-            guard !Task.isCancelled else { return }
-
-            let matches = CommandPaletteSearchOrchestrator().resolvedSearchMatches(
-                searchIndex: searchIndex,
-                searchCorpus: searchCorpus,
-                searchCorpusByID: searchCorpusByID,
-                query: matchingQuery,
-                usageHistory: usageHistory,
-                queryIsEmpty: queryIsEmpty,
-                historyTimestamp: historyTimestamp,
-                additionalScoreBoost: additionalScoreBoost,
-                shouldCancel: { Task.isCancelled }
-            )
-
-            guard !Task.isCancelled else { return }
-
-            await MainActor.run {
-                let currentScope = Self.commandPaletteListScope(for: commandPalettePresentation.query)
-                let currentMatchingQuery = Self.commandPaletteQueryForMatching(
-                    query: commandPalettePresentation.query,
-                    scope: currentScope
-                )
-                let shouldApplyResults = commandPaletteCoordinator.searchRequestID == requestID
-                    && isCommandPalettePresented
-                    && currentScope == scope
-                    && currentMatchingQuery == matchingQuery
-                    && commandPaletteCoordinator.cachedCorpusFingerprint == fingerprint
-                guard shouldApplyResults else {
-                    return
-                }
-
-                commandPaletteCoordinator.cachedResults = CommandPaletteCoordinator.materializedSearchResults(
-                    matches: matches,
-                    commandsByID: commandPaletteCoordinator.searchCommandsByID
-                )
-                let resultIDs = commandPaletteCoordinator.cachedResults.map(\.id)
-                let pendingActivationResolution = commandPalettePresentation.pendingActivation.resolution(
-                    requestID: requestID,
-                    resultIDs: resultIDs
-                )
-                commandPaletteCoordinator.resolvedSearchRequestID = requestID
-                commandPaletteCoordinator.resolvedSearchScope = scope
-                commandPaletteCoordinator.resolvedSearchFingerprint = fingerprint
-                commandPaletteCoordinator.resolvedMatchingQuery = matchingQuery
-                commandPaletteCoordinator.isSearchPending = false
-                setCommandPaletteVisibleResults(
-                    commandPaletteCoordinator.cachedResults,
-                    scope: scope,
-                    fingerprint: fingerprint
-                )
-                if pendingActivationResolution.shouldClearPendingActivation {
-                    commandPalettePresentation.pendingActivation = nil
-                }
-                commandPalettePresentation.resultsRevision &+= 1
-                if commandPaletteCoordinator.searchRequestID == requestID {
-                    commandPaletteCoordinator.searchTask = nil
-                }
-                if let resolvedActivation = pendingActivationResolution.resolvedActivation {
-                    runCommandPaletteResolvedActivation(resolvedActivation)
-                }
-            }
-        }
     }
 
     private func commandPaletteEntriesFingerprint(for scope: CommandPaletteListScope) -> Int {
@@ -9940,6 +9704,10 @@ extension ContentView: CommandPaletteListHost {
             forceSearchCorpusRefresh: force,
             preservePendingActivation: preservePendingActivation
         )
+    }
+
+    func commandPaletteListRunResolvedActivation(_ activation: CommandPaletteResolvedActivation) {
+        runCommandPaletteResolvedActivation(activation)
     }
 }
 
