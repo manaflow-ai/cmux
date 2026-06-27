@@ -1614,7 +1614,7 @@ final class CmuxWebView: WKWebView {
         if Thread.isMainThread {
             onContextMenuDownloadStateChanged?(downloading)
         } else {
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.onContextMenuDownloadStateChanged?(downloading)
             }
         }
@@ -1624,7 +1624,7 @@ final class CmuxWebView: WKWebView {
         if Thread.isMainThread {
             onSessionDownloadEvent?(event)
         } else {
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.onSessionDownloadEvent?(event)
             }
         }
