@@ -1580,7 +1580,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         do {
             return try CmxAttachTicket(
                 workspaceID: attachTokenWorkspaceID, terminalID: mac.attachTokenTerminalID, macDeviceID: mac.macDeviceID,
-                macDisplayName: mac.displayName, routes: mac.routes, expiresAt: expiresAt,
+                macDisplayName: mac.displayName,
+                macUserEmail: identityProvider?.currentUserEmail,
+                macUserID: identityProvider?.currentUserID,
+                routes: mac.routes,
+                expiresAt: expiresAt,
                 authToken: attachToken)
         } catch {
             mobileShellLog.warning("durable attach ticket invalid mac=\(mac.macDeviceID, privacy: .public) routeCount=\(mac.routes.count, privacy: .public) error=\(String(describing: error), privacy: .public)")
@@ -4756,21 +4760,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static func initialWorkspaceListRequests(for ticket: CmxAttachTicket) throws -> [WorkspaceListRequest] {
         let scopedParams = initialWorkspaceListParams(for: ticket)
         let hasAttachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let hasTerminalScope = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
 
         var requests: [WorkspaceListRequest] = []
+        if hasAttachToken && !hasTerminalScope {
+            requests.append(
+                WorkspaceListRequest(
+                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
+                    isScoped: false,
+                    preferActiveTicketTarget: true
+                )
+            )
+        }
         if !scopedParams.isEmpty {
             requests.append(
                 WorkspaceListRequest(
                     data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: scopedParams),
                     isScoped: true,
-                    preferActiveTicketTarget: true
-                )
-            )
-        } else if hasAttachToken {
-            requests.append(
-                WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
-                    isScoped: false,
                     preferActiveTicketTarget: true
                 )
             )

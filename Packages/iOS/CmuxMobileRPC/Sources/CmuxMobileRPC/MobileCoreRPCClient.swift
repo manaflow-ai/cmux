@@ -356,6 +356,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let params = request["params"] as? [String: Any] ?? [:]
         let workspaceSelection = stringParamSelection(params, keys: ["workspace_id"])
         let terminalSelection = stringParamSelection(params, keys: ["surface_id", "terminal_id", "tab_id"])
+        let hasMacAccountBinding = ticketHasMacAccountBinding(ticket)
         let ticketCoverage = MobileCoreRPCAttachTicketCoverage()
         if workspaceSelection.hasConflict ||
             terminalSelection.hasConflict ||
@@ -365,8 +366,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
         switch method {
         case "mobile.workspace.list", "workspace.list":
-            if ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false && workspaceSelection.value == nil {
-                return true
+            if workspaceSelection.value == nil {
+                return terminalSelection.value != nil || !hasMacAccountBinding || ticketHasTerminalScope(ticket)
             }
             return !ticketCoverage.ticketCoversTerminalRequest(
                 ticket: ticket,
@@ -374,7 +375,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 terminalSelection: terminalSelection.value
             )
         case "workspace.create":
-            return !ticketCoverage.ticketCoversWorkspaceCreateRequest(ticket: ticket)
+            return !hasMacAccountBinding || !ticketCoverage.ticketCoversWorkspaceCreateRequest(ticket: ticket)
         case "workspace.group.collapse", "workspace.group.expand":
             return !ticketCoverage.ticketCoversMacWideRequest(ticket: ticket)
         case "workspace.action", "workspace.close":
@@ -405,6 +406,15 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         default:
             return true
         }
+    }
+
+    private static func ticketHasMacAccountBinding(_ ticket: CmxAttachTicket) -> Bool {
+        ticket.macUserID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
+            ticket.macUserEmail?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    private static func ticketHasTerminalScope(_ ticket: CmxAttachTicket) -> Bool {
+        ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
     private static func requestRequiresAuth(_ request: [String: Any]) -> Bool {

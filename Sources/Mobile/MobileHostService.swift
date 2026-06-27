@@ -1323,7 +1323,10 @@ final class MobileHostService {
         request: MobileHostRPCRequest,
         result: MobileHostRPCResult
     ) async {
-        guard let attachToken = request.auth?.attachToken, let ticketAuthorization = ticketStore.validAuthorization(authToken: attachToken), Self.ticketAuthorizationError(authorization: ticketAuthorization, request: request) == nil else { return }
+        guard request.auth?.stackAccessToken == nil,
+              let attachToken = request.auth?.attachToken,
+              let ticketAuthorization = ticketStore.validAuthorization(authToken: attachToken),
+              Self.ticketAuthorizationError(authorization: ticketAuthorization, request: request) == nil else { return }
         guard MobileAttachTicketStore.ticketMatchesCurrentMacAccount(
             ticket: ticketAuthorization.ticket,
             currentUserID: await currentAuthenticatedLocalUserID(),
@@ -1385,7 +1388,11 @@ final class MobileHostService {
 
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
-            return authorization.ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false && workspaceSelection.value == nil ? scopedTicketError : ticketTerminalAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value, terminalSelection: terminalSelection.value)
+            if workspaceSelection.value == nil {
+                let ticketHasTerminalScope = authorization.ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                return terminalSelection.value == nil && !ticketHasTerminalScope ? nil : scopedTicketError
+            }
+            return ticketTerminalAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value, terminalSelection: terminalSelection.value)
         case "workspace.create":
             return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: nil)
         case "workspace.group.collapse", "workspace.group.expand":

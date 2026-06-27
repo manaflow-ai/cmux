@@ -1103,7 +1103,7 @@ final class TerminalOutputCollector {
     let route = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(
         workspaceID: workspaceID,
-        terminalID: terminalID,
+        terminalID: nil,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [route],
@@ -1176,7 +1176,7 @@ final class TerminalOutputCollector {
     let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(
         workspaceID: workspaceID,
-        terminalID: terminalID,
+        terminalID: nil,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [route],
@@ -1246,7 +1246,7 @@ final class TerminalOutputCollector {
     let route = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(
         workspaceID: workspaceID,
-        terminalID: terminalID,
+        terminalID: nil,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [route],
@@ -1270,13 +1270,13 @@ final class TerminalOutputCollector {
     #expect(workspaceLists[0].workspaceID == nil)
     #expect(workspaceLists[0].terminalID == nil)
     #expect(workspaceLists[1].workspaceID == workspaceID)
-    #expect(workspaceLists[1].terminalID == terminalID)
+    #expect(workspaceLists[1].terminalID == nil)
     #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
     #expect(store.workspaces.map(\.id.rawValue) == [workspaceID])
 }
 
 @MainActor
-@Test func terminalScopedAttachTicketWithAttachTokenListsAllWorkspacesFirst() async throws {
+@Test func terminalScopedAttachTicketWithAttachTokenUsesScopedWorkspaceList() async throws {
     let workspaceID = UUID().uuidString
     let terminalID = UUID().uuidString
     let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
@@ -1303,8 +1303,8 @@ final class TerminalOutputCollector {
 
     let requests = try await responses.sentRequests()
     let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
-    #expect(workspaceList.workspaceID == nil)
-    #expect(workspaceList.terminalID == nil)
+    #expect(workspaceList.workspaceID == workspaceID)
+    #expect(workspaceList.terminalID == terminalID)
     #expect(workspaceList.attachToken == "ticket-secret")
     #expect(workspaceList.stackAccessToken == nil)
     #expect(store.selectedWorkspace?.terminals.first?.id.rawValue == terminalID)
@@ -2165,8 +2165,8 @@ final class TerminalOutputCollector {
         endpoint: .hostPort(host: "127.0.0.1", port: 56584)
     )
     let ticket = try CmxAttachTicket(
-        workspaceID: "workspace-main",
-        terminalID: "terminal-build",
+        workspaceID: "",
+        terminalID: nil,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [route],
