@@ -134,6 +134,11 @@ cmux_claude_wrapper_target_looks_like_reexec_shim() {
             esac
             ;;
     esac
+    case "$snippet" in
+        *'@anthropic-ai/claude-code'*|*'claude-code/cli.js'*)
+            return 1
+            ;;
+    esac
     case "$first_line" in
         *node*|*Node*)
             return 1
