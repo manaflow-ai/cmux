@@ -427,9 +427,6 @@ function ensureResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: stri
   if (!target) return;
 
   const initial = runCmux(["--json", "surface", "resume", "get", ...target], cwd);
-  const initialPayload = parseJSONOutput(initial);
-  if (resumeBindingMatches(initialPayload, sessionId)) return;
-
   if (!initial.ok) {
     warn(ctx, "failed to read Pi resume binding", {
       status: initial.status,
@@ -581,7 +578,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       sendHook("stop", ctx, {
         turn_id: turnId,
         terminationReason: firstString(objectValue(event, ["reason"])) || "session_shutdown",
-        cmux_notification_routed: true,
       });
     }
     if (clearResumeBinding(ctx, sessionId, cwd)) sessionStates.delete(sessionId);

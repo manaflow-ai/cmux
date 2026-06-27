@@ -99,7 +99,7 @@ cmux hooks <agent> uninstall
 
 Agents without a binary on `PATH` are skipped at install time, and `cmux hooks setup` prints a summary line naming the ones it skipped. Use `cmux hooks setup --agent <name>` or `cmux hooks setup <name>` to install one integration, and `cmux hooks uninstall --agent <name>` or `cmux hooks uninstall <name>` to remove one. Rovo Dev accepts either `rovodev` or `rovo`.
 
-Pi, OMP, and Rovo Dev provide lifecycle and session-restore hooks only; they do not install a Feed permission bridge.
+Pi provides lifecycle and session-restore hooks plus Feed telemetry for `tool_execution_start` and `tool_execution_end` events. OMP and Rovo Dev provide lifecycle and session-restore hooks only; they do not install a Feed permission bridge.
 
 ## Decision semantics
 

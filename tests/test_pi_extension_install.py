@@ -233,6 +233,15 @@ await handlers.get("agent_end")({
   stopReason: "completed"
 }, ctx);
 await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
+const interruptedCtx = {
+  cwd: "/tmp/pi-project",
+  sessionManager: {
+    getSessionId() { return "pi-session-interrupted"; }
+  }
+};
+await handlers.get("session_start")({}, interruptedCtx);
+await handlers.get("before_agent_start")({ prompt: "interrupt me" }, interruptedCtx);
+await handlers.get("session_shutdown")({ reason: "terminated" }, interruptedCtx);
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -250,9 +259,9 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = wait_for_text(fake_args_log, 10, timeout=20.0)
-        stdin_log = wait_for_text(fake_stdin_log, 16, timeout=20.0)
-        env_log = wait_for_text(fake_env_log, 10 * 3, timeout=20.0)
+        args_log = wait_for_text(fake_args_log, 17, timeout=20.0)
+        stdin_log = wait_for_text(fake_stdin_log, 26, timeout=20.0)
+        env_log = wait_for_text(fake_env_log, 17 * 3, timeout=20.0)
         for expected in [
             "hooks pi session-start",
             "hooks pi prompt-submit",
@@ -267,6 +276,20 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
             if expected not in args_log:
                 print(f"FAIL: extension did not invoke {expected}, got {args_log!r}")
                 return 1
+
+        arg_lines = [line for line in args_log.splitlines() if line.strip()]
+        resume_ops = []
+        for line in [line for line in arg_lines if "surface resume " in line]:
+            if "surface resume get" in line:
+                resume_ops.append("get")
+            elif "surface resume set" in line:
+                resume_ops.append("set")
+            elif "surface resume clear" in line:
+                resume_ops.append("clear")
+        expected_resume_ops = ["get", "set", "get", "clear", "get", "set", "get", "clear"]
+        if resume_ops != expected_resume_ops:
+            print(f"FAIL: extension did not verify resume binding after set, got {resume_ops!r}")
+            return 1
 
         payloads = payloads_from_log(stdin_log)
         if not any(payload.get("session_id") == "pi-session-test" for payload in payloads):
@@ -283,6 +306,19 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
             return 1
         if stop_payload.get("turn_id") != prompt_turn_id:
             print(f"FAIL: stop payload did not reuse prompt turn_id, prompt={prompt_payload!r}, stop={stop_payload!r}")
+            return 1
+        interrupted_stop_payload = next(
+            (payload for payload in payloads if payload.get("terminationReason") == "terminated"),
+            None,
+        )
+        if interrupted_stop_payload is None:
+            print(f"FAIL: interrupted session shutdown did not send stop payload, got {payloads!r}")
+            return 1
+        if interrupted_stop_payload.get("cmux_notification_routed") is True:
+            print(
+                "FAIL: interrupted session shutdown suppressed native notification fallback, "
+                f"got {interrupted_stop_payload!r}"
+            )
             return 1
         feed_events = [payload for payload in payloads if payload.get("hook_event_name") in {"PreToolUse", "PostToolUse"}]
         if len(feed_events) != 2 or {payload.get("tool_name") for payload in feed_events} != {"bash"}:
