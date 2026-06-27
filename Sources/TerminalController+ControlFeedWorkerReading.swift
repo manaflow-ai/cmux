@@ -43,7 +43,7 @@ extension TerminalController {
     /// Decodes, publishes, applies side effects for, and blocking-ingests a
     /// `feed.push` event (the app-coupled core of the legacy `v2FeedPush` body,
     /// after the worker performed the wait-timeout parse and event-presence
-    /// checks). Returns the `IngestBlockingResult.socketEncodedDictionary` bridged
+    /// checks). Returns the `WorkstreamIngestBlockingResult.socketEncodedDictionary` bridged
     /// to ``JSONValue``, or `.decodeFailed` so the worker builds the byte-identical
     /// decode-error message.
     nonisolated func controlFeedPushEvent(
