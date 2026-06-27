@@ -256,10 +256,11 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
             expected_output = prepend_unique_directory(str(shim_root), before_path)
             if before_path != input_path:
                 failures.append(f"{shell_name} test setup expected PATH {input_path!r}, got {before_path!r}")
+            if expected_output != expected_path:
+                failures.append(f"{shell_name} expected computed PATH {expected_path!r}, got {expected_output!r}")
+                continue
             if output != expected_output:
                 failures.append(f"{shell_name} expected PATH {expected_output!r}, got {output!r}")
-            if output != expected_path:
-                failures.append(f"{shell_name} expected empty PATH components to be preserved, got {output!r}")
 
 
 def main() -> int:
