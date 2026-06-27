@@ -13,9 +13,9 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     /// Attach routes advertised by the Mac, ordered by priority (lowest first).
     public var routes: [CmxAttachRoute]
     /// Local-only attach ticket secret used for fast reconnect while unexpired.
-    public var attachToken: String?
+    public var attachToken: String? = nil
     /// Expiration time for ``attachToken``.
-    public var attachTokenExpiresAt: Date?
+    public var attachTokenExpiresAt: Date? = nil
     /// When this pairing was first recorded.
     public var createdAt: Date
     /// When this pairing was last refreshed or used.
@@ -43,6 +43,20 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
 
     /// The Mac device identifier doubles as the stable `Identifiable` id.
     public var id: String { macDeviceID }
+
+    private enum CodingKeys: String, CodingKey {
+        case macDeviceID
+        case displayName
+        case routes
+        case createdAt
+        case lastSeenAt
+        case isActive
+        case stackUserID
+        case teamID
+        case customName
+        case customColor
+        case customIcon
+    }
 
     /// The name to show: the user's custom override if set, else the Mac-reported
     /// name, else the device id.

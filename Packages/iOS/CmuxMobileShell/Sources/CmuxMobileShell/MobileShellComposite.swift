@@ -611,6 +611,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``performSerializedPairedMacWrite(ifStillCurrent:_:)``.
     private var pairedMacWriteChain: Task<Void, Never>?
     private var pushedRouteSyncTask: Task<Void, Never>?
+    private var registryRouteRefreshTasks: [String: (id: UUID, task: Task<Void, Never>)] = [:]
     /// The in-flight `mobile.events.subscribe` (reason `start`) ack for the
     /// current listener generation. It runs concurrently with the consumer
     /// loop (the ack is a server-side enable handshake, not a delivery
@@ -898,6 +899,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
         pullToRefreshTask?.cancel()
+        registryRouteRefreshTasks.values.forEach { $0.task.cancel() }
         teardownSecondaryMacSubscriptions()
         if let remoteClient {
             Task { await remoteClient.disconnect() }
@@ -999,6 +1001,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // branch clears the hint. Bump the reconnect generation so any in-flight
         // reconnect is superseded and can't re-set these flags after sign-out.
         storedMacReconnectGeneration &+= 1
+        cancelRegistryRouteRefresh()
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
         replaceRemoteClient(with: nil)
@@ -1074,6 +1077,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// lists" behavior).
     public func currentTeamDidChange() {
         secondaryAggregationScopeGeneration &+= 1
+        cancelRegistryRouteRefresh()
         // Presence: cancel + re-subscribe so the online dots reflect the new team
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
         presenceTask?.cancel()
@@ -1661,7 +1665,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let latestForgottenIDs = await forgottenMacDeviceIDs(scope: scope)
             guard generation == storedMacReconnectGeneration, await isScopeCurrent(scope), !latestForgottenIDs.contains(mac.macDeviceID) else { break }
             // Best-effort registry refresh for this Mac in the background.
-            refreshRoutesFromRegistry(for: mac, scope: scope)
+            scheduleRouteRefreshFromRegistry(for: mac, scope: scope)
             await connectStoredMacHost(
                 mac: mac,
                 host: host,
@@ -1701,83 +1705,111 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Best-effort, non-blocking registry refresh for the active paired Mac.
     ///
-    /// Runs detached so it never adds latency to the in-flight reconnect (which
-    /// connects on the locally persisted routes). When the registry returns
+    /// Runs on a tracked task so it never adds latency to the in-flight reconnect
+    /// (which connects on the locally persisted routes), and sign-out/team switches
+    /// can cancel it before a stale write. When the registry returns
     /// usable, *different* routes for this Mac, they are written back into the
     /// store so the next reconnect trigger (network change / Retry) reaches the
     /// Mac at its current address after it moved networks or changed port. A
     /// missing registry, an unauthorized call, or no-change routes are no-ops, so
     /// a registry outage never disturbs the locally stored routes.
-    private func refreshRoutesFromRegistry(for mac: MobilePairedMac, scope: MobileShellScopeSnapshot) {
+    private func scheduleRouteRefreshFromRegistry(for mac: MobilePairedMac, scope: MobileShellScopeSnapshot) {
+        guard deviceRegistry != nil, pairedMacStore != nil else { return }
+        let macDeviceID = mac.macDeviceID
+        registryRouteRefreshTasks[macDeviceID]?.task.cancel()
+        let taskID = UUID()
+        let task = Task { @MainActor [weak self] in
+            defer {
+                self?.clearRegistryRouteRefreshTask(
+                    macDeviceID: macDeviceID,
+                    id: taskID
+                )
+            }
+            await self?.refreshRoutesFromRegistry(for: mac, scope: scope)
+        }
+        registryRouteRefreshTasks[macDeviceID] = (id: taskID, task: task)
+    }
+
+    private func refreshRoutesFromRegistry(for mac: MobilePairedMac, scope: MobileShellScopeSnapshot) async {
         guard let deviceRegistry, let pairedMacStore else { return }
         let macDeviceID = mac.macDeviceID
         let localRoutes = mac.routes
         let displayName = mac.displayName
-        Task { [weak self] in
-            let registryRoutes = await deviceRegistry.freshRoutes(forMacDeviceID: macDeviceID)
-            guard let updated = DeviceRegistryService.selectReconnectRoutes(
-                local: localRoutes,
-                registry: registryRoutes
-            ) else { return }
-            guard let self else { return }
-            // The network await above suspended; the user may have signed out,
-            // switched accounts, forgotten this Mac, or switched the active Mac
-            // meanwhile. Re-evaluate against the *current* store/identity before
-            // the `markActive: true` upsert, so a stale refresh can never
-            // resurrect or reactivate a pairing the user removed. Pass the
-            // captured account/team scope through every store call so a team
-            // switch cannot make this old-team refresh write into the new team.
-            guard await self.isScopeCurrent(scope) else { return }
-            guard await !self.isForgottenMacDeviceID(macDeviceID, scope: scope) else { return }
-            let activeMacID: String?
+        let registryRoutes = await deviceRegistry.freshRoutes(forMacDeviceID: macDeviceID)
+        guard !Task.isCancelled else { return }
+        guard let updated = DeviceRegistryService.selectReconnectRoutes(
+            local: localRoutes,
+            registry: registryRoutes
+        ) else { return }
+        // The network await above suspended; the user may have signed out,
+        // switched accounts, forgotten this Mac, or switched the active Mac
+        // meanwhile. Re-evaluate against the *current* store/identity before
+        // the `markActive: true` upsert, so a stale refresh can never
+        // resurrect or reactivate a pairing the user removed. Pass the
+        // captured account/team scope through every store call so a team
+        // switch cannot make this old-team refresh write into the new team.
+        guard await isScopeCurrent(scope) else { return }
+        guard await !isForgottenMacDeviceID(macDeviceID, scope: scope) else { return }
+        let activeMacID: String?
+        do {
+            activeMacID = try await pairedMacStore.activeMac(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            )?.macDeviceID
+        } catch {
+            mobileShellLog.debug("registry refresh active-mac recheck failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+        guard !Task.isCancelled else { return }
+        guard await isScopeCurrent(scope) else { return }
+        guard await !isForgottenMacDeviceID(macDeviceID, scope: scope) else { return }
+        guard DeviceRegistryService.shouldApplyRegistryRefresh(
+            isSignedIn: isSignedIn,
+            capturedUserID: scope.userID,
+            currentUserID: identityProvider?.currentUserID ?? scope.userID,
+            activeMacID: activeMacID,
+            targetMacID: macDeviceID
+        ) else { return }
+        do {
+            try await pairedMacStore.upsert(
+                macDeviceID: macDeviceID,
+                displayName: displayName,
+                routes: updated,
+                markActive: true,
+                stackUserID: scope.userID,
+                teamID: scope.teamID,
+                now: Date()
+            )
+        } catch {
+            mobileShellLog.debug("registry route refresh upsert failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+        guard !Task.isCancelled else { return }
+        if await isForgottenMacDeviceID(macDeviceID, scope: scope) {
             do {
-                activeMacID = try await pairedMacStore.activeMac(
+                try await pairedMacStore.remove(
+                    macDeviceID: macDeviceID,
                     stackUserID: scope.userID,
                     teamID: scope.teamID
-                )?.macDeviceID
-            } catch {
-                mobileShellLog.debug("registry refresh active-mac recheck failed: \(String(describing: error), privacy: .public)")
-                return
-            }
-            guard await self.isScopeCurrent(scope) else { return }
-            guard await !self.isForgottenMacDeviceID(macDeviceID, scope: scope) else { return }
-            guard DeviceRegistryService.shouldApplyRegistryRefresh(
-                isSignedIn: self.isSignedIn,
-                capturedUserID: scope.userID,
-                currentUserID: self.identityProvider?.currentUserID ?? scope.userID,
-                activeMacID: activeMacID,
-                targetMacID: macDeviceID
-            ) else { return }
-            do {
-                try await pairedMacStore.upsert(
-                    macDeviceID: macDeviceID,
-                    displayName: displayName,
-                    routes: updated,
-                    markActive: true,
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID,
-                    now: Date()
                 )
             } catch {
-                mobileShellLog.debug("registry route refresh upsert failed: \(String(describing: error), privacy: .public)")
-                return
+                mobileShellLog.debug("registry route refresh stale-row cleanup failed: \(String(describing: error), privacy: .public)")
             }
-            if await self.isForgottenMacDeviceID(macDeviceID, scope: scope) {
-                do {
-                    try await pairedMacStore.remove(
-                        macDeviceID: macDeviceID,
-                        stackUserID: scope.userID,
-                        teamID: scope.teamID
-                    )
-                } catch {
-                    mobileShellLog.debug("registry route refresh stale-row cleanup failed: \(String(describing: error), privacy: .public)")
-                }
-                return
-            }
-            if await self.isScopeCurrent(scope) {
-                await self.loadPairedMacs()
-            }
+            return
         }
+        if await isScopeCurrent(scope) {
+            await loadPairedMacs()
+        }
+    }
+
+    private func clearRegistryRouteRefreshTask(macDeviceID: String, id: UUID) {
+        guard registryRouteRefreshTasks[macDeviceID]?.id == id else { return }
+        registryRouteRefreshTasks[macDeviceID] = nil
+    }
+
+    private func cancelRegistryRouteRefresh() {
+        registryRouteRefreshTasks.values.forEach { $0.task.cancel() }
+        registryRouteRefreshTasks.removeAll()
     }
 
     // MARK: - Paired Mac switching
