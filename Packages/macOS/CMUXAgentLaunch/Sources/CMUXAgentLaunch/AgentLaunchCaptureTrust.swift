@@ -99,12 +99,19 @@ public struct AgentLaunchCaptureTrust: Sendable, Equatable {
     public func argvLooksLikeShellWrapper(_ arguments: [String]) -> Bool {
         guard executableLooksLikeShell(arguments.first) else { return false }
         var sawShellStartupOnlyFlag = false
-        for argument in arguments.dropFirst() {
+        var index = arguments.index(after: arguments.startIndex)
+        while index < arguments.endIndex {
+            let argument = arguments[index]
             if shellCommandStringFlag(argument) {
                 return true
             }
             if shellStartupOnlyFlag(argument) {
                 sawShellStartupOnlyFlag = true
+                index = arguments.index(after: index)
+                continue
+            }
+            if shellOptionConsumesNextValue(argument), arguments.index(after: index) < arguments.endIndex {
+                index = arguments.index(index, offsetBy: 2)
                 continue
             }
             if argument == "--" || !argument.hasPrefix("-") {
@@ -126,6 +133,15 @@ public struct AgentLaunchCaptureTrust: Sendable, Equatable {
     private func shellStartupOnlyFlag(_ flag: String) -> Bool {
         switch flag {
         case "--no-config", "--no-rcs", "--noprofile", "--norc":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func shellOptionConsumesNextValue(_ flag: String) -> Bool {
+        switch flag {
+        case "-o", "+o", "-O", "+O", "--init-file", "--rcfile":
             return true
         default:
             return false

@@ -165,6 +165,16 @@ struct AgentResumeArgvTests {
                 arguments: sanitizedFishBootstrapArguments
             ) == ["codex", "resume", "SID"]
         )
+
+        let shellOptionBootstrapArguments = ["/bin/bash", "-o", "pipefail", "-c", "exec codex"]
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: "/bin/bash",
+                arguments: shellOptionBootstrapArguments
+            ) == ["codex", "resume", "SID"]
+        )
     }
 
     @Test("Shell-named wrappers without shell dispatcher argv are preserved")
