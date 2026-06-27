@@ -112,10 +112,6 @@ public protocol WindowLifecycleHosting: AnyObject {
     /// registry mutates.
     func notifyMainWindowContextsDidChange()
 
-    /// Makes `window` the active main window (active-tab-manager repoint + key
-    /// focus). Called only when the freshly registered `window` is already key.
-    func setActiveMainWindow(_ window: NSWindow)
-
     /// Applies the one-shot startup session restore if it has not run yet,
     /// returning whether a restore was applied this call.
     func attemptStartupSessionRestore(primaryWindow: NSWindow) -> Bool
@@ -156,11 +152,83 @@ public protocol WindowLifecycleHosting: AnyObject {
     )
     #endif
 
-    /// Runs the full teardown for a closing main `window`: cascade-point reset,
-    /// closed-window history, geometry persist, context unregistration, palette
-    /// and notification cleanup, and active-window repoint. Driven once per
-    /// window from the coordinator's close-broadcast subscription.
-    func unregisterMainWindow(_ window: NSWindow)
+    // MARK: - Teardown + active-repoint seam
+
+    /// Whether `window` is one of the app's main terminal windows (the
+    /// ``WindowManaging`` identity check plus the `cmux.main` identifier prefix).
+    /// The leaf gate for ``WindowLifecycleCoordinator/contextForMainTerminalWindow(_:reindex:)``.
+    func isMainTerminalWindow(_ window: NSWindow) -> Bool
+
+    /// The window id carried by `registeredWindow` (`RegisteredMainWindow.windowId`).
+    /// Lets the coordinator key slice/identity removal and palette/lifecycle calls
+    /// by the resolved context's id without naming the app value type's field.
+    func windowId(of registeredWindow: RegisteredWindow) -> UUID
+
+    /// Records a recoverable route for `context` (window id + tab manager +
+    /// optional window) into the app-side ledger before its slices are dropped,
+    /// so a later re-open can reclaim the route.
+    func rememberRecoverableMainWindowRoute(for context: RegisteredWindow)
+
+    /// Drops `context`'s tab manager from the app-side mobile workspace-list
+    /// observer index when no remaining window references it.
+    func removeMobileWorkspaceListObserver(forClosing context: RegisteredWindow)
+
+    /// Removes `windowId` from the app-side command-palette presentation
+    /// coordinator (the teardown counterpart of `commandPaletteRegisterWindow`).
+    func commandPaletteRemoveWindow(_ windowId: UUID)
+
+    /// Clears every notification owned by `context`'s tab manager's tabs once the
+    /// window is gone, so stale notifications can't reopen a dead window.
+    func clearNotifications(forClosing context: RegisteredWindow)
+
+    /// Whether `context`'s tab manager is the app's current active tab manager,
+    /// gating whether teardown must repoint the active window.
+    func activeTabManagerMatches(_ context: RegisteredWindow) -> Bool
+
+    /// Repoints the app's active-window pointers (tab manager + sidebar / sidebar
+    /// selection / file-explorer slices + terminal-control active manager) at
+    /// `context`, or clears them when `context` is `nil`. The active-pointer
+    /// god-type writes stay app-side.
+    func repointActiveMainWindow(to context: RegisteredWindow?)
+
+    /// Makes `context` the active main window for a key `window`: captures the
+    /// before-state debug token, repoints the active pointers, and emits the
+    /// `mainWindow.active` debug log (the debug ordering stays app-side).
+    func setActiveMainWindowContext(_ context: RegisteredWindow, keyWindow window: NSWindow)
+
+    /// Pushes a closed-window undo-history entry for `context` unless suppressed,
+    /// terminating, or applying a session restore (the app-side history policy +
+    /// snapshot capture).
+    func recordClosedWindowHistoryIfNeeded(for context: RegisteredWindow)
+
+    /// Persists `window`'s geometry as a placement fallback for the next window,
+    /// skipped while the app is terminating (the `!isTerminatingApp` guard stays
+    /// app-side).
+    func persistWindowGeometryOnClose(from window: NSWindow)
+
+    /// Notifies the app-side main-window visibility controller that `window` has
+    /// closed so it can drop any cached visibility state.
+    func discardClosedWindow(_ window: NSWindow)
+
+    /// Publishes the `window.closed` cmux lifecycle event for `windowId` with the
+    /// `appkit_close` origin.
+    func publishMainWindowClosed(windowId: UUID)
+
+    /// Saves a post-unregister session snapshot (no scrollback) when the app-side
+    /// persistence policy allows it (skipped during termination, which already
+    /// persisted a full snapshot).
+    func saveSessionSnapshotOnWindowUnregisterIfNeeded()
+
+    /// The key window used to prefer the next active context during teardown (the
+    /// app-side shortcut-routing key window).
+    var shortcutRoutingKeyWindow: NSWindow? { get }
+
+    /// Whether the app is currently terminating, gating the should-close warning.
+    var isTerminatingApp: Bool { get }
+
+    /// Routes the quit-shortcut warning when a should-close is blocked on the last
+    /// remaining main window (the app-side warning presentation).
+    func handleMainTerminalWindowQuitWarning()
 
     /// Assembles the resolved registered-window value for `id` by reading the
     /// app-side per-domain stores (tab manager + focus controller) and resolving
