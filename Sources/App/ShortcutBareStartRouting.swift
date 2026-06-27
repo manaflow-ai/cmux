@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSettings
+import CmuxWorkspaces
 import Foundation
 
 enum KeyboardShortcutBareStartCache {
@@ -76,7 +78,7 @@ extension AppDelegate {
 
         let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
         return !configuredCmuxShortcutActions(for: configuredCmuxShortcutContext).contains {
-            $0.shortcut?.bareShortcutStartKey == bareShortcutKey
+            $0.shortcut.flatMap { StoredShortcut($0).bareShortcutStartKey } == bareShortcutKey
         }
     }
 }

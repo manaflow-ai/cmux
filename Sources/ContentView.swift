@@ -3457,11 +3457,11 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         context: CommandPaletteContextSnapshot
     ) -> String? {
         if let configuredShortcut = cmuxConfigStore.resolvedAction(id: contribution.commandId)?.shortcut {
-            return configuredShortcut.displayString
+            return ShortcutDisplayFormatter().displayString(configuredShortcut)
         }
         if let configuredPaletteAction = commandPaletteConfigActionID(for: contribution.commandId),
            let configuredShortcut = cmuxConfigStore.resolvedAction(id: configuredPaletteAction)?.shortcut {
-            return configuredShortcut.displayString
+            return ShortcutDisplayFormatter().displayString(configuredShortcut)
         }
         if let action = Self.commandPaletteShortcutAction(forCommandID: contribution.commandId) {
             let shortcut = KeyboardShortcutSettings.shortcut(for: action)

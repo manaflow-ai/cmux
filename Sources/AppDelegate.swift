@@ -8259,7 +8259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            armConfiguredShortcutChordIfNeeded(
                event: event,
                actions: [],
-               shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
+               shortcuts: configuredCmuxShortcutActions.compactMap { $0.shortcut.map(StoredShortcut.init) }
            ) {
             return true
         }
@@ -10093,7 +10093,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         for action in actions {
             guard let shortcut = action.shortcut,
-                  matchConfiguredShortcut(event: event, shortcut: shortcut) else {
+                  matchConfiguredShortcut(event: event, shortcut: StoredShortcut(shortcut)) else {
                 continue
             }
             return executeConfiguredCmuxActionShortcut(
