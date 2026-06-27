@@ -110,7 +110,7 @@ jobs:
   mobile-core-package:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'depot-macos-latest' }}
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -152,7 +152,7 @@ jobs:
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
     # Default to a cloud macOS runner; keep the repo variable override so CI can
     # redirect iOS simulator lanes when needed.
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'depot-macos-latest' }}
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
