@@ -889,22 +889,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairingAttemptID = UUID()
     }
 
-    isolated deinit {
+    /// Stops background subscriptions and disconnects active transports before
+    /// the shell store is discarded.
+    public func shutdown() {
         presenceTask?.cancel()
+        presenceTask = nil
         networkPathObservationTask?.cancel()
-        terminalEventListenerTask?.cancel()
-        terminalSubscriptionStartTask?.cancel()
-        renderGridLivenessTimer?.cancel()
-        renderGridLivenessProbeTask?.cancel()
-        terminalSubscriptionRefreshTask?.cancel()
-        createWorkspaceTask?.cancel()
-        createTerminalTask?.cancel()
-        workspaceListRefreshTask?.cancel()
-        pullToRefreshTask?.cancel()
+        networkPathObservationTask = nil
+        networkPathObservationStarted = false
+        stopTerminalRefreshPolling()
+        cancelRemoteOperationTasks()
         teardownSecondaryMacSubscriptions()
-        if let remoteClient {
-            Task { await remoteClient.disconnect() }
-        }
+        replaceRemoteClient(with: nil)
     }
 
     public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
@@ -1940,7 +1936,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// every received frame). The server bounds each stream to the token's
     /// expiry, so a clean finish (resubscribe with a fresh token) is the
     /// steady state, not an error. Backoff sleeps are cancellable and the task
-    /// is cancelled on sign-out/deinit, so the loop never outlives the store.
+    /// is cancelled on sign-out/shutdown, so the loop never outlives the store.
     private func startPresenceSubscription() {
         guard presenceTask == nil, let presence else { return }
         presenceTask = Task { @MainActor [weak self] in

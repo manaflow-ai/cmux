@@ -45,6 +45,7 @@ import Testing
         #expect(second == .failed)
         #expect(await transport.connectCount() == 1)
         #expect(store.connectionState == .disconnected)
+        await transport.releaseConnects()
     }
 
     @Test func mixedTrustedAndUntrustedRoutesStillConnectOverTrustedRoute() async throws {

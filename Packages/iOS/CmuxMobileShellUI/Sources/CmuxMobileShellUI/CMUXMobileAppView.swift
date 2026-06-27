@@ -52,9 +52,15 @@ public struct CMUXMobileAppView: View {
         #if os(iOS)
         CMUXMobileRootView(store: store, onboardingStore: onboardingStore)
             .environment(browserStore)
+            .onDisappear {
+                store.shutdown()
+            }
         #else
         CMUXMobileRootView(store: store)
             .environment(browserStore)
+            .onDisappear {
+                store.shutdown()
+            }
         #endif
     }
 }
