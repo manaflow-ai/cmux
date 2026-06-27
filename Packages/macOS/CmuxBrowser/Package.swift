@@ -22,6 +22,9 @@ let package = Package(
         // CmuxCore owns RemoteLoopbackProxyAlias, the host normalizer that
         // BrowserInsecureHTTPSettings forwards to.
         .package(path: "../CmuxCore"),
+        // CmuxControlSocket owns ControlHandleKind, the v2 handle-ref kind the
+        // BrowserControlHosting seam mints refs for.
+        .package(path: "../CmuxControlSocket"),
     ],
     targets: [
         .target(
@@ -31,6 +34,7 @@ let package = Package(
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CmuxCore", package: "CmuxCore"),
+                .product(name: "CmuxControlSocket", package: "CmuxControlSocket"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
