@@ -2137,8 +2137,14 @@ enum SessionScrollbackReplayStore {
     ///     and bare output lines that merely open with the same words ("refactor the
     ///     login flow is done…"). Real shell/agent prompts always lead with a sigil,
     ///     so requiring one keeps the workspace-scoped key off unrelated panels.
-    ///  2. Keep the BOTTOM-most match so jump-to-prompt lands on the user's MOST
-    ///     RECENT prompt (repeated prompt text resolves to the latest turn).
+    ///  2. Take the FIRST (top-most) match. The user's prompt always precedes the
+    ///     agent's response — and any echo or quote of it — for a turn, so the
+    ///     earliest sigil row is the real prompt while a later `> …` line is more
+    ///     likely a Markdown blockquote echo in agent output (`>` is both a prompt
+    ///     sigil and a blockquote marker, so it can't be told apart by shape once
+    ///     Ghostty's export has dropped the original OSC 133). The only residual —
+    ///     the same prompt text submitted in an earlier turn — still lands on a real
+    ///     prompt row with the identical text, never on agent output.
     /// The match is whitespace-stripped (robust to soft and hard wraps) and may
     /// continue into following rows for wrapped prompts.
     private static func promptRowIndex(in lines: [String], lastUserMessage: String?) -> Int? {
@@ -2147,7 +2153,6 @@ enum SessionScrollbackReplayStore {
         guard needleChars.count >= 3 else { return nil }
 
         let compactRows: [[Character]] = lines.map { Array(visiblePlainText(of: $0).filter { !$0.isWhitespace }) }
-        var targetIndex: Int?
         for index in compactRows.indices where !compactRows[index].isEmpty {
             // Leading run of up to 4 known prompt-sigil characters.
             var sigil = 0
@@ -2163,11 +2168,10 @@ enum SessionScrollbackReplayStore {
                 startRow: index,
                 startOffset: offset
             ) {
-                targetIndex = index // keep bottom-most
-                break
+                return index // earliest (top-most) sigil match
             }
         }
-        return targetIndex
+        return nil
     }
 
     /// Whether `needle` matches the compacted row text starting at
