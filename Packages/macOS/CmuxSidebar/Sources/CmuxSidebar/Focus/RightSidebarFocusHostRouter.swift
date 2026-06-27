@@ -26,9 +26,22 @@ public final class RightSidebarFocusHostRouter {
     /// The `.dock` endpoint.
     public weak var dockHost: (any DockFocusHosting)?
 
+    /// The most recently published feed focus snapshot, used to dedup redundant
+    /// pushes to the feed host.
+    private var lastPublishedFeedFocusSnapshot = FeedFocusSnapshot()
+
     /// Creates an empty router; hosts register themselves once the owning
     /// window's sidebar views attach.
     public init() {}
+
+    /// Publishes `snapshot` to the feed host, skipping the push when it equals
+    /// the last published snapshot unless `force` is set. Stores the published
+    /// snapshot for future dedup comparisons.
+    public func publishFeedFocusSnapshot(_ snapshot: FeedFocusSnapshot, force: Bool = false) {
+        guard force || snapshot != lastPublishedFeedFocusSnapshot else { return }
+        lastPublishedFeedFocusSnapshot = snapshot
+        feedHost?.applyFocusSnapshotFromController(snapshot)
+    }
 
     /// Whether `responder` belongs to any registered right-sidebar host: the
     /// fallback host's own identity, a `FeedKeyboardFocusResponder` marker, or a

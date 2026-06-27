@@ -2034,107 +2034,107 @@ final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
 final class BrowserNavigationNewTabDecisionTests: XCTestCase {
     func testLinkActivatedCmdClickOpensInNewTab() {
         XCTAssertTrue(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .linkActivated,
                 modifierFlags: [.command],
                 buttonNumber: 0
-            )
+            ).opensInNewTab
         )
     }
 
     func testLinkActivatedMiddleClickOpensInNewTab() {
         XCTAssertTrue(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .linkActivated,
                 modifierFlags: [],
                 buttonNumber: 2
-            )
+            ).opensInNewTab
         )
     }
 
     func testLinkActivatedPlainLeftClickStaysInCurrentTab() {
         XCTAssertFalse(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .linkActivated,
                 modifierFlags: [],
                 buttonNumber: 0
-            )
+            ).opensInNewTab
         )
     }
 
     func testOtherNavigationMiddleClickOpensInNewTab() {
         XCTAssertTrue(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
                 modifierFlags: [],
                 buttonNumber: 2
-            )
+            ).opensInNewTab
         )
     }
 
     func testOtherNavigationLeftClickStaysInCurrentTab() {
         XCTAssertFalse(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
                 modifierFlags: [],
                 buttonNumber: 0
-            )
+            ).opensInNewTab
         )
     }
 
     func testLinkActivatedButtonFourWithoutMiddleIntentStaysInCurrentTab() {
         XCTAssertFalse(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .linkActivated,
                 modifierFlags: [],
                 buttonNumber: 4,
                 hasRecentMiddleClickIntent: false
-            )
+            ).opensInNewTab
         )
     }
 
     func testLinkActivatedButtonFourWithRecentMiddleIntentOpensInNewTab() {
         XCTAssertTrue(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .linkActivated,
                 modifierFlags: [],
                 buttonNumber: 4,
                 hasRecentMiddleClickIntent: true
-            )
+            ).opensInNewTab
         )
     }
 
     func testLinkActivatedUsesCurrentEventFallbackForMiddleClick() {
         XCTAssertTrue(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .linkActivated,
                 modifierFlags: [],
                 buttonNumber: 0,
                 currentEventType: .otherMouseUp,
                 currentEventButtonNumber: 2
-            )
+            ).opensInNewTab
         )
     }
 
     func testCurrentEventFallbackDoesNotAffectNonLinkNavigation() {
         XCTAssertFalse(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .reload,
                 modifierFlags: [],
                 buttonNumber: 0,
                 currentEventType: .otherMouseUp,
                 currentEventButtonNumber: 2
-            )
+            ).opensInNewTab
         )
     }
 
     func testNonLinkNavigationNeverForcesNewTab() {
         XCTAssertFalse(
-            browserNavigationShouldOpenInNewTab(
+            BrowserUserGestureNavigation(
                 navigationType: .reload,
                 modifierFlags: [.command],
                 buttonNumber: 2
-            )
+            ).opensInNewTab
         )
     }
 }
@@ -2143,17 +2143,13 @@ final class BrowserNavigationNewTabDecisionTests: XCTestCase {
 final class BrowserNilTargetFallbackDecisionTests: XCTestCase {
     func testOtherNavigationDoesNotFallbackToNewTab() {
         XCTAssertFalse(
-            browserNavigationShouldFallbackNilTargetToNewTab(
-                navigationType: .other
-            )
+            WKNavigationType.other.fallsBackNilTargetToNewTab
         )
     }
 
     func testLinkActivatedNavigationFallsBackToNewTab() {
         XCTAssertTrue(
-            browserNavigationShouldFallbackNilTargetToNewTab(
-                navigationType: .linkActivated
-            )
+            WKNavigationType.linkActivated.fallsBackNilTargetToNewTab
         )
     }
 }
@@ -2162,12 +2158,13 @@ final class BrowserNilTargetFallbackDecisionTests: XCTestCase {
 final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
     func testKeyboardKeyDownSameSiteGETWithoutPopupFeaturesPrefersCurrentTabRetarget() {
         XCTAssertTrue(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyDown
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
                 openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                currentEventType: .keyDown,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2175,12 +2172,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testKeyboardSameSiteGETWithoutPopupFeaturesPrefersCurrentTabRetarget() {
         XCTAssertTrue(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
                 openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2188,12 +2186,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testLeftClickSameSiteGETWithoutPopupFeaturesPrefersCurrentTabRetarget() {
         XCTAssertTrue(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .leftMouseUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
                 openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                currentEventType: .leftMouseUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2201,12 +2200,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testCrossSiteKeyboardPopupStaysPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://accounts.google.com/o/oauth2/v2/auth"),
                 openerURL: URL(string: "https://app.example.com/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2214,13 +2214,14 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testExplicitCommandNewTabGestureDoesNotRetargetIntoCurrentTab() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                modifierFlags: [.command],
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://search.bilibili.com/all?keyword=test"),
                 openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                modifierFlags: [.command],
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2228,12 +2229,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testMixedSchemePopupStaysPopupEvenWhenRegistrableDomainMatches() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://login.example.com/oauth"),
                 openerURL: URL(string: "http://example.com/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2241,12 +2243,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testGitHubPagesTenantsStayPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://foo.github.io/search"),
                 openerURL: URL(string: "https://bar.github.io/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2254,12 +2257,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testAppspotTenantsStayPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://a.appspot.com/search"),
                 openerURL: URL(string: "https://b.appspot.com/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2267,12 +2271,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testCloudFrontTenantsStayPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://foo.cloudfront.net/search"),
                 openerURL: URL(string: "https://bar.cloudfront.net/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2280,12 +2285,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testS3TenantsStayPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://a.s3.amazonaws.com/search"),
                 openerURL: URL(string: "https://b.s3.amazonaws.com/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2293,12 +2299,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testSameHostKeyboardPopupStaysPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://www.example.com/chooser"),
                 openerURL: URL(string: "https://www.example.com/settings"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2306,12 +2313,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testCrossPortSameHostPopupStaysPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://localhost:3000/search"),
                 openerURL: URL(string: "https://localhost:5000/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2319,12 +2327,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testDistinctBareCountryCodeSecondLevelHostsStayPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://foo.co.uk/search"),
                 openerURL: URL(string: "https://bar.co.uk/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2332,12 +2341,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testCrossRegistrableDomainsUnderCommonMultiPartSuffixStayPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://foo.example.co.uk/search"),
                 openerURL: URL(string: "https://bar.attacker.co.uk/login"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )
@@ -2345,12 +2355,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testPopupFeaturesKeepKeyboardRequestOnPopupPath() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "GET",
                 requestURL: URL(string: "https://www.bilibili.com/search"),
                 openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: true
             )
         )
@@ -2358,12 +2369,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
     func testPOSTKeyboardRequestStaysPopup() {
         XCTAssertFalse(
-            browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
+                currentEventType: .keyUp
+            ).opensSimpleUserGesturePopupInCurrentTab(
                 requestMethod: "POST",
                 requestURL: URL(string: "https://www.bilibili.com/search"),
                 openerURL: URL(string: "https://www.bilibili.com/video/BV1"),
-                currentEventType: .keyUp,
                 popupFeaturesWereSpecified: false
             )
         )

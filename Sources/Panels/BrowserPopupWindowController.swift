@@ -421,12 +421,15 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             return nil
         }
 
-        let isScriptedPopup = browserNavigationShouldCreatePopup(
+        let isScriptedPopup = BrowserUserGestureNavigation(
             navigationType: navigationAction.navigationType,
             modifierFlags: navigationAction.modifierFlags,
             buttonNumber: navigationAction.buttonNumber,
-            popupFeaturesWereSpecified: browserNavigationPopupFeaturesWereSpecified(windowFeatures: windowFeatures),
-            hasRecentMiddleClickIntent: CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+            hasRecentMiddleClickIntent: CmuxWebView.hasRecentMiddleClickIntent(for: webView),
+            currentEventType: NSApp.currentEvent?.type,
+            currentEventButtonNumber: NSApp.currentEvent?.buttonNumber
+        ).createsPopup(
+            popupFeaturesWereSpecified: BrowserPopupWindowFeatures(windowFeatures: windowFeatures).wereSpecified
         )
 
         if isScriptedPopup {
@@ -576,26 +579,26 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
-        if !navigationResponse.isForMainFrame {
+        // Branch classification lives in the package; the delegate executes the
+        // resolved case. The download determination stays app-side (it consults
+        // the app's download-filename resolver) and is evaluated lazily so it runs
+        // only after the main-frame and scheme guards pass, matching the original.
+        switch PopupNavigationResponseDecision.resolve(
+            isForMainFrame: navigationResponse.isForMainFrame,
+            scheme: navigationResponse.response.url?.scheme,
+            isDownload: {
+                let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
+                return BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
+                    mimeType: navigationResponse.response.mimeType, canShowMIMEType: navigationResponse.canShowMIMEType, contentDisposition: contentDisposition
+                ) != nil
+            }
+        ) {
+        case .allow:
             decisionHandler(.allow)
-            return
-        }
 
-        if let scheme = navigationResponse.response.url?.scheme?.lowercased(),
-           scheme != "http", scheme != "https" {
-            decisionHandler(.allow)
-            return
-        }
-
-        let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
-        if BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
-            mimeType: navigationResponse.response.mimeType, canShowMIMEType: navigationResponse.canShowMIMEType, contentDisposition: contentDisposition
-        ) != nil {
+        case .download:
             decisionHandler(.download)
-            return
         }
-
-        decisionHandler(.allow)
     }
 
     func webView(

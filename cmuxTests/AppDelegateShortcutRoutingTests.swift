@@ -2,6 +2,7 @@ import XCTest
 import CMUXAgentLaunch
 import CmuxCommandPaletteUI
 import CmuxFoundation
+import CmuxNotifications
 import CmuxTerminal
 import CmuxWindowing
 import CmuxWorkspaces

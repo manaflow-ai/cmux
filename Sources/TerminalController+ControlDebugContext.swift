@@ -1047,34 +1047,6 @@ extension TerminalController: ControlDebugContext {
         return result
     }
 
-    private struct LayoutDebugSelectedPanel: Codable, Sendable {
-        let paneId: String
-        let paneFrame: PixelRect?
-        let selectedTabId: String?
-        let panelId: String?
-        let panelType: String?
-        let inWindow: Bool?
-        let hidden: Bool?
-        let viewFrame: PixelRect?
-        let splitViews: [LayoutDebugSplitView]?
-    }
-
-    private struct LayoutDebugSplitView: Codable, Sendable {
-        let isVertical: Bool
-        let dividerThickness: Double
-        let bounds: PixelRect
-        let frame: PixelRect?
-        let arrangedSubviewFrames: [PixelRect]
-        let normalizedDividerPosition: Double?
-    }
-
-    private struct LayoutDebugResponse: Codable, Sendable {
-        let layout: LayoutSnapshot
-        let selectedPanels: [LayoutDebugSelectedPanel]
-        let mainWindowNumber: Int?
-        let keyWindowNumber: Int?
-    }
-
     func layoutDebug() -> String {
         guard let tabManager else { return "ERROR: TabManager not available" }
 
@@ -1218,14 +1190,12 @@ extension TerminalController: ControlDebugContext {
                 keyWindowNumber: NSApp.keyWindow?.windowNumber
             )
 
-            let encoder = JSONEncoder()
-            guard let data = try? encoder.encode(payload),
-                  let json = String(data: data, encoding: .utf8) else {
+            guard let line = payload.okResponseLine() else {
                 result = "ERROR: Failed to encode layout_debug"
                 return
             }
 
-            result = "OK \(json)"
+            result = line
         }
         return result
     }

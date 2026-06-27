@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CmuxNotifications
 import CmuxSidebar
 import CmuxTestSupport
 import CmuxWindowing

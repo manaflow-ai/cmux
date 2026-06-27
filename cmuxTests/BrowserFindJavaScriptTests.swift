@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import WebKit
+import CmuxBrowser
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -14,60 +15,59 @@ import WebKit
 final class BrowserPopupDecisionTests: XCTestCase {
     func testLinkActivatedPlainLeftClickDoesNotCreatePopup() {
         XCTAssertFalse(
-            browserNavigationShouldCreatePopup(
+            BrowserUserGestureNavigation(
                 navigationType: .linkActivated,
                 modifierFlags: [],
                 buttonNumber: 0
-            )
+            ).createsPopup()
         )
     }
 
     func testOtherNavigationWithPopupFeaturesCreatesPopup() {
         XCTAssertTrue(
-            browserNavigationShouldCreatePopup(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
                 modifierFlags: [],
                 buttonNumber: 0,
-                popupFeaturesWereSpecified: true,
                 currentEventType: .keyDown,
                 currentEventButtonNumber: 0
-            )
+            ).createsPopup(popupFeaturesWereSpecified: true)
         )
     }
 
     func testOtherNavigationWithoutPopupFeaturesDoesNotCreatePopup() {
         XCTAssertFalse(
-            browserNavigationShouldCreatePopup(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
                 modifierFlags: [],
                 buttonNumber: 0
-            )
+            ).createsPopup()
         )
     }
 
     func testOtherNavigationMiddleClickDoesNotCreatePopup() {
         XCTAssertFalse(
-            browserNavigationShouldCreatePopup(
+            BrowserUserGestureNavigation(
                 navigationType: .other,
                 modifierFlags: [],
                 buttonNumber: 2
-            )
+            ).createsPopup()
         )
     }
 
     func testLinkActivatedCmdClickDoesNotCreatePopup() {
         XCTAssertFalse(
-            browserNavigationShouldCreatePopup(
+            BrowserUserGestureNavigation(
                 navigationType: .linkActivated,
                 modifierFlags: [.command],
                 buttonNumber: 0
-            )
+            ).createsPopup()
         )
     }
 
     func testPopupFeaturesAreAbsentWhenAllWindowFeaturesAreNil() {
         XCTAssertFalse(
-            browserNavigationPopupFeaturesWereSpecified(
+            BrowserPopupWindowFeatures(
                 x: nil,
                 y: nil,
                 width: nil,
@@ -76,13 +76,13 @@ final class BrowserPopupDecisionTests: XCTestCase {
                 statusBarVisibility: nil,
                 toolbarsVisibility: nil,
                 allowsResizing: nil
-            )
+            ).wereSpecified
         )
     }
 
     func testPopupFeaturesArePresentWhenWidthIsSpecified() {
         XCTAssertTrue(
-            browserNavigationPopupFeaturesWereSpecified(
+            BrowserPopupWindowFeatures(
                 x: nil,
                 y: nil,
                 width: NSNumber(value: 640),
@@ -91,7 +91,7 @@ final class BrowserPopupDecisionTests: XCTestCase {
                 statusBarVisibility: nil,
                 toolbarsVisibility: nil,
                 allowsResizing: nil
-            )
+            ).wereSpecified
         )
     }
 }

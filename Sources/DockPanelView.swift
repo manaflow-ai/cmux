@@ -349,7 +349,15 @@ struct DockPanelView: View {
     @ViewBuilder
     private var content: some View {
         if let trustRequest = store.trustRequest {
-            DockTrustView(request: trustRequest) {
+            DockTrustView(
+                configPath: trustRequest.configPath,
+                title: String(localized: "dock.trust.title", defaultValue: "Trust Project Dock?"),
+                message: String(
+                    localized: "dock.trust.message",
+                    defaultValue: "This project wants to start commands from its Dock config."
+                ),
+                actionTitle: String(localized: "dock.trust.action", defaultValue: "Trust and Start")
+            ) {
                 store.trustAndReload()
             }
         } else if let error = store.errorMessage {
@@ -444,40 +452,6 @@ private struct DockTerminalView: View {
         )
         .id(attachment.panelId)
         .background(Color.clear)
-    }
-}
-
-private struct DockTrustView: View {
-    let request: DockTrustRequest
-    let onTrust: () -> Void
-
-    var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "exclamationmark.shield")
-                .font(.system(size: 28))
-                .foregroundStyle(.orange)
-            Text(String(localized: "dock.trust.title", defaultValue: "Trust Project Dock?"))
-                .font(.system(size: 13, weight: .semibold))
-            Text(String(
-                localized: "dock.trust.message",
-                defaultValue: "This project wants to start commands from its Dock config."
-            ))
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-            Text(request.configPath)
-                .font(.system(size: 10, weight: .regular, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .truncationMode(.middle)
-            Button(String(localized: "dock.trust.action", defaultValue: "Trust and Start")) {
-                onTrust()
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

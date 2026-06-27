@@ -31,7 +31,6 @@ final class MainWindowFocusController {
         rightSidebarFocus.state.mode
     }
     private var feedSelectedItemId: UUID?
-    private var lastPublishedFeedFocusSnapshot = FeedFocusSnapshot()
 
     init(
         windowId: UUID,
@@ -565,10 +564,7 @@ final class MainWindowFocusController {
     }
 
     private func publishFeedFocusSnapshot(force: Bool = false) {
-        let snapshot = feedFocusSnapshot()
-        guard force || snapshot != lastPublishedFeedFocusSnapshot else { return }
-        lastPublishedFeedFocusSnapshot = snapshot
-        hostRouter.feedHost?.applyFocusSnapshotFromController(snapshot)
+        hostRouter.publishFeedFocusSnapshot(feedFocusSnapshot(), force: force)
     }
 
     func syncBonsplitTabShortcutHintEligibility() {
