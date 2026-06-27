@@ -205,53 +205,6 @@ enum AgentSpecifics: Hashable {
     case registered(CmuxVaultAgentRegistration)
 }
 
-enum ClaudeConfigurationRoot {
-    nonisolated static func configuredResumeDirectory(
-        _ configDir: String,
-        fileManager: FileManager = .default
-    ) -> String? {
-        let preferredConfigDir = ClaudeConfigDirectoryPath.preferredPath(
-            configDir,
-            fileManager: fileManager
-        )
-        guard isLikelyConfigured(preferredConfigDir, fileManager: fileManager) else {
-            return nil
-        }
-        return preferredConfigDir
-    }
-
-    nonisolated static func isLikelyConfigured(
-        _ configDir: String,
-        fileManager: FileManager = .default
-    ) -> Bool {
-        let configPath = ((configDir as NSString).expandingTildeInPath as NSString)
-            .appendingPathComponent(".claude.json")
-        guard let data = fileManager.contents(atPath: configPath),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return false
-        }
-        return hasConfiguredAuthValue(obj["oauthAccount"])
-            || hasConfiguredAuthValue(obj["primaryApiKey"])
-            || hasConfiguredAuthValue(obj["apiKey"])
-    }
-
-    private nonisolated static func hasConfiguredAuthValue(_ value: Any?) -> Bool {
-        guard let value, !(value is NSNull) else {
-            return false
-        }
-        if let string = value as? String {
-            return !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-        if let dictionary = value as? [String: Any] {
-            return !dictionary.isEmpty
-        }
-        if let array = value as? [Any] {
-            return !array.isEmpty
-        }
-        return true
-    }
-}
-
 struct SessionEntry: Identifiable, Hashable {
     let id: String
     let agent: SessionAgent

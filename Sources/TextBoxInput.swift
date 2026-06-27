@@ -607,13 +607,15 @@ extension SessionTextBoxInputAttachmentSnapshot {
     }
 }
 
-private enum TextBoxSubmissionFormatter {
-    static func parts(from attributed: NSAttributedString) -> [TextBoxSubmissionPart] {
-        let raw = attributed.string as NSString
-        let fullRange = NSRange(location: 0, length: attributed.length)
+extension NSAttributedString {
+    /// The submission parts (text runs and inline attachments) carried by this
+    /// attributed string, in document order.
+    var textBoxSubmissionParts: [TextBoxSubmissionPart] {
+        let raw = string as NSString
+        let fullRange = NSRange(location: 0, length: length)
         var parts: [TextBoxSubmissionPart] = []
 
-        attributed.enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
+        enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
             if let inlineAttachment = value as? TextBoxInlineTextAttachment {
                 parts.append(.attachment(inlineAttachment.textBoxAttachment))
             } else {
@@ -627,11 +629,20 @@ private enum TextBoxSubmissionFormatter {
         return parts
     }
 
-    static func formattedText(from parts: [TextBoxSubmissionPart]) -> String {
+    /// The flattened, boundary-spaced submission text for this attributed string.
+    var textBoxFormattedSubmissionText: String {
+        textBoxSubmissionParts.textBoxFormattedSubmissionText
+    }
+}
+
+extension Array where Element == TextBoxSubmissionPart {
+    /// The flattened submission text for these parts, inserting boundary spaces
+    /// around attachments and trimming surrounding newlines.
+    var textBoxFormattedSubmissionText: String {
         var result = ""
         var attachmentNeedsBoundarySpace = false
 
-        for part in parts {
+        for part in self {
             switch part {
             case .text(let text):
                 guard !text.isEmpty else { continue }
@@ -658,12 +669,9 @@ private enum TextBoxSubmissionFormatter {
         return result.trimmingCharacters(in: .newlines)
     }
 
-    static func formattedText(from attributed: NSAttributedString) -> String {
-        formattedText(from: parts(from: attributed))
-    }
-
-    static func hasSubmittableContent(_ parts: [TextBoxSubmissionPart]) -> Bool {
-        parts.contains { part in
+    /// Whether any part contributes non-whitespace text or an attachment.
+    var hasSubmittableTextBoxContent: Bool {
+        contains { part in
             switch part {
             case .text(let text):
                 return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1334,7 +1342,7 @@ enum TextBoxSubmit {
             return claudeSequentialImageDispatchEvents(from: inputParts, submitKey: submitKey)
         }
 
-        let pastePayload = TextBoxSubmissionFormatter.formattedText(from: inputParts)
+        let pastePayload = inputParts.textBoxFormattedSubmissionText
         return [.pasteText(pastePayload), .namedKey(submitKey)]
     }
 
@@ -2552,7 +2560,7 @@ struct TextBoxInputContainer: View {
         let submittedParts = textView?.submissionParts()
             ?? [TextBoxSubmissionPart.text(text.trimmingCharacters(in: .newlines))]
         let poolWorkspaceId = surface.owningWorkspace()?.id
-        let hasTypedContent = TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts)
+        let hasTypedContent = submittedParts.hasSubmittableTextBoxContent
         guard hasTypedContent || pendingCommentCount > 0 else {
             NSSound.beep()
             return
@@ -2601,7 +2609,7 @@ struct TextBoxInputContainer: View {
                 if let preservedContent {
                     submittedTextView?.installPreservedContent(preservedContent)
                 } else {
-                    text = TextBoxSubmissionFormatter.formattedText(from: submittedParts)
+                    text = submittedParts.textBoxFormattedSubmissionText
                     attachments = submittedParts.compactMap { part in
                         if case .attachment(let attachment) = part { return attachment }
                         return nil
@@ -3508,7 +3516,7 @@ final class TextBoxInputTextView: NSTextView {
         isActive: Bool
     ) -> SessionTextBoxInputDraftSnapshot? {
         sessionDraftSnapshot(
-            parts: TextBoxSubmissionFormatter.parts(from: attributed),
+            parts: attributed.textBoxSubmissionParts,
             isActive: isActive
         )
     }
@@ -3689,15 +3697,15 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func submissionText() -> String {
-        TextBoxSubmissionFormatter.formattedText(from: attributedString())
+        attributedString().textBoxFormattedSubmissionText
     }
 
     func submissionParts() -> [TextBoxSubmissionPart] {
-        TextBoxSubmissionFormatter.parts(from: attributedString())
+        attributedString().textBoxSubmissionParts
     }
 
     func hasSubmittableContent() -> Bool {
-        TextBoxSubmissionFormatter.hasSubmittableContent(submissionParts())
+        submissionParts().hasSubmittableTextBoxContent
     }
 
     func refreshInlineAttachmentCells(font: NSFont, foregroundColor: NSColor) {
