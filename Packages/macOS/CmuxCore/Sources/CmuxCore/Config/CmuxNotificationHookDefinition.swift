@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A single notification hook declared in a `cmux.json` `notifications.hooks`
 /// array.
