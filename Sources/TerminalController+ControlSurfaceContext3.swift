@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxFoundation
 import CmuxTerminal
 import Foundation
 import GhosttyKit
@@ -367,21 +368,6 @@ extension TerminalController {
                 let bonsplitTabId: TabID?
             }
 
-            func nonEmpty(_ raw: String?) -> String? {
-                guard let raw else { return nil }
-                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-                return trimmed.isEmpty ? nil : trimmed
-            }
-
-            func rectPayload(_ rect: CGRect) -> [String: Double] {
-                [
-                    "x": Double(rect.origin.x),
-                    "y": Double(rect.origin.y),
-                    "width": Double(rect.size.width),
-                    "height": Double(rect.size.height)
-                ]
-            }
-
             func objectPointerString(_ object: AnyObject?) -> String {
                 guard let object else { return "nil" }
                 return String(describing: Unmanaged.passUnretained(object).toOpaque())
@@ -505,7 +491,7 @@ extension TerminalController {
                 let paneId = mapped?.paneId
                 let treeVisible = mapped?.bonsplitTabId != nil && paneId != nil
                 let ttyName = workspace?.surfaceTTYNames[panelId]
-                let currentDirectory = nonEmpty(workspace?.panelDirectories[panelId] ?? mapped?.terminalPanel.directory)
+                let currentDirectory = (workspace?.panelDirectories[panelId] ?? mapped?.terminalPanel.directory)?.whitespaceTrimmedNilIfEmpty
                 let teardownRequest = terminalSurface.debugTeardownRequest()
                 let lastKnownWorkspaceId = terminalSurface.debugLastKnownWorkspaceId()
 
@@ -522,12 +508,12 @@ extension TerminalController {
                     "window_visible": hostedWindow?.isVisible ?? false,
                     "window_occluded": hostedWindow.map { !$0.occlusionState.contains(.visible) } ?? false,
                     "window_identifier": v2OrNull(hostedWindow?.identifier?.rawValue),
-                    "window_title": v2OrNull(nonEmpty(hostedWindow?.title)),
+                    "window_title": v2OrNull(hostedWindow?.title?.whitespaceTrimmedNilIfEmpty),
                     "window_class": v2OrNull(className(hostedWindow)),
                     "window_delegate_class": v2OrNull(className(hostedWindow?.delegate as AnyObject?)),
                     "window_controller_class": v2OrNull(className(hostedWindow?.windowController)),
                     "window_level": v2OrNull(hostedWindow?.level.rawValue),
-                    "window_frame": hostedWindow.map { rectPayload($0.frame) } ?? NSNull(),
+                    "window_frame": hostedWindow.map { $0.frame.controlDebugRectPayload } ?? NSNull(),
                     "workspace_index": v2OrNull(mapped?.workspaceIndex),
                     "workspace_id": v2OrNull(workspace?.id.uuidString),
                     "workspace_ref": v2Ref(kind: .workspace, uuid: workspace?.id),
@@ -564,9 +550,9 @@ extension TerminalController {
                     "hosted_view_visible_in_ui": hostedView.debugPortalVisibleInUI,
                     "hosted_view_superview_chain": superviewClassChain(for: hostedView),
                     "surface_view_first_responder": hostedView.isSurfaceViewFirstResponder(),
-                    "hosted_view_frame": rectPayload(hostedView.frame),
-                    "hosted_view_bounds": rectPayload(hostedView.bounds),
-                    "hosted_view_frame_in_window": rectPayload(hostedView.debugPortalFrameInWindow),
+                    "hosted_view_frame": hostedView.frame.controlDebugRectPayload,
+                    "hosted_view_bounds": hostedView.bounds.controlDebugRectPayload,
+                    "hosted_view_frame_in_window": hostedView.debugPortalFrameInWindow.controlDebugRectPayload,
                     "portal_binding_state": portalState.state,
                     "portal_binding_generation": v2OrNull(portalState.generation),
                     "portal_host_id": v2OrNull(portalHostLease.hostId),
@@ -574,19 +560,19 @@ extension TerminalController {
                     "portal_host_area": v2OrNull(portalHostLease.area.map(Double.init)),
                     "tty": v2OrNull(ttyName),
                     "current_directory": v2OrNull(currentDirectory),
-                    "requested_working_directory": v2OrNull(nonEmpty(terminalSurface.requestedWorkingDirectory)),
-                    "initial_command": v2OrNull(nonEmpty(terminalSurface.debugInitialCommand())),
-                    "tmux_start_command": v2OrNull(nonEmpty(terminalSurface.debugTmuxStartCommand())),
-                    "git_branch": v2OrNull(nonEmpty(gitBranchState?.branch)),
+                    "requested_working_directory": v2OrNull(terminalSurface.requestedWorkingDirectory?.whitespaceTrimmedNilIfEmpty),
+                    "initial_command": v2OrNull(terminalSurface.debugInitialCommand()?.whitespaceTrimmedNilIfEmpty),
+                    "tmux_start_command": v2OrNull(terminalSurface.debugTmuxStartCommand()?.whitespaceTrimmedNilIfEmpty),
+                    "git_branch": v2OrNull(gitBranchState?.branch.whitespaceTrimmedNilIfEmpty),
                     "git_dirty": v2OrNull(gitBranchState?.isDirty),
                     "listening_ports": listeningPorts,
-                    "key_state_indicator": v2OrNull(nonEmpty(terminalSurface.currentKeyStateIndicatorText)),
+                    "key_state_indicator": v2OrNull(terminalSurface.currentKeyStateIndicatorText?.whitespaceTrimmedNilIfEmpty),
                     "last_known_workspace_id": lastKnownWorkspaceId.uuidString,
                     "last_known_workspace_ref": v2Ref(kind: .workspace, uuid: lastKnownWorkspaceId),
                     "teardown_requested": teardownRequest.requestedAt != nil,
                     "teardown_requested_at": v2OrNull(iso8601String(teardownRequest.requestedAt)),
                     "teardown_requested_age_seconds": v2OrNull(ageSeconds(since: teardownRequest.requestedAt)),
-                    "teardown_requested_reason": v2OrNull(nonEmpty(teardownRequest.reason))
+                    "teardown_requested_reason": v2OrNull(teardownRequest.reason?.whitespaceTrimmedNilIfEmpty)
                 ]
 
                 if title == nil, let fallbackTitle = mapped?.terminalPanel.displayTitle, !fallbackTitle.isEmpty {

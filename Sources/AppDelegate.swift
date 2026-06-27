@@ -642,8 +642,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let sidebarWorkspaceDragRegistry = SidebarWorkspaceDragRegistry()
     #if DEBUG
     /// Debug-only registry mapping each mounted sidebar's window id to its live
-    /// `SidebarDragState`, read by the `debug.sidebar.simulate_drag` handler.
-    // TODO(de-singletonize): move SidebarDragStateRegistry off AppDelegate.shared when AppDelegate is decomposed.
+    /// `SidebarDragState`. Owned here (the composition root) and injected into the
+    /// sidebar (via `\.sidebarDragStateRegistry`) and the
+    /// `debug.sidebar.simulate_drag` reader (via the reader's constructor), so
+    /// neither reaches `AppDelegate.shared` for it.
+    // TODO(de-singletonize): move SidebarDragStateRegistry off AppDelegate when AppDelegate is decomposed.
     let sidebarDragStateRegistry = SidebarDragStateRegistry()
     var debugFocusedTerminalKeyRepairObserverForTesting: ((NSWindow, NSEvent, NSResponder?) -> Void)?
     #endif
@@ -6288,6 +6291,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // registry so the sidebar's `SidebarDragState` wires to the shared
             // registry by injection instead of an `AppDelegate.shared` lookup.
             .environment(\.sidebarWorkspaceDragRegistry, sidebarWorkspaceDragRegistry)
+#if DEBUG
+            // Inject the composition-root-owned debug per-window drag-state
+            // registry so the sidebar registers/unregisters its live
+            // `SidebarDragState` by injection instead of an `AppDelegate.shared`
+            // lookup, mirroring the cross-window registry above.
+            .environment(\.sidebarDragStateRegistry, sidebarDragStateRegistry)
+#endif
 
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.

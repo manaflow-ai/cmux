@@ -126,6 +126,55 @@ public final class ControlCommandCoordinator {
         handles.removeRef(kind: kind, uuid: uuid)
     }
 
+    // MARK: - Ref aggregations
+
+    /// The stable `kind:N` refs for a batch of workspace ids, minting any that
+    /// do not yet exist (the legacy `v2WorkspaceRefs`).
+    ///
+    /// - Parameter ids: The workspace identifiers to ref.
+    /// - Returns: A map from each id to its ref string.
+    public func v2WorkspaceRefs(for ids: [UUID]) -> [UUID: String] {
+        var refs: [UUID: String] = [:]
+        refs.reserveCapacity(ids.count)
+        for id in ids {
+            refs[id] = ensureRef(kind: .workspace, uuid: id)
+        }
+        return refs
+    }
+
+    /// The workspace, optional pane, and surface refs for one location, minting
+    /// each as needed (the legacy `v2WorkspacePaneAndSurfaceRefs`).
+    ///
+    /// - Parameters:
+    ///   - workspaceId: The workspace identifier.
+    ///   - paneId: The pane identifier, or `nil`.
+    ///   - surfaceId: The surface identifier.
+    /// - Returns: The minted refs.
+    public func v2WorkspacePaneAndSurfaceRefs(
+        workspaceId: UUID,
+        paneId: UUID?,
+        surfaceId: UUID
+    ) -> (workspaceRef: String, paneRef: String?, surfaceRef: String) {
+        return (
+            workspaceRef: ensureRef(kind: .workspace, uuid: workspaceId),
+            paneRef: paneId.map { ensureRef(kind: .pane, uuid: $0) },
+            surfaceRef: ensureRef(kind: .surface, uuid: surfaceId)
+        )
+    }
+
+    /// The `tab:N` ref for an optional surface id as a wire value: the surface
+    /// ref re-prefixed `surface:` → `tab:`, or `NSNull` when absent (the legacy
+    /// `v2TabRef`; returns `Any` because callers fold it into Foundation
+    /// `[String: Any]` payloads).
+    ///
+    /// - Parameter uuid: The surface identifier, or `nil`.
+    /// - Returns: The `tab:N` ref string, or `NSNull`.
+    public func v2TabRef(uuid: UUID?) -> Any {
+        guard let uuid else { return NSNull() }
+        let surfaceRef = ensureRef(kind: .surface, uuid: uuid)
+        return surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
+    }
+
     // MARK: - Wire helpers
 
     /// The `kind:N` ref for an optional id as a JSON value: the ref string, or

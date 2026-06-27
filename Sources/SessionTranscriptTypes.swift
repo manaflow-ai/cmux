@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import SwiftUI
 
@@ -157,5 +158,28 @@ extension SessionTranscriptTurn {
                 text: String(localized: "sessionIndex.preview.truncated", defaultValue: "Preview truncated")
             )
         )
+    }
+}
+
+/// A single rendered line in the transcript preview. `rows(from:)` chunks each
+/// turn's text into wrappable segments, marking every segment after the first as
+/// a continuation so the role label is only drawn once per turn.
+struct SessionTranscriptDisplayRow: Identifiable, Equatable {
+    let id: String
+    let role: SessionTranscriptRole
+    let text: String
+    let isContinuation: Bool
+
+    static func rows(from turns: [SessionTranscriptTurn]) -> [SessionTranscriptDisplayRow] {
+        turns.flatMap { turn in
+            turn.text.transcriptChunks().enumerated().map { offset, chunk in
+                SessionTranscriptDisplayRow(
+                    id: "\(turn.id)-\(offset)",
+                    role: turn.role,
+                    text: chunk,
+                    isContinuation: offset > 0
+                )
+            }
+        }
     }
 }

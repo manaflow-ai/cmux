@@ -1,6 +1,7 @@
 #if DEBUG
 import CmuxControlSocket
 import CmuxFoundation
+import CmuxSidebar
 import Foundation
 
 /// App-side wiring for the worker-lane `debug.sidebar.simulate_drag` control
@@ -53,11 +54,23 @@ struct TerminalControllerSidebarSimulateDragReading: ControlSidebarSimulateDragR
     /// worker never extends the controller's lifetime; read on the worker thread.
     private nonisolated(unsafe) weak var owner: TerminalController?
 
+    /// The composition-root-owned debug per-window drag-state registry, injected
+    /// at construction instead of reached via `AppDelegate.shared`. `weak` so the
+    /// reader never extends the app-lifetime registry's lifetime, matching the
+    /// `AppDelegate.shared?` optional-chaining the legacy reads performed; held by
+    /// the worker-thread `Sendable` struct but read only inside the `owner`'s
+    /// `v2MainSync` main-actor hops, exactly like `owner`.
+    private nonisolated(unsafe) weak var registry: SidebarDragStateRegistry?
+
     /// Creates a conformer.
     ///
-    /// - Parameter owner: The controller whose live sidebar state backs the seam.
-    init(owner: TerminalController) {
+    /// - Parameters:
+    ///   - owner: The controller whose live sidebar state backs the seam.
+    ///   - registry: The composition-root-owned per-window drag-state registry the
+    ///     reader resolves mounted sidebars through.
+    init(owner: TerminalController, registry: SidebarDragStateRegistry?) {
         self.owner = owner
+        self.registry = registry
     }
 
     func plan(params: [String: JSONValue]) -> ControlSidebarSimulateDragPlanOutcome {
@@ -107,7 +120,7 @@ struct TerminalControllerSidebarSimulateDragReading: ControlSidebarSimulateDragR
             } else {
                 requestedSteps = nil
             }
-            guard AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) != nil else {
+            guard registry?.state(forWindowId: windowId) != nil else {
                 return .error(
                     code: "not_found",
                     message: "No mounted sidebar for window_id",
@@ -150,7 +163,7 @@ struct TerminalControllerSidebarSimulateDragReading: ControlSidebarSimulateDragR
     func begin(windowId: UUID, fromTabId: UUID) -> Bool {
         guard let owner else { return false }
         return owner.v2MainSync {
-            guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
+            guard let dragState = registry?.state(forWindowId: windowId) else { return false }
             // Mark the drag as simulator-driven so VerticalTabsSidebar skips
             // starting SidebarDragFailsafeMonitor — it would otherwise post
             // mouse_up_failsafe immediately because no real mouse is pressed.
@@ -164,7 +177,7 @@ struct TerminalControllerSidebarSimulateDragReading: ControlSidebarSimulateDragR
         guard let owner else { return false }
         let edge: SidebarDropEdge = edgeIsBottom ? .bottom : .top
         return owner.v2MainSync {
-            guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
+            guard let dragState = registry?.state(forWindowId: windowId) else { return false }
             dragState.setDropIndicator(SidebarDropIndicator(tabId: tabId, edge: edge))
             return true
         }
@@ -173,7 +186,7 @@ struct TerminalControllerSidebarSimulateDragReading: ControlSidebarSimulateDragR
     func clear(windowId: UUID) {
         guard let owner else { return }
         owner.v2MainSync {
-            guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return }
+            guard let dragState = registry?.state(forWindowId: windowId) else { return }
             dragState.clearDrag()
             dragState.isSimulated = false
         }

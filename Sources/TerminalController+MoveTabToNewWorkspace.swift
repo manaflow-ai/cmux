@@ -1,5 +1,6 @@
 import Foundation
 import Bonsplit
+import CmuxControlSocket
 import CmuxPanes
 import CmuxWindowing
 
@@ -70,7 +71,7 @@ extension TerminalController {
             "surface_id": result.surfaceId.uuidString,
             "surface_ref": v2Ref(kind: .surface, uuid: result.surfaceId),
             "tab_id": result.surfaceId.uuidString,
-            "tab_ref": v2TabRef(uuid: result.surfaceId),
+            "tab_ref": controlCommandCoordinator.v2TabRef(uuid: result.surfaceId),
             "pane_id": v2OrNull(result.paneId?.uuidString),
             "pane_ref": v2Ref(kind: .pane, uuid: result.paneId),
         ]
