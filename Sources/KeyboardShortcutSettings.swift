@@ -1683,6 +1683,30 @@ struct ShortcutStroke: Equatable, Hashable {
 
 /// A keyboard shortcut that can be stored in UserDefaults
 struct StoredShortcut: Codable, Equatable, Hashable {
+    /// Temporary bridge from the package `CmuxSettings.StoredShortcut` (stroke-based)
+    /// to this legacy flat in-app type. `CmuxResolvedConfigAction` moved to
+    /// CmuxWorkspaces (wNb) and now exposes the package shortcut, while the app's
+    /// shortcut-matching helpers still consume this flat type. Remove once the
+    /// flat->stroke StoredShortcut consolidation deletes this duplicate app type.
+    init(_ packageShortcut: CmuxSettings.StoredShortcut) {
+        let first = packageShortcut.first
+        let second = packageShortcut.second
+        self.init(
+            key: first.key,
+            command: first.command,
+            shift: first.shift,
+            option: first.option,
+            control: first.control,
+            keyCode: first.keyCode,
+            chordKey: second?.key,
+            chordCommand: second?.command ?? false,
+            chordShift: second?.shift ?? false,
+            chordOption: second?.option ?? false,
+            chordControl: second?.control ?? false,
+            chordKeyCode: second?.keyCode
+        )
+    }
+
     var key: String
     var command: Bool
     var shift: Bool
