@@ -251,14 +251,7 @@ struct TerminalComposerView: View {
     /// a `.bar` material backing behind the material controls.
     @ViewBuilder
     private var composerSurface: some View {
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer {
-                composerBar
-            }
-        } else {
-            composerBar
-                .background(.bar)
-        }
+        composerBar.mobileTerminalComposerSurface()
     }
 
     private var composerBar: some View {

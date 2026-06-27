@@ -2,6 +2,34 @@ public import SwiftUI
 
 /// Shared Liquid Glass compatibility helpers for mobile SwiftUI surfaces.
 public extension View {
+    /// Wraps content in a Liquid Glass effect container on iOS 26+.
+    @ViewBuilder
+    func mobileGlassContainer() -> some View {
+        #if os(iOS) && compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer { self }
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+
+    /// Wraps the terminal composer in glass on iOS 26+ or a bar material fallback.
+    @ViewBuilder
+    func mobileTerminalComposerSurface() -> some View {
+        #if os(iOS) && compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer { self }
+        } else {
+            self.background(.bar)
+        }
+        #else
+        self.background(.bar)
+        #endif
+    }
+
     /// Glass (iOS 26+) or bordered button styling for secondary sign-in actions.
     @ViewBuilder
     func mobileGlassButton() -> some View {
