@@ -4584,9 +4584,9 @@ extension Notification.Name {
     static let browserMoveOmnibarSelection = BrowserOmnibarFocusSignal.moveSelection.notificationName
     static let browserDidExitAddressBar = BrowserOmnibarFocusSignal.didExitAddressBar.notificationName
     static let browserDidFocusAddressBar = BrowserOmnibarFocusSignal.didFocusAddressBar.notificationName
-    static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
-    static let browserFocusModeStateDidChange = Notification.Name("cmux.browserFocusModeStateDidChange")
-    static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
-    static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
-    static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
+    static let browserDidBlurAddressBar = BrowserOmnibarFocusSignal.didBlurAddressBar.notificationName
+    static let browserFocusModeStateDidChange = BrowserPanelSignal.focusModeStateDidChange.notificationName
+    static let webViewDidReceiveClick = BrowserPanelSignal.webViewDidReceiveClick.notificationName
+    static let terminalPortalVisibilityDidChange = BrowserPortalSignal.terminalPortalVisibilityDidChange.notificationName
+    static let browserPortalRegistryDidChange = BrowserPortalSignal.browserPortalRegistryDidChange.notificationName
 }
