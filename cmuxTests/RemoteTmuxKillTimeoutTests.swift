@@ -7,7 +7,9 @@ import Testing
 @testable import cmux
 #endif
 
+/// Regression coverage for remote tmux kill timeout behavior.
 @Suite struct RemoteTmuxKillTimeoutTests {
+    /// Verifies `killSessions` returns when an SSH descendant keeps output pipes open.
     @Test func killSessionsReturnsWhenSSHDescendantKeepsPipesOpen() async throws {
         let root = try temporaryDirectory(prefix: "remote-tmux-hung-kill")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -34,6 +36,7 @@ import Testing
         }
     }
 
+    /// Creates a unique temporary directory for fake SSH executables.
     private func temporaryDirectory(prefix: String) throws -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
@@ -41,11 +44,13 @@ import Testing
         return url
     }
 
+    /// Writes an executable shell script at `url`.
     private func writeExecutable(at url: URL, contents: String) throws {
         try contents.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
     }
 
+    /// Fails the test if `work` does not complete before `guardSeconds`.
     private func expectCompletes(
         within guardSeconds: Double,
         _ work: @Sendable @escaping () async -> Void,
@@ -71,5 +76,6 @@ import Testing
         }
     }
 
+    /// Sentinel thrown by the guard task when the regression hangs.
     private struct TimedOutWaiting: Error {}
 }
