@@ -151,6 +151,7 @@
 		4472A0024472A0024472A002 /* BrowserScreenshotPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4472B0024472B0024472B002 /* BrowserScreenshotPipeline.swift */; };
 		4472A0034472A0034472A003 /* BrowserScreenshotSnapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4472B0034472B0034472B003 /* BrowserScreenshotSnapshotter.swift */; };
 		A5008371 /* BrowserSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008370 /* BrowserSearchOverlay.swift */; };
+		C67540050000000000000001 /* BrowserSessionDownloadSaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540050000000000000002 /* BrowserSessionDownloadSaver.swift */; };
 		C67540010000000000000001 /* BrowserSubframeDownloadIntentTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540010000000000000002 /* BrowserSubframeDownloadIntentTracker.swift */; };
 		4BBF42E8A86EAAB94BC9EA16 /* BrowserSystemProxyMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = 048DACB3F8147BCBDD266297 /* BrowserSystemProxyMirror.swift */; };
 		C7B800062D4202A13C962D2D /* BrowserSystemProxyMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */; };
@@ -1355,6 +1356,7 @@
 		4472B0024472B0024472B002 /* BrowserScreenshotPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotPipeline.swift; sourceTree = "<group>"; };
 		4472B0034472B0034472B003 /* BrowserScreenshotSnapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotSnapshotter.swift; sourceTree = "<group>"; };
 		A5008370 /* BrowserSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserSearchOverlay.swift; sourceTree = "<group>"; };
+		C67540050000000000000002 /* BrowserSessionDownloadSaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSessionDownloadSaver.swift; sourceTree = "<group>"; };
 		C67540010000000000000002 /* BrowserSubframeDownloadIntentTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSubframeDownloadIntentTracker.swift; sourceTree = "<group>"; };
 		048DACB3F8147BCBDD266297 /* BrowserSystemProxyMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSystemProxyMirror.swift; sourceTree = "<group>"; };
 		8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSystemProxyMirrorTests.swift; sourceTree = "<group>"; };
@@ -2923,6 +2925,7 @@
 				C62530010000000000000002 /* BrowserPanelReloadMode.swift */,
 				C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */,
 				C67540020000000000000002 /* BrowserDownloadHTTPStatusDecision.swift */,
+				C67540050000000000000002 /* BrowserSessionDownloadSaver.swift */,
 				C67540010000000000000002 /* BrowserSubframeDownloadIntentTracker.swift */,
 				C6255D010000000000000002 /* CmuxWebView+ScriptedDownloads.swift */,
 				C67540030000000000000002 /* CmuxWebView+SubframeDownloadIntentScript.swift */,
@@ -4059,6 +4062,7 @@
 				4472A0024472A0024472A002 /* BrowserScreenshotPipeline.swift in Sources */,
 				4472A0034472A0034472A003 /* BrowserScreenshotSnapshotter.swift in Sources */,
 				A5008371 /* BrowserSearchOverlay.swift in Sources */,
+				C67540050000000000000001 /* BrowserSessionDownloadSaver.swift in Sources */,
 				C67540010000000000000001 /* BrowserSubframeDownloadIntentTracker.swift in Sources */,
 				4BBF42E8A86EAAB94BC9EA16 /* BrowserSystemProxyMirror.swift in Sources */,
 				0796994CA7CCA25DB990BFEF /* BrowserSystemProxyWatcher.swift in Sources */,

@@ -381,6 +381,15 @@ final class CmuxWebView: WKWebView {
     private static let pasteAsPlainTextKeyCode: UInt16 = 9 // V key (hardware position, layout-independent)
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
     var onSessionDownloadEvent: (([String: Any]) -> Void)?
+    private lazy var sessionDownloadSaver = BrowserSessionDownloadSaver(
+        parentWindow: { [weak self] in self?.window },
+        notifyDownloadState: { [weak self] in self?.notifyContextMenuDownloadState($0) },
+        notifyEvent: { [weak self] in self?.notifySessionDownloadEvent($0) },
+        debugLog: { [weak self] in self?.debugContextDownload($0) },
+        runFallback: { [weak self] action, target, sender, traceID, reason in
+            self?.runContextMenuFallback(action: action, target: target, sender: sender, traceID: traceID, reason: reason)
+        }
+    )
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
     var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
@@ -1641,253 +1650,17 @@ final class CmuxWebView: WKWebView {
         fallbackTarget: AnyObject?,
         failureFallbackReason: String?
     ) {
-        let filenameResolver = BrowserDownloadFilenameResolver()
-        let downloadID = UUID().uuidString
-        notifySessionDownloadEvent([
-            "type": "started",
-            "download_id": downloadID,
-            "filename": saveName,
-        ])
-        let handleWriteResult: (Result<URL, Error>, Bool) -> Void = { [weak self] result, shouldClearDownloadState in
-            guard let self else { return }
-            if shouldClearDownloadState { self.notifyContextMenuDownloadState(false) }
-            switch result {
-            case .success(let destinationURL):
-                self.debugContextDownload(
-                    "browser.ctxdl.\(logCategory) trace=\(traceID) stage=saveSuccess path=<redacted>"
-                )
-                self.notifySessionDownloadEvent([
-                    "type": "saved",
-                    "download_id": downloadID,
-                    "filename": saveName,
-                    "path": destinationURL.path,
-                ])
-            case .failure(let error):
-                self.debugContextDownload(
-                    "browser.ctxdl.\(logCategory) trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
-                )
-                self.notifySessionDownloadEvent([
-                    "type": "failed",
-                    "download_id": downloadID,
-                    "filename": saveName,
-                    "error": error.localizedDescription,
-                ])
-                if let failureFallbackReason {
-                    self.runContextMenuFallback(
-                        action: fallbackAction,
-                        target: fallbackTarget,
-                        sender: sender,
-                        traceID: traceID,
-                        reason: failureFallbackReason
-                    )
-                }
-            }
-        }
-
-        if filenameResolver.shouldAskWhereToSaveDownloads() {
-            let savePanel = NSSavePanel()
-            savePanel.nameFieldStringValue = saveName
-            savePanel.canCreateDirectories = true
-            savePanel.directoryURL = filenameResolver.downloadsDirectory()
-            notifyContextMenuDownloadState(false)
-            notifySessionDownloadEvent([
-                "type": "ready_to_save",
-                "download_id": downloadID,
-                "filename": saveName,
-            ])
-            debugContextDownload(
-                "browser.ctxdl.\(logCategory) trace=\(traceID) stage=savePrompt shown=1 defaultName=<redacted>"
-            )
-            let completion: (NSApplication.ModalResponse) -> Void = { result in
-                guard result == .OK, let destURL = savePanel.url else {
-                    self.debugContextDownload(
-                        "browser.ctxdl.\(logCategory) trace=\(traceID) stage=savePrompt result=cancel"
-                    )
-                    self.notifySessionDownloadEvent([
-                        "type": "cancelled",
-                        "download_id": downloadID,
-                        "filename": saveName,
-                    ])
-                    return
-                }
-                self.writeSessionDownloadDataInBackground(
-                    data,
-                    destinationURL: destURL,
-                    sourceURL: sourceURL,
-                    replaceExisting: true,
-                    completion: { result in handleWriteResult(result, false) }
-                )
-            }
-            if let parentWindow = window {
-                savePanel.beginSheetModal(for: parentWindow, completionHandler: completion)
-            } else {
-                savePanel.begin(completionHandler: completion)
-            }
-            return
-        }
-
-        autoSaveSessionDownloadDataInBackground(
-            data,
+        sessionDownloadSaver.finish(
+            data: data,
             saveName: saveName,
             sourceURL: sourceURL,
-            filenameResolver: filenameResolver,
             traceID: traceID,
             logCategory: logCategory,
-            completion: { result in handleWriteResult(result, true) }
+            sender: sender,
+            fallbackAction: fallbackAction,
+            fallbackTarget: fallbackTarget,
+            failureFallbackReason: failureFallbackReason
         )
-    }
-
-    private func writeSessionDownloadDataInBackground(
-        _ data: Data,
-        destinationURL: URL,
-        sourceURL: URL?,
-        replaceExisting: Bool,
-        completion: @escaping (Result<URL, Error>) -> Void
-    ) {
-        Task { @MainActor in
-            let result = await Task.detached(priority: .utility) {
-                Self.writeSessionDownloadData(
-                    data,
-                    to: destinationURL,
-                    sourceURL: sourceURL,
-                    replaceExisting: replaceExisting
-                )
-            }.value
-            completion(result)
-        }
-    }
-
-    private func autoSaveSessionDownloadDataInBackground(
-        _ data: Data,
-        saveName: String,
-        sourceURL: URL?,
-        filenameResolver: BrowserDownloadFilenameResolver,
-        traceID: String,
-        logCategory: String,
-        completion: @escaping (Result<URL, Error>) -> Void
-    ) {
-        Task { @MainActor in
-            let result = await Task.detached(priority: .utility) {
-                Self.autoSaveSessionDownloadData(
-                    data,
-                    saveName: saveName,
-                    sourceURL: sourceURL,
-                    filenameResolver: filenameResolver
-                )
-            }.value
-            if case .success = result {
-                self.debugContextDownload(
-                    "browser.ctxdl.\(logCategory) trace=\(traceID) stage=autoSave path=<redacted>"
-                )
-            }
-            completion(result)
-        }
-    }
-
-    private nonisolated static func autoSaveSessionDownloadData(
-        _ data: Data,
-        saveName: String,
-        sourceURL: URL?,
-        filenameResolver: BrowserDownloadFilenameResolver
-    ) -> Result<URL, Error> {
-        Result {
-            let fileManager = FileManager.default
-            let directory = filenameResolver.downloadsDirectory(fileManager: fileManager)
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-            var lastCollisionError: Error?
-            for _ in 0..<100 {
-                let destinationURL = filenameResolver.uniqueDownloadDestination(
-                    suggestedFilename: saveName,
-                    in: directory,
-                    fileManager: fileManager
-                )
-                do {
-                    try writeSessionDownloadDataWithoutReplacing(
-                        data,
-                        to: destinationURL,
-                        sourceURL: sourceURL,
-                        fileManager: fileManager
-                    )
-                    return destinationURL
-                } catch {
-                    guard fileManager.fileExists(atPath: destinationURL.path) else {
-                        throw error
-                    }
-                    lastCollisionError = error
-                }
-            }
-            throw lastCollisionError ?? CocoaError(.fileWriteUnknown)
-        }
-    }
-
-    private nonisolated static func writeSessionDownloadData(
-        _ data: Data,
-        to destinationURL: URL,
-        sourceURL: URL?,
-        replaceExisting: Bool
-    ) -> Result<URL, Error> {
-        Result {
-            if replaceExisting {
-                try writeSessionDownloadDataReplacing(
-                    data,
-                    to: destinationURL,
-                    sourceURL: sourceURL,
-                    fileManager: .default
-                )
-            } else {
-                try writeSessionDownloadDataWithoutReplacing(
-                    data,
-                    to: destinationURL,
-                    sourceURL: sourceURL,
-                    fileManager: .default
-                )
-            }
-            return destinationURL
-        }
-    }
-
-    private nonisolated static func writeSessionDownloadDataReplacing(
-        _ data: Data,
-        to destinationURL: URL,
-        sourceURL: URL?,
-        fileManager: FileManager
-    ) throws {
-        let tempURL = temporarySessionDownloadURL(for: destinationURL)
-        do {
-            try data.write(to: tempURL, options: .atomic)
-            try tempURL.cmuxApplyWebDownloadQuarantine(sourceURL: sourceURL)
-            if fileManager.fileExists(atPath: destinationURL.path) {
-                _ = try fileManager.replaceItemAt(destinationURL, withItemAt: tempURL)
-            } else {
-                try fileManager.moveItem(at: tempURL, to: destinationURL)
-            }
-        } catch {
-            try? fileManager.removeItem(at: tempURL)
-            throw error
-        }
-    }
-
-    private nonisolated static func writeSessionDownloadDataWithoutReplacing(
-        _ data: Data,
-        to destinationURL: URL,
-        sourceURL: URL?,
-        fileManager: FileManager
-    ) throws {
-        let tempURL = temporarySessionDownloadURL(for: destinationURL)
-        do {
-            try data.write(to: tempURL, options: .atomic)
-            try tempURL.cmuxApplyWebDownloadQuarantine(sourceURL: sourceURL)
-            try fileManager.moveItem(at: tempURL, to: destinationURL)
-        } catch {
-            try? fileManager.removeItem(at: tempURL)
-            throw error
-        }
-    }
-
-    private nonisolated static func temporarySessionDownloadURL(for destinationURL: URL) -> URL {
-        destinationURL
-            .deletingLastPathComponent()
-            .appendingPathComponent(".cmux-\(UUID().uuidString).download", isDirectory: false)
     }
 
     func downloadURLViaSession(
