@@ -127,7 +127,8 @@ extension MobilePairedMacStore {
         macDeviceID: String,
         fromOwnerKey: String,
         toOwnerKey: String,
-        teamID: String?
+        teamID: String?,
+        preserveAttachTokenMetadata: Bool
     ) throws {
         try exec("""
             INSERT INTO paired_macs (
@@ -138,12 +139,18 @@ extension MobilePairedMacStore {
             SELECT
                 mac_device_id, ?, display_name, stack_user_id, ?, created_at,
                 last_seen_at, is_active, custom_name, custom_color, custom_icon,
-                NULL, attach_token_expires_at, attach_token_workspace_id, attach_token_terminal_id
+                NULL,
+                CASE WHEN ? = 1 THEN attach_token_expires_at ELSE NULL END,
+                CASE WHEN ? = 1 THEN attach_token_workspace_id ELSE NULL END,
+                CASE WHEN ? = 1 THEN attach_token_terminal_id ELSE NULL END
             FROM paired_macs
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
             .text(toOwnerKey),
             teamID.map(BindValue.text) ?? .null,
+            .int(preserveAttachTokenMetadata ? 1 : 0),
+            .int(preserveAttachTokenMetadata ? 1 : 0),
+            .int(preserveAttachTokenMetadata ? 1 : 0),
             .text(macDeviceID),
             .text(fromOwnerKey),
         ])

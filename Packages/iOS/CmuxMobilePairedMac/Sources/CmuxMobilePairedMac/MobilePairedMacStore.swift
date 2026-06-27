@@ -174,7 +174,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                         macDeviceID: macDeviceID,
                         fromOwnerKey: legacy.ownerKey,
                         toOwnerKey: ownerKey,
-                        teamID: teamID
+                        teamID: teamID,
+                        preserveAttachTokenMetadata: copiedLegacyAttachToken || shouldStoreAttachTokenMetadata
                     )
                     claimedLegacy = legacy
                 }
@@ -211,7 +212,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             }
             throw error
         }
-        if shouldClaimLegacy {
+        if shouldClaimLegacy, copiedLegacyAttachToken || shouldStoreAttachTokenMetadata {
             deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
         }
     }
@@ -252,7 +253,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                         macDeviceID: macDeviceID,
                         fromOwnerKey: legacyOwnerKey,
                         toOwnerKey: ownerKey,
-                        teamID: teamID
+                        teamID: teamID,
+                        preserveAttachTokenMetadata: copiedLegacyAttachToken
                     )
                 }
                 guard let existing = try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey) else {
@@ -280,7 +282,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             }
             throw error
         }
-        if shouldDeleteLegacySecret {
+        if shouldDeleteLegacySecret, copiedLegacyAttachToken {
             deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
         }
     }
