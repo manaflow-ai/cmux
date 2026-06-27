@@ -37,4 +37,21 @@ import Testing
 
         #expect(next == [other])
     }
+
+    @Test func cycleHotDoesNotWarmSelectedWorkspaceWhenActiveSourceDoesNotConfirmIt() {
+        let selected = UUID()
+        let other = UUID()
+
+        let next = WorkspaceMountPlan(
+            current: [selected, other],
+            selected: selected,
+            pinnedIds: [],
+            orderedTabIds: [other],
+            activeWorkspaceIds: [other],
+            isCycleHot: true,
+            maxMounted: WorkspaceMountPlan.maxMountedWorkspacesDuringCycle
+        ).mountedWorkspaceIds
+
+        #expect(next == [other])
+    }
 }

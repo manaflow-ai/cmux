@@ -60,7 +60,7 @@ public struct WorkspaceMountPlan: Equatable {
             ordered.insert(selected, at: 0)
         }
 
-        if isCycleHot, let selected {
+        if isCycleHot, let selected, shouldKeepSelectedMounted {
             let warmIds = Self.cycleWarmIds(selected: selected, orderedTabIds: orderedTabIds)
             for id in warmIds.reversed() {
                 ordered.removeAll { $0 == id }
@@ -70,7 +70,8 @@ public struct WorkspaceMountPlan: Equatable {
 
         if isCycleHot,
            pinnedIds.isEmpty,
-           let selected {
+           let selected,
+           shouldKeepSelectedMounted {
             ordered.removeAll { $0 != selected }
         }
 
