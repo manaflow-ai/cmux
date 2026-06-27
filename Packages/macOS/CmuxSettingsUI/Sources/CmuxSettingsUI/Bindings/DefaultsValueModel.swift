@@ -188,7 +188,11 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         let isInitialStoreEvent = !hasObservedInitialStoreEvent
         hasObservedInitialStoreEvent = true
 
-        if consumePendingStoreEcho(source: event.mutationSource, value: event.value) {
+        let echoConsumption = consumePendingStoreEcho(source: event.mutationSource, value: event.value)
+        if echoConsumption.consumed {
+            if echoConsumption.shouldUpdateCurrent {
+                updateCurrent(event.value)
+            }
             return
         }
         if isInitialStoreEvent,
@@ -204,7 +208,6 @@ public final class DefaultsValueModel<Value: SettingCodable> {
            consumeSupersededPendingStoreEcho(source: supersededSource) {
             return
         }
-        clearPendingStoreEchoes()
         updateCurrent(event.value)
     }
 
@@ -230,18 +233,22 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         return source
     }
 
-    private func consumePendingStoreEcho(source: UserDefaultsSettingsMutationSource?, value: Value) -> Bool {
+    private func consumePendingStoreEcho(
+        source: UserDefaultsSettingsMutationSource?,
+        value: Value
+    ) -> (consumed: Bool, shouldUpdateCurrent: Bool) {
         guard let source, source.ownerID == mutationOwnerID else {
-            return false
+            return (false, false)
         }
 
         guard let matchingIndex = pendingStoreEchoes.firstIndex(where: { $0.source == source && $0.value == value }) else {
-            return source.sequence < minimumRetainedMutationSequence
+            return (source.sequence < minimumRetainedMutationSequence, false)
         }
 
+        let hasNewerPendingEcho = matchingIndex < pendingStoreEchoes.index(before: pendingStoreEchoes.endIndex)
         markLocalEchoesConsumed(through: source.sequence)
         pendingStoreEchoes.removeFirst(matchingIndex + 1)
-        return true
+        return (true, !hasNewerPendingEcho && current != value)
     }
 
     private func consumeSupersededPendingStoreEcho(source: UserDefaultsSettingsMutationSource) -> Bool {

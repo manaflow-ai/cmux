@@ -40,6 +40,7 @@ public actor UserDefaultsSettingsStore {
         String: [(source: UserDefaultsSettingsMutationSource, sequence: UInt64)]
     ] = [:]
     private var acceptedMutationLogicalOrders: [String: UInt64] = [:]
+    private var acceptedMutationSources: [String: UserDefaultsSettingsMutationSource] = [:]
     private var knownValues: [String: any Sendable] = [:]
     private var mutationSourceSequences: [String: UInt64] = [:]
     private let maximumSupersededMutationSourcesPerKey = 64
@@ -197,6 +198,12 @@ public actor UserDefaultsSettingsStore {
            source.logicalOrder < acceptedOrder {
             return false
         }
+        if let acceptedSource = acceptedMutationSources[storageKey],
+           source.ownerID == acceptedSource.ownerID,
+           source.logicalOrder == acceptedSource.logicalOrder,
+           source.sequence < acceptedSource.sequence {
+            return false
+        }
 
         if let notificationOrder = observedMutationWatermarks.latestNotificationLogicalOrder(for: storageKey),
            source.logicalOrder < notificationOrder {
@@ -237,6 +244,11 @@ public actor UserDefaultsSettingsStore {
             acceptedMutationLogicalOrders[storageKey] ?? 0,
             logicalOrder
         )
+        if let source {
+            acceptedMutationSources[storageKey] = source
+        } else {
+            acceptedMutationSources.removeValue(forKey: storageKey)
+        }
     }
 
     private func recordSupersededMutationSource(
