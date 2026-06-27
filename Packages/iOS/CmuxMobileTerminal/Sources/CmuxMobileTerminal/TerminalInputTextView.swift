@@ -949,12 +949,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         return button
     }
 
-    /// Build (or rebuild) a button's configuration for `item` and its current
-    /// armed/sticky state. On iOS 26 the bar uses real Liquid Glass
-    /// (`.glass()` resting, `.prominentGlass()` armed/sticky); earlier OSes keep
-    /// the flat gray/blue fill the bar shipped with. Built-in modifier titles
-    /// follow `isMacRemote`; custom actions render their saved title/icon and
-    /// never arm.
+    /// Build a button configuration for `item` and its armed/sticky state.
+    /// iOS 26 uses Liquid Glass; earlier OSes keep the shipped flat fill.
+    /// Custom actions render their saved title/icon and never arm.
     private func applyAccessoryButtonStyle(
         _ button: UIButton,
         item: ResolvedToolbarItem,
@@ -1012,6 +1009,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     private static func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
             config.baseForegroundColor = .white
@@ -1020,6 +1018,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             }
             return config
         }
+        #endif
         var config = UIButton.Configuration.plain()
         var background = UIBackgroundConfiguration.clear()
         if sticky {
