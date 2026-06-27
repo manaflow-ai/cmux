@@ -592,10 +592,11 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         )
 
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        let backspaceResponse = socketCommand("simulate_shortcut backspace")
         XCTAssertEqual(
-            socketCommand("simulate_shortcut backspace"),
+            backspaceResponse,
             "OK",
-            "Expected socket shortcut simulation to send Backspace through AppKit"
+            "Expected socket shortcut simulation to send Backspace through AppKit. response=\(String(describing: backspaceResponse)) \(socketDebugState())"
         )
 
         var valueAfterDelete = ""
@@ -701,13 +702,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
                     }
                     self.socketPath = originalPath
                 }
-                let diagnostics = self.loadDiagnostics()
-                if self.controlSocketDiagnosticsReportReady(diagnostics),
-                   let expectedPath = diagnostics["socketExpectedPath"],
-                   !expectedPath.isEmpty {
-                    resolvedPath = expectedPath
-                    return true
-                }
                 return false
             }
         )
@@ -718,7 +712,11 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     }
 
     private func socketReadinessFailureMessage() -> String {
-        "Expected control socket at \(socketPath). diagnostics=\(loadDiagnostics()) candidates=\(socketCandidates())"
+        "Expected control socket at \(socketPath). \(socketDebugState())"
+    }
+
+    private func socketDebugState() -> String {
+        "diagnostics=\(loadDiagnostics()) candidates=\(socketCandidates())"
     }
 
     private func socketCommand(_ command: String) -> String? {
@@ -726,7 +724,8 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         for candidate in socketCandidates() {
             guard FileManager.default.fileExists(atPath: candidate) else { continue }
             socketPath = candidate
-            if let response = controlSocketCommandViaNetcat(command, socketPath: candidate) {
+            if let response = ControlSocketClient(path: candidate, responseTimeout: 3.0).sendLine(command)
+                ?? controlSocketCommandViaNetcat(command, socketPath: candidate, responseTimeout: 3.0) {
                 return response
             }
         }
@@ -765,6 +764,101 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             diagnostics[key] = String(describing: value)
         }
         return diagnostics
+    }
+
+    private final class ControlSocketClient {
+        private let path: String
+        private let responseTimeout: TimeInterval
+
+        init(path: String, responseTimeout: TimeInterval) {
+            self.path = path
+            self.responseTimeout = responseTimeout
+        }
+
+        func sendLine(_ line: String) -> String? {
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard fd >= 0 else { return nil }
+            defer { close(fd) }
+
+#if os(macOS)
+            var noSigPipe: Int32 = 1
+            _ = withUnsafePointer(to: &noSigPipe) { ptr in
+                setsockopt(
+                    fd,
+                    SOL_SOCKET,
+                    SO_NOSIGPIPE,
+                    ptr,
+                    socklen_t(MemoryLayout<Int32>.size)
+                )
+            }
+#endif
+
+            var addr = sockaddr_un()
+            memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
+            addr.sun_family = sa_family_t(AF_UNIX)
+
+            let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+            let bytes = Array(path.utf8CString)
+            guard bytes.count <= maxLen else { return nil }
+            withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+                let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
+                memset(raw, 0, maxLen)
+                for index in 0..<bytes.count {
+                    raw[index] = bytes[index]
+                }
+            }
+
+            let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+            let addrLen = socklen_t(pathOffset + bytes.count)
+#if os(macOS)
+            addr.sun_len = UInt8(min(Int(addrLen), 255))
+#endif
+
+            let connected = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    connect(fd, sockaddrPtr, addrLen)
+                }
+            }
+            guard connected == 0 else { return nil }
+
+            let payload = line + "\n"
+            let wrote: Bool = payload.withCString { cString in
+                var remaining = strlen(cString)
+                var pointer = UnsafeRawPointer(cString)
+                while remaining > 0 {
+                    let written = write(fd, pointer, remaining)
+                    if written <= 0 { return false }
+                    remaining -= written
+                    pointer = pointer.advanced(by: written)
+                }
+                return true
+            }
+            guard wrote else { return nil }
+
+            let deadline = Date().addingTimeInterval(responseTimeout)
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            var accumulator = ""
+            while Date() < deadline {
+                var pollDescriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+                let ready = poll(&pollDescriptor, 1, 100)
+                if ready < 0 {
+                    return nil
+                }
+                if ready == 0 {
+                    continue
+                }
+                let count = read(fd, &buffer, buffer.count)
+                if count <= 0 { break }
+                if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
+                    accumulator.append(chunk)
+                    if let newline = accumulator.firstIndex(of: "\n") {
+                        return String(accumulator[..<newline])
+                    }
+                }
+            }
+
+            return accumulator.isEmpty ? nil : accumulator.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     }
 
     private struct SeedEntry {

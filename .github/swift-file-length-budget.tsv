@@ -86,6 +86,7 @@
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
 1031	cmuxTests/WorkspaceGroupTests.swift
+1027	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
@@ -95,7 +96,6 @@
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
 937	Sources/TextBoxMentionIndexStore.swift
-933	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 928	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 926	Sources/DockPanelView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
