@@ -578,18 +578,18 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             "Expected inline completion display to avoid injecting an https:// prefix unless typed."
         )
 
-        omnibar.typeText(XCUIKeyboardKey.delete.rawValue)
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
 
         var valueAfterDelete = ""
-        let revertedToTypedPrefix = waitForCondition(timeout: 3.0) {
+        let revealedTypedPrefix = waitForCondition(timeout: 3.0) {
             valueAfterDelete = (omnibar.value as? String) ?? ""
             return valueAfterDelete == "exa"
         }
         XCTAssertTrue(
-            revertedToTypedPrefix,
+            revealedTypedPrefix,
             "Expected Backspace with inline suffix selected to remove one typed prefix character. value=\(valueAfterDelete)"
         )
-        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
     }
 
     func testCmdASelectAllDoesNotClearInlineCompletion() {
