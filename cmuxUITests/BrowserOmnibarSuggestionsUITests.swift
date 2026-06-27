@@ -1,10 +1,9 @@
 import XCTest
 import Foundation
+import CoreGraphics
 
 final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     private var dataPath = ""
-    private var socketPath = ""
-    private var diagnosticsPath = ""
     private var browserHistorySeedJSON: String?
 
     override func setUp() {
@@ -12,16 +11,10 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         continueAfterFailure = false
         let token = UUID().uuidString
         dataPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(token).json"
-        socketPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(token).sock"
-        diagnosticsPath = "/tmp/cmux-ui-test-omnibar-suggestions-diagnostics-\(token).json"
         browserHistorySeedJSON = nil
         try? FileManager.default.removeItem(atPath: dataPath)
-        try? FileManager.default.removeItem(atPath: socketPath)
-        try? FileManager.default.removeItem(atPath: diagnosticsPath)
-        addTeardownBlock { [dataPath, socketPath, diagnosticsPath] in
+        addTeardownBlock { [dataPath] in
             try? FileManager.default.removeItem(atPath: dataPath)
-            try? FileManager.default.removeItem(atPath: socketPath)
-            try? FileManager.default.removeItem(atPath: diagnosticsPath)
         }
 
         // Terminate any lingering app from a prior test so its debounced
@@ -559,15 +552,10 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
-        configureSocketLaunch(app)
         launchAndEnsureForeground(app)
         XCTAssertTrue(
             waitForGotoSplitSetup(timeout: 10.0),
             "Expected goto_split setup data before typing. data=\(String(describing: loadGotoSplitData()))"
-        )
-        XCTAssertTrue(
-            waitForSocketPong(timeout: 10.0),
-            "Expected control socket readiness at \(socketPath). diagnostics=\(String(describing: loadDiagnosticsData()))"
         )
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
@@ -592,13 +580,10 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             "Expected inline completion display to avoid injecting an https:// prefix unless typed."
         )
 
-        let shortcutResponse = socketCommand("simulate_shortcut ctrl+h")
-        XCTAssertEqual(
-            shortcutResponse,
-            "OK",
-            "Expected control socket to dispatch Ctrl+H through AppKit. response=\(String(describing: shortcutResponse)) diagnostics=\(String(describing: loadDiagnosticsData()))"
+        XCTAssertTrue(
+            postBackspaceAndEscape(to: app),
+            "Expected targeted Backspace and Escape key events to post to app pid \(app.processID)"
         )
-        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
 
         var valueAfterDelete = ""
         let revealedTypedPrefix = waitForCondition(timeout: 3.0) {
@@ -766,34 +751,27 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         return object
     }
 
-    private func loadDiagnosticsData() -> [String: String]? {
-        guard !diagnosticsPath.isEmpty,
-              let data = try? Data(contentsOf: URL(fileURLWithPath: diagnosticsPath)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-            return nil
+    private func postBackspaceAndEscape(to app: XCUIApplication) -> Bool {
+        postKeySequenceToApp(app, keyCodes: [51, 53])
+    }
+
+    private func postKeySequenceToApp(_ app: XCUIApplication, keyCodes: [CGKeyCode]) -> Bool {
+        guard app.processID > 0,
+              let source = CGEventSource(stateID: .hidSystemState) else {
+            return false
         }
-        return object
-    }
 
-    private func configureSocketLaunch(_ app: XCUIApplication) {
-        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
-        app.launchEnvironment["CMUX_TAG"] = "omnibar-suggestions-ui"
-    }
-
-    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
-            self.socketCommand("ping") == "PONG"
+        for keyCode in keyCodes {
+            guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+                  let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
+                return false
+            }
+            keyDown.flags = []
+            keyUp.flags = []
+            keyDown.postToPid(app.processID)
+            keyUp.postToPid(app.processID)
         }
-    }
-
-    private func socketCommand(_ command: String) -> String? {
-        ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendLine(command) ??
-            controlSocketCommandViaNetcat(command, socketPath: socketPath)
+        return true
     }
 
     private func typeQueryAndWaitForSuggestions(
