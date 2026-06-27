@@ -3992,9 +3992,8 @@ final class BrowserPanel: Panel, ObservableObject {
             }
             self.presentBrowserAlert(alert, in: webView, completion: completion, cancel: cancel)
         }
-        navDelegate.shouldBlockInsecureHTTPNavigation = { [weak self] url in
-            self?.shouldBlockInsecureHTTPNavigation(to: url) ?? false
-        }
+        navDelegate.shouldBlockInsecureHTTPNavigation = { [weak self] in self?.shouldBlockInsecureHTTPNavigation(to: $0) ?? false }
+        navDelegate.shouldBlockInsecureHTTPSubframeDownload = { browserShouldBlockInsecureHTTPURL($0) }
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
             self?.presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
         }

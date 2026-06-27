@@ -15,6 +15,7 @@ import WebKit
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
+    var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     /// Direct reference to the download delegate - must be set synchronously in didBecome callbacks.
     var downloadDelegate: WKDownloadDelegate?
@@ -289,7 +290,7 @@ import WebKit
         if navigationAction.shouldPerformDownload {
             if navigationAction.targetFrame?.isMainFrame == false,
                let url = navigationAction.request.url,
-               shouldBlockInsecureHTTPNavigation?(url) == true {
+               shouldBlockInsecureHTTPSubframeDownload?(url) == true {
                 #if DEBUG
                 cmuxDebugLog("browser.nav.decidePolicy.action kind=cancelDownload reason=insecureHTTPSubframe url=\(url.absoluteString)")
                 #endif
@@ -392,7 +393,7 @@ import WebKit
         if !navigationResponse.isForMainFrame,
            allowsSubframeDownload,
            let url = navigationResponse.response.url,
-           shouldBlockInsecureHTTPNavigation?(url) == true {
+           shouldBlockInsecureHTTPSubframeDownload?(url) == true {
             #if DEBUG
             cmuxDebugLog("download.policy=cancel reason=insecureHTTPSubframe url=\(url.absoluteString)")
             #endif
