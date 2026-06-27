@@ -1460,9 +1460,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !isRunningUnderXCTest {
             GlobalSearchCoordinator.shared.start()
             sentryStartMemoryContextRefresh()
+            // Appshots installs an app-active observer that resolves window
+            // context on resign; it has no reason to run under XCTest and is
+            // gated here so it can't perturb the app-host unit-test process.
+            AppshotController.shared.start()
         }
         SystemWideHotkeyController.shared.start()
-        AppshotController.shared.start()
         AgentHibernationController.shared.start()
         RendererRealizationController.shared.start()
         NSApp.servicesProvider = self
@@ -13215,6 +13218,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
            ) {
             return true
+        }
+
+        // Focused browser web content owns document-editing command equivalents
+        // (copy/cut/select-all/italic). Yield them so e.g. Cmd+I italicizes in web
+        // writing apps (Notion, Google Docs, …) instead of opening Show
+        // Notifications. This special-cases only the editing collision: the action
+        // stays generally available, so non-colliding custom bindings (e.g.
+        // Cmd+Shift+I) still open notifications from a browser pane. Gated to the
+        // actual web view owning first responder — not just the browser being the
+        // selected pane — so Cmd+I keeps working when the sidebar, address bar, or
+        // other chrome holds focus, and to the no-active-chord case so a configured
+        // chord whose second stroke is Cmd+I/C/X/A still completes (issue #6776).
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event),
+           shortcutEventFirstResponderOwnsBrowserWebView(event) {
+            return false
         }
 
         if !hasFocusedAddressBarInShortcutContext,
