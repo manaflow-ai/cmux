@@ -598,10 +598,12 @@ final class AgentChatSessionRegistry {
     ) {
         let sessionID = Self.normalizedSessionID(rawSessionID, source: source)
         let now = Date()
+        #if DEBUG
         cmuxDebugLog(
             "agentChat.resumeInitiated session=\(sessionID.prefix(8)) source=\(source) "
             + "surface=\((surfaceID ?? "nil").prefix(8)) existed=\(records[sessionID] != nil)"
         )
+        #endif
         let normalizedSurface = surfaceID.flatMap { $0.isEmpty ? nil : $0 }
         let normalizedWorkspace = workspaceID.flatMap { $0.isEmpty ? nil : $0 }
         let normalizedCwd = workingDirectory.flatMap { $0.isEmpty ? nil : $0 }

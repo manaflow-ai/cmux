@@ -30,8 +30,12 @@ CLI = os.path.join(os.path.dirname(__file__), "cmux-debug-cli.sh")
 
 
 def cli(*args):
-    env = dict(os.environ)
-    out = subprocess.run([CLI, *args], capture_output=True, text=True, env=env)
+    if not os.environ.get("CMUX_TAG"):
+        sys.exit("CMUX_TAG must be set, e.g. CMUX_TAG=asot scripts/cmux-chat-debug.py")
+    out = subprocess.run([CLI, *args], capture_output=True, text=True, env=dict(os.environ))
+    if out.returncode != 0:
+        sys.exit("cmux-debug-cli.sh %s failed (rc=%d):\n%s"
+                 % (" ".join(args), out.returncode, out.stderr.strip()))
     return out.stdout
 
 
@@ -124,7 +128,7 @@ def main():
     if "--live" in sys.argv:
         try:
             while True:
-                os.system("clear")
+                sys.stdout.write("\033[2J\033[H")  # clear + home, no shell-out
                 render(show_all)
                 print("\n(refreshing every 2s, Ctrl-C to stop)")
                 time.sleep(2)
