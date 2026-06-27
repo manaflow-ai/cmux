@@ -17,7 +17,7 @@ final class AgentChatTranscriptService {
     /// Sessions whose transcript could not be resolved; skipped until an
     /// explicit history request retries, so per-hook-event resolution
     /// failures don't rescan the filesystem during tool storms.
-    private var failedResolutions: Set<String> = []
+    var failedResolutions: Set<String> = []
     /// Last time `adoptDetectedClaudeSession` ran a filesystem scan for a
     /// surface that had no session yet, keyed by surface id. Bounds transcript
     /// resolution scheduling to once per `detectionScanThrottle` while a
