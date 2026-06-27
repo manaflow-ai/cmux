@@ -617,7 +617,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Internal (not private) so the copyable-text extension in
     /// `GhosttySurfaceCopyableText.swift` can enqueue its surface read with
     /// the same FIFO-before-dispose ordering discipline.
-    static let outputQueue = DispatchQueue(
+    nonisolated static let outputQueue = DispatchQueue(
         label: "dev.cmux.GhosttySurfaceView.output",
         qos: .userInitiated
     )
