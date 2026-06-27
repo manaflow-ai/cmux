@@ -13,10 +13,28 @@ import Testing
             selected: selected,
             pinnedIds: [],
             orderedTabIds: [other],
+            activeWorkspaceIds: [selected, other],
             isCycleHot: false,
             maxMounted: WorkspaceMountPlan.maxMountedWorkspaces
         ).mountedWorkspaceIds
 
         #expect(next == [selected])
+    }
+
+    @Test func dropsSelectedWorkspaceWhenActiveSourceDoesNotConfirmIt() {
+        let selected = UUID()
+        let other = UUID()
+
+        let next = WorkspaceMountPlan(
+            current: [selected, other],
+            selected: selected,
+            pinnedIds: [],
+            orderedTabIds: [other],
+            activeWorkspaceIds: [other],
+            isCycleHot: false,
+            maxMounted: WorkspaceMountPlan.maxMountedWorkspaces
+        ).mountedWorkspaceIds
+
+        #expect(next == [other])
     }
 }
