@@ -17,6 +17,7 @@ let package = Package(
         .package(path: "../CmuxCore"),
         .package(path: "../CMUXAgentLaunch"),
         .package(path: "../CmuxFoundation"),
+        .package(path: "../CMUXDebugLog"),
     ],
     targets: [
         .target(
@@ -25,6 +26,7 @@ let package = Package(
                 .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "CMUXAgentLaunch", package: "CMUXAgentLaunch"),
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+                .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

@@ -229,12 +229,6 @@ final class TerminalNotificationStore: ObservableObject {
         )
     }
 
-    private enum AuthorizationRequestOrigin: String {
-        case notificationDelivery = "notification_delivery"
-        case settingsButton = "settings_button"
-        case settingsTest = "settings_test"
-    }
-
     @Published private(set) var notifications: [TerminalNotification] = [] {
         didSet {
             indexes = NotificationIndexes(notifications: notifications)
@@ -272,12 +266,27 @@ final class TerminalNotificationStore: ObservableObject {
             refreshUnreadPresentation()
         }
     }
-    @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
     private var suppressNotificationDiffPublishing = false
 
+    /// Owns the notification authorization lifecycle (status refresh, the system
+    /// permission request, and the automatic/deferred request gating), relocated
+    /// to ``NotificationAuthorizationCoordinator`` in `CmuxNotifications`. The
+    /// store forwards the app-facing entry points to it and supplies three
+    /// app-side seams: the `AppFocusState` active check, the store's pure
+    /// delivery-time decision, and the AppKit settings prompt (which keeps the
+    /// localized alert strings app-side). `lazy` so the `presentSettingsPrompt`
+    /// seam can capture the fully-initialized store.
+    private lazy var authorizationCoordinator = NotificationAuthorizationCoordinator(
+        isAppActive: { AppFocusState.isAppActive() },
+        cachedDeliveryDecision: { TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: $0, isAppActive: $1) },
+        presentSettingsPrompt: { [weak self] in self?.promptToEnableNotifications() }
+    )
+
+    /// The current notification authorization status, projected from the
+    /// authorization coordinator that owns the live lifecycle state.
+    var authorizationState: NotificationAuthorizationState { authorizationCoordinator.authorizationState }
+
     private let center = UNUserNotificationCenter.current()
-    private var hasRequestedAutomaticAuthorization = false
-    private var hasDeferredAuthorizationRequest = false
     private var hasPromptedForSettings = false
     private var userDefaultsObserver: NSObjectProtocol?
     private let settingsPromptWindowRetryDelay: TimeInterval = 0.5
@@ -327,7 +336,7 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         refreshDockBadge()
-        refreshAuthorizationStatus()
+        authorizationCoordinator.refreshAuthorizationStatus()
     }
 
     deinit {
@@ -405,21 +414,8 @@ final class TerminalNotificationStore: ObservableObject {
         terminalNotificationLogger.info("Authorization \(message, privacy: .private)")
     }
 
-    func refreshAuthorizationStatus() {
-        center.getNotificationSettings { [weak self] settings in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.authorizationState = NotificationAuthorizationState(authorizationStatus: settings.authorizationStatus)
-                self.logAuthorization(
-                    "refresh status=\(settings.authorizationStatus.diagnosticLabel) mapped=\(self.authorizationState.statusLabel)"
-                )
-            }
-        }
-    }
-
     func requestAuthorizationFromSettings() {
-        logAuthorization("settings request tapped state=\(authorizationState.statusLabel)")
-        ensureAuthorization(origin: .settingsButton) { _, _ in }
+        authorizationCoordinator.requestAuthorizationFromSettings()
     }
 
     func openNotificationSettings() {
@@ -430,7 +426,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func sendSettingsTestNotification() {
         logAuthorization("settings test tapped state=\(authorizationState.statusLabel)")
-        ensureAuthorization(origin: .settingsTest) { [weak self] authorized, _ in
+        authorizationCoordinator.ensureAuthorization(origin: .settingsTest) { [weak self] authorized, _ in
             guard let self, authorized else { return }
 
             let content = UNMutableNotificationContent()
@@ -464,13 +460,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func handleApplicationDidBecomeActive() {
-        logAuthorization("app became active deferred=\(hasDeferredAuthorizationRequest)")
-        if hasDeferredAuthorizationRequest {
-            hasDeferredAuthorizationRequest = false
-            ensureAuthorization(origin: .settingsButton) { _, _ in }
-            return
-        }
-        refreshAuthorizationStatus()
+        authorizationCoordinator.handleApplicationDidBecomeActive()
     }
 
     @discardableResult
@@ -1034,7 +1024,7 @@ final class TerminalNotificationStore: ObservableObject {
             "Notification hook failed hookId=\(failure.hookId, privacy: .public) sourcePath=\(failure.sourcePath ?? "<unknown>", privacy: .private) message=\(failure.message, privacy: .private)"
         )
 
-        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized, _ in
+        authorizationCoordinator.ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized, _ in
             guard let self, authorized else { return }
             let title = String(
                 localized: "notificationHook.failure.title",
@@ -1526,7 +1516,7 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         if !nativeDeliveryHooks.authorizeForTesting(handleAuthorization) {
-            ensureAuthorization(origin: .notificationDelivery, handleAuthorization)
+            authorizationCoordinator.ensureAuthorization(origin: .notificationDelivery, handleAuthorization)
         }
     }
 
@@ -1554,113 +1544,6 @@ final class TerminalNotificationStore: ObservableObject {
             body: body,
             effects: effects
         )
-    }
-
-    /// `completion` receives the decision plus the effective authorization
-    /// state behind it. The state matters for the just-prompted-and-declined
-    /// case: `authorizationState` is refreshed asynchronously there, so a
-    /// caller reading the property would still see `.notDetermined` and play
-    /// the fallback sound for the very notification whose prompt the user
-    /// just denied.
-    private func ensureAuthorization(
-        origin: AuthorizationRequestOrigin,
-        _ completion: @escaping (Bool, NotificationAuthorizationState) -> Void
-    ) {
-        if origin == .notificationDelivery,
-           let cachedDecision = Self.cachedDeliveryAuthorizationDecision(
-               for: authorizationState,
-               isAppActive: AppFocusState.isAppActive()
-           ) {
-            if !cachedDecision, authorizationState == .notDetermined {
-                hasDeferredAuthorizationRequest = true
-            }
-            completion(cachedDecision, authorizationState)
-            return
-        }
-
-        logAuthorization("ensure start origin=\(origin.rawValue)")
-        center.getNotificationSettings { [weak self] settings in
-            DispatchQueue.main.async {
-                guard let self else {
-                    completion(false, .unknown)
-                    return
-                }
-
-                self.authorizationState = NotificationAuthorizationState(authorizationStatus: settings.authorizationStatus)
-                self.logAuthorization(
-                    "ensure status origin=\(origin.rawValue) status=\(settings.authorizationStatus.diagnosticLabel) mapped=\(self.authorizationState.statusLabel) appActive=\(AppFocusState.isAppActive())"
-                )
-                switch settings.authorizationStatus {
-                case .authorized, .provisional, .ephemeral:
-                    completion(true, self.authorizationState)
-                case .denied:
-                    if origin != .notificationDelivery {
-                        self.logAuthorization("ensure denied origin=\(origin.rawValue) prompting_settings")
-                        self.promptToEnableNotifications()
-                    }
-                    completion(false, .denied)
-                case .notDetermined:
-                    if Self.shouldDeferAutomaticAuthorizationRequest(
-                        origin: origin,
-                        status: settings.authorizationStatus,
-                        isAppActive: AppFocusState.isAppActive()
-                    ) {
-                        self.logAuthorization("ensure deferred origin=\(origin.rawValue)")
-                        self.hasDeferredAuthorizationRequest = true
-                        completion(false, .notDetermined)
-                    } else {
-                        self.requestAuthorizationIfNeeded(origin: origin, completion)
-                    }
-                @unknown default:
-                    self.logAuthorization("ensure unknown status origin=\(origin.rawValue)")
-                    completion(false, .unknown)
-                }
-            }
-        }
-    }
-
-    private func requestAuthorizationIfNeeded(
-        origin: AuthorizationRequestOrigin,
-        _ completion: @escaping (Bool, NotificationAuthorizationState) -> Void
-    ) {
-        let isAutomaticRequest = origin == .notificationDelivery
-        guard NotificationAuthorizationRequestGate(
-            isAutomaticRequest: isAutomaticRequest,
-            hasRequestedAutomaticAuthorization: hasRequestedAutomaticAuthorization
-        ).shouldRequestAuthorization else {
-            logAuthorization(
-                "request blocked origin=\(origin.rawValue) automatic=\(isAutomaticRequest) hasRequestedAutomatic=\(hasRequestedAutomaticAuthorization)"
-            )
-            completion(false, authorizationState)
-            return
-        }
-        if isAutomaticRequest {
-            hasRequestedAutomaticAuthorization = true
-        }
-        hasDeferredAuthorizationRequest = false
-        logAuthorization(
-            "request starting origin=\(origin.rawValue) automatic=\(isAutomaticRequest) hasRequestedAutomatic=\(hasRequestedAutomaticAuthorization)"
-        )
-        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-            DispatchQueue.main.async {
-                if granted {
-                    self.authorizationState = .authorized
-                } else {
-                    self.refreshAuthorizationStatus()
-                }
-                self.logAuthorization(
-                    "request callback origin=\(origin.rawValue) granted=\(granted) error=\(error?.localizedDescription ?? "nil") mapped=\(self.authorizationState.statusLabel)"
-                )
-                // A non-grant without an error is the user answering the
-                // prompt with a live denial, even while authorizationState is
-                // still refreshing. A request error is not a user decision,
-                // so it reports .unknown and the fallback sound stays on
-                // (fail-open).
-                let effectiveState: NotificationAuthorizationState =
-                    granted ? .authorized : (error == nil ? .denied : .unknown)
-                completion(granted, effectiveState)
-            }
-        }
     }
 
     private func promptToEnableNotifications() {
@@ -1695,15 +1578,6 @@ final class TerminalNotificationStore: ObservableObject {
             }
             self?.openNotificationSettings()
         }
-    }
-
-    private static func shouldDeferAutomaticAuthorizationRequest(
-        origin: AuthorizationRequestOrigin,
-        status: UNAuthorizationStatus,
-        isAppActive: Bool
-    ) -> Bool {
-        guard origin == .notificationDelivery else { return false }
-        return status.shouldDeferAutomaticAuthorizationRequest(isAppActive: isAppActive)
     }
 
 #if DEBUG
