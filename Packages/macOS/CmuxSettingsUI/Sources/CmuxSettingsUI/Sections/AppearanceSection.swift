@@ -21,15 +21,19 @@ public struct AppearanceSection: View {
     @State private var terminalFontSize: SettingsFontSize
     @State private var terminalFontFamilies: [String]
     @State private var terminalFontSaveFailed = false
+    @State private var terminalFontFamilySaveGeneration = 0
+    @State private var terminalFontSizeSaveGeneration = 0
     @State private var terminalFontFamilySaveTask: Task<Void, Never>?
     @State private var terminalFontSizeSaveTask: Task<Void, Never>?
 
     @State private var sidebarFont: SettingsFontSize
     @State private var sidebarFontSaveFailed = false
+    @State private var sidebarFontSaveGeneration = 0
     @State private var sidebarFontSaveTask: Task<Void, Never>?
 
     @State private var surfaceTabBarFont: SettingsFontSize
     @State private var surfaceTabBarFontSaveFailed = false
+    @State private var surfaceTabBarFontSaveGeneration = 0
     @State private var surfaceTabBarFontSaveTask: Task<Void, Never>?
 
     public init(
@@ -118,18 +122,26 @@ public struct AppearanceSection: View {
     }
 
     private func saveTerminalFontFamily(_ family: String) {
+        terminalFontFamilySaveGeneration += 1
+        let generation = terminalFontFamilySaveGeneration
         terminalFontFamilySaveTask?.cancel()
         terminalFontFamilySaveTask = Task {
+            await Task.yield()
+            guard !Task.isCancelled, generation == terminalFontFamilySaveGeneration else { return }
             let saved = await hostActions.setTerminalFontFamily(family)
-            if !Task.isCancelled { terminalFontSaveFailed = !saved }
+            if !Task.isCancelled, generation == terminalFontFamilySaveGeneration { terminalFontSaveFailed = !saved }
         }
     }
 
     private func saveTerminalFontSize(_ points: Double) {
+        terminalFontSizeSaveGeneration += 1
+        let generation = terminalFontSizeSaveGeneration
         terminalFontSizeSaveTask?.cancel()
         terminalFontSizeSaveTask = Task {
+            await Task.yield()
+            guard !Task.isCancelled, generation == terminalFontSizeSaveGeneration else { return }
             let saved = await hostActions.setTerminalFontSize(points)
-            if !Task.isCancelled { terminalFontSaveFailed = !saved }
+            if !Task.isCancelled, generation == terminalFontSizeSaveGeneration { terminalFontSaveFailed = !saved }
         }
     }
 
@@ -141,18 +153,26 @@ public struct AppearanceSection: View {
     }
 
     private func saveSidebarFontSize(_ points: Double) {
+        sidebarFontSaveGeneration += 1
+        let generation = sidebarFontSaveGeneration
         sidebarFontSaveTask?.cancel()
         sidebarFontSaveTask = Task {
+            await Task.yield()
+            guard !Task.isCancelled, generation == sidebarFontSaveGeneration else { return }
             let saved = await hostActions.setSidebarFontSize(points)
-            if !Task.isCancelled { sidebarFontSaveFailed = !saved }
+            if !Task.isCancelled, generation == sidebarFontSaveGeneration { sidebarFontSaveFailed = !saved }
         }
     }
 
     private func saveSurfaceTabBarFontSize(_ points: Double) {
+        surfaceTabBarFontSaveGeneration += 1
+        let generation = surfaceTabBarFontSaveGeneration
         surfaceTabBarFontSaveTask?.cancel()
         surfaceTabBarFontSaveTask = Task {
+            await Task.yield()
+            guard !Task.isCancelled, generation == surfaceTabBarFontSaveGeneration else { return }
             let saved = await hostActions.setSurfaceTabBarFontSize(points)
-            if !Task.isCancelled { surfaceTabBarFontSaveFailed = !saved }
+            if !Task.isCancelled, generation == surfaceTabBarFontSaveGeneration { surfaceTabBarFontSaveFailed = !saved }
         }
     }
 
@@ -246,6 +266,7 @@ public struct AppearanceSection: View {
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("app.globalFontMagnification"),
+                searchAnchorID: "setting:appearance:global-font-magnification",
                 String(localized: "settings.app.globalFontMagnification", defaultValue: "Global Font Magnification"),
                 subtitle: globalFontMagnificationSubtitle
             ) {
@@ -310,6 +331,7 @@ public struct AppearanceSection: View {
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("sidebarAppearance.matchTerminalBackground"),
+                searchAnchorID: "setting:appearance:match-terminal",
                 String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"),
                 subtitle: String(localized: "settings.sidebarAppearance.matchTerminalBackground.subtitle", defaultValue: "Use the same background color and transparency as the terminal.")
             ) {
@@ -326,6 +348,7 @@ public struct AppearanceSection: View {
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("workspaceColors.indicatorStyle"),
+                searchAnchorID: "setting:appearance:workspace-color-indicator",
                 String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"),
                 controlWidth: 196
             ) {
@@ -342,6 +365,7 @@ public struct AppearanceSection: View {
             colorRow(
                 title: String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"),
                 subtitle: String(localized: "settings.workspaceColors.selectionColor.subtitle", defaultValue: "Background color of the selected workspace in the sidebar."),
+                searchAnchorID: "setting:appearance:workspace-selection-highlight",
                 json: "workspaceColors.selectionColor",
                 resetLabel: String(localized: "settings.workspaceColors.selectionColor.reset", defaultValue: "Reset"),
                 model: selectionHex
@@ -351,6 +375,7 @@ public struct AppearanceSection: View {
             colorRow(
                 title: String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"),
                 subtitle: String(localized: "settings.workspaceColors.notificationBadgeColor.subtitle", defaultValue: "Color of the unread notification badge on workspace tabs."),
+                searchAnchorID: "setting:appearance:workspace-notification-badge",
                 json: "workspaceColors.notificationBadgeColor",
                 resetLabel: String(localized: "settings.workspaceColors.notificationBadgeColor.reset", defaultValue: "Reset"),
                 model: badgeHex
@@ -402,10 +427,11 @@ public struct AppearanceSection: View {
     }
 
     @ViewBuilder
-    private func colorRow(title: String, subtitle: String, json: String, resetLabel: String, model: DefaultsValueModel<String>) -> some View {
+    private func colorRow(title: String, subtitle: String, searchAnchorID: String, json: String, resetLabel: String, model: DefaultsValueModel<String>) -> some View {
         let isCustom = !model.current.isEmpty
         SettingsCardRow(
             configurationReview: .json(json),
+            searchAnchorID: searchAnchorID,
             title,
             subtitle: subtitle
         ) {
