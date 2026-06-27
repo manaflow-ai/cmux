@@ -62,6 +62,7 @@ public struct MobileWorkspaceAggregation: Sendable {
                 var stamped = workspace
                 if !ownerID.isEmpty {
                     stamped.macDeviceID = ownerID
+                    stamped.macDisplayName = state.displayName
                     stamped.machineColorIndex = colorIndex[ownerID]
                 }
                 let remoteID = workspace.remoteWorkspaceID ?? workspace.id
