@@ -99,6 +99,7 @@ public struct ChatComposerView: View {
     #if os(iOS)
     @ViewBuilder
     private var composerSurface: some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             GlassEffectContainer {
                 composerStack
@@ -106,6 +107,9 @@ public struct ChatComposerView: View {
         } else {
             composerStack
         }
+        #else
+        composerStack
+        #endif
     }
     #endif
 
@@ -375,6 +379,7 @@ public struct ChatComposerView: View {
         isDraftFocused = true
     }
 
+    @MainActor
     private var attachButton: some View {
         PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
             MobileComposerIconLabel(

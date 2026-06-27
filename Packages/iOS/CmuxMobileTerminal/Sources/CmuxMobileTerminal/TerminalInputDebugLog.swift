@@ -6,14 +6,14 @@ enum TerminalInputDebugLog {
     private static let isEnabled = ProcessInfo.processInfo.environment["CMUX_INPUT_DEBUG"] == "1"
     private static let logger = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.input")
 
-    static func log(_ message: String) {
+    static func log(_ message: @autoclosure () -> String) {
         #if DEBUG
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
             return
         }
         #endif
         guard isEnabled else { return }
-        logger.debug("input: \(message, privacy: .public)")
+        logger.debug("input: \(message(), privacy: .private)")
     }
 
     static func textSummary(_ text: String) -> String {

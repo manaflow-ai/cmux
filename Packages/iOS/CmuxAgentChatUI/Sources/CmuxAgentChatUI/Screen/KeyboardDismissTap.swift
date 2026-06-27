@@ -77,12 +77,6 @@ struct KeyboardDismissTap: UIViewRepresentable {
             installedWindow = window
         }
 
-        deinit {
-            MainActor.assumeIsolated {
-                installedWindow?.removeGestureRecognizer(recognizer)
-            }
-        }
-
         @objc private func handleTap() {
             // Resign whoever holds the keyboard, app-wide; robust regardless
             // of which window/responder owns it.
