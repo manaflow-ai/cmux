@@ -322,7 +322,8 @@ import Testing
         #expect(await tokenStarted.isSet() == false)
     }
 
-    @Test func macWideEventSubscriptionDoesNotWaitForStackToken() async throws {
+    @Test(arguments: ["mobile.events.subscribe", "mobile.events.unsubscribe"])
+    func macWideEventSubscriptionDoesNotWaitForStackToken(method: String) async throws {
         let tokenStarted = AsyncFlag()
         let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
         let transport = QueuedCancellationProbeTransport()
@@ -350,22 +351,22 @@ import Testing
             allowsStackAuthFallback: true
         )
         let request = try MobileCoreRPCClient.requestData(
-            method: "mobile.events.subscribe",
-            params: [
-                "stream_id": "events",
-                "topics": ["workspace.updated"],
-            ]
+            method: method,
+            params: method == "mobile.events.subscribe"
+                ? ["stream_id": "events", "topics": ["workspace.updated"]]
+                : ["stream_id": "events"]
         )
         let frame = try await sentFrame(client: client, transport: transport, request: request)
 
-        #expect(frame.method == "mobile.events.subscribe")
+        #expect(frame.method == method)
         #expect(frame.attachToken == "ticket-secret")
         #expect(frame.stackAccessToken == nil)
         #expect(frame.hasAuth)
         #expect(await tokenStarted.isSet() == false)
     }
 
-    @Test func scopedEventSubscriptionUsesStackToken() async throws {
+    @Test(arguments: ["mobile.events.subscribe", "mobile.events.unsubscribe"])
+    func scopedEventSubscriptionUsesStackToken(method: String) async throws {
         let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
@@ -389,15 +390,14 @@ import Testing
             allowsStackAuthFallback: true
         )
         let request = try MobileCoreRPCClient.requestData(
-            method: "mobile.events.subscribe",
-            params: [
-                "stream_id": "events",
-                "topics": ["workspace.updated"],
-            ]
+            method: method,
+            params: method == "mobile.events.subscribe"
+                ? ["stream_id": "events", "topics": ["workspace.updated"]]
+                : ["stream_id": "events"]
         )
         let frame = try await sentFrame(client: client, transport: transport, request: request)
 
-        #expect(frame.method == "mobile.events.subscribe")
+        #expect(frame.method == method)
         #expect(frame.attachToken == nil)
         #expect(frame.stackAccessToken == "fresh-stack-token")
         #expect(frame.hasAuth)

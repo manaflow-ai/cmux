@@ -358,7 +358,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 terminalSelection: terminalSelection.value
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
-            return true
+            return !ticketCoverage.ticketCoversMacWideRequest(ticket: ticket)
         default:
             return true
         }

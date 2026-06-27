@@ -50,6 +50,48 @@ struct MobileHostAttachTicketScopeTests {
         #expect(error?.code == "forbidden")
     }
 
+    @Test(arguments: ["mobile.events.subscribe", "mobile.events.unsubscribe"])
+    func testMacScopedAttachTicketAcceptsEventSubscription(method: String) throws {
+        let ticket = try scopedAttachTicket(workspaceID: "", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "events",
+            method: method,
+            params: eventSubscriptionParams(method: method),
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error == nil)
+    }
+
+    @Test(arguments: ["mobile.events.subscribe", "mobile.events.unsubscribe"])
+    func testWorkspaceScopedAttachTicketRejectsEventSubscription(method: String) throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "events",
+            method: method,
+            params: eventSubscriptionParams(method: method),
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error?.code == "forbidden")
+    }
+
+    private func eventSubscriptionParams(method: String) -> [String: Any] {
+        method == "mobile.events.subscribe"
+            ? ["stream_id": "events", "topics": ["terminal.render_grid"]]
+            : ["stream_id": "events"]
+    }
+
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(
             id: "debug",

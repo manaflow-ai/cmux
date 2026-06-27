@@ -1408,7 +1408,7 @@ final class MobileHostService {
                 terminalSelection: terminalSelection.value
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
-            return scopedTicketError
+            return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: nil)
         case "mobile.host.status":
             return nil
         default:
