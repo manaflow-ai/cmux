@@ -69,31 +69,26 @@ struct TerminalComposerView: View {
     /// `@Observable` reference type is held with `@State`; SwiftUI tracks the
     /// `state` it reads (mic button enabled/listening) automatically.
     @State private var dictation = ComposerDictationController()
-
     init(store: CMUXMobileShellStore, terminalID: String, requestHeightRemeasure: @escaping () -> Void) {
         self.store = store
         self.terminalID = terminalID
         self.requestHeightRemeasure = requestHeightRemeasure
     }
-
     /// Single-line height of the round attach button beside the field. It stays
     /// pinned to the bottom edge of the (taller) field via the outer `HStack`'s
     /// `.bottom` alignment.
     private let controlHeight: CGFloat = 40
-
     /// Diameter of the iMessage-style send button INSIDE the field's rounded
     /// container. With the container's 6pt vertical padding it exactly fills the
     /// 40pt single-line field height (6 + 28 + 6), centering the circle on a
     /// one-line message; the inner `HStack`'s `.bottom` alignment keeps it riding
     /// the last line as the field grows.
     private let inlineSendDiameter: CGFloat = 28
-
     /// Line range for the growing compose field. Opens at a SINGLE line (`1...`) so it
     /// starts as a compact one-line message box and grows as the user types, up to 14
     /// lines before scrolling. Each added line grows this view's height, which the host
     /// reserves above the toolbar, pushing only the terminal up.
     private let composerLineLimit = 1...14
-
     /// Minimum height of the compose field, matching the one-line baseline.
     private let composerFieldMinHeight: CGFloat = 40
 
