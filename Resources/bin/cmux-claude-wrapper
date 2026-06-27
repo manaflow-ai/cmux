@@ -677,6 +677,23 @@ normalize_node_options_for_restore() {
     fi
 }
 
+install_cmux_node_options() {
+    local guard_path
+    if guard_path="$(ensure_node_options_restore_module)"; then
+        if [[ ${NODE_OPTIONS+x} && "${NODE_OPTIONS:-}" == *"--require=$guard_path"* ]]; then
+            return 0
+        fi
+        if [[ ${NODE_OPTIONS+x} ]]; then
+            export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
+            export CMUX_ORIGINAL_NODE_OPTIONS="$(normalize_node_options_for_restore "$NODE_OPTIONS")"
+        else
+            export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
+            unset CMUX_ORIGINAL_NODE_OPTIONS
+        fi
+        export NODE_OPTIONS="$(merge_node_options "$guard_path")"
+    fi
+}
+
 encode_launch_argv() {
     {
         printf '%s\0' "$REAL_CLAUDE"
@@ -778,6 +795,7 @@ if (( cmux_claude_wrapper_reexec_hops > 0 )); then
     export CMUX_AGENT_LAUNCH_KIND="claude"
     export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
     export CMUX_AGENT_LAUNCH_CWD="$PWD"
+    install_cmux_node_options
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 fi
 
@@ -813,16 +831,7 @@ export CMUX_AGENT_LAUNCH_KIND="claude"
 export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
 export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
 export CMUX_AGENT_LAUNCH_CWD="$PWD"
-if GUARD_PATH="$(ensure_node_options_restore_module)"; then
-    if [[ ${NODE_OPTIONS+x} ]]; then
-        export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
-        export CMUX_ORIGINAL_NODE_OPTIONS="$(normalize_node_options_for_restore "$NODE_OPTIONS")"
-    else
-        export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
-        unset CMUX_ORIGINAL_NODE_OPTIONS
-    fi
-    export NODE_OPTIONS="$(merge_node_options "$GUARD_PATH")"
-fi
+install_cmux_node_options
 
 # Build Claude settings JSON.
 # Claude Code merges --settings additively with the user's own settings.json.

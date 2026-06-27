@@ -798,6 +798,7 @@ process.exit(child.status ?? 1);
             """#!/usr/bin/env bash
 printf 'real_pid=%s\\n' "$$"
 printf 'cmux_pid=%s\\n' "${CMUX_CLAUDE_PID:-__unset__}"
+printf 'node_options=%s\\n' "${NODE_OPTIONS:-__unset__}"
 for arg in "$@"; do
   printf 'arg=%s\\n' "$arg"
 done
@@ -843,6 +844,10 @@ done
                 values[key] = value
         if values.get("real_pid") != values.get("cmux_pid"):
             failures.append(f"expected CMUX_CLAUDE_PID to match real process pid, got: {combined_output!r}")
+            return
+        node_options = values.get("node_options", "")
+        if "--require=" not in node_options or "--max-old-space-size=4096" not in node_options:
+            failures.append(f"expected reentry to reinstall cmux NODE_OPTIONS, got: {combined_output!r}")
             return
 
         settings_indexes = [index for index, arg in enumerate(args) if arg == "--settings"]
