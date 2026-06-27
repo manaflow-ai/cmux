@@ -959,8 +959,8 @@ extension Workspace {
               bindingKind == restorableAgent.kind else {
             return false
         }
-        // Same-kind session id mismatches are intentional: poisoned fish-era
-        // bindings can carry an invalid stale id that the fresh snapshot must replace.
+        let poisonedShellResume = #"'([^']*/)?(bash|csh|dash|fish|ksh|login|sh|tcsh|zsh)' '--resume'"#
+        guard binding.command.range(of: poisonedShellResume, options: .regularExpression) != nil else { return false }
         return capturedAt > binding.updatedAt
     }
 
