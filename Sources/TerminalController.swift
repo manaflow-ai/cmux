@@ -13195,7 +13195,7 @@ class TerminalController {
                 code: "invalid_request",
                 message: String(
                     localized: "mobile.attachTicket.redeem.missingReference",
-                    defaultValue: "ticket_ref is required"
+                    defaultValue: "Ticket reference is required"
                 ),
                 data: nil
             )

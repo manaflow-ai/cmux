@@ -20,8 +20,11 @@ struct CompactAttachTicket: Codable {
     let q: String?
     let r: [CompactAttachRoute]
 
+    private static let legacyEmailGrammarVersion = 1
+    private static let currentGrammarVersion = 2
+
     init(_ ticket: CmxAttachTicket) {
-        v = ticket.version
+        v = Self.currentGrammarVersion
         w = Self.normalizedNonEmpty(ticket.workspaceID)
         t = Self.normalizedNonEmpty(ticket.terminalID)
         d = ticket.macDeviceID
@@ -34,14 +37,17 @@ struct CompactAttachTicket: Codable {
     }
 
     func ticket() throws -> CmxAttachTicket {
+        guard v == Self.legacyEmailGrammarVersion || v == Self.currentGrammarVersion else {
+            throw CmxAttachTicketError.unsupportedVersion(v)
+        }
         try CmxAttachTicket(
-            version: v,
+            version: CmxAttachTicket.currentVersion,
             workspaceID: w ?? "",
             terminalID: t,
             macDeviceID: d,
             macDisplayName: nil,
-            macUserEmail: u?.contains("@") == true ? u : nil,
-            macUserID: u?.contains("@") == false ? u : nil,
+            macUserEmail: v == Self.legacyEmailGrammarVersion ? u : nil,
+            macUserID: v == Self.currentGrammarVersion ? u : nil,
             macPairingCompatibilityVersion: pc ?? 0,
             macAppVersion: av,
             macAppBuild: ab,

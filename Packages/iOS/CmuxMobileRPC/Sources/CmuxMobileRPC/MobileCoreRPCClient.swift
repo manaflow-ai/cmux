@@ -18,6 +18,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     let session: MobileCoreRPCSession
     private let stackTokenGate: RPCStackTokenGate
     private let stackTokenForceRefreshGate: RPCStackTokenGate
+    private let ticketRedemptionGate: MobileCoreRPCTicketRedemptionGate
 
     /// Create a client bound to one route + attach ticket.
     /// - Parameters:
@@ -46,6 +47,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
+        self.ticketRedemptionGate = MobileCoreRPCTicketRedemptionGate(
+            timedOutResetNanoseconds: stackTokenGateResetNanoseconds
+        )
         self.session = MobileCoreRPCSession(
             connectAttemptKey: route.mobileRPCConnectAttemptKey,
             connectAttemptRegistry: connectAttemptRegistry,
@@ -282,14 +286,33 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private func ticketForRequest(_ request: [String: Any], deadline: RPCRequestDeadline) async throws -> CmxAttachTicket {
         let current = await ticketState.current()
         guard Self.requestRequiresAuth(request),
-              let ticketRef = current.ticketRef?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !ticketRef.isEmpty,
-              current.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
+              Self.ticketReferenceRequiringRedemption(in: current) != nil else {
             return current
         }
-        let redeemed = try await redeemAttachTicket(ticketRef: ticketRef, baseTicket: current, deadline: deadline)
-        await ticketState.replace(with: redeemed)
-        return redeemed
+        return try await ticketRedemptionGate.ticket(
+            timeoutNanoseconds: try deadline.remainingNanoseconds()
+        ) { [self] in
+            let latest = await ticketState.current()
+            guard let ticketRef = Self.ticketReferenceRequiringRedemption(in: latest) else {
+                return latest
+            }
+            let redeemed = try await redeemAttachTicket(
+                ticketRef: ticketRef,
+                baseTicket: latest,
+                deadline: deadline
+            )
+            await ticketState.replace(with: redeemed)
+            return redeemed
+        }
+    }
+
+    private static func ticketReferenceRequiringRedemption(in ticket: CmxAttachTicket) -> String? {
+        guard let ticketRef = ticket.ticketRef?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !ticketRef.isEmpty,
+              ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
+            return nil
+        }
+        return ticketRef
     }
 
     private func redeemAttachTicket(

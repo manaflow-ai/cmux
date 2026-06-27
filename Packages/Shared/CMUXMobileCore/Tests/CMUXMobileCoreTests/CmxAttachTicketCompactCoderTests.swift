@@ -60,7 +60,7 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(!json.contains("ticket-secret"))
     #expect(!json.contains("workspaceID"))
     #expect(!json.contains("version"))
-    #expect(json.contains("\"v\":1"))
+    #expect(json.contains("\"v\":2"))
     #expect(json.contains("\"w\":\"workspace-1\""))
     #expect(json.contains("\"d\":\"mac-1\""))
     #expect(!json.contains("user@example.com"))
@@ -152,6 +152,17 @@ private func legacyDecoder() -> JSONDecoder {
 
     #expect(decoded.macUserEmail == "user@example.com")
     #expect(decoded.macUserID == nil)
+}
+
+@Test func compactDecodeUsesGrammarVersionForAccountIdentityField() throws {
+    let currentPayload = """
+    {"v":2,"d":"mac-1","u":"user@opaque-id","r":[{"k":"tailscale","e":{"h":"100.64.1.2","p":49831}}]}
+    """
+
+    let decoded = try compactCoder.decode(Data(currentPayload.utf8))
+
+    #expect(decoded.macUserEmail == nil)
+    #expect(decoded.macUserID == "user@opaque-id")
 }
 
 @Test func compactRoundTripsMacWidePairingTicketAndDropsEmptyFields() throws {
@@ -313,9 +324,9 @@ private func legacyDecoder() -> JSONDecoder {
     // revision that bumps the version has to fail loudly on today's phones,
     // not silently misdecode as a version-1 ticket.
     let futureVersion = Data("""
-    {"v":2,"d":"mac-1","r":[{"k":"tailscale","e":{"h":"100.64.1.2","p":49831}}]}
+    {"v":3,"d":"mac-1","r":[{"k":"tailscale","e":{"h":"100.64.1.2","p":49831}}]}
     """.utf8)
-    #expect(throws: CmxAttachTicketError.unsupportedVersion(2)) {
+    #expect(throws: CmxAttachTicketError.unsupportedVersion(3)) {
         try compactCoder.decode(futureVersion)
     }
 }

@@ -335,6 +335,104 @@ import Testing
         #expect(effectiveTicket.routes == [route])
     }
 
+    @Test func concurrentAuthorizedRequestsShareTicketReferenceRedemption() async throws {
+        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465, priority: 10)
+        let scannedTicket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: nil,
+            ticketRef: "ticket-ref-123",
+            authToken: nil
+        )
+        let redeemedTicket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-1",
+            macDisplayName: "Studio",
+            routes: [route],
+            expiresAt: Date(timeIntervalSince1970: 4_000_000_000),
+            ticketRef: "ticket-ref-123",
+            authToken: "ticket-secret"
+        )
+        let redeemRelease = AsyncReleaseGate()
+        let transport = ScriptedRPCTransport { payload in
+            let request = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+            let id = request["id"] ?? NSNull()
+            switch request["method"] as? String {
+            case "mobile.attach_ticket.redeem":
+                await redeemRelease.wait()
+                return [
+                    "id": id,
+                    "ok": true,
+                    "result": ["ticket": try Self.ticketJSONObject(redeemedTicket)],
+                ]
+            case "workspace.list":
+                return [
+                    "id": id,
+                    "ok": true,
+                    "result": ["workspaces": []],
+                ]
+            case "workspace.create":
+                return [
+                    "id": id,
+                    "ok": true,
+                    "result": ["workspace_id": "workspace-created"],
+                ]
+            default:
+                return [
+                    "id": id,
+                    "ok": false,
+                    "error": [
+                        "code": "method_not_found",
+                        "message": "unexpected method",
+                    ],
+                ]
+            }
+        }
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: ScriptedRPCTransportFactory(transport: transport),
+            stackAccessToken: "stack-token"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: scannedTicket,
+            allowsStackAuthFallback: true
+        )
+        let workspaceList = try MobileCoreRPCClient.requestData(method: "workspace.list", id: "list")
+        let workspaceCreate = try MobileCoreRPCClient.requestData(
+            method: "workspace.create",
+            params: ["title": "created"],
+            id: "create"
+        )
+
+        let firstTask = Task { try await client.sendRequest(workspaceList) }
+        let firstSent = try await transport.waitForSentRequestCount(1)
+        #expect(firstSent.map(\.method) == ["mobile.attach_ticket.redeem"])
+
+        let secondTask = Task { try await client.sendRequest(workspaceCreate) }
+        for _ in 0..<100 {
+            try await Task.sleep(nanoseconds: 1_000_000)
+            if try await transport.sentRequests().count > 1 {
+                break
+            }
+        }
+        #expect(try await transport.sentRequests().map(\.method) == ["mobile.attach_ticket.redeem"])
+
+        await redeemRelease.release()
+        _ = try await firstTask.value
+        _ = try await secondTask.value
+
+        let sent = try await transport.sentRequests()
+        #expect(sent.map(\.method).filter { $0 == "mobile.attach_ticket.redeem" }.count == 1)
+        #expect(sent.dropFirst().compactMap(\.method).sorted() == ["workspace.create", "workspace.list"])
+        #expect(sent.dropFirst().allSatisfy { $0.attachToken == "ticket-secret" })
+        #expect(sent.dropFirst().allSatisfy { $0.stackAccessToken == "stack-token" })
+    }
+
     /// A QR-style unscoped ticket (empty ids, no token, no expiry) over the
     /// given route, mirroring what `CmxPairingQRCode.decode` produces.
     private func qrPairingTicket(route: CmxAttachRoute) throws -> CmxAttachTicket {

@@ -51,6 +51,18 @@ actor ScriptedRPCTransport: CmxByteTransport {
         try sentPayloads.map(recordedRPCRequest(from:))
     }
 
+    func waitForSentRequestCount(_ count: Int) async throws -> [RecordedRPCRequest] {
+        var requests: [RecordedRPCRequest] = []
+        for _ in 0..<200 {
+            requests = try sentRequests()
+            if requests.count >= count {
+                return requests
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        return requests
+    }
+
     private func enqueueResponse(_ envelope: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: envelope),
               let frame = try? MobileSyncFrameCodec.encodeFrame(data) else {
