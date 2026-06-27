@@ -1517,6 +1517,9 @@ class TabManager: ObservableObject {
         }
         // Use cached directory state only; avoiding live focus traversal keeps workspace
         // creation resilient when Bonsplit is in the middle of a rapid Cmd+N churn.
+        if let defaultWorkingDirectory = normalizedWorkingDirectory(workspace.defaultWorkingDirectory) {
+            return defaultWorkingDirectory
+        }
         if let currentDirectory = normalizedWorkingDirectory(workspace.currentDirectory) {
             return currentDirectory
         }

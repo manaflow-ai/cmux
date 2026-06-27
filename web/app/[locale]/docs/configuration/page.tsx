@@ -42,6 +42,7 @@ const sectionOrder = [
   "notifications",
   "sidebar",
   "workspaceGroups",
+  "workspaceProfiles",
   "workspaceColors",
   "sidebarAppearance",
   "automation",
@@ -131,6 +132,11 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   // "workspaceGroups": {
   //   "newWorkspacePlacement": "afterCurrent"
   // },
+
+  // "workspaceProfiles": [
+  //   { "name": "coding", "cwd": "~/projects/coding", "pinned": true },
+  //   { "name": "planning", "cwd": "~/projects/planning", "pinned": true }
+  // ],
 
   // "shortcuts": {
   //   "bindings": {
@@ -278,6 +284,16 @@ function PropertyGrid({
   );
 }
 
+function getSectionProperties(sectionName: string, property: SchemaProperty) {
+  if (property.properties) {
+    return { prefix: sectionName, properties: property.properties };
+  }
+  if (property.items?.properties) {
+    return { prefix: `${sectionName}[]`, properties: property.items.properties };
+  }
+  return null;
+}
+
 export default function ConfigurationPage() {
   const locale = useLocale();
   const t = useTranslations("docs.configuration");
@@ -379,7 +395,11 @@ working-directory = ~/code`}</CodeBlock>
 
       {sectionOrder.map((sectionName) => {
         const property = schemaProperties[sectionName];
-        if (!property?.properties) {
+        if (!property) {
+          return null;
+        }
+        const sectionProperties = getSectionProperties(sectionName, property);
+        if (!sectionProperties) {
           return null;
         }
 
@@ -392,7 +412,11 @@ working-directory = ~/code`}</CodeBlock>
               <code>{sectionName}</code>
             </DocsHeading>
             {description && <p>{description}</p>}
-            <PropertyGrid prefix={sectionName} properties={property.properties} skip={skipBindings} />
+            <PropertyGrid
+              prefix={sectionProperties.prefix}
+              properties={sectionProperties.properties}
+              skip={skipBindings}
+            />
             {sectionName === "workspaceColors" && (
               <>
                 <p>

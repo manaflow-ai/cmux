@@ -239,6 +239,17 @@ extension ControlWorkspaceContext {
         .err(code: "unavailable", message: "", data: nil)
     }
 
+    func controlGetWorkspaceDefaultDirectory(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?
+    ) -> ControlWorkspaceDefaultDirectoryResolution { .tabManagerUnavailable }
+
+    func controlSetWorkspaceDefaultDirectory(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        cwd: String
+    ) -> ControlWorkspaceDefaultDirectoryResolution { .tabManagerUnavailable }
+
     func controlSelectWorkspace(
         routing: ControlRoutingSelectors,
         workspaceID: UUID

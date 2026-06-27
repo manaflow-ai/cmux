@@ -155,7 +155,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     func newTerminalToRightUsesAnchorTabWorkingDirectoryWhenAnchorIsNotSelected() throws {
         let selectedDirectory = "/tmp/cmux-selected-\(UUID().uuidString)"
         let anchorDirectory = "/tmp/cmux-anchor-\(UUID().uuidString)"
-        let workspace = Workspace(workingDirectory: "/tmp/cmux-workspace-\(UUID().uuidString)")
+        let workspace = Workspace()
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)
         let selectedPanel = try #require(workspace.focusedTerminalPanel)
         let selectedTabId = try #require(workspace.surfaceIdFromPanelId(selectedPanel.id))
@@ -185,6 +185,76 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let createdPanel = try #require(workspace.terminalPanel(for: createdPanelId))
 
         #expect(createdPanel.requestedWorkingDirectory == anchorDirectory)
+    }
+
+    @MainActor
+    @Test("workspace default cwd is stable while live terminal cwd drifts")
+    func workspaceDefaultWorkingDirectoryDoesNotDriftWithLiveTerminalPwd() throws {
+        let defaultDirectory = "/tmp/cmux-default-\(UUID().uuidString)"
+        let liveDirectory = "/tmp/cmux-live-\(UUID().uuidString)"
+        let workspace = Workspace(workingDirectory: defaultDirectory)
+        let focusedPanel = try #require(workspace.focusedTerminalPanel)
+
+        workspace.updatePanelDirectory(panelId: focusedPanel.id, directory: liveDirectory)
+
+        #expect(workspace.defaultWorkingDirectory == defaultDirectory)
+        #expect(workspace.currentDirectory == defaultDirectory)
+        #expect(workspace.panelDirectories[focusedPanel.id] == liveDirectory)
+
+        let createdPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
+        #expect(createdPanel.requestedWorkingDirectory == defaultDirectory)
+    }
+
+    @MainActor
+    @Test("workspace.set_cwd updates default cwd without overwriting live cwd")
+    func workspaceSetCwdPreservesLiveCurrentDirectory() throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let liveDirectory = "/tmp/cmux-live-\(UUID().uuidString)"
+        let defaultDirectory = "/tmp/cmux-default-\(UUID().uuidString)"
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanel = try #require(workspace.focusedTerminalPanel)
+        workspace.updatePanelDirectory(panelId: focusedPanel.id, directory: liveDirectory)
+        #expect(workspace.defaultWorkingDirectory == nil)
+        #expect(workspace.currentDirectory == liveDirectory)
+
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let response = try v2SocketResponse(
+            method: "workspace.set_cwd",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "cwd": defaultDirectory,
+            ]
+        )
+
+        #expect(response["ok"] as? Bool == true)
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(result["cwd"] as? String == defaultDirectory)
+        #expect(workspace.defaultWorkingDirectory == defaultDirectory)
+        #expect(workspace.currentDirectory == liveDirectory)
+    }
+
+    @MainActor
+    @Test("clearing workspace default cwd falls back to focused live cwd")
+    func clearingWorkspaceDefaultWorkingDirectoryFallsBackToFocusedLiveDirectory() throws {
+        let defaultDirectory = "/tmp/cmux-default-\(UUID().uuidString)"
+        let liveDirectory = "/tmp/cmux-live-\(UUID().uuidString)"
+        let workspace = Workspace(workingDirectory: defaultDirectory)
+        let focusedPanel = try #require(workspace.focusedTerminalPanel)
+
+        workspace.updatePanelDirectory(panelId: focusedPanel.id, directory: liveDirectory)
+        #expect(workspace.currentDirectory == defaultDirectory)
+        #expect(workspace.surfaceTabBarDirectory == defaultDirectory)
+
+        workspace.setDefaultWorkingDirectory(nil)
+
+        #expect(workspace.defaultWorkingDirectory == nil)
+        #expect(workspace.currentDirectory == liveDirectory)
+        #expect(workspace.surfaceTabBarDirectory == liveDirectory)
     }
 
     @MainActor

@@ -849,6 +849,12 @@
         "shortcuts": {
           "when": "เพรดิเคตบริบทแบบไม่บังคับสำหรับแต่ละแอ็กชัน (คลอส `when` แบบ VS Code) โดยใช้ id แอ็กชันของ cmux เป็นคีย์ แต่ละค่าเป็นนิพจน์บูลีนเหนือคีย์บริบท รวมด้วย !, &&, || และวงเล็บ คีย์บูลีน: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout คีย์แบบมีชนิดรองรับการเปรียบเทียบ: สตริง sidebarMode (files, find, sessions, feed หรือ dock) และจำนวนเต็ม paneCount กับ workspaceCount ตัวดำเนินการเปรียบเทียบคือ ==, !=, =~ (นิพจน์ปรกติ), <, <=, >, >= และ `in [a, b]` คีย์ที่ไม่รู้จักหรือไม่มีอยู่จะถูกอ่านเป็น false ยอมรับลิเทอรัลบูลีน true และ false ด้วย โดย `key == false` มีความหมายเดียวกับ `!key` ทางลัดของแอ็กชันจะทำงาน (และจะชนกับทางลัดอื่น) เฉพาะเมื่อคลอสเป็นจริงเท่านั้น ตัวอย่าง: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } เลือกเวิร์กสเปซด้วย Ctrl+1–9 ได้ทุกที่ยกเว้นเมื่อแถบด้านข้างขวาอยู่ในโฟกัส; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } จำกัดการผูกไว้กับแถบด้านข้างค้นหาเมื่อเวิร์กสเปซมีหลายเพน",
           "showModifierHoldHints": "แสดงชิปคำใบ้ปุ่มลัดขณะกด Cmd หรือ Control ค้างไว้"
+        },
+        "workspaceProfiles": {
+          "description": "โปรไฟล์ workspace แบบถาวรระดับโกลบอล เมื่อโหลดการตั้งค่าใหม่ cmux จะทำให้ workspace ที่มีชื่อแต่ละรายการมีอยู่จริง ใช้สถานะปักหมุดของรายการนั้น และแยก cwd เริ่มต้นออกจากรายงาน PWD สดของเทอร์มินัล ไฟล์ .cmux/cmux.json เฉพาะโปรเจกต์ไม่สามารถกำหนดโปรไฟล์ workspace ได้",
+          "name": "ชื่อ workspace ที่จะสร้างหรือปรับให้ตรงกัน",
+          "cwd": "ไดเรกทอรีทำงานเริ่มต้นสำหรับแท็บและการแบ่งใหม่ใน workspace นี้ พาธสัมพัทธ์จะอ้างอิงจากไดเรกทอรี cmux.json ระดับโกลบอล; ~ จะขยายเป็นไดเรกทอรีบ้านของผู้ใช้",
+          "pinned": "กำหนดว่า workspace ที่ปรับให้ตรงกันควรถูกปักหมุดในแถบด้านข้างหรือไม่"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

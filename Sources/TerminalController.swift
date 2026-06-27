@@ -1986,6 +1986,8 @@ class TerminalController {
             "workspace.list",
             "workspace.create",
             "workspace.env",
+            "workspace.get_cwd",
+            "workspace.set_cwd",
             "workspace.select",
             "workspace.current",
             "workspace.close",

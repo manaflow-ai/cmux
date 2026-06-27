@@ -4,6 +4,9 @@ import Combine
 import CryptoKit
 import Foundation
 import CmuxSettings
+import OSLog
+
+nonisolated private let cmuxConfigLogger = Logger(subsystem: "com.cmuxterm.app", category: "CmuxConfig")
 
 extension CodingUserInfoKey {
     static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
@@ -18,9 +21,10 @@ struct CmuxConfigFile: Codable, Sendable {
     var commands: [CmuxCommandDefinition]
     var vault: CmuxVaultConfigDefinition?
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
+    var workspaceProfiles: [CmuxWorkspaceProfileDefinition]
 
     private enum CodingKeys: String, CodingKey {
-        case actions, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
+        case actions, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups, workspaceProfiles
     }
 
     init(
@@ -31,7 +35,8 @@ struct CmuxConfigFile: Codable, Sendable {
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
         vault: CmuxVaultConfigDefinition? = nil,
-        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
+        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil,
+        workspaceProfiles: [CmuxWorkspaceProfileDefinition] = []
     ) {
         self.actions = actions
         self.ui = ui
@@ -41,6 +46,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.commands = commands
         self.vault = vault
         self.workspaceGroups = workspaceGroups
+        self.workspaceProfiles = workspaceProfiles
     }
 
     init(from decoder: Decoder) throws {
@@ -92,6 +98,10 @@ struct CmuxConfigFile: Codable, Sendable {
             CmuxConfigWorkspaceGroupsDefinition.self,
             forKey: .workspaceGroups
         )
+        workspaceProfiles = try container.decodeIfPresent(
+            [CmuxWorkspaceProfileDefinition].self,
+            forKey: .workspaceProfiles
+        ) ?? []
     }
 
     private static func normalizedActions(
@@ -150,6 +160,57 @@ struct CmuxConfigFile: Codable, Sendable {
         }
         return buttons
     }
+}
+
+/// A persistent workspace profile declared in global `cmux.json`.
+struct CmuxWorkspaceProfileDefinition: Codable, Sendable, Equatable {
+    var name: String
+    var cwd: String
+    var pinned: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case cwd
+        case pinned
+    }
+
+    init(name: String, cwd: String, pinned: Bool = false) {
+        self.name = name
+        self.cwd = cwd
+        self.pinned = pinned
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let name = try Self.requiredTrimmedString(forKey: .name, in: container)
+        let cwd = try Self.requiredTrimmedString(forKey: .cwd, in: container)
+        self.name = name
+        self.cwd = cwd
+        self.pinned = try container.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+    }
+
+    private static func requiredTrimmedString(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> String {
+        let value = try container.decode(String.self, forKey: key)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "\(key.rawValue) must not be blank"
+            )
+        }
+        return value
+    }
+}
+
+struct CmuxResolvedWorkspaceProfile: Sendable, Equatable {
+    let name: String
+    let cwd: String
+    let pinned: Bool
+    let sourcePath: String
 }
 
 /// Per-cwd customization for sidebar workspace groups. Keyed by the anchor
@@ -1894,6 +1955,8 @@ final class CmuxConfigStore: ObservableObject {
     /// anchor workspace's cwd. Empty when no `workspaceGroups.byCwd` block is
     /// configured.
     @Published private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
+    /// Persistent workspace profiles from the global `cmux.json`.
+    private(set) var workspaceProfiles: [CmuxResolvedWorkspaceProfile] = []
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
     @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
@@ -2313,6 +2376,11 @@ final class CmuxConfigStore: ObservableObject {
             issues: &issues
         )
         workspaceGroupConfigs = resolvedGroupConfigs
+        let resolvedWorkspaceProfiles = resolveWorkspaceProfiles(
+            globalConfig: globalConfig,
+            globalPath: globalConfigPath
+        )
+        workspaceProfiles = resolvedWorkspaceProfiles
         surfaceTabBarButtonSourcePath = configuredSurfaceTabBarButtonSourcePath
         surfaceTabBarCommandSourcePaths = resolvedButtons.terminalCommandSourcePaths
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
@@ -2332,6 +2400,7 @@ final class CmuxConfigStore: ObservableObject {
             )
         }
         applySurfaceTabBarButtonsToCurrentManager()
+        reconcileWorkspaceProfiles(resolvedWorkspaceProfiles)
         configRevision &+= 1
     }
 
@@ -2406,6 +2475,55 @@ final class CmuxConfigStore: ObservableObject {
                 cwd: cwd,
                 trustDescriptor: trustDescriptor
             )
+        }
+    }
+
+    private func resolveWorkspaceProfiles(
+        globalConfig: CmuxConfigFile?,
+        globalPath: String
+    ) -> [CmuxResolvedWorkspaceProfile] {
+        guard let profiles = globalConfig?.workspaceProfiles, !profiles.isEmpty else { return [] }
+        let baseCwd = (globalPath as NSString).deletingLastPathComponent
+        var seenNames = Set<String>()
+        return profiles.compactMap { profile in
+            guard seenNames.insert(profile.name).inserted else {
+                cmuxConfigLogger.warning(
+                    "[CmuxConfig] workspaceProfiles ignored duplicate profile '\(profile.name, privacy: .private)'"
+                )
+                return nil
+            }
+            let resolvedCwd = Self.normalizeAbsolutePath(Self.resolveCwd(profile.cwd, relativeTo: baseCwd))
+            guard !resolvedCwd.isEmpty else { return nil }
+            return CmuxResolvedWorkspaceProfile(
+                name: profile.name,
+                cwd: resolvedCwd,
+                pinned: profile.pinned,
+                sourcePath: globalPath
+            )
+        }
+    }
+
+    private func reconcileWorkspaceProfiles(_ profiles: [CmuxResolvedWorkspaceProfile]) {
+        guard let tabManager, !profiles.isEmpty else { return }
+        let workspacesByProfileName = Dictionary(tabManager.tabs.compactMap { workspace in workspace.workspaceProfileName.map { ($0, workspace) } }, uniquingKeysWith: { first, _ in first })
+        for profile in profiles {
+            if let existing = workspacesByProfileName[profile.name] {
+                existing.applyWorkspaceProfile(name: profile.name, defaultWorkingDirectory: profile.cwd)
+                existing.setCustomTitle(profile.name, source: .auto)
+                existing.isPinned = profile.pinned
+                continue
+            }
+
+            let workspace = tabManager.addWorkspace(
+                title: nil,
+                workingDirectory: profile.cwd,
+                inheritWorkingDirectory: false,
+                select: false,
+                autoWelcomeIfNeeded: false
+            )
+            workspace.applyWorkspaceProfile(name: profile.name, defaultWorkingDirectory: profile.cwd)
+            workspace.setCustomTitle(profile.name, source: .auto)
+            workspace.isPinned = profile.pinned
         }
     }
 

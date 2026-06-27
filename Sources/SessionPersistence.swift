@@ -1836,6 +1836,15 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var hasUnreadIndicator: Bool? = nil
     var notifications: [SessionNotificationSnapshot]? = nil
     var terminalScrollBarHidden: Bool?
+    /// Stable workspace root. Optional so snapshots written before persistent
+    /// workspace defaults decode unchanged.
+    var defaultWorkingDirectory: String? = nil
+    /// Last cwd loaded from the bound workspace profile. Optional so snapshots
+    /// written before profile-bound cwd ownership decode unchanged.
+    var workspaceProfileDefaultWorkingDirectory: String? = nil
+    /// Stable binding to a configured workspace profile. Optional so snapshots
+    /// written before profile bindings decode unchanged.
+    var workspaceProfileName: String? = nil
     var currentDirectory: String
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot

@@ -849,6 +849,12 @@
         "shortcuts": {
           "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។",
           "showModifierHoldHints": "បង្ហាញបន្ទះណែនាំផ្លូវកាត់ ខណៈពេលចុច Cmd ឬ Control ជាប់។"
+        },
+        "workspaceProfiles": {
+          "description": "ទម្រង់ workspace អចិន្ត្រៃយ៍សកល។ នៅពេលផ្ទុកការកំណត់ឡើងវិញ cmux នឹងធានាថា workspace ដែលមានឈ្មោះនីមួយៗមានស្រាប់ អនុវត្តស្ថានភាព pinned របស់វា ហើយរក្សា cwd លំនាំដើមឲ្យដាច់ពីរបាយការណ៍ PWD ផ្ទាល់ពី terminal។ ឯកសារ .cmux/cmux.json តាមគម្រោងមិនអាចកំណត់ទម្រង់ workspace បានទេ។",
+          "name": "ឈ្មោះ workspace ដែលត្រូវបង្កើត ឬផ្គូផ្គងឡើងវិញ។",
+          "cwd": "ថតការងារលំនាំដើមសម្រាប់ផ្ទាំង និងការបំបែកថ្មីក្នុង workspace នេះ។ ផ្លូវទំនាក់ទំនងត្រូវបានដោះស្រាយពីថត cmux.json សកល; ~ ពង្រីកទៅថត home របស់អ្នកប្រើ។",
+          "pinned": "ថាតើ workspace ដែលបានផ្គូផ្គងឡើងវិញគួរត្រូវបាន pinned ក្នុង sidebar ឬអត់។"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
