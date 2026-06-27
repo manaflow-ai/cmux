@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 
 /// A configured Claude Code session root: a `.claude`-style config directory plus
 /// the resume config directory used when reopening a transcript. The `projects`
@@ -32,10 +33,8 @@ struct ClaudeSessionRoot: Hashable {
                   isDirectory.boolValue else {
                 return
             }
-            let resumeConfigDirectory = ClaudeConfigurationRoot.configuredResumeDirectory(
-                standardized,
-                fileManager: fm
-            )
+            let resumeConfigDirectory = ClaudeConfigurationProbe(fileManager: fm)
+                .configuredResumeDirectory(standardized)
             if requireConfigured, resumeConfigDirectory == nil {
                 return
             }

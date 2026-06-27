@@ -10,9 +10,9 @@ import Foundation
 /// so a callback that unregisters itself (mutating the dictionary) can't trap on a
 /// live collection.
 @MainActor
-final class RemoteTmuxConnectionObservers {
+public final class RemoteTmuxConnectionObservers {
     /// Opaque token identifying a registered observer (pass to ``remove(_:)``).
-    typealias Token = UUID
+    public typealias Token = UUID
 
     private var paneOutputObservers: [Token: (_ paneId: Int, _ data: Data) -> Void] = [:]
     private var paneCwdObservers: [Token: (_ paneId: Int, _ path: String) -> Void] = [:]
@@ -21,7 +21,9 @@ final class RemoteTmuxConnectionObservers {
     private var sessionChangedObservers: [Token: (_ oldName: String, _ newName: String) -> Void] = [:]
     private var topologyObservers: [Token: () -> Void] = [:]
     private var exitObservers: [Token: () -> Void] = [:]
-    private var stateObservers: [Token: (RemoteTmuxControlConnection.ConnectionState) -> Void] = [:]
+    private var stateObservers: [Token: (RemoteTmuxConnectionState) -> Void] = [:]
+
+    public init() {}
 
     /// Registers a consumer's callbacks and returns a token to deregister them.
     ///
@@ -52,7 +54,7 @@ final class RemoteTmuxConnectionObservers {
     ///     (e.g. `.connected` → `.reconnecting` on a transport loss), so consumers
     ///     can show a disconnected/reconnecting indicator without tearing down.
     /// - Returns: a ``Token`` to pass to ``remove(_:)``.
-    func add(
+    public func add(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)?,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)?,
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)?,
@@ -60,7 +62,7 @@ final class RemoteTmuxConnectionObservers {
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)?,
         onTopologyChanged: (() -> Void)?,
         onExit: (() -> Void)?,
-        onConnectionStateChanged: ((RemoteTmuxControlConnection.ConnectionState) -> Void)?
+        onConnectionStateChanged: ((RemoteTmuxConnectionState) -> Void)?
     ) -> Token {
         let token = Token()
         if let onPaneOutput { paneOutputObservers[token] = onPaneOutput }
@@ -75,7 +77,7 @@ final class RemoteTmuxConnectionObservers {
     }
 
     /// Deregisters the callbacks registered under `token`.
-    func remove(_ token: Token) {
+    public func remove(_ token: Token) {
         paneOutputObservers[token] = nil
         paneCwdObservers[token] = nil
         paneReflowObservers[token] = nil
@@ -87,46 +89,46 @@ final class RemoteTmuxConnectionObservers {
     }
 
     /// Fans `%output` bytes out to every pane-output observer.
-    func emitPaneOutput(_ paneId: Int, _ data: Data) {
+    public func emitPaneOutput(_ paneId: Int, _ data: Data) {
         // Snapshot before iterating: a callback may unregister an observer (mutating
         // the dict) synchronously, which would trap on the live collection.
         for callback in Array(paneOutputObservers.values) { callback(paneId, data) }
     }
 
     /// Fans a pane's working directory out to every cwd observer.
-    func emitPaneCwd(_ paneId: Int, _ path: String) {
+    public func emitPaneCwd(_ paneId: Int, _ path: String) {
         for callback in Array(paneCwdObservers.values) { callback(paneId, path) }
     }
 
     /// Fans a pane's reflow classification out to every reflow observer.
-    func emitPaneReflow(_ paneId: Int, _ noReflow: Bool) {
+    public func emitPaneReflow(_ paneId: Int, _ noReflow: Bool) {
         for callback in Array(paneReflowObservers.values) { callback(paneId, noReflow) }
     }
 
     /// Fans a window's new active pane out to every active-pane observer.
-    func emitActivePaneChanged(_ windowId: Int, _ paneId: Int) {
+    public func emitActivePaneChanged(_ windowId: Int, _ paneId: Int) {
         for callback in Array(activePaneObservers.values) { callback(windowId, paneId) }
     }
 
     /// Notifies every observer that the remote session name changed.
-    func emitSessionChanged(oldName: String, newName: String) {
+    public func emitSessionChanged(oldName: String, newName: String) {
         for callback in Array(sessionChangedObservers.values) { callback(oldName, newName) }
     }
 
     /// Notifies every topology observer that the window/pane layout changed.
-    func notifyTopologyChanged() {
+    public func notifyTopologyChanged() {
         for callback in Array(topologyObservers.values) { callback() }
     }
 
     /// Notifies every exit observer that the connection permanently ended.
-    func notifyExit() {
+    public func notifyExit() {
         // Snapshot: notifyExit -> handleSessionEndedRemotely -> detachObserver ->
         // removeObserver mutates exitObservers synchronously during this loop.
         for callback in Array(exitObservers.values) { callback() }
     }
 
     /// Notifies every connection-state observer of a transition.
-    func notifyStateChanged(_ state: RemoteTmuxControlConnection.ConnectionState) {
+    public func notifyStateChanged(_ state: RemoteTmuxConnectionState) {
         for callback in Array(stateObservers.values) { callback(state) }
     }
 }

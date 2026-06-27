@@ -178,35 +178,6 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     return keyCode == 3
 }
 
-func commandPaletteFieldEditorHasMarkedText(in window: NSWindow) -> Bool {
-    if let editor = window.firstResponder as? NSTextView {
-        return editor.hasMarkedText()
-    }
-    if let textField = window.firstResponder as? NSTextField,
-       let editor = textField.currentEditor() as? NSTextView {
-        return editor.hasMarkedText()
-    }
-    return false
-}
-
-func shouldHandleCommandPaletteShortcutEvent(
-    _ event: NSEvent,
-    paletteWindow: NSWindow?
-) -> Bool {
-    guard let paletteWindow else { return false }
-    if let eventWindow = event.window {
-        return eventWindow === paletteWindow
-    }
-    let eventWindowNumber = event.windowNumber
-    if eventWindowNumber > 0 {
-        return eventWindowNumber == paletteWindow.windowNumber
-    }
-    if let keyWindow = NSApp.keyWindow {
-        return keyWindow === paletteWindow
-    }
-    return false
-}
-
 func browserZoomShortcutAction(
     flags: NSEvent.ModifierFlags,
     chars: String,

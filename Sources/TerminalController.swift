@@ -109,6 +109,19 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// `@MainActor` instance, so the registry is an owned `@MainActor` store and
     /// the lock is dropped (every access already runs on the main actor).
     let panelSnapshotStore = PanelSnapshotStore()
+
+    /// Stateless app-side probes for the live system drag pasteboard and the
+    /// app's drag/drop overlay hit-testing, backing the DEBUG-only v1 socket
+    /// commands `seed_drag_pasteboard_types` / `clear_drag_pasteboard` /
+    /// `overlay_hit_gate` / `overlay_drop_gate` / `portal_hit_gate` /
+    /// `sidebar_overlay_gate` / `terminal_drop_overlay_probe` / `drop_hit_test` /
+    /// `drag_hit_chain` (see `DebugDragOverlayProbes` and the
+    /// `ControlDebugContext` witnesses in
+    /// `TerminalController+ControlDebugContext.swift`). The witnesses keep the
+    /// `v2MainSync` focus-allowance scope hop and forward the inner main-thread
+    /// work here; the drag pasteboard and overlay are app-global, so the probe is
+    /// a held `@MainActor` instance with no state.
+    let dragOverlayProbes = DebugDragOverlayProbes()
 #endif
 
     // `internal` (not `private`): the `workspace.remote.pty_*` worker-lane
@@ -438,7 +451,10 @@ class TerminalController: MobileViewportSurfaceLimiting {
         )
 #if DEBUG
         controlSidebarSimulateDragWorker = ControlSidebarSimulateDragWorker(
-            reading: TerminalControllerSidebarSimulateDragReading(owner: self)
+            reading: TerminalControllerSidebarSimulateDragReading(
+                owner: self,
+                registry: AppDelegate.shared?.sidebarDragStateRegistry
+            )
         )
 #endif
         // The captured-download observer is registered by `browserAutomation`
@@ -1426,7 +1442,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                     "surface_id": v2OrNull(surfaceUUID?.uuidString),
                     "surface_ref": v2Ref(kind: .surface, uuid: surfaceUUID),
                     "tab_id": v2OrNull(surfaceUUID?.uuidString),
-                    "tab_ref": v2TabRef(uuid: surfaceUUID),
+                    "tab_ref": controlCommandCoordinator.v2TabRef(uuid: surfaceUUID),
                     "surface_type": v2OrNull(surfaceUUID.flatMap { ws.panels[$0]?.panelType.rawValue }),
                     "is_browser_surface": v2OrNull(surfaceUUID.flatMap { ws.panels[$0]?.panelType == .browser })
                 ]
@@ -1459,7 +1475,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                         payload["surface_id"] = surfaceId.uuidString
                         payload["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
                         payload["tab_id"] = surfaceId.uuidString
-                        payload["tab_ref"] = v2TabRef(uuid: surfaceId)
+                        payload["tab_ref"] = controlCommandCoordinator.v2TabRef(uuid: surfaceId)
                         payload["surface_type"] = v2OrNull(ws.panels[surfaceId]?.panelType.rawValue)
                         payload["is_browser_surface"] = v2OrNull(ws.panels[surfaceId]?.panelType == .browser)
                         payload["pane_id"] = v2OrNull(paneUUID?.uuidString)
@@ -1786,33 +1802,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
     nonisolated func v2Ref(kind: ControlHandleKind, uuid: UUID?) -> Any {
         guard let uuid else { return NSNull() }
         return v2MainSync { v2EnsureHandleRef(kind: kind, uuid: uuid) }
-    }
-
-    func v2WorkspaceRefs(for ids: [UUID]) -> [UUID: String] {
-        var refs: [UUID: String] = [:]
-        refs.reserveCapacity(ids.count)
-        for id in ids {
-            refs[id] = v2EnsureHandleRef(kind: .workspace, uuid: id)
-        }
-        return refs
-    }
-
-    func v2WorkspacePaneAndSurfaceRefs(
-        workspaceId: UUID,
-        paneId: UUID?,
-        surfaceId: UUID
-    ) -> (workspaceRef: String, paneRef: String?, surfaceRef: String) {
-        return (
-            workspaceRef: v2EnsureHandleRef(kind: .workspace, uuid: workspaceId),
-            paneRef: paneId.map { v2EnsureHandleRef(kind: .pane, uuid: $0) },
-            surfaceRef: v2EnsureHandleRef(kind: .surface, uuid: surfaceId)
-        )
-    }
-
-    func v2TabRef(uuid: UUID?) -> Any {
-        guard let uuid else { return NSNull() }
-        let surfaceRef = v2EnsureHandleRef(kind: .surface, uuid: uuid)
-        return surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
     }
 
     // `internal` (not `private`): the workspace-domain conformance lives in a

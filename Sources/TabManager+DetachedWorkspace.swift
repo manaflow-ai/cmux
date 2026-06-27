@@ -1,5 +1,6 @@
 import Foundation
 import CmuxSettings
+import CmuxTerminal
 import CmuxWorkspaces
 
 extension TabManager {

@@ -857,26 +857,6 @@ private struct SessionTranscriptTurnView: View, Equatable {
     }
 }
 
-private struct SessionTranscriptDisplayRow: Identifiable, Equatable {
-    let id: String
-    let role: SessionTranscriptRole
-    let text: String
-    let isContinuation: Bool
-
-    static func rows(from turns: [SessionTranscriptTurn]) -> [SessionTranscriptDisplayRow] {
-        turns.flatMap { turn in
-            turn.text.transcriptChunks().enumerated().map { offset, chunk in
-                SessionTranscriptDisplayRow(
-                    id: "\(turn.id)-\(offset)",
-                    role: turn.role,
-                    text: chunk,
-                    isContinuation: offset > 0
-                )
-            }
-        }
-    }
-}
-
 private enum SessionTranscriptPreviewState: Equatable {
     case loading
     case missingFile

@@ -198,62 +198,6 @@ func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint
     return MinimalModeTitlebarControlHitRegionRegistry.containsWindowPoint(locationInWindow, in: window)
 }
 
-@MainActor
-func minimalModeSidebarTitlebarControlsFrame(
-    in window: NSWindow,
-    defaults: UserDefaults = .standard
-) -> NSRect {
-    let contentView = window.contentView
-    let contentBounds = contentView?.bounds ?? NSRect(
-        x: 0,
-        y: 0,
-        width: window.frame.width,
-        height: window.frame.height
-    )
-    let trafficLightFrameInContent = minimalModeTrafficLightFrameInContentCoordinates(for: window)
-    return MinimalModeSidebarTitlebarControlsMetrics(defaults: defaults).controlsFrame(
-        contentBounds: contentBounds,
-        contentViewIsFlipped: contentView?.isFlipped ?? false,
-        trafficLightFrameInContent: trafficLightFrameInContent,
-        visualDownwardAdjustment: trafficLightFrameInContent == nil
-            ? 0
-            : MinimalModeSidebarTitlebarControlsMetrics.titlebarControlsOpticalYOffset(in: window)
-    )
-}
-
-@MainActor
-func minimalModeSidebarTitlebarControlsTopInset(
-    in window: NSWindow,
-    defaults: UserDefaults = .standard
-) -> CGFloat {
-    guard let contentView = window.contentView else {
-        return MinimalModeSidebarTitlebarControlsMetrics(defaults: defaults).topInset
-    }
-    let controlsFrame = minimalModeSidebarTitlebarControlsFrame(in: window, defaults: defaults)
-    if contentView.isFlipped {
-        return controlsFrame.minY - contentView.bounds.minY
-    }
-    return contentView.bounds.maxY - controlsFrame.maxY
-}
-
-func minimalModeTrafficLightFrameInContentCoordinates(
-    window: NSWindow,
-    contentView: NSView
-) -> NSRect? {
-    dispatchPrecondition(condition: .onQueue(.main))
-    guard let closeButton = window.standardWindowButton(.closeButton),
-          let closeButtonSuperview = closeButton.superview else {
-        return nil
-    }
-    return closeButtonSuperview.convert(closeButton.frame, to: contentView)
-}
-
-@MainActor
-private func minimalModeTrafficLightFrameInContentCoordinates(for window: NSWindow) -> NSRect? {
-    guard let contentView = window.contentView else { return nil }
-    return minimalModeTrafficLightFrameInContentCoordinates(window: window, contentView: contentView)
-}
-
 final class MinimalModeSidebarChromeHoverState: ObservableObject {
     static let shared = MinimalModeSidebarChromeHoverState()
 

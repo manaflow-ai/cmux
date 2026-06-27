@@ -5777,7 +5777,7 @@ extension BrowserPanel {
 
     func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
         if AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id,
-           browserOmnibarPanelId(for: responder) == id {
+           BrowserOmnibarNativeFieldRegistry.shared.omnibarPanelId(for: responder) == id {
             return .browser(.addressBar)
         }
 
@@ -5808,11 +5808,11 @@ extension BrowserPanel {
             return yielded
         case .addressBar:
             guard AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id else { return false }
-            guard browserOmnibarPanelId(for: window.firstResponder) == id else {
+            guard BrowserOmnibarNativeFieldRegistry.shared.omnibarPanelId(for: window.firstResponder) == id else {
                 clearAddressBarFocusTrackingForYield()
                 return false
             }
-            browserPrepareOmnibarForProgrammaticBlur(panelId: id, responder: window.firstResponder)
+            BrowserOmnibarNativeFieldRegistry.shared.prepareOmnibarForProgrammaticBlur(panelId: id, responder: window.firstResponder)
             clearAddressBarFocusTrackingForYield()
 #if DEBUG
             cmuxDebugLog("focus.handoff.yield panel=\(id.uuidString.prefix(5)) target=addressBar")

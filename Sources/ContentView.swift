@@ -5844,6 +5844,13 @@ struct VerticalTabsSidebar: View {
     let onNewTab: () -> Void
     let observedWindow: NSWindow?
     @Environment(TabManager.self) var tabManager
+#if DEBUG
+    /// Debug-only per-window sidebar drag-state registry injected from the app
+    /// composition root (`AppDelegate`). Used to register/unregister this
+    /// sidebar's live `SidebarDragState` for the `debug.sidebar.simulate_drag`
+    /// reader without reaching the `AppDelegate.shared` singleton.
+    @Environment(\.sidebarDragStateRegistry) private var sidebarDragStateRegistry
+#endif
     // Observe the coalesced unread projection instead of the notification store
     // so notification churn (terminal/agent activity) no longer reconstructs
     // every workspace row. The store stays available as an unobserved singleton
@@ -6166,7 +6173,7 @@ struct VerticalTabsSidebar: View {
         guard let observedWindow else {
             return MinimalModeSidebarTitlebarControlsMetrics().topInset
         }
-        return minimalModeSidebarTitlebarControlsTopInset(in: observedWindow)
+        return observedWindow.minimalModeSidebarTitlebarControlsTopInset()
     }
 
     private var showsSidebarNotificationMessage: Bool {
@@ -6363,7 +6370,7 @@ struct VerticalTabsSidebar: View {
             // re-mount, which would silently bypass the real-drag failsafe.
             dragState.isSimulated = false
             #if DEBUG
-            AppDelegate.shared?.sidebarDragStateRegistry.register(windowId: windowId, dragState: dragState)
+            sidebarDragStateRegistry?.register(windowId: windowId, dragState: dragState)
             #endif
             SidebarDragLifecycleNotification().postStateDidChange(
                 tabId: nil,
@@ -6380,7 +6387,7 @@ struct VerticalTabsSidebar: View {
             // inherit a stale bypass and skip the real-drag failsafe monitor.
             dragState.isSimulated = false
             #if DEBUG
-            AppDelegate.shared?.sidebarDragStateRegistry.unregister(windowId: windowId)
+            sidebarDragStateRegistry?.unregister(windowId: windowId)
             #endif
             SidebarDragLifecycleNotification().postStateDidChange(
                 tabId: nil,

@@ -209,7 +209,7 @@ private struct SectionPopoverView: View {
                 // fetches with a single merged array + in-memory slice.
                 // Agent-scope popovers keep the old paged flow (no
                 // snapshot needed, store.entries already top-N per agent).
-                if case .directory(let path) = sectionSearchScope {
+                if case .directory(let path) = section.key.searchScope {
                     // Keep isLoading=true while the snapshot builds so the
                     // sentinel's onAppear can't race and fire a paged
                     // loadMore() against the store — otherwise we end up
@@ -250,7 +250,7 @@ private struct SectionPopoverView: View {
                 return
             }
 
-            let outcome = await search(trimmed, sectionSearchScope, 0, Self.pageSize)
+            let outcome = await search(trimmed, section.key.searchScope, 0, Self.pageSize)
             guard !Task.isCancelled else { return }
             applyOutcome(outcome, append: false)
         }
@@ -295,7 +295,7 @@ private struct SectionPopoverView: View {
         }
 
         isLoading = true
-        let scope = sectionSearchScope
+        let scope = section.key.searchScope
         let search = self.search
         let query = activeQuery
         let offset = loaded.count
@@ -333,19 +333,6 @@ private struct SectionPopoverView: View {
         hasMore = outcome.entries.count >= Self.pageSize
         errorMessages = outcome.errors
         isLoading = false
-    }
-
-    private var sectionSearchScope: SessionIndexStore.SearchScope {
-        let raw = section.key.raw
-        if raw.hasPrefix("agent:"),
-           let agent = SessionAgent(rawValue: String(raw.dropFirst("agent:".count))) {
-            return .agent(agent)
-        }
-        if raw.hasPrefix("dir:") {
-            let path = String(raw.dropFirst("dir:".count))
-            return .directory(path.isEmpty ? nil : path)
-        }
-        return .directory(nil)
     }
 
     @ViewBuilder

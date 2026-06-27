@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import CmuxNotifications
+import CmuxTerminal
 import Foundation
 
 /// App-side ``TerminalTextSendPanel`` conformer over a `TerminalPanel`. Forwards

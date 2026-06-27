@@ -1,3 +1,4 @@
+import CmuxTerminal
 import Foundation
 
 /// Owns a `.ghosttyDidFocusSurface` observer and delivers typed focus changes

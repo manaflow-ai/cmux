@@ -1161,28 +1161,18 @@ final class FileExplorerContainerView: NSView, FileExplorerFocusHosting {
     }
 
     private func applySearchResultsUpdate(previousResults: [FileSearchResult], nextResults: [FileSearchResult]) {
-        if previousResults == nextResults {
+        switch TableRowDiff(previous: previousResults, next: nextResults) {
+        case .unchanged:
             return
-        }
-
-        if nextResults.count > previousResults.count &&
-            nextResults.starts(with: previousResults) {
-            let insertedRange = previousResults.count..<nextResults.count
+        case .insertTail(let insertedRange):
             searchResultsView.insertRows(at: IndexSet(integersIn: insertedRange), withAnimation: [])
-            return
-        }
-
-        if nextResults.count == previousResults.count {
-            let changedRows = IndexSet(
-                nextResults.indices.filter { nextResults[$0] != previousResults[$0] }
-            )
+        case .reloadRows(let changedRows):
             if !changedRows.isEmpty {
                 searchResultsView.reloadData(forRowIndexes: changedRows, columnIndexes: IndexSet(integer: 0))
             }
-            return
+        case .reloadAll:
+            searchResultsView.reloadData()
         }
-
-        searchResultsView.reloadData()
     }
 
     private func statusText(for snapshot: FileSearchSnapshot) -> String {
