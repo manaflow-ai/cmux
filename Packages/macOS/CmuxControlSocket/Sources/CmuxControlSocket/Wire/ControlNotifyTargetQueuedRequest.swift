@@ -1,4 +1,4 @@
-internal import Foundation
+public import Foundation
 
 /// The parsed positional arguments for the v1 `notify_target_async` command.
 ///

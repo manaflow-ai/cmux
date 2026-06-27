@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 extension WorkspaceRemoteConfiguration {
     /// Validates the control-plane parameters for `workspace.remote.configure`

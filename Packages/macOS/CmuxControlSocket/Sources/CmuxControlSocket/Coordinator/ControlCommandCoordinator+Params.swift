@@ -1,4 +1,4 @@
-internal import Foundation
+public import Foundation
 
 /// The typed twins of the former `TerminalControllerV2ParamParsingSupport`
 /// helpers, operating on `[String: JSONValue]` (the coordinator receives typed
