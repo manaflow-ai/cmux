@@ -701,7 +701,7 @@ struct MobileHostAuthorizationTests {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        #expect(error == nil)
+        #expect(error == nil && MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: MobileHostRPCRequest(id: "events", method: "mobile.events.subscribe", params: ["topics": ["terminal.render_grid"]], auth: request.auth))?.code == "forbidden")
     }
     @Test func testStackUserIDAuthorizationRequiresSignedInMacUser() throws {
         #expect(throws: (any Error).self) {

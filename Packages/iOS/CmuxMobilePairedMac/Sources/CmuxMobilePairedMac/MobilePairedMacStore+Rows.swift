@@ -4,17 +4,13 @@ import SQLite3
 
 extension MobilePairedMacStore {
     func fetchMacRow(macDeviceID: String, ownerKey: String) throws -> MobilePairedMacStoreMacRow? {
-        var statement: OpaquePointer?
-        defer { sqlite3_finalize(statement) }
         let sql = """
             SELECT display_name, stack_user_id, created_at, last_seen_at, is_active, team_id,
                    attach_token, attach_token_expires_at
             FROM paired_macs WHERE mac_device_id = ? AND owner_key = ?;
         """
-        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
-        guard rc == SQLITE_OK else {
-            throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
-        }
+        let statement = try prepareStatement(sql)
+        defer { sqlite3_finalize(statement) }
         try bind(statement: statement, parameters: [.text(macDeviceID), .text(ownerKey)])
         let step = sqlite3_step(statement)
         if step == SQLITE_DONE { return nil }
@@ -175,8 +171,6 @@ extension MobilePairedMacStore {
     func fetchAllMacs(
         activeOnly: Bool = false, stackUserID: String? = nil, teamID: String? = nil
     ) throws -> [MobilePairedMac] {
-        var statement: OpaquePointer?
-        defer { sqlite3_finalize(statement) }
         let filter = macRowFilter(activeOnly: activeOnly, stackUserID: stackUserID, teamID: teamID)
         let sql = """
             SELECT mac_device_id, owner_key, display_name, stack_user_id, created_at, last_seen_at, is_active,
@@ -185,10 +179,8 @@ extension MobilePairedMacStore {
             \(filter.whereClause)
             ORDER BY last_seen_at DESC;
         """
-        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
-        guard rc == SQLITE_OK else {
-            throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
-        }
+        let statement = try prepareStatement(sql)
+        defer { sqlite3_finalize(statement) }
         try bind(statement: statement, parameters: filter.bindings)
         var rows: [MobilePairedMacStoreMacRow] = []
         var step = sqlite3_step(statement)
@@ -292,8 +284,6 @@ extension MobilePairedMacStore {
         stackUserID: String?,
         teamID: String?
     ) throws -> [MobilePairedMacStoreRouteKey: [CmxAttachRoute]] {
-        var statement: OpaquePointer?
-        defer { sqlite3_finalize(statement) }
         let filter = macRowFilter(
             activeOnly: activeOnly,
             stackUserID: stackUserID,
@@ -309,10 +299,8 @@ extension MobilePairedMacStore {
             \(filter.whereClause)
             ORDER BY p.last_seen_at DESC, r.mac_device_id ASC, r.owner_key ASC, r.priority ASC, r.id ASC;
         """
-        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
-        guard rc == SQLITE_OK else {
-            throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
-        }
+        let statement = try prepareStatement(sql)
+        defer { sqlite3_finalize(statement) }
         try bind(statement: statement, parameters: filter.bindings)
 
         var routesByKey: [MobilePairedMacStoreRouteKey: [CmxAttachRoute]] = [:]

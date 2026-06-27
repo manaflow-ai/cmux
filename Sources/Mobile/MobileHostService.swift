@@ -1410,7 +1410,7 @@ final class MobileHostService {
                 terminalSelection: terminalSelection.value
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
-            return nil
+            return scopedTicketError
         case "mobile.host.status":
             return nil
         default:

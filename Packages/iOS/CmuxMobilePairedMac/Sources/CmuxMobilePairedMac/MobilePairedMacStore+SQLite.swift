@@ -8,27 +8,6 @@ extension MobilePairedMacStore {
         case null
     }
 
-    func exec(_ sql: String, binding parameters: [BindValue] = []) throws {
-        if parameters.isEmpty {
-            let rc = sqlite3_exec(db, sql, nil, nil, nil)
-            guard rc == SQLITE_OK else {
-                throw MobilePairedMacStoreError.stepFailed(rc, lastErrorMessage())
-            }
-            return
-        }
-        var statement: OpaquePointer?
-        defer { sqlite3_finalize(statement) }
-        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
-        guard rc == SQLITE_OK else {
-            throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
-        }
-        try bind(statement: statement, parameters: parameters)
-        let step = sqlite3_step(statement)
-        guard step == SQLITE_DONE || step == SQLITE_ROW else {
-            throw MobilePairedMacStoreError.stepFailed(step, lastErrorMessage())
-        }
-    }
-
     func bind(statement: OpaquePointer?, parameters: [BindValue]) throws {
         for (index, value) in parameters.enumerated() {
             let pos = Int32(index + 1)
@@ -50,21 +29,5 @@ extension MobilePairedMacStore {
                 throw MobilePairedMacStoreError.stepFailed(rc, lastErrorMessage())
             }
         }
-    }
-
-    func transaction(_ block: () throws -> Void) throws {
-        try exec("BEGIN IMMEDIATE;")
-        do {
-            try block()
-            try exec("COMMIT;")
-        } catch {
-            _ = sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
-            throw error
-        }
-    }
-
-    func lastErrorMessage() -> String {
-        guard let cString = sqlite3_errmsg(db) else { return "" }
-        return String(cString: cString)
     }
 }

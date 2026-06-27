@@ -228,12 +228,8 @@ extension MobilePairedMacStore {
     /// Column names defined on `table` (via `PRAGMA table_info`), used to make
     /// additive column migrations idempotent.
     private func tableColumns(_ table: String) throws -> Set<String> {
-        var statement: OpaquePointer?
+        let statement = try prepareStatement("PRAGMA table_info(\(table));")
         defer { sqlite3_finalize(statement) }
-        let rc = sqlite3_prepare_v2(db, "PRAGMA table_info(\(table));", -1, &statement, nil)
-        guard rc == SQLITE_OK else {
-            throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
-        }
         var columns: Set<String> = []
         while sqlite3_step(statement) == SQLITE_ROW {
             // table_info columns: cid(0), name(1), type(2), notnull(3),
@@ -246,12 +242,8 @@ extension MobilePairedMacStore {
     }
 
     private func userVersion() throws -> Int32 {
-        var statement: OpaquePointer?
+        let statement = try prepareStatement("PRAGMA user_version;")
         defer { sqlite3_finalize(statement) }
-        let rc = sqlite3_prepare_v2(db, "PRAGMA user_version;", -1, &statement, nil)
-        guard rc == SQLITE_OK else {
-            throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
-        }
         let step = sqlite3_step(statement)
         guard step == SQLITE_ROW else {
             throw MobilePairedMacStoreError.stepFailed(step, lastErrorMessage())

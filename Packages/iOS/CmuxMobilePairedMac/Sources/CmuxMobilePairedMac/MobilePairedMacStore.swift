@@ -16,7 +16,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
     // the handle. Every other access goes through actor-isolated methods, and
     // the connection itself is opened `SQLITE_OPEN_FULLMUTEX`, so this is safe.
-    nonisolated(unsafe) var db: OpaquePointer?
+    private nonisolated(unsafe) var db: OpaquePointer?
     var didMigrate = false
 
     /// The default on-disk location for the paired-Mac database.
@@ -54,6 +54,48 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         if let db {
             sqlite3_close_v2(db)
         }
+    }
+
+    func exec(_ sql: String, binding parameters: [BindValue] = []) throws {
+        if parameters.isEmpty {
+            let rc = sqlite3_exec(db, sql, nil, nil, nil)
+            guard rc == SQLITE_OK else {
+                throw MobilePairedMacStoreError.stepFailed(rc, lastErrorMessage())
+            }
+            return
+        }
+        let statement = try prepareStatement(sql)
+        defer { sqlite3_finalize(statement) }
+        try bind(statement: statement, parameters: parameters)
+        let step = sqlite3_step(statement)
+        guard step == SQLITE_DONE || step == SQLITE_ROW else {
+            throw MobilePairedMacStoreError.stepFailed(step, lastErrorMessage())
+        }
+    }
+
+    func prepareStatement(_ sql: String) throws -> OpaquePointer? {
+        var statement: OpaquePointer?
+        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
+        guard rc == SQLITE_OK else {
+            throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
+        }
+        return statement
+    }
+
+    func transaction(_ block: () throws -> Void) throws {
+        try exec("BEGIN IMMEDIATE;")
+        do {
+            try block()
+            try exec("COMMIT;")
+        } catch {
+            _ = sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+            throw error
+        }
+    }
+
+    func lastErrorMessage() -> String {
+        guard let cString = sqlite3_errmsg(db) else { return "" }
+        return String(cString: cString)
     }
 
     /// Insert or update one paired Mac within the explicit account/team owner scope.
