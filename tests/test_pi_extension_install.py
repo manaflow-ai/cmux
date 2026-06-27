@@ -242,6 +242,15 @@ const interruptedCtx = {
 await handlers.get("session_start")({}, interruptedCtx);
 await handlers.get("before_agent_start")({ prompt: "interrupt me" }, interruptedCtx);
 await handlers.get("session_shutdown")({ reason: "terminated" }, interruptedCtx);
+process.env.CMUX_PI_HOOKS_DISABLED = "1";
+const disabledCtx = {
+  cwd: "/tmp/pi-project",
+  sessionManager: {
+    getSessionId() { return "pi-session-disabled"; }
+  }
+};
+await handlers.get("session_start")({}, disabledCtx);
+await handlers.get("session_shutdown")({ reason: "disabled" }, disabledCtx);
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -259,9 +268,9 @@ await handlers.get("session_shutdown")({ reason: "terminated" }, interruptedCtx)
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = wait_for_text(fake_args_log, 17, timeout=20.0)
-        stdin_log = wait_for_text(fake_stdin_log, 26, timeout=20.0)
-        env_log = wait_for_text(fake_env_log, 17 * 3, timeout=20.0)
+        args_log = wait_for_text(fake_args_log, 15, timeout=20.0)
+        stdin_log = wait_for_text(fake_stdin_log, 24, timeout=20.0)
+        env_log = wait_for_text(fake_env_log, 15 * 3, timeout=20.0)
         for expected in [
             "hooks pi session-start",
             "hooks pi prompt-submit",
@@ -286,7 +295,7 @@ await handlers.get("session_shutdown")({ reason: "terminated" }, interruptedCtx)
                 resume_ops.append("set")
             elif "surface resume clear" in line:
                 resume_ops.append("clear")
-        expected_resume_ops = ["get", "set", "get", "clear", "get", "set", "get", "clear"]
+        expected_resume_ops = ["set", "get", "clear", "set", "get", "clear"]
         if resume_ops != expected_resume_ops:
             print(f"FAIL: extension did not verify resume binding after set, got {resume_ops!r}")
             return 1

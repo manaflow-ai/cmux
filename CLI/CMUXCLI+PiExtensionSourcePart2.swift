@@ -130,17 +130,9 @@ function sanitizedResumeArgv(sessionId: string): string[] {
 }
 
 function ensureResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: string): void {
+  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
   const target = surfaceTargetArgs();
   if (!target) return;
-
-  const initial = runCmux(["--json", "surface", "resume", "get", ...target], cwd);
-  if (!initial.ok) {
-    warn(ctx, "failed to read Pi resume binding", {
-      status: initial.status,
-      stderr_available: initial.stderr.trim().length > 0,
-      error_available: initial.error !== undefined,
-    });
-  }
 
   const resumeArgv = sanitizedResumeArgv(sessionId);
   const set = runCmux([
@@ -178,6 +170,7 @@ function ensureResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: stri
 }
 
 function clearResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: string): boolean {
+  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return true;
   const target = surfaceTargetArgs();
   if (!target) return true;
   const result = runCmux([
