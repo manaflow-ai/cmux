@@ -143,6 +143,7 @@ struct ClaudeHookSessionRecord: Codable {
     var cwd: String?
     var transcriptPath: String?
     var pid: Int?
+    var pidCapturedAt: TimeInterval?
     var launchCommand: AgentHookLaunchCommandRecord?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
@@ -1101,6 +1102,9 @@ final class ClaudeHookSessionStore {
             record.transcriptPath = transcriptPath
         }
         if let pid {
+            if record.pid != pid || record.pidCapturedAt == nil {
+                record.pidCapturedAt = now
+            }
             record.pid = pid
         }
         if let launchCommand {
@@ -1219,7 +1223,7 @@ final class ClaudeHookSessionStore {
                     }
                 }
 
-                if requireLiveProcess, !Self.processIsLiveForSession(pid: record.pid, updatedAt: record.updatedAt) {
+                if requireLiveProcess, !Self.processIsLiveForSession(pid: record.pid, capturedAt: record.pidCapturedAt ?? record.startedAt) {
                     record.runtimeStatus = nil
                     record.updatedAt = now
                     state.sessions[sessionId] = record
@@ -1249,6 +1253,7 @@ final class ClaudeHookSessionStore {
             return state.sessions.values.compactMap { record -> (
                 sessionId: String,
                 pid: Int?,
+                pidCapturedAt: TimeInterval?,
                 startedAt: TimeInterval,
                 updatedAt: TimeInterval
             )? in
@@ -1264,6 +1269,7 @@ final class ClaudeHookSessionStore {
                 return (
                     sessionId: record.sessionId,
                     pid: record.pid,
+                    pidCapturedAt: record.pidCapturedAt,
                     startedAt: record.startedAt,
                     updatedAt: record.updatedAt
                 )
@@ -1271,7 +1277,7 @@ final class ClaudeHookSessionStore {
         }
 
         for candidate in candidates {
-            if !Self.processIsLiveForSession(pid: candidate.pid, updatedAt: candidate.updatedAt) {
+            if !Self.processIsLiveForSession(pid: candidate.pid, capturedAt: candidate.pidCapturedAt ?? candidate.startedAt) {
                 let now = Date().timeIntervalSince1970
                 try withLockedState { state in
                     guard var record = state.sessions[candidate.sessionId],
@@ -1314,7 +1320,7 @@ final class ClaudeHookSessionStore {
         status == .running || status == .needsInput
     }
 
-    private static func processIsLiveForSession(pid: Int?, updatedAt: TimeInterval?) -> Bool {
+    private static func processIsLiveForSession(pid: Int?, capturedAt: TimeInterval?) -> Bool {
         guard let pid, pid > 0 else { return false }
         let processExists: Bool
         if kill(pid_t(pid), 0) == 0 {
@@ -1323,11 +1329,11 @@ final class ClaudeHookSessionStore {
             processExists = errno == EPERM
         }
         guard processExists else { return false }
-        guard let updatedAt,
+        guard let capturedAt,
               let startedAt = processStartTime(pid: pid) else {
             return true
         }
-        return startedAt <= updatedAt
+        return startedAt <= capturedAt
     }
 
     private static func processStartTime(pid: Int) -> TimeInterval? {
