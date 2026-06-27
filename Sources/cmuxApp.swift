@@ -142,10 +142,6 @@ struct cmuxApp: App {
     }
 
     init() {
-        // Own the socket-control orchestrator at the composition root. It holds
-        // only the already-defaulted `appDelegate` adaptor, so it is constructed
-        // first and reads no other stored property before they are initialized.
-        socketControlCoordinator = SocketControlCoordinator(appDelegate: appDelegate)
         // Build the settings container once. All injected dependencies
         // (the catalog, the two stores, the error log) live on this
         // single struct; nothing in the package or app references a
@@ -236,6 +232,12 @@ struct cmuxApp: App {
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
         _tabManager = State(wrappedValue: TabManager())
+        // Own the socket-control orchestrator at the composition root. It holds
+        // only the `appDelegate` adaptor, but is constructed here — after every
+        // other stored property is initialized — because reading the
+        // `@NSApplicationDelegateAdaptor` `appDelegate` requires `self` to be
+        // fully initialized.
+        socketControlCoordinator = SocketControlCoordinator(appDelegate: appDelegate)
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Normalize the persisted socket mode and (for release builds) migrate the
         // legacy keychain password. Breadcrumb instrumentation stays app-side.
