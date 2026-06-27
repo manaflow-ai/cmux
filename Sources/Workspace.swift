@@ -4776,8 +4776,6 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
     }
 
-    private static let maxSurfaceResumeBindingHistoryEntries = 8
-
     nonisolated private static func shouldRecordSurfaceResumeBindingInHistory(
         _ binding: SurfaceResumeBindingSnapshot
     ) -> Bool {
@@ -4803,14 +4801,15 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated private static func normalizedSurfaceResumeBindingHistory(
         _ candidates: [SurfaceResumeBindingSnapshot]
     ) -> [SurfaceResumeBindingSnapshot] {
+        let maxHistoryEntries = 8
         var seen: Set<String> = []
         var normalized: [SurfaceResumeBindingSnapshot] = []
-        normalized.reserveCapacity(min(candidates.count, maxSurfaceResumeBindingHistoryEntries))
+        normalized.reserveCapacity(min(candidates.count, maxHistoryEntries))
         for candidate in candidates where shouldRecordSurfaceResumeBindingInHistory(candidate) {
             let identity = surfaceResumeBindingHistoryIdentity(candidate)
             guard seen.insert(identity).inserted else { continue }
             normalized.append(candidate)
-            if normalized.count == maxSurfaceResumeBindingHistoryEntries {
+            if normalized.count == maxHistoryEntries {
                 break
             }
         }
