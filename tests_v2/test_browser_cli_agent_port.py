@@ -131,6 +131,20 @@ def _run_cli_expect_failure(cli: str, args: list[str], needles: list[str]) -> No
         raise cmuxError(f"Expected CLI failure containing one of {needles!r} for {' '.join(args)}, got: {merged}")
 
 
+def _run_cli_json_retry_not_ready(cli: str, args: list[str], retries: int = 8) -> dict:
+    last_error = ""
+    for attempt in range(1, retries + 1):
+        try:
+            return _run_cli_json(cli, args, retries=1)
+        except cmuxError as exc:
+            last_error = str(exc)
+            if "not_ready" in last_error and attempt < retries:
+                time.sleep(0.25)
+                continue
+            raise
+    raise cmuxError(f"CLI stayed not_ready ({' '.join(args)}): {last_error}")
+
+
 @contextmanager
 def _local_test_server() -> str:
     with tempfile.TemporaryDirectory(prefix="cmux-browser-cli-") as root:
@@ -278,14 +292,14 @@ def main() -> int:
         _must(str(saved.get("path") or "") == state_file, f"Expected saved state path via CLI: {saved}")
         _run_cli_json(cli, ["browser", surface, "state", "load", state_file])
 
-        viewport = _run_cli_json(cli, ["browser", surface, "viewport", "1400", "900"])
+        viewport = _run_cli_json_retry_not_ready(cli, ["browser", surface, "viewport", "1400", "900"])
         _must(viewport.get("handled") is True, f"Expected viewport handled=true via CLI: {viewport}")
         _must(viewport.get("changed") is True, f"Expected viewport changed=true on first CLI set: {viewport}")
         _must(int(viewport.get("width") or 0) == 1400, f"Expected viewport width echo via CLI: {viewport}")
         _run_cli_json(cli, ["browser", surface, "wait", "--function", "window.innerWidth >= 1400", "--timeout-ms", "5000"])
         inner_width = _run_cli_json(cli, ["browser", surface, "eval", "window.innerWidth"])
         _must(int(inner_width.get("value") or 0) >= 1400, f"Expected CLI viewport width >= 1400: {inner_width}")
-        same_viewport = _run_cli_json(cli, ["browser", surface, "viewport", "1400", "900"])
+        same_viewport = _run_cli_json_retry_not_ready(cli, ["browser", surface, "viewport", "1400", "900"])
         _must(same_viewport.get("handled") is True, f"Expected idempotent viewport handled=true via CLI: {same_viewport}")
         _must(same_viewport.get("changed") is False, f"Expected idempotent viewport changed=false via CLI: {same_viewport}")
         _run_cli_expect_failure(cli, ["browser", surface, "viewport", "100001", "900"], ["invalid_params"])

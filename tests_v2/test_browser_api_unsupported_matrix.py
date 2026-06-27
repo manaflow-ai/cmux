@@ -3,6 +3,7 @@
 
 import os
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -143,6 +144,20 @@ def _expect_error(c: cmux, method: str, params: dict, needle: str) -> None:
     raise cmuxError(f"Expected {needle} for {method}, but call succeeded")
 
 
+def _call_retry_not_ready(c: cmux, method: str, params: dict, retries: int = 8) -> dict:
+    last_error = ""
+    for attempt in range(1, retries + 1):
+        try:
+            return c._call(method, params) or {}
+        except cmuxError as exc:
+            last_error = str(exc)
+            if "not_ready" in last_error and attempt < retries:
+                time.sleep(0.25)
+                continue
+            raise
+    raise cmuxError(f"{method} stayed not_ready: {last_error}")
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
         caps = c.capabilities() or {}
@@ -155,7 +170,7 @@ def main() -> int:
         sid = str(opened.get("surface_id") or "")
         _must(bool(sid), f"browser.open_split returned no surface_id: {opened}")
 
-        viewport = c._call("browser.viewport.set", {"surface_id": sid, "width": 1400, "height": 900}) or {}
+        viewport = _call_retry_not_ready(c, "browser.viewport.set", {"surface_id": sid, "width": 1400, "height": 900})
         _must(viewport.get("handled") is True, f"browser.viewport.set should report handled=true: {viewport}")
         _must(viewport.get("changed") is True, f"browser.viewport.set should report changed=true on first set: {viewport}")
         _must(viewport.get("width") == 1400, f"browser.viewport.set did not echo width: {viewport}")
@@ -163,7 +178,7 @@ def main() -> int:
         c._call("browser.wait", {"surface_id": sid, "function": "window.innerWidth >= 1400", "timeout_ms": 5000})
         inner_width = c._call("browser.eval", {"surface_id": sid, "script": "window.innerWidth"}) or {}
         _must(int(inner_width.get("value") or 0) >= 1400, f"Expected viewport width >= 1400: {inner_width}")
-        same_viewport = c._call("browser.viewport.set", {"surface_id": sid, "width": 1400, "height": 900}) or {}
+        same_viewport = _call_retry_not_ready(c, "browser.viewport.set", {"surface_id": sid, "width": 1400, "height": 900})
         _must(same_viewport.get("handled") is True, f"idempotent browser.viewport.set should report handled=true: {same_viewport}")
         _must(same_viewport.get("changed") is False, f"idempotent browser.viewport.set should report changed=false: {same_viewport}")
         _expect_error(

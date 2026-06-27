@@ -9558,12 +9558,12 @@ class TerminalController {
             if requestedWidth > 0 || requestedHeight > 0 {
                 guard let maximumReachable = browserPanel.maximumReachableMinimumViewportSize() else {
                     return .err(
-                        code: "invalid_params",
+                        code: "not_ready",
                         message: String(
-                            localized: "browser.viewport.automation.error.exceedsPaneLimit",
-                            defaultValue: "browser.viewport.set exceeds the current pane's maximum emulated viewport size"
+                            localized: "browser.viewport.automation.error.layoutNotReady",
+                            defaultValue: "browser.viewport.set cannot run until the browser pane has a layout size"
                         ),
-                        data: ["max_width": 0, "max_height": 0]
+                        data: ["reason": "layout_unavailable"]
                     )
                 }
                 if (requestedWidth > 0 && requestedWidth > maximumReachable.width) ||
