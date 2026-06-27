@@ -456,6 +456,65 @@ process.stdout.write(
             failures.append(f"expected passthrough cleanup output {expected!r}, got: {combined_output!r}")
 
 
+def test_custom_shim_path_with_colon_is_tracked_as_one_target(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-custom-shim-target-") as td:
+        root = Path(td)
+        cmux_shim_dir = root / "tmp" / "cmux-cli-shims" / "surface-custom-colon"
+        custom_shim_dir = root / "custom:shim"
+        real_dir = root / "real-bin"
+        for directory in (cmux_shim_dir, custom_shim_dir, real_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        cmux_shim = cmux_shim_dir / "claude"
+        shutil.copy2(WRAPPER, cmux_shim)
+        cmux_shim.chmod(0o755)
+
+        custom_shim = custom_shim_dir / "claude"
+        write_executable(
+            custom_shim,
+            f"""#!/usr/bin/env bash
+printf 'custom colon shim hop\\n' >&2
+export PATH="{cmux_shim_dir}:{real_dir}:/usr/bin:/bin"
+exec claude "$@"
+""",
+        )
+
+        write_executable(
+            real_dir / "claude",
+            """#!/usr/bin/env bash
+printf 'real claude %s\\n' "$*"
+""",
+        )
+
+        env = {
+            "HOME": str(root / "home"),
+            "PATH": f"{cmux_shim_dir}:{real_dir}:/usr/bin:/bin",
+            "CMUX_CLAUDE_WRAPPER_SHIM": str(cmux_shim),
+            "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
+            "CMUX_CUSTOM_CLAUDE_PATH": str(custom_shim),
+        }
+        try:
+            result = subprocess.run(
+                [str(cmux_shim), "--version"],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            failures.append("custom shim path with colon timed out instead of terminating")
+            return
+
+        combined_output = result.stdout + result.stderr
+        if result.returncode == 0:
+            failures.append(f"expected non-zero exit from custom shim loop guard, got: {combined_output!r}")
+        if combined_output.count("custom colon shim hop") != 1:
+            failures.append(f"expected repeated custom shim target to be detected after one hop, got: {combined_output!r}")
+        if "conflicting `claude` shim" not in combined_output:
+            failures.append(f"expected actionable custom-shim error, got: {combined_output!r}")
+
+
 def main() -> int:
     failures: list[str] = []
     test_wrapper_stops_mutual_foreign_shim_loop(failures)
@@ -464,6 +523,7 @@ def main() -> int:
     test_wrapper_guard_allows_child_claude_process(failures)
     test_wrapper_allows_finite_layered_foreign_shims(failures)
     test_passthrough_real_node_claude_does_not_receive_guard_env(failures)
+    test_custom_shim_path_with_colon_is_tracked_as_one_target(failures)
     if failures:
         print("FAIL: claude wrapper mutual shim loop checks failed")
         for failure in failures:
