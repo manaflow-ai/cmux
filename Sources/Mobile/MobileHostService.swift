@@ -1323,6 +1323,22 @@ final class MobileHostService {
         request: MobileHostRPCRequest,
         result: MobileHostRPCResult
     ) async {
+        guard case let .ok(payload) = result,
+              let object = payload as? [String: Any] else { return }
+
+        let createdWorkspaceID: String?
+        let createdTerminalID: String?
+        switch request.method {
+        case "workspace.create":
+            createdWorkspaceID = object["created_workspace_id"] as? String
+            createdTerminalID = nil
+        case "mobile.terminal.create", "terminal.create":
+            createdWorkspaceID = nil
+            createdTerminalID = object["created_terminal_id"] as? String
+        default:
+            return
+        }
+
         guard request.auth?.stackAccessToken == nil,
               let attachToken = request.auth?.attachToken,
               let ticketAuthorization = ticketStore.validAuthorization(authToken: attachToken),
@@ -1332,25 +1348,11 @@ final class MobileHostService {
             currentUserID: await currentAuthenticatedLocalUserID(),
             currentUserEmail: await currentAuthenticatedLocalUserEmail()
         ) else { return }
-        guard case let .ok(payload) = result,
-              let object = payload as? [String: Any] else { return }
-
-        switch request.method {
-        case "workspace.create":
-            ticketStore.recordCreatedResources(
-                authToken: attachToken,
-                workspaceID: object["created_workspace_id"] as? String,
-                terminalID: nil
-            )
-        case "mobile.terminal.create", "terminal.create":
-            ticketStore.recordCreatedResources(
-                authToken: attachToken,
-                workspaceID: nil,
-                terminalID: object["created_terminal_id"] as? String
-            )
-        default:
-            break
-        }
+        ticketStore.recordCreatedResources(
+            authToken: attachToken,
+            workspaceID: createdWorkspaceID,
+            terminalID: createdTerminalID
+        )
     }
 
     private static func ticketAuthorizationError(
