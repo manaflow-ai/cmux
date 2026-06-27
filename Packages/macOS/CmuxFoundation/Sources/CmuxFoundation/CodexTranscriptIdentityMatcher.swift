@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Matches Codex rollout JSONL files to a confirmed session id.
 ///
