@@ -182,9 +182,7 @@ public actor UserDefaultsSettingsStore {
         knownValueLogicalOrders[storageKey] = max(knownValueLogicalOrders[storageKey] ?? 0, logicalOrder)
     }
 
-    private func recordSourceLessObservedMutation<Value: SettingCodable>(
-        value: Value, logicalOrder: UInt64, for storageKey: String, recordsAcceptedMutation: Bool = false
-    ) {
+    private func recordSourceLessObservedMutation<Value: SettingCodable>(value: Value, logicalOrder: UInt64, for storageKey: String, recordsAcceptedMutation: Bool = false) {
         if recordsAcceptedMutation || !knownValue(value, matchesValueFor: storageKey) {
             recordAcceptedMutation(nil, logicalOrder: logicalOrder, for: storageKey)
         }
@@ -215,9 +213,7 @@ public actor UserDefaultsSettingsStore {
                     && source.sequence <= acceptedSource.sequence) {
                 return
             }
-            if source.logicalOrder == acceptedOrder {
-                sourcesByOwner[source.ownerID] = source
-            }
+            if source.logicalOrder == acceptedOrder { sourcesByOwner[source.ownerID] = source }
             acceptedMutationSourcesByOwner[storageKey] = sourcesByOwner
         } else {
             acceptedMutationSourcesByOwner.removeValue(forKey: storageKey)
@@ -460,14 +456,19 @@ public actor UserDefaultsSettingsStore {
                             supersededMutationSources: lastYieldedEvent.deliveryMutationSources
                         )
                     }
+                    let recordsSourceLessFence = signal.isBackingDefaultsNotification && signal.deliveredMutationSource == nil
+                        && currentEvent.value == lastYieldedEvent.value
+                        && currentEvent.mutationSource == nil && currentEvent.supersededMutationSource == nil
                     if currentEvent.mutationSource == nil,
                        (currentEvent.value != lastYieldedEvent.value
-                        || currentEvent.supersededMutationSource != nil) {
+                        || currentEvent.supersededMutationSource != nil
+                        || recordsSourceLessFence) {
                         await self.recordSourceLessObservedMutation(
                             value: currentEvent.value,
                             logicalOrder: signal.logicalOrder,
                             for: key.userDefaultsKey,
                             recordsAcceptedMutation: currentEvent.supersededMutationSource != nil
+                                || recordsSourceLessFence
                         )
                     } else if currentEvent.value != lastYieldedEvent.value {
                         await self.recordKnownValue(currentEvent.value, for: key.userDefaultsKey)
