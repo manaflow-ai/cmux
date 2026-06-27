@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Path-string formatting shared by the text-box mention scanners (file mentions
 /// and `SKILL.md` discovery). These are the single source of truth for turning an

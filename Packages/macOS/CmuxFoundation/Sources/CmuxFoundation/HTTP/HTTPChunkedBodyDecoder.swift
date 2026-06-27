@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Decodes an HTTP/1.1 `Transfer-Encoding: chunked` message body into the raw
 /// payload bytes, enforcing a hard upper bound on the decoded size.

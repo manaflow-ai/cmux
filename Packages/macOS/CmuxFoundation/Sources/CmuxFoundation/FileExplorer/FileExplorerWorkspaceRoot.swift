@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The file-explorer root requested for a workspace.
 ///
