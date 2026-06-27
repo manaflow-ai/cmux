@@ -14,7 +14,15 @@ extension MobileShellComposite {
 
     /// Stored ids represented by a visible paired-Mac row.
     public func pairedMacAliasIDs(for macDeviceID: String) -> [String] {
-        pairedMacAliasIDsByRepresentativeID[macDeviceID] ?? [macDeviceID]
+        if let aliases = pairedMacAliasIDsByRepresentativeID[macDeviceID] {
+            return aliases
+        }
+        if let aliases = pairedMacAliasIDsByRepresentativeID.values.first(where: {
+            $0.contains(macDeviceID)
+        }) {
+            return aliases
+        }
+        return [macDeviceID]
     }
 
     /// Presence rollup across every stored id represented by a visible paired-Mac row.
