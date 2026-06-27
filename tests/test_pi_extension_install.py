@@ -124,6 +124,11 @@ printf '\n---\n' >> "$CMUX_TEST_PI_STDIN_LOG"
   if [ -n "${DATABASE_URL-}" ]; then printf 'DATABASE_URL=present\n'; fi
   if [ -n "${DB_PASS-}" ]; then printf 'DB_PASS=present\n'; fi
   if [ -n "${SENTRY_DSN-}" ]; then printf 'SENTRY_DSN=present\n'; fi
+  if [ -n "${GH_PAT-}" ]; then printf 'GH_PAT=present\n'; fi
+  if [ -n "${CLOUDFLARE_AUTH_KEY-}" ]; then printf 'CLOUDFLARE_AUTH_KEY=present\n'; fi
+  if [ -n "${STRIPE_SK-}" ]; then printf 'STRIPE_SK=present\n'; fi
+  if [ -n "${SLACK_WEBHOOK_URL-}" ]; then printf 'SLACK_WEBHOOK_URL=present\n'; fi
+  if [ -n "${CMUX_TEST_PI_TOKEN-}" ]; then printf 'CMUX_TEST_PI_TOKEN=present\n'; fi
 } >> "$CMUX_TEST_PI_ENV_LOG"
 case "$*" in
   *"surface resume get"*)
@@ -166,6 +171,11 @@ esac
         check_env["DATABASE_URL"] = "postgres://user:password@example.invalid/db"
         check_env["DB_PASS"] = "db-pass-should-not-leak"
         check_env["SENTRY_DSN"] = "https://public:private@example.invalid/1"
+        check_env["GH_PAT"] = "github-pat-should-not-leak"
+        check_env["CLOUDFLARE_AUTH_KEY"] = "cloudflare-key-should-not-leak"
+        check_env["STRIPE_SK"] = "stripe-secret-should-not-leak"
+        check_env["SLACK_WEBHOOK_URL"] = "https://hooks.slack.invalid/secret"
+        check_env["CMUX_TEST_PI_TOKEN"] = "test-token-should-not-leak"
         check_source = """
 const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
 const mod = await import(extensionPath);
@@ -302,6 +312,11 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
                 "DATABASE_URL",
                 "DB_PASS",
                 "SENTRY_DSN",
+                "GH_PAT",
+                "CLOUDFLARE_AUTH_KEY",
+                "STRIPE_SK",
+                "SLACK_WEBHOOK_URL",
+                "CMUX_TEST_PI_TOKEN",
             ]
             if f"{name}=present" in env_log
         ]

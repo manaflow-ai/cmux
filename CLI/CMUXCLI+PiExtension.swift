@@ -121,8 +121,8 @@ function safeNodeEnvKey(key: string): boolean {
 }
 
 function safeCmuxEnvKey(key: string): boolean {
-  if (key.startsWith("CMUX_TEST_PI_")) return true;
-  if (key.startsWith("CMUX_AGENT_LAUNCH_")) return true;
+  if (key.startsWith("CMUX_TEST_PI_")) return !secretLikeEnvKey(key);
+  if (key.startsWith("CMUX_AGENT_LAUNCH_")) return !secretLikeEnvKey(key);
   if (key === "CMUX_AGENT_HOOK_STATE_DIR") return true;
   if (key === "CMUX_PI_CMUX_BIN" || key === "CMUX_PI_HOOKS_DISABLED") return true;
   if (key === "CMUX_SURFACE_ID" || key === "CMUX_WORKSPACE_ID" || key === "CMUX_WINDOW_ID") return true;
@@ -130,7 +130,7 @@ function safeCmuxEnvKey(key: string): boolean {
   if (key === "CMUX_SOCKET" || key === "CMUX_SOCKET_PATH") return true;
   if (key === "CMUX_BUNDLE_ID" || key === "CMUX_BUNDLED_CLI_PATH") return true;
   if (key === "CMUX_CLI_SENTRY_DISABLED" || key === "CMUX_DEBUG_LOG") return true;
-  return key.startsWith("CMUX_") && !secretLikeEnvKey(key);
+  return false;
 }
 
 function shouldPreserveEnvKey(key: string): boolean {
