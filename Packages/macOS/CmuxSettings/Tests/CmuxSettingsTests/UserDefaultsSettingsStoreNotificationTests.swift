@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxSettings
 
-@Suite("UserDefaultsSettingsStore notification ordering")
+@Suite("UserDefaultsSettingsStore notification ordering", .serialized)
 struct UserDefaultsSettingsStoreNotificationTests {
     @Test func observedDirectDefaultsWriteRejectsOlderPendingSource() async {
         let suiteName = "cmux.tests.\(UUID().uuidString)"
@@ -149,10 +149,13 @@ struct UserDefaultsSettingsStoreNotificationTests {
     }
 
     @Test func sameValueDirectDefaultsWriteSupersedesPendingSource() async {
-        let suiteName = "cmux.tests.\(UUID().uuidString)"
-        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
-        let externalDefaults = UserDefaults(suiteName: suiteName)!
-        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let storageKey = "cmux.tests.same-value.\(UUID().uuidString)"
+        let store = UserDefaultsSettingsStore(defaults: .standard)
+        let key = DefaultsKey<String>(
+            id: storageKey,
+            defaultValue: "",
+            userDefaultsKey: storageKey
+        )
         let recorder = UserDefaultsSettingsEventRecorder<String>()
         let source = UserDefaultsSettingsMutationSource(
             ownerID: UUID(),
@@ -175,11 +178,19 @@ struct UserDefaultsSettingsStoreNotificationTests {
         await waitForEventCount(1, in: recorder)
 
         await store.set("#SAME", for: key, source: source)
-        externalDefaults.set("#SAME", forKey: key.userDefaultsKey)
+        let localEvent = await waitForEvent(in: recorder) { event in
+            event.value == "#SAME" && event.mutationSource == source
+        }
+        #expect(localEvent?.mutationSource == source)
+
+        UserDefaults.standard.set("#SAME", forKey: key.userDefaultsKey)
         NotificationCenter.default.post(
             name: UserDefaults.didChangeNotification,
-            object: externalDefaults
+            object: UserDefaults.standard
         )
+        defer {
+            UserDefaults.standard.removeObject(forKey: storageKey)
+        }
 
         let externalEvent = await waitForEvent(in: recorder) { event in
             event.value == "#SAME"

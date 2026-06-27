@@ -9,12 +9,9 @@ import Dispatch
 /// The store only accepts ``DefaultsKey``; a ``JSONKey`` would be rejected at
 /// compile time. There are no runtime store/key-mismatch traps.
 ///
-/// Observation ignores unrelated `UserDefaults` notifications unless the
-/// observed key's value changed, and feeds a bounded signal into one cancellable
-/// drain task per ``values(for:)`` consumer. The observer token is removed and
-/// the drain task is cancelled when the stream terminates, without a permanently
-/// parked NotificationCenter async-sequence task or per-notification task
-/// fan-out.
+/// Observation ignores unrelated notifications unless the observed key changes
+/// or a mutation source needs delivery. Each consumer owns one bounded signal
+/// stream and one cancellable drain task.
 ///
 /// ```swift
 /// let store = UserDefaultsSettingsStore(defaults: .standard)
@@ -131,7 +128,7 @@ public actor UserDefaultsSettingsStore {
         for entry in keys {
             guard case let .userDefaults(storageKey, suite, _) = entry.kind else { continue }
             recordSourceLessMutation(for: storageKey)
-            knownValues.removeValue(forKey: storageKey)
+            knownValues[storageKey] = entry.userDefaultsDefaultValue
             let defaults: UserDefaults
             if let suite, let custom = UserDefaults(suiteName: suite) {
                 defaults = custom
@@ -225,7 +222,9 @@ public actor UserDefaultsSettingsStore {
     }
 
     private func recordSourceLessObservedMutation<Value: SettingCodable>(value: Value, logicalOrder: UInt64, for storageKey: String) {
-        recordAcceptedMutation(nil, logicalOrder: logicalOrder, for: storageKey)
+        if !knownValue(value, matchesValueFor: storageKey) {
+            recordAcceptedMutation(nil, logicalOrder: logicalOrder, for: storageKey)
+        }
         recordKnownValue(value, for: storageKey)
     }
 
@@ -447,11 +446,12 @@ public actor UserDefaultsSettingsStore {
                         for: key,
                         consumedSourceSequence: consumedSourceSequence,
                         deliveredMutationSource: signal.deliveredMutationSource,
-                        supersedesPendingMutationSource: signal.deliveredMutationSource == nil
+                        deliverPendingMutationSourceWhenUnobserved: true
                     )
                     consumedSourceSequence = snapshot.consumedSourceSequence
                     var currentEvent = snapshot.event
-                    if signal.deliveredMutationSource == nil,
+                    if signal.isBackingDefaultsNotification,
+                       signal.deliveredMutationSource == nil,
                        currentEvent.value == lastYieldedEvent.value,
                        currentEvent.mutationSource == nil,
                        currentEvent.supersededMutationSource == nil,

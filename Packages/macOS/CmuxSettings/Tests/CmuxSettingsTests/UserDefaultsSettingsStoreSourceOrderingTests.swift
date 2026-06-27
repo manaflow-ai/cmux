@@ -3,7 +3,7 @@ import Testing
 
 @testable import CmuxSettings
 
-@Suite("UserDefaultsSettingsStore source ordering")
+@Suite("UserDefaultsSettingsStore source ordering", .serialized)
 struct UserDefaultsSettingsStoreSourceOrderingTests {
     @Test func generatedMutationSourceOrdersAreNonDecreasing() {
         let first = UserDefaultsSettingsMutationSource(ownerID: UUID(), sequence: 1)
@@ -163,5 +163,31 @@ struct UserDefaultsSettingsStoreSourceOrderingTests {
         let value = await store.value(for: key)
         #expect(acceptedSource == nil)
         #expect(value == key.defaultValue)
+    }
+
+    @Test func unrelatedNotificationAfterResetAllDoesNotRejectNewerSource() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let stream = await store.valueEvents(for: key)
+        var iterator = stream.makeAsyncIterator()
+
+        _ = await iterator.next()
+        await store.set("#BEFORE", for: key)
+        await store.resetAll([AnySettingKey(key)])
+        for _ in 0..<1_000 {
+            await Task.yield()
+        }
+        let source = UserDefaultsSettingsMutationSource()
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
+        )
+
+        let acceptedSource = await store.set("#AFTER", for: key, source: source)
+
+        let value = await store.value(for: key)
+        #expect(acceptedSource == source)
+        #expect(value == "#AFTER")
     }
 }
