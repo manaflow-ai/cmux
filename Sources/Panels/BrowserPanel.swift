@@ -7115,6 +7115,9 @@ extension BrowserPanel {
         minimumViewportSize: CGSize?,
         minimumMagnification: CGFloat = 0.1
     ) -> CGFloat {
+        // Keep WKWebView.pageZoom out of viewport emulation: page zoom is an
+        // independent content scale, while this API changes the layout viewport
+        // width that responsive breakpoints observe by adjusting magnification.
         guard let minimumViewportSize else { return 1.0 }
         guard webViewBounds.width > 1, webViewBounds.height > 1 else { return 1.0 }
 

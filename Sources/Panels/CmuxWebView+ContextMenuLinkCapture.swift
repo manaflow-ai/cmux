@@ -188,7 +188,9 @@ extension CmuxWebView {
     /// hit test vertically, which is how the fallback used to resolve a link
     /// on the opposite side of the page). `pageZoom` and `magnification`
     /// scale CSS pixels relative to view points, so on a zoomed page the
-    /// division is required or the hit test lands on the wrong element.
+    /// division is required or the hit test lands on the wrong element. This is
+    /// input-coordinate mapping only; BrowserPanel viewport emulation keeps
+    /// page zoom independent from the requested responsive layout width.
     func cssViewportPoint(for point: NSPoint) -> CGPoint {
         let zoom = pageZoom > 0 ? pageZoom : 1
         let viewportMagnification = magnification > 0 ? magnification : 1
