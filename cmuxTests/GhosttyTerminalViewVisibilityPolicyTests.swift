@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -63,5 +64,31 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         case .skip:
             break
         }
+    }
+
+    @MainActor
+    func testCanvasTerminalRenderingDrivesRendererVisibility() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let mount = CanvasPaneContentMount(
+            content: .terminal(panel),
+            panelId: panel.id,
+            container: container,
+            onFocusPanel: { _ in }
+        )
+
+        XCTAssertTrue(panel.surface.isRendererPortalVisible)
+
+        mount.setRendering(false)
+        XCTAssertFalse(panel.surface.isRendererPortalVisible)
+
+        mount.setRendering(true)
+        XCTAssertTrue(panel.surface.isRendererPortalVisible)
+
+        mount.setRendering(false)
+        XCTAssertFalse(panel.surface.isRendererPortalVisible)
+
+        mount.unmount()
+        XCTAssertTrue(panel.surface.isRendererPortalVisible)
     }
 }

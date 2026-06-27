@@ -128,6 +128,10 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
     func setRendering(_ rendering: Bool) {
         switch content {
         case .terminal(let panel):
+            panel.surface.setRendererPortalVisible(rendering)
+            if rendering {
+                panel.surface.realizeRenderer()
+            }
             panel.surface.setOcclusion(rendering)
         case .hosted(let panel, _):
             // Offscreen browsers may hidden-discard their webview; coming
@@ -148,6 +152,8 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             hostedView.setActive(false)
             hostedView.setFocusHandler(nil)
             hostedView.setInactiveOverlay(color: .clear, opacity: 0, visible: false)
+            panel.surface.setRendererPortalVisible(true)
+            panel.surface.realizeRenderer()
             panel.surface.setOcclusion(true)
             hostedView.removeFromSuperview()
         case .hosted(let panel, let view):
