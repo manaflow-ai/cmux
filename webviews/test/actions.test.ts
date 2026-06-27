@@ -89,6 +89,12 @@ test("buildStageCommitCommand quotes repo paths and avoids message delimiter col
   );
 });
 
+test("buildStageCommitCommand preserves authoritative repo path whitespace", () => {
+  const command = buildStageCommitCommand(" /tmp/repo with spaces ", "Review changes");
+
+  expect(command).toContain("git -C ' /tmp/repo with spaces ' add --all");
+});
+
 test("copyStageCommitCommand falls back to a React-owned textarea", async () => {
   const dom = new JSDOM("<!doctype html><html><body><textarea></textarea></body></html>");
   const textarea = dom.window.document.querySelector("textarea");

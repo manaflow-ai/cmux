@@ -40,8 +40,15 @@ normalize_webviews_output() {
   strip_trailing_line_whitespace "$out_dir/main.mjs" "$out_dir/agent-session.html"
 }
 
-vendor_export_signature() {
-  /usr/bin/perl -0ne 'print $1 if /(export\{[^}]+\};)\s*\z/s' "$1"
+vendor_normalized_signature() {
+  "$SRC_DIR/node_modules/.bin/terser" "$1" \
+    --compress \
+    --mangle \
+    --module \
+    --toplevel \
+    --format comments=false \
+    | shasum -a 256 \
+    | awk '{print $1}'
 }
 
 is_ignorable_vendor_diff() {
@@ -53,8 +60,8 @@ is_ignorable_vendor_diff() {
     return 1
   fi
 
-  committed_signature="$(vendor_export_signature "$OUT_DIR/$vendor_chunk")"
-  generated_signature="$(vendor_export_signature "$tmp_dir/$vendor_chunk")"
+  committed_signature="$(vendor_normalized_signature "$OUT_DIR/$vendor_chunk")"
+  generated_signature="$(vendor_normalized_signature "$tmp_dir/$vendor_chunk")"
   [ -n "$committed_signature" ] && [ "$committed_signature" = "$generated_signature" ]
 }
 
@@ -75,7 +82,7 @@ if [ "${1:-}" = "--check" ]; then
   set -e
   if [ "$diff_status" -ne 0 ]; then
     if [ "$diff_status" -eq 1 ] && is_ignorable_vendor_diff "$diff_output" "$tmp_dir"; then
-      echo "webviews vendor chunk has platform-specific byte drift; export surface matches" >&2
+      echo "webviews vendor chunk has platform-specific byte drift; normalized whole-file signature matches" >&2
       rm -f "$diff_output"
       exit 0
     fi
