@@ -1221,6 +1221,13 @@ final class MobileHostService {
         await authorizationError(for: request)
     }
 
+    func debugRecordCreatedResourcesForTesting(
+        request: MobileHostRPCRequest,
+        result: MobileHostRPCResult
+    ) {
+        recordCreatedResourcesIfNeeded(request: request, result: result)
+    }
+
     /// Whether `request`'s Stack token passes the DEBUG dev-token policy.
     /// Always `false` in release builds. Shared by the authorization gate and
     /// the status identity gate so a dev-token client is treated identically
