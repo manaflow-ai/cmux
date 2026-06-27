@@ -19,8 +19,13 @@
 /// beep, the animation wrapper, the debug-state sync, and the results refresh
 /// all run on the main actor (SwiftUI view updates, keyboard handling, and
 /// socket commands that hop to main).
+///
+/// The protocol refines `Sendable` so the results-refresh pipeline can capture
+/// the host in its detached search task and call back through it on the main
+/// actor; every conformer is a `@MainActor`-isolated app type, which satisfies
+/// `Sendable` for free.
 @MainActor
-public protocol CommandPaletteListHost {
+public protocol CommandPaletteListHost: Sendable {
     /// Emits the system beep used when a selection move has no results to move
     /// through.
     func commandPaletteListBeep()
@@ -41,4 +46,9 @@ public protocol CommandPaletteListHost {
         force: Bool,
         preservePendingActivation: Bool
     )
+
+    /// Runs a resolved palette activation (executing the activated command or
+    /// the selected result). Called by the results-refresh pipeline once a
+    /// pending activation resolves against freshly materialized results.
+    func commandPaletteListRunResolvedActivation(_ activation: CommandPaletteResolvedActivation)
 }
