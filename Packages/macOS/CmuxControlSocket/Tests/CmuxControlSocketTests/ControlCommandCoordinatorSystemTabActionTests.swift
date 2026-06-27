@@ -71,4 +71,22 @@ struct ControlCommandCoordinatorSystemTabActionTests {
 
         #expect(result == .err(code: "title_user_owned", message: "Localized tab title is user-owned", data: nil))
     }
+
+    @Test func tabActionRejectsUnsupportedTitleSource() {
+        let context = FakeSystemTabActionContext()
+        context.resolution = .invalidTitleSource(rawValue: "atuo")
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(request([
+            "action": .string("rename"),
+            "title": .string("Next Title"),
+            "title_source": .string("atuo"),
+        ]))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "Unsupported title_source",
+            data: .object(["title_source": .string("atuo")])
+        ))
+    }
 }

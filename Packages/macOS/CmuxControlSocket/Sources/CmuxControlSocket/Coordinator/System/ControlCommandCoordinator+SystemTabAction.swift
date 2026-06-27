@@ -58,6 +58,12 @@ extension ControlCommandCoordinator {
             )
         case .invalidTitle:
             return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
+        case .invalidTitleSource(let rawValue):
+            return .err(
+                code: "invalid_params",
+                message: "Unsupported title_source",
+                data: .object(["title_source": .string(rawValue)])
+            )
         case .titleUserOwned(let message):
             return .err(code: "title_user_owned", message: message, data: nil)
         case .invalidURL(let rawURL):

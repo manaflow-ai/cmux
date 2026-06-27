@@ -112,7 +112,15 @@ extension TerminalController {
             let normalizedTitleSource = titleSource?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-            let source: Workspace.CustomTitleSource = normalizedTitleSource == "auto" ? .auto : .user
+            let source: Workspace.CustomTitleSource
+            switch normalizedTitleSource {
+            case nil, "":
+                source = .user
+            case "auto":
+                source = .auto
+            case .some(let rawValue):
+                return .invalidTitleSource(rawValue: rawValue)
+            }
             guard workspace.setPanelCustomTitle(panelId: surfaceId, title: trimmedTitle, source: source) else {
                 return .titleUserOwned(message: String(
                     localized: "socket.tabAction.error.titleUserOwned",

@@ -4075,9 +4075,8 @@ class TerminalController {
                     return
                 }
                 let title = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-                let normalizedTitleSource = v2String(params, "title_source")?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .lowercased()
+                let normalizedTitleSource = v2String(params, "title_source")?.lowercased()
+                if let rawValue = normalizedTitleSource, rawValue != "auto" { result = .err(code: "invalid_params", message: "Unsupported title_source", data: ["title_source": rawValue]); return }
                 let source: Workspace.CustomTitleSource = normalizedTitleSource == "auto" ? .auto : .user
                 guard tabManager.setCustomTitle(tabId: workspace.id, title: title, source: source) else {
                     result = .err(code: "title_user_owned", message: String(
