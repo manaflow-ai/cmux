@@ -3330,7 +3330,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // flows through `inputProxy` (`didProduceInput`), not here, so dropping
         // these is safe.
         #if DEBUG
-        inputDebugLog.log("surface.outboundDropped data=\(inputDebugLog.dataSummary(bytes))")
+        self.inputDebugLog.log("surface.outboundDropped data=\(self.inputDebugLog.dataSummary(bytes))")
         #endif
     }
 
