@@ -1062,7 +1062,7 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func uuidAttachTicketListsAllWorkspacesFirstWithAttachToken() async throws {
+@Test func uuidAttachTicketUsesScopedWorkspaceListWithAttachToken() async throws {
     let workspaceID = UUID().uuidString
     let route = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(
@@ -1088,14 +1088,14 @@ final class TerminalOutputCollector {
 
     let requests = try await responses.sentRequests()
     let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
-    #expect(workspaceList.workspaceID == nil)
+    #expect(workspaceList.workspaceID == workspaceID)
     #expect(workspaceList.attachToken == "ticket-secret")
     #expect(workspaceList.stackAccessToken == nil)
     #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
 }
 
 @MainActor
-@Test func signedInAttachTicketConnectsWithFullWorkspaceListFirst() async throws {
+@Test func signedInAttachTicketConnectsWithScopedListThenFullRefresh() async throws {
     let workspaceID = UUID().uuidString
     let terminalID = UUID().uuidString
     let docsWorkspaceID = UUID().uuidString
@@ -1111,6 +1111,7 @@ final class TerminalOutputCollector {
         authToken: "ticket-secret"
     ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "cmux", terminalID: terminalID),
         try rpcResultFrame(
             result: [
                 "workspaces": [
@@ -1157,18 +1158,18 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
-    let workspaceLists = try await waitForWorkspaceListRequestCount(1, responses: responses)
-    #expect(workspaceLists[0].workspaceID == nil)
-    #expect(workspaceLists[0].terminalID == nil)
-    #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
-    #expect(workspaceLists.allSatisfy { $0.stackAccessToken == nil })
+    let workspaceLists = try await waitForWorkspaceListRequestCount(2, responses: responses)
+    #expect(workspaceLists[0].workspaceID == workspaceID)
+    #expect(workspaceLists[0].attachToken == "ticket-secret")
+    #expect(workspaceLists[1].workspaceID == nil)
+    #expect(workspaceLists[1].stackAccessToken == "test-stack-token")
     let workspaceIDs = try await waitForWorkspaceIDs(in: store, matching: [workspaceID, docsWorkspaceID])
     #expect(workspaceIDs == [workspaceID, docsWorkspaceID])
     #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
 }
 
 @MainActor
-@Test func signedInLoopbackAttachTicketConnectsWithFullWorkspaceListFirst() async throws {
+@Test func signedInLoopbackAttachTicketConnectsWithScopedListThenFullRefresh() async throws {
     let workspaceID = UUID().uuidString
     let terminalID = UUID().uuidString
     let secondWorkspaceID = UUID().uuidString
@@ -1184,6 +1185,7 @@ final class TerminalOutputCollector {
         authToken: "ticket-secret"
     ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Main", terminalID: terminalID),
         try rpcResultFrame(
             result: [
                 "workspaces": [
@@ -1230,11 +1232,11 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
-    let workspaceLists = try await waitForWorkspaceListRequestCount(1, responses: responses)
-    #expect(workspaceLists[0].workspaceID == nil)
-    #expect(workspaceLists[0].terminalID == nil)
-    #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
-    #expect(workspaceLists.allSatisfy { $0.stackAccessToken == nil })
+    let workspaceLists = try await waitForWorkspaceListRequestCount(2, responses: responses)
+    #expect(workspaceLists[0].workspaceID == workspaceID)
+    #expect(workspaceLists[0].attachToken == "ticket-secret")
+    #expect(workspaceLists[1].workspaceID == nil)
+    #expect(workspaceLists[1].stackAccessToken == "test-stack-token")
     let workspaceIDs = try await waitForWorkspaceIDs(in: store, matching: [workspaceID, secondWorkspaceID])
     #expect(workspaceIDs == [workspaceID, secondWorkspaceID])
 }
@@ -1354,7 +1356,7 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
-    #expect(await attempts.routeIDs() == [preferredRoute.id, preferredRoute.id, fallbackRoute.id])
+    #expect(await attempts.routeIDs() == [preferredRoute.id, fallbackRoute.id])
     #expect(store.connectionState == .connected)
     #expect(store.activeRoute?.id == fallbackRoute.id)
     #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
