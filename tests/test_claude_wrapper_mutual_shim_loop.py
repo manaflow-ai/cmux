@@ -97,9 +97,56 @@ def test_wrapper_stops_mutual_foreign_shim_loop(failures: list[str]) -> None:
             failures.append(f"expected CMUX_CUSTOM_CLAUDE_PATH remedy, got: {combined_output!r}")
 
 
+def test_wrapper_guard_allows_child_claude_process(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-child-reentry-") as td:
+        root = Path(td)
+        cmux_shim_dir = root / "tmp" / "cmux-cli-shims" / "surface-child"
+        real_dir = root / "real-bin"
+        for directory in (cmux_shim_dir, real_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        cmux_shim = cmux_shim_dir / "claude"
+        shutil.copy2(WRAPPER, cmux_shim)
+        cmux_shim.chmod(0o755)
+
+        write_executable(
+            real_dir / "claude",
+            """#!/usr/bin/env bash
+if [[ "${1:-}" == "child" ]]; then
+  printf 'child claude ok\\n'
+  exit 0
+fi
+claude child
+""",
+        )
+
+        env = {
+            "HOME": str(root / "home"),
+            "PATH": f"{cmux_shim_dir}:{real_dir}:/usr/bin:/bin",
+            "CMUX_CLAUDE_WRAPPER_SHIM": str(cmux_shim),
+            "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
+        }
+        result = subprocess.run(
+            [str(cmux_shim)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        combined_output = result.stdout + result.stderr
+        if result.returncode != 0:
+            failures.append(f"child claude launch failed with {result.returncode}: {combined_output!r}")
+        if result.stdout.strip() != "child claude ok":
+            failures.append(f"expected child claude to run, got: {combined_output!r}")
+        if "possible infinite claude shim loop" in combined_output:
+            failures.append(f"guard fired for legitimate child claude launch: {combined_output!r}")
+
+
 def main() -> int:
     failures: list[str] = []
     test_wrapper_stops_mutual_foreign_shim_loop(failures)
+    test_wrapper_guard_allows_child_claude_process(failures)
     if failures:
         print("FAIL: claude wrapper mutual shim loop checks failed")
         for failure in failures:
