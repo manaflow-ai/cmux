@@ -578,7 +578,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             "Expected inline completion display to avoid injecting an https:// prefix unless typed."
         )
 
-        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeKey("h", modifierFlags: [.control])
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
 
         var valueAfterDelete = ""
