@@ -95,6 +95,7 @@ public struct ChatComposerView: View {
 
     #if os(iOS)
     @ViewBuilder
+    @MainActor
     private var composerSurface: some View {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
@@ -110,6 +111,7 @@ public struct ChatComposerView: View {
     }
     #endif
 
+    @MainActor
     private var composerStack: some View {
         VStack(spacing: 8) {
             if isEnded {
@@ -167,6 +169,7 @@ public struct ChatComposerView: View {
 
     // MARK: - Field row
 
+    @MainActor
     private var fieldRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             #if os(iOS)
@@ -226,6 +229,7 @@ public struct ChatComposerView: View {
         agentState == .ended
     }
 
+    @MainActor
     private var endedRow: some View {
         HStack(spacing: 12) {
             Text(
@@ -256,6 +260,7 @@ public struct ChatComposerView: View {
     // MARK: - Send / stop button
 
     @ViewBuilder
+    @MainActor
     private var sendButton: some View {
         if hasContent {
             Button(action: performSend) {
@@ -376,6 +381,7 @@ public struct ChatComposerView: View {
         isDraftFocused = true
     }
 
+    @MainActor
     private var attachButton: some View {
         PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
             MobileComposerIconLabel(
@@ -399,6 +405,7 @@ public struct ChatComposerView: View {
         }
     }
 
+    @MainActor
     private var micButton: some View {
         let listening = dictation.state.isListening
         return MobileComposerIconButton(
@@ -424,6 +431,7 @@ public struct ChatComposerView: View {
         }
     }
 
+    @MainActor
     private var attachmentStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -450,6 +458,7 @@ public struct ChatComposerView: View {
         }
     }
 
+    @MainActor
     private func removeButton(id: String, index: Int) -> some View {
         Button {
             removeAttachment(id: id)
