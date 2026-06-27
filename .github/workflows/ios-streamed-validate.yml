@@ -96,12 +96,13 @@ jobs:
           set -a; source scripts/load-dev-env.sh; set +a
           export DATABASE_URL="postgres://cmux:cmux@localhost:${PGPORT}/cmux"
           export DIRECT_DATABASE_URL="$DATABASE_URL"
-          # Run next dev directly (NOT `bun dev`/dev-local.sh, which calls the
-          # Docker db-local.sh). Fully detach (new session) so the server survives
-          # into later steps; GitHub Actions kills a step's process group at end.
-          setsid bash -c "cd '$PWD' && exec bunx next dev --port 3000" > /tmp/webdev.log 2>&1 < /dev/null &
-          for i in $(seq 1 80); do curl -fsS http://localhost:3000/ >/dev/null 2>&1 && break; sleep 3; done
-          curl -fsS http://localhost:3000/handler/sign-in >/dev/null
+          # Run next dev directly (NOT `bun dev`/dev-local.sh, which call the
+          # Docker db-local.sh). Detach with nohup + disown (macOS has no setsid)
+          # so the server survives into later steps.
+          nohup bunx next dev --port 3000 > /tmp/webdev.log 2>&1 < /dev/null &
+          disown || true
+          for i in $(seq 1 90); do curl -fsS http://localhost:3000/ >/dev/null 2>&1 && break; sleep 4; done
+          curl -fsS http://localhost:3000/handler/sign-in >/dev/null || { echo "=== webdev.log ==="; cat /tmp/webdev.log; exit 1; }
 
       - name: Build desktop Mac app (tag cistream)
         run: ./scripts/reload.sh --tag cistream
