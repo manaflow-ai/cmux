@@ -26,6 +26,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private let composerBackgroundView = UIVisualEffectView(effect: nil)
     let transcriptHostingController: UIHostingController<Transcript>
     let composerHostingController: UIHostingController<Composer>
+    weak var transcriptOverlayGeometry: ChatTranscriptOverlayGeometry?
     private var composerHeightConstraint: NSLayoutConstraint?
     private var transcriptClipTopConstraint: NSLayoutConstraint?
     private var transcriptHeightConstraint: NSLayoutConstraint?
@@ -306,12 +307,14 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private func updateMeasuredGeometryConstants() {
         let bounds = view.bounds
         let composerHeight = measuredComposerHeight(width: bounds.width)
-        let topChromeInset = scrollEdgeCoordinator.topChromeInset(for: self)
         let fullTranscriptHeight = max(0, bounds.height)
         updateConstraint(composerHeightConstraint, to: composerHeight)
         updateConstraint(transcriptClipTopConstraint, to: 0)
         updateConstraint(transcriptHeightConstraint, to: fullTranscriptHeight)
-        updateTranscriptViewportInsets(topInset: topChromeInset, composerHeight: composerHeight)
+        transcriptOverlayGeometry?.composerBottomInset = showsComposer
+            ? max(0, ceil(composerHeight))
+            : 0
+        updateTranscriptOverlayBottomInset(composerHeight)
     }
 
     private func applyKeyboardOverlap(_ overlap: CGFloat) {
@@ -375,15 +378,11 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         }
     }
 
-    private func updateTranscriptViewportInsets(topInset: CGFloat, composerHeight: CGFloat) {
-        let resolvedTopInset = max(0, ceil(topInset))
+    private func updateTranscriptOverlayBottomInset(_ composerHeight: CGFloat) {
         let bottomInset = showsComposer ? max(0, ceil(composerHeight)) : 0
         let tables = trackedTranscriptTables(in: transcriptHostingController.view)
         for tableView in tables {
-            tableView.applyTranscriptViewportInsets(
-                topChromeInset: resolvedTopInset,
-                composerBottomInset: bottomInset
-            )
+            tableView.applyComposerOverlayBottomInset(bottomInset)
         }
         scrollEdgeCoordinator.configure(
             tableView: tables.first,

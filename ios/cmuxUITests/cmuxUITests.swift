@@ -1056,12 +1056,7 @@ final class cmuxUITests: XCTestCase {
             topMetrics.offsetY,
             -topMetrics.adjustedTopInset,
             accuracy: 3,
-            "At the beginning of the chat, the transcript offset must include the top chrome reservation so the first date header is not hidden behind the toolbar. metrics=\(topMetrics)"
-        )
-        XCTAssertGreaterThan(
-            topMetrics.topChromeOverlayInset,
-            20,
-            "The transcript table must own the top chrome inset when it underlaps the navigation bar. metrics=\(topMetrics)"
+            "At the beginning of the chat, UIKit's adjusted top inset must reserve the navigation chrome while the table frame still underlaps it. metrics=\(topMetrics)"
         )
         let todayHeader = app.staticTexts["ChatDateHeader"].firstMatch
         XCTAssertTrue(todayHeader.waitForExistence(timeout: 2))
@@ -1071,6 +1066,32 @@ final class cmuxUITests: XCTestCase {
             "The Today header must be visible below the navigation controls at top scroll. today=\(todayHeader.frame) navigationBar=\(navigationFrame)"
         )
         captureTopScrollEdgeEvidenceFrames(table: table, prefix: "top-edge")
+    }
+
+    @MainActor
+    func testAgentChatScrollToBottomButtonClearsFloatingComposer() throws {
+        let app = launchAgentChatInlinePreviewApp()
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        let composerBar = app.otherElements["ChatComposerBar"]
+        XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
+
+        try scrollTranscript(table, direction: .down, timeout: 6) {
+            $0.distanceFromBottom > 180 && $0.contentHeight > $0.boundsHeight * 1.6
+        }
+
+        let button = app.buttons["ChatScrollToBottomButton"]
+        XCTAssertTrue(button.waitForExistence(timeout: 4))
+        XCTAssertLessThanOrEqual(
+            button.frame.maxY,
+            composerBar.frame.minY - 6,
+            "The scroll-to-bottom button must float above the glass composer, not underneath it. button=\(button.frame) composer=\(composerBar.frame)"
+        )
+        XCTAssertTrue(button.isHittable)
+        button.tap()
+        _ = try waitForTranscriptMetrics(table, timeout: 4) {
+            $0.distanceFromBottom < 60
+        }
     }
 
     @MainActor
@@ -1827,7 +1848,6 @@ final class cmuxUITests: XCTestCase {
         let composerMinY: CGFloat
         let composerPresentationMinY: CGFloat
         let presentationGap: CGFloat
-        let topChromeOverlayInset: CGFloat
         let composerOverlayBottomInset: CGFloat
         let keyboardAnimationActive: Bool
         let keyboardAnimationProgress: CGFloat
@@ -1836,7 +1856,7 @@ final class cmuxUITests: XCTestCase {
         let keyboardAnimationSamples: Int
 
         var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
         }
 
         var effectiveFrameMaxY: CGFloat {
@@ -1880,7 +1900,6 @@ final class cmuxUITests: XCTestCase {
             self.composerMinY = values["composerMinY"] ?? frameMaxY
             self.composerPresentationMinY = values["composerPresentationMinY"] ?? self.composerMinY
             self.presentationGap = values["presentationGap"] ?? 0
-            self.topChromeOverlayInset = values["topChromeOverlayInset"] ?? 0
             self.composerOverlayBottomInset = values["composerOverlayBottomInset"] ?? 0
             self.keyboardAnimationActive = (values["keyboardAnimationActive"] ?? 0) >= 0.5
             self.keyboardAnimationProgress = values["keyboardAnimationProgress"] ?? 1
