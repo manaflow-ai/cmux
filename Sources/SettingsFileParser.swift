@@ -62,7 +62,8 @@ struct SettingsFileParser {
             parseWorkspaceGroupsSection(workspaceGroupsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
         if let shortcutsSection = root["shortcuts"] {
-            parseShortcutsSection(shortcutsSection, sourcePath: sourcePath, snapshot: &snapshot)
+            ShortcutSettingsFileSectionParser(projection: projection)
+                .parse(shortcutsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
 
         return snapshot
@@ -587,70 +588,6 @@ struct SettingsFileParser {
                 return
             }
             snapshot.managedUserDefaults[SettingCatalog().workspaceGroups.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
-        }
-    }
-
-    private func parseShortcutsSection(
-        _ value: Any,
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        guard let section = value as? [String: Any] else {
-            logInvalid("shortcuts", sourcePath: sourcePath)
-            return
-        }
-
-        var bindings = section["bindings"] as? [String: Any] ?? [:]
-        if let value = jsonBool(section["showModifierHoldHints"]) {
-            snapshot.managedUserDefaults[SettingCatalog().shortcuts.showModifierHoldHints.userDefaultsKey] = .bool(value)
-        } else if section.keys.contains("showModifierHoldHints") {
-            logInvalid("shortcuts.showModifierHoldHints", sourcePath: sourcePath)
-        }
-        for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" {
-            bindings[key] = rawValue
-        }
-
-        for (rawAction, rawBinding) in bindings {
-            guard let action = KeyboardShortcutSettings.Action(rawValue: rawAction) else {
-                settingsFileParserLogger.warning("ignoring unknown shortcut action '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
-                continue
-            }
-            guard let shortcut = StoredShortcut.parseSettingsFileBinding(rawBinding, action: action) else {
-                settingsFileParserLogger.warning("ignoring invalid shortcut binding for '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
-                continue
-            }
-            snapshot.shortcuts[action] = shortcut
-        }
-
-        parseShortcutWhenClauses(section["when"], sourcePath: sourcePath, snapshot: &snapshot)
-    }
-
-    /// Parses the optional `shortcuts.when` map — `{ "<actionId>": "<predicate>" }`
-    /// — into per-action ``ShortcutWhenClause`` overrides. A binding's `when`
-    /// clause gates it to a focus context, letting the same keystroke drive
-    /// different actions in different contexts (e.g. `⌃1` selects a workspace
-    /// unless the sidebar is focused). Invalid entries are logged and skipped.
-    private func parseShortcutWhenClauses(
-        _ rawValue: Any?,
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        guard let rawValue else { return }
-        guard let whenSection = rawValue as? [String: Any] else {
-            logInvalid("shortcuts.when", sourcePath: sourcePath)
-            return
-        }
-        for (rawAction, rawClause) in whenSection {
-            guard let action = KeyboardShortcutSettings.Action(rawValue: rawAction) else {
-                settingsFileParserLogger.warning("ignoring shortcuts.when for unknown action '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
-                continue
-            }
-            guard let expression = jsonString(rawClause),
-                  let clause = ShortcutWhenClause.parse(expression) else {
-                settingsFileParserLogger.warning("ignoring invalid shortcuts.when clause for '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
-                continue
-            }
-            snapshot.whenClauses[action] = clause
         }
     }
 
