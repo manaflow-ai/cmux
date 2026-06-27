@@ -1238,7 +1238,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    func surfaceHasEarlierLiveOwner(
+    func surfaceHasDifferentLiveOwner(
         workspaceId: String,
         surfaceId: String,
         incomingSessionId: String?
@@ -1249,7 +1249,6 @@ final class ClaudeHookSessionStore {
         }
         let incoming = normalizeOptional(incomingSessionId)
         let candidates = try withLockedState { state in
-            let incomingStartedAt = incoming.flatMap { state.sessions[$0]?.startedAt }
             return state.sessions.values.compactMap { record -> (
                 sessionId: String,
                 pid: Int?,
@@ -1261,9 +1260,6 @@ final class ClaudeHookSessionStore {
                       normalizeOptional(record.workspaceId) == normalizedWorkspace,
                       normalizeOptional(record.surfaceId) == normalizedSurface,
                       Self.runtimeStatusOwnsSurface(record.runtimeStatus) else {
-                    return nil
-                }
-                if let incomingStartedAt, record.startedAt > incomingStartedAt {
                     return nil
                 }
                 return (
@@ -1294,15 +1290,11 @@ final class ClaudeHookSessionStore {
                 }
             } else {
                 let stillOwnsSurface = try withLockedState { state in
-                    let incomingStartedAt = incoming.flatMap { state.sessions[$0]?.startedAt }
                     guard let record = state.sessions[candidate.sessionId],
                           record.sessionId != incoming,
                           normalizeOptional(record.workspaceId) == normalizedWorkspace,
                           normalizeOptional(record.surfaceId) == normalizedSurface,
                           Self.runtimeStatusOwnsSurface(record.runtimeStatus) else {
-                        return false
-                    }
-                    if let incomingStartedAt, record.startedAt > incomingStartedAt {
                         return false
                     }
                     return true
@@ -29897,7 +29889,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return boundSurface
             }
 
-            func targetBlockedByEarlierLiveOwner(
+            func targetBlockedByDifferentLiveOwner(
                 _ target: (workspaceId: String, surfaceId: String),
                 mapped: ClaudeHookSessionRecord?
             ) -> Bool {
@@ -29907,7 +29899,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: currentPID, env: env) else {
                     return false
                 }
-                let blocked = (try? store.surfaceHasEarlierLiveOwner(
+                let blocked = (try? store.surfaceHasDifferentLiveOwner(
                     workspaceId: target.workspaceId,
                     surfaceId: target.surfaceId,
                     incomingSessionId: sessionId
@@ -29915,7 +29907,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 #if DEBUG
                 if blocked {
                     agentHookDebugLog(
-                        "agentHook.target.nil agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=earlierLiveSurfaceOwner workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId))",
+                        "agentHook.target.nil agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=differentLiveSurfaceOwner workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId))",
                         socketPath: client.socketPath,
                         env: env
                     )
@@ -29924,18 +29916,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return blocked
             }
 
-            func targetUnlessBlockedByEarlierLiveOwner(
+            func targetUnlessBlockedByDifferentLiveOwner(
                 _ target: (workspaceId: String, surfaceId: String)?,
                 mapped: ClaudeHookSessionRecord?
             ) -> (workspaceId: String, surfaceId: String)? {
                 guard let target else { return nil }
-                return targetBlockedByEarlierLiveOwner(target, mapped: mapped) ? nil : target
+                return targetBlockedByDifferentLiveOwner(target, mapped: mapped) ? nil : target
             }
 
             if let workspaceId = resolvedDirectWorkspaceArg {
                 let preferredSurfaceId = correctedDirectSurfaceId(workspaceId: workspaceId)
                     ?? (hookWsFlag == nil ? processBinding()?.surfaceId : nil)
-                let target = targetUnlessBlockedByEarlierLiveOwner(
+                let target = targetUnlessBlockedByDifferentLiveOwner(
                     resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped),
                     mapped: mapped
                 )
@@ -29951,7 +29943,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
             let binding = processBinding()
             if let workspaceId = resolveAccessibleWorkspaceId(binding?.workspaceId),
-               let target = targetUnlessBlockedByEarlierLiveOwner(
+               let target = targetUnlessBlockedByDifferentLiveOwner(
                    resolveTarget(
                        workspaceId: workspaceId,
                        preferredSurfaceId: binding?.surfaceId,
@@ -29979,7 +29971,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 #endif
                 return nil
             }
-            let target = targetUnlessBlockedByEarlierLiveOwner(
+            let target = targetUnlessBlockedByDifferentLiveOwner(
                 resolveTarget(workspaceId: workspaceId, preferredSurfaceId: nil, mapped: mapped),
                 mapped: mapped
             )

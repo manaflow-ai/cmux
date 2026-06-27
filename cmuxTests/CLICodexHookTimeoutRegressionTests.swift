@@ -499,16 +499,21 @@ struct CLICodexHookTimeoutRegressionTests {
     @Test func codexHookWithoutTTYDoesNotRouteOntoDifferentLiveSurfaceOwner() throws {
         let cliPath = try bundledCLIPath()
 
-        for ownerRuntimeStatus in ["running", "needsInput"] {
+        for ownerCase in [
+            (label: "running", runtimeStatus: "running", ownerStartedAfterIncoming: false),
+            (label: "needsInput", runtimeStatus: "needsInput", ownerStartedAfterIncoming: false),
+            (label: "newerRunning", runtimeStatus: "running", ownerStartedAfterIncoming: true),
+        ] {
             let socketPath = makeSocketPath("codex-notty")
             let listenerFD = try bindUnixSocket(at: socketPath)
             let commands = CapturedSocketCommands()
             let root = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-codex-notty-\(ownerRuntimeStatus)-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("cmux-codex-notty-\(ownerCase.label)-\(UUID().uuidString)", isDirectory: true)
             let workspaceId = "11111111-1111-1111-1111-111111111111"
             let ownerSurfaceId = "22222222-2222-2222-2222-222222222222"
-            let ownerSessionId = "codex-owner-\(ownerRuntimeStatus)-session"
-            let newcomerSessionId = "codex-newcomer-\(ownerRuntimeStatus)-session"
+            let incomingSurfaceId = "33333333-3333-3333-3333-333333333333"
+            let ownerSessionId = "codex-owner-\(ownerCase.label)-session"
+            let newcomerSessionId = "codex-newcomer-\(ownerCase.label)-session"
 
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             let ownerProcess = Process()
@@ -526,22 +531,37 @@ struct CLICodexHookTimeoutRegressionTests {
             }
 
             let now = Date().timeIntervalSince1970
+            let ownerStartedAt = ownerCase.ownerStartedAfterIncoming ? now - 5 : now - 10
+            let incomingStartedAt = now - 20
+            var sessions: [String: Any] = [
+                ownerSessionId: [
+                    "sessionId": ownerSessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": ownerSurfaceId,
+                    "cwd": root.path,
+                    "pid": Int(ownerProcess.processIdentifier),
+                    "pidCapturedAt": now,
+                    "runtimeStatus": ownerCase.runtimeStatus,
+                    "agentLifecycle": ownerCase.runtimeStatus,
+                    "startedAt": ownerStartedAt,
+                    "updatedAt": now,
+                ],
+            ]
+            if ownerCase.ownerStartedAfterIncoming {
+                sessions[newcomerSessionId] = [
+                    "sessionId": newcomerSessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": incomingSurfaceId,
+                    "cwd": root.path,
+                    "runtimeStatus": "idle",
+                    "agentLifecycle": "idle",
+                    "startedAt": incomingStartedAt,
+                    "updatedAt": incomingStartedAt,
+                ]
+            }
             let store: [String: Any] = [
                 "version": 1,
-                "sessions": [
-                    ownerSessionId: [
-                        "sessionId": ownerSessionId,
-                        "workspaceId": workspaceId,
-                        "surfaceId": ownerSurfaceId,
-                        "cwd": root.path,
-                        "pid": Int(ownerProcess.processIdentifier),
-                        "pidCapturedAt": now,
-                        "runtimeStatus": ownerRuntimeStatus,
-                        "agentLifecycle": ownerRuntimeStatus,
-                        "startedAt": now - 10,
-                        "updatedAt": now,
-                    ],
-                ],
+                "sessions": sessions,
             ]
             try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
                 .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
@@ -585,22 +605,27 @@ struct CLICodexHookTimeoutRegressionTests {
             let sentCommands = commands.snapshot()
             #expect(
                 !sentCommands.contains { jsonObject($0)?["method"] as? String == "surface.resume.set" },
-                "no-TTY hook for \(ownerRuntimeStatus) owner must not publish newcomer resume binding: \(sentCommands)"
+                "no-TTY hook for \(ownerCase.label) owner must not publish newcomer resume binding: \(sentCommands)"
             )
             #expect(
                 !sentCommands.contains { $0.hasPrefix("set_agent_pid codex.\(newcomerSessionId) ") },
-                "no-TTY hook for \(ownerRuntimeStatus) owner must not route newcomer PID: \(sentCommands)"
+                "no-TTY hook for \(ownerCase.label) owner must not route newcomer PID: \(sentCommands)"
             )
             #expect(
                 !sentCommands.contains { $0.hasPrefix("set_agent_lifecycle codex running ") },
-                "no-TTY hook for \(ownerRuntimeStatus) owner must not route newcomer lifecycle: \(sentCommands)"
+                "no-TTY hook for \(ownerCase.label) owner must not route newcomer lifecycle: \(sentCommands)"
             )
 
             let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
             let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-            let sessions = try #require(saved["sessions"] as? [String: Any])
-            #expect(sessions[ownerSessionId] as? [String: Any] != nil)
-            #expect(sessions[newcomerSessionId] as? [String: Any] == nil)
+            let savedSessions = try #require(saved["sessions"] as? [String: Any])
+            #expect(savedSessions[ownerSessionId] as? [String: Any] != nil)
+            if ownerCase.ownerStartedAfterIncoming {
+                let incomingRecord = try #require(savedSessions[newcomerSessionId] as? [String: Any])
+                #expect(incomingRecord["surfaceId"] as? String == incomingSurfaceId)
+            } else {
+                #expect(savedSessions[newcomerSessionId] as? [String: Any] == nil)
+            }
         }
     }
 
