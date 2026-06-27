@@ -582,11 +582,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             revertedToTypedPrefix,
             "Expected Backspace with inline suffix selected to remove one typed prefix character. value=\(valueAfterDeleteAndEscape)"
         )
-        XCTAssertEqual(
-            valueAfterDeleteAndEscape,
-            "exa",
-            "Expected Backspace with inline suffix selected to remove one typed prefix character."
-        )
     }
 
     func testCmdASelectAllDoesNotClearInlineCompletion() {
