@@ -463,10 +463,10 @@ class TabManager {
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
         portOrdinalAllocator: WorkspacePortOrdinalAllocator? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
-        closedItemHistory: ClosedItemHistoryStore = .shared
+        closedItemHistory: ClosedItemHistoryStore? = nil
     ) {
         self.settings = settings
-        self.closedItemHistory = closedItemHistory
+        self.closedItemHistory = closedItemHistory ?? .shared
         self.portOrdinalAllocator = portOrdinalAllocator ?? Self.sharedPortOrdinalAllocator
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceCommands = WorkspaceCommandCoordinator(model: workspaces, reordering: workspaceReordering)
