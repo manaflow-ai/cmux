@@ -7851,10 +7851,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let textBoxShortcutTabManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             textBoxShortcutTabManager?.clearFocusedTerminalTextBoxHideEscapeArm()
         }
-        let commandPaletteShortcutWindow = shouldHandleCommandPaletteShortcutEvent(
-            event,
+        let commandPaletteShortcutWindow = CommandPaletteShortcutEventOwnership(
             paletteWindow: commandPaletteTargetWindow
-        ) ? commandPaletteTargetWindow : nil
+        ).ownsShortcutEvent(event) ? commandPaletteTargetWindow : nil
         let commandPaletteVisibleInTargetWindow = commandPaletteShortcutWindow.map {
             isCommandPaletteVisible(for: $0)
         } ?? false
@@ -7999,7 +7998,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if commandPaletteInteractiveInTargetWindow,
            let paletteWindow = commandPaletteShortcutWindow {
-            let paletteFieldEditorHasMarkedText = commandPaletteFieldEditorHasMarkedText(in: paletteWindow)
+            let paletteFieldEditorHasMarkedText = CommandPaletteShortcutEventOwnership(
+                paletteWindow: paletteWindow
+            ).fieldEditorHasMarkedText
             let paletteSnapshot = mainWindowId(for: paletteWindow).map(commandPaletteSnapshot(windowId:)) ?? .empty
             let paletteUsesInlineReturnHandling = paletteUsesInlineTextHandling
             if isPlainEscape {

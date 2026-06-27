@@ -419,8 +419,7 @@ final class WindowDecorationsController {
         }
 
         let contentBounds = contentView.bounds
-        let trafficLightFrameInContent = minimalModeTrafficLightFrameInContentCoordinates(
-            window: window,
+        let trafficLightFrameInContent = window.minimalModeTrafficLightFrameInContentCoordinates(
             contentView: contentView
         )
         target.frame = MinimalModeSidebarTitlebarControlsMetrics().controlsFrame(

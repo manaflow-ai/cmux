@@ -392,6 +392,7 @@
 		D10000000000000000B00000 /* ControlSocketReadinessUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */; };
 		DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */; };
 		DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */; };
+		5CBC5063C74D4AA1AE633205 /* DebugDragOverlayProbes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3256E38E04AA4255B9025107 /* DebugDragOverlayProbes.swift */; };
 		A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */; };
 		DEB6C0DE00000000000000A0 /* DebugWindowControlsContentProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEB6C0DE00000000000000A1 /* DebugWindowControlsContentProvider.swift */; };
 		D7EFA110000000000000001 /* DefaultTerminalRegistrationError+LocalizedCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7EFA110000000000000002 /* DefaultTerminalRegistrationError+LocalizedCopy.swift */; };
@@ -761,6 +762,7 @@
 		B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */; };
 		C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */; };
 		B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000004 /* RightSidebarMode+Availability.swift */; };
+		06BAE652D11485E3851A9A24 /* RightSidebarPanelModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5818BBADC3B90F29F9BCB54 /* RightSidebarPanelModel.swift */; };
 		FE003103 /* RightSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003003 /* RightSidebarPanelView.swift */; };
 		B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */; };
 		5F5553CB5553CB5553CB0001 /* RightSidebarRemoteCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F5553CB5553CB5553CB0002 /* RightSidebarRemoteCommandTests.swift */; };
@@ -1548,6 +1550,7 @@
 		D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSocketReadinessUITestSupport.swift; sourceTree = "<group>"; };
 		DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolver.swift; sourceTree = "<group>"; };
 		DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolverTests.swift; sourceTree = "<group>"; };
+		3256E38E04AA4255B9025107 /* DebugDragOverlayProbes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugDragOverlayProbes.swift; sourceTree = "<group>"; };
 		A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DebugLogging.swift; sourceTree = "<group>"; };
 		DEB6C0DE00000000000000A1 /* DebugWindowControlsContentProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugWindowControlsContentProvider.swift; sourceTree = "<group>"; };
 		D7EFA110000000000000002 /* DefaultTerminalRegistrationError+LocalizedCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DefaultTerminalRegistrationError+LocalizedCopy.swift"; sourceTree = "<group>"; };
@@ -1912,6 +1915,7 @@
 		B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeStyle.swift; sourceTree = "<group>"; };
 		C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarCommandPaletteTests.swift; sourceTree = "<group>"; };
 		B37A00000000000000000004 /* RightSidebarMode+Availability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarMode+Availability.swift"; sourceTree = "<group>"; };
+		A5818BBADC3B90F29F9BCB54 /* RightSidebarPanelModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelModel.swift; sourceTree = "<group>"; };
 		FE003003 /* RightSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelView.swift; sourceTree = "<group>"; };
 		B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarRemoteCommand.swift; sourceTree = "<group>"; };
 		5F5553CB5553CB5553CB0002 /* RightSidebarRemoteCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarRemoteCommandTests.swift; sourceTree = "<group>"; };
@@ -2873,6 +2877,7 @@
 				C0DE00000000000000000F06 /* TerminalController+ControlBrowserConsoleErrorsStateContext.swift */,
 				C0DE00000000000000000F12 /* TerminalController+ControlBrowserTabsContext.swift */,
 				C0DE00000000000000000C6D /* TerminalController+ControlDebugContext.swift */,
+				3256E38E04AA4255B9025107 /* DebugDragOverlayProbes.swift */,
 				C0DE00000000000000000DB1 /* ControlDebugOverlayEventToken+NSEventType.swift */,
 				C0DE00000000000000000DB3 /* NSPasteboardType+CmuxDebugDragType.swift */,
 				C0DE00000000000000000DB5 /* NSView+CmuxDebugDragHit.swift */,
@@ -3227,6 +3232,7 @@
 				B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */,
 				B37A00000000000000000004 /* RightSidebarMode+Availability.swift */,
 				B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */,
+				A5818BBADC3B90F29F9BCB54 /* RightSidebarPanelModel.swift */,
 				FE003003 /* RightSidebarPanelView.swift */,
 				FE0030A3 /* RightSidebarToolPanel.swift */,
 				D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */,
@@ -4213,6 +4219,7 @@
 				C0DE00000000000000000FF2 /* ControlBrowserEvalAwaiter+BrowserCookieStoreAwaiting.swift in Sources */,
 				C0DE00000000000000000DB2 /* ControlDebugOverlayEventToken+NSEventType.swift in Sources */,
 				DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */,
+				5CBC5063C74D4AA1AE633205 /* DebugDragOverlayProbes.swift in Sources */,
 				A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */,
 				DEB6C0DE00000000000000A0 /* DebugWindowControlsContentProvider.swift in Sources */,
 				D7EFA110000000000000001 /* DefaultTerminalRegistrationError+LocalizedCopy.swift in Sources */,
@@ -4467,6 +4474,7 @@
 				B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */,
 				B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */,
 				B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */,
+				06BAE652D11485E3851A9A24 /* RightSidebarPanelModel.swift in Sources */,
 				FE003103 /* RightSidebarPanelView.swift in Sources */,
 				B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */,
 				5EEF39C5FE74BB73FEB4D42D /* RightSidebarRemoteHostSession.swift in Sources */,

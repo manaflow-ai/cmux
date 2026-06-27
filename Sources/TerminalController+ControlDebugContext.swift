@@ -544,96 +544,48 @@ extension TerminalController: ControlDebugContext {
         return resolution
     }
 
+    // The drag/drop-overlay + pasteboard probe bodies were relocated to the
+    // app-owned `DebugDragOverlayProbes` (held as
+    // ``TerminalController/dragOverlayProbes``). Each witness keeps the
+    // `v2MainSync` scope hop (which re-establishes the socket-command
+    // focus-allowance stack this controller owns) and forwards the inner
+    // main-thread work to the probe; the relocated bodies are byte-faithful.
+
     func controlDebugSeedDragPasteboardTypes(arguments: String) -> String {
-        let raw = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty else {
-            return "ERROR: Usage: seed_drag_pasteboard_types <type[,type...]>"
-        }
-
-        let tokens = raw
-            .split(whereSeparator: { $0 == "," || $0.isWhitespace })
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard !tokens.isEmpty else {
-            return "ERROR: Usage: seed_drag_pasteboard_types <type[,type...]>"
-        }
-
-        var types: [NSPasteboard.PasteboardType] = []
-        for token in tokens {
-            guard let mapped = NSPasteboard.PasteboardType.cmuxDebugDragType(from: token) else {
-                return "ERROR: Unknown drag type '\(token)'"
-            }
-            if !types.contains(mapped) {
-                types.append(mapped)
-            }
-        }
-
-        v2MainSync {
-            _ = NSPasteboard(name: .drag).declareTypes(types, owner: nil)
-        }
-        return "OK"
+        v2MainSync { self.dragOverlayProbes.seedDragPasteboardTypes(arguments: arguments) }
     }
 
     func controlDebugClearDragPasteboard() -> String {
-        v2MainSync {
-            _ = NSPasteboard(name: .drag).clearContents()
-        }
-        return "OK"
+        v2MainSync { self.dragOverlayProbes.clearDragPasteboard() }
     }
 
     func controlDebugOverlayHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool {
-        let eventType = eventToken.nsEventType
-        var shouldCapture = false
-        v2MainSync {
-            let pb = NSPasteboard(name: .drag)
-            shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropOverlay(
-                pasteboardTypes: pb.types,
-                eventType: eventType
-            )
-        }
-        return shouldCapture
+        v2MainSync { self.dragOverlayProbes.overlayHitGate(eventToken: eventToken) }
     }
 
     func controlDebugOverlayDropGate(hasLocalDraggingSource: Bool) -> Bool {
-        var shouldCapture = false
         v2MainSync {
-            let pb = NSPasteboard(name: .drag)
-            shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
-                pasteboardTypes: pb.types,
-                hasLocalDraggingSource: hasLocalDraggingSource
-            )
+            self.dragOverlayProbes.overlayDropGate(hasLocalDraggingSource: hasLocalDraggingSource)
         }
-        return shouldCapture
     }
 
     func controlDebugPortalHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool {
-        let eventType = eventToken.nsEventType
-        var shouldPassThrough = false
-        v2MainSync {
-            let pb = NSPasteboard(name: .drag)
-            shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
-                pasteboardTypes: pb.types,
-                eventType: eventType
-            )
-        }
-        return shouldPassThrough
+        v2MainSync { self.dragOverlayProbes.portalHitGate(eventToken: eventToken) }
     }
 
     func controlDebugSidebarOverlayGate(hasSidebarDragState: Bool) -> Bool {
-        var shouldCapture = false
         v2MainSync {
-            let pb = NSPasteboard(name: .drag)
-            shouldCapture = DragOverlayRoutingPolicy.shouldCaptureSidebarExternalOverlay(
-                hasSidebarDragState: hasSidebarDragState,
-                pasteboardTypes: pb.types
-            )
+            self.dragOverlayProbes.sidebarOverlayGate(hasSidebarDragState: hasSidebarDragState)
         }
-        return shouldCapture
     }
 
     func controlDebugTerminalDropOverlayProbe(
         useDeferredPath: Bool
     ) -> ControlDebugTerminalDropOverlayProbeResolution {
+        // The controller owns the tab-graph resolution (and the
+        // `.tabManagerUnavailable`/`.noWorkspace`/`.noPanel` outcomes); the
+        // resolved panel's overlay-animation probe + `.probed` packaging live in
+        // `DebugDragOverlayProbes`.
         guard let tabManager = tabManager else { return .tabManagerUnavailable }
 
         var result: ControlDebugTerminalDropOverlayProbeResolution = .noWorkspace
@@ -650,94 +602,20 @@ extension TerminalController: ControlDebugContext {
                 return
             }
 
-            let probe = terminalPanel.hostedView.debugProbeDropOverlayAnimation(
+            result = self.dragOverlayProbes.terminalDropOverlayProbe(
+                panel: terminalPanel,
                 useDeferredPath: useDeferredPath
             )
-            result = .probed(
-                before: probe.before,
-                after: probe.after,
-                boundsWidth: Double(probe.bounds.width),
-                boundsHeight: Double(probe.bounds.height)
-            )
         }
         return result
     }
 
-    /// Hit-tests the file-drop overlay's coordinate-to-terminal mapping.
-    /// Takes normalised (0-1) x,y within the content area where (0,0) is the
-    /// top-left corner and (1,1) is the bottom-right corner.  Returns the
-    /// surface UUID of the terminal under that point, or "none".
     func controlDebugDropHitTest(nx: Double, ny: Double) -> String {
-        var result = "ERROR: No window"
-        v2MainSync {
-            guard let window = NSApp.mainWindow
-                ?? NSApp.keyWindow
-                ?? NSApp.windows.first(where: { win in
-                    guard let raw = win.identifier?.rawValue else { return false }
-                    return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
-                }),
-                  let contentView = window.contentView,
-                  let themeFrame = contentView.superview else { return }
-
-            // Convert normalized top-left coordinates into a window point.
-            let pointInTheme = NSPoint(
-                x: contentView.frame.minX + (contentView.bounds.width * nx),
-                y: contentView.frame.maxY - (contentView.bounds.height * ny)
-            )
-            let windowPoint = themeFrame.convert(pointInTheme, to: nil)
-
-            if let overlay = objc_getAssociatedObject(window, &fileDropOverlayKey) as? FileDropOverlayView,
-               let terminal = overlay.terminalUnderPoint(windowPoint),
-               let surfaceId = terminal.terminalSurface?.id {
-                result = surfaceId.uuidString.uppercased()
-                return
-            }
-
-            result = "none"
-        }
-        return result
+        v2MainSync { self.dragOverlayProbes.dropHitTest(nx: nx, ny: ny) }
     }
 
-    /// Return the hit-test chain at normalized (0-1) coordinates in the main window's
-    /// content area. Used by regression tests to detect root-level drag destinations
-    /// shadowing pane-local Bonsplit drop targets.
     func controlDebugDragHitChain(nx: Double, ny: Double) -> String {
-        var result = "ERROR: No window"
-        v2MainSync {
-            guard let window = NSApp.mainWindow
-                ?? NSApp.keyWindow
-                ?? NSApp.windows.first(where: { win in
-                    guard let raw = win.identifier?.rawValue else { return false }
-                    return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
-                }),
-                  let contentView = window.contentView,
-                  let themeFrame = contentView.superview else { return }
-
-            let pointInTheme = NSPoint(
-                x: contentView.frame.minX + (contentView.bounds.width * nx),
-                y: contentView.frame.maxY - (contentView.bounds.height * ny)
-            )
-
-            let overlay = objc_getAssociatedObject(window, &fileDropOverlayKey) as? NSView
-            if let overlay { overlay.isHidden = true }
-            defer { overlay?.isHidden = false }
-
-            guard let hit = themeFrame.hitTest(pointInTheme) else {
-                result = "none"
-                return
-            }
-
-            var chain: [String] = []
-            var current: NSView? = hit
-            var depth = 0
-            while let view = current, depth < 8 {
-                chain.append(view.cmuxDebugDragHitDescriptor)
-                current = view.superview
-                depth += 1
-            }
-            result = chain.joined(separator: "->")
-        }
-        return result
+        v2MainSync { self.dragOverlayProbes.dragHitChain(nx: nx, ny: ny) }
     }
 
     func simulateShortcut(_ args: String) -> String {
