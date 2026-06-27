@@ -740,6 +740,27 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertEqual(harness.inlineCompletion?.typedText, "gm")
         XCTAssertEqual(harness.inlineCompletion?.displayText, "gmail.com")
     }
+
+    @MainActor
+    func testPlainBackspaceCommandDoesNotInterceptMidPrefixCaret() {
+        let harness = OmnibarInlineDeletionHarness(
+            typedText: "gma",
+            displayText: "gmail.com",
+            suggestions: [
+                .history(url: "https://gmail.com/", title: "Gmail"),
+            ]
+        )
+
+        let handled = harness.commandHandled(
+            #selector(NSResponder.deleteBackward(_:)),
+            selectionRange: NSRange(location: 1, length: 0)
+        )
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(harness.state.buffer, "gma")
+        XCTAssertEqual(harness.inlineCompletion?.typedText, "gma")
+        XCTAssertEqual(harness.inlineCompletion?.displayText, "gmail.com")
+    }
 }
 
 @MainActor
@@ -959,13 +980,17 @@ private final class OmnibarInlineDeletionHarness {
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
+        let handled = commandHandled(command, selectionRange: selectionRange)
+        XCTAssertTrue(handled, file: file, line: line)
+    }
+
+    func commandHandled(_ command: Selector, selectionRange: NSRange) -> Bool {
         let coordinator = makeCoordinator()
         let editor = NSTextView()
         editor.string = inlineCompletion?.displayText ?? state.buffer
         editor.setSelectedRange(selectionRange)
 
-        let handled = coordinator.control(NSTextField(), textView: editor, doCommandBy: command)
-        XCTAssertTrue(handled, file: file, line: line)
+        return coordinator.control(NSTextField(), textView: editor, doCommandBy: command)
     }
 
     private func makeCoordinator() -> OmnibarTextFieldRepresentable.Coordinator {
