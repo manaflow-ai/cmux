@@ -578,13 +578,6 @@ fi
 # Find real claude.
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
-if (( cmux_claude_wrapper_reexec_hops > 0 )); then
-    # A previous wrapper pass already made the cmux launch decision and may have
-    # injected --session-id/--settings. While resolving a finite shim chain,
-    # forward those arguments unchanged so hooks are not merged again on re-entry.
-    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
-fi
-
 ensure_node_options_restore_module() {
     local guard_dir="${TMPDIR:-/tmp}"
     guard_dir="${guard_dir%/}/cmux-claude-node-options"
@@ -772,6 +765,21 @@ should_inject_claude_hooks() {
 
     return 0
 }
+
+if (( cmux_claude_wrapper_reexec_hops > 0 )); then
+    # A previous wrapper pass already made the cmux launch decision and may have
+    # injected --session-id/--settings. While resolving a finite shim chain,
+    # refresh per-process hook metadata, then forward argv unchanged so hooks are
+    # not merged again on re-entry.
+    unset CLAUDECODE
+    clear_inherited_claude_auth_selection_env
+    export CMUX_CLAUDE_PID=$$
+    export CMUX_CLAUDE_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
+    export CMUX_AGENT_LAUNCH_KIND="claude"
+    export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
+    export CMUX_AGENT_LAUNCH_CWD="$PWD"
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
+fi
 
 # Only inject hooks for Claude session entrypoints. Command-like invocations
 # pass through so Claude subcommands do not receive session/hook flags.

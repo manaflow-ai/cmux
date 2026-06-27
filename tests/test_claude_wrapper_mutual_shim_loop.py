@@ -753,6 +753,112 @@ done
             )
 
 
+def test_interactive_spawning_shim_chain_refreshes_claude_pid(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-interactive-spawn-shim-") as td:
+        root = Path(td)
+        cmux_shim_dir = root / "tmp" / "cmux-cli-shims" / "surface-spawn"
+        foreign_shim_dir = root / "node-shim"
+        real_dir = root / "real-bin"
+        for directory in (cmux_shim_dir, foreign_shim_dir, real_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        cmux_shim = cmux_shim_dir / "claude"
+        shutil.copy2(WRAPPER, cmux_shim)
+        cmux_shim.chmod(0o755)
+
+        write_executable(
+            cmux_shim_dir / "cmux",
+            """#!/usr/bin/env bash
+if [[ "${1:-}" == "--socket" ]]; then
+  shift 2
+fi
+if [[ "${1:-}" == "ping" ]]; then
+  exit 0
+fi
+exit 0
+""",
+        )
+        inherited_path = os.environ.get("PATH", "/usr/bin:/bin")
+        write_executable(
+            foreign_shim_dir / "claude",
+            f"""#!/usr/bin/env node
+const {{ spawnSync }} = require("node:child_process");
+process.env.PATH = "{cmux_shim_dir}:{real_dir}:{inherited_path}";
+const child = spawnSync("claude", process.argv.slice(2), {{
+  env: process.env,
+  encoding: "utf8",
+}});
+process.stdout.write(child.stdout || "");
+process.stderr.write(child.stderr || "");
+process.exit(child.status ?? 1);
+""",
+        )
+        write_executable(
+            real_dir / "claude",
+            """#!/usr/bin/env bash
+printf 'real_pid=%s\\n' "$$"
+printf 'cmux_pid=%s\\n' "${CMUX_CLAUDE_PID:-__unset__}"
+for arg in "$@"; do
+  printf 'arg=%s\\n' "$arg"
+done
+""",
+        )
+
+        socket_path = str(root / "cmux.sock")
+        test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            test_socket.bind(socket_path)
+            env = {
+                "HOME": str(root / "home"),
+                "PATH": f"{cmux_shim_dir}:{foreign_shim_dir}:{real_dir}:{inherited_path}",
+                "CMUX_CLAUDE_WRAPPER_SHIM": str(cmux_shim),
+                "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
+                "CMUX_SURFACE_ID": "surface-spawn",
+                "CMUX_SOCKET_PATH": socket_path,
+            }
+            result = subprocess.run(
+                [str(cmux_shim)],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        finally:
+            test_socket.close()
+
+        combined_output = result.stdout + result.stderr
+        if result.returncode != 0:
+            failures.append(f"interactive spawning shim chain failed with {result.returncode}: {combined_output!r}")
+            return
+
+        lines = result.stdout.splitlines()
+        values: dict[str, str] = {}
+        args: list[str] = []
+        for line in lines:
+            if line.startswith("arg="):
+                args.append(line.removeprefix("arg="))
+            elif "=" in line:
+                key, value = line.split("=", 1)
+                values[key] = value
+        if values.get("real_pid") != values.get("cmux_pid"):
+            failures.append(f"expected CMUX_CLAUDE_PID to match real process pid, got: {combined_output!r}")
+            return
+
+        settings_indexes = [index for index, arg in enumerate(args) if arg == "--settings"]
+        if len(settings_indexes) != 1:
+            failures.append(f"expected one --settings arg after spawning shim chain, got: {combined_output!r}")
+            return
+        settings_index = settings_indexes[0]
+        if settings_index + 1 >= len(args):
+            failures.append(f"expected --settings value after spawning shim chain, got: {combined_output!r}")
+            return
+        settings = json.loads(args[settings_index + 1])
+        hooks = settings.get("hooks", {})
+        if len(hooks.get("SessionStart", [])) != 1 or len(hooks.get("Stop", [])) != 3:
+            failures.append(f"expected one hook injection after spawning shim chain, got: {settings!r}")
+
+
 def main() -> int:
     failures: list[str] = []
     test_wrapper_stops_mutual_foreign_shim_loop(failures)
@@ -765,6 +871,7 @@ def main() -> int:
     test_real_shell_claude_launcher_allows_child_claude_process(failures)
     test_custom_shell_wrapper_execing_real_claude_allows_child_claude(failures)
     test_interactive_finite_shim_chain_does_not_duplicate_hooks(failures)
+    test_interactive_spawning_shim_chain_refreshes_claude_pid(failures)
     if failures:
         print("FAIL: claude wrapper mutual shim loop checks failed")
         for failure in failures:
