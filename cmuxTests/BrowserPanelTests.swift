@@ -153,6 +153,8 @@ struct BrowserPageZoomPreferenceTests {
         defaults.set("not-a-number", forKey: BrowserPageZoomPreference.storageKey)
 
         #expect(abs(preference.currentZoom() - BrowserPageZoomPreference.defaultZoom) < 0.0001)
+        #expect(abs(preference.normalizeStoredZoom() - BrowserPageZoomPreference.defaultZoom) < 0.0001)
+        #expect(abs(defaults.double(forKey: BrowserPageZoomPreference.storageKey) - Double(BrowserPageZoomPreference.defaultZoom)) < 0.0001)
     }
 }
 

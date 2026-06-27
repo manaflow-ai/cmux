@@ -1,7 +1,6 @@
 import CoreGraphics
 import Foundation
 
-@MainActor
 struct BrowserPageZoomPreference {
     static let storageKey = "browserLastPageZoom"
     static let defaultZoom: CGFloat = 1.0
