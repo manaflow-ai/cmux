@@ -2951,37 +2951,9 @@ class TerminalController: MobileViewportSurfaceLimiting {
         return result
     }
 
-    private nonisolated func v2BrowserNotFoundDiagnostics(
-        surfaceId: UUID,
-        browserPanel: BrowserPanel,
-        selector: String
-    ) -> [String: Any] {
-        let script = v2BrowserControl.notFoundDiagnosticsScript(selector: selector)
-
-        switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script, timeout: 4.0) {
-        case .failure(let message):
-            return [
-                "selector": selector,
-                "diagnostics_error": message
-            ]
-        case .success(let value):
-            guard let dict = value as? [String: Any] else {
-                return ["selector": selector]
-            }
-            var out: [String: Any] = ["selector": selector]
-            if let count = dict["count"] { out["match_count"] = count }
-            if let visibleCount = dict["visible_count"] { out["visible_match_count"] = visibleCount }
-            if let sample = dict["sample"] { out["sample"] = v2NormalizeJSValue(sample) }
-            if let excerpt = dict["snapshot_excerpt"] { out["snapshot_excerpt"] = excerpt }
-            if let body = dict["body_excerpt"] { out["body_excerpt"] = body }
-            if let title = dict["title"] { out["title"] = title }
-            if let url = dict["url"] { out["url"] = url }
-            if let err = dict["error"] { out["diagnostics_code"] = err }
-            if let details = dict["details"] { out["diagnostics_details"] = details }
-            return out
-        }
-    }
-
+    /// Forwards to ``BrowserAutomationController/browserElementNotFoundResult(actionName:selector:attempts:surfaceId:webView:host:)``.
+    /// The live `webView` is resolved app-side through the focus-propagating
+    /// `v2MainSync`; the diagnostics eval + message shaping live in CmuxBrowser.
     private nonisolated func v2BrowserElementNotFoundResult(
         actionName: String,
         selector: String,
@@ -2989,71 +2961,30 @@ class TerminalController: MobileViewportSurfaceLimiting {
         surfaceId: UUID,
         browserPanel: BrowserPanel
     ) -> V2CallResult {
-        var data = v2BrowserNotFoundDiagnostics(surfaceId: surfaceId, browserPanel: browserPanel, selector: selector)
-        data["action"] = actionName
-        data["retry_attempts"] = attempts
-        data["hint"] = "Run 'browser snapshot' to refresh refs, then retry with a more specific selector."
-
-        let count = (data["match_count"] as? Int) ?? (data["match_count"] as? NSNumber)?.intValue ?? 0
-        let visibleCount = (data["visible_match_count"] as? Int) ?? (data["visible_match_count"] as? NSNumber)?.intValue ?? 0
-
-        let message = v2BrowserControl.elementNotFoundMessage(
+        browserAutomation.browserElementNotFoundResult(
+            actionName: actionName,
             selector: selector,
-            matchCount: count,
-            visibleCount: visibleCount
+            attempts: attempts,
+            surfaceId: surfaceId,
+            webView: v2MainSync { browserPanel.webView },
+            host: self
         )
-
-        return .err(code: "not_found", message: message, data: data)
     }
 
+    /// Forwards to ``BrowserAutomationController/appendPostSnapshot(params:surfaceId:payload:host:)``.
+    /// The post-action snapshot is driven through the host seam's
+    /// ``BrowserControlHosting/v2BrowserSnapshot(params:)``.
     private nonisolated func v2BrowserAppendPostSnapshot(
         params: [String: Any],
         surfaceId: UUID,
         payload: inout [String: Any]
     ) {
-        guard v2Bool(params, "snapshot_after") ?? false else { return }
-
-        var snapshotParams: [String: Any] = [
-            "surface_id": surfaceId.uuidString,
-            "interactive": v2Bool(params, "snapshot_interactive") ?? true,
-            "cursor": v2Bool(params, "snapshot_cursor") ?? false,
-            "compact": v2Bool(params, "snapshot_compact") ?? true,
-            "max_depth": max(0, v2Int(params, "snapshot_max_depth") ?? 10)
-        ]
-        if let selector = v2String(params, "snapshot_selector"),
-           !selector.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            snapshotParams["selector"] = selector
-        }
-
-        switch v2BrowserSnapshot(params: snapshotParams) {
-        case .ok(let snapshotAny):
-            guard let snapshot = snapshotAny as? [String: Any] else {
-                payload["post_action_snapshot_error"] = [
-                    "code": "internal_error",
-                    "message": "Invalid snapshot payload"
-                ]
-                return
-            }
-            if let value = snapshot["snapshot"] {
-                payload["post_action_snapshot"] = value
-            }
-            if let value = snapshot["refs"] {
-                payload["post_action_refs"] = value
-            }
-            if let value = snapshot["title"] {
-                payload["post_action_title"] = value
-            }
-            if let value = snapshot["url"] {
-                payload["post_action_url"] = value
-            }
-        case .err(code: let code, message: let message, data: let data):
-            var err: [String: Any] = [
-                "code": code,
-                "message": message,
-            ]
-            err["data"] = v2OrNull(data)
-            payload["post_action_snapshot_error"] = err
-        }
+        browserAutomation.appendPostSnapshot(
+            params: params,
+            surfaceId: surfaceId,
+            payload: &payload,
+            host: self
+        )
     }
 
     private nonisolated func v2BrowserSelectorAction(
@@ -3179,7 +3110,9 @@ class TerminalController: MobileViewportSurfaceLimiting {
         }
     }
 
-    private nonisolated func v2BrowserSnapshot(params: [String: Any]) -> V2CallResult {
+    // `internal` (not `private`): witnesses `BrowserControlHosting.v2BrowserSnapshot`
+    // for the package-side post-action snapshot builder.
+    nonisolated func v2BrowserSnapshot(params: [String: Any]) -> V2CallResult {
         let interactiveOnly = v2Bool(params, "interactive") ?? false
         let includeCursor = v2Bool(params, "cursor") ?? false
         let compact = v2Bool(params, "compact") ?? false
@@ -5262,7 +5195,8 @@ class TerminalController: MobileViewportSurfaceLimiting {
 /// `TerminalController` is the app-side host for the CmuxBrowser browser-control
 /// seam. The conformance is satisfied entirely by the controller's existing v2
 /// browser witnesses (`v2RunBrowserJavaScript` / `v2RunJavaScript` / `v2Ref` /
-/// `v2EnsureHandleRef` / `v2RefreshKnownRefs`); no callers are rerouted through
-/// `any BrowserControlHosting` yet. Later sub-slices move the package-side
-/// `browser.*` command logic onto this seam.
+/// `v2BrowserSnapshot` / `v2EnsureHandleRef` / `v2RefreshKnownRefs`). The
+/// not-found-diagnostics, element-not-found, and post-action-snapshot result
+/// builders now live on `BrowserAutomationController` and drive these witnesses;
+/// the controller keeps one-line forwarders under the original names.
 extension TerminalController: BrowserControlHosting {}
