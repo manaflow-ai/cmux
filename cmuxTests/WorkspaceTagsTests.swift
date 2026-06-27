@@ -43,6 +43,16 @@ import Testing
         #expect(restored.customTags == ["In CI", "Waiting for review"])
     }
 
+    @Test func workspaceTagsParticipateInAutosaveFingerprint() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let before = manager.sessionAutosaveFingerprint()
+
+        manager.setCustomTags(tabId: workspace.id, editingText: "In CI")
+
+        #expect(manager.sessionAutosaveFingerprint() != before)
+    }
+
     @Test func emptyWorkspaceTagsAreOmittedAndLegacySnapshotsDecode() throws {
         let snapshot = SessionWorkspaceSnapshot(
             processTitle: "Terminal",
