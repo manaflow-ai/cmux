@@ -34,25 +34,10 @@ private struct SectionPopoverView: View {
     @State private var query: String = ""
     @FocusState private var searchFieldFocused: Bool
 
-    /// Rows currently rendered in the popover. In snapshot mode this is a
-    /// prefix of `fullSnapshot`; in typed-query mode it's the accumulated
-    /// pages from the store.
-    @State private var loaded: [SessionEntry] = []
-    @State private var hasMore: Bool = true
-    @State private var isLoading: Bool = false
-    @State private var activeQuery: String = ""
-    /// In-flight pagination task for the typed-query path. Reassigned by
-    /// `loadMore()`; the previous task is cancelled implicitly. The initial /
-    /// query-change load is owned by SwiftUI via `.task(id: query)` and
-    /// doesn't use this slot.
-    @State private var loadTask: Task<Void, Never>?
-    @State private var errorMessages: [String] = []
-    /// Full merged snapshot of the directory (empty-query directory scope
-    /// only). When non-nil, `loadMore()` slices this array in memory
-    /// instead of hitting the store.
-    @State private var fullSnapshot: [SessionEntry]?
-
-    private static let pageSize = 100
+    /// Paged/snapshot search state machine for this popover. Recreated (reset
+    /// to its initial state) whenever the popover's SwiftUI identity changes,
+    /// matching the prior view-local `@State` reset.
+    @State private var model = SectionPopoverSearchModel()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -103,9 +88,9 @@ private struct SectionPopoverView: View {
 
             Divider()
 
-            if !errorMessages.isEmpty {
+            if !model.errorMessages.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach(errorMessages, id: \.self) { msg in
+                    ForEach(model.errorMessages, id: \.self) { msg in
                         HStack(alignment: .top, spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .font(.system(size: 10))
@@ -123,9 +108,9 @@ private struct SectionPopoverView: View {
             }
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if isLoading && loaded.isEmpty {
+                    if model.isLoading && model.loaded.isEmpty {
                         loadingRow
-                    } else if loaded.isEmpty {
+                    } else if model.loaded.isEmpty {
                         Text(String(localized: "sessionIndex.popover.noMatches",
                                     defaultValue: "No matches"))
                             .font(.system(size: 12))
@@ -134,20 +119,20 @@ private struct SectionPopoverView: View {
                             .padding(.vertical, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        ForEach(loaded) { entry in
+                        ForEach(model.loaded) { entry in
                             PopoverRow(entry: entry) {
                                 onResume?(entry)
                                 onDismiss()
                             }
                             .equatable()
                         }
-                        if hasMore {
+                        if model.hasMore {
                             // Always visible while more pages exist. Serves
                             // as both the "Loading..." indicator and the
                             // pagination sentinel; its .onAppear fires
                             // loadMore() when it scrolls into view.
                             loadingRow
-                                .onAppear { loadMore() }
+                                .onAppear { model.loadMore(section: section, search: search) }
                         } else {
                             Text(String(localized: "sessionIndex.popover.endOfList",
                                         defaultValue: "You've reached the end"))
@@ -185,83 +170,28 @@ private struct SectionPopoverView: View {
             // Task { ... }` later doesn't cancel the previous handle on its
             // own, so without this a stale page could still land and
             // append rows that don't match the new query.
-            loadTask?.cancel()
-            loadTask = nil
+            model.cancelPagination()
 
             if !searchFieldFocused {
                 searchFieldFocused = true
             }
 
-            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            activeQuery = trimmed
-            errorMessages = []
-
-            if trimmed.isEmpty {
-                // Fast first frame: render the scan-time top-N we already
-                // have while the full snapshot builds in parallel. On
-                // warm cache the snapshot returns immediately and the
-                // fast-path rows are replaced in the same tick.
-                loaded = section.entries
-                hasMore = !section.entries.isEmpty
-
-                // Build-or-return the full directory snapshot. For
-                // directory scope scrolling this replaces per-page store
-                // fetches with a single merged array + in-memory slice.
-                // Agent-scope popovers keep the old paged flow (no
-                // snapshot needed, store.entries already top-N per agent).
-                if case .directory(let path) = section.key.searchScope {
-                    // Keep isLoading=true while the snapshot builds so the
-                    // sentinel's onAppear can't race and fire a paged
-                    // loadMore() against the store — otherwise we end up
-                    // running both the snapshot path AND a paged search in
-                    // parallel for the same open (observed in logs as
-                    // duplicate session.search.agent lines for the same
-                    // cwd, followed by session.search.total offset=N).
-                    isLoading = true
-                    let snapshot = await loadSnapshot(path)
-                    guard !Task.isCancelled else { return }
-                    fullSnapshot = snapshot.entries
-                    // Show the first page's worth immediately; loadMore
-                    // grows `loaded` from the snapshot on scroll.
-                    let initialWindow = min(Self.pageSize, snapshot.entries.count)
-                    loaded = Array(snapshot.entries.prefix(initialWindow))
-                    hasMore = initialWindow < snapshot.entries.count
-                    errorMessages = snapshot.errors
-                    isLoading = false
-                } else {
-                    fullSnapshot = nil
-                    isLoading = false
-                }
-                return
-            }
-
-            // Typed query — drop any prior snapshot and run a paged
-            // search instead. Cancellation-sensitive debounce: rapid
-            // keystrokes bump id: and SwiftUI cancels before the search
-            // fires.
-            fullSnapshot = nil
-            loaded = []
-            hasMore = true
-            isLoading = true
-
-            do {
-                try await Task.sleep(for: .milliseconds(200))
-            } catch {
-                return
-            }
-
-            let outcome = await search(trimmed, section.key.searchScope, 0, Self.pageSize)
-            guard !Task.isCancelled else { return }
-            applyOutcome(outcome, append: false)
+            // The load body runs inside this SwiftUI-owned task, so its
+            // cancellation (on view disappear or any `query` change)
+            // propagates into the awaited model call exactly as before.
+            await model.load(
+                query: query,
+                section: section,
+                search: search,
+                loadSnapshot: loadSnapshot
+            )
         }
         .onDisappear {
             // .task(id: query) auto-cancels on disappear, but the
             // separate loadTask slot (used by loadMore) is ours to
             // manage. Cancel it so a fetch in flight when the popover
             // closes doesn't keep running to completion.
-            loadTask?.cancel()
-            loadTask = nil
-            isLoading = false
+            model.handleDisappear()
         }
     }
 
@@ -276,63 +206,6 @@ private struct SectionPopoverView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// Append the next page to `loaded`. Triggered by the sentinel row's
-    /// onAppear. In snapshot mode (empty-query directory scope) this is a
-    /// pure in-memory array slice with zero store calls. In typed-query mode
-    /// it fires a paged search. Explicitly cancels any earlier load-more
-    /// still in flight so a superseded page can't append stale rows after
-    /// a query change.
-    private func loadMore() {
-        guard !isLoading, hasMore else { return }
-
-        if let snapshot = fullSnapshot {
-            let next = min(loaded.count + Self.pageSize, snapshot.count)
-            loaded = Array(snapshot.prefix(next))
-            hasMore = next < snapshot.count
-            return
-        }
-
-        isLoading = true
-        let scope = section.key.searchScope
-        let search = self.search
-        let query = activeQuery
-        let offset = loaded.count
-        loadTask?.cancel()
-        loadTask = Task { @MainActor in
-            let outcome = await search(query, scope, offset, Self.pageSize)
-            guard !Task.isCancelled else { return }
-            applyOutcome(outcome, append: true)
-        }
-    }
-
-    /// Merge a fetch result into the popover's display state. Both the
-    /// initial-page and load-more paths converge here so the count/hasMore/
-    /// error/loading bookkeeping lives in one place.
-    @MainActor
-    private func applyOutcome(_ outcome: SessionIndexStore.SearchOutcome, append: Bool) {
-        // `append` is only reached from the paged path (typed query or
-        // agent scope). In both cases `offset = loaded.count` is
-        // monotonic against the store's ordering, so raw-append is
-        // correct. The empty-query directory case uses the snapshot
-        // path and never reaches here.
-        //
-        // Earlier revisions of this method dedup-filtered outcome.entries
-        // on entry.id; with `hasMore = outcome.entries.count >=
-        // pageSize` and `offset = loaded.count`, filtering caused
-        // loaded.count to advance more slowly than the raw page size,
-        // which kept hasMore perpetually true and re-requested the
-        // same window. Removing the dedup makes the cursor match the
-        // page boundaries the store actually returns.
-        if append {
-            loaded.append(contentsOf: outcome.entries)
-        } else {
-            loaded = outcome.entries
-        }
-        hasMore = outcome.entries.count >= Self.pageSize
-        errorMessages = outcome.errors
-        isLoading = false
     }
 
     @ViewBuilder
