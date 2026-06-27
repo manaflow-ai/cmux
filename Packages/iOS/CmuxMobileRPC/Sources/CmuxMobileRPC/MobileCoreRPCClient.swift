@@ -155,8 +155,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         guard case let .authorizationFailed(message) = error else {
             return false
         }
-        let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalizedMessage == "Mobile sync authorization failed."
+        let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let mentionsAttachToken = normalizedMessage.contains("attach token")
+            || normalizedMessage.contains("attach-token")
+            || normalizedMessage.contains("attach_ticket")
+            || normalizedMessage.contains("invalid_attach_token")
+        guard !mentionsAttachToken else {
+            return false
+        }
+        return normalizedMessage == "unauthorized"
+            || normalizedMessage == "authorization failed"
+            || (normalizedMessage.contains("mobile sync") && normalizedMessage.contains("auth"))
     }
 
     /// Force a single Stack token refresh ahead of a retry.
