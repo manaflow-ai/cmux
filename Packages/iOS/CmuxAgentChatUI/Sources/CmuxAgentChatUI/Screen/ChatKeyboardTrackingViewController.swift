@@ -313,7 +313,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         let composerHeight = measuredComposerHeight(width: bounds.width)
         let bottomInset = showsComposer
             ? max(0, ceil(composerHeight + bottomSafeAreaUnderlap))
-            : 0
+            : max(0, ceil(bottomSafeAreaUnderlap))
         let fullTranscriptHeight = max(0, layoutHeight)
         updateConstraint(composerHeightConstraint, to: composerHeight)
         updateConstraint(transcriptClipTopConstraint, to: 0)
