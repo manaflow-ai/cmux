@@ -18,9 +18,6 @@ public struct CodexTranscriptIdentityMatcher: Sendable {
     public func transcript(at url: URL, matchesSessionID sessionID: String) -> Bool {
         let normalizedSessionID = normalized(sessionID)
         guard !normalizedSessionID.isEmpty else { return false }
-        guard url.lastPathComponent.lowercased().contains(normalizedSessionID) else {
-            return false
-        }
         return sessionMetaID(at: url)?.lowercased() == normalizedSessionID
     }
 

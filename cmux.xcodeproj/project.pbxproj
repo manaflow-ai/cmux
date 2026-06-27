@@ -222,6 +222,7 @@
 		B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000030A1B2C3D4E5F60719 /* cmux_open.swift */; };
 		A5001654 /* CmuxActionTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001655 /* CmuxActionTrust.swift */; };
 		AC4A6E7C4A700001AC4A0001 /* CmuxAgentChat in Frameworks */ = {isa = PBXBuildFile; productRef = AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */; };
+		C0D555000000000000000001 /* CmuxAgentChat in Frameworks */ = {isa = PBXBuildFile; productRef = C0D555000000000000000002 /* CmuxAgentChat */; };
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00005A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
@@ -2319,6 +2320,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0D555000000000000000001 /* CmuxAgentChat in Frameworks */,
 				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				CF00F00000000000000000A4 /* CmuxFoundation in Frameworks */,
 				CD0CFE5700000000CD0CFE57 /* CmuxSettings in Frameworks */,
@@ -3608,6 +3610,7 @@
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
 				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
+				C0D555000000000000000002 /* CmuxAgentChat */,
 				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
 				CF00F00000000000000000A2 /* CmuxFoundation */,
 			);
@@ -5609,6 +5612,11 @@
 			productName = CmuxAuthRuntime;
 		};
 		AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AC4A6E7C4A700001AC4A0003 /* XCLocalSwiftPackageReference "CmuxAgentChat" */;
+			productName = CmuxAgentChat;
+		};
+		C0D555000000000000000002 /* CmuxAgentChat */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = AC4A6E7C4A700001AC4A0003 /* XCLocalSwiftPackageReference "CmuxAgentChat" */;
 			productName = CmuxAgentChat;

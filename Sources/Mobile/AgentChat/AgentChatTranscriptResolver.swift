@@ -1,5 +1,4 @@
 import CmuxAgentChat
-import CmuxFoundation
 import Foundation
 
 /// Resolves the transcript JSONL path for an agent session.
@@ -9,6 +8,7 @@ import Foundation
 /// codex: rollout whose confirmed session id matches exactly).
 struct AgentChatTranscriptResolver: Sendable {
     private let homeDirectory: URL
+    private let now: @Sendable () -> Date
     private static let claudeTranscriptTitleReadLimit = 1_048_576
     private static let claudeTranscriptTitleChunkSize = 64 * 1024
     private static let claudeTranscriptTitleMaxLineBytes = 256 * 1024
@@ -16,8 +16,12 @@ struct AgentChatTranscriptResolver: Sendable {
     /// Creates a resolver.
     ///
     /// - Parameter homeDirectory: Injectable home directory for tests.
-    init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    init(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.homeDirectory = homeDirectory
+        self.now = now
     }
 
     /// Resolves the transcript path for a session.
@@ -182,18 +186,12 @@ struct AgentChatTranscriptResolver: Sendable {
         let root = homeDirectory
             .appendingPathComponent(".codex", isDirectory: true)
             .appendingPathComponent("sessions", isDirectory: true)
-        guard let enumerator = fileManager.enumerator(
-            at: root,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else { return nil }
-        for case let url as URL in enumerator {
-            guard url.pathExtension == "jsonl" else { continue }
-            if CodexTranscriptIdentityMatcher().transcript(at: url, matchesSessionID: normalizedSessionID) {
-                return url.path
-            }
-        }
-        return nil
+        return CodexTranscriptLocator().transcriptPath(
+            sessionID: normalizedSessionID,
+            sessionsURL: root,
+            fileManager: fileManager,
+            now: now()
+        )
     }
 
     private static func normalizedClaudeTitle(_ title: String?) -> String? {
