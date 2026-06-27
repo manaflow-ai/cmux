@@ -3298,13 +3298,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     previews = try await fetchSecondaryWorkspacesThrowing(on: client, macDeviceID: macID)
                 } catch {
                     mobileShellLog.warning(
-                        "secondary workspace fetch failed mac=\(macID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                        "secondary workspace fetch failed mac=\(macID, privacy: .public) error=\(String(describing: error), privacy: .private)"
                     )
                     previews = nil
                 }
             } else {
                 mobileShellLog.warning(
-                    "secondary workspace fetch failed mac=\(macID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                    "secondary workspace fetch failed mac=\(macID, privacy: .public) error=\(String(describing: error), privacy: .private)"
                 )
                 previews = nil
             }

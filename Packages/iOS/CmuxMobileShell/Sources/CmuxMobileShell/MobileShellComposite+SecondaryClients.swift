@@ -5,7 +5,7 @@ import CmuxMobileShellModel
 import Foundation
 import os
 
-private let secondaryClientLog = Logger(
+nonisolated private let secondaryClientLog = Logger(
     subsystem: "com.cmux.mobile",
     category: "MobileShellComposite"
 )
