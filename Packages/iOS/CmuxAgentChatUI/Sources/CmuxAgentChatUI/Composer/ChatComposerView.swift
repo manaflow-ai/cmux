@@ -377,13 +377,12 @@ public struct ChatComposerView: View {
     }
 
     @MainActor private var attachButton: some View {
-        PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
-            MobileComposerIconLabel(
-                systemImage: "paperclip",
-                foregroundStyle: AnyShapeStyle(Color.secondary.opacity(0.8)),
-                size: controlHeight
-            )
-        }
+        let label = MobileComposerIconLabel(
+            systemImage: "paperclip",
+            foregroundStyle: AnyShapeStyle(Color.secondary.opacity(0.8)),
+            size: controlHeight
+        )
+        return PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) { label }
         .buttonStyle(.plain)
         .accessibilityIdentifier("ChatComposerAttach")
         .accessibilityLabel(
