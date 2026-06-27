@@ -491,8 +491,8 @@ struct MobileHostAuthorizationTests {
 
         #expect(error?.code == "forbidden")
     }
-    @Test(arguments: [("workspace", false), ("", true)]) func testAttachTicketAuthorizesWorkspaceCreateOnlyWhenMacScoped(_ workspaceID: String, _ allowed: Bool) throws {
-        let ticket = try scopedAttachTicket(workspaceID: workspaceID, terminalID: "terminal")
+    @Test(arguments: [("workspace", "terminal", false), ("", "", true)]) func testAttachTicketAuthorizesWorkspaceCreateOnlyWhenMacScoped(_ workspaceID: String, _ terminalID: String, _ allowed: Bool) throws {
+        let ticket = try scopedAttachTicket(workspaceID: workspaceID, terminalID: terminalID.isEmpty ? nil : terminalID)
         let request = MobileHostRPCRequest(
             id: "workspace-create",
             method: "workspace.create",
