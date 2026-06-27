@@ -6805,6 +6805,11 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         return markdownPanel
     }
 
+    /// Thin forwarder to ``SurfaceCreationCoordinator/newProjectSurface(inPane:projectPath:focus:targetIndex:host:)``.
+    /// The coordinator owns the create-tab orchestration and drives every live
+    /// read and registry/bonsplit mutation back through this `Workspace`'s
+    /// ``SurfaceCreationHosting`` conformance; it returns the new panel's `id`,
+    /// which this maps back to the typed `ProjectPanel`.
     @discardableResult
     func newProjectSurface(
         inPane paneId: PaneID,
@@ -6812,49 +6817,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> ProjectPanel? {
-        guard !projectPath.isEmpty else { return nil }
-        let url = surfaceCreation.standardizedProjectURL(projectPath: projectPath)
-        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
-        let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
-
-        let projectPanel = ProjectPanel(projectURL: url)
-        panels[projectPanel.id] = projectPanel
-        panelTitles[projectPanel.id] = projectPanel.displayTitle
-
-        guard let newTabId = bonsplitController.createTab(
-            title: projectPanel.displayTitle,
-            icon: projectPanel.displayIcon,
-            kind: SurfaceKind.project.rawValue,
-            isDirty: false,
-            isLoading: false,
-            isPinned: false,
-            inPane: paneId
-        ) else {
-            panels.removeValue(forKey: projectPanel.id)
-            panelTitles.removeValue(forKey: projectPanel.id)
-            return nil
-        }
-
-        surfaceIdToPanelId[newTabId] = projectPanel.id
-        if let targetIndex {
-            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
-        }
-        publishCmuxSurfaceCreated(projectPanel.id, paneId: paneId, kind: SurfaceKind.project.rawValue, origin: "project_tab", focused: shouldFocusNewTab)
-        if shouldFocusNewTab {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(newTabId)
-            applyTabSelection(tabId: newTabId, inPane: paneId)
-        } else {
-            preserveFocusAfterNonFocusSplit(
-                preferredPanelId: previousFocusedPanelId,
-                splitPanelId: projectPanel.id,
-                previousHostedView: previousHostedView
-            )
-        }
-
-        projectPanel.reload()
-        return projectPanel
+        surfaceCreation.newProjectSurface(
+            inPane: paneId,
+            projectPath: projectPath,
+            focus: focus,
+            targetIndex: targetIndex,
+            host: self
+        ).flatMap { panels[$0] as? ProjectPanel }
     }
 
     @discardableResult
@@ -8863,6 +8832,62 @@ extension Workspace: SurfaceCreationHosting {
 #if DEBUG
         cmuxDebugLog("zoom.inherit fallback=lastKnownFont context=split font=\(String(format: "%.2f", fontPoints))")
 #endif
+    }
+
+    // MARK: Create-tab live state
+    //
+    // `focusedBonsplitPaneId`, `focusedPanelId`, `reorderTab(_:toIndex:)`,
+    // `publishCmuxSurfaceCreated`, `focusPane(_:)`, `selectTab(_:)`, and
+    // `applyTabSelection(tabId:inPane:)` are shared witnesses already implemented
+    // for the `SplitMoveReorderHosting`/lifecycle conformances; they satisfy the
+    // identical `SurfaceCreationHosting` requirements from those single
+    // implementations. The members below are the create-tab-specific witnesses.
+
+    var focusedTerminalHostedView: AnyObject? { focusedTerminalPanel?.hostedView }
+
+    func registerProjectPanel(projectURL: URL) -> SurfaceTabDescriptor {
+        let projectPanel = ProjectPanel(projectURL: projectURL)
+        panels[projectPanel.id] = projectPanel
+        panelTitles[projectPanel.id] = projectPanel.displayTitle
+        return SurfaceTabDescriptor(
+            id: projectPanel.id,
+            displayTitle: projectPanel.displayTitle,
+            displayIcon: projectPanel.displayIcon,
+            isDirty: false
+        )
+    }
+
+    func createSurfaceTab(descriptor: SurfaceTabDescriptor, kind: String, inPane paneId: PaneID) -> TabID? {
+        guard let newTabId = bonsplitController.createTab(
+            title: descriptor.displayTitle,
+            icon: descriptor.displayIcon,
+            kind: kind,
+            isDirty: descriptor.isDirty,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            return nil
+        }
+        surfaceIdToPanelId[newTabId] = descriptor.id
+        return newTabId
+    }
+
+    func preserveSurfaceFocusAfterNonFocusSplit(preferredPanelId: UUID?, splitPanelId: UUID, previousHostedView: AnyObject?) {
+        preserveFocusAfterNonFocusSplit(
+            preferredPanelId: preferredPanelId,
+            splitPanelId: splitPanelId,
+            previousHostedView: previousHostedView as? GhosttySurfaceScrollView
+        )
+    }
+
+    func discardPanelRegistration(id: UUID) {
+        panels.removeValue(forKey: id)
+        panelTitles.removeValue(forKey: id)
+    }
+
+    func reloadProjectPanel(id: UUID) {
+        (panels[id] as? ProjectPanel)?.reload()
     }
 }
 
