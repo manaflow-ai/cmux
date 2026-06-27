@@ -105,8 +105,8 @@
 885	cmuxTests/SidebarWorkspaceDropPlannerTests.swift
 877	Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift
 871	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
+871	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
-868	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 859	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 847	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift

@@ -666,9 +666,12 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         if app.state == .runningBackground {
             app.activate()
-            _ = waitForCondition(timeout: timeout) {
-                app.state == .runningForeground || app.windows.firstMatch.exists
-            }
+            XCTAssertTrue(
+                waitForCondition(timeout: timeout) {
+                    app.state == .runningForeground || app.windows.firstMatch.exists
+                },
+                "Expected app window to become accessible after launch. state=\(app.state.rawValue)"
+            )
         }
     }
 
