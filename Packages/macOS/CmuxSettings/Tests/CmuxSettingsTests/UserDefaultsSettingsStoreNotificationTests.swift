@@ -31,6 +31,56 @@ struct UserDefaultsSettingsStoreNotificationTests {
         #expect(storedValue == "#EXTERNAL")
     }
 
+    @Test func observedDirectDefaultsOverwriteWithSupersededSourceRejectsOlderPendingSource() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        let externalDefaults = UserDefaults(suiteName: suiteName)!
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let recorder = UserDefaultsSettingsEventRecorder<String>()
+        let firstSource = UserDefaultsSettingsMutationSource(
+            ownerID: UUID(),
+            sequence: 1,
+            logicalOrder: 10
+        )
+        let delayedSource = UserDefaultsSettingsMutationSource(
+            ownerID: UUID(),
+            sequence: 1,
+            logicalOrder: 11
+        )
+        let task = Task {
+            let stream = await store.valueEvents(for: key)
+            for await event in stream {
+                await recorder.append(event)
+                if await recorder.count() >= 2 {
+                    break
+                }
+            }
+        }
+        defer {
+            task.cancel()
+        }
+
+        await waitForEventCount(1, in: recorder)
+
+        await store.set("#LOCAL", for: key, source: firstSource)
+        externalDefaults.set("#EXTERNAL", forKey: key.userDefaultsKey)
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: externalDefaults
+        )
+
+        let externalEvent = await waitForEvent(in: recorder) { event in
+            event.value == "#EXTERNAL" && event.supersededMutationSource == firstSource
+        }
+        #expect(externalEvent?.mutationSource == nil)
+        #expect(externalEvent?.supersededMutationSource == firstSource)
+
+        let acceptedSource = await store.set("#DELAYED", for: key, source: delayedSource)
+        let storedValue = await store.value(for: key)
+        #expect(acceptedSource == nil)
+        #expect(storedValue == "#EXTERNAL")
+    }
+
     @Test func valueEventsDrainSupersededSourceAfterUnrelatedSameValueNotification() async {
         let store = UserDefaultsSettingsStore(
             defaults: UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
