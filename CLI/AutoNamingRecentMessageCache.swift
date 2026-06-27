@@ -6,24 +6,41 @@ struct AutoNamingRecentMessageCache: Sendable {
 
     func appending(
         _ messages: [AutoNamingTranscriptMessage],
-        to recentMessages: [AutoNamingTranscriptMessage]
-    ) -> (messages: [AutoNamingTranscriptMessage], insertedCount: Int) {
+        batchKey: String?,
+        to recentMessages: [AutoNamingTranscriptMessage],
+        recentBatchKeys: [String]
+    ) -> (messages: [AutoNamingTranscriptMessage], batchKeys: [String], progressCount: Int) {
+        let normalizedBatchKey = batchKey.map(normalizedSingleLine).flatMap { $0.isEmpty ? nil : $0 }
+        var batchKeys = recentBatchKeys
+        if let normalizedBatchKey, batchKeys.contains(normalizedBatchKey) {
+            return (recentMessages, batchKeys, 0)
+        }
         var recent = recentMessages
         var seen = Set(recent.map(dedupKey))
         var eventSeen = Set<String>()
-        var insertedCount = 0
+        var eventMessages: [AutoNamingTranscriptMessage] = []
         for message in messages {
             guard let normalized = normalizedMessage(message) else { continue }
             let key = dedupKey(normalized)
             guard eventSeen.insert(key).inserted else { continue }
-            guard seen.insert(key).inserted else { continue }
-            insertedCount += 1
+            eventMessages.append(normalized)
+        }
+        var progressCount = normalizedBatchKey == nil ? 0 : eventMessages.count
+        for normalized in eventMessages {
+            guard seen.insert(dedupKey(normalized)).inserted else { continue }
+            if normalizedBatchKey == nil { progressCount += 1 }
             recent.append(normalized)
         }
         if recent.count > maxMessages {
             recent.removeFirst(recent.count - maxMessages)
         }
-        return (recent, insertedCount)
+        if let normalizedBatchKey {
+            batchKeys.append(normalizedBatchKey)
+            if batchKeys.count > maxMessages {
+                batchKeys.removeFirst(batchKeys.count - maxMessages)
+            }
+        }
+        return (recent, batchKeys, progressCount)
     }
 
     private func normalizedMessage(_ message: AutoNamingTranscriptMessage) -> AutoNamingTranscriptMessage? {

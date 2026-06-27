@@ -202,25 +202,25 @@ import Testing
         #expect(engine.extractMessages(fromTranscriptLines: ["", "garbage", "{}"]).isEmpty)
     }
 
-    @Test func hookMessageCacheCountsOnlyInsertedMessages() {
+    @Test func hookMessageCacheSuppressesReplayButCountsRepeatedNewBatches() {
         let cache = AutoNamingRecentMessageCache(maxMessages: 24, maxMessageCharacters: 1_000)
         let first = cache.appending([
             AutoNamingTranscriptMessage(role: "user", text: "Fix auth")
-        ], to: [])
+        ], batchKey: "batch-1", to: [], recentBatchKeys: [])
         let replay = cache.appending([
             AutoNamingTranscriptMessage(role: "USER", text: " Fix   auth "),
             AutoNamingTranscriptMessage(role: "assistant", text: " "),
             AutoNamingTranscriptMessage(role: "tool", text: "ignored")
-        ], to: first.messages)
+        ], batchKey: "batch-1", to: first.messages, recentBatchKeys: first.batchKeys)
         let next = cache.appending([
-            AutoNamingTranscriptMessage(role: "assistant", text: "Added tests")
-        ], to: replay.messages)
+            AutoNamingTranscriptMessage(role: "user", text: "Fix auth")
+        ], batchKey: "batch-2", to: replay.messages, recentBatchKeys: replay.batchKeys)
 
-        #expect(first.insertedCount == 1)
-        #expect(replay.insertedCount == 0)
+        #expect(first.progressCount == 1)
+        #expect(replay.progressCount == 0)
         #expect(replay.messages == first.messages)
-        #expect(next.insertedCount == 1)
-        #expect(next.messages.count == 2)
+        #expect(next.progressCount == 1)
+        #expect(next.messages == first.messages)
     }
 
     @Test func extractionDiagnosticsExposeMalformedOrUnknownFormats() throws {

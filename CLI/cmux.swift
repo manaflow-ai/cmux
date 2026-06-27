@@ -173,6 +173,7 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameLastAttemptAt: TimeInterval?
     var autoNameFailureCount: Int?
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
+    var autoNameRecentMessageBatchKeys: [String]?
     var autoNameMessageSequence: Int?
 }
 
@@ -439,6 +440,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         autoNameMessages: [AutoNamingTranscriptMessage] = [],
+        autoNameMessageBatchKey: String? = nil,
         rejectTerminalTurn: Bool = false
     ) throws -> (staleTerminalTurn: Bool, nested: Bool) {
         let normalized = normalizeSessionId(sessionId)
@@ -476,7 +478,7 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
-            appendAutoNameMessages(autoNameMessages, to: &record)
+            appendAutoNameMessages(autoNameMessages, batchKey: autoNameMessageBatchKey, to: &record)
             if let normalizedTurnId {
                 markPromptTurnActive(normalizedTurnId, on: &record)
                 var turnStack = activePromptTurnStack(from: record)
@@ -548,7 +550,8 @@ final class ClaudeHookSessionStore {
         updateLastNotificationStatus: Bool = false,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
-        autoNameMessages: [AutoNamingTranscriptMessage] = []
+        autoNameMessages: [AutoNamingTranscriptMessage] = [],
+        autoNameMessageBatchKey: String? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -581,7 +584,7 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
-            appendAutoNameMessages(autoNameMessages, to: &record)
+            appendAutoNameMessages(autoNameMessages, batchKey: autoNameMessageBatchKey, to: &record)
             let normalizedTurnId = normalizeOptional(turnId)
             if let normalizedTurnId {
                 var turnStack = activePromptTurnStack(from: record)
@@ -1055,6 +1058,7 @@ final class ClaudeHookSessionStore {
 
     private func appendAutoNameMessages(
         _ messages: [AutoNamingTranscriptMessage],
+        batchKey: String?,
         to record: inout ClaudeHookSessionRecord
     ) {
         guard !messages.isEmpty else { return }
@@ -1062,10 +1066,16 @@ final class ClaudeHookSessionStore {
             maxMessages: Self.maxAutoNameRecentMessages,
             maxMessageCharacters: Self.maxAutoNameMessageCharacters
         )
-        let updated = cache.appending(messages, to: record.autoNameRecentMessages ?? [])
+        let updated = cache.appending(
+            messages,
+            batchKey: batchKey,
+            to: record.autoNameRecentMessages ?? [],
+            recentBatchKeys: record.autoNameRecentMessageBatchKeys ?? []
+        )
         record.autoNameRecentMessages = updated.messages.isEmpty ? nil : updated.messages
-        if updated.insertedCount > 0 {
-            record.autoNameMessageSequence = (record.autoNameMessageSequence ?? 0) + updated.insertedCount
+        record.autoNameRecentMessageBatchKeys = updated.batchKeys.isEmpty ? nil : updated.batchKeys
+        if updated.progressCount > 0 {
+            record.autoNameMessageSequence = (record.autoNameMessageSequence ?? 0) + updated.progressCount
         }
     }
 
@@ -30130,15 +30140,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                         pid: pid,
                         launchCommand: launchCommand,
-                        agentLifecycle: .running,
-                        autoNameMessages: autoNamingMessages(
-                            for: def,
-                            parsedInput: input,
-                            client: client,
-                            workspaceId: workspaceId, surfaceId: surfaceId
-                        ),
-                        rejectTerminalTurn: def.name == "codex"
-                    )) ?? (staleTerminalTurn: false, nested: false)
+	                        agentLifecycle: .running,
+	                        autoNameMessages: autoNamingMessages(
+	                            for: def,
+	                            parsedInput: input,
+	                            client: client,
+	                            workspaceId: workspaceId, surfaceId: surfaceId
+	                        ),
+	                        autoNameMessageBatchKey: autoNamingMessageBatchKey(for: def, parsedInput: input),
+	                        rejectTerminalTurn: def.name == "codex"
+	                    )) ?? (staleTerminalTurn: false, nested: false)
                     if recordResult.staleTerminalTurn {
                         stopStaleCodexPromptSubmit()
                         return
@@ -30450,14 +30461,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     launchCommand: launchCommand,
                     agentLifecycle: lifecycleAfterStop,
                     lastSubtitle: nil,
-                    lastBody: nil,
-                    autoNameMessages: autoNamingMessages(
-                        for: def,
-                        parsedInput: input,
-                        client: client,
-                        workspaceId: workspaceId, surfaceId: surfaceId
-                    )
-                )) ?? false
+	                    lastBody: nil,
+	                    autoNameMessages: autoNamingMessages(
+	                        for: def,
+	                        parsedInput: input,
+	                        client: client,
+	                        workspaceId: workspaceId, surfaceId: surfaceId
+	                    ),
+	                    autoNameMessageBatchKey: autoNamingMessageBatchKey(for: def, parsedInput: input)
+	                )) ?? false
             } else {
                 nestedPromptStop = false
             }
@@ -30829,14 +30841,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         lastNotificationStatus: summary.status,
                         updateLastNotificationStatus: true,
                         runtimeStatus: runtimeStatus(for: summary.status),
-                        updateRuntimeStatus: true,
-                        autoNameMessages: autoNamingMessages(
-                            for: def,
-                            parsedInput: input,
-                            client: client,
-                            workspaceId: workspaceId, surfaceId: surfaceId
-                        )
-                    )
+	                        updateRuntimeStatus: true,
+	                        autoNameMessages: autoNamingMessages(
+	                            for: def,
+	                            parsedInput: input,
+	                            client: client,
+	                            workspaceId: workspaceId, surfaceId: surfaceId
+	                        ),
+	                        autoNameMessageBatchKey: autoNamingMessageBatchKey(for: def, parsedInput: input)
+	                    )
                 } else {
                     try? store.upsert(
                         sessionId: sessionId,
@@ -30962,14 +30975,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         pid: mapped.pid,
                         launchCommand: mapped.launchCommand,
                         lastSubtitle: nil,
-                        lastBody: nil,
-                        autoNameMessages: autoNamingMessages(
-                            for: def,
-                            parsedInput: input,
-                            client: client,
-                            workspaceId: mapped.workspaceId, surfaceId: mapped.surfaceId
-                        )
-                    )
+	                        lastBody: nil,
+	                        autoNameMessages: autoNamingMessages(
+	                            for: def,
+	                            parsedInput: input,
+	                            client: client,
+	                            workspaceId: mapped.workspaceId, surfaceId: mapped.surfaceId
+	                        ),
+	                        autoNameMessageBatchKey: autoNamingMessageBatchKey(for: def, parsedInput: input)
+	                    )
                 }
 #if DEBUG
                 agentHookDebugLog(

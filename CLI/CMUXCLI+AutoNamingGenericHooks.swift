@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 extension CMUXCLI {
     enum AgentAutoNamingSource: Equatable {
@@ -43,6 +44,25 @@ extension CMUXCLI {
             return []
         }
         return engine.extractHookMessages(fromPayloadObjects: [object])
+    }
+
+    func autoNamingMessageBatchKey(for def: AgentHookDef, parsedInput: ClaudeHookParsedInput) -> String? {
+        guard usesHookMessageCacheForAutoNaming(def),
+              let object = parsedInput.rawObject ?? parsedInput.object,
+              JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+            return nil
+        }
+        let sessionId = normalizedHookValue(parsedInput.sessionId) ?? ""
+        let turnId = normalizedHookValue(parsedInput.turnId) ?? ""
+        return "\(def.name)\u{1F}\(sessionId)\u{1F}\(turnId)\u{1F}\(autoNamingBatchFingerprint(data))"
+    }
+
+    private func autoNamingBatchFingerprint(_ data: Data) -> String {
+        SHA256.hash(data: data).map { byte in
+            let hex = String(byte, radix: 16)
+            return hex.count == 1 ? "0\(hex)" : hex
+        }.joined()
     }
 
     /// Detached naming pass for non-Codex generic agents.
