@@ -11287,7 +11287,12 @@ struct VerticalTabsSidebar: View {
            !workingDirectory.isEmpty {
             return workingDirectory
         }
-        return configuredActionBaseCwd()
+        return defaultCMUXSidebarExtensionCommandBaseCwd()
+    }
+
+    private func defaultCMUXSidebarExtensionCommandBaseCwd() -> String {
+        tabManager.selectedWorkspace?.resolvedWorkingDirectory()
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
     }
 
     private func cmuxSidebarExtensionOptionalHTTPURL(from urlString: String?) -> (url: URL?, accepted: Bool) {
