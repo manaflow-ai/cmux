@@ -1,6 +1,6 @@
 public import SwiftUI
 public import CmuxSidebar
-import CmuxExtensionKit
+@_spi(CmuxHostTransport) import CmuxExtensionKit
 
 /// The modal access-review sheet presented when the user reviews an extension's
 /// pending sensitive access: the header (glyph, formatted title, bundle id), the
