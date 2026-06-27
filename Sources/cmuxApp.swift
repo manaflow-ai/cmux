@@ -96,7 +96,16 @@ struct cmuxApp: App {
     /// composition-root `AppDelegate`; the `@AppStorage socketControlMode` trigger
     /// and its `.onChange` modifier stay in this App and forward the raw mode and
     /// the active `TabManager` to it.
-    private let socketControlCoordinator: SocketControlCoordinator
+    ///
+    /// Computed (not stored) so it constructs on access from `body`, where the
+    /// `@NSApplicationDelegateAdaptor` `appDelegate` is readable. A stored `let`
+    /// initialized in `init()` would require reading `appDelegate` before `self`
+    /// is fully initialized, which is illegal. The coordinator is a stateless
+    /// `@MainActor` wrapper over `appDelegate` (it re-reads `appDelegate.terminalControl`
+    /// per call), so per-access construction is behavior-identical.
+    private var socketControlCoordinator: SocketControlCoordinator {
+        SocketControlCoordinator(appDelegate: appDelegate)
+    }
 
     @State private var tabManager: TabManager
     // De-singletonization stage b73: this `@StateObject` is the composition-root
@@ -232,12 +241,6 @@ struct cmuxApp: App {
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
         _tabManager = State(wrappedValue: TabManager())
-        // Own the socket-control orchestrator at the composition root. It holds
-        // only the `appDelegate` adaptor, but is constructed here — after every
-        // other stored property is initialized — because reading the
-        // `@NSApplicationDelegateAdaptor` `appDelegate` requires `self` to be
-        // fully initialized.
-        socketControlCoordinator = SocketControlCoordinator(appDelegate: appDelegate)
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Normalize the persisted socket mode and (for release builds) migrate the
         // legacy keychain password. Breadcrumb instrumentation stays app-side.
