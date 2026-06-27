@@ -886,7 +886,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairingAttemptID = UUID()
     }
 
-    isolated deinit {
+    deinit { MainActor.assumeIsolated {
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
@@ -902,7 +902,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let remoteClient {
             Task { await remoteClient.disconnect() }
         }
-    }
+    } }
 
     public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
         CMUXMobileShellStore(
