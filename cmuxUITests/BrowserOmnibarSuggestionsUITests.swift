@@ -591,7 +591,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             "Expected inline completion display to avoid injecting an https:// prefix unless typed."
         )
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         let backspaceResponse = socketCommand("simulate_shortcut backspace")
         XCTAssertEqual(
             backspaceResponse,

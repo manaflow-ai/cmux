@@ -86,7 +86,7 @@
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
 1031	cmuxTests/WorkspaceGroupTests.swift
-1027	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
+1026	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
