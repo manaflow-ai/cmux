@@ -140,6 +140,7 @@ import Testing
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("paired-macs.sqlite3")
+        let secretStore = InMemoryAttachTokenSecretStore()
         let expiresAt = Date(timeIntervalSince1970: 2_000_000_000)
         let firstRoute = try CmxAttachRoute(
             id: "tailscale-a",
@@ -153,7 +154,7 @@ import Testing
         )
 
         do {
-            let store = try MobilePairedMacStore(databaseURL: url)
+            let store = try MobilePairedMacStore(databaseURL: url, attachTokenSecrets: secretStore)
             try await store.upsert(
                 macDeviceID: "mac-a",
                 displayName: "Mac A",
@@ -166,8 +167,7 @@ import Testing
                 now: Date()
             )
         }
-
-        let reopened = try MobilePairedMacStore(databaseURL: url)
+        let reopened = try MobilePairedMacStore(databaseURL: url, attachTokenSecrets: secretStore)
         let saved = try #require(try await reopened.activeMac(stackUserID: "user-1"))
         #expect((saved.attachToken, saved.attachTokenExpiresAt) == ("ticket-secret", expiresAt))
         #expect((saved.attachTokenWorkspaceID, saved.attachTokenTerminalID) == ("workspace-a", "terminal-a"))

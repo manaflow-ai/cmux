@@ -12,7 +12,6 @@ nonisolated struct MobilePairedMacStoreMacRow {
     var customName: String? = nil
     var customColor: String? = nil
     var customIcon: String? = nil
-    var attachToken: String? = nil
     var attachTokenExpiresAt: Date? = nil
     var attachTokenWorkspaceID: String? = nil
     var attachTokenTerminalID: String? = nil

@@ -9,13 +9,6 @@ import Testing
 @MainActor
 @Suite struct MobileShellCompositeDurableTicketFallbackTests {
     @Test func reconnectRetriesFreshManualTicketWhenPersistedAttachTokenIsUnauthorized() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let pairedStore = try MobilePairedMacStore(
-            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
-        )
         let route = try CmxAttachRoute(
             id: "tailscale",
             kind: .tailscale,
@@ -23,7 +16,7 @@ import Testing
         )
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         let expiresAt = now.addingTimeInterval(3600)
-        try await pairedStore.upsert(
+        let pairedStore = DelayedTeamPairedMacStore(recordsByTeam: ["": [MobilePairedMac(
             macDeviceID: "mac-a",
             displayName: "Desk Mac",
             routes: [route],
@@ -31,11 +24,12 @@ import Testing
             attachTokenExpiresAt: expiresAt,
             attachTokenWorkspaceID: "",
             attachTokenTerminalID: nil,
-            markActive: true,
+            createdAt: now,
+            lastSeenAt: now,
+            isActive: true,
             stackUserID: "user-1",
-            teamID: nil,
-            now: now
-        )
+            teamID: nil
+        )]], blockedTeams: [])
 
         let router = DurableTicketFallbackRouter(
             route: route,

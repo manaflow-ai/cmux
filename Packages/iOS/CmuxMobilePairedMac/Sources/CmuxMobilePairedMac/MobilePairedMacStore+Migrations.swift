@@ -5,6 +5,7 @@ extension MobilePairedMacStore {
     func ensureReady() throws {
         guard !didMigrate else { return }
         try runMigrations()
+        try clearLegacySQLiteAttachTokenSecrets()
         didMigrate = true
     }
 
@@ -222,9 +223,10 @@ extension MobilePairedMacStore {
         try exec("CREATE INDEX IF NOT EXISTS idx_routes_device ON mac_routes(mac_device_id, owner_key);")
     }
 
-    /// v5: local-only attach ticket state for fast reconnect without a Stack
-    /// network round trip. These columns are intentionally not represented in the
-    /// paired-Mac backup wire format.
+    /// v5: local-only attach ticket metadata for fast reconnect without a Stack
+    /// network round trip. The legacy `attach_token` column is kept for additive
+    /// schema compatibility, but current builds store bearer secrets in
+    /// device-only Keychain items and keep this SQLite column NULL.
     private func migrateToV5() throws {
         let existing = try tableColumns("paired_macs")
         if !existing.contains("attach_token") {
@@ -246,6 +248,16 @@ extension MobilePairedMacStore {
         if !existing.contains("attach_token_terminal_id") {
             try exec("ALTER TABLE paired_macs ADD COLUMN attach_token_terminal_id TEXT;")
         }
+    }
+
+    private func clearLegacySQLiteAttachTokenSecrets() throws {
+        guard try tableColumns("paired_macs").contains("attach_token") else { return }
+        try exec("PRAGMA secure_delete = ON;")
+        try exec("UPDATE paired_macs SET attach_token = NULL WHERE attach_token IS NOT NULL;")
+        guard changedRowCount() > 0 else { return }
+        try exec("PRAGMA wal_checkpoint(TRUNCATE);")
+        try exec("VACUUM;")
+        try exec("PRAGMA wal_checkpoint(TRUNCATE);")
     }
 
     /// Column names defined on `table` (via `PRAGMA table_info`), used to make

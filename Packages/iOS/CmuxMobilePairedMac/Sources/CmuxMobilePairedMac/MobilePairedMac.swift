@@ -3,8 +3,9 @@ public import Foundation
 
 /// A Mac paired with this iOS device, persisted across launches.
 ///
-/// The attach token is local-only durable reconnect state; backup sync deliberately
-/// omits it so only this device can redeem the ticket without a Stack round trip.
+/// The attach token is local-only durable reconnect state hydrated from
+/// device-only secret storage; backup sync deliberately omits it so only this
+/// device can redeem the ticket without a Stack round trip.
 public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     /// Stable identifier of the paired Mac device.
     public var macDeviceID: String
@@ -12,7 +13,7 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     public var displayName: String?
     /// Attach routes advertised by the Mac, ordered by priority (lowest first).
     public var routes: [CmxAttachRoute]
-    /// Local-only attach ticket secret used for fast reconnect while unexpired.
+    /// Local-only attach ticket secret, hydrated from device-only secret storage.
     public var attachToken: String? = nil
     /// Expiration time for ``attachToken``.
     public var attachTokenExpiresAt: Date? = nil

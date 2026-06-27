@@ -18,6 +18,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     // the connection itself is opened `SQLITE_OPEN_FULLMUTEX`, so this is safe.
     private nonisolated(unsafe) var db: OpaquePointer?
     var didMigrate = false
+    let attachTokenSecrets: any MobileAttachTokenSecretStoring
 
     /// The default on-disk location for the paired-Mac database.
     /// - Parameter fileManager: File manager used to resolve and create the directory.
@@ -41,6 +42,16 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// - Parameter databaseURL: On-disk SQLite file location.
     /// - Throws: ``MobilePairedMacStoreError`` if the connection cannot be opened.
     public init(databaseURL: URL) throws {
+        try self.init(
+            databaseURL: databaseURL,
+            attachTokenSecrets: MobilePairedMacKeychainAttachTokenSecretStore(
+                service: Self.attachTokenKeychainService(bundleIdentifier: Bundle.main.bundleIdentifier)
+            )
+        )
+    }
+
+    init(databaseURL: URL, attachTokenSecrets: any MobileAttachTokenSecretStoring) throws {
+        self.attachTokenSecrets = attachTokenSecrets
         self.db = try MobilePairedMacSQLiteConnectionOpener().open(path: databaseURL.path)
     }
 
@@ -98,6 +109,10 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         return String(cString: cString)
     }
 
+    func changedRowCount() -> Int32 {
+        sqlite3_changes(db)
+    }
+
     /// Insert or update one paired Mac within the explicit account/team owner scope.
     public func upsert(
         macDeviceID: String,
@@ -111,21 +126,42 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         stackUserID: String?,
         teamID: String? = nil,
         now: Date = Date()
-    ) throws {
+    ) async throws {
         try ensureReady()
+        let ownerKey = "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
+        let legacyOwnerKey = "\(stackUserID ?? "")\u{1F}"
+        let existing = try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey)
+        let legacy = existing == nil && teamID != nil
+            ? try fetchMacRow(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
+            : nil
+        let shouldDeleteLegacySecret = attachToken == nil && legacy != nil
+        if shouldDeleteLegacySecret {
+            await copyAttachTokenSecret(
+                macDeviceID: macDeviceID,
+                fromOwnerKey: legacyOwnerKey,
+                toOwnerKey: ownerKey
+            )
+        }
+        let attachTokenChanged = attachToken != nil
+        let shouldStoreAttachTokenMetadata: Bool
+        if let attachToken {
+            shouldStoreAttachTokenMetadata = await saveAttachTokenSecret(
+                attachToken,
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey
+            )
+            if !shouldStoreAttachTokenMetadata {
+                await deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: ownerKey)
+            }
+        } else {
+            shouldStoreAttachTokenMetadata = false
+        }
         try transaction {
             if markActive {
                 try clearActiveMacs(stackUserID: stackUserID, teamID: teamID)
             }
-            let ownerKey = "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
-            let existing = try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey)
             var claimedLegacy: MobilePairedMacStoreMacRow?
-            if existing == nil,
-               teamID != nil,
-               let legacy = try fetchMacRow(
-                    macDeviceID: macDeviceID,
-                    ownerKey: "\(stackUserID ?? "")\u{1F}"
-               ) {
+            if existing == nil, teamID != nil, let legacy {
                 try moveMacRowScope(
                     macDeviceID: macDeviceID,
                     fromOwnerKey: legacy.ownerKey,
@@ -141,15 +177,18 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 displayName: displayName,
                 stackUserID: stackUserID,
                 teamID: teamID,
-                attachToken: attachToken,
-                attachTokenExpiresAt: attachTokenExpiresAt,
-                attachTokenWorkspaceID: attachTokenWorkspaceID,
-                attachTokenTerminalID: attachTokenTerminalID,
+                attachTokenChanged: attachTokenChanged,
+                attachTokenExpiresAt: shouldStoreAttachTokenMetadata ? attachTokenExpiresAt : nil,
+                attachTokenWorkspaceID: shouldStoreAttachTokenMetadata ? attachTokenWorkspaceID : nil,
+                attachTokenTerminalID: shouldStoreAttachTokenMetadata ? attachTokenTerminalID : nil,
                 createdAt: createdAt,
                 lastSeenAt: now,
                 isActive: markActive
             )
             try replaceRoutes(macDeviceID: macDeviceID, ownerKey: ownerKey, routes: routes)
+        }
+        if shouldDeleteLegacySecret {
+            await deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
         }
     }
 
@@ -161,16 +200,29 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         stackUserID: String?,
         teamID: String?,
         now: Date = Date()
-    ) throws {
+    ) async throws {
         try ensureReady()
+        let ownerKey = "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
+        let legacyOwnerKey = "\(stackUserID ?? "")\u{1F}"
+        let existing = try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey)
+        let legacy = existing == nil && teamID != nil
+            ? try fetchMacRow(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
+            : nil
+        let shouldDeleteLegacySecret = legacy != nil
+        if shouldDeleteLegacySecret {
+            await copyAttachTokenSecret(
+                macDeviceID: macDeviceID,
+                fromOwnerKey: legacyOwnerKey,
+                toOwnerKey: ownerKey
+            )
+        }
         try transaction {
-            let ownerKey = "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
             if try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey) == nil,
                teamID != nil,
-               try fetchMacRow(macDeviceID: macDeviceID, ownerKey: "\(stackUserID ?? "")\u{1F}") != nil {
+               try fetchMacRow(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey) != nil {
                 try moveMacRowScope(
                     macDeviceID: macDeviceID,
-                    fromOwnerKey: "\(stackUserID ?? "")\u{1F}",
+                    fromOwnerKey: legacyOwnerKey,
                     toOwnerKey: ownerKey,
                     teamID: teamID
                 )
@@ -184,7 +236,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 displayName: displayName,
                 stackUserID: stackUserID,
                 teamID: teamID,
-                attachToken: nil,
+                attachTokenChanged: false,
                 attachTokenExpiresAt: nil,
                 attachTokenWorkspaceID: nil,
                 attachTokenTerminalID: nil,
@@ -194,18 +246,21 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             )
             try replaceRoutes(macDeviceID: macDeviceID, ownerKey: ownerKey, routes: routes)
         }
+        if shouldDeleteLegacySecret {
+            await deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
+        }
     }
 
     /// Load every paired Mac visible to the optional Stack user and team scope.
-    public func loadAll(stackUserID: String? = nil, teamID: String? = nil) throws -> [MobilePairedMac] {
+    public func loadAll(stackUserID: String? = nil, teamID: String? = nil) async throws -> [MobilePairedMac] {
         try ensureReady()
-        return try fetchAllMacs(stackUserID: stackUserID, teamID: teamID)
+        return try await fetchAllMacs(stackUserID: stackUserID, teamID: teamID)
     }
 
     /// Load the active paired Mac in the optional Stack user and team scope.
-    public func activeMac(stackUserID: String? = nil, teamID: String? = nil) throws -> MobilePairedMac? {
+    public func activeMac(stackUserID: String? = nil, teamID: String? = nil) async throws -> MobilePairedMac? {
         try ensureReady()
-        return try fetchAllMacs(activeOnly: true, stackUserID: stackUserID, teamID: teamID).first
+        return try await fetchAllMacs(activeOnly: true, stackUserID: stackUserID, teamID: teamID).first
     }
 
     /// Mark one paired Mac active within its explicit account/team owner scope.
@@ -254,8 +309,9 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     }
 
     /// Remove one paired Mac in a specific owner scope, or all matching legacy rows when unscoped.
-    public func remove(macDeviceID: String, stackUserID: String? = nil, teamID: String? = nil) throws {
+    public func remove(macDeviceID: String, stackUserID: String? = nil, teamID: String? = nil) async throws {
         try ensureReady()
+        let rows = try fetchMacRowsForRemoval(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)
         if stackUserID == nil && teamID == nil {
             try exec("DELETE FROM paired_macs WHERE mac_device_id = ?;",
                      binding: [.text(macDeviceID)])
@@ -265,11 +321,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 binding: [.text(macDeviceID), .text("\(stackUserID ?? "")\u{1F}\(teamID ?? "")")]
             )
         }
+        await deleteAttachTokenSecrets(for: rows)
     }
 
     /// Remove every locally stored paired Mac and route.
-    public func removeAll() throws {
+    public func removeAll() async throws {
         try ensureReady()
+        let rows = try fetchAllMacRows()
         try exec("DELETE FROM paired_macs;")
+        await deleteAttachTokenSecrets(for: rows)
     }
 }

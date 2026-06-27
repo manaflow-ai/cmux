@@ -6,7 +6,7 @@ extension MobilePairedMacStore {
     func fetchMacRow(macDeviceID: String, ownerKey: String) throws -> MobilePairedMacStoreMacRow? {
         let sql = """
             SELECT display_name, stack_user_id, created_at, last_seen_at, is_active, team_id,
-                   attach_token, attach_token_expires_at, attach_token_workspace_id, attach_token_terminal_id
+                   attach_token_expires_at, attach_token_workspace_id, attach_token_terminal_id
             FROM paired_macs WHERE mac_device_id = ? AND owner_key = ?;
         """
         let statement = try prepareStatement(sql)
@@ -23,12 +23,11 @@ extension MobilePairedMacStore {
         let lastSeenAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 3))
         let isActive = sqlite3_column_int(statement, 4) != 0
         let teamID = readNullableText(statement, column: 5)
-        let attachToken = readNullableText(statement, column: 6)
         let attachTokenExpiresAt: Date?
-        if sqlite3_column_type(statement, 7) == SQLITE_NULL {
+        if sqlite3_column_type(statement, 6) == SQLITE_NULL {
             attachTokenExpiresAt = nil
         } else {
-            attachTokenExpiresAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 7))
+            attachTokenExpiresAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 6))
         }
         return MobilePairedMacStoreMacRow(
             macDeviceID: macDeviceID,
@@ -39,10 +38,9 @@ extension MobilePairedMacStore {
             createdAt: createdAt,
             lastSeenAt: lastSeenAt,
             isActive: isActive,
-            attachToken: attachToken,
             attachTokenExpiresAt: attachTokenExpiresAt,
-            attachTokenWorkspaceID: readNullableText(statement, column: 8),
-            attachTokenTerminalID: readNullableText(statement, column: 9)
+            attachTokenWorkspaceID: readNullableText(statement, column: 7),
+            attachTokenTerminalID: readNullableText(statement, column: 8)
         )
     }
 
@@ -52,7 +50,7 @@ extension MobilePairedMacStore {
         displayName: String?,
         stackUserID: String?,
         teamID: String?,
-        attachToken: String?,
+        attachTokenChanged: Bool,
         attachTokenExpiresAt: Date?,
         attachTokenWorkspaceID: String?,
         attachTokenTerminalID: String?,
@@ -66,22 +64,22 @@ extension MobilePairedMacStore {
                 attach_token, attach_token_expires_at, attach_token_workspace_id, attach_token_terminal_id,
                 created_at, last_seen_at, is_active
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(mac_device_id, owner_key) DO UPDATE SET
                 display_name = excluded.display_name,
                 stack_user_id = excluded.stack_user_id,
                 team_id = excluded.team_id,
-                attach_token = COALESCE(excluded.attach_token, attach_token),
+                attach_token = NULL,
                 attach_token_expires_at = CASE
-                    WHEN excluded.attach_token IS NOT NULL THEN excluded.attach_token_expires_at
+                    WHEN ? = 1 THEN excluded.attach_token_expires_at
                     ELSE attach_token_expires_at
                 END,
                 attach_token_workspace_id = CASE
-                    WHEN excluded.attach_token IS NOT NULL THEN excluded.attach_token_workspace_id
+                    WHEN ? = 1 THEN excluded.attach_token_workspace_id
                     ELSE attach_token_workspace_id
                 END,
                 attach_token_terminal_id = CASE
-                    WHEN excluded.attach_token IS NOT NULL THEN excluded.attach_token_terminal_id
+                    WHEN ? = 1 THEN excluded.attach_token_terminal_id
                     ELSE attach_token_terminal_id
                 END,
                 last_seen_at = excluded.last_seen_at,
@@ -92,13 +90,15 @@ extension MobilePairedMacStore {
             displayName.map(BindValue.text) ?? .null,
             stackUserID.map(BindValue.text) ?? .null,
             teamID.map(BindValue.text) ?? .null,
-            attachToken.map(BindValue.text) ?? .null,
             attachTokenExpiresAt.map { .real($0.timeIntervalSince1970) } ?? .null,
             attachTokenWorkspaceID.map(BindValue.text) ?? .null,
             attachTokenTerminalID.map(BindValue.text) ?? .null,
             .real(createdAt.timeIntervalSince1970),
             .real(lastSeenAt.timeIntervalSince1970),
             .int(isActive ? 1 : 0),
+            .int(attachTokenChanged ? 1 : 0),
+            .int(attachTokenChanged ? 1 : 0),
+            .int(attachTokenChanged ? 1 : 0),
         ])
     }
 
@@ -135,7 +135,7 @@ extension MobilePairedMacStore {
             SELECT
                 mac_device_id, ?, display_name, stack_user_id, ?, created_at,
                 last_seen_at, is_active, custom_name, custom_color, custom_icon,
-                attach_token, attach_token_expires_at, attach_token_workspace_id, attach_token_terminal_id
+                NULL, attach_token_expires_at, attach_token_workspace_id, attach_token_terminal_id
             FROM paired_macs
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
@@ -185,11 +185,47 @@ extension MobilePairedMacStore {
 
     func fetchAllMacs(
         activeOnly: Bool = false, stackUserID: String? = nil, teamID: String? = nil
-    ) throws -> [MobilePairedMac] {
+    ) async throws -> [MobilePairedMac] {
+        let rows = try fetchAllMacRows(activeOnly: activeOnly, stackUserID: stackUserID, teamID: teamID)
+        guard !rows.isEmpty else { return [] }
+
+        let routesByKey = try fetchRoutesForMacRows(
+            activeOnly: activeOnly,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+        var macs: [MobilePairedMac] = []
+        macs.reserveCapacity(rows.count)
+        for row in rows {
+            let key = MobilePairedMacStoreRouteKey(macDeviceID: row.macDeviceID, ownerKey: row.ownerKey)
+            macs.append(MobilePairedMac(
+                macDeviceID: row.macDeviceID,
+                displayName: row.displayName,
+                routes: routesByKey[key] ?? [],
+                attachToken: await attachTokenSecret(for: row),
+                attachTokenExpiresAt: row.attachTokenExpiresAt,
+                attachTokenWorkspaceID: row.attachTokenWorkspaceID,
+                attachTokenTerminalID: row.attachTokenTerminalID,
+                createdAt: row.createdAt,
+                lastSeenAt: row.lastSeenAt,
+                isActive: row.isActive,
+                stackUserID: row.stackUserID,
+                teamID: row.teamID,
+                customName: row.customName,
+                customColor: row.customColor,
+                customIcon: row.customIcon
+            ))
+        }
+        return macs
+    }
+
+    func fetchAllMacRows(
+        activeOnly: Bool = false, stackUserID: String? = nil, teamID: String? = nil
+    ) throws -> [MobilePairedMacStoreMacRow] {
         let filter = macRowFilter(activeOnly: activeOnly, stackUserID: stackUserID, teamID: teamID)
         let sql = """
             SELECT mac_device_id, owner_key, display_name, stack_user_id, created_at, last_seen_at, is_active,
-                   custom_name, custom_color, custom_icon, team_id, attach_token, attach_token_expires_at,
+                   custom_name, custom_color, custom_icon, team_id, attach_token_expires_at,
                    attach_token_workspace_id, attach_token_terminal_id
             FROM paired_macs
             \(filter.whereClause)
@@ -217,10 +253,10 @@ extension MobilePairedMacStore {
             let lastSeenAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 5))
             let isActive = sqlite3_column_int(statement, 6) != 0
             let attachTokenExpiresAt: Date?
-            if sqlite3_column_type(statement, 12) == SQLITE_NULL {
+            if sqlite3_column_type(statement, 11) == SQLITE_NULL {
                 attachTokenExpiresAt = nil
             } else {
-                attachTokenExpiresAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 12))
+                attachTokenExpiresAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 11))
             }
             rows.append(MobilePairedMacStoreMacRow(
                 macDeviceID: macDeviceID,
@@ -234,43 +270,28 @@ extension MobilePairedMacStore {
                 customName: readNullableText(statement, column: 7),
                 customColor: readNullableText(statement, column: 8),
                 customIcon: readNullableText(statement, column: 9),
-                attachToken: readNullableText(statement, column: 11),
                 attachTokenExpiresAt: attachTokenExpiresAt,
-                attachTokenWorkspaceID: readNullableText(statement, column: 13),
-                attachTokenTerminalID: readNullableText(statement, column: 14)
+                attachTokenWorkspaceID: readNullableText(statement, column: 12),
+                attachTokenTerminalID: readNullableText(statement, column: 13)
             ))
             step = sqlite3_step(statement)
         }
         guard step == SQLITE_DONE else {
             throw MobilePairedMacStoreError.stepFailed(step, lastErrorMessage())
         }
-        guard !rows.isEmpty else { return [] }
+        return rows
+    }
 
-        let routesByKey = try fetchRoutesForMacRows(
-            activeOnly: activeOnly,
-            stackUserID: stackUserID,
-            teamID: teamID
-        )
-        return rows.map { row in
-            let key = MobilePairedMacStoreRouteKey(macDeviceID: row.macDeviceID, ownerKey: row.ownerKey)
-            return MobilePairedMac(
-                macDeviceID: row.macDeviceID,
-                displayName: row.displayName,
-                routes: routesByKey[key] ?? [],
-                attachToken: row.attachToken,
-                attachTokenExpiresAt: row.attachTokenExpiresAt,
-                attachTokenWorkspaceID: row.attachTokenWorkspaceID,
-                attachTokenTerminalID: row.attachTokenTerminalID,
-                createdAt: row.createdAt,
-                lastSeenAt: row.lastSeenAt,
-                isActive: row.isActive,
-                stackUserID: row.stackUserID,
-                teamID: row.teamID,
-                customName: row.customName,
-                customColor: row.customColor,
-                customIcon: row.customIcon
-            )
+    func fetchMacRowsForRemoval(
+        macDeviceID: String,
+        stackUserID: String?,
+        teamID: String?
+    ) throws -> [MobilePairedMacStoreMacRow] {
+        if stackUserID == nil && teamID == nil {
+            return try fetchAllMacRows().filter { $0.macDeviceID == macDeviceID }
         }
+        let ownerKey = "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
+        return try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey).map { [$0] } ?? []
     }
 
     private func macRowFilter(

@@ -13,6 +13,8 @@ public protocol MobilePairedMacStoring: Sendable {
     ///   - displayName: Optional human-readable Mac name.
     ///   - routes: Attach routes advertised by the Mac.
     ///   - attachToken: Local-only attach ticket secret for fast reconnect.
+    ///     Concrete stores must keep bearer secrets in device-only secret storage,
+    ///     not in synced or backed-up paired-Mac metadata.
     ///     `nil` preserves the existing local ticket when updating an existing row.
     ///   - attachTokenExpiresAt: Expiration time for `attachToken`. When
     ///     `attachToken` is `nil`, implementations must preserve the existing
