@@ -12,6 +12,16 @@ WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 SHELL_INTEGRATION_DIR = ROOT / "Resources" / "shell-integration"
 
 
+def minimal_env(path: str, tmpdir: Path | None = None) -> dict[str, str]:
+    env = {
+        "HOME": os.environ.get("HOME", str(ROOT)),
+        "PATH": path,
+    }
+    if tmpdir is not None:
+        env["TMPDIR"] = str(tmpdir)
+    return env
+
+
 def write_executable(path: Path, contents: str) -> None:
     path.write_text(contents, encoding="utf-8")
     path.chmod(0o755)
@@ -88,13 +98,10 @@ exec "{wrapper}" "$@"
 """,
         )
 
-        env = dict(os.environ)
-        env["PATH"] = f"{shim_bin}:{bundle_bin}:{real_bin}:/usr/bin:/bin"
+        env = minimal_env(f"{shim_bin}:{bundle_bin}:{real_bin}:/usr/bin:/bin")
         env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(shim)
         env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(shim_bin)
         env["CMUX_CUSTOM_CLAUDE_PATH"] = str(bundle_bin / "claude")
-        env.pop("CMUX_SURFACE_ID", None)
-        env.pop("CMUX_SOCKET_PATH", None)
 
         result = run_wrapper([str(shim), "--version"], env)
         output = (result.stdout + result.stderr).strip()
@@ -140,13 +147,9 @@ echo real-claude "$@"
 """,
         )
 
-        env = dict(os.environ)
-        env["PATH"] = f"{current_shim_root}:{wrapper_bin}:{inherited_shim_root}:{real_bin}:/usr/bin:/bin"
+        env = minimal_env(f"{current_shim_root}:{wrapper_bin}:{inherited_shim_root}:{real_bin}:/usr/bin:/bin")
         env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(current_shim)
         env["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"] = str(current_shim_root)
-        env.pop("CMUX_SURFACE_ID", None)
-        env.pop("CMUX_SOCKET_PATH", None)
-        env.pop("CMUX_CUSTOM_CLAUDE_PATH", None)
 
         result = run_wrapper([str(wrapper), "--version"], env)
         output = (result.stdout + result.stderr).strip()
@@ -168,11 +171,8 @@ echo real-grok "$@"
 """,
         )
 
-        base_env = dict(os.environ)
+        base_env = minimal_env(f"{real_bin}:/usr/bin:/bin")
         base_env["CMUX_SHELL_INTEGRATION_DIR"] = str(SHELL_INTEGRATION_DIR)
-        base_env["PATH"] = f"{real_bin}:/usr/bin:/bin"
-        base_env.pop("CMUX_SURFACE_ID", None)
-        base_env.pop("CMUX_SOCKET_PATH", None)
 
         shell_commands = [
             [
@@ -212,13 +212,11 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
         shim_root = tmpdir / "cmux-cli-shims" / surface_id
         expected_path = f"{shim_root}::{first}::{last}:"
 
-        base_env = dict(os.environ)
+        input_path = f":{first}::{shim_root}:{last}:"
+        base_env = minimal_env("/usr/bin:/bin", tmpdir)
         base_env["CMUX_SHELL_INTEGRATION_DIR"] = str(SHELL_INTEGRATION_DIR)
         base_env["CMUX_SURFACE_ID"] = surface_id
-        base_env["TMPDIR"] = str(tmpdir)
-        base_env["PATH"] = f":{first}::{shim_root}:{last}:"
-        base_env.pop("CMUX_SOCKET_PATH", None)
-        base_env.pop("GHOSTTY_BIN_DIR", None)
+        base_env["CMUX_TEST_INPUT_PATH"] = input_path
 
         shell_commands = [
             [
@@ -226,14 +224,18 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                 "--noprofile",
                 "--norc",
                 "-c",
-                'before="$PATH"; source "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; '
+                'PATH="$CMUX_TEST_INPUT_PATH"; '
+                'before="$PATH"; '
+                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; '
                 'printf "%s\\n%s\\n" "$before" "$PATH"',
             ],
             [
                 "/bin/zsh",
                 "-f",
                 "-c",
-                'before="$PATH"; source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; '
+                'PATH="$CMUX_TEST_INPUT_PATH"; '
+                'before="$PATH"; '
+                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; '
                 'printf "%s\\n%s\\n" "$before" "$PATH"',
             ],
         ]
@@ -252,10 +254,12 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                 continue
             before_path, output = output_lines
             expected_output = prepend_unique_directory(str(shim_root), before_path)
+            if before_path != input_path:
+                failures.append(f"{shell_name} test setup expected PATH {input_path!r}, got {before_path!r}")
             if output != expected_output:
                 failures.append(f"{shell_name} expected PATH {expected_output!r}, got {output!r}")
-            if shell_name == "bash" and output != expected_path:
-                failures.append(f"bash expected empty PATH components to be preserved, got {output!r}")
+            if output != expected_path:
+                failures.append(f"{shell_name} expected empty PATH components to be preserved, got {output!r}")
 
 
 def main() -> int:
