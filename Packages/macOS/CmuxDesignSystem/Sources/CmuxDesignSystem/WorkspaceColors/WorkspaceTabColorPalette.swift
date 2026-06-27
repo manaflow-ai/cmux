@@ -36,7 +36,10 @@ public struct WorkspaceTabColorPalette: Equatable, Sendable {
 
     /// The built-in palette as a name-to-hex map.
     public var defaultPaletteMap: [String: String] {
-        Dictionary(uniqueKeysWithValues: builtInEntries.map { ($0.name, $0.hex) })
+        Dictionary(
+            builtInEntries.map { ($0.name, $0.hex) },
+            uniquingKeysWith: { _, last in last }
+        )
     }
 
     /// Returns the built-in color hex for a palette entry name.

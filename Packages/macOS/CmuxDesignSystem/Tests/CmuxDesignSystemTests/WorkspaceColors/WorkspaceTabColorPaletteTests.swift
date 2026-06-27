@@ -29,6 +29,19 @@ struct WorkspaceTabColorPaletteTests {
     }
 
     @Test
+    func defaultPaletteMapToleratesDuplicateBuiltInNames() {
+        let palette = WorkspaceTabColorPalette(
+            builtInEntries: [
+                WorkspaceTabColorEntry(name: "Blue", hex: "#111111"),
+                WorkspaceTabColorEntry(name: "Blue", hex: "#222222"),
+            ]
+        )
+
+        #expect(palette.defaultPaletteMap == ["Blue": "#222222"])
+        #expect(palette.effectivePaletteMap(stored: nil) == ["Blue": "#222222"])
+    }
+
+    @Test
     func appliesOverridesAndSortsCustomEntriesAfterBuiltIns() {
         let palette = WorkspaceTabColorPalette.workspaceTabs
         let entries = palette.entries(stored: [
