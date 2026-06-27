@@ -25,10 +25,11 @@ final class CmuxWebView: WKWebView {
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
     // middle-click so navigation delegates can recover intent reliably.
-    // The freshness value + age/identity predicate live in
-    // BrowserMiddleClickIntent (CmuxBrowser); this slot keeps the process-wide
-    // most-recent intent and clears it on expiry.
-    private static var lastMiddleClickIntent: BrowserMiddleClickIntent?
+    // The freshness value, the age/identity predicate, and the process-wide
+    // single-slot storage live in CmuxBrowser (BrowserMiddleClickIntent +
+    // BrowserMiddleClickIntentTracker); this static holds the one tracker and
+    // forwards WKWebView identities + uptime captures into it.
+    private static let middleClickIntentTracker = BrowserMiddleClickIntentTracker()
     private static let pasteAsPlainTextFocusContract = BrowserPasteAsPlainTextFocusContract()
     private static let browserFocusModeContextMenuItemIdentifier =
         NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
@@ -55,22 +56,14 @@ final class CmuxWebView: WKWebView {
 
     static func hasRecentMiddleClickIntent(for webView: WKWebView) -> Bool {
         guard let webView = webView as? CmuxWebView else { return false }
-        guard let intent = lastMiddleClickIntent else { return false }
-
-        switch intent.evaluate(
+        return middleClickIntentTracker.hasRecentIntent(
             forWebViewID: ObjectIdentifier(webView),
             asOf: ProcessInfo.processInfo.systemUptime
-        ) {
-        case .expired:
-            lastMiddleClickIntent = nil
-            return false
-        case .fresh(let matches):
-            return matches
-        }
+        )
     }
 
     private static func recordMiddleClickIntent(for webView: CmuxWebView) {
-        lastMiddleClickIntent = BrowserMiddleClickIntent(
+        middleClickIntentTracker.record(
             webViewID: ObjectIdentifier(webView),
             uptime: ProcessInfo.processInfo.systemUptime
         )

@@ -59,7 +59,8 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
                 windowId: UUID(),
                 window: nil,
                 tabManager: manager,
-                fileExplorerState: FileExplorerState()
+                fileExplorerState: FileExplorerState(),
+                surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
             )
 
             #expect(!workspace.bonsplitController.tabShortcutHintsEnabled)

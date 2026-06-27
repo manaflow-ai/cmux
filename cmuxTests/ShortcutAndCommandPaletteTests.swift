@@ -1302,7 +1302,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             windowId: UUID(),
             window: nil,
             tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
+            fileExplorerState: FileExplorerState(),
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
         )
         let workspaceId = UUID()
         let panelId = UUID()
@@ -1321,7 +1322,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             windowId: UUID(),
             window: nil,
             tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
+            fileExplorerState: FileExplorerState(),
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
         )
         let workspaceId = UUID()
         let panelId = UUID()
@@ -1338,7 +1340,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             windowId: UUID(),
             window: nil,
             tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
+            fileExplorerState: FileExplorerState(),
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
         )
         let itemId = UUID()
         let workspaceId = UUID()
@@ -1362,7 +1365,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             windowId: UUID(),
             window: nil,
             tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
+            fileExplorerState: FileExplorerState(),
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
         )
         let responder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
 
@@ -1381,7 +1385,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             windowId: UUID(),
             window: nil,
             tabManager: TabManager(),
-            fileExplorerState: fileExplorerState
+            fileExplorerState: fileExplorerState,
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
         )
         let staleFeedResponder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
 
@@ -1412,7 +1417,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             windowId: UUID(),
             window: window,
             tabManager: TabManager(),
-            fileExplorerState: fileExplorerState
+            fileExplorerState: fileExplorerState,
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
         )
 
         XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
@@ -1438,7 +1444,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             windowId: UUID(),
             window: nil,
             tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
+            fileExplorerState: FileExplorerState(),
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
         )
         let workspaceId = UUID()
         let panelId = UUID()

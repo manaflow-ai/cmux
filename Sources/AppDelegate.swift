@@ -3284,7 +3284,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 windowId: windowId,
                 window: window,
                 tabManager: tabManager,
-                fileExplorerState: fileExplorerState
+                fileExplorerState: fileExplorerState,
+                surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
             )
             rebindWindowTabManager(tabManager, for: newId)
             windowFocusControllers.setModel(focusController, for: newId)
@@ -3338,7 +3339,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 windowId: windowId,
                 window: nil,
                 tabManager: tabManager,
-                fileExplorerState: fileExplorerState
+                fileExplorerState: fileExplorerState,
+                surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
             ),
             for: testId
         )
