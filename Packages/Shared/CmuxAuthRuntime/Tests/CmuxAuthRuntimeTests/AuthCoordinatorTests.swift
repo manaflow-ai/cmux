@@ -493,5 +493,6 @@ import Testing
         }
         #expect(coordinator.isAuthenticated == false)
         #expect(coordinator.isLoading == false)
+        #expect(coordinator.lastAuthError == "AuthError.unauthorized")
     }
 }
