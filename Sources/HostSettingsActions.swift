@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CMUXMobileCore
 import CmuxWorkspaces
 import CmuxSettingsUI

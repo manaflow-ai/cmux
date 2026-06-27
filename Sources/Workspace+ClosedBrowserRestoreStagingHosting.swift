@@ -44,7 +44,7 @@ extension Workspace: ClosedBrowserRestoreStagingHosting {
     }
 
     func stagingIsTemporaryHistoryURL(_ url: URL?) -> Bool {
-        browserIsTemporaryHistoryURL(url)
+        url?.isTemporaryBrowserHistory ?? false
     }
 
     func stagingFallbackPlan(forPane pane: PaneID) -> ClosedBrowserRestoreFallbackPlan? {
