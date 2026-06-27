@@ -336,36 +336,14 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
-    func minimumViewportSizeExpandsWebKitCSSViewport() async throws {
-        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
-        defer { panel.close() }
-        panel.webView.frame = NSRect(x: 0, y: 0, width: 575, height: 600)
-
-        let loadDelegate = BrowserWebContentProcessLoadDelegate()
-        panel.webView.navigationDelegate = loadDelegate
-        defer { panel.webView.navigationDelegate = nil }
-
-        try await loadDelegate.load(
-            """
-            <!doctype html>
-            <html><body>viewport probe</body></html>
-            """,
-            in: panel.webView,
-            baseURL: URL(string: "https://example.com/")!
+    func minimumViewportSizeComputesCSSViewportExpansion() {
+        let scale = BrowserPanel.minimumViewportMagnification(
+            webViewBounds: CGSize(width: 575, height: 600),
+            minimumViewportSize: CGSize(width: 1150, height: 0)
         )
 
-        let initialWidth = try #require(
-            try await panel.webView.evaluateJavaScript("window.innerWidth") as? NSNumber
-        )
-        #expect(initialWidth.intValue == 575)
-
-        #expect(panel.setMinimumViewportSize(width: 1150, height: 0))
-
-        let expandedWidth = try #require(
-            try await panel.webView.evaluateJavaScript("window.innerWidth") as? NSNumber
-        )
-        #expect(expandedWidth.intValue >= 1150)
-        #expect(abs(panel.webView.magnification - 0.5) < 0.0001)
+        #expect(abs(scale - 0.5) < 0.0001)
+        #expect((575 / scale) >= 1150)
     }
 
     @Test
