@@ -212,7 +212,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             }
             throw error
         }
-        if shouldClaimLegacy, copiedLegacyAttachToken || shouldStoreAttachTokenMetadata {
+        if shouldClaimLegacy {
             deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
         }
     }
@@ -282,7 +282,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             }
             throw error
         }
-        if shouldDeleteLegacySecret, copiedLegacyAttachToken {
+        if shouldDeleteLegacySecret {
             deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
         }
     }
