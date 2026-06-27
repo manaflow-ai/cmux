@@ -65,6 +65,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        attachToken: String?, attachTokenExpiresAt: Date?,
+        attachTokenWorkspaceID: String?, attachTokenTerminalID: String?,
         markActive: Bool,
         stackUserID: String?,
         teamID: String?,
@@ -92,6 +94,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             macDeviceID: macDeviceID,
             displayName: displayName,
             routes: routes,
+            attachToken: attachToken, attachTokenExpiresAt: attachTokenExpiresAt,
+            attachTokenWorkspaceID: attachTokenWorkspaceID, attachTokenTerminalID: attachTokenTerminalID,
             markActive: markActive,
             stackUserID: stackUserID,
             teamID: team,
@@ -126,6 +130,40 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                 includesCustomizations: false
             )
         }
+    }
+
+    /// Update routes locally without changing active state, then mirror the row.
+    public func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        let team = await resolvedTeam(teamID)
+        let account: String?
+        if let stackUserID {
+            account = stackUserID
+        } else {
+            account = try? await accountForMac(macDeviceID, teamID: team)
+        }
+        try await inner.updateRoutes(
+            macDeviceID: macDeviceID,
+            displayName: displayName,
+            routes: routes,
+            stackUserID: account,
+            teamID: team,
+            now: now
+        )
+        guard let account, !account.isEmpty else { return }
+        lastSignedInAccount = account
+        await uploadCurrentRecord(
+            macDeviceID: macDeviceID,
+            account: account,
+            teamID: team,
+            includesCustomizations: false
+        )
     }
 
     /// Persist local customizations, then mirror the complete record to backup.

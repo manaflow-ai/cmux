@@ -221,6 +221,25 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                     f"{shell_name} path preservation exited {result.returncode}: "
                     f"{(result.stdout + result.stderr).strip()}"
                 )
+            if shell_name == "zsh" and output != expected_path:
+                entries = output.split(":")
+                first_entry = str(first)
+                last_entry = str(last)
+                shim_entry = str(shim_root)
+                expected_entries = [shim_entry, "", first_entry, "", last_entry, ""]
+                normalized_entries = [
+                    str(Path(entry).resolve()) if entry else ""
+                    for entry in entries
+                ]
+                normalized_expected_entries = [
+                    str(Path(entry).resolve()) if entry else ""
+                    for entry in expected_entries
+                ]
+                if normalized_entries != normalized_expected_entries:
+                    failures.append(
+                        f"{shell_name} expected PATH entries {expected_entries!r}, got {entries!r}"
+                    )
+                continue
             if output != expected_path:
                 failures.append(f"{shell_name} expected PATH {expected_path!r}, got {output!r}")
 

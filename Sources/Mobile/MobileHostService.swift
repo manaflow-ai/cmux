@@ -1217,10 +1217,6 @@ final class MobileHostService {
         return trimmed?.isEmpty == false ? trimmed : nil
     }
 
-    func debugAuthorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
-        await authorizationError(for: request)
-    }
-
     /// Whether `request`'s Stack token passes the DEBUG dev-token policy.
     /// Always `false` in release builds. Shared by the authorization gate and
     /// the status identity gate so a dev-token client is treated identically
@@ -1275,19 +1271,28 @@ final class MobileHostService {
         return verified
     }
 
-    private func authorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
-        guard Self.requiresAuthorization(method: request.method) else {
-            return nil
-        }
-        // Stack auth is the SOLE authorization gate for the mobile data plane.
-        // The attach ticket is route-discovery and workspace-selection only; it
-        // never authorizes on its own. Every operation must present the Mac
-        // owner's same-account Stack access token. Consequences: a leaked or
-        // photographed QR is useless without the owner's signed-in account, and
-        // pairing is bound to "who is signed in on this Mac" rather than a stored
-        // ticket, so it survives Mac restarts and ticket expiry.
-        if devStackTokenAuthorized(request) {
-            return nil
+    func authorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
+        guard Self.requiresAuthorization(method: request.method) else { return nil }
+        if devStackTokenAuthorized(request) { return nil }
+        let hasPresentedAttachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        if let ticketAuthorization = ticketStore.validAuthorization(authToken: request.auth?.attachToken) {
+            let matchesCurrentMacAccount = MobileAttachTicketStore.ticketMatchesCurrentMacAccount(
+                ticket: ticketAuthorization.ticket,
+                currentUserID: await currentAuthenticatedLocalUserID(),
+                currentUserEmail: await currentAuthenticatedLocalUserEmail()
+            )
+            if !matchesCurrentMacAccount {
+                if request.auth?.stackAccessToken == nil { return .failure(Self.accountMismatchError) }
+            } else if let ticketError = Self.ticketAuthorizationError(
+                authorization: ticketAuthorization,
+                request: request
+            ) {
+                if request.auth?.stackAccessToken == nil { return .failure(ticketError) }
+            } else {
+                return nil
+            }
+        } else if hasPresentedAttachToken, request.auth?.stackAccessToken == nil {
+            return .failure(Self.invalidAttachTokenError)
         }
         do {
             try await Self.verifyStackAuthOffMainActor(auth: request.auth)
@@ -1298,10 +1303,7 @@ final class MobileHostService {
             // so the client can drive a re-authentication flow into the right
             // account rather than showing a generic failure.
             mobileHostLog.error("mobile host authorization rejected: account mismatch method=\(request.method, privacy: .public)")
-            return .failure(MobileHostRPCError(
-                code: "account_mismatch",
-                message: "Sign in with the account that owns this Mac to continue."
-            ))
+            return .failure(Self.accountMismatchError)
         } catch {
             mobileHostLog.error("mobile host authorization failed method=\(request.method, privacy: .public) error=\(String(describing: error), privacy: .public)")
             return .failure(MobileHostRPCError(
@@ -1317,30 +1319,37 @@ final class MobileHostService {
         }.value
     }
 
-    private func recordCreatedResourcesIfNeeded(
+    func recordCreatedResourcesIfNeeded(
         request: MobileHostRPCRequest,
         result: MobileHostRPCResult
-    ) {
-        guard let attachToken = request.auth?.attachToken else { return }
+    ) async {
         guard case let .ok(payload) = result,
               let object = payload as? [String: Any] else { return }
 
+        let createdResource: (workspaceID: String?, terminalID: String?)
         switch request.method {
         case "workspace.create":
-            ticketStore.recordCreatedResources(
-                authToken: attachToken,
-                workspaceID: object["created_workspace_id"] as? String,
-                terminalID: nil
-            )
+            createdResource = (object["created_workspace_id"] as? String, nil)
         case "mobile.terminal.create", "terminal.create":
-            ticketStore.recordCreatedResources(
-                authToken: attachToken,
-                workspaceID: nil,
-                terminalID: object["created_terminal_id"] as? String
-            )
+            createdResource = (nil, object["created_terminal_id"] as? String)
         default:
-            break
+            return
         }
+
+        guard request.auth?.stackAccessToken == nil,
+              let attachToken = request.auth?.attachToken,
+              let ticketAuthorization = ticketStore.validAuthorization(authToken: attachToken),
+              Self.ticketAuthorizationError(authorization: ticketAuthorization, request: request) == nil else { return }
+        guard MobileAttachTicketStore.ticketMatchesCurrentMacAccount(
+            ticket: ticketAuthorization.ticket,
+            currentUserID: await currentAuthenticatedLocalUserID(),
+            currentUserEmail: await currentAuthenticatedLocalUserEmail()
+        ) else { return }
+        ticketStore.recordCreatedResources(
+            authToken: attachToken,
+            workspaceID: createdResource.workspaceID,
+            terminalID: createdResource.terminalID
+        )
     }
 
     private static func ticketAuthorizationError(
@@ -1378,35 +1387,62 @@ final class MobileHostService {
 
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
-            return nil
+            if workspaceSelection.value == nil {
+                return terminalSelection.value == nil ? ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: nil) : scopedTicketError
+            }
+            return ticketTerminalAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value, terminalSelection: terminalSelection.value)
         case "workspace.create":
-            return nil
+            return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: nil)
         case "workspace.group.collapse", "workspace.group.expand":
-            // Display-only group state. Keyed by `group_id` (not a workspace or
-            // terminal selection), so it is Mac-scoped like the workspace list and
-            // not constrained by the ticket's workspace/terminal pin. The Stack
-            // same-account gate in `authorizationError` remains authoritative.
-            return nil
+            return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: nil)
+        case "workspace.action", "workspace.close":
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
         case "mobile.terminal.create", "terminal.create":
-            return nil
+            return terminalSelection.value != nil || authorization.ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? scopedTicketError : ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
         case "mobile.terminal.input", "terminal.input",
              "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport",
-             "mobile.terminal.scroll", "terminal.scroll":
+             "mobile.terminal.scroll", "terminal.scroll",
+             "mobile.terminal.mouse", "terminal.mouse":
             return ticketTerminalAuthorizationError(
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
-            return nil
+            return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: nil)
         case "mobile.host.status":
             return nil
         default:
             return scopedTicketError
         }
+    }
+
+    private static func ticketWorkspaceAuthorizationError(
+        authorization: MobileAttachTicketAuthorization,
+        workspaceSelection: String?
+    ) -> MobileHostRPCError? {
+        if authorization.ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            return scopedTicketError
+        }
+        if let workspaceSelection,
+           authorization.createdWorkspaceIDs.contains(workspaceSelection) {
+            return nil
+        }
+
+        let ticketWorkspaceID = authorization.ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Empty workspaceID means the ticket is Mac-wide (general pairing).
+        // Allow any workspace under it.
+        if ticketWorkspaceID.isEmpty { return nil }
+        guard workspaceSelection == ticketWorkspaceID else {
+            return scopedTicketError
+        }
+        return nil
     }
 
     private static func ticketTerminalAuthorizationError(
@@ -1471,6 +1507,16 @@ final class MobileHostService {
         )
     }
 
+    private static var invalidAttachTokenError: MobileHostRPCError {
+        MobileHostRPCError(code: "invalid_attach_token", message: "Attach token is no longer valid.")
+    }
+
+    private static var accountMismatchError: MobileHostRPCError {
+        MobileHostRPCError(
+            code: "account_mismatch",
+            message: "Sign in with the account that owns this Mac to continue."
+        )
+    }
     private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
         params["workspaceID"] != nil || params["terminalID"] != nil
     }
@@ -1808,9 +1854,8 @@ private actor MobileHostStackAuthVerifier {
         if let cached = cache[cacheKey], cached.expiresAt > now {
             remoteUserID = cached.userID
             // Refresh-ahead: when the cached binding is near expiry, re-verify in
-            // the background so an actively-typing client never blocks a keystroke
-            // on the network round-trip. Every mobile request now requires Stack
-            // auth, so the verification must stay off the critical path.
+            // the background so a Stack-authenticated request never blocks a
+            // keystroke on the network round-trip.
             if cached.expiresAt.timeIntervalSince(now) < Self.refreshAheadWindowSeconds {
                 scheduleRefreshAhead(cacheKey: cacheKey, accessToken: accessToken)
             }

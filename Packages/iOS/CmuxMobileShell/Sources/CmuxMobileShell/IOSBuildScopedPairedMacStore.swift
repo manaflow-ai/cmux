@@ -14,15 +14,24 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     private let inner: any MobilePairedMacStoring
     private let scope: MobileIOSBuildScope
 
+    /// Creates a store decorator that namespaces rows by the supplied iOS build scope.
+    /// - Parameters:
+    ///   - inner: The underlying paired-Mac store that persists scoped rows.
+    ///   - scope: The build scope appended to persisted team identifiers.
     public init(inner: any MobilePairedMacStoring, scope: MobileIOSBuildScope) {
         self.inner = inner
         self.scope = scope
     }
 
+    /// Inserts or updates a paired Mac inside this build scope.
     public func upsert(
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        attachToken: String?,
+        attachTokenExpiresAt: Date?,
+        attachTokenWorkspaceID: String?,
+        attachTokenTerminalID: String?,
         markActive: Bool,
         stackUserID: String?,
         teamID: String?,
@@ -32,6 +41,32 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         let fallback = selectedTeam == nil
             ? nil
             : try await scopedRows(stackUserID: stackUserID, teamID: nil).first { $0.macDeviceID == macDeviceID }
+        let hasFreshAttachToken = attachToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let fallbackAttachToken = hasFreshAttachToken
+            ? nil
+            : fallback?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? fallback?.attachToken
+                : nil
+        let forwardedAttachToken: String?
+        let forwardedAttachTokenExpiresAt: Date?
+        let forwardedAttachTokenWorkspaceID: String?
+        let forwardedAttachTokenTerminalID: String?
+        if hasFreshAttachToken {
+            forwardedAttachToken = attachToken
+            forwardedAttachTokenExpiresAt = attachTokenExpiresAt
+            forwardedAttachTokenWorkspaceID = attachTokenWorkspaceID
+            forwardedAttachTokenTerminalID = attachTokenTerminalID
+        } else if fallbackAttachToken != nil {
+            forwardedAttachToken = fallbackAttachToken
+            forwardedAttachTokenExpiresAt = fallback?.attachTokenExpiresAt
+            forwardedAttachTokenWorkspaceID = fallback?.attachTokenWorkspaceID
+            forwardedAttachTokenTerminalID = fallback?.attachTokenTerminalID
+        } else {
+            forwardedAttachToken = attachToken
+            forwardedAttachTokenExpiresAt = attachTokenExpiresAt
+            forwardedAttachTokenWorkspaceID = attachTokenWorkspaceID
+            forwardedAttachTokenTerminalID = attachTokenTerminalID
+        }
         if markActive, selectedTeam != nil {
             try await inner.clearActive(stackUserID: stackUserID, teamID: scopedTeamID(nil))
         }
@@ -39,6 +74,10 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
             macDeviceID: macDeviceID,
             displayName: displayName,
             routes: routes,
+            attachToken: forwardedAttachToken,
+            attachTokenExpiresAt: forwardedAttachTokenExpiresAt,
+            attachTokenWorkspaceID: forwardedAttachTokenWorkspaceID,
+            attachTokenTerminalID: forwardedAttachTokenTerminalID,
             markActive: markActive,
             stackUserID: stackUserID,
             teamID: scopedTeamID(teamID),
@@ -58,6 +97,39 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    /// Replaces a paired Mac's routes inside this build scope.
+    public func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        if normalizedTeamID(teamID) != nil {
+            let selectedRows = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
+            let targetTeamID = selectedRows.contains { $0.macDeviceID == macDeviceID } ? teamID : nil
+            try await inner.updateRoutes(
+                macDeviceID: macDeviceID,
+                displayName: displayName,
+                routes: routes,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(targetTeamID),
+                now: now
+            )
+            return
+        }
+        try await inner.updateRoutes(
+            macDeviceID: macDeviceID,
+            displayName: displayName,
+            routes: routes,
+            stackUserID: stackUserID,
+            teamID: scopedTeamID(teamID),
+            now: now
+        )
+    }
+
+    /// Loads paired Macs visible to this build scope.
     public func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         var byID: [String: MobilePairedMac] = [:]
         for mac in try await scopedRows(stackUserID: stackUserID, teamID: teamID) {
@@ -74,10 +146,12 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    /// Returns the active paired Mac visible to this build scope.
     public func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
         try await loadAll(stackUserID: stackUserID, teamID: teamID).first { $0.isActive }
     }
 
+    /// Marks one paired Mac active inside this build scope.
     public func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         if normalizedTeamID(teamID) != nil {
             try await inner.clearActive(stackUserID: stackUserID, teamID: scopedTeamID(teamID))
@@ -90,6 +164,7 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         try await inner.setActive(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: scopedTeamID(teamID))
     }
 
+    /// Clears active paired-Mac state inside this build scope.
     public func clearActive(stackUserID: String?, teamID: String?) async throws {
         if normalizedTeamID(teamID) != nil {
             try await inner.clearActive(stackUserID: stackUserID, teamID: scopedTeamID(teamID))
@@ -99,6 +174,7 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         try await inner.clearActive(stackUserID: stackUserID, teamID: scopedTeamID(teamID))
     }
 
+    /// Updates user customization for a paired Mac inside this build scope.
     public func setCustomization(
         macDeviceID: String,
         customName: String?,
@@ -133,6 +209,7 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Removes one paired Mac from this build scope.
     public func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         try await inner.remove(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: scopedTeamID(teamID))
         if normalizedTeamID(teamID) != nil {
@@ -140,6 +217,7 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    /// Removes all paired Macs belonging to this build scope.
     public func removeAll() async throws {
         for mac in try await inner.loadAll(stackUserID: nil, teamID: nil) where isScoped(mac) {
             try await inner.remove(macDeviceID: mac.macDeviceID, stackUserID: mac.stackUserID, teamID: mac.teamID)

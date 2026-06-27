@@ -130,8 +130,8 @@ private func legacyDecoder() -> JSONDecoder {
     // Routes round-trip losslessly even with custom ids ("ws" differs from
     // the synthesized "websocket", so it is carried verbatim).
     #expect(decoded.routes == ticket.routes)
-    // Dropped by design: the auth token never authorizes anything, the name
-    // arrives via `mobile.host.status`, and a pairing QR never expires.
+    // Dropped by design: QR URLs are not bearer credentials, the name arrives
+    // via `mobile.host.status`, and a pairing QR never expires.
     #expect(decoded.authToken == nil)
     #expect(decoded.macDisplayName == nil)
     #expect(decoded.expiresAt == nil)

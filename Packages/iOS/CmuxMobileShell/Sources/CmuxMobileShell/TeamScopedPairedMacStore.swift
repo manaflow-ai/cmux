@@ -33,6 +33,10 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        attachToken: String?,
+        attachTokenExpiresAt: Date?,
+        attachTokenWorkspaceID: String?,
+        attachTokenTerminalID: String?,
         markActive: Bool,
         stackUserID: String?,
         teamID: String?,
@@ -42,9 +46,34 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
             macDeviceID: macDeviceID,
             displayName: displayName,
             routes: routes,
+            attachToken: attachToken,
+            attachTokenExpiresAt: attachTokenExpiresAt,
+            attachTokenWorkspaceID: attachTokenWorkspaceID,
+            attachTokenTerminalID: attachTokenTerminalID,
             markActive: markActive,
             stackUserID: stackUserID,
             teamID: await resolvedTeam(teamID),
+            now: now
+        )
+    }
+
+    /// Update routes in the selected team scope without changing active state.
+    public func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        let team = await resolvedTeam(teamID)
+        let scope = try await visibleScope(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: team)
+        try await inner.updateRoutes(
+            macDeviceID: macDeviceID,
+            displayName: displayName,
+            routes: routes,
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID,
             now: now
         )
     }
@@ -129,8 +158,13 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         stackUserID: String?,
         teamID: String?
     ) async throws -> (stackUserID: String?, teamID: String?) {
-        let visibleMac = try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first { $0.macDeviceID == macDeviceID }
+        let visibleMacs = try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
+        let visibleMac = if let teamID,
+                            let exactTeamMac = visibleMacs.first(where: { $0.macDeviceID == macDeviceID && $0.teamID == teamID }) {
+            exactTeamMac
+        } else {
+            visibleMacs.first { $0.macDeviceID == macDeviceID }
+        }
         guard let visibleMac else {
             return (stackUserID, teamID)
         }

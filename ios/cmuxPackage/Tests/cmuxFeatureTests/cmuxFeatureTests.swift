@@ -835,8 +835,8 @@ final class TerminalOutputCollector {
 @Test func expiredLegacyTicketWhileOfflineReportsOfflineNotExpired() async throws {
     // Expiry no longer classifies pairing inputs: a pairing QR never expires
     // (v2 codes carry no expiry, legacy `e=` values are dropped on decode, and
-    // the host authorizes by Stack account, not ticket age), so a legacy
-    // ticket whose `expiresAt` has passed is still a valid pairing input.
+    // QR URLs carry no bearer token), so a legacy ticket whose `expiresAt` has
+    // passed is still a valid pairing input.
     // While the device is offline the preflight must say so and fail fast
     // with no dial — reconnecting and rescanning the same code is expected
     // to work, so "offline" is the honest, actionable message.
@@ -1062,7 +1062,7 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func uuidAttachTicketListsAllWorkspacesFirstWithAttachToken() async throws {
+@Test func uuidAttachTicketUsesScopedWorkspaceListWithAttachToken() async throws {
     let workspaceID = UUID().uuidString
     let route = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(
@@ -1073,7 +1073,7 @@ final class TerminalOutputCollector {
         routes: [route],
         expiresAt: Date().addingTimeInterval(60),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace"),
     ])
@@ -1088,14 +1088,14 @@ final class TerminalOutputCollector {
 
     let requests = try await responses.sentRequests()
     let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
-    #expect(workspaceList.workspaceID == nil)
+    #expect(workspaceList.workspaceID == workspaceID)
     #expect(workspaceList.attachToken == "ticket-secret")
-    #expect(workspaceList.stackAccessToken == "test-stack-token")
+    #expect(workspaceList.stackAccessToken == nil)
     #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
 }
 
 @MainActor
-@Test func signedInAttachTicketConnectsWithFullWorkspaceListFirst() async throws {
+@Test func signedInAttachTicketConnectsWithScopedListThenFullRefresh() async throws {
     let workspaceID = UUID().uuidString
     let terminalID = UUID().uuidString
     let docsWorkspaceID = UUID().uuidString
@@ -1103,14 +1103,15 @@ final class TerminalOutputCollector {
     let route = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(
         workspaceID: workspaceID,
-        terminalID: terminalID,
+        terminalID: nil,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [route],
         expiresAt: Date().addingTimeInterval(60),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "cmux", terminalID: terminalID),
         try rpcResultFrame(
             result: [
                 "workspaces": [
@@ -1157,18 +1158,18 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
-    let workspaceLists = try await waitForWorkspaceListRequestCount(1, responses: responses)
-    #expect(workspaceLists[0].workspaceID == nil)
-    #expect(workspaceLists[0].terminalID == nil)
-    #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
-    #expect(workspaceLists.allSatisfy { $0.stackAccessToken == "test-stack-token" })
+    let workspaceLists = try await waitForWorkspaceListRequestCount(2, responses: responses)
+    #expect(workspaceLists[0].workspaceID == workspaceID)
+    #expect(workspaceLists[0].attachToken == "ticket-secret")
+    #expect(workspaceLists[1].workspaceID == nil)
+    #expect(workspaceLists[1].stackAccessToken == "test-stack-token")
     let workspaceIDs = try await waitForWorkspaceIDs(in: store, matching: [workspaceID, docsWorkspaceID])
     #expect(workspaceIDs == [workspaceID, docsWorkspaceID])
     #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
 }
 
 @MainActor
-@Test func signedInLoopbackAttachTicketConnectsWithFullWorkspaceListFirst() async throws {
+@Test func signedInLoopbackAttachTicketConnectsWithScopedListThenFullRefresh() async throws {
     let workspaceID = UUID().uuidString
     let terminalID = UUID().uuidString
     let secondWorkspaceID = UUID().uuidString
@@ -1176,14 +1177,15 @@ final class TerminalOutputCollector {
     let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(
         workspaceID: workspaceID,
-        terminalID: terminalID,
+        terminalID: nil,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [route],
         expiresAt: Date().addingTimeInterval(60),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Main", terminalID: terminalID),
         try rpcResultFrame(
             result: [
                 "workspaces": [
@@ -1230,32 +1232,32 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
-    let workspaceLists = try await waitForWorkspaceListRequestCount(1, responses: responses)
-    #expect(workspaceLists[0].workspaceID == nil)
-    #expect(workspaceLists[0].terminalID == nil)
-    #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
-    #expect(workspaceLists.allSatisfy { $0.stackAccessToken == "test-stack-token" })
+    let workspaceLists = try await waitForWorkspaceListRequestCount(2, responses: responses)
+    #expect(workspaceLists[0].workspaceID == workspaceID)
+    #expect(workspaceLists[0].attachToken == "ticket-secret")
+    #expect(workspaceLists[1].workspaceID == nil)
+    #expect(workspaceLists[1].stackAccessToken == "test-stack-token")
     let workspaceIDs = try await waitForWorkspaceIDs(in: store, matching: [workspaceID, secondWorkspaceID])
     #expect(workspaceIDs == [workspaceID, secondWorkspaceID])
 }
 
 @MainActor
-@Test func signedInAttachTicketFallsBackToScopedWorkspaceWhenFullListFails() async throws {
+@Test func signedInAttachTicketKeepsScopedWorkspaceWhenFullListRefreshFails() async throws {
     let workspaceID = UUID().uuidString
     let terminalID = UUID().uuidString
     let route = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(
         workspaceID: workspaceID,
-        terminalID: terminalID,
+        terminalID: nil,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [route],
         expiresAt: Date().addingTimeInterval(60),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
-        try rpcErrorFrame(message: "Full list not supported"),
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
+        try rpcErrorFrame(code: "forbidden", message: "Full list not supported"),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
@@ -1267,16 +1269,19 @@ final class TerminalOutputCollector {
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
     let workspaceLists = try await waitForWorkspaceListRequestCount(2, responses: responses)
-    #expect(workspaceLists[0].workspaceID == nil)
+    #expect(workspaceLists[0].workspaceID == workspaceID)
     #expect(workspaceLists[0].terminalID == nil)
-    #expect(workspaceLists[1].workspaceID == workspaceID)
-    #expect(workspaceLists[1].terminalID == terminalID)
-    #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
+    #expect(workspaceLists[0].attachToken == "ticket-secret")
+    #expect(workspaceLists[0].stackAccessToken == nil)
+    #expect(workspaceLists[1].workspaceID == nil)
+    #expect(workspaceLists[1].terminalID == nil)
+    #expect(workspaceLists[1].attachToken == nil)
+    #expect(workspaceLists[1].stackAccessToken == "test-stack-token")
     #expect(store.workspaces.map(\.id.rawValue) == [workspaceID])
 }
 
 @MainActor
-@Test func terminalScopedAttachTicketWithAttachTokenListsAllWorkspacesFirst() async throws {
+@Test func terminalScopedAttachTicketWithAttachTokenUsesScopedWorkspaceList() async throws {
     let workspaceID = UUID().uuidString
     let terminalID = UUID().uuidString
     let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
@@ -1288,7 +1293,7 @@ final class TerminalOutputCollector {
         routes: [route],
         expiresAt: Date().addingTimeInterval(60),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
     ])
@@ -1303,10 +1308,10 @@ final class TerminalOutputCollector {
 
     let requests = try await responses.sentRequests()
     let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
-    #expect(workspaceList.workspaceID == nil)
-    #expect(workspaceList.terminalID == nil)
+    #expect(workspaceList.workspaceID == workspaceID)
+    #expect(workspaceList.terminalID == terminalID)
     #expect(workspaceList.attachToken == "ticket-secret")
-    #expect(workspaceList.stackAccessToken == "test-stack-token")
+    #expect(workspaceList.stackAccessToken == nil)
     #expect(store.selectedWorkspace?.terminals.first?.id.rawValue == terminalID)
 }
 
@@ -1333,7 +1338,7 @@ final class TerminalOutputCollector {
         routes: [fallbackRoute, preferredRoute],
         expiresAt: Date().addingTimeInterval(60),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Fallback Workspace"),
     ])
@@ -1351,7 +1356,7 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
-    #expect(await attempts.routeIDs() == [preferredRoute.id, preferredRoute.id, fallbackRoute.id])
+    #expect(await attempts.routeIDs() == [preferredRoute.id, fallbackRoute.id])
     #expect(store.connectionState == .connected)
     #expect(store.activeRoute?.id == fallbackRoute.id)
     #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
@@ -1806,6 +1811,58 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func storedMacReconnectUsesPersistedAttachTicketWithoutStackAuth() async throws {
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    let route = try hostPortRoute(
+        kind: .tailscale,
+        host: "100.64.0.5",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let pairedMacStore = FeatureTestPairedMacStore(records: [
+        MobilePairedMac(
+            macDeviceID: "stored-mac",
+            displayName: "Stored Mac",
+            routes: [route],
+            attachToken: "stored-ticket-secret",
+            attachTokenExpiresAt: now.addingTimeInterval(60),
+            attachTokenWorkspaceID: "",
+            createdAt: now,
+            lastSeenAt: now,
+            isActive: true,
+            stackUserID: "user-1"
+        ),
+    ])
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "stored-workspace", title: "Stored Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: nil,
+        now: { now }
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        pairedMacStore: pairedMacStore,
+        identityProvider: TestIdentityProvider(
+            currentUserIDValue: "user-1",
+            currentUserEmailValue: "user@example.com"
+        )
+    )
+
+    store.signIn()
+    let didReconnect = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+
+    #expect(didReconnect)
+    #expect(store.connectionState == .connected)
+    let request = try #require(try await responses.sentRequests().first { $0.method == "workspace.list" })
+    #expect(request.attachToken == "stored-ticket-secret")
+    #expect(request.stackAccessToken == nil)
+    #expect(store.selectedWorkspace?.id.rawValue == "stored-workspace")
+}
+
+@MainActor
 @Test func scannedLoopbackPairingCodeIsRejectedWithGuidance() async throws {
     // "QR shouldn't work for localhost": a scanned/pasted v2 code whose
     // routes point at the phone itself fails closed with copy that names the
@@ -2112,8 +2169,8 @@ final class TerminalOutputCollector {
         endpoint: .hostPort(host: "127.0.0.1", port: 56584)
     )
     let ticket = try CmxAttachTicket(
-        workspaceID: "workspace-main",
-        terminalID: "terminal-build",
+        workspaceID: "",
+        terminalID: nil,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [route],
@@ -2147,14 +2204,14 @@ final class TerminalOutputCollector {
         endpoint: .hostPort(host: "127.0.0.1", port: 56584)
     )
     let ticket = try CmxAttachTicket(
-        workspaceID: "workspace-main",
-        terminalID: "terminal-build",
+        workspaceID: "",
+        terminalID: nil,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [route],
         expiresAt: Date(timeIntervalSince1970: 2_000_000_000),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let router = RemoteCreateWorkspaceRouter()
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -2174,7 +2231,7 @@ final class TerminalOutputCollector {
     let requests = await router.sentRequests()
     let createRequest = try #require(requests.first { $0.method == "workspace.create" })
     #expect(createRequest.attachToken == "ticket-secret")
-    #expect(createRequest.stackAccessToken == "test-stack-token")
+    #expect(createRequest.stackAccessToken == nil)
     #expect(store.connectionError == nil)
     #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main", "workspace-3"])
     #expect(store.selectedWorkspace?.id.rawValue == "workspace-3")
@@ -2302,7 +2359,7 @@ final class TerminalOutputCollector {
         routes: [route],
         expiresAt: Date().addingTimeInterval(60),
         authToken: "ticket-secret"
-    )
+    ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(
             workspaceID: "live-workspace",
@@ -2608,12 +2665,154 @@ final class TerminalOutputCollector {
 
 private struct MissingTestStackAccessToken: Error {}
 
+private let testMacUserID = "user-1"
+private let testMacUserEmail = "user@example.com"
+
 private struct TestIdentityProvider: MobileIdentityProviding {
     let currentUserIDValue: String?
     let currentUserEmailValue: String?
 
     @MainActor var currentUserID: String? { currentUserIDValue }
     @MainActor var currentUserEmail: String? { currentUserEmailValue }
+}
+
+private actor FeatureTestPairedMacStore: MobilePairedMacStoring {
+    private var records: [MobilePairedMac]
+
+    init(records: [MobilePairedMac] = []) {
+        self.records = records
+    }
+
+    func upsert(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        attachToken: String?,
+        attachTokenExpiresAt: Date?,
+        attachTokenWorkspaceID: String?,
+        attachTokenTerminalID: String?,
+        markActive: Bool,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        if markActive {
+            clearActiveRecords(stackUserID: stackUserID, teamID: teamID)
+        }
+        if let index = records.firstIndex(where: {
+            $0.macDeviceID == macDeviceID && $0.stackUserID == stackUserID && $0.teamID == teamID
+        }) {
+            records[index].displayName = displayName
+            records[index].routes = routes
+            records[index].lastSeenAt = now
+            records[index].isActive = markActive
+            if let attachToken {
+                records[index].attachToken = attachToken
+                records[index].attachTokenExpiresAt = attachTokenExpiresAt
+                records[index].attachTokenWorkspaceID = attachTokenWorkspaceID
+                records[index].attachTokenTerminalID = attachTokenTerminalID
+            }
+        } else {
+            records.append(
+                MobilePairedMac(
+                    macDeviceID: macDeviceID,
+                    displayName: displayName,
+                    routes: routes,
+                    attachToken: attachToken,
+                    attachTokenExpiresAt: attachTokenExpiresAt,
+                    attachTokenWorkspaceID: attachTokenWorkspaceID,
+                    attachTokenTerminalID: attachTokenTerminalID,
+                    createdAt: now,
+                    lastSeenAt: now,
+                    isActive: markActive,
+                    stackUserID: stackUserID,
+                    teamID: teamID
+                )
+            )
+        }
+    }
+
+    func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        guard let index = records.firstIndex(where: {
+            $0.macDeviceID == macDeviceID && $0.stackUserID == stackUserID && $0.teamID == teamID
+        }) else {
+            return
+        }
+        records[index].displayName = displayName
+        records[index].routes = routes
+        records[index].lastSeenAt = now
+    }
+
+    func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
+        records
+            .filter { recordMatches($0, stackUserID: stackUserID, teamID: teamID) }
+            .sorted { $0.lastSeenAt > $1.lastSeenAt }
+    }
+
+    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
+        let visibleRecords = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+        return visibleRecords.first { $0.isActive }
+    }
+
+    func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        clearActiveRecords(stackUserID: stackUserID, teamID: teamID)
+        if let index = records.firstIndex(where: {
+            $0.macDeviceID == macDeviceID && recordMatches($0, stackUserID: stackUserID, teamID: teamID)
+        }) {
+            records[index].isActive = true
+        }
+    }
+
+    func clearActive(stackUserID: String?, teamID: String?) async throws {
+        clearActiveRecords(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func setCustomization(
+        macDeviceID: String,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        guard let index = records.firstIndex(where: {
+            $0.macDeviceID == macDeviceID && recordMatches($0, stackUserID: stackUserID, teamID: teamID)
+        }) else {
+            return
+        }
+        records[index].customName = customName
+        records[index].customColor = customColor
+        records[index].customIcon = customIcon
+        records[index].lastSeenAt = now
+    }
+
+    func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        records.removeAll { $0.macDeviceID == macDeviceID && recordMatches($0, stackUserID: stackUserID, teamID: teamID) }
+    }
+
+    func removeAll() async throws {
+        records.removeAll()
+    }
+
+    private func clearActiveRecords(stackUserID: String?, teamID: String?) {
+        for index in records.indices where recordMatches(records[index], stackUserID: stackUserID, teamID: teamID) {
+            records[index].isActive = false
+        }
+    }
+
+    private func recordMatches(_ record: MobilePairedMac, stackUserID: String?, teamID: String?) -> Bool {
+        let userMatches = stackUserID == nil || record.stackUserID == stackUserID
+        let teamMatches = teamID == nil || record.teamID == teamID || record.teamID == nil
+        return userMatches && teamMatches
+    }
 }
 
 private final class RecordingAnalytics: AnalyticsEmitting, @unchecked Sendable {
@@ -2675,6 +2874,24 @@ private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
 }
 
 private extension CmxAttachTicket {
+    func boundToTestMacAccountForTest() throws -> CmxAttachTicket {
+        try CmxAttachTicket(
+            version: version,
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            macDeviceID: macDeviceID,
+            macDisplayName: macDisplayName,
+            macUserEmail: testMacUserEmail,
+            macUserID: testMacUserID,
+            macPairingCompatibilityVersion: macPairingCompatibilityVersion,
+            macAppVersion: macAppVersion,
+            macAppBuild: macAppBuild,
+            routes: routes,
+            expiresAt: expiresAt,
+            authToken: authToken
+        )
+    }
+
     func withCurrentMacPairingCompatibilityVersionForTest() throws -> CmxAttachTicket {
         guard macPairingCompatibilityVersion == nil else {
             return self
