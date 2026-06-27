@@ -40,7 +40,7 @@ struct CompactAttachTicket: Codable {
         guard v == Self.legacyEmailGrammarVersion || v == Self.currentGrammarVersion else {
             throw CmxAttachTicketError.unsupportedVersion(v)
         }
-        try CmxAttachTicket(
+        return try CmxAttachTicket(
             version: CmxAttachTicket.currentVersion,
             workspaceID: w ?? "",
             terminalID: t,
