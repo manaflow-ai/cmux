@@ -10,7 +10,8 @@ public struct MobileDiagnosticsOSLogEntry: Sendable, Equatable {
     public var category: String
     /// The log level name.
     public var level: String
-    /// The composed log message.
+    /// The display-safe log message. The `OSLogStore` reader leaves this blank
+    /// so shared reports never include arbitrary unified-log message bodies.
     public var message: String
 
     /// Create a unified-log entry value.

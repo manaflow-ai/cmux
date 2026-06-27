@@ -3,7 +3,7 @@ import Foundation
 public import Observation
 import OSLog
 
-private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
+nonisolated private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 
 /// The shared, injected auth orchestrator for cmux.
 ///
@@ -534,11 +534,10 @@ public final class AuthCoordinator {
                 } catch {
                     // Best-effort by design; see the security tradeoff above.
                     // The full error goes to the unified log privately; the
-                    // public redacted sink gets only the error TYPE, because
-                    // a Stack error body can carry opaque identifiers the
-                    // redaction regexes don't recognize.
+                    // public redacted sink gets only a generic failure marker,
+                    // because even error type names can expose provider details.
                     authLog.error("Sign-out session revocation failed: \(error.localizedDescription, privacy: .private)")
-                    log.log("auth.signOut revocation failed: \(String(describing: type(of: error)))")
+                    log.log("auth.signOut revocation failed")
                 }
             }
             group.addTask {

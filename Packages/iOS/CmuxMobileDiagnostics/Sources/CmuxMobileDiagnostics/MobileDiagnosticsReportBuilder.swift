@@ -20,8 +20,10 @@ public struct MobileDiagnosticsReportBuilder: Sendable {
     ///   - connection: Redacted connection state.
     ///   - events: Recent in-app diagnostics events.
     ///   - structuredEventLog: Optional compact structured event log text.
-    ///   - debugLog: Optional string debug log text.
-    ///   - osLogEntries: Recent current-process unified-log entries.
+    ///   - debugLog: Optional string debug log text; the shared report includes
+    ///     only a count summary, never raw debug-log lines.
+    ///   - osLogEntries: Recent current-process unified-log entries; the shared
+    ///     report includes only a count summary, never raw OSLog messages.
     /// - Returns: A secret-scrubbed plain-text report.
     public func buildReport(
         generatedAt: Date,
@@ -100,12 +102,7 @@ public struct MobileDiagnosticsReportBuilder: Sendable {
             emptyValue: noneValue,
             to: &lines
         )
-        appendBlock(
-            title: localized("mobile.diagnostics.report.debugLog", defaultValue: "Debug Log"),
-            text: debugLog,
-            emptyValue: noneValue,
-            to: &lines
-        )
+        appendDebugLog(debugLog, to: &lines)
         appendOSLog(osLogEntries, to: &lines)
         return lines.joined(separator: "\n")
     }
@@ -142,6 +139,25 @@ public struct MobileDiagnosticsReportBuilder: Sendable {
         lines.append("")
     }
 
+    private func appendDebugLog(_ text: String?, to lines: inout [String]) {
+        lines.append(localized("mobile.diagnostics.report.debugLog", defaultValue: "Debug Log"))
+        guard let text = nonEmpty(text) else {
+            lines.append(noneValue)
+            lines.append("")
+            return
+        }
+        lines.append(
+            String(
+                format: localized(
+                    "mobile.diagnostics.report.debugLogOmittedFormat",
+                    defaultValue: "Debug log lines omitted from shared report: %d"
+                ),
+                lineCount(text)
+            )
+        )
+        lines.append("")
+    }
+
     private func appendOSLog(_ entries: [MobileDiagnosticsOSLogEntry], to lines: inout [String]) {
         lines.append(localized("mobile.diagnostics.report.recentOSLog", defaultValue: "Recent OSLog"))
         if entries.isEmpty {
@@ -149,11 +165,15 @@ public struct MobileDiagnosticsReportBuilder: Sendable {
             lines.append("")
             return
         }
-        for entry in entries {
-            lines.append(
-                "\(format(entry.date)) \(entry.level) \(entry.subsystem)/\(entry.category): \(entry.message)"
+        lines.append(
+            String(
+                format: localized(
+                    "mobile.diagnostics.report.osLogOmittedFormat",
+                    defaultValue: "OSLog entries omitted from shared report: %d"
+                ),
+                entries.count
             )
-        }
+        )
         lines.append("")
     }
 
@@ -171,6 +191,12 @@ public struct MobileDiagnosticsReportBuilder: Sendable {
 
     private func present(_ value: String?) -> String {
         nonEmpty(value) ?? noneValue
+    }
+
+    private func lineCount(_ value: String) -> Int {
+        let components = value.components(separatedBy: .newlines)
+        let count = components.filter { !$0.isEmpty }.count
+        return max(count, 1)
     }
 
     private func localized(_ key: String.LocalizationValue, defaultValue: String.LocalizationValue) -> String {

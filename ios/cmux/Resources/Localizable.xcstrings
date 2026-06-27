@@ -2466,6 +2466,23 @@
         }
       }
     },
+    "mobile.diagnostics.report.debugLogOmittedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Debug log lines omitted from shared report: %d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有レポートから省略されたデバッグログ行: %d"
+          }
+        }
+      }
+    },
     "mobile.diagnostics.report.device": {
       "extractionState": "manual",
       "localizations": {
@@ -2598,6 +2615,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "OSLogを利用できません"
+          }
+        }
+      }
+    },
+    "mobile.diagnostics.report.osLogOmittedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OSLog entries omitted from shared report: %d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有レポートから省略されたOSLogエントリ: %d"
           }
         }
       }

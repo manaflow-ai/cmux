@@ -37,7 +37,7 @@ public struct MobileDiagnosticsOSLogStoreReader: MobileDiagnosticsOSLogReading {
                 subsystem: log.subsystem,
                 category: log.category,
                 level: Self.levelName(log.level),
-                message: log.composedMessage
+                message: ""
             )
             if ring.count < limit {
                 ring.append(diagnosticsEntry)
