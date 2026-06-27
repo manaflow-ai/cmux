@@ -3,28 +3,16 @@ import Foundation
 
 final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     private var dataPath = ""
-    private var diagnosticsPath = ""
-    private var socketPath = ""
-    private var launchTag = ""
     private var browserHistorySeedJSON: String?
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
         dataPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(UUID().uuidString).json"
-        diagnosticsPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(UUID().uuidString).diagnostics.json"
-        socketPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(UUID().uuidString).sock"
-        launchTag = "ui-omnibar-\(UUID().uuidString.prefix(8))"
         browserHistorySeedJSON = nil
         try? FileManager.default.removeItem(atPath: dataPath)
-        try? FileManager.default.removeItem(atPath: diagnosticsPath)
-        try? FileManager.default.removeItem(atPath: socketPath)
-        try? FileManager.default.removeItem(atPath: "\(socketPath).lock")
-        addTeardownBlock { [dataPath, diagnosticsPath, socketPath] in
+        addTeardownBlock { [dataPath] in
             try? FileManager.default.removeItem(atPath: dataPath)
-            try? FileManager.default.removeItem(atPath: diagnosticsPath)
-            try? FileManager.default.removeItem(atPath: socketPath)
-            try? FileManager.default.removeItem(atPath: "\(socketPath).lock")
         }
 
         // Terminate any lingering app from a prior test so its debounced
@@ -558,12 +546,11 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         seedBrowserHistoryForTest()
 
         let app = XCUIApplication()
-        configureSocketLaunch(app)
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
         launchAndEnsureForeground(app)
-        XCTAssertTrue(waitForSocketPong(timeout: 12.0), socketReadinessFailureMessage())
         XCTAssertTrue(
             waitForGotoSplitSetup(timeout: 10.0),
             "Expected goto_split setup data before typing. data=\(String(describing: loadGotoSplitData()))"
@@ -591,12 +578,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             "Expected inline completion display to avoid injecting an https:// prefix unless typed."
         )
 
-        let backspaceResponse = socketCommand("simulate_shortcut backspace")
-        XCTAssertEqual(
-            backspaceResponse,
-            "OK",
-            "Expected socket shortcut simulation to send Backspace through AppKit. response=\(String(describing: backspaceResponse)) \(socketDebugState())"
-        )
+        omnibar.typeText(XCUIKeyboardKey.delete.rawValue)
 
         var valueAfterDelete = ""
         let revertedToTypedPrefix = waitForCondition(timeout: 3.0) {
@@ -668,196 +650,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             return app.wait(for: .runningForeground, timeout: 6.0)
         }
         return false
-    }
-
-    private func configureSocketLaunch(_ app: XCUIApplication) {
-        app.launchArguments += ["-socketControlMode", "allowAll"]
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
-        app.launchEnvironment["CMUX_TAG"] = launchTag
-    }
-
-    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        var resolvedPath: String?
-        let ready = waitForControlSocketReady(
-            pingTimeout: timeout,
-            socketFileExists: {
-                self.socketCandidates().contains { FileManager.default.fileExists(atPath: $0) } ||
-                    self.controlSocketDiagnosticsReportReady(self.loadDiagnostics())
-            },
-            pingReturnsPong: {
-                let originalPath = self.socketPath
-                for candidate in self.socketCandidates() {
-                    guard FileManager.default.fileExists(atPath: candidate) else { continue }
-                    self.socketPath = candidate
-                    if self.socketCommand("ping") == "PONG" {
-                        resolvedPath = candidate
-                        return true
-                    }
-                    self.socketPath = originalPath
-                }
-                return false
-            }
-        )
-        if let resolvedPath {
-            socketPath = resolvedPath
-        }
-        return ready
-    }
-
-    private func socketReadinessFailureMessage() -> String {
-        "Expected control socket at \(socketPath). \(socketDebugState())"
-    }
-
-    private func socketDebugState() -> String {
-        "diagnostics=\(loadDiagnostics()) candidates=\(socketCandidates())"
-    }
-
-    private func socketCommand(_ command: String) -> String? {
-        let originalPath = socketPath
-        for candidate in socketCandidates() {
-            guard FileManager.default.fileExists(atPath: candidate) else { continue }
-            socketPath = candidate
-            if let response = ControlSocketClient(path: candidate, responseTimeout: 3.0).sendLine(command)
-                ?? controlSocketCommandViaNetcat(command, socketPath: candidate, responseTimeout: 3.0) {
-                return response
-            }
-        }
-        socketPath = originalPath
-        return nil
-    }
-
-    private func socketCandidates() -> [String] {
-        var candidates = [socketPath, taggedSocketPath()]
-        if let expectedPath = loadDiagnostics()["socketExpectedPath"], !expectedPath.isEmpty {
-            candidates.append(expectedPath)
-        }
-        var seen = Set<String>()
-        candidates.removeAll { !seen.insert($0).inserted }
-        return candidates
-    }
-
-    private func taggedSocketPath() -> String {
-        let slug = launchTag
-            .lowercased()
-            .replacingOccurrences(of: ".", with: "-")
-            .replacingOccurrences(of: "_", with: "-")
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: "-")
-        return "/tmp/cmux-debug-\(slug).sock"
-    }
-
-    private func loadDiagnostics() -> [String: String] {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: diagnosticsPath)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return [:]
-        }
-        var diagnostics: [String: String] = [:]
-        for (key, value) in object {
-            diagnostics[key] = String(describing: value)
-        }
-        return diagnostics
-    }
-
-    private final class ControlSocketClient {
-        private let path: String
-        private let responseTimeout: TimeInterval
-
-        init(path: String, responseTimeout: TimeInterval) {
-            self.path = path
-            self.responseTimeout = responseTimeout
-        }
-
-        func sendLine(_ line: String) -> String? {
-            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-            guard fd >= 0 else { return nil }
-            defer { close(fd) }
-
-#if os(macOS)
-            var noSigPipe: Int32 = 1
-            _ = withUnsafePointer(to: &noSigPipe) { ptr in
-                setsockopt(
-                    fd,
-                    SOL_SOCKET,
-                    SO_NOSIGPIPE,
-                    ptr,
-                    socklen_t(MemoryLayout<Int32>.size)
-                )
-            }
-#endif
-
-            var addr = sockaddr_un()
-            memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
-            addr.sun_family = sa_family_t(AF_UNIX)
-
-            let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
-            let bytes = Array(path.utf8CString)
-            guard bytes.count <= maxLen else { return nil }
-            withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-                let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
-                memset(raw, 0, maxLen)
-                for index in 0..<bytes.count {
-                    raw[index] = bytes[index]
-                }
-            }
-
-            let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
-            let addrLen = socklen_t(pathOffset + bytes.count)
-#if os(macOS)
-            addr.sun_len = UInt8(min(Int(addrLen), 255))
-#endif
-
-            let connected = withUnsafePointer(to: &addr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    connect(fd, sockaddrPtr, addrLen)
-                }
-            }
-            guard connected == 0 else { return nil }
-
-            let payload = line + "\n"
-            let wrote: Bool = payload.withCString { cString in
-                var remaining = strlen(cString)
-                var pointer = UnsafeRawPointer(cString)
-                while remaining > 0 {
-                    let written = write(fd, pointer, remaining)
-                    if written <= 0 { return false }
-                    remaining -= written
-                    pointer = pointer.advanced(by: written)
-                }
-                return true
-            }
-            guard wrote else { return nil }
-
-            let deadline = Date().addingTimeInterval(responseTimeout)
-            var buffer = [UInt8](repeating: 0, count: 4096)
-            var accumulator = ""
-            while Date() < deadline {
-                var pollDescriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-                let ready = poll(&pollDescriptor, 1, 100)
-                if ready < 0 {
-                    return nil
-                }
-                if ready == 0 {
-                    continue
-                }
-                let count = read(fd, &buffer, buffer.count)
-                if count <= 0 { break }
-                if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
-                    accumulator.append(chunk)
-                    if let newline = accumulator.firstIndex(of: "\n") {
-                        return String(accumulator[..<newline])
-                    }
-                }
-            }
-
-            return accumulator.isEmpty ? nil : accumulator.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
     }
 
     private struct SeedEntry {

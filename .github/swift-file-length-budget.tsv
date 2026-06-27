@@ -4,7 +4,7 @@
 34629	CLI/cmux.swift
 17854	Sources/AppDelegate.swift
 16476	Sources/ContentView.swift
-13917	Sources/TerminalController.swift
+13913	Sources/TerminalController.swift
 12838	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12237	Sources/GhosttyTerminalView.swift
@@ -86,7 +86,6 @@
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
 1031	cmuxTests/WorkspaceGroupTests.swift
-1026	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
@@ -112,6 +111,7 @@
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 830	Sources/TaskManagerTypes.swift
 824	Sources/MainWindowFocusController.swift
+818	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 813	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 810	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 803	Packages/iOS/CmuxMobilePairedMac/Sources/CmuxMobilePairedMac/MobilePairedMacStore.swift
