@@ -1389,8 +1389,7 @@ final class MobileHostService {
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
             if workspaceSelection.value == nil {
-                let ticketHasTerminalScope = authorization.ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                return terminalSelection.value == nil && !ticketHasTerminalScope ? nil : scopedTicketError
+                return terminalSelection.value == nil ? ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: nil) : scopedTicketError
             }
             return ticketTerminalAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value, terminalSelection: terminalSelection.value)
         case "workspace.create":
