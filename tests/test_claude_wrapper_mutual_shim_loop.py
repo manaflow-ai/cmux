@@ -143,10 +143,79 @@ claude child
             failures.append(f"guard fired for legitimate child claude launch: {combined_output!r}")
 
 
+def test_wrapper_allows_finite_layered_foreign_shims(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-finite-shim-chain-") as td:
+        root = Path(td)
+        cmux_shim_dir = root / "tmp" / "cmux-cli-shims" / "surface-finite"
+        shim_a_dir = root / "foreign-a"
+        shim_b_dir = root / "foreign-b"
+        real_dir = root / "real-bin"
+        for directory in (cmux_shim_dir, shim_a_dir, shim_b_dir, real_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        cmux_shim = cmux_shim_dir / "claude"
+        shutil.copy2(WRAPPER, cmux_shim)
+        cmux_shim.chmod(0o755)
+
+        shim_template = """#!/usr/bin/env bash
+next_path=""
+old_ifs="$IFS"
+IFS=:
+for entry in ${PATH:-}; do
+  if [[ "$entry" == "__SHIM_DIR__" ]]; then
+    continue
+  fi
+  if [[ -z "$next_path" ]]; then
+    next_path="$entry"
+  else
+    next_path="$next_path:$entry"
+  fi
+done
+IFS="$old_ifs"
+export PATH="$next_path"
+exec claude "$@"
+"""
+        for shim_dir in (shim_a_dir, shim_b_dir):
+            write_executable(
+                shim_dir / "claude",
+                shim_template.replace("__SHIM_DIR__", str(shim_dir)),
+            )
+
+        write_executable(
+            real_dir / "claude",
+            """#!/usr/bin/env bash
+printf 'real claude reached %s\\n' "$*"
+""",
+        )
+
+        env = {
+            "HOME": str(root / "home"),
+            "PATH": f"{cmux_shim_dir}:{shim_a_dir}:{shim_b_dir}:{real_dir}:/usr/bin:/bin",
+            "CMUX_CLAUDE_WRAPPER_SHIM": str(cmux_shim),
+            "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
+        }
+        result = subprocess.run(
+            [str(cmux_shim), "--version"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        combined_output = result.stdout + result.stderr
+        if result.returncode != 0:
+            failures.append(f"finite shim chain failed with {result.returncode}: {combined_output!r}")
+        if result.stdout.strip() != "real claude reached --version":
+            failures.append(f"expected finite shim chain to reach real claude, got: {combined_output!r}")
+        if "possible infinite claude shim loop" in combined_output:
+            failures.append(f"guard fired for finite shim chain: {combined_output!r}")
+
+
 def main() -> int:
     failures: list[str] = []
     test_wrapper_stops_mutual_foreign_shim_loop(failures)
     test_wrapper_guard_allows_child_claude_process(failures)
+    test_wrapper_allows_finite_layered_foreign_shims(failures)
     if failures:
         print("FAIL: claude wrapper mutual shim loop checks failed")
         for failure in failures:
