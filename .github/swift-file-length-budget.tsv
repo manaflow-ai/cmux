@@ -110,7 +110,7 @@
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 830	Sources/TaskManagerTypes.swift
 824	Sources/MainWindowFocusController.swift
-815	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
+816	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 813	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 810	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 803	Packages/iOS/CmuxMobilePairedMac/Sources/CmuxMobilePairedMac/MobilePairedMacStore.swift
