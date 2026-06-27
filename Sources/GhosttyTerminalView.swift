@@ -405,7 +405,7 @@ class GhosttyApp {
     // without adding a teardown path for a ghostty_app_t that is never freed/recreated.
     // The lock-guarded lookup was drained into `CmuxTerminal` as the generic
     // `GhosttyRuntimeAppRegistry<App>`; this process-wide instance is the documented
-    // default at the composition point, and the static helpers below forward to it.
+    // default at the composition point, and call sites use it directly.
     private static let runtimeAppRegistry = GhosttyRuntimeAppRegistry<GhosttyApp>()
 
     private(set) var app: ghostty_app_t?
@@ -764,7 +764,7 @@ class GhosttyApp {
             GhosttyApp.runtimeApp(from: userdata)?.scheduleTick()
         }
         runtimeConfig.action_cb = { app, target, action in
-            guard let runtimeApp = GhosttyApp.runtimeAppForActionCallback(app) else { return false }
+            guard let runtimeApp = GhosttyApp.runtimeAppRegistry.runtimeAppForActionCallback(app) else { return false }
             return runtimeApp.handleAction(target: target, action: action)
         }
         // Some GhosttyKit builds import this callback as returning `Void` in Swift even
@@ -872,13 +872,13 @@ class GhosttyApp {
         }
 
         // Create app
-        Self.setInitializingRuntimeApp(self)
-        defer { Self.setInitializingRuntimeApp(nil) }
+        Self.runtimeAppRegistry.setInitializing(self)
+        defer { Self.runtimeAppRegistry.setInitializing(nil) }
 
         if let created = ghostty_app_new(&runtimeConfig, primaryConfig) {
             self.app = created
             self.config = primaryConfig
-            Self.registerRuntimeApp(self, for: created)
+            Self.runtimeAppRegistry.register(self, for: created)
         } else {
             #if DEBUG
             Self.initLog("ghostty_app_new(primary) failed; attempting fallback config")
@@ -951,7 +951,7 @@ class GhosttyApp {
 
             self.app = created
             self.config = fallbackConfig
-            Self.registerRuntimeApp(self, for: created)
+            Self.runtimeAppRegistry.register(self, for: created)
         }
 
         // Notify observers that a usable config is available (initial load).
@@ -1635,22 +1635,6 @@ class GhosttyApp {
     private static func runtimeApp(from userdata: UnsafeMutableRawPointer?) -> GhosttyApp? {
         guard let userdata else { return nil }
         return Unmanaged<GhosttyApp>.fromOpaque(userdata).takeUnretainedValue()
-    }
-
-    private static func registerRuntimeApp(_ runtimeApp: GhosttyApp, for app: ghostty_app_t) {
-        runtimeAppRegistry.register(runtimeApp, for: app)
-    }
-
-    private static func setInitializingRuntimeApp(_ runtimeApp: GhosttyApp?) {
-        runtimeAppRegistry.setInitializing(runtimeApp)
-    }
-
-    private static func runtimeApp(for app: ghostty_app_t?) -> GhosttyApp? {
-        runtimeAppRegistry.runtimeApp(for: app)
-    }
-
-    private static func runtimeAppForActionCallback(_ app: ghostty_app_t?) -> GhosttyApp? {
-        runtimeAppRegistry.runtimeAppForActionCallback(app)
     }
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
