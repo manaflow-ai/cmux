@@ -28,6 +28,24 @@ def run_wrapper(argv: list[str], env: dict[str, str]) -> subprocess.CompletedPro
     )
 
 
+def path_prepend_unique_directory(
+    directory: str,
+    current_path: str,
+    skipped_directory: str = "",
+) -> str:
+    if not directory:
+        return current_path
+    if not current_path:
+        return directory
+
+    entries = [
+        entry
+        for entry in current_path.split(":")
+        if entry != directory and (not skipped_directory or entry != skipped_directory)
+    ]
+    return ":".join([directory, *entries])
+
+
 def test_wrapper_skips_cmux_shims_and_bundled_claude(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-resolution-") as td:
         root = Path(td)
@@ -185,13 +203,13 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
 
         surface_id = "surface-path-test"
         shim_root = tmpdir / "cmux-cli-shims" / surface_id
-        expected_path = f"{shim_root}::{first}::{last}:"
+        original_path = f":{first}::{shim_root}:{last}:"
 
         base_env = dict(os.environ)
         base_env["CMUX_SHELL_INTEGRATION_DIR"] = str(SHELL_INTEGRATION_DIR)
         base_env["CMUX_SURFACE_ID"] = surface_id
         base_env["TMPDIR"] = str(tmpdir)
-        base_env["PATH"] = f":{first}::{shim_root}:{last}:"
+        base_env["PATH"] = original_path
         base_env.pop("CMUX_SOCKET_PATH", None)
         base_env.pop("GHOSTTY_BIN_DIR", None)
 
@@ -201,24 +219,41 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                 "--noprofile",
                 "--norc",
                 "-c",
-                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; printf "%s\\n" "$PATH"',
+                'cmux_before_path="$PATH"; '
+                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; '
+                'printf "%s\\n%s\\n" "$cmux_before_path" "$PATH"',
             ],
             [
                 "/bin/zsh",
                 "-f",
                 "-c",
-                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; printf "%s\\n" "$PATH"',
+                'cmux_before_path="$PATH"; '
+                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; '
+                'printf "%s\\n%s\\n" "$cmux_before_path" "$PATH"',
             ],
         ]
         for argv in shell_commands:
             result = run_wrapper(argv, base_env)
             shell_name = Path(argv[0]).name
-            output = result.stdout.rstrip("\n")
+            lines = result.stdout.rstrip("\n").split("\n", 1)
             if result.returncode != 0:
                 failures.append(
                     f"{shell_name} path preservation exited {result.returncode}: "
                     f"{(result.stdout + result.stderr).strip()}"
                 )
+                continue
+            if len(lines) != 2:
+                failures.append(
+                    f"{shell_name} expected before/after PATH lines, got {result.stdout!r}"
+                )
+                continue
+            before_path, output = lines
+            if shell_name == "bash" and before_path != original_path:
+                failures.append(
+                    f"{shell_name} expected inherited PATH {original_path!r}, got {before_path!r}"
+                )
+                continue
+            expected_path = path_prepend_unique_directory(str(shim_root), before_path)
             if output != expected_path:
                 failures.append(f"{shell_name} expected PATH {expected_path!r}, got {output!r}")
 
