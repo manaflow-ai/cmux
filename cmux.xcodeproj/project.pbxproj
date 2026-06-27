@@ -324,6 +324,7 @@
 		C5A1FED000000000000000C2 /* CmuxSwiftRender in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED000000000000000C3 /* CmuxSwiftRender */; };
 		C5A1FED100000000000000D1 /* CmuxSwiftRenderUI in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */; };
 		C5A1FED100000000000000D2 /* CmuxSwiftRenderUI in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */; };
+		C7A50F000000000000000002 /* CmuxTaskManagerStrings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50F000000000000000001 /* CmuxTaskManagerStrings.swift */; };
 		C750500000000000000000A3 /* CmuxTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = C750500000000000000000A2 /* CmuxTerminal */; };
 		C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
 		CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = CFF12E0000000000000000A2 /* CmuxTestSupport */; };
@@ -696,7 +697,6 @@
 		5F5553CA5553CA5553CA0001 /* RemoteTmuxCapabilitiesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F5553CA5553CA5553CA0002 /* RemoteTmuxCapabilitiesTests.swift */; };
 		9C988B800BBFB3CFFD46E611 /* RemoteTmuxCommandResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71D411EFBE33FE85901B9E6A /* RemoteTmuxCommandResult.swift */; };
 		A11D7C0DEA17C0DEA17C0004 /* RemoteTmuxConnectionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11D7C0DEA17C0DEA17C0003 /* RemoteTmuxConnectionCoordinator.swift */; };
-		0C17C0DE0C17C0DE0C17C002 /* RemoteTmuxConnectionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C17C0DE0C17C0DE0C17C001 /* RemoteTmuxConnectionDiagnostics.swift */; };
 		0D17C0DE0D17C0DE0D17C002 /* RemoteTmuxConnectionObservers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D17C0DE0D17C0DE0D17C001 /* RemoteTmuxConnectionObservers.swift */; };
 		6A9D9021221BF8B429986368 /* RemoteTmuxConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18D24AB9D3168ABACBCF8FE /* RemoteTmuxConnectionState.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* RemoteTmuxControlCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6C7D8E9F0A1B2C3D4E5F607 /* RemoteTmuxControlCommandBuilder.swift */; };
@@ -876,6 +876,7 @@
 		D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */; };
 		A50016AA /* SurfaceResumeApprovalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016AB /* SurfaceResumeApprovalStore.swift */; };
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
+		E3CAB00000000000000000A0 /* TabContextAction+KeyboardShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CAB00000000000000000A1 /* TabContextAction+KeyboardShortcuts.swift */; };
 		C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */; };
 		E3B7A400000000000000AD01 /* TabManager+AgentPIDLivenessSweepHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000AD02 /* TabManager+AgentPIDLivenessSweepHosting.swift */; };
 		E3CC00000000000000000001 /* TabManager+BrowserOpenHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CC00000000000000000002 /* TabManager+BrowserOpenHosting.swift */; };
@@ -1464,6 +1465,7 @@
 		C0DE46030000000000000002 /* CMUXSidebarExtensionBrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXSidebarExtensionBrowserPanel.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000A /* CmuxSocketEventMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSocketEventMapper.swift; sourceTree = "<group>"; };
 		C3677001000000000000002 /* CmuxSSHURLRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSSHURLRequestTests.swift; sourceTree = "<group>"; };
+		C7A50F000000000000000001 /* CmuxTaskManagerStrings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTaskManagerStrings.swift; sourceTree = "<group>"; };
 		F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C7A510000000000000000001 /* CmuxTopMemoryDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopMemoryDiagnostics.swift; sourceTree = "<group>"; };
 		B35750000000000000000003 /* CmuxTopProcessArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessArguments.swift; sourceTree = "<group>"; };
@@ -1825,7 +1827,6 @@
 		5F5553CA5553CA5553CA0002 /* RemoteTmuxCapabilitiesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxCapabilitiesTests.swift; sourceTree = "<group>"; };
 		71D411EFBE33FE85901B9E6A /* RemoteTmuxCommandResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxCommandResult.swift; sourceTree = "<group>"; };
 		A11D7C0DEA17C0DEA17C0003 /* RemoteTmuxConnectionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxConnectionCoordinator.swift; sourceTree = "<group>"; };
-		0C17C0DE0C17C0DE0C17C001 /* RemoteTmuxConnectionDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxConnectionDiagnostics.swift; sourceTree = "<group>"; };
 		0D17C0DE0D17C0DE0D17C001 /* RemoteTmuxConnectionObservers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxConnectionObservers.swift; sourceTree = "<group>"; };
 		A18D24AB9D3168ABACBCF8FE /* RemoteTmuxConnectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxConnectionState.swift; sourceTree = "<group>"; };
 		B6C7D8E9F0A1B2C3D4E5F607 /* RemoteTmuxControlCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlCommandBuilder.swift; sourceTree = "<group>"; };
@@ -1999,6 +2000,7 @@
 		D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupersededPhoneDismissBuffer.swift; sourceTree = "<group>"; };
 		A50016AB /* SurfaceResumeApprovalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalStore.swift; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
+		E3CAB00000000000000000A1 /* TabContextAction+KeyboardShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabContextAction+KeyboardShortcuts.swift"; sourceTree = "<group>"; };
 		C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceGroups.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000AD02 /* TabManager+AgentPIDLivenessSweepHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+AgentPIDLivenessSweepHosting.swift"; sourceTree = "<group>"; };
 		E3CC00000000000000000002 /* TabManager+BrowserOpenHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserOpenHosting.swift"; sourceTree = "<group>"; };
@@ -2724,6 +2726,7 @@
 				E3B7A4000000000000000D11 /* Workspace+SplitDetachHosting.swift */,
 				E3B7A40000000000000005D1 /* Workspace+AgentHibernationHosting.swift */,
 				E3B7A40000000000000005E1 /* Workspace+AgentForkHosting.swift */,
+				E3CAB00000000000000000A1 /* TabContextAction+KeyboardShortcuts.swift */,
 				E3D40D0000000000000000A1 /* Workspace+WorkspaceDropHosting.swift */,
 				E3B7A40000000000000006A1 /* Workspace+RemoteSurfaceHosting.swift */,
 				E3B7A40000000000000006B1 /* Workspace+RemoteRelaySessionHosting.swift */,
@@ -2859,6 +2862,7 @@
 				C7A506000000000000000001 /* TaskManagerView.swift */,
 				C7A503000000000000000001 /* TaskManagerSnapshot.swift */,
 				C7A503000000000000000003 /* TaskManagerSnapshotDecoder.swift */,
+				C7A50F000000000000000001 /* CmuxTaskManagerStrings.swift */,
 				C7A504000000000000000001 /* TaskManagerTypes.swift */,
 				A5001541 /* PortScanner.swift */,
 				6313A2A1 /* PaneMemoryGuardrailBannerView.swift */,
@@ -3082,7 +3086,6 @@
 				AAAD58EFBF501E599E6D9E9A /* RemoteTmuxControlCommandKind.swift */,
 				2587F4E278EFECB84E2ED34B /* RemoteTmuxControlConnectionSnapshot.swift */,
 				0B17C0DE0B17C0DE0B17C001 /* RemoteTmuxControlMessageDecoding.swift */,
-				0C17C0DE0C17C0DE0C17C001 /* RemoteTmuxConnectionDiagnostics.swift */,
 				0D17C0DE0D17C0DE0D17C001 /* RemoteTmuxConnectionObservers.swift */,
 				A18D24AB9D3168ABACBCF8FE /* RemoteTmuxConnectionState.swift */,
 				07A7B144E94D24E7E1A99106 /* RemoteTmuxControlMessage.swift */,
@@ -4105,6 +4108,7 @@
 				DC5DC5DC0000000000000001 /* CmuxSidebarActionDispatch.swift in Sources */,
 				C0DE46030000000000000001 /* CMUXSidebarExtensionBrowserPanel.swift in Sources */,
 				E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */,
+				C7A50F000000000000000002 /* CmuxTaskManagerStrings.swift in Sources */,
 				C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */,
 				B35750000000000000000004 /* CmuxTopProcessArguments.swift in Sources */,
 				C7A50D000000000000000002 /* CmuxTopProcessCPUTracker.swift in Sources */,
@@ -4350,7 +4354,6 @@
 				0A17C0DE0A17C0DE0A17C002 /* RemoteTmuxAttachOutcome.swift in Sources */,
 				9C988B800BBFB3CFFD46E611 /* RemoteTmuxCommandResult.swift in Sources */,
 				A11D7C0DEA17C0DEA17C0004 /* RemoteTmuxConnectionCoordinator.swift in Sources */,
-				0C17C0DE0C17C0DE0C17C002 /* RemoteTmuxConnectionDiagnostics.swift in Sources */,
 				0D17C0DE0D17C0DE0D17C002 /* RemoteTmuxConnectionObservers.swift in Sources */,
 				6A9D9021221BF8B429986368 /* RemoteTmuxConnectionState.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* RemoteTmuxControlCommandBuilder.swift in Sources */,
@@ -4463,6 +4466,7 @@
 				D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */,
 				A50016AA /* SurfaceResumeApprovalStore.swift in Sources */,
 				A5001303 /* SurfaceSearchOverlay.swift in Sources */,
+				E3CAB00000000000000000A0 /* TabContextAction+KeyboardShortcuts.swift in Sources */,
 				C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */,
 				E3B7A400000000000000AD01 /* TabManager+AgentPIDLivenessSweepHosting.swift in Sources */,
 				E3CC00000000000000000001 /* TabManager+BrowserOpenHosting.swift in Sources */,

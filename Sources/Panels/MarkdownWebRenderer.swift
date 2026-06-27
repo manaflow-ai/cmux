@@ -4,9 +4,6 @@ import SwiftUI
 import WebKit
 
 struct MarkdownWebRenderer: NSViewRepresentable {
-    static let localImageURLScheme = "cmux-local-image"
-    static let remoteImageURLScheme = "cmux-remote-image"
-
     let markdown: String
     let theme: MarkdownWebTheme
     let backgroundColor: NSColor
@@ -57,11 +54,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         config.userContentController.add(WeakMarkdownScriptMessageHandler(context.coordinator), name: "cmuxLib")
         config.setURLSchemeHandler(
             context.coordinator.imageSchemeHandler,
-            forURLScheme: Self.localImageURLScheme
+            forURLScheme: MarkdownImageSchemeHandler.localImageURLScheme
         )
         config.setURLSchemeHandler(
             context.coordinator.imageSchemeHandler,
-            forURLScheme: Self.remoteImageURLScheme
+            forURLScheme: MarkdownImageSchemeHandler.remoteImageURLScheme
         )
         let webView = MarkdownWebView(frame: .zero, configuration: config)
         webView.onPointerDown = onRequestPanelFocus

@@ -10,19 +10,23 @@ import Foundation
 /// and the recursive process tree) lives here so `CmuxTaskManagerSnapshot`
 /// stays a pure storage value. Every helper is an instance method that reads the
 /// stored `agentAssetResolver` directly rather than threading it through a static
-/// namespace. Localized row titles are produced with `String(localized:)` so they
-/// must remain app-side (the app bundle owns the `taskManager.*` keys); the
-/// decoder is therefore an app-target type, not a package type.
+/// namespace. Localized row titles, labels, and formats arrive through the
+/// injected `CmuxTaskManagerStrings` seam, which the app resolves with
+/// `String(localized:)` against its bundle (the app bundle owns the
+/// `taskManager.*` keys); the decoder never calls `String(localized:)` itself.
 struct CmuxTaskManagerSnapshotDecoder {
     let payload: [String: Any]
     let agentAssetResolver: SessionAgentAssetResolver
+    let strings: CmuxTaskManagerStrings
 
     init(
         payload: [String: Any],
-        agentAssetResolver: SessionAgentAssetResolver = .standard
+        agentAssetResolver: SessionAgentAssetResolver = .standard,
+        strings: CmuxTaskManagerStrings = CmuxTaskManagerStrings()
     ) {
         self.payload = payload
         self.agentAssetResolver = agentAssetResolver
+        self.strings = strings
     }
 
     func decode() -> CmuxTaskManagerSnapshot {
@@ -98,29 +102,20 @@ struct CmuxTaskManagerSnapshotDecoder {
 
     private func attributionDetail(_ attribution: CmuxTaskManagerMemoryAttribution?) -> String? {
         guard let attribution else {
-            return String(localized: "taskManager.memory.unattributed", defaultValue: "Unattributed")
+            return strings.unattributed
         }
         var parts: [String] = []
         if let workspace = attribution.workspaceRef ?? attribution.workspaceId?.uuidString {
-            parts.append(String(format: String(
-                localized: "taskManager.memory.workspace",
-                defaultValue: "Workspace %@"
-            ), workspace))
+            parts.append(strings.memoryWorkspace(workspace))
         }
         if let pane = attribution.paneRef ?? attribution.paneId?.uuidString {
-            parts.append(String(format: String(
-                localized: "taskManager.memory.pane",
-                defaultValue: "Pane %@"
-            ), pane))
+            parts.append(strings.memoryPane(pane))
         }
         if let surface = attribution.surfaceRef ?? attribution.surfaceId?.uuidString {
-            parts.append(String(format: String(
-                localized: "taskManager.memory.surface",
-                defaultValue: "Surface %@"
-            ), surface))
+            parts.append(strings.memorySurface(surface))
         }
         if parts.isEmpty {
-            return String(localized: "taskManager.memory.unattributed", defaultValue: "Unattributed")
+            return strings.unattributed
         }
         return parts.joined(separator: " / ")
     }
@@ -249,12 +244,9 @@ struct CmuxTaskManagerSnapshotDecoder {
 
     private func processCountDetail(_ processCount: Int) -> String {
         if processCount == 1 {
-            return String(localized: "taskManager.aggregate.processCount.one", defaultValue: "1 process")
+            return strings.processCountOne
         }
-        return String(format: String(
-            localized: "taskManager.aggregate.processCount.other",
-            defaultValue: "%lld processes"
-        ), Int64(processCount))
+        return strings.processCountOther(processCount)
     }
 
     private func appendWindow(
@@ -264,16 +256,16 @@ struct CmuxTaskManagerSnapshotDecoder {
         let handle = displayHandle(window)
         var detailParts: [String] = []
         if bool(window["key"]) {
-            detailParts.append(String(localized: "taskManager.row.keyWindow", defaultValue: "Key window"))
+            detailParts.append(strings.keyWindow)
         }
         if bool(window["visible"]) == false {
-            detailParts.append(String(localized: "taskManager.row.hidden", defaultValue: "Hidden"))
+            detailParts.append(strings.hidden)
         }
         rows.append(row(
             window,
             kind: .window,
             level: 0,
-            title: String(localized: "taskManager.row.window", defaultValue: "Window \(handle)"),
+            title: strings.window(handle),
             detail: detailParts.joined(separator: " / ")
         ))
 
@@ -297,10 +289,10 @@ struct CmuxTaskManagerSnapshotDecoder {
         let title = nonEmptyString(workspace["title"]) ?? displayHandle(workspace)
         var detailParts: [String] = []
         if bool(workspace["selected"]) {
-            detailParts.append(String(localized: "taskManager.row.selected", defaultValue: "Selected"))
+            detailParts.append(strings.selected)
         }
         if bool(workspace["pinned"]) {
-            detailParts.append(String(localized: "taskManager.row.pinned", defaultValue: "Pinned"))
+            detailParts.append(strings.pinned)
         }
         rows.append(row(
             workspace,
@@ -327,12 +319,10 @@ struct CmuxTaskManagerSnapshotDecoder {
         workspaceId: UUID?,
         to rows: inout [CmuxTaskManagerRow]
     ) {
-        let key = nonEmptyString(tag["key"]) ?? String(localized: "taskManager.row.unknownTag", defaultValue: "Unknown tag")
+        let key = nonEmptyString(tag["key"]) ?? strings.unknownTag
         let value = nonEmptyString(tag["value"])
         let title = value.map { "\(key): \($0)" } ?? key
-        let detail = int(tag["pid"]).map {
-            String(localized: "taskManager.row.pid", defaultValue: "PID \($0)")
-        } ?? ""
+        let detail = int(tag["pid"]).map { strings.pid($0) } ?? ""
         rows.append(row(
             tag,
             kind: .tag,
@@ -361,8 +351,8 @@ struct CmuxTaskManagerSnapshotDecoder {
             pane,
             kind: .pane,
             level: 2,
-            title: String(localized: "taskManager.row.pane", defaultValue: "Pane \(handle)"),
-            detail: bool(pane["focused"]) ? String(localized: "taskManager.row.focused", defaultValue: "Focused") : "",
+            title: strings.pane(handle),
+            detail: bool(pane["focused"]) ? strings.focused : "",
             workspaceId: workspaceId
         ))
 
@@ -383,7 +373,7 @@ struct CmuxTaskManagerSnapshotDecoder {
         let terminalSurfaceId = type == "terminal" ? surfaceId : nil
         var detailParts = [surfaceTypeLabel(type)]
         if bool(surface["selected"]) {
-            detailParts.append(String(localized: "taskManager.row.selected", defaultValue: "Selected"))
+            detailParts.append(strings.selected)
         }
         if let tty = nonEmptyString(surface["tty"]) {
             detailParts.append(tty)
@@ -431,13 +421,13 @@ struct CmuxTaskManagerSnapshotDecoder {
         to rows: inout [CmuxTaskManagerRow]
     ) {
         let title = nonEmptyString(webview["title"])
-            ?? String(localized: "taskManager.row.webview", defaultValue: "WebView")
+            ?? strings.webview
         var detailParts: [String] = []
         if let pid = int(webview["pid"]) {
-            detailParts.append(String(localized: "taskManager.row.pid", defaultValue: "PID \(pid)"))
+            detailParts.append(strings.pid(pid))
         }
         if let sharedCount = int(webview["shared_process_count"]), sharedCount > 1 {
-            detailParts.append(String(localized: "taskManager.row.sharedProcess", defaultValue: "Shared x\(sharedCount)"))
+            detailParts.append(strings.sharedProcess(sharedCount))
         }
         if let url = nonEmptyString(webview["url"]) {
             detailParts.append(url)
@@ -478,11 +468,9 @@ struct CmuxTaskManagerSnapshotDecoder {
     ) {
         let pid = int(process["pid"])
         let title = nonEmptyString(process["name"])
-            ?? pid.map { String(localized: "taskManager.row.processWithPID", defaultValue: "Process \($0)") }
-            ?? String(localized: "taskManager.row.process", defaultValue: "Process")
-        let detail = pid.map {
-            String(localized: "taskManager.row.pid", defaultValue: "PID \($0)")
-        } ?? ""
+            ?? pid.map { strings.processWithPID($0) }
+            ?? strings.process
+        let detail = pid.map { strings.pid($0) } ?? ""
         let processRootIds = pid.map { [$0] } ?? []
         let metadataSurfaceId = uuid(process["cmux_surface_id"])
         let processSurfaceId = surfaceId ?? metadataSurfaceId
@@ -589,11 +577,11 @@ struct CmuxTaskManagerSnapshotDecoder {
     private func surfaceTypeLabel(_ type: String) -> String {
         switch type {
         case "browser":
-            return String(localized: "taskManager.row.surfaceType.browser", defaultValue: "Browser")
+            return strings.surfaceTypeBrowser
         case "terminal":
-            return String(localized: "taskManager.row.surfaceType.terminal", defaultValue: "Terminal")
+            return strings.surfaceTypeTerminal
         case "unknown", "":
-            return String(localized: "taskManager.row.surfaceType.unknown", defaultValue: "Unknown")
+            return strings.surfaceTypeUnknown
         default:
             return type
         }
