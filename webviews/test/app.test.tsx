@@ -140,6 +140,17 @@ test("App copies a stage and commit command for repo-backed diffs", async () => 
   stageCommitButton()?.click();
   await waitFor(() => Boolean(stageCommitDialog()));
   expect(promptCalled).toBe(false);
+  stageCommitInput()?.dispatchEvent(new dom.window.KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    key: "Escape",
+  }));
+  await waitFor(() => stageCommitDialog() == null);
+
+  dom.window.document.getElementById("options-button")?.click();
+  await waitFor(() => Boolean(stageCommitButton()));
+  stageCommitButton()?.click();
+  await waitFor(() => Boolean(stageCommitDialog()));
 
   const input = stageCommitInput();
   expect(input).toBeTruthy();
@@ -276,6 +287,8 @@ function installDomGlobals(nextDom: JSDOM, fetchImpl: FetchMock): void {
   (globalThis as any).HTMLStyleElement = nextDom.window.HTMLStyleElement;
   (globalThis as any).customElements = nextDom.window.customElements;
   (globalThis as any).fetch = fetchImpl;
+  (nextDom.window.HTMLElement.prototype as any).attachEvent ??= () => {};
+  (nextDom.window.HTMLElement.prototype as any).detachEvent ??= () => {};
 }
 
 function renderApp(element: React.ReactNode): void {

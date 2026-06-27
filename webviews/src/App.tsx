@@ -439,6 +439,18 @@ function StageCommitDialog({
   onCancel: () => void;
   onSubmit: (message: string) => Promise<void>;
 }) {
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const focusInput = () => inputRef.current?.focus();
+    if (window.requestAnimationFrame) {
+      const frame = window.requestAnimationFrame(focusInput);
+      return () => window.cancelAnimationFrame?.(frame);
+    }
+    focusInput();
+    return undefined;
+  }, []);
+
   return (
     <>
       <div className="stage-commit-dialog-backdrop" aria-hidden="true" />
@@ -460,12 +472,19 @@ function StageCommitDialog({
             {label("commitMessage")}
           </label>
           <textarea
+            ref={inputRef}
             id="stage-commit-message"
             name="commitMessage"
             className="stage-commit-input"
             aria-labelledby="stage-commit-message-label"
             required
             rows={4}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                onCancel();
+              }
+            }}
           />
           <div className="stage-commit-actions">
             <button type="button" className="comment-button" onClick={onCancel}>
