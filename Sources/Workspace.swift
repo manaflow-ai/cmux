@@ -7013,7 +7013,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func applyAutomaticSplitPaneTints(sourcePanelId: UUID, newPanel: TerminalPanel) {
         guard TerminalSplitPaneTintSettings().isEnabled(defaults: terminalSplitPaneTintDefaults) else { return }
         let baseColor = GhosttyApp.shared.defaultBackgroundColor
-        var usedHexes = Set(
+        let usedHexes = Set(
             panels.values.compactMap { panel -> String? in
                 guard let terminalPanel = panel as? TerminalPanel else { return nil }
                 return terminalPanel.surface.paneBackgroundOverrideColor?.hexString()
