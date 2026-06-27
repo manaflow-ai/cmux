@@ -114,13 +114,17 @@ final class ChatTranscriptUITableView: UITableView {
         indicatorInsets.top = resolvedTopInset
         indicatorInsets.bottom = resolvedBottomInset
         verticalScrollIndicatorInsets = indicatorInsets
-        if snapshot.wasAtBottom || bottomChanged {
+        if wasPinnedToTop {
+            // Keep the transcript pinned to the top chrome reservation — the
+            // symmetric counterpart to `wasAtBottom`. Without this, a
+            // composer/bottom-inset change takes the `bottomChanged` branch and
+            // `restoreKeyboardViewport` preserves the old visible bottom, which
+            // drifts the first row back under the toolbar.
+            setClampedContentOffsetY(-adjustedContentInset.top)
+        } else if snapshot.wasAtBottom || bottomChanged {
             restoreKeyboardViewport(snapshot)
         } else if topChanged {
-            let targetY = wasPinnedToTop
-                ? -adjustedContentInset.top
-                : oldVisibleTopY - adjustedContentInset.top
-            setClampedContentOffsetY(targetY)
+            setClampedContentOffsetY(oldVisibleTopY - adjustedContentInset.top)
         } else {
             clampCurrentOffset()
         }

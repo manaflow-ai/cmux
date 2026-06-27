@@ -112,7 +112,11 @@ final class ChatScrollEdgeCoordinator {
             lastBeforeNavigation = controller
             current = controller.parent
         }
-        return lastBeforeNavigation
+        // No navigation controller in the parent chain: there is no nav-bar
+        // owner to register the top content scroll view with. Returning the
+        // topmost parent here would install scroll-edge state on an unrelated
+        // controller, so report "none" and let the caller fall back to `owner`.
+        return nil
     }
 
     private func nearestNavigationBar(from owner: UIViewController) -> UINavigationBar? {
@@ -136,14 +140,14 @@ final class ChatScrollEdgeCoordinator {
         if let navigationController = controller as? UINavigationController {
             return navigationController
         }
+        // Only descend into the rooted (non-modal) child hierarchy. Traversing
+        // `presentedViewController` could attach the chat's top scroll-edge
+        // interaction to a navigation bar inside an unrelated sheet/fullscreen
+        // modal layered above the chat.
         for child in controller.children {
             if let navigationController = firstNavigationController(in: child) {
                 return navigationController
             }
-        }
-        if let presented = controller.presentedViewController,
-           let navigationController = firstNavigationController(in: presented) {
-            return navigationController
         }
         return nil
     }

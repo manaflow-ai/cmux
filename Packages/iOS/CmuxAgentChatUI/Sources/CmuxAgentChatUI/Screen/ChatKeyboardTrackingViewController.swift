@@ -408,10 +408,13 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     }
 
     func trackedTranscriptTables(in view: UIView) -> [ChatTranscriptUITableView] {
-        var tables: [ChatTranscriptUITableView] = []
         if let table = view as? ChatTranscriptUITableView {
-            tables.append(table)
+            // Stop at the transcript table itself; descending into its own
+            // cells/hosted row views would re-walk the entire transcript on
+            // every layout/keyboard geometry update.
+            return [table]
         }
+        var tables: [ChatTranscriptUITableView] = []
         for subview in view.subviews {
             tables.append(contentsOf: trackedTranscriptTables(in: subview))
         }

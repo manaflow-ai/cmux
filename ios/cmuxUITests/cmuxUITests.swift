@@ -1015,9 +1015,7 @@ final class cmuxUITests: XCTestCase {
             throw XCTSkip("Top scroll-edge underlap uses iOS 26 content scroll view registration.")
         }
 
-        let app = launchAgentChatInlinePreviewApp(environment: [
-            "CMUX_UITEST_CHAT_INITIAL_SCROLL": "top",
-        ])
+        let app = launchAgentChatInlinePreviewApp()
         let table = app.tables["ChatTranscriptTableView"]
         XCTAssertTrue(table.waitForExistence(timeout: 8))
         let navigationBar = app.navigationBars.firstMatch
@@ -1039,7 +1037,17 @@ final class cmuxUITests: XCTestCase {
             startedAt: Date(),
             metrics: loadedMetrics
         )
-        let topMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
+        // Drive the transcript to the very top with XCUI scrolling (the chat
+        // transcript loads anchored at the bottom; there is no app-side
+        // initial-scroll seam in production source). Then re-read once the
+        // momentum settles so the precise top-edge assertions run on a stable
+        // frame.
+        try scrollTranscript(table, direction: .down, timeout: 10) {
+            abs($0.visibleTopY) <= 3
+                && $0.adjustedTopInset > 20
+                && $0.contentHeight > $0.boundsHeight * 1.6
+        }
+        let topMetrics = try waitForTranscriptMetrics(table, timeout: 4) {
             abs($0.visibleTopY) <= 3
                 && $0.adjustedTopInset > 20
                 && $0.contentHeight > $0.boundsHeight * 1.6
