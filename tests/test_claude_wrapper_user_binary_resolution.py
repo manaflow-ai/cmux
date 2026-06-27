@@ -187,13 +187,14 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
         shim_root = tmpdir / "cmux-cli-shims" / surface_id
         expected_path = f"{shim_root}::{first}::{last}:"
 
-        base_env = dict(os.environ)
-        base_env["CMUX_SHELL_INTEGRATION_DIR"] = str(SHELL_INTEGRATION_DIR)
-        base_env["CMUX_SURFACE_ID"] = surface_id
-        base_env["TMPDIR"] = str(tmpdir)
-        base_env["PATH"] = f":{first}::{shim_root}:{last}:"
-        base_env.pop("CMUX_SOCKET_PATH", None)
-        base_env.pop("GHOSTTY_BIN_DIR", None)
+        base_env = {
+            "CMUX_SHELL_INTEGRATION_DIR": str(SHELL_INTEGRATION_DIR),
+            "CMUX_SURFACE_ID": surface_id,
+            "HOME": os.environ.get("HOME", str(root)),
+            "LANG": os.environ.get("LANG", "C.UTF-8"),
+            "PATH": f":{first}::{shim_root}:{last}:",
+            "TMPDIR": str(tmpdir),
+        }
 
         shell_commands = [
             [
