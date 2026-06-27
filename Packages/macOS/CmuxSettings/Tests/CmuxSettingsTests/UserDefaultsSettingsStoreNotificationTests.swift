@@ -253,6 +253,16 @@ struct UserDefaultsSettingsStoreNotificationTests {
         #expect(externalEvent?.value == "#SAME")
         #expect(externalEvent?.mutationSource == nil)
         #expect(externalEvent?.supersededMutationSource == source)
+
+        let staleSource = UserDefaultsSettingsMutationSource(
+            ownerID: UUID(),
+            sequence: 1,
+            logicalOrder: 1
+        )
+        let acceptedSource = await store.set("#STALE", for: key, source: staleSource)
+        let storedValue = await store.value(for: key)
+        #expect(acceptedSource == nil)
+        #expect(storedValue == "#SAME")
     }
 
     @Test func valueEventsDrainSupersededSourceAfterBackingSameValueNotification() async {
@@ -290,6 +300,49 @@ struct UserDefaultsSettingsStoreNotificationTests {
 
         #expect(matchingEvent?.mutationSource == nil)
         #expect(matchingEvent?.supersededMutationSource == source)
+    }
+
+    @Test func repeatedBackingSameValueNotificationsDoNotReplaySupersededSource() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        let backingDefaults = UserDefaults(suiteName: suiteName)!
+        let key = SettingCatalog().app.appearance
+        let recorder = UserDefaultsSettingsEventRecorder<AppearanceMode>()
+        let task = Task {
+            let stream = await store.valueEvents(for: key)
+            for await event in stream {
+                await recorder.append(event)
+            }
+        }
+        defer {
+            task.cancel()
+        }
+
+        await waitForEventCount(1, in: recorder)
+
+        let source = UserDefaultsSettingsMutationSource()
+        await store.set(.dark, for: key, source: source)
+        await store.set(.system, for: key)
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: backingDefaults
+        )
+        _ = await waitForEvent(in: recorder) { event in
+            event.value == .system && event.supersededMutationSource == source
+        }
+
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: backingDefaults
+        )
+        for _ in 0..<1_000 {
+            await Task.yield()
+        }
+
+        let matchingEvents = await recorder.snapshot().filter {
+            $0.value == .system && $0.supersededMutationSource == source
+        }
+        #expect(matchingEvents.count == 1)
     }
 
     private func waitForEventCount<Value: SettingCodable>(

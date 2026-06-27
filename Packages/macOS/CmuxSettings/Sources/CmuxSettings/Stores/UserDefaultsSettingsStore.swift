@@ -182,8 +182,10 @@ public actor UserDefaultsSettingsStore {
         knownValueLogicalOrders[storageKey] = max(knownValueLogicalOrders[storageKey] ?? 0, logicalOrder)
     }
 
-    private func recordSourceLessObservedMutation<Value: SettingCodable>(value: Value, logicalOrder: UInt64, for storageKey: String) {
-        if !knownValue(value, matchesValueFor: storageKey) {
+    private func recordSourceLessObservedMutation<Value: SettingCodable>(
+        value: Value, logicalOrder: UInt64, for storageKey: String, recordsAcceptedMutation: Bool = false
+    ) {
+        if recordsAcceptedMutation || !knownValue(value, matchesValueFor: storageKey) {
             recordAcceptedMutation(nil, logicalOrder: logicalOrder, for: storageKey)
         }
         recordKnownValue(value, logicalOrder: logicalOrder, for: storageKey)
@@ -202,22 +204,20 @@ public actor UserDefaultsSettingsStore {
         logicalOrder sourceLessLogicalOrder: UInt64? = nil,
         for storageKey: String
     ) {
-        let logicalOrder = source?.logicalOrder
-            ?? sourceLessLogicalOrder
-            ?? DispatchTime.now().uptimeNanoseconds
-        acceptedMutationLogicalOrders[storageKey] = max(
-            acceptedMutationLogicalOrders[storageKey] ?? 0,
-            logicalOrder
-        )
+        let logicalOrder = source?.logicalOrder ?? sourceLessLogicalOrder ?? DispatchTime.now().uptimeNanoseconds
+        let acceptedOrder = max(acceptedMutationLogicalOrders[storageKey] ?? 0, logicalOrder)
+        acceptedMutationLogicalOrders[storageKey] = acceptedOrder
         if let source {
-            var sourcesByOwner = acceptedMutationSourcesByOwner[storageKey] ?? [:]
+            var sourcesByOwner = acceptedMutationSourcesByOwner[storageKey]?.filter { $0.value.logicalOrder == acceptedOrder } ?? [:]
             if let acceptedSource = sourcesByOwner[source.ownerID],
                source.logicalOrder < acceptedSource.logicalOrder
                 || (source.logicalOrder == acceptedSource.logicalOrder
                     && source.sequence <= acceptedSource.sequence) {
                 return
             }
-            sourcesByOwner[source.ownerID] = source
+            if source.logicalOrder == acceptedOrder {
+                sourcesByOwner[source.ownerID] = source
+            }
             acceptedMutationSourcesByOwner[storageKey] = sourcesByOwner
         } else {
             acceptedMutationSourcesByOwner.removeValue(forKey: storageKey)
@@ -454,7 +454,7 @@ public actor UserDefaultsSettingsStore {
                        currentEvent.value == lastYieldedEvent.value,
                        currentEvent.mutationSource == nil,
                        currentEvent.supersededMutationSource == nil,
-                       !lastYieldedEvent.deliveryMutationSources.isEmpty {
+                       lastYieldedEvent.mutationSource != nil {
                         currentEvent = UserDefaultsSettingsValueEvent(
                             value: currentEvent.value,
                             supersededMutationSources: lastYieldedEvent.deliveryMutationSources
@@ -466,7 +466,8 @@ public actor UserDefaultsSettingsStore {
                         await self.recordSourceLessObservedMutation(
                             value: currentEvent.value,
                             logicalOrder: signal.logicalOrder,
-                            for: key.userDefaultsKey
+                            for: key.userDefaultsKey,
+                            recordsAcceptedMutation: currentEvent.supersededMutationSource != nil
                         )
                     } else if currentEvent.value != lastYieldedEvent.value {
                         await self.recordKnownValue(currentEvent.value, for: key.userDefaultsKey)
