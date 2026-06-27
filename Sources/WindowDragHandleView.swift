@@ -390,6 +390,7 @@ private func windowDragHandleSiblingHitResolutionScope(
 /// Returns whether the titlebar drag handle should capture a hit at `point`.
 /// We only claim the hit when no sibling view already handles it, so interactive
 /// controls layered in the titlebar (e.g. proxy folder icon) keep their gestures.
+@MainActor
 func windowDragHandleShouldCaptureHit(
     _ point: NSPoint,
     in dragHandleView: NSView,

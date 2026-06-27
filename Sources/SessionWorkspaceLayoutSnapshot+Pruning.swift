@@ -7,7 +7,7 @@ import Foundation
 /// target, so the conformance is `@retroactive` (an imported type conforming to
 /// an imported protocol).
 extension SessionWorkspaceLayoutSnapshot: @retroactive SessionLayoutPruning {
-    var sessionLayoutPruneCase: SessionLayoutPruneCase<SessionWorkspaceLayoutSnapshot> {
+    public var sessionLayoutPruneCase: SessionLayoutPruneCase<SessionWorkspaceLayoutSnapshot> {
         switch self {
         case .pane(let pane):
             return .pane(panelIds: pane.panelIds, selectedPanelId: pane.selectedPanelId)
@@ -20,14 +20,14 @@ extension SessionWorkspaceLayoutSnapshot: @retroactive SessionLayoutPruning {
         }
     }
 
-    static func sessionLayoutPrunedPane(
+    public static func sessionLayoutPrunedPane(
         panelIds: [UUID],
         selectedPanelId: UUID?
     ) -> SessionWorkspaceLayoutSnapshot {
         .pane(SessionPaneLayoutSnapshot(panelIds: panelIds, selectedPanelId: selectedPanelId))
     }
 
-    func sessionLayoutPrunedSplit(
+    public func sessionLayoutPrunedSplit(
         dividerPosition: Double,
         first: SessionWorkspaceLayoutSnapshot,
         second: SessionWorkspaceLayoutSnapshot

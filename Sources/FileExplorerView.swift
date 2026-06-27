@@ -86,6 +86,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         /// for its own reload/expansion passes.
         let navigator: FileExplorerOutlineNavigator
 
+        @MainActor
         init(
             store: FileExplorerStore,
             state: FileExplorerState,

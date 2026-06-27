@@ -8,14 +8,14 @@ import Foundation
 /// `@retroactive`. Counterpart to the
 /// `SessionWorkspaceLayoutSnapshot: SessionLayoutPruning` conformance.
 extension SessionWorkspaceLayoutSnapshot: @retroactive SessionLayoutNodeBuilding {
-    static func sessionLayoutBuiltPane(
+    public static func sessionLayoutBuiltPane(
         panelIds: [UUID],
         selectedPanelId: UUID?
     ) -> SessionWorkspaceLayoutSnapshot {
         .pane(SessionPaneLayoutSnapshot(panelIds: panelIds, selectedPanelId: selectedPanelId))
     }
 
-    static func sessionLayoutBuiltSplit(
+    public static func sessionLayoutBuiltSplit(
         isVertical: Bool,
         dividerPosition: Double,
         first: SessionWorkspaceLayoutSnapshot,

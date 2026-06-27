@@ -487,8 +487,8 @@ private extension FeedCoordinator {
                         body: body,
                         effects: TerminalNotificationStore.fallbackEffects(
                             effects,
-                            authorizationState: TerminalNotificationStore.authorizationState(
-                                from: settings.authorizationStatus
+                            authorizationState: NotificationAuthorizationState(
+                                authorizationStatus: settings.authorizationStatus
                             )
                         ),
                         runCommand: false

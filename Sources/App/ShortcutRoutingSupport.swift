@@ -556,6 +556,7 @@ func windowMoveSuppressionReason(window: NSWindow, event: NSEvent) -> WindowMove
     return nil
 }
 
+@MainActor
 func beginOrContinueWindowMoveSuppressionSequenceForEvent(
     window: NSWindow,
     event: NSEvent,
@@ -578,6 +579,7 @@ func beginOrContinueWindowMoveSuppressionSequenceForEvent(
     return window.beginWindowMoveSuppressionSequence(reason: reason)
 }
 
+@MainActor
 func shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: NSWindow, event: NSEvent) -> Bool {
     window.activeWindowMoveSuppressionSequenceReason != nil && event.type == .leftMouseUp
 }

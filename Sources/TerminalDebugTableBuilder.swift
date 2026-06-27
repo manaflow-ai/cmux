@@ -197,7 +197,7 @@ struct TerminalDebugTableBuilder {
                 "window_visible": hostedWindow?.isVisible ?? false,
                 "window_occluded": hostedWindow.map { !$0.occlusionState.contains(.visible) } ?? false,
                 "window_identifier": v2OrNull(hostedWindow?.identifier?.rawValue),
-                "window_title": v2OrNull(hostedWindow?.title?.whitespaceTrimmedNilIfEmpty),
+                "window_title": v2OrNull(hostedWindow?.title.whitespaceTrimmedNilIfEmpty),
                 "window_class": v2OrNull(className(hostedWindow)),
                 "window_delegate_class": v2OrNull(className(hostedWindow?.delegate as AnyObject?)),
                 "window_controller_class": v2OrNull(className(hostedWindow?.windowController)),

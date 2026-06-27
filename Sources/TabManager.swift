@@ -441,7 +441,7 @@ class TabManager {
     // TabManager so port ranges never overlap. A static (not a per-instance
     // default) on purpose: the counter is per process, not per window, matching
     // the legacy `static var nextPortOrdinal`; tests inject their own instance.
-    private static let sharedPortOrdinalAllocator = WorkspacePortOrdinalAllocator()
+    @MainActor private static let sharedPortOrdinalAllocator = WorkspacePortOrdinalAllocator()
 
     // The sidebar git/PR subsystem (extracted to CmuxSidebarGit). TabManager
     // is the per-window composition point: it constructs the concrete

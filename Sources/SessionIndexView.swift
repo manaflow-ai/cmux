@@ -818,6 +818,7 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
         coordinator.dismiss()
     }
 
+    @MainActor
     final class Coordinator: NSObject, NSPopoverDelegate {
         @Binding var isPresented: Bool
         weak var anchorView: NSView?

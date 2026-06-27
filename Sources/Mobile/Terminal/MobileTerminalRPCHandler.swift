@@ -1,3 +1,4 @@
+import Bonsplit
 import CMUXMobileCore
 import CmuxTerminal
 import CmuxTerminalCore
@@ -77,7 +78,7 @@ final class MobileTerminalRPCHandler {
             return .err(code: "not_found", message: "Pane not found", data: nil)
         }
         guard let terminal = workspace.newTerminalSurface(
-            inPane: paneId,
+            inPane: PaneID(id: paneId),
             focus: false,
             autoRefreshMetadata: false,
             preserveFocusWhenUnfocused: false, inheritWorkingDirectoryFallback: true

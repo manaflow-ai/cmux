@@ -17,7 +17,7 @@ extension BrowserDownloadFilenameResolver {
 
 extension BrowserDownloadDelegate {
     /// Create a download delegate whose fallback filename is the app-localized "download".
-    convenience init() {
+    override convenience init() {
         self.init(defaultFilename: String(localized: "browser.download.defaultFilename", defaultValue: "download"))
     }
 }

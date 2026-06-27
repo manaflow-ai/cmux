@@ -139,7 +139,7 @@ extension TerminalController: MobileTerminalRPCHost {
     }
 
     func mobileTerminalDefaultPaneId(in workspace: Workspace) -> UUID? {
-        workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
+        (workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first)?.id
     }
 
     func mobileTerminalReplayRenderGridFrame(

@@ -8,7 +8,7 @@ import Foundation
 // here too, leaving the package type a pure `Sendable` value.
 extension BrowserThemeMode: @retroactive Identifiable {
     /// Stable identity for SwiftUI lists, mirroring the raw value.
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
     /// Localized title shown in the browser theme picker.
     var displayName: String {
