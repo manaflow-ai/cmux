@@ -208,9 +208,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
            event.value == initialStoreValue {
             return
         }
-        if let supersededSource = event.supersededMutationSource,
-           supersededSource.ownerID == mutationOwnerID,
-           consumeSupersededPendingStoreEcho(source: supersededSource) {
+        if consumeSupersededPendingStoreEchoes(sources: event.supersededMutationSources) {
             return
         }
         updateCurrent(event.value)
@@ -256,15 +254,26 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         return (true, !hasNewerPendingEcho && current != value)
     }
 
+    private func consumeSupersededPendingStoreEchoes(
+        sources: [UserDefaultsSettingsMutationSource]
+    ) -> Bool {
+        var consumedSource = false
+        for source in sources where source.ownerID == mutationOwnerID {
+            consumedSource = consumeSupersededPendingStoreEcho(source: source) || consumedSource
+        }
+        return consumedSource && !pendingStoreEchoes.isEmpty
+    }
+
     private func consumeSupersededPendingStoreEcho(source: UserDefaultsSettingsMutationSource) -> Bool {
         if let matchingIndex = pendingStoreEchoes.firstIndex(where: { $0.source == source }) {
             markLocalEchoesConsumed(through: source.sequence)
             pendingStoreEchoes.removeFirst(matchingIndex + 1)
+            return true
         } else if source.sequence < minimumRetainedMutationSequence {
-            return !pendingStoreEchoes.isEmpty
+            return true
         }
 
-        return !pendingStoreEchoes.isEmpty
+        return false
     }
 
     private func reconcileRejectedStoreWrite(

@@ -36,14 +36,15 @@ final class UserDefaultsSettingsObservedMutationWatermarks: @unchecked Sendable 
     func recordNotification(
         logicalOrder: UInt64,
         isBackingDefaultsNotification: Bool,
+        canCarryActiveMutationSource: Bool,
         for storageKey: String
     ) -> UserDefaultsSettingsMutationSource? {
-        state.withLock { state in
-            let mutationSource = isBackingDefaultsNotification
+        return state.withLock { state in
+            let mutationSource = canCarryActiveMutationSource
                 ? state.activeMutationSources[storageKey]
                 : nil
             state.logicalOrders[storageKey] = max(state.logicalOrders[storageKey] ?? 0, logicalOrder)
-            if isBackingDefaultsNotification {
+            if isBackingDefaultsNotification || mutationSource != nil {
                 state.backingNotifications[storageKey] = (logicalOrder, mutationSource)
             }
             return mutationSource

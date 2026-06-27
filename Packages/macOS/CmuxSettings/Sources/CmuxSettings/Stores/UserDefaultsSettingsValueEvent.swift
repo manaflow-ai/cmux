@@ -6,8 +6,13 @@ public struct UserDefaultsSettingsValueEvent<Value: SettingCodable>: Sendable, E
     /// One-shot source attached to this observed store-owned write, if any.
     public let mutationSource: UserDefaultsSettingsMutationSource?
 
-    /// Source whose stored value was overwritten before observation emitted it.
-    public let supersededMutationSource: UserDefaultsSettingsMutationSource?
+    /// Sources whose stored values were overwritten before observation emitted them.
+    public let supersededMutationSources: [UserDefaultsSettingsMutationSource]
+
+    /// The newest source whose stored value was overwritten before observation emitted it.
+    public var supersededMutationSource: UserDefaultsSettingsMutationSource? {
+        supersededMutationSources.last
+    }
 
     /// Whether this event is the stream's initial store snapshot.
     public let isInitialSnapshot: Bool
@@ -17,11 +22,16 @@ public struct UserDefaultsSettingsValueEvent<Value: SettingCodable>: Sendable, E
         value: Value,
         mutationSource: UserDefaultsSettingsMutationSource? = nil,
         supersededMutationSource: UserDefaultsSettingsMutationSource? = nil,
+        supersededMutationSources: [UserDefaultsSettingsMutationSource] = [],
         isInitialSnapshot: Bool = false
     ) {
         self.value = value
         self.mutationSource = mutationSource
-        self.supersededMutationSource = supersededMutationSource
+        var sources = supersededMutationSources
+        if let supersededMutationSource, !sources.contains(supersededMutationSource) {
+            sources.append(supersededMutationSource)
+        }
+        self.supersededMutationSources = sources
         self.isInitialSnapshot = isInitialSnapshot
     }
 }
@@ -31,14 +41,27 @@ extension UserDefaultsSettingsValueEvent {
         mutationSource ?? supersededMutationSource
     }
 
+    var deliveryMutationSources: [UserDefaultsSettingsMutationSource] {
+        var sources = supersededMutationSources
+        if let mutationSource, !sources.contains(mutationSource) {
+            sources.append(mutationSource)
+        }
+        return sources
+    }
+
     func mergingDroppedSource(from droppedEvent: Self) -> Self {
-        guard mutationSource == nil,
-              supersededMutationSource == nil,
-              let droppedSource = droppedEvent.deliveryMutationSource
-        else { return self }
+        let droppedSources = droppedEvent.deliveryMutationSources
+        guard !droppedSources.isEmpty else { return self }
+        var mergedSupersededSources = supersededMutationSources
+        for droppedSource in droppedSources
+        where droppedSource != mutationSource && !mergedSupersededSources.contains(droppedSource) {
+            mergedSupersededSources.append(droppedSource)
+        }
+        guard mergedSupersededSources != supersededMutationSources else { return self }
         return Self(
             value: value,
-            supersededMutationSource: droppedSource,
+            mutationSource: mutationSource,
+            supersededMutationSources: mergedSupersededSources,
             isInitialSnapshot: isInitialSnapshot
         )
     }

@@ -109,6 +109,59 @@ struct UserDefaultsSettingsStoreNotificationTests {
         #expect(storedValue == "#EXTERNAL")
     }
 
+    @Test func delayedDefaultsNotificationDoesNotRejectSourceCreatedAfterKnownValue() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        let externalDefaults = UserDefaults(suiteName: suiteName)!
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let stream = await store.valueEvents(for: key)
+        var iterator = stream.makeAsyncIterator()
+
+        let initial = await iterator.next()
+        #expect(initial?.value == key.defaultValue)
+
+        externalDefaults.set("#EXTERNAL", forKey: key.userDefaultsKey)
+        let source = UserDefaultsSettingsMutationSource()
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: externalDefaults
+        )
+
+        let acceptedSource = await store.set("#LOCAL", for: key, source: source)
+        let storedValue = await store.value(for: key)
+        #expect(acceptedSource == source)
+        #expect(storedValue == "#LOCAL")
+    }
+
+    @Test func valuesStreamRecordsBackingNotificationWatermark() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        let externalDefaults = UserDefaults(suiteName: suiteName)!
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        var iterator = store.values(for: key).makeAsyncIterator()
+
+        let initial = await iterator.next()
+        #expect(initial == key.defaultValue)
+
+        externalDefaults.set("#EXTERNAL", forKey: key.userDefaultsKey)
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: externalDefaults
+        )
+        let external = await iterator.next()
+        #expect(external == "#EXTERNAL")
+
+        let staleSource = UserDefaultsSettingsMutationSource(
+            ownerID: UUID(),
+            sequence: 1,
+            logicalOrder: 1
+        )
+        let acceptedSource = await store.set("#STALE", for: key, source: staleSource)
+        let storedValue = await store.value(for: key)
+        #expect(acceptedSource == nil)
+        #expect(storedValue == "#EXTERNAL")
+    }
+
     @Test func queuedDirectDefaultsNotificationDoesNotRejectNewerPendingSource() async {
         let suiteName = "cmux.tests.\(UUID().uuidString)"
         let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
@@ -202,10 +255,10 @@ struct UserDefaultsSettingsStoreNotificationTests {
         #expect(externalEvent?.supersededMutationSource == source)
     }
 
-    @Test func valueEventsDrainSupersededSourceAfterUnrelatedSameValueNotification() async {
-        let store = UserDefaultsSettingsStore(
-            defaults: UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
-        )
+    @Test func valueEventsDrainSupersededSourceAfterBackingSameValueNotification() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        let backingDefaults = UserDefaults(suiteName: suiteName)!
         let key = SettingCatalog().app.appearance
         let recorder = UserDefaultsSettingsEventRecorder<AppearanceMode>()
         let task = Task {
@@ -228,7 +281,7 @@ struct UserDefaultsSettingsStoreNotificationTests {
         await store.set(.system, for: key)
         NotificationCenter.default.post(
             name: UserDefaults.didChangeNotification,
-            object: UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
+            object: backingDefaults
         )
 
         let matchingEvent = await waitForEvent(in: recorder) { event in

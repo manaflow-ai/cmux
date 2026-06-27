@@ -21,35 +21,6 @@ struct UserDefaultsSettingsStoreTests {
         }
     }
 
-    @Test func storageChangeObserverClassifiesBackingDefaultsInstance() async {
-        let observedDefaults = UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
-        let otherDefaults = UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
-        let storage = UserDefaultsSettingsStorage(defaults: observedDefaults)
-        let (stream, continuation) = AsyncStream<Bool>.makeStream(bufferingPolicy: .unbounded)
-        let token = storage.addDidChangeObserver { isBackingDefaultsNotification in
-            continuation.yield(isBackingDefaultsNotification)
-        }
-        defer {
-            token.remove()
-            continuation.finish()
-        }
-
-        NotificationCenter.default.post(
-            name: UserDefaults.didChangeNotification,
-            object: otherDefaults
-        )
-        NotificationCenter.default.post(
-            name: UserDefaults.didChangeNotification,
-            object: observedDefaults
-        )
-
-        var iterator = stream.makeAsyncIterator()
-        let firstEvent = await iterator.next()
-        let secondEvent = await iterator.next()
-        #expect(firstEvent == false)
-        #expect(secondEvent == true)
-    }
-
     @Test func readsDefaultWhenUnset() async {
         let (store, catalog) = makeStore()
         let value = await store.value(for: catalog.app.appearance)

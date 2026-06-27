@@ -29,12 +29,14 @@ import Testing
         _ value: Value,
         source: UserDefaultsSettingsMutationSource? = nil,
         supersededSource: UserDefaultsSettingsMutationSource? = nil,
+        supersededSources: [UserDefaultsSettingsMutationSource] = [],
         isInitialSnapshot: Bool = false
     ) -> DefaultsEvent<Value> {
         DefaultsEvent(
             value: value,
             mutationSource: source,
             supersededMutationSource: supersededSource,
+            supersededMutationSources: supersededSources,
             isInitialSnapshot: isInitialSnapshot
         )
     }

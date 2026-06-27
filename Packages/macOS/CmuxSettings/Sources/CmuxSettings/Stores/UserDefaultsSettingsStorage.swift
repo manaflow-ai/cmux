@@ -23,7 +23,10 @@ final class UserDefaultsSettingsStorage: @unchecked Sendable {
     }
 
     func addDidChangeObserver(
-        _ handler: @escaping @Sendable (_ isBackingDefaultsNotification: Bool) -> Void
+        _ handler: @escaping @Sendable (
+            _ isBackingDefaultsNotification: Bool,
+            _ canCarryActiveMutationSource: Bool
+        ) -> Void
     ) -> NotificationObserverToken {
         let defaultsID = ObjectIdentifier(defaults)
         return NotificationObserverToken(
@@ -33,7 +36,8 @@ final class UserDefaultsSettingsStorage: @unchecked Sendable {
                 queue: nil
             ) { notification in
                 let objectID = notification.object.map { ObjectIdentifier($0 as AnyObject) }
-                handler(objectID == defaultsID)
+                let isBackingDefaultsNotification = objectID == defaultsID
+                handler(isBackingDefaultsNotification, objectID == nil || isBackingDefaultsNotification)
             }
         )
     }
