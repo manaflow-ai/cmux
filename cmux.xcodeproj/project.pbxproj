@@ -95,6 +95,8 @@
 		74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46792DAA478444ED87B17B31 /* AutoNamingHookPayloadAdapterTests.swift */; };
 		1CAF0A7B546A4386A4220BDE /* AutoNamingPromptLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDAB409B8C504586AFDD1912 /* AutoNamingPromptLanguage.swift */; };
 		E7DCC11AE1444130B34965BB /* AutoNamingPromptLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDAB409B8C504586AFDD1912 /* AutoNamingPromptLanguage.swift */; };
+		A0C100000000000000000001 /* AutoNamingRecentMessageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0C100000000000000000000 /* AutoNamingRecentMessageCache.swift */; };
+		A0C100000000000000000002 /* AutoNamingRecentMessageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0C100000000000000000000 /* AutoNamingRecentMessageCache.swift */; };
 		06FF95CA91A743A18403BD15 /* AutoNamingSanitizationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27F56FD14E6C4A1E884C04D6 /* AutoNamingSanitizationOutcome.swift */; };
 		586FFC5DC8F447DA90424F7B /* AutoNamingSanitizationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27F56FD14E6C4A1E884C04D6 /* AutoNamingSanitizationOutcome.swift */; };
 		A0A100000000000000000002 /* AutoNamingSubprocessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0A100000000000000000001 /* AutoNamingSubprocessRunner.swift */; };
@@ -1308,6 +1310,7 @@
 		07EC52007B2144C59C047774 /* AutoNamingGrokAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingGrokAdapterTests.swift; sourceTree = "<group>"; };
 		46792DAA478444ED87B17B31 /* AutoNamingHookPayloadAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingHookPayloadAdapterTests.swift; sourceTree = "<group>"; };
 		DDAB409B8C504586AFDD1912 /* AutoNamingPromptLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingPromptLanguage.swift; sourceTree = "<group>"; };
+		A0C100000000000000000000 /* AutoNamingRecentMessageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingRecentMessageCache.swift; sourceTree = "<group>"; };
 		27F56FD14E6C4A1E884C04D6 /* AutoNamingSanitizationOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingSanitizationOutcome.swift; sourceTree = "<group>"; };
 		A0A100000000000000000001 /* AutoNamingSubprocessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingSubprocessRunner.swift; sourceTree = "<group>"; };
 		A0A100000000000000000004 /* AutoNamingSubprocessRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingSubprocessRunnerTests.swift; sourceTree = "<group>"; };
@@ -3226,10 +3229,11 @@
 				B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */,
 				B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */,
 				B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */,
-				5257257034CA4729B1211170 /* CMUXCLI+AgentHookPayload.swift */,
-				DDAB409B8C504586AFDD1912 /* AutoNamingPromptLanguage.swift */,
-				90B3ABB70F3E4DD3AC66B845 /* AutoNamingTranscriptExtraction.swift */,
-				A0B100000000000000000001 /* AutoNamingTranscriptSource.swift */,
+					5257257034CA4729B1211170 /* CMUXCLI+AgentHookPayload.swift */,
+					DDAB409B8C504586AFDD1912 /* AutoNamingPromptLanguage.swift */,
+					A0C100000000000000000000 /* AutoNamingRecentMessageCache.swift */,
+					90B3ABB70F3E4DD3AC66B845 /* AutoNamingTranscriptExtraction.swift */,
+					A0B100000000000000000001 /* AutoNamingTranscriptSource.swift */,
 				27F56FD14E6C4A1E884C04D6 /* AutoNamingSanitizationOutcome.swift */,
 				A0A100000000000000000001 /* AutoNamingSubprocessRunner.swift */,
 				5257257034CA4729B1211166 /* CMUXCLI+AutoNaming.swift */,
@@ -4657,9 +4661,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
-				E7DCC11AE1444130B34965BB /* AutoNamingPromptLanguage.swift in Sources */,
-				586FFC5DC8F447DA90424F7B /* AutoNamingSanitizationOutcome.swift in Sources */,
+					D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
+					E7DCC11AE1444130B34965BB /* AutoNamingPromptLanguage.swift in Sources */,
+					A0C100000000000000000001 /* AutoNamingRecentMessageCache.swift in Sources */,
+					586FFC5DC8F447DA90424F7B /* AutoNamingSanitizationOutcome.swift in Sources */,
 				A0A100000000000000000002 /* AutoNamingSubprocessRunner.swift in Sources */,
 				E971B0E1B617430B927B1C39 /* AutoNamingTranscriptExtraction.swift in Sources */,
 				A0B100000000000000000003 /* AutoNamingTranscriptSource.swift in Sources */,
@@ -4789,9 +4794,10 @@
 				FF068325E8A04E51A30AE9BA /* AutoNamingCodexAdapterTests.swift in Sources */,
 				7C592156DCB3419BB95383E5 /* AutoNamingEngineTests.swift in Sources */,
 				A4ECF22C62724853A72D6BDE /* AutoNamingGrokAdapterTests.swift in Sources */,
-				74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */,
-				1CAF0A7B546A4386A4220BDE /* AutoNamingPromptLanguage.swift in Sources */,
-				06FF95CA91A743A18403BD15 /* AutoNamingSanitizationOutcome.swift in Sources */,
+					74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */,
+					1CAF0A7B546A4386A4220BDE /* AutoNamingPromptLanguage.swift in Sources */,
+					A0C100000000000000000002 /* AutoNamingRecentMessageCache.swift in Sources */,
+					06FF95CA91A743A18403BD15 /* AutoNamingSanitizationOutcome.swift in Sources */,
 				A0A100000000000000000003 /* AutoNamingSubprocessRunner.swift in Sources */,
 				A0A100000000000000000005 /* AutoNamingSubprocessRunnerTests.swift in Sources */,
 				1FCDB66B73934A30AC409460 /* AutoNamingTranscriptExtraction.swift in Sources */,

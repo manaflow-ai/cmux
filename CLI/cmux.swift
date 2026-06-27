@@ -1058,51 +1058,15 @@ final class ClaudeHookSessionStore {
         to record: inout ClaudeHookSessionRecord
     ) {
         guard !messages.isEmpty else { return }
-        var recent = record.autoNameRecentMessages ?? []
-        var seen = Set(recent.map(autoNameMessageDedupKey))
-        var eventSeen = Set<String>()
-        var observedCount = 0
-        for message in messages {
-            guard let normalized = normalizedAutoNameMessage(message) else { continue }
-            let key = autoNameMessageDedupKey(normalized)
-            guard eventSeen.insert(key).inserted else { continue }
-            observedCount += 1
-            guard seen.insert(key).inserted else { continue }
-            recent.append(normalized)
-        }
-        if recent.count > Self.maxAutoNameRecentMessages {
-            recent.removeFirst(recent.count - Self.maxAutoNameRecentMessages)
-        }
-        record.autoNameRecentMessages = recent.isEmpty ? nil : recent
-        if observedCount > 0 {
-            record.autoNameMessageSequence = (record.autoNameMessageSequence ?? 0) + observedCount
-        }
-    }
-
-    private func normalizedAutoNameMessage(_ message: AutoNamingTranscriptMessage) -> AutoNamingTranscriptMessage? {
-        let role = message.role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard role == "user" || role == "assistant" else { return nil }
-        let text = autoNameNormalizedSingleLine(message.text)
-        guard !text.isEmpty else { return nil }
-        return AutoNamingTranscriptMessage(
-            role: role,
-            text: autoNameTruncate(text, maxLength: Self.maxAutoNameMessageCharacters)
+        let cache = AutoNamingRecentMessageCache(
+            maxMessages: Self.maxAutoNameRecentMessages,
+            maxMessageCharacters: Self.maxAutoNameMessageCharacters
         )
-    }
-
-    private func autoNameMessageDedupKey(_ message: AutoNamingTranscriptMessage) -> String {
-        "\(message.role)\u{1F}\(message.text)"
-    }
-
-    private func autoNameNormalizedSingleLine(_ value: String) -> String {
-        let collapsed = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func autoNameTruncate(_ value: String, maxLength: Int) -> String {
-        guard value.count > maxLength else { return value }
-        let index = value.index(value.startIndex, offsetBy: max(0, maxLength - 1))
-        return String(value[..<index]) + "…"
+        let updated = cache.appending(messages, to: record.autoNameRecentMessages ?? [])
+        record.autoNameRecentMessages = updated.messages.isEmpty ? nil : updated.messages
+        if updated.insertedCount > 0 {
+            record.autoNameMessageSequence = (record.autoNameMessageSequence ?? 0) + updated.insertedCount
+        }
     }
 
     private func update(
