@@ -1322,7 +1322,7 @@ final class MobileHostService {
     func recordCreatedResourcesIfNeeded(
         request: MobileHostRPCRequest,
         result: MobileHostRPCResult
-    ) {
+    ) async {
         guard let attachToken = request.auth?.attachToken, let ticketAuthorization = ticketStore.validAuthorization(authToken: attachToken), Self.ticketAuthorizationError(authorization: ticketAuthorization, request: request) == nil else { return }
         guard MobileAttachTicketStore.ticketMatchesCurrentMacAccount(
             ticket: ticketAuthorization.ticket,
