@@ -351,7 +351,7 @@ final class AgentChatSessionRegistry {
             // Compaction is lifecycle telemetry. It can occur while a session
             // is idle, so it must not create a synthetic working state.
             return previous
-        case .permissionRequest, .askUserQuestion, .exitPlanMode, .notification:
+        case .permissionRequest, .askUserQuestion, .exitPlanMode, .approvalWait, .notification:
             if case .needsInput = previous { return previous }
             return .needsInput(since: event.receivedAt)
         case .stop:
