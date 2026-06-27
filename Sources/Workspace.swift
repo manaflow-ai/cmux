@@ -4866,8 +4866,6 @@ final class Workspace: Identifiable, ObservableObject {
                 panelId: panelId,
                 binding: removed
             )
-        } else {
-            surfaceResumeBindingHistoriesByPanelId.removeValue(forKey: panelId)
         }
         return removed != nil
     }

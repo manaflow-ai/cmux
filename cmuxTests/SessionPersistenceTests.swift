@@ -4689,6 +4689,11 @@ extension SessionPersistenceTests {
             let history = workspace.surfaceResumeBindingHistory(panelId: panelId)
             XCTAssertEqual(history.map(\.command), ["codex resume real-thread"])
             XCTAssertEqual(history.compactMap(\.checkpointId), ["real-thread"])
+
+            XCTAssertFalse(workspace.clearSurfaceResumeBinding(panelId: panelId))
+            let retainedHistory = workspace.surfaceResumeBindingHistory(panelId: panelId)
+            XCTAssertEqual(retainedHistory.map(\.command), ["codex resume real-thread"])
+            XCTAssertEqual(retainedHistory.compactMap(\.checkpointId), ["real-thread"])
         }
     }
 
