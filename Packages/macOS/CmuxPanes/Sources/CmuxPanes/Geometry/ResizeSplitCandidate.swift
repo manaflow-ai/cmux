@@ -1,5 +1,5 @@
-import CoreGraphics
-import Foundation
+public import CoreGraphics
+public import Foundation
 
 /// One split that encloses a resize target pane, as discovered by
 /// ``ExternalTreeNode/collectResizeCandidates(targetPaneId:candidates:)``.
