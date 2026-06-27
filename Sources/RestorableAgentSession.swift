@@ -237,10 +237,7 @@ private extension RestorableAgentHookSessionRecord {
 struct RestorableAgentSessionIndex: Sendable {
     static let empty = RestorableAgentSessionIndex(entriesByPanel: [:])
 
-    struct PanelKey: Hashable, Sendable {
-        let workspaceId: UUID
-        let panelId: UUID
-    }
+    typealias PanelKey = WorkspacePanelKey
 
     struct Entry: Sendable {
         let snapshot: SessionRestorableAgentSnapshot

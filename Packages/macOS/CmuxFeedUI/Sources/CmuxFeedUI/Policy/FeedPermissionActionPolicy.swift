@@ -1,35 +1,45 @@
 import Foundation
-import CMUXAgentLaunch
+public import CMUXAgentLaunch
 
-enum FeedPermissionActionPolicy {
+/// Decides, per agent source and per-tool input, which permission-approval
+/// buttons the Feed should offer (Allow Once / Always Allow / All tools /
+/// Bypass). Codex advertises its available decisions inside the tool-input
+/// JSON, so the Codex branches parse that payload to enable only the modes the
+/// current request actually supports; every other source falls back to the
+/// static per-source capability matrix.
+///
+/// This is a pure value policy shared by the Feed UI (`PermissionActionArea`),
+/// the Feed coordinator, the notification-delivery seam, and the control-socket
+/// feed context, so its decisions stay identical across every entrypoint.
+public enum FeedPermissionActionPolicy {
     private typealias CodexPermissionCapabilities = (supportsOnce: Bool, supportsAlways: Bool, supportsAll: Bool)
 
-    static func supportsPersistentPermissionModes(source: WorkstreamSource) -> Bool {
+    public static func supportsPersistentPermissionModes(source: WorkstreamSource) -> Bool {
         source != .hermesAgent
     }
 
-    static func supportsOncePermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
+    public static func supportsOncePermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
         guard source == .codex else { return true }
         return codexCapabilities(toolInputJSON: toolInputJSON).supportsOnce
     }
 
-    static func supportsAlwaysPermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
+    public static func supportsAlwaysPermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
         guard supportsPersistentPermissionModes(source: source) else { return false }
         guard source == .codex else { return true }
         return codexCapabilities(toolInputJSON: toolInputJSON).supportsAlways
     }
 
-    static func supportsAllPermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
+    public static func supportsAllPermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
         guard supportsPersistentPermissionModes(source: source) else { return false }
         guard source == .codex else { return true }
         return codexCapabilities(toolInputJSON: toolInputJSON).supportsAll
     }
 
-    static func supportsBypassPermissions(source: WorkstreamSource) -> Bool {
+    public static func supportsBypassPermissions(source: WorkstreamSource) -> Bool {
         source != .codex && source != .claude && source != .hermesAgent
     }
 
-    static func codexCapabilityToolInputJSON(source: WorkstreamSource, toolInputJSON: String) -> String? {
+    public static func codexCapabilityToolInputJSON(source: WorkstreamSource, toolInputJSON: String) -> String? {
         guard source == .codex else { return nil }
         return codexCapabilityToolInputJSON(toolInputJSON: toolInputJSON)
     }

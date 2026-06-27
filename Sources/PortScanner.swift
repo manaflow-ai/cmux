@@ -449,50 +449,6 @@ final class PortScanner: @unchecked Sendable {
 
     // MARK: - Process helpers
 
-    static func captureStandardOutput(
-        executablePath: String,
-        arguments: [String]
-    ) -> String? {
-        autoreleasepool {
-            let process = Process()
-            let stdoutPipe = Pipe()
-            let stdoutReadHandle = stdoutPipe.fileHandleForReading
-            let stdoutWriteHandle = stdoutPipe.fileHandleForWriting
-
-            process.executableURL = URL(fileURLWithPath: executablePath)
-            process.arguments = arguments
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = stdoutPipe
-            process.standardError = FileHandle.nullDevice
-
-            defer {
-                try? stdoutReadHandle.close()
-                try? stdoutWriteHandle.close()
-            }
-
-            do {
-                try process.run()
-            } catch {
-                return nil
-            }
-
-            // Close the parent's write end before reading. This is required:
-            // The pipe reader blocks until EOF, which only occurs when every
-            // write-fd holder (parent + child) has closed its copy. Keeping the
-            // parent's copy open would deadlock the read. The defer below is a
-            // safety net for the error path (process.run() throws), not a
-            // substitute for this explicit close.
-            try? stdoutWriteHandle.close()
-            let data = stdoutReadHandle.readDataToEndOfFileOrEmpty()
-            process.waitUntilExit()
-
-            guard let output = String(data: data, encoding: .utf8) else {
-                return nil
-            }
-            return output
-        }
-    }
-
     private func expandAgentProcessTree(agentPIDsByWorkspace: [UUID: Set<Int>]) -> [Int: Set<UUID>] {
         let normalizedRoots = agentPIDsByWorkspace.reduce(into: [UUID: Set<Int>]()) { partial, item in
             let valid = Set(item.value.filter { $0 > 0 })
@@ -536,10 +492,10 @@ final class PortScanner: @unchecked Sendable {
 
     private func runPS(ttyList: String) -> [Int: String] {
         // `ps -t tty1,tty2,... -o pid=,tty=` — targeted scan, much cheaper than -ax.
-        guard let output = Self.captureStandardOutput(
+        guard let output = SynchronousProcessOutputCapture(
             executablePath: "/bin/ps",
             arguments: ["-t", ttyList, "-o", "pid=,tty="]
-        ) else {
+        ).captureStandardOutput() else {
             return [:]
         }
 
@@ -554,10 +510,10 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func runAllProcesses() -> [Int: Int] {
-        guard let output = Self.captureStandardOutput(
+        guard let output = SynchronousProcessOutputCapture(
             executablePath: "/bin/ps",
             arguments: ["-ax", "-o", "pid=,ppid="]
-        ) else {
+        ).captureStandardOutput() else {
             return [:]
         }
 
@@ -574,10 +530,10 @@ final class PortScanner: @unchecked Sendable {
 
     private func runLsof(pidsCsv: String) -> [Int: Set<Int>] {
         // `lsof -nP -a -p <pids> -iTCP -sTCP:LISTEN -F pn`
-        guard let output = Self.captureStandardOutput(
+        guard let output = SynchronousProcessOutputCapture(
             executablePath: "/usr/sbin/lsof",
             arguments: ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"]
-        ) else {
+        ).captureStandardOutput() else {
             return [:]
         }
 

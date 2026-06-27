@@ -92,6 +92,12 @@ struct cmuxApp: App {
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
 
+    /// App-owned orchestrator for the socket-control server lifecycle. Holds the
+    /// composition-root `AppDelegate`; the `@AppStorage socketControlMode` trigger
+    /// and its `.onChange` modifier stay in this App and forward the raw mode and
+    /// the active `TabManager` to it.
+    private let socketControlCoordinator: SocketControlCoordinator
+
     @State private var tabManager: TabManager
     // De-singletonization stage b73: this `@StateObject` is the composition-root
     // owner of the single `TerminalNotificationStore`. `AppDelegate.configure`
@@ -136,6 +142,10 @@ struct cmuxApp: App {
     }
 
     init() {
+        // Own the socket-control orchestrator at the composition root. It holds
+        // only the already-defaulted `appDelegate` adaptor, so it is constructed
+        // first and reads no other stored property before they are initialized.
+        socketControlCoordinator = SocketControlCoordinator(appDelegate: appDelegate)
         // Build the settings container once. All injected dependencies
         // (the catalog, the two stores, the error log) live on this
         // single struct; nothing in the package or app references a
@@ -291,7 +301,10 @@ struct cmuxApp: App {
                     applyAppearance()
                 }
                 .onChange(of: socketControlMode) { _ in
-                    updateSocketController()
+                    socketControlCoordinator.apply(
+                        rawMode: socketControlMode,
+                        tabManager: activeTabManager
+                    )
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .browserFocusModeStateDidChange)) { _ in
                     browserFocusModeMenuRevision &+= 1
@@ -954,33 +967,10 @@ struct cmuxApp: App {
         )
     }
 
-    private func updateSocketController() {
-        // Use the composition-root-owned instance (de-singletonization stage
-        // b72) rather than the transitional `TerminalController.shared` accessor.
-        let terminalControl = appDelegate.terminalControl
-        let mode = SocketControlSettings.effectiveMode(userMode: currentSocketMode)
-        if mode != .off {
-            let socketPath = terminalControl.activeSocketPath(
-                preferredPath: SocketControlSettings.socketPath()
-            )
-            terminalControl.start(
-                tabManager: activeTabManager,
-                socketPath: socketPath,
-                accessMode: mode
-            )
-        } else {
-            terminalControl.stop()
-        }
-    }
-
     private func bootstrapMainWindowScene() {
         appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
         appDelegate.installReloadConfigurationMenuItemAction()
         applyAppearance()
-    }
-
-    private var currentSocketMode: SocketControlMode {
-        SocketControlSettings.migrateMode(socketControlMode)
     }
 
     func menuShortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {

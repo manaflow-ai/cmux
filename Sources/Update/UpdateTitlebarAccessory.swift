@@ -1841,26 +1841,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 }
 
-/// Size constraints for the notifications popover (default, minimum, and maximum
-/// width/height in points).
-private struct NotificationsPopoverMetrics {
-    let defaultWidth: CGFloat
-    let defaultHeight: CGFloat
-    let minWidth: CGFloat
-    let minHeight: CGFloat
-    let maxWidth: CGFloat
-    let maxHeight: CGFloat
-
-    static let standard = NotificationsPopoverMetrics(
-        defaultWidth: 560,
-        defaultHeight: 760,
-        minWidth: 420,
-        minHeight: 320,
-        maxWidth: 1000,
-        maxHeight: 1200
-    )
-}
-
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
