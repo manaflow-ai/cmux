@@ -155,4 +155,87 @@ public protocol SurfaceCreationHosting: AnyObject {
     /// the legacy `projectPanel.reload()`. The host resolves the typed panel by
     /// `id` and reloads it; a no-op if the id no longer maps to a project panel.
     func reloadProjectPanel(id: UUID)
+
+    // MARK: Markdown create + split live state
+
+    /// The pane that currently owns `panelId`, mirroring the legacy
+    /// `Workspace.paneId(forPanelId:)` guard at the head of `newMarkdownSplit`.
+    /// Returns `nil` when the panel is not in any pane (the split then fails).
+    func paneId(forPanelId panelId: UUID) -> PaneID?
+
+    /// Constructs the app's `MarkdownPanel` for `filePath` (with the optional
+    /// `fontSize` the split path threads through), registers it in the workspace
+    /// panel and panel-title registries, and returns its Sendable descriptor.
+    /// Mirrors the legacy `let markdownPanel = MarkdownPanel(workspaceId: id,
+    /// filePath: filePath, fontSize: fontSize); panels[markdownPanel.id] =
+    /// markdownPanel; panelTitles[markdownPanel.id] = markdownPanel.displayTitle`
+    /// prelude shared by `newMarkdownSurface`, `newMarkdownSplit`, and
+    /// `splitPaneWithMarkdown`. The descriptor's `isDirty` carries
+    /// `markdownPanel.isDirty` (markdown panels are not unconditionally clean).
+    /// The registries stay app-side behind this witness.
+    func registerMarkdownPanel(filePath: String, fontSize: Double?) -> SurfaceTabDescriptor
+
+    /// Splits `paneId` with a new tab built from `descriptor` (+ `kind`), toggling
+    /// `isProgrammaticSplit` around the bonsplit call exactly as the legacy split
+    /// bodies did. Mirrors the legacy `let newTab = Bonsplit.Tab(title:icon:kind:
+    /// isDirty:isLoading:isPinned:); surfaceIdToPanelId[newTab.id] = panel.id;
+    /// isProgrammaticSplit = true; defer { isProgrammaticSplit = false };
+    /// bonsplitController.splitPane(paneId, orientation:, withTab: newTab,
+    /// insertFirst:)`. On a failed split it removes the surface→panel mapping it
+    /// just set (the legacy `surfaceIdToPanelId.removeValue(forKey: newTab.id)`)
+    /// and returns `nil`; the caller then rolls back the panel registration via
+    /// ``discardPanelRegistration(id:)``. Returns the new pane id on success.
+    ///
+    /// The `defer` resets `isProgrammaticSplit` when this witness returns, i.e.
+    /// right after `splitPane`. That matches the legacy scope for observers: the
+    /// only reader of `isProgrammaticSplit` is the synchronous `didSplit` layout
+    /// callback that fires inside `splitPane`; nothing the caller runs afterwards
+    /// (publish, focus, subscription install) reads it.
+    func splitSurface(
+        _ paneId: PaneID,
+        orientation: SplitOrientation,
+        withTab descriptor: SurfaceTabDescriptor,
+        kind: String,
+        insertFirst: Bool
+    ) -> PaneID?
+
+    /// Publishes the `cmux.split.created` + surface-created lifecycle events for a
+    /// new split pane, mirroring the legacy `publishCmuxSplitCreated(_:sourcePaneId:
+    /// orientation:surfaceId:kind:origin:focused:)` call. Shared witness with the
+    /// `Workspace` lifecycle-event method.
+    func publishCmuxSplitCreated(
+        _ paneId: PaneID,
+        sourcePaneId: PaneID?,
+        orientation: SplitOrientation,
+        surfaceId: UUID?,
+        kind: String,
+        origin: String,
+        focused: Bool
+    )
+
+    /// Defers reparent-focus on the previously hosted Ghostty view until the next
+    /// layout follow-up, mirroring the legacy
+    /// `suppressReparentFocusUntilLayoutFollowUp(previousHostedView, reason:)` in
+    /// the focused `newMarkdownSplit` branch. `previousHostedView` is the opaque
+    /// value from ``focusedTerminalHostedView``; the witness downcasts it to the
+    /// app's hosted-view type.
+    func suppressReparentFocusUntilLayoutFollowUp(_ hostedView: AnyObject?, reason: String)
+
+    /// Focuses the panel `panelId`, mirroring the legacy `focusPanel(_:)` call (all
+    /// default arguments) in the focused split branches of `newMarkdownSplit` and
+    /// `splitPaneWithMarkdown`.
+    func focusSurfacePanel(_ panelId: UUID)
+
+    /// Selects the tab backing `panelId`, mirroring the legacy
+    /// `bonsplitController.selectTab(newTab.id)` in `splitPaneWithMarkdown`. The
+    /// host resolves the just-created tab id from its surface→panel mapping
+    /// (`surfaceIdFromPanelId`), which ``splitSurface(_:orientation:withTab:kind:insertFirst:)``
+    /// set immediately before; a no-op if the mapping is gone.
+    func selectSurfaceTab(panelId: UUID)
+
+    /// Installs the markdown panel's title/dirty Combine subscription after the
+    /// tab is wired up, mirroring the legacy `installMarkdownPanelSubscription(_:)`
+    /// call. The host resolves the typed `MarkdownPanel` by `id`; a no-op if the id
+    /// no longer maps to a markdown panel.
+    func installMarkdownPanelSubscription(id: UUID)
 }

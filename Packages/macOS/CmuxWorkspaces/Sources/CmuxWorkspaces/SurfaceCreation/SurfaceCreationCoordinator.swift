@@ -452,6 +452,196 @@ public final class SurfaceCreationCoordinator {
         return descriptor.id
     }
 
+    /// Creates a markdown surface tab in `paneId`, mirroring the legacy
+    /// `Workspace.newMarkdownSurface(inPane:filePath:focus:targetIndex:)` body step
+    /// for step. The coordinator owns the create-tab orchestration; every live read
+    /// and registry/bonsplit mutation is driven through ``SurfaceCreationHosting``.
+    /// The package cannot name the app's `MarkdownPanel`, so this returns the new
+    /// panel's `id` (`nil` on a failed tab insert) and the workspace maps it back to
+    /// the typed panel via `panels[id] as? MarkdownPanel`.
+    ///
+    /// Identical shape to ``newProjectSurface(inPane:projectPath:focus:targetIndex:host:)``
+    /// except the panel is a markdown panel (registered with `isDirty` carried from
+    /// the panel, not forced clean), the published kind/origin are `"markdown"`/
+    /// `"markdown_tab"`, and the tail installs the markdown title/dirty subscription
+    /// instead of reloading a project panel.
+    ///
+    /// - Parameters:
+    ///   - paneId: the pane that receives the new markdown surface.
+    ///   - filePath: the markdown file to display.
+    ///   - focus: explicit focus intent, or `nil` to auto-focus only when `paneId`
+    ///     is already the focused pane.
+    ///   - targetIndex: an optional tab index to reorder the new tab to.
+    ///   - host: the workspace live-state seam.
+    /// - Returns: the new markdown panel's id, or `nil` when the bonsplit tab could
+    ///   not be created.
+    @discardableResult
+    public func newMarkdownSurface(
+        inPane paneId: PaneID,
+        filePath: String,
+        focus: Bool?,
+        targetIndex: Int?,
+        host: any SurfaceCreationHosting
+    ) -> UUID? {
+        let shouldFocusNewTab = focus ?? (host.focusedBonsplitPaneId == paneId)
+        let previousFocusedPanelId = host.focusedPanelId
+        let previousHostedView = host.focusedTerminalHostedView
+
+        let descriptor = host.registerMarkdownPanel(filePath: filePath, fontSize: nil)
+
+        guard let newTabId = host.createSurfaceTab(
+            descriptor: descriptor,
+            kind: SurfaceKind.markdown.rawValue,
+            inPane: paneId
+        ) else {
+            host.discardPanelRegistration(id: descriptor.id)
+            return nil
+        }
+
+        if let targetIndex {
+            _ = host.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        host.publishCmuxSurfaceCreated(
+            descriptor.id,
+            paneId: paneId,
+            kind: "markdown",
+            origin: "markdown_tab",
+            focused: shouldFocusNewTab
+        )
+        if shouldFocusNewTab {
+            host.focusPane(paneId)
+            host.selectTab(newTabId)
+            host.applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            host.preserveSurfaceFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: descriptor.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        host.installMarkdownPanelSubscription(id: descriptor.id)
+        return descriptor.id
+    }
+
+    /// Splits off a new markdown surface from `panelId`, mirroring the legacy
+    /// `Workspace.newMarkdownSplit(from:orientation:insertFirst:filePath:focus:fontSize:)`
+    /// body step for step. The coordinator owns the orchestration; every live read,
+    /// the `isProgrammaticSplit`-wrapped bonsplit split, and the registry mutations
+    /// are driven through ``SurfaceCreationHosting``. Returns the new panel's `id`
+    /// (`nil` when the panel has no pane or the split fails) which the workspace maps
+    /// back to the typed `MarkdownPanel`.
+    ///
+    /// The order is exact: guard the source pane, register the panel, read the
+    /// previously focused panel, split (rolling the registration back on failure),
+    /// publish the split-created event, read the previous hosted view, then either
+    /// suppress reparent focus and focus the new panel (focused branch) or preserve
+    /// focus on the previous panel, and finally install the markdown subscription.
+    ///
+    /// - Parameters:
+    ///   - panelId: the anchor panel the split originates from.
+    ///   - orientation: the split orientation.
+    ///   - insertFirst: whether the new pane is inserted before the source pane.
+    ///   - filePath: the markdown file to display.
+    ///   - focus: whether the new surface takes focus.
+    ///   - fontSize: an optional initial markdown font size.
+    ///   - host: the workspace live-state seam.
+    /// - Returns: the new markdown panel's id, or `nil` on guard/split failure.
+    @discardableResult
+    public func newMarkdownSplit(
+        fromPanelId panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        filePath: String,
+        focus: Bool,
+        fontSize: Double?,
+        host: any SurfaceCreationHosting
+    ) -> UUID? {
+        guard let paneId = host.paneId(forPanelId: panelId) else { return nil }
+
+        let descriptor = host.registerMarkdownPanel(filePath: filePath, fontSize: fontSize)
+        let previousFocusedPanelId = host.focusedPanelId
+
+        guard let newPaneId = host.splitSurface(
+            paneId,
+            orientation: orientation,
+            withTab: descriptor,
+            kind: SurfaceKind.markdown.rawValue,
+            insertFirst: insertFirst
+        ) else {
+            host.discardPanelRegistration(id: descriptor.id)
+            return nil
+        }
+        host.publishCmuxSplitCreated(
+            newPaneId,
+            sourcePaneId: paneId,
+            orientation: orientation,
+            surfaceId: descriptor.id,
+            kind: "markdown",
+            origin: "markdown_split",
+            focused: focus
+        )
+
+        let previousHostedView = host.focusedTerminalHostedView
+        if focus {
+            host.suppressReparentFocusUntilLayoutFollowUp(
+                previousHostedView,
+                reason: "workspace.markdownSplitReparent"
+            )
+            host.focusSurfacePanel(descriptor.id)
+        } else {
+            host.preserveSurfaceFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: descriptor.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        host.installMarkdownPanelSubscription(id: descriptor.id)
+        return descriptor.id
+    }
+
+    /// Splits `paneId` with a new markdown surface, mirroring the legacy
+    /// `Workspace.splitPaneWithMarkdown(targetPane:orientation:insertFirst:filePath:)`
+    /// body step for step. Unlike ``newMarkdownSplit(fromPanelId:orientation:insertFirst:filePath:focus:fontSize:host:)``
+    /// this targets a pane directly (no `paneId(forPanelId:)` lookup), publishes no
+    /// split event, and always focuses the new surface (select its tab, focus its
+    /// panel). Returns the new panel's `id`, or `nil` when the split fails.
+    ///
+    /// - Parameters:
+    ///   - paneId: the pane to split.
+    ///   - orientation: the split orientation.
+    ///   - insertFirst: whether the new pane is inserted before the source pane.
+    ///   - filePath: the markdown file to display.
+    ///   - host: the workspace live-state seam.
+    /// - Returns: the new markdown panel's id, or `nil` on split failure.
+    @discardableResult
+    public func splitPaneWithMarkdown(
+        targetPane paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        filePath: String,
+        host: any SurfaceCreationHosting
+    ) -> UUID? {
+        let descriptor = host.registerMarkdownPanel(filePath: filePath, fontSize: nil)
+
+        guard host.splitSurface(
+            paneId,
+            orientation: orientation,
+            withTab: descriptor,
+            kind: SurfaceKind.markdown.rawValue,
+            insertFirst: insertFirst
+        ) != nil else {
+            host.discardPanelRegistration(id: descriptor.id)
+            return nil
+        }
+
+        host.selectSurfaceTab(panelId: descriptor.id)
+        host.focusSurfacePanel(descriptor.id)
+        host.installMarkdownPanelSubscription(id: descriptor.id)
+        return descriptor.id
+    }
+
     /// Promotes the inherited surface config so the pane is held open after a
     /// startup command exits, mirroring the legacy inline block in
     /// `Workspace.newTerminalSplitLocal`/`newTerminalSurfaceLocal`:

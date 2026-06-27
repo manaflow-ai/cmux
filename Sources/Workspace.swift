@@ -6701,6 +6701,11 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         )
     }
 
+    /// Thin forwarder to ``SurfaceCreationCoordinator/newMarkdownSplit(fromPanelId:orientation:insertFirst:filePath:focus:fontSize:host:)``.
+    /// The coordinator owns the split orchestration and drives every live read and
+    /// registry/bonsplit mutation back through this `Workspace`'s
+    /// ``SurfaceCreationHosting`` conformance; it returns the new panel's `id`,
+    /// which this maps back to the typed `MarkdownPanel`.
     func newMarkdownSplit(
         from panelId: UUID,
         orientation: SplitOrientation,
@@ -6709,52 +6714,22 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         focus: Bool = true,
         fontSize: Double? = nil
     ) -> MarkdownPanel? {
-        guard let paneId = paneId(forPanelId: panelId) else { return nil }
-
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath, fontSize: fontSize)
-        panels[markdownPanel.id] = markdownPanel
-        panelTitles[markdownPanel.id] = markdownPanel.displayTitle
-
-        let newTab = Bonsplit.Tab(
-            title: markdownPanel.displayTitle,
-            icon: markdownPanel.displayIcon,
-            kind: SurfaceKind.markdown.rawValue,
-            isDirty: markdownPanel.isDirty,
-            isLoading: false,
-            isPinned: false
-        )
-        surfaceIdToPanelId[newTab.id] = markdownPanel.id
-        let previousFocusedPanelId = focusedPanelId
-
-        isProgrammaticSplit = true
-        defer { isProgrammaticSplit = false }
-        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
-            panels.removeValue(forKey: markdownPanel.id)
-            panelTitles.removeValue(forKey: markdownPanel.id)
-            return nil
-        }
-        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: markdownPanel.id, kind: "markdown", origin: "markdown_split", focused: focus)
-
-        let previousHostedView = focusedTerminalPanel?.hostedView
-        if focus {
-            suppressReparentFocusUntilLayoutFollowUp(
-                previousHostedView,
-                reason: "workspace.markdownSplitReparent"
-            )
-            focusPanel(markdownPanel.id)
-        } else {
-            preserveFocusAfterNonFocusSplit(
-                preferredPanelId: previousFocusedPanelId,
-                splitPanelId: markdownPanel.id,
-                previousHostedView: previousHostedView
-            )
-        }
-
-        installMarkdownPanelSubscription(markdownPanel)
-        return markdownPanel
+        surfaceCreation.newMarkdownSplit(
+            fromPanelId: panelId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            filePath: filePath,
+            focus: focus,
+            fontSize: fontSize,
+            host: self
+        ).flatMap { panels[$0] as? MarkdownPanel }
     }
 
+    /// Thin forwarder to ``SurfaceCreationCoordinator/newMarkdownSurface(inPane:filePath:focus:targetIndex:host:)``.
+    /// The coordinator owns the create-tab orchestration and drives every live read
+    /// and registry/bonsplit mutation back through this `Workspace`'s
+    /// ``SurfaceCreationHosting`` conformance; it returns the new panel's `id`,
+    /// which this maps back to the typed `MarkdownPanel`.
     @discardableResult
     func newMarkdownSurface(
         inPane paneId: PaneID,
@@ -6762,47 +6737,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> MarkdownPanel? {
-        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
-        let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
-
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
-        panels[markdownPanel.id] = markdownPanel
-        panelTitles[markdownPanel.id] = markdownPanel.displayTitle
-
-        guard let newTabId = bonsplitController.createTab(
-            title: markdownPanel.displayTitle,
-            icon: markdownPanel.displayIcon,
-            kind: SurfaceKind.markdown.rawValue,
-            isDirty: markdownPanel.isDirty,
-            isLoading: false,
-            isPinned: false,
-            inPane: paneId
-        ) else {
-            panels.removeValue(forKey: markdownPanel.id)
-            panelTitles.removeValue(forKey: markdownPanel.id)
-            return nil
-        }
-
-        surfaceIdToPanelId[newTabId] = markdownPanel.id
-        if let targetIndex {
-            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
-        }
-        publishCmuxSurfaceCreated(markdownPanel.id, paneId: paneId, kind: "markdown", origin: "markdown_tab", focused: shouldFocusNewTab)
-        if shouldFocusNewTab {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(newTabId)
-            applyTabSelection(tabId: newTabId, inPane: paneId)
-        } else {
-            preserveFocusAfterNonFocusSplit(
-                preferredPanelId: previousFocusedPanelId,
-                splitPanelId: markdownPanel.id,
-                previousHostedView: previousHostedView
-            )
-        }
-
-        installMarkdownPanelSubscription(markdownPanel)
-        return markdownPanel
+        surfaceCreation.newMarkdownSurface(
+            inPane: paneId,
+            filePath: filePath,
+            focus: focus,
+            targetIndex: targetIndex,
+            host: self
+        ).flatMap { panels[$0] as? MarkdownPanel }
     }
 
     /// Thin forwarder to ``SurfaceCreationCoordinator/newProjectSurface(inPane:projectPath:focus:targetIndex:host:)``.
@@ -6839,6 +6780,11 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         return newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
     }
 
+    /// Thin forwarder to ``SurfaceCreationCoordinator/splitPaneWithMarkdown(targetPane:orientation:insertFirst:filePath:host:)``.
+    /// The coordinator owns the split orchestration and drives every live read and
+    /// registry/bonsplit mutation back through this `Workspace`'s
+    /// ``SurfaceCreationHosting`` conformance; it returns the new panel's `id`,
+    /// which this maps back to the typed `MarkdownPanel`.
     @discardableResult
     func splitPaneWithMarkdown(
         targetPane paneId: PaneID,
@@ -6846,38 +6792,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         insertFirst: Bool,
         filePath: String
     ) -> MarkdownPanel? {
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
-        panels[markdownPanel.id] = markdownPanel
-        panelTitles[markdownPanel.id] = markdownPanel.displayTitle
-
-        let newTab = Bonsplit.Tab(
-            title: markdownPanel.displayTitle,
-            icon: markdownPanel.displayIcon,
-            kind: SurfaceKind.markdown.rawValue,
-            isDirty: markdownPanel.isDirty,
-            isLoading: false,
-            isPinned: false
-        )
-        surfaceIdToPanelId[newTab.id] = markdownPanel.id
-
-        isProgrammaticSplit = true
-        defer { isProgrammaticSplit = false }
-        guard bonsplitController.splitPane(
-            paneId,
+        surfaceCreation.splitPaneWithMarkdown(
+            targetPane: paneId,
             orientation: orientation,
-            withTab: newTab,
-            insertFirst: insertFirst
-        ) != nil else {
-            panels.removeValue(forKey: markdownPanel.id)
-            panelTitles.removeValue(forKey: markdownPanel.id)
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
-            return nil
-        }
-
-        bonsplitController.selectTab(newTab.id)
-        focusPanel(markdownPanel.id)
-        installMarkdownPanelSubscription(markdownPanel)
-        return markdownPanel
+            insertFirst: insertFirst,
+            filePath: filePath,
+            host: self
+        ).flatMap { panels[$0] as? MarkdownPanel }
     }
 
     @discardableResult
@@ -8888,6 +8809,79 @@ extension Workspace: SurfaceCreationHosting {
 
     func reloadProjectPanel(id: UUID) {
         (panels[id] as? ProjectPanel)?.reload()
+    }
+
+    // MARK: Markdown create + split live state
+    //
+    // `paneId(forPanelId:)`, `focusedBonsplitPaneId`, `focusedPanelId`,
+    // `createSurfaceTab`, `reorderTab`, `publishCmuxSurfaceCreated`, `focusPane`,
+    // `selectTab`, `applyTabSelection`, `preserveSurfaceFocusAfterNonFocusSplit`,
+    // and `discardPanelRegistration` are shared witnesses already implemented
+    // above or for sibling conformances. The members below are the markdown
+    // create/split-specific witnesses.
+
+    func registerMarkdownPanel(filePath: String, fontSize: Double?) -> SurfaceTabDescriptor {
+        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath, fontSize: fontSize)
+        panels[markdownPanel.id] = markdownPanel
+        panelTitles[markdownPanel.id] = markdownPanel.displayTitle
+        return SurfaceTabDescriptor(
+            id: markdownPanel.id,
+            displayTitle: markdownPanel.displayTitle,
+            displayIcon: markdownPanel.displayIcon,
+            isDirty: markdownPanel.isDirty
+        )
+    }
+
+    func splitSurface(
+        _ paneId: PaneID,
+        orientation: SplitOrientation,
+        withTab descriptor: SurfaceTabDescriptor,
+        kind: String,
+        insertFirst: Bool
+    ) -> PaneID? {
+        let newTab = Bonsplit.Tab(
+            title: descriptor.displayTitle,
+            icon: descriptor.displayIcon,
+            kind: kind,
+            isDirty: descriptor.isDirty,
+            isLoading: false,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = descriptor.id
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard let newPaneId = bonsplitController.splitPane(
+            paneId,
+            orientation: orientation,
+            withTab: newTab,
+            insertFirst: insertFirst
+        ) else {
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            return nil
+        }
+        return newPaneId
+    }
+
+    func suppressReparentFocusUntilLayoutFollowUp(_ hostedView: AnyObject?, reason: String) {
+        suppressReparentFocusUntilLayoutFollowUp(
+            hostedView as? GhosttySurfaceScrollView,
+            reason: reason
+        )
+    }
+
+    func focusSurfacePanel(_ panelId: UUID) {
+        focusPanel(panelId)
+    }
+
+    func selectSurfaceTab(panelId: UUID) {
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        bonsplitController.selectTab(tabId)
+    }
+
+    func installMarkdownPanelSubscription(id: UUID) {
+        guard let markdownPanel = panels[id] as? MarkdownPanel else { return }
+        installMarkdownPanelSubscription(markdownPanel)
     }
 }
 
