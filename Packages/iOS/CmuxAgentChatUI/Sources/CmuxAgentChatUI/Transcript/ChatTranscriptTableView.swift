@@ -35,7 +35,11 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         tableView.backgroundColor = .clear
         tableView.separatorStyle = .none
         tableView.keyboardDismissMode = .interactive
-        tableView.contentInsetAdjustmentBehavior = .never
+        if #available(iOS 26.0, *) {
+            tableView.contentInsetAdjustmentBehavior = .automatic
+        } else {
+            tableView.contentInsetAdjustmentBehavior = .never
+        }
         tableView.estimatedRowHeight = 96
         tableView.rowHeight = UITableView.automaticDimension
         tableView.allowsSelection = false
@@ -195,7 +199,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             isHandlingLayout = true
             defer { isHandlingLayout = false }
 
-            if tableView.isKeyboardViewportExternallyDriven {
+            if tableView.isViewportInsetsExternallyDriven {
                 updateBottomState(from: tableView)
                 return
             }
