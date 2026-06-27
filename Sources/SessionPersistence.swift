@@ -1398,11 +1398,14 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
     var wasAgentRunning: Bool?
-    /// The workspace's most recent submitted user message at capture time, used
-    /// to re-inject an OSC 133 semantic prompt mark into replayed scrollback on
-    /// restore (Ghostty's VT export drops OSC 133). Nil for non-agent terminals
+    /// The collapsed, ≤48-character match prefix of the workspace's most recent
+    /// submitted prompt, used to re-inject an OSC 133 semantic prompt mark into
+    /// replayed scrollback on restore (Ghostty's VT export drops OSC 133). Only
+    /// the bounded match key is stored — and only when the saved scrollback
+    /// already contains the matching prompt row — so no prompt text beyond what
+    /// the scrollback already carries is persisted. Nil for non-agent terminals
     /// and legacy snapshots. See https://github.com/manaflow-ai/cmux/issues/6691.
-    var lastUserMessage: String?
+    var lastPromptMarkKey: String?
 
     init(
         workingDirectory: String? = nil,
@@ -1415,7 +1418,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil,
-        lastUserMessage: String? = nil
+        lastPromptMarkKey: String? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.scrollback = scrollback
@@ -1427,7 +1430,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
-        self.lastUserMessage = lastUserMessage
+        self.lastPromptMarkKey = lastPromptMarkKey
     }
 }
 
@@ -2105,14 +2108,21 @@ enum SessionScrollbackReplayStore {
         return lines.joined(separator: "\n")
     }
 
-    /// Whether the captured scrollback contains a prompt row for
-    /// `lastUserMessage`. Used at capture so the workspace-scoped last prompt is
-    /// persisted only in the snapshot of the terminal whose scrollback actually
-    /// carries it — never copied into an unrelated panel's snapshot, and never
-    /// adding any user input that the saved scrollback does not already contain.
-    static func scrollbackContainsPromptRow(_ scrollback: String?, lastUserMessage: String?) -> Bool {
-        guard let scrollback else { return false }
-        return promptRowIndex(in: scrollback.components(separatedBy: "\n"), lastUserMessage: lastUserMessage) != nil
+    /// The bounded prompt match key to persist for `lastUserMessage` — the exact
+    /// collapsed, ≤48-character needle used for re-injection — but ONLY when the
+    /// saved scrollback already contains the matching prompt row; otherwise nil.
+    ///
+    /// Used at capture so the workspace-scoped last prompt is persisted only into
+    /// the snapshot of the terminal whose scrollback actually carries it (never an
+    /// unrelated panel's snapshot), and so we never write any prompt text the
+    /// saved scrollback does not already contain — the persisted key is exactly
+    /// the substring proven present, not the full (up to 240-char) message.
+    static func persistablePromptMatchKey(forScrollback scrollback: String?, lastUserMessage: String?) -> String? {
+        guard let scrollback, let needle = promptMatchNeedle(lastUserMessage) else { return nil }
+        guard promptRowIndex(in: scrollback.components(separatedBy: "\n"), lastUserMessage: lastUserMessage) != nil else {
+            return nil
+        }
+        return needle
     }
 
     /// Index of the row to mark: the row that *begins* with `lastUserMessage`

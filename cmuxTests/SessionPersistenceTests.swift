@@ -921,22 +921,24 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(contents.contains("● Done"))
     }
 
-    // Integration across the persistence boundary: the terminal snapshot persists
-    // `lastUserMessage`, it survives a Codable round trip, and the restore path
+    // Integration across the persistence boundary: capture stores the bounded
+    // prompt match key, it survives a Codable round trip, and the restore path
     // threads it into `replayEnvironment` so the written replay file carries the
-    // re-injected OSC 133 mark. (The capture side persists it whenever replayable
-    // scrollback is saved — see `Workspace.sessionPanelSnapshot`.)
-    func testTerminalSnapshotLastUserMessageRoundTripsIntoReplayInjection() throws {
+    // re-injected OSC 133 mark. (The capture side computes it via
+    // `persistablePromptMatchKey` — see `Workspace.sessionPanelSnapshot`.)
+    func testTerminalSnapshotPromptMarkKeyRoundTripsIntoReplayInjection() throws {
         let esc = "\u{001B}"
         let message = "wire up the settings panel"
-        let snapshot = SessionTerminalPanelSnapshot(
-            scrollback: "\(esc)[1mclaude\(esc)[0m\n> \(message)\n\(esc)[32m● Done\(esc)[0m\n",
+        let scrollback = "\(esc)[1mclaude\(esc)[0m\n> \(message)\n\(esc)[32m● Done\(esc)[0m\n"
+        let key = try XCTUnwrap(SessionScrollbackReplayStore.persistablePromptMatchKey(
+            forScrollback: scrollback,
             lastUserMessage: message
-        )
+        ))
+        let snapshot = SessionTerminalPanelSnapshot(scrollback: scrollback, lastPromptMarkKey: key)
 
         let data = try JSONEncoder().encode(snapshot)
         let decoded = try JSONDecoder().decode(SessionTerminalPanelSnapshot.self, from: data)
-        XCTAssertEqual(decoded.lastUserMessage, message, "lastUserMessage must persist through Codable")
+        XCTAssertEqual(decoded.lastPromptMarkKey, key, "prompt mark key must persist through Codable")
 
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
@@ -945,7 +947,7 @@ final class SessionPersistenceTests: XCTestCase {
 
         let environment = SessionScrollbackReplayStore.replayEnvironment(
             for: decoded.scrollback,
-            lastUserMessage: decoded.lastUserMessage,
+            lastUserMessage: decoded.lastPromptMarkKey,
             tempDirectory: tempDir
         )
         guard let path = environment[SessionScrollbackReplayStore.environmentKey],
@@ -955,39 +957,52 @@ final class SessionPersistenceTests: XCTestCase {
         }
         XCTAssertTrue(
             contents.contains("\(SessionScrollbackReplayStore.semanticPromptStartMark)> \(message)"),
-            "restore must re-inject the OSC 133 mark using the persisted lastUserMessage, got: \(contents)"
+            "restore must re-inject the OSC 133 mark using the persisted key, got: \(contents)"
         )
     }
 
-    // The capture gate: the workspace-scoped last prompt is persisted only into
-    // the snapshot of the terminal whose scrollback actually contains that prompt
-    // row — never an unrelated panel's snapshot, never when scrollback is omitted.
-    func testScrollbackContainsPromptRowGatesPersistence() {
+    // The capture gate returns the bounded match key only when the saved
+    // scrollback actually contains that prompt row — never for an unrelated
+    // panel's scrollback, never when scrollback is omitted — and never the full
+    // (possibly secret-bearing) message, only the ≤48-char proven prefix.
+    func testPersistablePromptMatchKeyGatesPersistenceAndBoundsKey() {
         let esc = "\u{001B}"
         let message = "refactor the login flow"
         let withPrompt = "\(esc)[2m> \(esc)[0m\(message)\n\(esc)[32m● working\(esc)[0m\n"
         let unrelated = "building project…\n$ swift build\nCompiling…\n"
 
-        XCTAssertTrue(
-            SessionScrollbackReplayStore.scrollbackContainsPromptRow(withPrompt, lastUserMessage: message),
-            "scrollback containing the prompt row must gate persistence on"
+        XCTAssertNotNil(
+            SessionScrollbackReplayStore.persistablePromptMatchKey(forScrollback: withPrompt, lastUserMessage: message),
+            "scrollback containing the prompt row must yield a persistable key"
         )
-        XCTAssertFalse(
-            SessionScrollbackReplayStore.scrollbackContainsPromptRow(unrelated, lastUserMessage: message),
-            "an unrelated panel's scrollback must not persist another terminal's prompt"
+        XCTAssertNil(
+            SessionScrollbackReplayStore.persistablePromptMatchKey(forScrollback: unrelated, lastUserMessage: message),
+            "an unrelated panel's scrollback must not yield a key"
         )
-        XCTAssertFalse(SessionScrollbackReplayStore.scrollbackContainsPromptRow(nil, lastUserMessage: message))
-        XCTAssertFalse(SessionScrollbackReplayStore.scrollbackContainsPromptRow(withPrompt, lastUserMessage: nil))
+        XCTAssertNil(SessionScrollbackReplayStore.persistablePromptMatchKey(forScrollback: nil, lastUserMessage: message))
+        XCTAssertNil(SessionScrollbackReplayStore.persistablePromptMatchKey(forScrollback: withPrompt, lastUserMessage: nil))
+
+        // Privacy: a long prompt persists only the bounded prefix that is actually
+        // present in the scrollback, never the full (up to 240-char) message.
+        let longMessage = String(repeating: "alpha bravo ", count: 30) // > 240 chars
+        let longScrollback = "> \(longMessage)\noutput\n"
+        let key = SessionScrollbackReplayStore.persistablePromptMatchKey(
+            forScrollback: longScrollback,
+            lastUserMessage: longMessage
+        )
+        XCTAssertNotNil(key)
+        XCTAssertLessThanOrEqual((key ?? "").count, 48, "persisted key must be the bounded match prefix")
+        XCTAssertNotEqual(key, longMessage, "must not persist the full long message")
     }
 
-    // A snapshot that omits scrollback must also omit lastUserMessage, so no copy
-    // of user input is persisted for terminals whose contents are not saved.
-    func testTerminalSnapshotWithoutScrollbackDecodesNilLastUserMessage() throws {
+    // A snapshot that omits scrollback must also omit the prompt mark key, so no
+    // copy of user input is persisted for terminals whose contents are not saved.
+    func testTerminalSnapshotWithoutScrollbackDecodesNilPromptMarkKey() throws {
         let snapshot = SessionTerminalPanelSnapshot(workingDirectory: "/tmp")
-        XCTAssertNil(snapshot.lastUserMessage)
+        XCTAssertNil(snapshot.lastPromptMarkKey)
         let data = try JSONEncoder().encode(snapshot)
         let decoded = try JSONDecoder().decode(SessionTerminalPanelSnapshot.self, from: data)
-        XCTAssertNil(decoded.lastUserMessage)
+        XCTAssertNil(decoded.lastPromptMarkKey)
     }
 
     func testSessionScrollbackPersistenceHonorsReportedShellState() {
