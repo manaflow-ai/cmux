@@ -84,11 +84,13 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
         mount.setRendering(true)
         #expect(panel.surface.isRendererPortalVisible)
+        #expect(panel.surface.isRendererRealized)
 
         mount.setRendering(false)
         #expect(!panel.surface.isRendererPortalVisible)
 
         mount.unmount()
         #expect(panel.surface.isRendererPortalVisible)
+        #expect(panel.surface.isRendererRealized)
     }
 }
