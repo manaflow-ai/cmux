@@ -158,7 +158,7 @@ struct WorkspaceDiagnosticsSheet: View {
         }
     }
 
-    private static func recentOSLogEntries(generatedAt: Date) -> [MobileDiagnosticsOSLogEntry] {
+    nonisolated private static func recentOSLogEntries(generatedAt: Date) -> [MobileDiagnosticsOSLogEntry] {
         do {
             return try MobileDiagnosticsOSLogStoreReader().recentEntries(
                 since: generatedAt.addingTimeInterval(-15 * 60),
