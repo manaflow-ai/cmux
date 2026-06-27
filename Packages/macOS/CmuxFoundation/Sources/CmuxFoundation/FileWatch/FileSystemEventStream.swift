@@ -55,12 +55,19 @@ final class FileSystemEventStream: @unchecked Sendable {
     ///
     /// - Parameters:
     ///   - paths: The files and directories to watch. Must be non-empty.
+    ///   - excludedPaths: Descendant paths ignored by the stream. Use this for
+    ///     high-churn subtrees that should not wake downstream reloads.
     ///   - latency: The FSEvents coalescing latency in seconds.
     ///   - onEvent: A non-blocking sink invoked on the shared queue for each
     ///     coalesced batch of filesystem events.
     /// - Returns: `nil` if `paths` is empty or the underlying `FSEventStream`
     ///   could not be created or started.
-    init?(paths: [String], latency: TimeInterval, onEvent: @escaping @Sendable () -> Void) {
+    init?(
+        paths: [String],
+        excludedPaths: [String] = [],
+        latency: TimeInterval,
+        onEvent: @escaping @Sendable () -> Void
+    ) {
         guard !paths.isEmpty else { return nil }
         self.onEvent = onEvent
         self.stream = nil
@@ -85,6 +92,9 @@ final class FileSystemEventStream: @unchecked Sendable {
             return nil
         }
         self.stream = stream
+        if !excludedPaths.isEmpty {
+            _ = FSEventStreamSetExclusionPaths(stream, excludedPaths as CFArray)
+        }
         FSEventStreamSetDispatchQueue(stream, Self.queue)
         guard FSEventStreamStart(stream) else {
             stop()

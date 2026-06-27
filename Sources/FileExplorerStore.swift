@@ -739,6 +739,19 @@ enum FileExplorerSelectionRestoration {
 /// because NSOutlineView data source/delegate methods are called on the main thread
 /// but are not annotated @MainActor.
 final class FileExplorerStore: ObservableObject {
+    private static let recursiveWatcherIgnoredDirectoryNames: Set<String> = [
+        ".build",
+        ".git",
+        ".next",
+        ".swiftpm",
+        ".turbo",
+        "DerivedData",
+        "build",
+        "dist",
+        "node_modules",
+        "target",
+    ]
+
     @Published var rootPath: String = ""
     @Published var rootNodes: [FileExplorerNode] = []
     @Published private(set) var isRootLoading: Bool = false
@@ -893,7 +906,10 @@ final class FileExplorerStore: ObservableObject {
         if provider is LocalFileExplorerProvider, !rootPath.isEmpty {
             guard directoryWatchPath != rootPath || directoryWatcher == nil else { return }
             stopDirectoryWatcher()
-            guard let watcher = RecursivePathWatcher(paths: [rootPath]) else { return }
+            guard let watcher = RecursivePathWatcher(
+                paths: [rootPath],
+                excludedPaths: Self.recursiveWatcherExcludedPaths(under: rootPath)
+            ) else { return }
             directoryWatcher = watcher
             directoryWatchPath = rootPath
             let events = watcher.events
@@ -1280,6 +1296,13 @@ final class FileExplorerStore: ObservableObject {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return trimmed
+    }
+
+    private static func recursiveWatcherExcludedPaths(under rootPath: String) -> [String] {
+        let rootURL = URL(fileURLWithPath: rootPath).standardizedFileURL
+        return recursiveWatcherIgnoredDirectoryNames
+            .map { rootURL.appendingPathComponent($0, isDirectory: true).path }
+            .sorted()
     }
 
     private static func remotePreviewCacheURL(displayTarget: String, remotePath: String) -> URL {

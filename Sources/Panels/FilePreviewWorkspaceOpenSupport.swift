@@ -3,6 +3,30 @@ import Foundation
 
 extension Workspace {
     @discardableResult
+    func openFileSurfacesNavigatingTextPosition(
+        inPane paneId: PaneID,
+        filePath: String,
+        lineNumber: Int?,
+        columnNumber: Int?,
+        focus: Bool? = nil,
+        reuseExisting: Bool = false
+    ) -> [any Panel] {
+        let openedPanels = openFileSurfaces(
+            inPane: paneId,
+            filePaths: [filePath],
+            focus: focus,
+            reuseExisting: reuseExisting
+        )
+        for panel in openedPanels {
+            (panel as? FilePreviewPanel)?.navigateToTextPosition(
+                lineNumber: lineNumber,
+                columnNumber: columnNumber
+            )
+        }
+        return openedPanels
+    }
+
+    @discardableResult
     func openFileSurfaces(
         inPane paneId: PaneID,
         filePaths: [String],

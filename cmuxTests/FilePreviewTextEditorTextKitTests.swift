@@ -102,6 +102,59 @@ struct FilePreviewTextEditorTextKitTests {
         #expect(textView.selectedRange().location == (content as NSString).range(of: "needle").location)
     }
 
+    @Test("search navigation preserves markdown surface routing")
+    func searchNavigationPreservesMarkdownSurfaceRouting() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("md")
+        try "# Title\n\nneedle\n".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        defer { workspace.teardownAllPanels() }
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+
+        let openedPanels = workspace.openFileSurfacesNavigatingTextPosition(
+            inPane: pane,
+            filePath: url.path,
+            lineNumber: 3,
+            columnNumber: 1,
+            focus: false,
+            reuseExisting: true
+        )
+
+        let markdownPanel = try #require(openedPanels.first as? MarkdownPanel)
+        #expect(markdownPanel.filePath == url.path)
+        #expect((openedPanels.first as? FilePreviewPanel) == nil)
+    }
+
+    @Test("search navigation preserves Xcode project surface routing")
+    func searchNavigationPreservesXcodeProjectSurfaceRouting() throws {
+        let projectURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).xcodeproj", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: projectURL) }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        defer { workspace.teardownAllPanels() }
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+
+        let openedPanels = workspace.openFileSurfacesNavigatingTextPosition(
+            inPane: pane,
+            filePath: projectURL.path,
+            lineNumber: 1,
+            columnNumber: 1,
+            focus: false,
+            reuseExisting: true
+        )
+
+        let projectPanel = try #require(openedPanels.first as? ProjectPanel)
+        #expect(projectPanel.projectURL.path == projectURL.path)
+        #expect((openedPanels.first as? FilePreviewPanel) == nil)
+    }
+
     @Test("unavailable dirty load clears pending search navigation")
     func unavailableDirtyLoadClearsPendingSearchNavigation() async throws {
         let loader = PreviewTextLoaderStub(result: .loaded(content: "clean\n", encoding: .utf8))

@@ -2314,35 +2314,28 @@ struct ContentView: View {
                 guard let workspace else { return }
                 do {
                     let localURL = try await fileExplorerStore.materializeRemoteFileForPreview(path: filePath)
-                    let panels = workspace.openFilePreviewSurfaces(
+                    workspace.openFileSurfacesNavigatingTextPosition(
                         inPane: paneId,
-                        filePaths: [localURL.path],
+                        filePath: localURL.path,
+                        lineNumber: lineNumber,
+                        columnNumber: columnNumber,
                         focus: true,
                         reuseExisting: true
                     )
-                    panels.first?.navigateToTextPosition(lineNumber: lineNumber, columnNumber: columnNumber)
                 } catch {
                     NSSound.beep()
                 }
             }
             return
         }
-        if lineNumber != nil {
-            let panels = workspace.openFilePreviewSurfaces(
-                inPane: paneId,
-                filePaths: [filePath],
-                focus: true,
-                reuseExisting: true
-            )
-            panels.first?.navigateToTextPosition(lineNumber: lineNumber, columnNumber: columnNumber)
-        } else {
-            _ = workspace.openFileSurfaces(
-                inPane: paneId,
-                filePaths: [filePath],
-                focus: true,
-                reuseExisting: true
-            )
-        }
+        workspace.openFileSurfacesNavigatingTextPosition(
+            inPane: paneId,
+            filePath: filePath,
+            lineNumber: lineNumber,
+            columnNumber: columnNumber,
+            focus: true,
+            reuseExisting: true
+        )
     }
 
     private func syncFileExplorerDirectory() {
