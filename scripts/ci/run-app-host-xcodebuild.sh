@@ -11,6 +11,16 @@ max_attempts="${CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:-3}"
 export CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:-${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS:-300}}"
 echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}"
 
+# Keep Foundation's temporaryDirectory short inside app-host XCTest. Some tests bind
+# AF_UNIX sockets under temporaryDirectory, and macOS sockaddr_un paths are capped.
+app_host_tmpdir="${CMUX_APP_HOST_TMPDIR:-/tmp/}"
+case "$app_host_tmpdir" in
+  */) ;;
+  *) app_host_tmpdir="${app_host_tmpdir}/" ;;
+esac
+mkdir -p "$app_host_tmpdir"
+export TMPDIR="$app_host_tmpdir"
+
 # Principled serialization (the actual fix; the retry below is only a backstop).
 # Invariant: a GUI test host owns the Mac's single login session + testmanagerd
 # while it runs. Two hosts on one self-hosted Mac contend for that one session
@@ -22,7 +32,7 @@ echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TI
 # script's whole lifetime. Different machines use different local lock files, so
 # cross-machine parallelism is preserved.
 if [ -z "${CMUX_APP_HOST_TEST_LOCK_ACTIVE:-}" ]; then
-  lock_file="${CMUX_APP_HOST_TEST_LOCK_FILE:-${TMPDIR:-/tmp}/cmux-app-host-test.lock}"
+  lock_file="${CMUX_APP_HOST_TEST_LOCK_FILE:-${TMPDIR%/}/cmux-app-host-test.lock}"
   lock_wait_seconds="${CMUX_APP_HOST_TEST_LOCK_WAIT_SECONDS:-3600}"
   export CMUX_APP_HOST_TEST_LOCK_ACTIVE=1
   exec python3 "$(dirname "$0")/app_host_test_lock.py" \
