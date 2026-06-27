@@ -166,22 +166,14 @@ public struct CodexTranscriptLocator: Sendable {
         var candidates: [URL] = []
         for url in urls where url.pathExtension == "jsonl" {
             guard !Task.isCancelled else { return [] }
-            insertCandidate(url, into: &candidates, limit: limit)
+            candidates.append(url)
+        }
+        candidates.sort {
+            $0.lastPathComponent > $1.lastPathComponent
+        }
+        if candidates.count > limit {
+            candidates.removeSubrange(limit...)
         }
         return candidates
-    }
-
-    private func insertCandidate(_ url: URL, into candidates: inout [URL], limit: Int) {
-        let candidateName = url.lastPathComponent
-        let insertionIndex = candidates.firstIndex {
-            candidateName > $0.lastPathComponent
-        } ?? candidates.endIndex
-        guard insertionIndex < limit else {
-            return
-        }
-        candidates.insert(url, at: insertionIndex)
-        if candidates.count > limit {
-            candidates.removeLast()
-        }
     }
 }
