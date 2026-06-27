@@ -1240,7 +1240,7 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func signedInAttachTicketFallsBackToScopedWorkspaceWhenFullListFails() async throws {
+@Test func signedInAttachTicketKeepsScopedWorkspaceWhenFullListRefreshFails() async throws {
     let workspaceID = UUID().uuidString
     let terminalID = UUID().uuidString
     let route = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
@@ -1254,8 +1254,8 @@ final class TerminalOutputCollector {
         authToken: "ticket-secret"
     ).boundToTestMacAccountForTest()
     let responses = ScriptedTransportResponses([
-        try rpcErrorFrame(message: "Full list not supported"),
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
+        try rpcErrorFrame(code: "forbidden", message: "Full list not supported"),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
@@ -1267,11 +1267,14 @@ final class TerminalOutputCollector {
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
     let workspaceLists = try await waitForWorkspaceListRequestCount(2, responses: responses)
-    #expect(workspaceLists[0].workspaceID == nil)
+    #expect(workspaceLists[0].workspaceID == workspaceID)
     #expect(workspaceLists[0].terminalID == nil)
-    #expect(workspaceLists[1].workspaceID == workspaceID)
+    #expect(workspaceLists[0].attachToken == "ticket-secret")
+    #expect(workspaceLists[0].stackAccessToken == nil)
+    #expect(workspaceLists[1].workspaceID == nil)
     #expect(workspaceLists[1].terminalID == nil)
-    #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
+    #expect(workspaceLists[1].attachToken == nil)
+    #expect(workspaceLists[1].stackAccessToken == "test-stack-token")
     #expect(store.workspaces.map(\.id.rawValue) == [workspaceID])
 }
 
