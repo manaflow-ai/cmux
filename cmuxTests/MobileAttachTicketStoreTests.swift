@@ -117,7 +117,7 @@ struct MobileAttachTicketStoreTests {
             currentUserID: nil,
             currentUserEmail: "mac@example.com"
         ))
-        #expect(MobileAttachTicketStore.ticketMatchesCurrentMacAccount(
+        #expect(!MobileAttachTicketStore.ticketMatchesCurrentMacAccount(
             ticket: unbound,
             currentUserID: nil,
             currentUserEmail: nil

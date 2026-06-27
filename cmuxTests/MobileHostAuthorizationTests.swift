@@ -353,7 +353,7 @@ struct MobileHostAuthorizationTests {
         }
         #expect(error.code == "unauthorized")
     }
-    @Test func testValidAttachTokenAuthorizesCoveredWorkspaceListWithoutStackAuth() async throws {
+    @Test func testAccountlessAttachTokenCannotAuthorizeCoveredWorkspaceListWithoutStackAuth() async throws {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
         let generation = UUID()
@@ -384,7 +384,7 @@ struct MobileHostAuthorizationTests {
 
         let result = await service.authorizationError(for: request)
 
-        #expect(result == nil)
+        if case let .failure(error) = result { #expect(error.code == "account_mismatch") } else { #expect(Bool(false), "accountless attach tokens must not authorize workspace.list") }
     }
     @Test func testScopedAttachTicketRejectsWorkspaceAliasIgnoredByHandlers() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
