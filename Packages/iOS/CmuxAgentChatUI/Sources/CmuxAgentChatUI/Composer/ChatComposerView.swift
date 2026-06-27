@@ -27,6 +27,7 @@ public struct ChatComposerView: View {
     @State private var isStagingAttachments = false
     #if os(iOS)
     @State private var pickedItems: [PhotosPickerItem] = []
+    @State private var isAttachmentPickerPresented = false
     @State private var attachments: [ChatComposerAttachment] = []
     @State private var dictation = ComposerDictationController()
     #endif
@@ -369,21 +370,24 @@ public struct ChatComposerView: View {
     }
 
     @MainActor private var attachButton: some View {
-        PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
-            MobileComposerIconLabel(
-                systemImage: "paperclip",
-                foregroundStyle: AnyShapeStyle(Color.secondary.opacity(0.8)),
-                size: controlHeight
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("ChatComposerAttach")
-        .accessibilityLabel(
-            String(
+        MobileComposerIconButton(
+            systemImage: "paperclip",
+            foregroundStyle: AnyShapeStyle(Color.secondary.opacity(0.8)),
+            size: controlHeight,
+            accessibilityIdentifier: "ChatComposerAttach",
+            accessibilityLabel: String(
                 localized: "chat.composer.attach.accessibility",
                 defaultValue: "Add attachment",
                 bundle: .module
             )
+        ) {
+            isAttachmentPickerPresented = true
+        }
+        .photosPicker(
+            isPresented: $isAttachmentPickerPresented,
+            selection: $pickedItems,
+            maxSelectionCount: 4,
+            matching: .images
         )
         .onChange(of: pickedItems) {
             let items = pickedItems
