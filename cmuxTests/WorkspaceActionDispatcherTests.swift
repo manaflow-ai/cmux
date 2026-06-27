@@ -105,32 +105,32 @@ struct WorkspaceActionDispatcherTests {
 
     @Test
     func newWindowMovePlanMovesSecondWorkspaceOnlyOnceWithFocus() throws {
-        let first = UUID(uuidString: "00000000-0000-4000-8000-000000000011")!
-        let second = UUID(uuidString: "00000000-0000-4000-8000-000000000012")!
+        let manager = TabManager()
+        let first = try #require(manager.tabs.first)
+        let second = manager.addWorkspace()
 
-        let plan = try #require(
-            WorkspaceActionDispatcher.newWindowMovePlan(orderedWorkspaceIds: [first, second])
-        )
+        let plan = try #require(manager.newWindowMovePlan(for: [second.id, first.id]))
 
-        #expect(plan.firstWorkspaceId == first)
+        #expect(plan.orderedWorkspaceIds == [first.id, second.id])
+        #expect(plan.firstWorkspaceId == first.id)
         #expect(!plan.focusFirstMove)
-        #expect(plan.followUpMoves.map(\.workspaceId) == [second])
+        #expect(plan.followUpMoves.map(\.workspaceId) == [second.id])
         #expect(plan.followUpMoves.map(\.focus) == [true])
     }
 
     @Test
     func newWindowMovePlanMovesLastWorkspaceOnlyOnceWithFocus() throws {
-        let first = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
-        let second = UUID(uuidString: "00000000-0000-4000-8000-000000000002")!
-        let third = UUID(uuidString: "00000000-0000-4000-8000-000000000003")!
+        let manager = TabManager()
+        let first = try #require(manager.tabs.first)
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
 
-        let plan = try #require(
-            WorkspaceActionDispatcher.newWindowMovePlan(orderedWorkspaceIds: [first, second, third])
-        )
+        let plan = try #require(manager.newWindowMovePlan(for: [third.id, first.id, second.id]))
 
-        #expect(plan.firstWorkspaceId == first)
+        #expect(plan.orderedWorkspaceIds == [first.id, second.id, third.id])
+        #expect(plan.firstWorkspaceId == first.id)
         #expect(!plan.focusFirstMove)
-        #expect(plan.followUpMoves.map(\.workspaceId) == [second, third])
+        #expect(plan.followUpMoves.map(\.workspaceId) == [second.id, third.id])
         #expect(plan.followUpMoves.map(\.focus) == [false, true])
     }
 }

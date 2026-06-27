@@ -14831,8 +14831,7 @@ struct TabItemView: View, Equatable {
 
     private func moveWorkspacesToNewWindow(_ workspaceIds: [UUID]) {
         guard let app = AppDelegate.shared else { return }
-        let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
-        guard let movePlan = WorkspaceActionDispatcher.newWindowMovePlan(orderedWorkspaceIds: orderedWorkspaceIds) else {
+        guard let movePlan = tabManager.newWindowMovePlan(for: workspaceIds) else {
             return
         }
 
@@ -14851,7 +14850,7 @@ struct TabItemView: View, Equatable {
             )
         }
 
-        selectedTabIds.subtract(orderedWorkspaceIds)
+        selectedTabIds.subtract(movePlan.orderedWorkspaceIds)
         syncSelectionAfterMutation()
     }
 

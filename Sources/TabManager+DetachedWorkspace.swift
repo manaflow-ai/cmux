@@ -21,6 +21,39 @@ extension TabManager {
         let inheritedTerminalFontPoints: Float?
     }
 
+    /// Builds the current-window move sequence for moving selected workspaces into a new window.
+    func newWindowMovePlan(
+        for workspaceIds: [UUID]
+    ) -> (
+        orderedWorkspaceIds: [UUID],
+        firstWorkspaceId: UUID,
+        focusFirstMove: Bool,
+        followUpMoves: [(workspaceId: UUID, focus: Bool)]
+    )? {
+        let selectedWorkspaceIds = Set(workspaceIds)
+        let orderedWorkspaceIds = tabs.compactMap { workspace in
+            selectedWorkspaceIds.contains(workspace.id) ? workspace.id : nil
+        }
+        guard let firstWorkspaceId = orderedWorkspaceIds.first else { return nil }
+
+        var followUpMoves: [(workspaceId: UUID, focus: Bool)] = []
+        if orderedWorkspaceIds.count > 1 {
+            for workspaceId in orderedWorkspaceIds.dropFirst().dropLast() {
+                followUpMoves.append((workspaceId: workspaceId, focus: false))
+            }
+            if let finalWorkspaceId = orderedWorkspaceIds.last {
+                followUpMoves.append((workspaceId: finalWorkspaceId, focus: true))
+            }
+        }
+
+        return (
+            orderedWorkspaceIds: orderedWorkspaceIds,
+            firstWorkspaceId: firstWorkspaceId,
+            focusFirstMove: orderedWorkspaceIds.count == 1,
+            followUpMoves: followUpMoves
+        )
+    }
+
     @discardableResult
     func addWorkspace(
         fromDetachedSurface detached: Workspace.DetachedSurfaceTransfer,
