@@ -110,7 +110,7 @@ jobs:
   mobile-core-package:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: macos-26
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -150,9 +150,9 @@ jobs:
   ios-simulator:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    # Default to a cloud macOS runner; keep the repo variable override so CI can
-    # redirect iOS simulator lanes when needed.
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    # Use a pinned GitHub-hosted macOS image so PR iOS lanes do not stall behind
+    # an unavailable self-hosted fleet label.
+    runs-on: macos-26
     timeout-minutes: 35
     strategy:
       fail-fast: false
