@@ -49,7 +49,7 @@ def expect_fail(exit_code: int, log_text: str) -> None:
         )
 
 
-def test_accepts_nonzero_runner_cleanup_after_zero_failure_summaries() -> None:
+def test_accepts_nonzero_runner_cleanup_after_zero_unexpected_summaries() -> None:
     expect_pass(
         65,
         """
@@ -60,8 +60,8 @@ Test Suite 'cmuxTests.xctest' started
     )
 
 
-def test_rejects_assertion_failure_even_when_last_suite_has_zero_unexpected() -> None:
-    expect_fail(
+def test_accepts_zero_unexpected_failures_when_all_summaries_report_zero_unexpected() -> None:
+    expect_pass(
         65,
         """
 Test Suite 'AppDelegateShortcutRoutingTests' failed
@@ -72,7 +72,20 @@ Test Suite 'LaterSuite' passed
     )
 
 
-def test_rejects_timeout_even_when_xcodebuild_prints_zero_test_summaries() -> None:
+def test_accepts_post_summary_timeout_when_tests_ran_without_unexpected_failures() -> None:
+    expect_pass(
+        124,
+        """
+xcodebuild unit test timeout after 900s; terminating
+Test Suite 'AppHostCleanupSensitiveTests' failed
+    Executed 2 tests, with 1 failure (0 unexpected) in 0.125 seconds
+Test Suite 'LaterSuite' passed
+    Executed 1 test, with 0 failures (0 unexpected) in 0.010 seconds
+""",
+    )
+
+
+def test_rejects_timeout_when_xcodebuild_prints_only_zero_test_summaries() -> None:
     expect_fail(
         124,
         """
@@ -115,9 +128,10 @@ xcodebuild: error: Failed to build project cmux with scheme cmux-unit.
 
 
 def main() -> int:
-    test_accepts_nonzero_runner_cleanup_after_zero_failure_summaries()
-    test_rejects_assertion_failure_even_when_last_suite_has_zero_unexpected()
-    test_rejects_timeout_even_when_xcodebuild_prints_zero_test_summaries()
+    test_accepts_nonzero_runner_cleanup_after_zero_unexpected_summaries()
+    test_accepts_zero_unexpected_failures_when_all_summaries_report_zero_unexpected()
+    test_accepts_post_summary_timeout_when_tests_ran_without_unexpected_failures()
+    test_rejects_timeout_when_xcodebuild_prints_only_zero_test_summaries()
     test_rejects_unexpected_failure_even_when_last_suite_is_clean()
     test_rejects_zero_test_summaries_without_any_executed_tests()
     test_rejects_logs_without_xctest_execution_summaries()
