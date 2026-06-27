@@ -576,7 +576,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         )
 
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))
-        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        omnibar.typeText(XCUIKeyboardKey.delete.rawValue)
 
         var valueAfterDelete = ""
         let revertedToTypedPrefix = waitForCondition(timeout: 3.0) {
