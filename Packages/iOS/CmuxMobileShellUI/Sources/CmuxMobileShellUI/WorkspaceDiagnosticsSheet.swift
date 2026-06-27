@@ -1,6 +1,7 @@
 import CmuxAuthRuntime
 import CmuxMobileDiagnostics
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation
 import SwiftUI
@@ -105,7 +106,7 @@ struct WorkspaceDiagnosticsSheet: View {
             lastError: authManager.lastAuthError
         )
         let connection = MobileDiagnosticsConnectionState(
-            state: String(describing: store.connectionState),
+            state: Self.connectionStateLabel(store.connectionState),
             host: store.connectedHostName,
             lastError: store.lastConnectionError
         )
@@ -146,6 +147,15 @@ struct WorkspaceDiagnosticsSheet: View {
             debugLog: debugLog,
             osLogEntries: osLogEntries
         )
+    }
+
+    private static func connectionStateLabel(_ state: MobileConnectionState) -> String {
+        switch state {
+        case .connected:
+            return L10n.string("mobile.connection.connected", defaultValue: "Connected")
+        case .disconnected:
+            return L10n.string("mobile.connection.unavailable", defaultValue: "Disconnected")
+        }
     }
 
     private static func recentOSLogEntries(generatedAt: Date) -> [MobileDiagnosticsOSLogEntry] {

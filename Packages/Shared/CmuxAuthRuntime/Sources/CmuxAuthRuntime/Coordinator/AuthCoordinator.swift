@@ -43,7 +43,8 @@ public final class AuthCoordinator {
     ///
     /// Raw backend errors can contain opaque identifiers or token-adjacent
     /// payloads, so diagnostics retain only ``AuthError`` case names or the
-    /// thrown Swift error type when no display-safe mapping exists.
+    /// fallback category `AuthError.authFailure` when no display-safe mapping
+    /// exists.
     public private(set) var lastAuthError: String?
     /// The teams the signed-in user belongs to (refreshed on sign-in/restore).
     public private(set) var availableTeams: [CMUXAuthTeam] = []
@@ -408,7 +409,7 @@ public final class AuthCoordinator {
         do {
             try await completeSignIn(flow: flow)
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw recordAuthError(error)
         }
     }
 
