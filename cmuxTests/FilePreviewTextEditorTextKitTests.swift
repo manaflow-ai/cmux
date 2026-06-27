@@ -62,7 +62,7 @@ struct FilePreviewTextEditorTextKitTests {
         let panel = FilePreviewPanel(
             workspaceId: UUID(),
             filePath: url.path,
-            textLoader: { _ in .loaded(content, .utf8) }
+            textLoader: { _ in .loaded(content: content, encoding: .utf8) }
         )
         defer { panel.close() }
 
@@ -88,7 +88,7 @@ struct FilePreviewTextEditorTextKitTests {
         let panel = FilePreviewPanel(
             workspaceId: UUID(),
             filePath: url.path,
-            textLoader: { _ in .loaded(content, .utf8) }
+            textLoader: { _ in .loaded(content: content, encoding: .utf8) }
         )
         defer { panel.close() }
 
@@ -104,7 +104,7 @@ struct FilePreviewTextEditorTextKitTests {
 
     @Test("unavailable dirty load clears pending search navigation")
     func unavailableDirtyLoadClearsPendingSearchNavigation() async throws {
-        let loader = PreviewTextLoaderStub(result: .loaded("clean\n", .utf8))
+        let loader = PreviewTextLoaderStub(result: .loaded(content: "clean\n", encoding: .utf8))
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-file-preview-unavailable-navigation-\(UUID().uuidString)")
             .appendingPathExtension("swift")
@@ -123,7 +123,7 @@ struct FilePreviewTextEditorTextKitTests {
         #expect(panel.isDirty)
 
         panel.navigateToTextPosition(lineNumber: 1, columnNumber: 7)
-        loader.result = .unavailable
+        loader.result = FilePreviewTextLoader.Result.unavailable
         await panel.loadTextContent(replacingDirtyContent: false).value
 
         let textView = SavingTextView.makeFilePreviewTextView()
@@ -137,7 +137,7 @@ struct FilePreviewTextEditorTextKitTests {
     @Test("loaded dirty buffer clears pending search navigation when content differs")
     func loadedDirtyBufferClearsPendingSearchNavigationWhenContentDiffers() async throws {
         let onDiskContent = "first\nneedle\n"
-        let loader = PreviewTextLoaderStub(result: .loaded(onDiskContent, .utf8))
+        let loader = PreviewTextLoaderStub(result: .loaded(content: onDiskContent, encoding: .utf8))
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-file-preview-dirty-loaded-navigation-\(UUID().uuidString)")
             .appendingPathExtension("swift")
