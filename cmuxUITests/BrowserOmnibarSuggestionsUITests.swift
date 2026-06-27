@@ -592,7 +592,12 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             "Expected inline completion display to avoid injecting an https:// prefix unless typed."
         )
 
-        XCTAssertEqual(socketCommand("simulate_shortcut ctrl+h"), "OK")
+        let shortcutResponse = socketCommand("simulate_shortcut ctrl+h")
+        XCTAssertEqual(
+            shortcutResponse,
+            "OK",
+            "Expected control socket to dispatch Ctrl+H through AppKit. response=\(String(describing: shortcutResponse)) diagnostics=\(String(describing: loadDiagnosticsData()))"
+        )
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
 
         var valueAfterDelete = ""
@@ -782,13 +787,13 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
         waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
-            self.socketCommand("ping") == "PONG" ||
-                self.controlSocketDiagnosticsReportReady(self.loadDiagnosticsData() ?? [:])
+            self.socketCommand("ping") == "PONG"
         }
     }
 
     private func socketCommand(_ command: String) -> String? {
-        controlSocketCommandViaNetcat(command, socketPath: socketPath)
+        ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendLine(command) ??
+            controlSocketCommandViaNetcat(command, socketPath: socketPath)
     }
 
     private func typeQueryAndWaitForSuggestions(
