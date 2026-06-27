@@ -53,6 +53,30 @@ public protocol BrowserControlHosting: AnyObject {
     /// snapshot command itself stays app-side on the worker lane.
     nonisolated func v2BrowserSnapshot(params: [String: Any]) -> BrowserCommandResult
 
+    /// Resolves the browser-panel context for `params` (the owning workspace id,
+    /// the target surface id, and the live `WKWebView`) on the main actor, then
+    /// runs `body` on the calling (worker) thread with that snapshot.
+    ///
+    /// The tab/workspace/surface resolution and the live `BrowserPanel` lookup are
+    /// app-target state no package can reach; the host performs them and hands the
+    /// package a `Sendable`-shaped ``BrowserPanelContextSnapshot``. On any
+    /// resolution failure the host returns the failure result directly without
+    /// invoking `body`.
+    nonisolated func withBrowserPanelContext(
+        params: [String: Any],
+        _ body: (BrowserPanelContextSnapshot) -> BrowserCommandResult
+    ) -> BrowserCommandResult
+
+    /// Waits for `conditionScript` to evaluate truthy against `webView` within
+    /// `timeoutMs`, returning whether it was met, timed out, or failed to
+    /// evaluate. Runs on the worker lane; the WebKit evaluation stays app-side.
+    nonisolated func v2WaitForBrowserCondition(
+        _ webView: WKWebView,
+        surfaceId: UUID,
+        conditionScript: String,
+        timeoutMs: Int
+    ) -> BrowserWaitOutcome
+
     /// Mints (or returns the existing) stable handle ref for `uuid` of the given
     /// `kind`.
     @MainActor func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String
