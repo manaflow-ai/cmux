@@ -8774,7 +8774,7 @@ class TerminalController {
         if let observer {
             NotificationCenter.default.removeObserver(observer)
         }
-        if let event {
+        if let event, v2MainSync({ v2IsTerminalBrowserDownloadEvent(event) }) {
             v2MainSync {
                 v2MarkBrowserDownloadEventConsumed(event, surfaceId: surfaceId)
             }
