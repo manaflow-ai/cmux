@@ -66,4 +66,25 @@ extension AgentSessionPermissionMode {
         }
         return params?["permissions"] as? [String: Any] ?? [:]
     }
+
+    /// Maps a Codex app-server approval request method to the JSON `result`
+    /// payload this permission mode replies with. Returns `nil` for an
+    /// unsupported method so the caller can emit its app-localized error.
+    func approvalReply(forServerMethod method: String, params: [String: Any]?) -> [String: Any]? {
+        switch method {
+        case "item/commandExecution/requestApproval":
+            return ["decision": commandApprovalDecision]
+        case "item/fileChange/requestApproval":
+            return ["decision": fileChangeApprovalDecision]
+        case "item/permissions/requestApproval":
+            return [
+                "permissions": grantedPermissions(from: params),
+                "scope": "turn"
+            ]
+        case "execCommandApproval", "applyPatchApproval":
+            return ["decision": legacyReviewDecision]
+        default:
+            return nil
+        }
+    }
 }

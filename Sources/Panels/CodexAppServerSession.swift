@@ -316,20 +316,10 @@ final class CodexAppServerSession {
 
     private func handleServerRequest(_ object: [String: Any], method: String) {
         guard let id = object["id"] else { return }
-        let result: [String: Any]
-        switch method {
-        case "item/commandExecution/requestApproval":
-            result = ["decision": activePermissionMode.commandApprovalDecision]
-        case "item/fileChange/requestApproval":
-            result = ["decision": activePermissionMode.fileChangeApprovalDecision]
-        case "item/permissions/requestApproval":
-            result = [
-                "permissions": activePermissionMode.grantedPermissions(from: object["params"] as? [String: Any]),
-                "scope": "turn"
-            ]
-        case "execCommandApproval", "applyPatchApproval":
-            result = ["decision": activePermissionMode.legacyReviewDecision]
-        default:
+        guard let result = activePermissionMode.approvalReply(
+            forServerMethod: method,
+            params: object["params"] as? [String: Any]
+        ) else {
             Task { @MainActor in
                 do {
                     try await sendErrorResponse(

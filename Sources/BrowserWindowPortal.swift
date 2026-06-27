@@ -2339,39 +2339,6 @@ final class WindowBrowserPortal: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.03, execute: delayedWorkItem)
     }
 
-    private enum HostedWebViewPresentationUpdateKind {
-        case none
-        case geometryOnly
-        case refresh
-
-        private static let geometryOnlyReasons: Set<String> = [
-            "frame",
-            "bounds",
-            "webFrame",
-            "webFrameBottomDock",
-        ]
-
-        private static let refreshReasons: Set<String> = [
-            "syncAttachContainer",
-            "syncAttachWebView",
-            "reveal",
-            "transientRecovery",
-            "anchor",
-        ]
-
-        static func resolve(reasons: [String]) -> Self {
-            guard !reasons.isEmpty else { return .none }
-            let reasonSet = Set(reasons)
-            if !reasonSet.isDisjoint(with: Self.refreshReasons) {
-                return .refresh
-            }
-            if reasonSet.isSubset(of: Self.geometryOnlyReasons) {
-                return .geometryOnly
-            }
-            return .refresh
-        }
-    }
-
     private func moveWebKitRelatedSubviewsIfNeeded(
         from sourceSuperview: NSView,
         to containerView: WindowBrowserSlotView,
