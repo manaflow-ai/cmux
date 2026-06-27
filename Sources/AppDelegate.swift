@@ -33,7 +33,7 @@ import CmuxTestSupport
 #endif
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment, ExternalOpenIntentHosting {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment, ExternalOpenIntentHosting, WindowLifecycleHosting {
     nonisolated(unsafe) static var shared: AppDelegate?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
@@ -883,7 +883,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `registeredMainWindow(forManager: manager)`
     /// scans with an O(1) lookup. Seeded/updated whenever a window's manager is
     /// (re)bound and torn down alongside the window's slice.
-    private var tabManagerWindowIds: [ObjectIdentifier: WindowID] = [:]
+    private var tabManagerWindowIds: [ObjectIdentifier: WindowID] {
+        get { windowLifecycle.tabManagerWindowIds }
+        set { windowLifecycle.tabManagerWindowIds = newValue }
+    }
     private var mainWindowControllers: [MainWindowController] = []
 
     /// Builds the ephemeral ``RegisteredMainWindow`` resolved value for `id`, or
@@ -972,17 +975,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return (tabManager, focusController)
     }
 
-    /// Owns window identity and lifecycle: the live `WindowID` set, the
-    /// `NSWindow` handle per window, and the single window-closed broadcast.
-    /// This is the de-aggregation keystone — the close-observer responsibility
-    /// that used to live on `MainWindowContext.closeObserver` is drained here
-    /// (owner ruling 2026-06-18: per-window state is domain-owned and
-    /// `WindowID`-keyed, never bundled into one per-window aggregate). The
-    /// concrete is constructed once here at the composition root and held as
-    /// `any WindowManaging`; `windowClosed` is consumed by
-    /// ``observeWindowCoordinatorClosures()`` to drive `unregisterMainWindow`.
-    let windowCoordinator: any WindowManaging = WindowCoordinator()
-    private var windowCoordinatorClosureTask: Task<Void, Never>?
+    /// Window-lifecycle layer, lifted into `CmuxWindowing`. Owns window identity
+    /// and lifecycle: the ``WindowManaging`` coordinator (the live `WindowID`
+    /// set, the `NSWindow` handle per window, and the single window-closed
+    /// broadcast), the `TabManager`→`WindowID` reverse index, the suppressed
+    /// closed-window-history ids, and the new-window cascade anchor. This is the
+    /// de-aggregation keystone — the close-observer responsibility that used to
+    /// live on `MainWindowContext.closeObserver` is drained here (owner ruling
+    /// 2026-06-18: per-window state is domain-owned and `WindowID`-keyed, never
+    /// bundled into one per-window aggregate). Constructed once at the
+    /// composition root with `self` as the weak teardown host;
+    /// `windowCoordinator.windowClosed` is consumed by
+    /// ``WindowLifecycleCoordinator/observeWindowCoordinatorClosures()`` to drive
+    /// the app-side `unregisterMainWindow` teardown.
+    lazy var windowLifecycle = WindowLifecycleCoordinator(host: self)
+
+    /// Forwards to ``windowLifecycle``'s owned window-identity coordinator, which
+    /// owns window↔id identity and the single window-closed stream.
+    var windowCoordinator: any WindowManaging { windowLifecycle.windowCoordinator }
 
     /// Ordered ``WindowID``-keyed ledger of recoverable main-window routes,
     /// peeled out of the rejected `MainWindowContext` aggregate (owner ruling
@@ -1003,8 +1013,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// (`unregisterMainWindowContext` / `discardOrphanedMainWindowContext`),
     /// reached for every closing window. It deliberately does NOT subscribe to
     /// the single-consumer `windowCoordinator.windowClosed` stream (whose sole
-    /// consumer is `observeWindowCoordinatorClosures()`), which would split
-    /// close events with the teardown loop and starve it.
+    /// consumer is `WindowLifecycleCoordinator.observeWindowCoordinatorClosures()`),
+    /// which would split close events with the teardown loop and starve it.
     let windowConfigStores = WindowScopedStore<CmuxConfigStore>()
 
     /// Per-window sidebar-selection states, keyed by ``WindowID`` (peeled out of
@@ -1089,7 +1099,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
-    private var lastCascadePoint = NSPoint.zero
+    /// Stored on ``windowLifecycle``; forwarded so the existing read/write sites
+    /// resolve unchanged.
+    private var lastCascadePoint: NSPoint {
+        get { windowLifecycle.lastCascadePoint }
+        set { windowLifecycle.lastCascadePoint = newValue }
+    }
     private(set) var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
@@ -1231,7 +1246,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // Internal (not private) so the ``SessionAutosaveScheduling`` conformance
     // can read it as the per-tick termination guard.
     var isTerminatingApp = false
-    private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
+    private var closedWindowHistorySuppressedWindowIds: Set<UUID> {
+        get { windowLifecycle.closedWindowHistorySuppressedWindowIds }
+        set { windowLifecycle.closedWindowHistorySuppressedWindowIds = newValue }
+    }
 #if DEBUG
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
 #endif
@@ -1467,7 +1485,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // close broadcast (the close-observer responsibility drained out of
         // `MainWindowContext`). Started here at the composition root, before any
         // window registers.
-        observeWindowCoordinatorClosures()
+        windowLifecycle.observeWindowCoordinatorClosures()
 
         // Prewarm the shared restorable-agent index off the main thread so the first
         // tab/workspace/window close after launch reads a warm cache instead of paying a
@@ -10793,41 +10811,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    /// Subscribes once to the window coordinator's close broadcast and drives
-    /// `unregisterMainWindow` for each closing window. This replaces the
-    /// per-`MainWindowContext` `WindowCloseObserver` that called
-    /// `unregisterMainWindow` directly from `NSWindow.willCloseNotification`.
-    ///
-    /// Behavior delta (faithful-lift discipline): the legacy observer ran
-    /// `unregisterMainWindow` synchronously inside `willClose`; the coordinator's
-    /// `AsyncStream` defers it by one main-actor turn. The closing window is
-    /// resolved through `windowCoordinator.window(for:)`, which pins it strongly
-    /// from `willClose` until this consumer calls `unregister` (see
-    /// `WindowCoordinator.handleClose(of:)`). The pin is load-bearing: a
-    /// `CmuxMainWindow` uses the stock `isReleasedWhenClosed = true` and its sole
-    /// strong owner (`mainWindowControllers`) drops synchronously in `willClose`,
-    /// so without it the autorelease pool could drain the window before this turn
-    /// and the whole teardown (geometry persist, history, active repoint,
-    /// snapshot save, palette removal, notification clearing) would be silently
-    /// dropped. Resolving through the coordinator (not the context's weak
-    /// `window`) is therefore guaranteed non-nil; the only observable difference
-    /// is that those effects land one turn later, unread synchronously then.
-    private func observeWindowCoordinatorClosures() {
-        guard windowCoordinatorClosureTask == nil else { return }
-        let closedEvents = windowCoordinator.windowClosed
-        windowCoordinatorClosureTask = Task { @MainActor [weak self] in
-            for await closedId in closedEvents {
-                guard let self else { return }
-                // Resolve the closing window from the coordinator's strong pin
-                // (held across the one-turn defer), not the context's weak
-                // `window`, so teardown cannot be dropped by autorelease timing.
-                guard let window = self.windowCoordinator.window(for: closedId) else { continue }
-                self.unregisterMainWindow(window)
-            }
-        }
-    }
-
-    private func unregisterMainWindow(_ window: NSWindow) {
+    /// App-side teardown driven by ``WindowLifecycleCoordinator`` once per
+    /// closing main window (the ``WindowLifecycleHosting`` conformance). Runs the
+    /// full teardown the coordinator cannot own because it reaches into app-only
+    /// delegate state.
+    func unregisterMainWindow(_ window: NSWindow) {
         // Reset cascade point so the next new window appears near the closing
         // window's position, matching upstream Ghostty behavior.
         let frame = window.frame
