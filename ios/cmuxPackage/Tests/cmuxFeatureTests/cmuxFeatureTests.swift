@@ -1807,34 +1807,34 @@ final class TerminalOutputCollector {
 
 @MainActor
 @Test func storedMacReconnectUsesPersistedAttachTicketWithoutStackAuth() async throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let pairedMacStore = try MobilePairedMacStore(databaseURL: directory.appendingPathComponent("paired-macs.sqlite3"))
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
     let route = try hostPortRoute(
         kind: .tailscale,
         host: "100.64.0.5",
         port: CmxMobileDefaults.defaultHostPort
     )
-    try await pairedMacStore.upsert(
-        macDeviceID: "stored-mac",
-        displayName: "Stored Mac",
-        routes: [route],
-        attachToken: "stored-ticket-secret",
-        attachTokenExpiresAt: Date().addingTimeInterval(60),
-        attachTokenWorkspaceID: "",
-        markActive: true,
-        stackUserID: "user-1",
-        teamID: nil,
-        now: Date()
-    )
+    let pairedMacStore = FeatureTestPairedMacStore(records: [
+        MobilePairedMac(
+            macDeviceID: "stored-mac",
+            displayName: "Stored Mac",
+            routes: [route],
+            attachToken: "stored-ticket-secret",
+            attachTokenExpiresAt: now.addingTimeInterval(60),
+            attachTokenWorkspaceID: "",
+            createdAt: now,
+            lastSeenAt: now,
+            isActive: true,
+            stackUserID: "user-1"
+        ),
+    ])
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: "stored-workspace", title: "Stored Workspace"),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: nil
+        stackAccessToken: nil,
+        now: { now }
     )
     let store = CMUXMobileShellStore(
         runtime: runtime,
@@ -1855,7 +1855,6 @@ final class TerminalOutputCollector {
     #expect(request.attachToken == "stored-ticket-secret")
     #expect(request.stackAccessToken == nil)
     #expect(store.selectedWorkspace?.id.rawValue == "stored-workspace")
-    try await pairedMacStore.removeAll()
 }
 
 @MainActor
@@ -2200,8 +2199,8 @@ final class TerminalOutputCollector {
         endpoint: .hostPort(host: "127.0.0.1", port: 56584)
     )
     let ticket = try CmxAttachTicket(
-        workspaceID: "workspace-main",
-        terminalID: "terminal-build",
+        workspaceID: "",
+        terminalID: nil,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [route],
@@ -2670,6 +2669,145 @@ private struct TestIdentityProvider: MobileIdentityProviding {
 
     @MainActor var currentUserID: String? { currentUserIDValue }
     @MainActor var currentUserEmail: String? { currentUserEmailValue }
+}
+
+private actor FeatureTestPairedMacStore: MobilePairedMacStoring {
+    private var records: [MobilePairedMac]
+
+    init(records: [MobilePairedMac] = []) {
+        self.records = records
+    }
+
+    func upsert(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        attachToken: String?,
+        attachTokenExpiresAt: Date?,
+        attachTokenWorkspaceID: String?,
+        attachTokenTerminalID: String?,
+        markActive: Bool,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        if markActive {
+            clearActiveRecords(stackUserID: stackUserID, teamID: teamID)
+        }
+        if let index = records.firstIndex(where: {
+            $0.macDeviceID == macDeviceID && $0.stackUserID == stackUserID && $0.teamID == teamID
+        }) {
+            records[index].displayName = displayName
+            records[index].routes = routes
+            records[index].lastSeenAt = now
+            records[index].isActive = markActive
+            if let attachToken {
+                records[index].attachToken = attachToken
+                records[index].attachTokenExpiresAt = attachTokenExpiresAt
+                records[index].attachTokenWorkspaceID = attachTokenWorkspaceID
+                records[index].attachTokenTerminalID = attachTokenTerminalID
+            }
+        } else {
+            records.append(
+                MobilePairedMac(
+                    macDeviceID: macDeviceID,
+                    displayName: displayName,
+                    routes: routes,
+                    attachToken: attachToken,
+                    attachTokenExpiresAt: attachTokenExpiresAt,
+                    attachTokenWorkspaceID: attachTokenWorkspaceID,
+                    attachTokenTerminalID: attachTokenTerminalID,
+                    createdAt: now,
+                    lastSeenAt: now,
+                    isActive: markActive,
+                    stackUserID: stackUserID,
+                    teamID: teamID
+                )
+            )
+        }
+    }
+
+    func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        guard let index = records.firstIndex(where: {
+            $0.macDeviceID == macDeviceID && $0.stackUserID == stackUserID && $0.teamID == teamID
+        }) else {
+            return
+        }
+        records[index].displayName = displayName
+        records[index].routes = routes
+        records[index].lastSeenAt = now
+    }
+
+    func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
+        records
+            .filter { recordMatches($0, stackUserID: stackUserID, teamID: teamID) }
+            .sorted { $0.lastSeenAt > $1.lastSeenAt }
+    }
+
+    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
+        let visibleRecords = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+        return visibleRecords.first { $0.isActive }
+    }
+
+    func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        clearActiveRecords(stackUserID: stackUserID, teamID: teamID)
+        if let index = records.firstIndex(where: {
+            $0.macDeviceID == macDeviceID && recordMatches($0, stackUserID: stackUserID, teamID: teamID)
+        }) {
+            records[index].isActive = true
+        }
+    }
+
+    func clearActive(stackUserID: String?, teamID: String?) async throws {
+        clearActiveRecords(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func setCustomization(
+        macDeviceID: String,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        guard let index = records.firstIndex(where: {
+            $0.macDeviceID == macDeviceID && recordMatches($0, stackUserID: stackUserID, teamID: teamID)
+        }) else {
+            return
+        }
+        records[index].customName = customName
+        records[index].customColor = customColor
+        records[index].customIcon = customIcon
+        records[index].lastSeenAt = now
+    }
+
+    func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        records.removeAll { $0.macDeviceID == macDeviceID && recordMatches($0, stackUserID: stackUserID, teamID: teamID) }
+    }
+
+    func removeAll() async throws {
+        records.removeAll()
+    }
+
+    private func clearActiveRecords(stackUserID: String?, teamID: String?) {
+        for index in records.indices where recordMatches(records[index], stackUserID: stackUserID, teamID: teamID) {
+            records[index].isActive = false
+        }
+    }
+
+    private func recordMatches(_ record: MobilePairedMac, stackUserID: String?, teamID: String?) -> Bool {
+        let userMatches = stackUserID == nil || record.stackUserID == stackUserID
+        let teamMatches = teamID == nil || record.teamID == teamID || record.teamID == nil
+        return userMatches && teamMatches
+    }
 }
 
 private final class RecordingAnalytics: AnalyticsEmitting, @unchecked Sendable {

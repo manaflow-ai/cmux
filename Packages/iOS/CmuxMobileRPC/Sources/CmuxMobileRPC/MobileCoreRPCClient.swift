@@ -257,7 +257,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             return MobileCoreRPCAuthenticatedRequest(data: requestData, usedAttachToken: false)
         }
-        let requestNeedsAuth = Self.requestRequiresAuth(request)
+        let requestMethod = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestNeedsAuth = requestMethod != "mobile.host.status"
         let requestIsCoveredByAttachTicket = !forceStackAuthFallback && !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
         let routeAllowsBearerAuth = MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
         let routeAllowsStackAuthFallback = allowsStackAuthFallback && routeAllowsBearerAuth
@@ -349,14 +350,35 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     }
 
     private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
-        guard requestRequiresAuth(request) else {
+        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Only the unauthenticated host probe is exempt. attach_ticket.create has no
+        // attach token yet (it mints the ticket), so requiring auth routes it through
+        // the Stack Auth account token: a ticket can only be created by a signed-in user.
+        guard method != "mobile.host.status" else {
             return false
         }
-        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let params = request["params"] as? [String: Any] ?? [:]
-        let workspaceSelection = stringParamSelection(params, keys: ["workspace_id"])
-        let terminalSelection = stringParamSelection(params, keys: ["surface_id", "terminal_id", "tab_id"])
-        let hasMacAccountBinding = ticketHasMacAccountBinding(ticket)
+        let stringParamSelection: ([String]) -> StringParamSelection = { keys in
+            var selected: String?
+            for key in keys {
+                if let value = params[key] as? String {
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        if let selected, selected != trimmed {
+                            return StringParamSelection(value: selected, hasConflict: true)
+                        }
+                        selected = selected ?? trimmed
+                    }
+                }
+            }
+            return StringParamSelection(value: selected, hasConflict: false)
+        }
+        let workspaceSelection = stringParamSelection(["workspace_id"])
+        let terminalSelection = stringParamSelection(["surface_id", "terminal_id", "tab_id"])
+        let hasMacAccountBinding =
+            ticket.macUserID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
+            ticket.macUserEmail?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let hasTerminalScope = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         let ticketCoverage = MobileCoreRPCAttachTicketCoverage()
         if workspaceSelection.hasConflict ||
             terminalSelection.hasConflict ||
@@ -367,7 +389,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         switch method {
         case "mobile.workspace.list", "workspace.list":
             if workspaceSelection.value == nil {
-                return terminalSelection.value != nil || !hasMacAccountBinding || ticketHasTerminalScope(ticket)
+                return terminalSelection.value != nil || !hasMacAccountBinding || hasTerminalScope
             }
             return !ticketCoverage.ticketCoversTerminalRequest(
                 ticket: ticket,
@@ -406,42 +428,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         default:
             return true
         }
-    }
-
-    private static func ticketHasMacAccountBinding(_ ticket: CmxAttachTicket) -> Bool {
-        ticket.macUserID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
-            ticket.macUserEmail?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-    }
-
-    private static func ticketHasTerminalScope(_ ticket: CmxAttachTicket) -> Bool {
-        ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-    }
-
-    private static func requestRequiresAuth(_ request: [String: Any]) -> Bool {
-        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Only the unauthenticated host probe is exempt. attach_ticket.create has no
-        // attach token yet (it mints the ticket), so requiring auth routes it through
-        // the Stack Auth account token: a ticket can only be created by a signed-in user.
-        return method != "mobile.host.status"
-    }
-
-    private static func stringParamSelection(
-        _ params: [String: Any],
-        keys: [String]
-    ) -> StringParamSelection {
-        var selected: String?
-        for key in keys {
-            if let value = params[key] as? String {
-                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    if let selected, selected != trimmed {
-                        return StringParamSelection(value: selected, hasConflict: true)
-                    }
-                    selected = selected ?? trimmed
-                }
-            }
-        }
-        return StringParamSelection(value: selected, hasConflict: false)
     }
 
     private struct StringParamSelection {
