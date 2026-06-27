@@ -282,6 +282,9 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     }
 
     private func clearPendingStoreEchoes() {
+        if let newestPendingSource = pendingStoreEchoes.last?.source {
+            markLocalEchoesConsumed(through: newestPendingSource.sequence)
+        }
         pendingStoreEchoes.removeAll()
     }
 
