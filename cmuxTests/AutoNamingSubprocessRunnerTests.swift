@@ -3,7 +3,7 @@ import Foundation
 import Testing
 
 @Suite struct AutoNamingSubprocessRunnerTests {
-    @Test func returnsLeaderOutputWithoutWaitingForDescendantStdout() throws {
+    @Test func waitsBrieflyForDescendantStdoutBeforeReturningOutput() throws {
         let root = try temporaryDirectory(named: "autoname-runner-stdout")
         defer { try? FileManager.default.removeItem(at: root) }
         let script = try executableScript(in: root, named: "summarizer", body: """
@@ -20,10 +20,10 @@ import Testing
             timeout: 2
         )
 
-        #expect(output == "Good")
+        #expect(output == "Good title\n")
     }
 
-    @Test func leaderExitWithOpenDescendantStdoutReturnsAndCleansProcessGroup() throws {
+    @Test func leaderExitWithOpenDescendantStdoutFailsAndCleansProcessGroup() throws {
         let root = try temporaryDirectory(named: "autoname-runner-stdout-timeout")
         defer { try? FileManager.default.removeItem(at: root) }
         let marker = root.appendingPathComponent("descendant-survived", isDirectory: false)
@@ -41,7 +41,7 @@ import Testing
             timeout: 0.2
         )
 
-        #expect(output == "Good title\n")
+        #expect(output == nil)
         waitBriefly(for: 1.5)
         #expect(!FileManager.default.fileExists(atPath: marker.path))
     }

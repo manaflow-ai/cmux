@@ -32,6 +32,7 @@ extension CMUXCLI {
             telemetry: telemetry
         )
         let currentTitle = autoNamingCurrentTitle(probe: probe)
+        let panelTitleTarget = autoNamingTargetsPanel(probe: probe)
 
         let claudePid = mappedSession?.pid ?? claudeAgentPID(from: env)
         guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: claudePid, env: env) else {
@@ -136,6 +137,7 @@ extension CMUXCLI {
                 surfaceId: surfaceId,
                 agent: resolution.agent,
                 client: client,
+                panelTitleTarget: panelTitleTarget,
                 telemetryKey: telemetryKey,
                 telemetry: telemetry
             )
@@ -244,6 +246,7 @@ extension CMUXCLI {
             telemetry: telemetry
         )
         let currentTitle = autoNamingCurrentTitle(probe: probe)
+        let panelTitleTarget = autoNamingTargetsPanel(probe: probe)
 
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
         guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
@@ -273,6 +276,7 @@ extension CMUXCLI {
             summarizerAgent: resolution.agent,
             missingOverride: resolution.missingOverride,
             currentTitle: currentTitle,
+            panelTitleTarget: panelTitleTarget,
             telemetryKey: telemetryKey,
             telemetry: telemetry
         ) { engine, _ in

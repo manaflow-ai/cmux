@@ -3276,12 +3276,13 @@ class TerminalController {
                     if workspace.effectiveCustomTitleSource == .auto { currentAutoTitle = workspace.customTitle }
                     if let requestedPanelId {
                         panelWritable = workspace.canAutoNamePanel(requestedPanelId: requestedPanelId, onlyIfMultiple: panelOnlyIfMultiple)
-                        if panelWritable == true { currentAutoTitle = workspace.currentAutoNamingPanelTitle(requestedPanelId: requestedPanelId, onlyIfMultiple: panelOnlyIfMultiple) }
+                        if userOwned == true && panelWritable == true { currentAutoTitle = workspace.currentAutoNamingPanelTitle(requestedPanelId: requestedPanelId, onlyIfMultiple: panelOnlyIfMultiple) }
                     }
                 }
                 result["workspace_user_owned"] = v2OrNull(userOwned)
                 result["auto_naming_current_title"] = v2OrNull(currentAutoTitle)
                 if requestedPanelId != nil { result["auto_naming_panel_writable"] = v2OrNull(panelWritable) }
+                result["auto_naming_title_target"] = userOwned == true && panelWritable == true ? "panel" : "workspace"
             }
             return .ok(result)
         }
@@ -3317,13 +3318,14 @@ class TerminalController {
 
         let title = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
         let panelOnlyIfMultiple = v2Bool(params, "panel_only_if_multiple") ?? false
+        let panelTitleTarget = v2Bool(params, "panel_title_target") ?? false
         var found = false
         var workspaceApplied = false
         var panelApplied: Bool?
         v2MainSync {
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
             found = true
-            workspaceApplied = tabManager.setCustomTitle(tabId: workspaceId, title: title, source: .auto)
+            workspaceApplied = panelTitleTarget ? false : tabManager.setCustomTitle(tabId: workspaceId, title: title, source: .auto)
             if let panelId,
                let resolvedPanelId = workspace.autoNamingResolvedPanelId(for: panelId),
                !(panelOnlyIfMultiple && workspace.panels.count < 2) {

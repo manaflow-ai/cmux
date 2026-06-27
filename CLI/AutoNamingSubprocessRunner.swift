@@ -163,13 +163,22 @@ struct AutoNamingSubprocessRunner: Sendable {
                     closeFD(&stdinFD)
                     return (nil, true, false)
                 }
+                let postExitDrainDeadline = Date().addingTimeInterval(
+                    min(max(0, deadline.timeIntervalSinceNow), 0.25)
+                )
                 if !stdoutEOF {
-                    let withinLimit = drainAvailableOutput(
-                        from: stdoutFD,
-                        into: &output,
-                        reachedEOF: &stdoutEOF
-                    )
-                    guard withinLimit else { return (nil, false, true) }
+                    while true {
+                        let withinLimit = drainAvailableOutput(
+                            from: stdoutFD,
+                            into: &output,
+                            reachedEOF: &stdoutEOF
+                        )
+                        guard withinLimit else { return (nil, false, true) }
+                        if stdoutEOF { break }
+                        let remaining = postExitDrainDeadline.timeIntervalSinceNow
+                        guard remaining > 0 else { return (nil, true, true) }
+                        Self.waitForPipeChange(stdoutFD: stdoutFD, stdinFD: nil, timeout: min(remaining, 0.05))
+                    }
                 }
                 return (rawStatus, true, true)
             }

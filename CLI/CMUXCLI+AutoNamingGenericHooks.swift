@@ -78,6 +78,7 @@ extension CMUXCLI {
             telemetry: telemetry
         )
         let currentTitle = autoNamingCurrentTitle(probe: probe)
+        let panelTitleTarget = autoNamingTargetsPanel(probe: probe)
 
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
         let mapped = try? sessionStore.lookup(sessionId: sessionId)
@@ -148,6 +149,7 @@ extension CMUXCLI {
             summarizerAgent: resolution.agent,
             missingOverride: resolution.missingOverride,
             currentTitle: currentTitle,
+            panelTitleTarget: panelTitleTarget,
             telemetryKey: telemetryKey,
             telemetry: telemetry
         ) { engine, _ in
@@ -188,6 +190,7 @@ extension CMUXCLI {
         summarizerAgent: String,
         missingOverride: String?,
         currentTitle: String?,
+        panelTitleTarget: Bool,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (raw: String?, countsTowardBackoff: Bool)
@@ -203,6 +206,7 @@ extension CMUXCLI {
             summarizerAgent: summarizerAgent,
             missingOverride: missingOverride,
             currentTitle: currentTitle,
+            panelTitleTarget: panelTitleTarget,
             telemetryKey: telemetryKey,
             telemetry: telemetry,
             rawResponse: rawResponse
@@ -220,6 +224,7 @@ extension CMUXCLI {
         summarizerAgent: String,
         missingOverride: String?,
         currentTitle: String?,
+        panelTitleTarget: Bool,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (raw: String?, countsTowardBackoff: Bool)
@@ -234,6 +239,7 @@ extension CMUXCLI {
             summarizerAgent: summarizerAgent,
             missingOverride: missingOverride,
             currentTitle: currentTitle,
+            panelTitleTarget: panelTitleTarget,
             telemetryKey: telemetryKey,
             telemetry: telemetry,
             rawResponse: rawResponse
@@ -250,6 +256,7 @@ extension CMUXCLI {
         summarizerAgent: String,
         missingOverride: String?,
         currentTitle: String?,
+        panelTitleTarget: Bool,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (raw: String?, countsTowardBackoff: Bool)
@@ -307,6 +314,7 @@ extension CMUXCLI {
                 surfaceId: surfaceId,
                 agent: summarizerAgent,
                 client: client,
+                panelTitleTarget: panelTitleTarget,
                 telemetryKey: telemetryKey,
                 telemetry: telemetry
             )
@@ -373,6 +381,7 @@ extension CMUXCLI {
         surfaceId: String,
         agent: String,
         client: SocketClient,
+        panelTitleTarget: Bool,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
     ) -> (confirmedTitle: String?, countsTowardBackoff: Bool) {
@@ -382,6 +391,7 @@ extension CMUXCLI {
                 "workspace_id": workspaceId,
                 "panel_id": surfaceId,
                 "panel_only_if_multiple": true,
+                "panel_title_target": panelTitleTarget,
                 "title": title
             ])
         } catch {

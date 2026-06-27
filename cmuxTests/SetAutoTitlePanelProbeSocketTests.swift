@@ -44,7 +44,7 @@ import Testing
         return try body(workspace)
     }
 
-    @Test func panelProbeReportsPanelCurrentTitleForPanelTarget() throws {
+    @Test func panelProbeSeparatesWorkspaceAndPanelTargets() throws {
         try withAutoNamingSetting(true) {
             try withManager { workspace in
                 let pane = try #require(workspace.bonsplitController.allPaneIds.first)
@@ -62,13 +62,45 @@ import Testing
                 var envelope = try call(method: "workspace.set_auto_title", params: params)
                 var result = try #require(envelope["result"] as? [String: Any])
                 #expect(result["auto_naming_panel_writable"] as? Bool == true)
+                #expect(result["auto_naming_current_title"] as? String == "Workspace Auto")
+                #expect(result["auto_naming_title_target"] as? String == "workspace")
+
+                envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "panel_only_if_multiple": true,
+                    "title": "Workspace Next"
+                ])
+                result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == true)
+                #expect(result["panel_applied"] as? Bool == true)
+                #expect(workspace.title == "Workspace Next")
+
+                workspace.setCustomTitle("Workspace User")
+                workspace.setPanelCustomTitle(panelId: panelId, title: "Panel Auto", source: .auto)
+                envelope = try call(method: "workspace.set_auto_title", params: params)
+                result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["auto_naming_panel_writable"] as? Bool == true)
                 #expect(result["auto_naming_current_title"] as? String == "Panel Auto")
+                #expect(result["auto_naming_title_target"] as? String == "panel")
+                envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "panel_only_if_multiple": true,
+                    "panel_title_target": true,
+                    "title": "Panel Next"
+                ])
+                result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == false)
+                #expect(result["panel_applied"] as? Bool == true)
+                #expect(workspace.title == "Workspace User")
 
                 workspace.setPanelCustomTitle(panelId: panelId, title: "Panel User")
                 envelope = try call(method: "workspace.set_auto_title", params: params)
                 result = try #require(envelope["result"] as? [String: Any])
                 #expect(result["auto_naming_panel_writable"] as? Bool == false)
-                #expect(result["auto_naming_current_title"] as? String == "Workspace Auto")
+                #expect(result["auto_naming_current_title"] is NSNull)
+                #expect(result["auto_naming_title_target"] as? String == "workspace")
             }
         }
     }

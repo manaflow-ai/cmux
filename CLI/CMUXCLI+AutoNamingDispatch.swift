@@ -49,6 +49,12 @@ extension CMUXCLI {
 
     func autoNamingProbeHasWritableTarget(_ probe: [String: Any]) -> Bool {
         guard probe["enabled"] as? Bool == true else { return false }
+        if let titleTarget = normalizedHookValue(probe["auto_naming_title_target"] as? String) {
+            if titleTarget == "panel" {
+                return probe["auto_naming_panel_writable"] as? Bool == true
+            }
+            return probe["workspace_user_owned"] as? Bool != true
+        }
         if probe["workspace_user_owned"] as? Bool == true {
             return probe["auto_naming_panel_writable"] as? Bool == true
         }
@@ -86,6 +92,13 @@ extension CMUXCLI {
     /// can be stale when another session renamed the same workspace.
     func autoNamingCurrentTitle(probe: [String: Any]) -> String? {
         normalizedHookValue(probe["auto_naming_current_title"] as? String)
+    }
+
+    func autoNamingTargetsPanel(probe: [String: Any]) -> Bool {
+        if let titleTarget = normalizedHookValue(probe["auto_naming_title_target"] as? String) {
+            return titleTarget == "panel"
+        }
+        return probe["auto_naming_panel_writable"] as? Bool == true
     }
 
     /// Resolves which agent should actually run the summarization for one

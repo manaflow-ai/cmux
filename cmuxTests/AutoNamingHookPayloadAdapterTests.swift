@@ -258,6 +258,7 @@ import Darwin
                         "enabled": true,
                         "workspace_user_owned": true,
                         "auto_naming_panel_writable": true,
+                        "auto_naming_title_target": "panel",
                         "summarizer_agent": "auto",
                         "auto_naming_language_name": "English",
                         "auto_naming_language_tag": "en",
@@ -309,6 +310,7 @@ import Darwin
             $0["title"] as? String == "Panel Only Title"
                 && $0["panel_id"] as? String == surfaceId
                 && $0["panel_only_if_multiple"] as? Bool == true
+                && $0["panel_title_target"] as? Bool == true
         }, "expected panel-only apply after user-owned workspace probe, saw \(state.snapshot())")
     }
 
