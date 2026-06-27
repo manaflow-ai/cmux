@@ -63,6 +63,10 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIView, context: Context) {}
 
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        (uiView as? GhosttySurfaceView)?.prepareForDismantle()
+    }
+
     /// Retained delegate (the surface holds it weakly). No-op: the preview only
     /// exercises layout, not input/resize round-trips.
     final class Coordinator: GhosttySurfaceViewDelegate {

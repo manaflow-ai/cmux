@@ -2163,11 +2163,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         fatalError("init(coder:) is not supported")
     }
 
-    isolated deinit {
-        stopKeyboardHeightAnimation()
-        disposeSurface()
-    }
-
     public override class var layerClass: AnyClass {
         CAMetalLayer.self
     }
@@ -2415,6 +2410,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public func prepareForDismantle() {
         isDismantled = true
         prepareForReuseAfterDetach()
+        disposeSurface()
     }
 
     /// Quiesces the surface on window detach: resigns input, stops the display
