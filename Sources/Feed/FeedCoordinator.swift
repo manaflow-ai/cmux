@@ -46,11 +46,14 @@ final class FeedCoordinator: @unchecked Sendable {
     /// resolving a live window route after the event has already ended.
     /// Main-actor isolated: read/written only from the `@MainActor` attention
     /// methods.
+    /// Internal so `FeedCoordinator+Attention.swift` can own the attention
+    /// mutation path while keeping this file below the length budget.
     @MainActor var pendingAttentionStates: [AttentionTarget: AttentionOverlayState] = [:]
 
     /// Non-blocking Codex approval waits keyed by workstream id. Codex owns
     /// the decision in its TUI, so cmux clears this attention on the next event
     /// from the same session rather than waiting for a Feed reply.
+    /// Internal for the cross-file attention extension only.
     @MainActor var pendingApprovalWaitAttentionTargets: [String: AttentionTarget] = [:]
 
     private init() {}
@@ -332,10 +335,10 @@ enum FeedCoordinatorTestHooks {
     static var afterBlockingEventIngested: (@Sendable (WorkstreamEvent, String) -> Void)?
     static var isAppActiveOverride: (@Sendable () -> Bool)?
     static var notificationPostObserver: (@Sendable (WorkstreamEvent, String) -> Void)?
-    /// Fires when a blocking decision event requests in-app attention
-    /// surfacing (needs-input status + bell + elevation). When set, the
-    /// production surfacing is short-circuited so tests can assert the
-    /// request without a live `TabManager`.
+    /// Fires when a needs-input event requests in-app attention surfacing
+    /// (needs-input status + bell + elevation). When set, production
+    /// surfacing is short-circuited so tests can assert the request without a
+    /// live `TabManager`.
     static var attentionSurfaceObserver: (@Sendable (WorkstreamEvent) -> Void)?
 }
 #endif

@@ -1,5 +1,7 @@
 import Foundation
 
+// Internal only because `WorkstreamStore.swift` calls these helpers across the
+// file split; treat them as WorkstreamStore implementation details.
 extension WorkstreamStore {
     /// Parses question tool input into one or more prompts.
     func parseQuestions(fromToolInput json: String?) -> [WorkstreamQuestionPrompt] {

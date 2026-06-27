@@ -56,6 +56,8 @@ extension FeedCoordinator {
         guard Self.isNeedsInputAttentionEvent(event.hookEventName) else { return nil }
 
         #if DEBUG
+        // Tests observe every needs-input request through this seam without
+        // requiring a live workspace/sidebar graph.
         if let observer = FeedCoordinatorTestHooks.attentionSurfaceObserver {
             observer(event)
             return nil
