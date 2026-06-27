@@ -2156,6 +2156,16 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// of live state those bodies read. Held by `Workspace`, references the host
     /// weakly, so there is no retain cycle.
     let remoteSurfaceCoordinator = RemoteSurfaceCoordinator<Workspace>()
+
+    /// Orchestrates closing one pane of a mirrored multi-pane tmux window (the
+    /// pane-header ✕): the close-tab warning decision, the live pane-activity
+    /// query, the in-flight guard set, and the kill-pane dispatch. `Workspace`
+    /// forwards `requestRemoteTmuxPaneClose(windowMirror:tmuxPaneId:)` to this
+    /// coordinator and conforms to `RemoteTmuxMirrorHosting` (witnessed below)
+    /// for the one app-target decision the orchestration cannot make on its own,
+    /// presenting the confirmation modal. Held by `Workspace`, references the
+    /// host weakly, so there is no retain cycle.
+    let remoteTmuxMirrorCoordinator = RemoteTmuxMirrorCoordinator<Workspace>()
     private var pendingRemoteForegroundAuthToken: String?
     var activeRemoteSessionControllerID: UUID?
     private var remoteLastErrorFingerprint: String?
@@ -2668,6 +2678,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         agentForkCoordinator.attach(host: self)
         workspaceDrop.attach(host: self)
         remoteSurfaceCoordinator.attach(host: self)
+        remoteTmuxMirrorCoordinator.attach(host: self)
         remoteRelaySession.attach(host: self)
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
@@ -3022,10 +3033,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// Tab IDs that are currently showing (or about to show) a close confirmation prompt.
     /// Prevents repeated close gestures (e.g., middle-click spam) from stacking dialogs.
     private var pendingCloseConfirmTabIds: Set<TabID> = []
-
-    /// tmux pane ids (multi-pane mirror ✕) with a close-time activity query or
-    /// confirmation in flight, so click spam can't double-kill or stack dialogs.
-    private var pendingRemoteTmuxPaneCloseIds: Set<Int> = []
 
     // `internal` (not `private`) so the `Workspace+ClosedBrowserRestoreStagingHosting`
     // sibling extension can read it as the `stagingSuppressClosedPanelHistory`
@@ -6221,50 +6228,14 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// command slip through), falling back to the cached state when the link is
     /// down. The pane is removed by the resulting `%layout-change` (or
     /// `%window-close` for the window's last pane), never locally.
+    ///
+    /// Forwards to ``RemoteTmuxMirrorCoordinator`` (in `CmuxRemoteWorkspace`),
+    /// which owns the orchestration; `Workspace` only supplies the modal
+    /// confirmation through ``RemoteTmuxMirrorHosting``.
     func requestRemoteTmuxPaneClose(windowMirror: RemoteTmuxWindowMirror, tmuxPaneId: Int) {
-        // Close warnings disabled → even an active command wouldn't confirm;
-        // kill with no added round trip.
-        guard CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
-            requiresConfirmation: true, source: .tabCloseButton
-        ) else {
-            windowMirror.requestKillPane(tmuxPaneId)
-            return
-        }
-        guard !pendingRemoteTmuxPaneCloseIds.contains(tmuxPaneId) else { return }
-        pendingRemoteTmuxPaneCloseIds.insert(tmuxPaneId)
-        windowMirror.queryPaneActivity(tmuxPaneId) { [weak self, weak windowMirror] states in
-            // Hop off the control-stream dispatch before a (modal) dialog can
-            // block it; the defer keeps the in-flight guard balanced on every path.
-            Task { @MainActor [weak self, weak windowMirror] in
-                guard let self else { return }
-                defer { self.pendingRemoteTmuxPaneCloseIds.remove(tmuxPaneId) }
-                guard let windowMirror else { return }
-                let state = states?[tmuxPaneId] ?? windowMirror.paneForegroundState(tmuxPaneId)
-                if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
-                    requiresConfirmation: state?.hasActiveCommand ?? false,
-                    source: .tabCloseButton
-                ) {
-                    // No manager → no way to ask → refuse the destructive kill rather
-                    // than falling through to an unconfirmed one (only reachable in
-                    // teardown states where the pane header shouldn't be clickable).
-                    guard let manager = self.owningTabManager
-                        ?? hostEnvironment?.tabManagerFor(tabId: self.id)
-                        ?? hostEnvironment?.tabManager else { return }
-                    let message: String
-                    if let command = state?.command, state?.hasActiveCommand == true, !command.isEmpty {
-                        message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(command)\".")
-                    } else {
-                        message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
-                    }
-                    guard manager.workspaceClosing.confirmClose(
-                        title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
-                        message: message,
-                        acceptCmdD: false
-                    ) else { return }
-                }
-                windowMirror.requestKillPane(tmuxPaneId)
-            }
-        }
+        remoteTmuxMirrorCoordinator.requestRemoteTmuxPaneClose(
+            windowMirror: windowMirror, tmuxPaneId: tmuxPaneId
+        )
     }
 
     /// Updates a mirrored remote tmux tab's title (e.g. after a tmux
@@ -10392,4 +10363,34 @@ extension Workspace: BonsplitDelegate {
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.
+}
+
+/// `Workspace` is the live host for its ``RemoteTmuxMirrorCoordinator``. The
+/// coordinator (in `CmuxRemoteWorkspace`) owns the pane-close orchestration and
+/// reaches back through this witness for the one workspace-side decision it
+/// cannot make on its own: resolving the owning tab manager, building the
+/// localized dialog copy, and running the kill-pane confirmation modal. The
+/// localized strings stay app-side and are passed through the seam only as a
+/// classified active-command `String?`. The coordinator is held by `Workspace`
+/// and references this host weakly, so there is no retain cycle.
+extension Workspace: RemoteTmuxMirrorHosting {
+    func presentRemoteTmuxPaneCloseConfirmation(activeCommand: String?) -> Bool {
+        // No manager → no way to ask → refuse the destructive kill rather than
+        // falling through to an unconfirmed one (only reachable in teardown
+        // states where the pane header shouldn't be clickable).
+        guard let manager = owningTabManager
+            ?? hostEnvironment?.tabManagerFor(tabId: id)
+            ?? hostEnvironment?.tabManager else { return false }
+        let message: String
+        if let activeCommand, !activeCommand.isEmpty {
+            message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(activeCommand)\".")
+        } else {
+            message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
+        }
+        return manager.workspaceClosing.confirmClose(
+            title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
+            message: message,
+            acceptCmdD: false
+        )
+    }
 }
