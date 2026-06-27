@@ -713,8 +713,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
     private var remoteProxyEndpoint: BrowserProxyEndpoint?
     @Published private(set) var remoteWorkspaceStatus: BrowserRemoteWorkspaceStatus?
-    private var usesRemoteWorkspaceProxy: Bool
-    private var pendingRemoteNavigation: PendingRemoteNavigation?
+    private(set) var usesRemoteWorkspaceProxy: Bool
     private let bypassesRemoteWorkspaceProxy: Bool
     /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
     /// or other custom UI) rather than a normal web page. When set, the webview
@@ -896,7 +895,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
         hiddenWebViewDiscardManager.cancel()
     }
 
-    private func reevaluateHiddenWebViewDiscardScheduling(reason: String) {
+    func reevaluateHiddenWebViewDiscardScheduling(reason: String) {
         if isWebViewVisibleInUI {
             cancelHiddenWebViewDiscard()
         } else {
@@ -3090,14 +3089,10 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
 
     // MARK: - Navigation
 
-    /// Navigate to a URL
+    /// Navigate to a URL. Forwards to the navigation coordinator, which owns the
+    /// insecure-HTTP prompt decision and the remote-proxy navigation queue.
     func navigate(to url: URL, recordTypedNavigation: Bool = false) {
-        let request = URLRequest(url: url)
-        if navigationIntentCoordinator.shouldBlockInsecureHTTPNavigation(to: url) {
-            presentInsecureHTTPAlert(for: request, intent: .currentTab, recordTypedNavigation: recordTypedNavigation)
-            return
-        }
-        navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
+        navigationIntentCoordinator.navigate(to: url, recordTypedNavigation: recordTypedNavigation)
     }
 
     private func navigateWithoutInsecureHTTPPrompt(
@@ -3106,11 +3101,11 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
         preserveRestoredSessionHistory: Bool = false,
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) {
-        let request = URLRequest(url: url, cachePolicy: cachePolicy)
-        navigateWithoutInsecureHTTPPrompt(
-            request: request,
+        navigationIntentCoordinator.navigateWithoutInsecureHTTPPrompt(
+            to: url,
             recordTypedNavigation: recordTypedNavigation,
-            preserveRestoredSessionHistory: preserveRestoredSessionHistory
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            cachePolicy: cachePolicy
         )
     }
 
@@ -3119,52 +3114,18 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool = false
     ) {
-        guard let url = request.url else { return }
-        cancelHiddenWebViewDiscard()
-        clearWebViewDiscardState(reason: "navigation")
-        if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
-            pendingRemoteNavigation = PendingRemoteNavigation(
-                request: request,
-                recordTypedNavigation: recordTypedNavigation,
-                preserveRestoredSessionHistory: preserveRestoredSessionHistory
-            )
-            hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
-            currentURL = BrowserRemoteProxyURLRewriter.displayURL(for: url) ?? url
-            navigationDelegate?.lastAttemptedURL = url
-            refreshBackgroundAppearance()
-            shouldRenderWebView = true
-            return
-        }
-        performNavigation(
+        navigationIntentCoordinator.navigateWithoutInsecureHTTPPrompt(
             request: request,
-            originalURL: url,
             recordTypedNavigation: recordTypedNavigation,
             preserveRestoredSessionHistory: preserveRestoredSessionHistory
         )
     }
 
     private func resumePendingRemoteNavigationIfNeeded() {
-        // Resume on endpoint arrival, or directly once the pane turned local
-        // (a stranded queue pins the hidden pane as non-discardable forever).
-        guard remoteProxyEndpoint != nil || !usesRemoteWorkspaceProxy,
-              let navigation = pendingRemoteNavigation else {
-            return
-        }
-        guard let originalURL = navigation.request.url else {
-            pendingRemoteNavigation = nil
-            reevaluateHiddenWebViewDiscardScheduling(reason: "pending_remote_navigation_cleared")
-            return
-        }
-        performNavigation(
-            request: navigation.request,
-            originalURL: originalURL,
-            recordTypedNavigation: navigation.recordTypedNavigation,
-            preserveRestoredSessionHistory: navigation.preserveRestoredSessionHistory
-        )
-        pendingRemoteNavigation = nil
+        navigationIntentCoordinator.resumePendingRemoteNavigationIfNeeded()
     }
 
-    private func performNavigation(
+    func performNavigation(
         request: URLRequest,
         originalURL: URL,
         recordTypedNavigation: Bool,
@@ -3215,33 +3176,51 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
         return BrowserRemoteProxyConnectionFactory().urlSession(for: endpoint)
     }
 
-    /// Navigate with smart URL/search detection
-    /// - If input looks like a URL, navigate to it
-    /// - Otherwise, perform a web search
+    /// Navigate with smart URL/search detection. Forwards to the navigation
+    /// coordinator, which resolves a navigable URL or builds a search request.
     func navigateSmart(_ input: String) {
-        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        if let url = resolveNavigableURL(from: trimmed) {
-            navigate(to: url, recordTypedNavigation: true)
-            return
-        }
-
-        let searchConfiguration = BrowserSearchSettingsStore().currentConfiguration
-        guard let searchURL = searchConfiguration.searchURL(query: trimmed) else { return }
-        navigate(to: searchURL)
+        navigationIntentCoordinator.navigateSmart(input)
     }
 
     func resolveNavigableURL(from input: String) -> URL? {
-        input.omnibarNavigableURL
+        navigationIntentCoordinator.resolveNavigableURL(from: input)
     }
 
-    // The insecure-HTTP navigation decision (block/one-time-bypass policy,
-    // requestNavigation routing, and the alert-response decision) moved to
+    // The navigation decision and dispatch (insecure-HTTP block/one-time-bypass
+    // policy, requestNavigation routing, the alert-response decision, the
+    // remote-proxy navigation queue, and smart URL/search dispatch) moved to
     // CmuxBrowser.BrowserNavigationIntentCoordinator. The methods below are the
     // app-side host primitives (BrowserNavigationHosting) the coordinator
-    // forwards effects through; the live NSAlert builder stays here as the
-    // witness so its String(localized:) strings bind to the app bundle.
+    // forwards effects through; the live NSAlert builder, the WKWebView load, and
+    // the discard/render state stay here as the witness so the alert's
+    // String(localized:) strings bind to the app bundle and the live WebKit state
+    // stays app-side.
+
+    /// Whether the remote-workspace proxy endpoint is available yet (host
+    /// primitive; read-through of `remoteProxyEndpoint`).
+    var hasRemoteProxyEndpoint: Bool { remoteProxyEndpoint != nil }
+
+    /// Resets the hidden-web-view discard state before a navigation begins (host
+    /// primitive).
+    func prepareWebViewDiscardStateForNavigation() {
+        cancelHiddenWebViewDiscard()
+        clearWebViewDiscardState(reason: "navigation")
+    }
+
+    /// Sets the URL shown for the current surface while a navigation is queued
+    /// behind a remote-proxy endpoint (host primitive).
+    func setCurrentDisplayURL(_ url: URL) {
+        currentURL = url
+    }
+
+    /// Applies the placeholder render intent for a navigation queued behind a
+    /// pending remote-proxy endpoint (host primitive).
+    func setRenderIntent(forQueuedRemoteNavigationAttempting url: URL) {
+        hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
+        navigationDelegate?.lastAttemptedURL = url
+        refreshBackgroundAppearance()
+        shouldRenderWebView = true
+    }
 
     /// Loads `request` in the current tab's web view without re-running the
     /// insecure-HTTP prompt (host primitive for the navigation-intent coordinator).
@@ -3323,7 +3302,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isClosing: isClosingWebViewLifecycle,
             isVisibleInUI: isWebViewVisibleInUI,
             shouldRenderWebView: shouldRenderWebView,
-            hasPendingRemoteNavigation: pendingRemoteNavigation != nil,
+            hasPendingRemoteNavigation: navigationIntentCoordinator.pendingRemoteNavigation != nil,
             hasCurrentURL: (currentURL ?? BrowserRemoteProxyURLRewriter.displayURL(for: webView.url)) != nil,
             isLoading: isLoading,
             webViewIsLoading: webView.isLoading,
