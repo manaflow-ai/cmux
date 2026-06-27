@@ -152,6 +152,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             items.count
         }
 
+        @MainActor
         func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
             let cell = tableView.dequeueReusableCell(withIdentifier: "ChatTranscriptCell")
                 ?? UITableViewCell(style: .default, reuseIdentifier: "ChatTranscriptCell")
@@ -363,6 +364,7 @@ private struct ChatTranscriptTableConfiguration {
     }
 
     @ViewBuilder
+    @MainActor
     func view(for item: ChatTranscriptTableItem, tableWidth: CGFloat) -> some View {
         itemView(for: item)
             .padding(.horizontal, theme.horizontalMargin)
@@ -376,6 +378,7 @@ private struct ChatTranscriptTableConfiguration {
     }
 
     @ViewBuilder
+    @MainActor
     private func itemView(for item: ChatTranscriptTableItem) -> some View {
         switch item {
         case .loadingMore:
