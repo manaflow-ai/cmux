@@ -154,8 +154,13 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         stackUserID: String?,
         teamID: String?
     ) async throws -> (stackUserID: String?, teamID: String?) {
-        let visibleMac = try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first { $0.macDeviceID == macDeviceID }
+        let visibleMacs = try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
+        let visibleMac = if let teamID,
+                            let exactTeamMac = visibleMacs.first(where: { $0.macDeviceID == macDeviceID && $0.teamID == teamID }) {
+            exactTeamMac
+        } else {
+            visibleMacs.first { $0.macDeviceID == macDeviceID }
+        }
         guard let visibleMac else {
             return (stackUserID, teamID)
         }

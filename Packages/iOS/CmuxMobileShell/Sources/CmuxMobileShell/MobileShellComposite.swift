@@ -1556,17 +1556,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         switch connectionError {
         case .authorizationFailed:
             return true
-        case let .rpcError(code, message):
+        case let .rpcError(code, _):
             let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if let normalizedCode,
                ["unauthorized", "invalid_token", "token_expired", "expired_token", "auth_required"].contains(normalizedCode) {
                 return true
             }
-            let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            return normalizedMessage.contains("unauthorized")
-                || normalizedMessage.contains("invalid token")
-                || normalizedMessage.contains("expired token")
-                || normalizedMessage.contains("token expired")
+            return false
         case .accountMismatch, .attachTicketExpired, .insecureManualRoute, .connectionClosed, .invalidResponse,
              .requestTimedOut:
             return false
@@ -4827,7 +4823,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let hasAttachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
 
         var requests: [WorkspaceListRequest] = []
-        if hasAttachToken && ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if hasAttachToken {
             requests.append(
                 WorkspaceListRequest(
                     data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),

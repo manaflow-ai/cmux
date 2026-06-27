@@ -88,12 +88,18 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         now: Date
     ) async throws {
         let key = teamID ?? ""
-        guard let index = recordsByTeam[key]?.firstIndex(where: { $0.macDeviceID == macDeviceID }) else {
-            return
+        func update(in key: String, includeVisibleLegacy: Bool = false) -> Bool {
+            guard let index = recordsByTeam[key]?.firstIndex(where: { mac in
+                mac.macDeviceID == macDeviceID && (!includeVisibleLegacy || mac.stackUserID == nil || mac.stackUserID == stackUserID)
+            }) else {
+                return false
+            }
+            recordsByTeam[key]?[index].displayName = displayName
+            recordsByTeam[key]?[index].routes = routes
+            recordsByTeam[key]?[index].lastSeenAt = now
+            return true
         }
-        recordsByTeam[key]?[index].displayName = displayName
-        recordsByTeam[key]?[index].routes = routes
-        recordsByTeam[key]?[index].lastSeenAt = now
+        guard update(in: key) || (key != "" && update(in: "", includeVisibleLegacy: true)) else { return }
         upsertCount += 1
         resumeUpsertWaiters()
     }

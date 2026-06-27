@@ -4,6 +4,8 @@ import Testing
 @testable import CmuxMobileRPC
 
 @Suite struct MobileCoreRPCAuthSelectionTests {
+    private static let fixedNow = Date(timeIntervalSince1970: 2_000_000_000)
+
     @Test func scopedWorkspaceListDoesNotWaitForStackToken() async throws {
         let tokenStarted = AsyncFlag()
         let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
@@ -14,7 +16,8 @@ import Testing
                 await tokenStarted.set()
                 try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
                 return "late-stack-token"
-            }
+            },
+            now: { Self.fixedNow }
         )
         let ticket = try CmxAttachTicket(
             workspaceID: "workspace-main",
@@ -22,7 +25,7 @@ import Testing
             macDeviceID: "test-mac",
             macDisplayName: "Test Mac",
             routes: [route],
-            expiresAt: Date().addingTimeInterval(60),
+            expiresAt: Self.fixedNow.addingTimeInterval(60),
             authToken: "ticket-secret"
         )
         let client = MobileCoreRPCClient(
@@ -50,7 +53,8 @@ import Testing
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
-            stackAccessToken: "fresh-stack-token"
+            stackAccessToken: "fresh-stack-token",
+            now: { Self.fixedNow }
         )
         let ticket = try CmxAttachTicket(
             workspaceID: "workspace-main",
@@ -58,7 +62,7 @@ import Testing
             macDeviceID: "test-mac",
             macDisplayName: "Test Mac",
             routes: [route],
-            expiresAt: Date().addingTimeInterval(60),
+            expiresAt: Self.fixedNow.addingTimeInterval(60),
             authToken: "ticket-secret"
         )
         let client = MobileCoreRPCClient(
@@ -86,7 +90,8 @@ import Testing
                 await tokenStarted.set()
                 try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
                 return "late-stack-token"
-            }
+            },
+            now: { Self.fixedNow }
         )
         let ticket = try CmxAttachTicket(
             workspaceID: "workspace-main",
@@ -94,7 +99,7 @@ import Testing
             macDeviceID: "test-mac",
             macDisplayName: "Test Mac",
             routes: [route],
-            expiresAt: Date().addingTimeInterval(60),
+            expiresAt: Self.fixedNow.addingTimeInterval(60),
             authToken: "ticket-secret"
         )
         let client = MobileCoreRPCClient(
@@ -129,7 +134,8 @@ import Testing
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
-            stackAccessToken: "fresh-stack-token"
+            stackAccessToken: "fresh-stack-token",
+            now: { Self.fixedNow }
         )
         let ticket = try CmxAttachTicket(
             workspaceID: "workspace-main",
@@ -137,7 +143,7 @@ import Testing
             macDeviceID: "test-mac",
             macDisplayName: "Test Mac",
             routes: [route],
-            expiresAt: Date().addingTimeInterval(60),
+            expiresAt: Self.fixedNow.addingTimeInterval(60),
             authToken: "ticket-secret"
         )
         let client = MobileCoreRPCClient(
@@ -162,7 +168,7 @@ import Testing
     }
 
     @Test func expiredTicketCoveredWorkspaceListFallsBackToStackTokenOnTrustedRoute() async throws {
-        let now = Date()
+        let now = Self.fixedNow
         let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
@@ -199,7 +205,8 @@ import Testing
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
-            stackAccessToken: nil
+            stackAccessToken: nil,
+            now: { Self.fixedNow }
         )
         let ticket = try CmxAttachTicket(
             workspaceID: "",
@@ -207,7 +214,7 @@ import Testing
             macDeviceID: "test-mac",
             macDisplayName: "Test Mac",
             routes: [route],
-            expiresAt: Date().addingTimeInterval(60),
+            expiresAt: Self.fixedNow.addingTimeInterval(60),
             authToken: "ticket-secret"
         )
         let client = MobileCoreRPCClient(

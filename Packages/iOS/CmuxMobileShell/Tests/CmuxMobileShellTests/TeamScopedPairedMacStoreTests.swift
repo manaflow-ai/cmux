@@ -93,6 +93,24 @@ import Testing
         #expect(visible?.customIcon == "terminal")
     }
 
+    @Test func routeUpdatePrefersExactTeamRowOverVisibleLegacyFallback() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = TeamScopedPairedMacStore(inner: inner, teamIDProvider: { "team-a" })
+        let legacyRoute = try route("10.0.0.1")
+        let teamRoute = try route("10.0.0.2")
+        let refreshedRoute = try route("10.0.0.9")
+
+        try await inner.upsert(macDeviceID: "mac-shared", displayName: "Legacy", routes: [legacyRoute], markActive: false, stackUserID: nil, teamID: nil, now: Date(timeIntervalSince1970: 2))
+        try await inner.upsert(macDeviceID: "mac-shared", displayName: "Team", routes: [teamRoute], markActive: false, stackUserID: "user-1", teamID: "team-a", now: Date(timeIntervalSince1970: 1))
+        try await store.updateRoutes(macDeviceID: "mac-shared", displayName: "Refreshed", routes: [refreshedRoute], stackUserID: "user-1", teamID: nil, now: Date(timeIntervalSince1970: 3))
+
+        let selected = try await inner.loadAll(stackUserID: "user-1", teamID: "team-a")
+        let legacy = try await inner.loadAll(stackUserID: nil, teamID: nil)
+        #expect(selected.first { $0.teamID == "team-a" }?.routes == [refreshedRoute])
+        #expect(legacy.first { $0.teamID == nil }?.routes == [legacyRoute])
+    }
+
     @Test func activatingVisibleLegacyRowClearsSelectedTeamActiveMac() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }

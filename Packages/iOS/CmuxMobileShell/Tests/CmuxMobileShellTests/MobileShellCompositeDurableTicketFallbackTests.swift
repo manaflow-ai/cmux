@@ -65,14 +65,19 @@ import Testing
             "workspace.list",
             "mobile.attach_ticket.create",
             "workspace.list",
+            "workspace.list",
         ])
-        guard requests.count >= 3 else { return }
+        guard requests.count >= 4 else { return }
         #expect(requests[0].attachToken == "stale-token")
         #expect(requests[0].stackAccessToken == nil)
         #expect(requests[1].attachToken == nil)
         #expect(requests[1].stackAccessToken == "fresh-stack-token")
-        #expect(requests[2].attachToken == "fresh-token")
-        #expect(requests[2].stackAccessToken == nil)
+        #expect(requests[2].attachToken == nil)
+        #expect(requests[2].stackAccessToken == "fresh-stack-token")
+        #expect(requests[2].workspaceID == nil)
+        #expect(requests[3].attachToken == "fresh-token")
+        #expect(requests[3].stackAccessToken == nil)
+        #expect(requests[3].workspaceID == DurableTicketFallbackRouter.workspaceID)
     }
 }
 
@@ -147,7 +152,7 @@ private actor DurableTicketFallbackTransport: CmxByteTransport {
 }
 
 private actor DurableTicketFallbackRouter {
-    private static let workspaceID = "11111111-1111-4111-8111-111111111111"
+    static let workspaceID = "11111111-1111-4111-8111-111111111111"
 
     private let route: CmxAttachRoute
     private let expiresAt: Date
@@ -170,7 +175,13 @@ private actor DurableTicketFallbackRouter {
             )
         case ("mobile.attach_ticket.create", _):
             return try attachTicketFrame(id: request.id)
-        case ("workspace.list", "fresh-token"):
+        case ("workspace.list", nil) where request.stackAccessToken == "fresh-stack-token" && request.workspaceID == nil:
+            return try Self.errorFrame(
+                id: request.id,
+                code: "forbidden",
+                message: "Full workspace list requires Mac-wide authorization"
+            )
+        case ("workspace.list", "fresh-token") where request.workspaceID == Self.workspaceID:
             return try Self.workspaceListFrame(id: request.id)
         default:
             return try Self.errorFrame(
@@ -240,14 +251,17 @@ private actor DurableTicketFallbackRouter {
 private struct DurableTicketFallbackRequest: Sendable {
     var id: String?
     var method: String?
+    var workspaceID: String?
     var attachToken: String?
     var stackAccessToken: String?
 
     init(payload: Data) throws {
         let request = try JSONSerialization.jsonObject(with: payload) as? [String: Any]
+        let params = request?["params"] as? [String: Any]
         let auth = request?["auth"] as? [String: Any]
         id = request?["id"] as? String
         method = request?["method"] as? String
+        workspaceID = params?["workspace_id"] as? String
         attachToken = auth?["attach_token"] as? String
         stackAccessToken = auth?["stack_access_token"] as? String
     }
