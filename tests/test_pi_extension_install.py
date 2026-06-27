@@ -86,7 +86,6 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env.pop("CMUX_SURFACE_ID", None)
         check_env.pop("CMUX_PANEL_ID", None)
         check_env["CMUX_WORKSPACE_ID"] = "workspace-pi-test"
-        check_env["CMUX_SOCKET_PATH"] = str(root / "cmux-test.sock")
         check_env["CMUX_PI_CMUX_BIN"] = str(fake_cmux)
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
         check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)
@@ -127,6 +126,27 @@ await handlers.get("agent_end")({
   stopReason: "completed"
 }, ctx);
 """
+        no_socket_check = subprocess.run(
+            [bun, "--eval", check_source],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=check_env,
+            timeout=20,
+        )
+        if no_socket_check.returncode != 0:
+            print("FAIL: generated Pi extension failed without socket context")
+            print(f"exit={no_socket_check.returncode}")
+            print(f"stdout={no_socket_check.stdout.strip()}")
+            print(f"stderr={no_socket_check.stderr.strip()}")
+            return 1
+        if fake_args_log.exists() and fake_args_log.read_text(encoding="utf-8"):
+            print("FAIL: extension invoked cmux without CMUX_SOCKET_PATH")
+            print(fake_args_log.read_text(encoding="utf-8"))
+            return 1
+
+        check_env["CMUX_SOCKET_PATH"] = str(root / "cmux-test.sock")
         check = subprocess.run(
             [bun, "--eval", check_source],
             cwd=root,

@@ -27388,7 +27388,7 @@ function hookEnvironment(cwd) {
 
 function sendHook(subcommand, ctx, event, extra = {}) {
   if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
-  if (!["CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_WORKSPACE_ID", "CMUX_SOCKET_PATH"].some((key) => process.env[key])) return;
+  if (!process.env.CMUX_SOCKET_PATH || !["CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_WORKSPACE_ID"].some((key) => process.env[key])) return;
 
   const sessionId = sessionIdFor(event);
   if (!sessionId) return;
@@ -27824,7 +27824,7 @@ function lastAssistantMessage(event: AgentEndEvent): string | undefined {
 
 function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): void {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
-  if (!["CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_WORKSPACE_ID", "CMUX_SOCKET_PATH"].some((key) => process.env[key])) return;
+  if (!process.env.CMUX_SOCKET_PATH || !["CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_WORKSPACE_ID"].some((key) => process.env[key])) return;
 
   const sessionId = firstString(ctx.sessionManager.getSessionId());
   if (!sessionId) return;
