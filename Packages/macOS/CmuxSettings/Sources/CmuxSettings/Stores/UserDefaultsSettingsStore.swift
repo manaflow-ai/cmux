@@ -16,7 +16,7 @@ public actor UserDefaultsSettingsStore {
         String: [(source: UserDefaultsSettingsMutationSource, sequence: UInt64)]
     ] = [:]
     private var acceptedMutationLogicalOrders: [String: UInt64] = [:]
-    private var acceptedMutationSources: [String: UserDefaultsSettingsMutationSource] = [:]
+    private var acceptedMutationSourcesByOwner: [String: [UUID: UserDefaultsSettingsMutationSource]] = [:]
     private var knownValues: [String: any Sendable] = [:]
     private var knownValueLogicalOrders: [String: UInt64] = [:]
     private var mutationSourceSequences: [String: UInt64] = [:]
@@ -112,11 +112,7 @@ public actor UserDefaultsSettingsStore {
         if let source {
             let sequence = nextMutationSourceSequence(for: storageKey)
             if let record = mutationSources[storageKey] {
-                recordSupersededMutationSource(
-                    record.source,
-                    sequence: sequence,
-                    for: storageKey
-                )
+                recordSupersededMutationSource(record.source, sequence: sequence, for: storageKey)
             }
             mutationSources[storageKey] = UserDefaultsSettingsMutationSourceRecord(
                 source: source,
@@ -139,11 +135,7 @@ public actor UserDefaultsSettingsStore {
         }
         if let record = mutationSources[storageKey] {
             let sequence = nextMutationSourceSequence(for: storageKey)
-            recordSupersededMutationSource(
-                record.source,
-                sequence: sequence,
-                for: storageKey
-            )
+            recordSupersededMutationSource(record.source, sequence: sequence, for: storageKey)
         }
         mutationSources.removeValue(forKey: storageKey)
     }
@@ -159,8 +151,7 @@ public actor UserDefaultsSettingsStore {
            source.logicalOrder < acceptedOrder {
             return false
         }
-        if let acceptedSource = acceptedMutationSources[storageKey],
-           source.ownerID == acceptedSource.ownerID,
+        if let acceptedSource = acceptedMutationSourcesByOwner[storageKey]?[source.ownerID],
            source.logicalOrder == acceptedSource.logicalOrder,
            source.sequence < acceptedSource.sequence {
             return false
@@ -219,9 +210,17 @@ public actor UserDefaultsSettingsStore {
             logicalOrder
         )
         if let source {
-            acceptedMutationSources[storageKey] = source
+            var sourcesByOwner = acceptedMutationSourcesByOwner[storageKey] ?? [:]
+            if let acceptedSource = sourcesByOwner[source.ownerID],
+               source.logicalOrder < acceptedSource.logicalOrder
+                || (source.logicalOrder == acceptedSource.logicalOrder
+                    && source.sequence <= acceptedSource.sequence) {
+                return
+            }
+            sourcesByOwner[source.ownerID] = source
+            acceptedMutationSourcesByOwner[storageKey] = sourcesByOwner
         } else {
-            acceptedMutationSources.removeValue(forKey: storageKey)
+            acceptedMutationSourcesByOwner.removeValue(forKey: storageKey)
         }
     }
 

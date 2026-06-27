@@ -128,6 +128,37 @@ struct UserDefaultsSettingsStoreSourceOrderingTests {
         #expect(value == "#NEWER")
     }
 
+    @Test func rejectsOlderSameOwnerMutationAfterEqualOrderWriteFromDifferentOwner() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let firstOwnerID = UUID()
+        let secondOwnerID = UUID()
+        let firstOwnerOlderSource = UserDefaultsSettingsMutationSource(
+            ownerID: firstOwnerID,
+            sequence: 1,
+            logicalOrder: 1
+        )
+        let firstOwnerNewerSource = UserDefaultsSettingsMutationSource(
+            ownerID: firstOwnerID,
+            sequence: 2,
+            logicalOrder: 1
+        )
+        let secondOwnerSource = UserDefaultsSettingsMutationSource(
+            ownerID: secondOwnerID,
+            sequence: 1,
+            logicalOrder: 1
+        )
+
+        await store.set("#FIRST-NEWER", for: key, source: firstOwnerNewerSource)
+        await store.set("#SECOND", for: key, source: secondOwnerSource)
+        let acceptedSource = await store.set("#FIRST-OLDER", for: key, source: firstOwnerOlderSource)
+
+        let value = await store.value(for: key)
+        #expect(acceptedSource == nil)
+        #expect(value == "#SECOND")
+    }
+
     @Test func rejectsOlderMutationSourceAfterSourceLessWrite() async {
         let suiteName = "cmux.tests.\(UUID().uuidString)"
         let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
