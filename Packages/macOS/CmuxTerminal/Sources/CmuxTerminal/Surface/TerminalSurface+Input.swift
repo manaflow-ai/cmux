@@ -347,6 +347,15 @@ extension TerminalSurface {
         if next == 0x7F || next == 0x08 {
             return (UInt32(kVK_Delete), GHOSTTY_MODS_ALT, "alt-backspace", 2)
         }
+        // Meta+<key>: every other Option-modified keystroke arrives as ESC<byte>
+        // — Option+Enter (ESC CR/LF), Option+Left/Right word-jump (ESC b / ESC f),
+        // Option+digit, and so on. Re-issue as the base key with the Option
+        // modifier so libghostty encodes the meta byte sequence atomically for
+        // the surface, instead of the bare-ESC path emitting a stray Escape and
+        // leaking the trailing byte as literal text.
+        if let meta = metaKey(forFollowingByte: next) {
+            return (meta.keycode, GHOSTTY_MODS_ALT, meta.label, 2)
+        }
         // CSI (ESC[) / SS3 (ESCO) cursor + navigation sequences.
         guard next == 0x5B || next == 0x4F, start + 2 < scalars.count else { return nil }
         let final = scalars[start + 2].value
@@ -371,6 +380,30 @@ extension TerminalSurface {
             default:
                 break
             }
+        }
+        return nil
+    }
+
+    /// Maps the byte following ESC in an Option-modified ("meta") key sequence
+    /// to the macOS virtual key code that libghostty re-encodes with the Option
+    /// modifier (`ESC b` → Alt+B → the shell's backward-word motion, etc.).
+    ///
+    /// `O` (0x4F) and `P` (0x50) are intentionally excluded: they introduce the
+    /// SS3 cursor-key and DCS string-control sequences handled by the cursor-key
+    /// block in ``navigationEscapeKey(_:from:)`` and the caller's terminal-control
+    /// parser. Any byte that is not a simple Option-able key returns nil so it
+    /// keeps its existing handling.
+    private static func metaKey(forFollowingByte value: UInt32) -> (keycode: UInt32, label: String)? {
+        if value == 0x0D || value == 0x0A { // CR / LF — Option+Enter
+            return (UInt32(kVK_Return), "alt-return")
+        }
+        if value != 0x4F, value != 0x50,
+           let scalar = Unicode.Scalar(value),
+           let keycode = keycodeForLetter(Character(scalar)) {
+            return (keycode, "alt-\(String(Character(scalar)).lowercased())")
+        }
+        if let keycode = keycodeForDigit(value) {
+            return (keycode, "alt-\(value - 0x30)")
         }
         return nil
     }
@@ -560,7 +593,7 @@ extension TerminalSurface {
         return String(decoding: rawData, as: UTF8.self)
     }
 
-    private func keycodeForLetter(_ letter: Character) -> UInt32? {
+    private static func keycodeForLetter(_ letter: Character) -> UInt32? {
         switch String(letter).lowercased() {
         case "a": return UInt32(kVK_ANSI_A)
         case "b": return UInt32(kVK_ANSI_B)
@@ -588,6 +621,25 @@ extension TerminalSurface {
         case "x": return UInt32(kVK_ANSI_X)
         case "y": return UInt32(kVK_ANSI_Y)
         case "z": return UInt32(kVK_ANSI_Z)
+        default: return nil
+        }
+    }
+
+    /// macOS virtual key code for an ASCII digit scalar value (0x30–0x39). The
+    /// `kVK_ANSI_*` digit codes are not contiguous, so they need an explicit
+    /// lookup just like ``keycodeForLetter(_:)``.
+    private static func keycodeForDigit(_ value: UInt32) -> UInt32? {
+        switch value {
+        case 0x30: return UInt32(kVK_ANSI_0)
+        case 0x31: return UInt32(kVK_ANSI_1)
+        case 0x32: return UInt32(kVK_ANSI_2)
+        case 0x33: return UInt32(kVK_ANSI_3)
+        case 0x34: return UInt32(kVK_ANSI_4)
+        case 0x35: return UInt32(kVK_ANSI_5)
+        case 0x36: return UInt32(kVK_ANSI_6)
+        case 0x37: return UInt32(kVK_ANSI_7)
+        case 0x38: return UInt32(kVK_ANSI_8)
+        case 0x39: return UInt32(kVK_ANSI_9)
         default: return nil
         }
     }
@@ -665,7 +717,7 @@ extension TerminalSurface {
                 }
                 if baseKey.count == 1,
                    let char = baseKey.first,
-                   let keycode = keycodeForLetter(char) {
+                   let keycode = Self.keycodeForLetter(char) {
                     return PendingKeyEvent(keycode: keycode, mods: GHOSTTY_MODS_NONE, label: normalized)
                 }
                 return nil
@@ -692,7 +744,7 @@ extension TerminalSurface {
             }
             if baseKey.count == 1,
                let char = baseKey.first,
-               let keycode = keycodeForLetter(char) {
+               let keycode = Self.keycodeForLetter(char) {
                 return PendingKeyEvent(keycode: keycode, mods: mods, label: normalized)
             }
             return nil
