@@ -992,6 +992,185 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return (tabManager, focusController)
     }
 
+    // MARK: - WindowLifecycleHosting registration ingest seam
+
+    /// Whether a tab-manager slice is registered under `id`. Backs the
+    /// coordinator's rebind-vs-seed branch decision.
+    func isMainWindowRegistered(_ id: WindowID) -> Bool {
+        windowTabManagers.model(for: id) != nil
+    }
+
+    /// Re-points the existing live window registered under `existingId` when a
+    /// duplicate window arrives for the same id, then leaves the duplicate
+    /// `window`'s `orderOut`/`close` to the coordinator. Faithfully reproduces the
+    /// old `registerMainWindow` duplicate-ignored branch (debug log + existing
+    /// manager / focus-controller re-point).
+    func handleDuplicateMainWindowRegistration(
+        windowId: UUID,
+        existingId: WindowID,
+        existingWindow: NSWindow,
+        duplicate: NSWindow
+    ) {
+#if DEBUG
+        cmuxDebugLog(
+            "mainWindow.register.duplicateIgnored windowId=\(String(windowId.uuidString.prefix(8))) " +
+                "existing={\(debugWindowToken(existingWindow))} duplicate={\(debugWindowToken(duplicate))}"
+        )
+#endif
+        if let existingManager = windowTabManagers.model(for: existingId) {
+            existingManager.window = existingWindow
+            existingManager.windowId = windowId
+            windowFocusControllers.model(for: existingId)?.update(
+                window: existingWindow,
+                tabManager: existingManager,
+                fileExplorerState: windowFileExplorerStates.model(for: existingId)
+            )
+        }
+    }
+
+    /// Re-points the per-window slices for an already-registered `resolvedId` at
+    /// `window`/`tabManager`. The coordinator owns the reverse-index rebind and the
+    /// `windowCoordinator.register` identity write around this call, so this funnel
+    /// writes only the disjoint per-window stores + focus-controller update (the
+    /// shared body of the old `registerMainWindow` rebind branches).
+    func rebindRegisteredWindowSlices(
+        window: NSWindow,
+        resolvedId: WindowID,
+        tabManager: TabManager,
+        slices: MainWindowRegistrationSlices
+    ) {
+        tabManager.window = window
+        tabManager.windowId = resolvedId.rawValue
+        let resolvedFileExplorerState = slices.fileExplorerState ?? windowFileExplorerStates.model(for: resolvedId)
+        if let fileExplorerState = slices.fileExplorerState {
+            windowFileExplorerStates.setModel(fileExplorerState, for: resolvedId)
+        }
+        windowFocusControllers.model(for: resolvedId)?.update(
+            window: window,
+            tabManager: tabManager,
+            fileExplorerState: resolvedFileExplorerState
+        )
+        if let cmuxConfigStore = slices.cmuxConfigStore {
+            windowConfigStores.setModel(cmuxConfigStore, for: resolvedId)
+        }
+    }
+
+    /// Seeds every per-window slice for a brand-new window `newId` (the old
+    /// `registerMainWindow` else-branch): a freshly constructed
+    /// ``MainWindowFocusController`` plus the sidebar / sidebar selection /
+    /// optional file-explorer / optional config-store stores. The coordinator
+    /// owns the reverse-index rebind and identity write around this call.
+    func seedNewMainWindowSlices(
+        window: NSWindow,
+        windowId: UUID,
+        newId: WindowID,
+        tabManager: TabManager,
+        slices: MainWindowRegistrationSlices
+    ) {
+        tabManager.window = window
+        tabManager.windowId = windowId
+        let focusController = MainWindowFocusController(
+            windowId: windowId,
+            window: window,
+            tabManager: tabManager,
+            fileExplorerState: slices.fileExplorerState,
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
+        )
+        windowFocusControllers.setModel(focusController, for: newId)
+        windowSidebarStates.setModel(slices.sidebarState, for: newId)
+        windowSidebarSelectionStates.setModel(slices.sidebarSelectionState, for: newId)
+        if let fileExplorerState = slices.fileExplorerState {
+            windowFileExplorerStates.setModel(fileExplorerState, for: newId)
+        }
+        if let cmuxConfigStore = slices.cmuxConfigStore {
+            windowConfigStores.setModel(cmuxConfigStore, for: newId)
+        }
+    }
+
+    /// Registers `windowId` with the command-palette presentation coordinator.
+    func commandPaletteRegisterWindow(_ windowId: UUID) {
+        commandPalettePresentation.registerWindow(windowId)
+    }
+
+    /// Ensures the per-tab-manager socket listener when socket control is enabled.
+    func ensureSocketListener(for tabManager: TabManager, source: String) {
+        ensureSocketListenerIfEnabled(tabManager: tabManager, source: source)
+    }
+
+    /// Applies the one-shot startup session restore if it has not run yet,
+    /// returning whether a restore was applied this call.
+    func attemptStartupSessionRestore(primaryWindow: NSWindow) -> Bool {
+        attemptStartupSessionRestoreIfNeeded(primaryWindow: primaryWindow)
+    }
+
+    /// Whether a session snapshot should be written immediately after this
+    /// registration, applying the persistence policy against the live
+    /// terminating / restoring flags.
+    func shouldSaveSnapshotAfterMainWindowRegistration(didApplyStartupSessionRestore: Bool) -> Bool {
+        Self.sessionPersistenceDecisionPolicy.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+            isTerminatingApp: isTerminatingApp,
+            didApplyStartupSessionRestore: didApplyStartupSessionRestore,
+            isApplyingSessionRestore: isApplyingSessionRestore
+        )
+    }
+
+    /// Writes the post-registration session snapshot (no scrollback).
+    func saveSessionSnapshotAfterMainWindowRegistration() {
+        saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
+    }
+
+#if DEBUG
+    /// The currently active tab manager, captured before a registration mutates
+    /// the registry so the post-registration debug log can report the prior
+    /// active manager.
+    var activeTabManagerForRegistrationDebug: TabManager? {
+        tabManager
+    }
+
+    /// Emits the `mainWindow.register` debug log after the registry mutates.
+    func logMainWindowRegistered(
+        windowId: UUID,
+        window: NSWindow,
+        tabManager: TabManager,
+        priorActiveTabManager: TabManager?
+    ) {
+        cmuxDebugLog(
+            "mainWindow.register windowId=\(String(windowId.uuidString.prefix(8))) window={\(debugWindowToken(window))} manager=\(debugManagerToken(tabManager)) priorActiveMgr=\(debugManagerToken(priorActiveTabManager)) \(debugShortcutRouteSnapshot())"
+        )
+    }
+
+    /// Seeds every per-window slice for the DEBUG-only window-less testing
+    /// registration of `testId` (the old `registerMainWindowContextForTesting`
+    /// body, minus the reverse-index rebind + observer/notify the coordinator now
+    /// sequences).
+    func seedTestingMainWindowSlices(
+        windowId: UUID,
+        testId: WindowID,
+        tabManager: TabManager,
+        slices: MainWindowRegistrationSlices
+    ) {
+        tabManager.windowId = windowId
+        windowFocusControllers.setModel(
+            MainWindowFocusController(
+                windowId: windowId,
+                window: nil,
+                tabManager: tabManager,
+                fileExplorerState: slices.fileExplorerState,
+                surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
+            ),
+            for: testId
+        )
+        windowSidebarStates.setModel(slices.sidebarState, for: testId)
+        windowSidebarSelectionStates.setModel(slices.sidebarSelectionState, for: testId)
+        if let fileExplorerState = slices.fileExplorerState {
+            windowFileExplorerStates.setModel(fileExplorerState, for: testId)
+        }
+        if let cmuxConfigStore = slices.cmuxConfigStore {
+            windowConfigStores.setModel(cmuxConfigStore, for: testId)
+        }
+    }
+#endif
+
     /// Window-lifecycle layer, lifted into `CmuxWindowing`. Owns window identity
     /// and lifecycle: the ``WindowManaging`` coordinator (the live `WindowID`
     /// set, the `NSWindow` handle per window, and the single window-closed
@@ -3205,7 +3384,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    private func notifyMainWindowContextsDidChange() {
+    func notifyMainWindowContextsDidChange() {
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
 
@@ -3224,7 +3403,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Register a terminal window with the AppDelegate so menu commands and socket control
-    /// can target whichever window is currently active.
+    /// can target whichever window is currently active. Thin forwarder: the
+    /// window-identity decision + god-effect sequencing lives in
+    /// ``WindowLifecycleCoordinator/registerMainWindow(_:windowId:tabManager:slices:)``;
+    /// the app-typed per-window slices ride across the seam in a
+    /// ``MainWindowRegistrationSlices`` value, and every god-type effect is a
+    /// ``WindowLifecycleHosting`` callback implemented in
+    /// `AppDelegate+WindowLifecycleRegistrationHosting.swift`.
     func registerMainWindow(
         _ window: NSWindow,
         windowId: UUID,
@@ -3234,131 +3419,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         fileExplorerState: FileExplorerState? = nil,
         cmuxConfigStore: CmuxConfigStore? = nil
     ) {
-        forgetRecoverableMainWindowRoute(windowId: windowId)
-        #if DEBUG
-        let priorManagerToken = debugManagerToken(self.tabManager)
-        #endif
-        // Resolve the existing registration by WindowID (the canonical key now
-        // that the `ObjectIdentifier`-keyed aggregate is gone). The window-object
-        // identity branch and the windowId branch of the old registry collapse:
-        // `windowCoordinator.id(for:)` tells us if this exact NSWindow was
-        // already registered (under whatever id), and `windowTabManagers` tells
-        // us if `windowId` already has a slice. The reindex dance the old class
-        // needed is gone because `windowCoordinator` owns window↔id identity.
-        let existingIdForWindow = windowCoordinator.id(for: window)
-        if let existingId = existingIdForWindow, windowTabManagers.model(for: existingId) != nil {
-            // Same NSWindow re-registered: rebind under its already-known id
-            // (which may differ from the passed `windowId`, exactly as the old
-            // `existing.windowId` branch preserved).
-            let existingWindowId = existingId.rawValue
-            tabManager.window = window
-            tabManager.windowId = existingWindowId
-            // `self.` qualifies the seam method: the `fileExplorerState`
-            // parameter shadows the `fileExplorerState(for:)` resolver in this
-            // scope.
-            let resolvedFileExplorerState = fileExplorerState ?? windowFileExplorerStates.model(for: existingId)
-            if let fileExplorerState {
-                windowFileExplorerStates.setModel(fileExplorerState, for: existingId)
-            }
-            rebindWindowTabManager(tabManager, for: existingId)
-            windowFocusControllers.model(for: existingId)?.update(
-                window: window,
-                tabManager: tabManager,
-                fileExplorerState: resolvedFileExplorerState
-            )
-            if let cmuxConfigStore {
-                windowConfigStores.setModel(cmuxConfigStore, for: existingId)
-            }
-            windowCoordinator.register(window, id: existingId)
-        } else if windowTabManagers.model(for: WindowID(windowId)) != nil {
-            let existingId = WindowID(windowId)
-            let existingWindow = windowCoordinator.window(for: existingId) ?? windowForMainWindowId(windowId)
-            if let existingWindow,
-               existingWindow !== window,
-               existingWindow.isVisible || existingWindow.isMiniaturized {
-#if DEBUG
-                cmuxDebugLog(
-                    "mainWindow.register.duplicateIgnored windowId=\(String(windowId.uuidString.prefix(8))) " +
-                        "existing={\(debugWindowToken(existingWindow))} duplicate={\(debugWindowToken(window))}"
-                )
-#endif
-                if let existingManager = windowTabManagers.model(for: existingId) {
-                    existingManager.window = existingWindow
-                    existingManager.windowId = windowId
-                    windowFocusControllers.model(for: existingId)?.update(
-                        window: existingWindow,
-                        tabManager: existingManager,
-                        fileExplorerState: windowFileExplorerStates.model(for: existingId)
-                    )
-                }
-                window.orderOut(nil)
-                window.close()
-                return
-            }
-            tabManager.window = window
-            tabManager.windowId = windowId
-            let resolvedFileExplorerState = fileExplorerState ?? windowFileExplorerStates.model(for: existingId)
-            if let fileExplorerState {
-                windowFileExplorerStates.setModel(fileExplorerState, for: existingId)
-            }
-            rebindWindowTabManager(tabManager, for: existingId)
-            windowFocusControllers.model(for: existingId)?.update(
-                window: window,
-                tabManager: tabManager,
-                fileExplorerState: resolvedFileExplorerState
-            )
-            if let cmuxConfigStore {
-                windowConfigStores.setModel(cmuxConfigStore, for: existingId)
-            }
-            windowCoordinator.register(window, id: existingId)
-        } else {
-            let newId = WindowID(windowId)
-            tabManager.window = window
-            tabManager.windowId = windowId
-            let focusController = MainWindowFocusController(
-                windowId: windowId,
-                window: window,
-                tabManager: tabManager,
+        windowLifecycle.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: tabManager,
+            slices: MainWindowRegistrationSlices(
+                sidebarState: sidebarState,
+                sidebarSelectionState: sidebarSelectionState,
                 fileExplorerState: fileExplorerState,
-                surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
+                cmuxConfigStore: cmuxConfigStore
             )
-            rebindWindowTabManager(tabManager, for: newId)
-            windowFocusControllers.setModel(focusController, for: newId)
-            windowSidebarStates.setModel(sidebarState, for: newId)
-            windowSidebarSelectionStates.setModel(sidebarSelectionState, for: newId)
-            if let fileExplorerState {
-                windowFileExplorerStates.setModel(fileExplorerState, for: newId)
-            }
-            if let cmuxConfigStore {
-                windowConfigStores.setModel(cmuxConfigStore, for: newId)
-            }
-            windowCoordinator.register(window, id: newId)
-        }
-        commandPalettePresentation.registerWindow(windowId)
-
-#if DEBUG
-        cmuxDebugLog(
-            "mainWindow.register windowId=\(String(windowId.uuidString.prefix(8))) window={\(debugWindowToken(window))} manager=\(debugManagerToken(tabManager)) priorActiveMgr=\(priorManagerToken) \(debugShortcutRouteSnapshot())"
         )
-#endif
-        ensureSocketListenerIfEnabled(tabManager: tabManager, source: "mainWindow.register")
-        ensureMobileWorkspaceListObserver(for: tabManager)
-        notifyMainWindowContextsDidChange()
-        if window.isKeyWindow {
-            setActiveMainWindow(window)
-        }
-
-        let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
-        if Self.sessionPersistenceDecisionPolicy.shouldSaveSessionSnapshotAfterMainWindowRegistration(
-            isTerminatingApp: isTerminatingApp,
-            didApplyStartupSessionRestore: didApplyStartupSessionRestore,
-            isApplyingSessionRestore: isApplyingSessionRestore
-        ) {
-            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
-        }
     }
 
 #if DEBUG
+    /// Thin forwarder to
+    /// ``WindowLifecycleCoordinator/registerMainWindowContextForTesting(windowId:tabManager:slices:)``;
+    /// the window-less slice seeding runs in the
+    /// ``WindowLifecycleHosting/seedTestingMainWindowSlices(windowId:testId:tabManager:slices:)``
+    /// callback. The fresh `SidebarState()`/`SidebarSelectionState()` the old test
+    /// scaffold built inline now ride across the seam in the slices value.
     @discardableResult
     func registerMainWindowContextForTesting(
         windowId: UUID = UUID(),
@@ -3366,30 +3446,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxConfigStore: CmuxConfigStore? = nil,
         fileExplorerState: FileExplorerState? = nil
     ) -> UUID {
-        tabManager.windowId = windowId
-        let testId = WindowID(windowId)
-        rebindWindowTabManager(tabManager, for: testId)
-        windowFocusControllers.setModel(
-            MainWindowFocusController(
-                windowId: windowId,
-                window: nil,
-                tabManager: tabManager,
+        windowLifecycle.registerMainWindowContextForTesting(
+            windowId: windowId,
+            tabManager: tabManager,
+            slices: MainWindowRegistrationSlices(
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
                 fileExplorerState: fileExplorerState,
-                surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
-            ),
-            for: testId
+                cmuxConfigStore: cmuxConfigStore
+            )
         )
-        windowSidebarStates.setModel(SidebarState(), for: WindowID(windowId))
-        windowSidebarSelectionStates.setModel(SidebarSelectionState(), for: WindowID(windowId))
-        if let fileExplorerState {
-            windowFileExplorerStates.setModel(fileExplorerState, for: WindowID(windowId))
-        }
-        if let cmuxConfigStore {
-            windowConfigStores.setModel(cmuxConfigStore, for: WindowID(windowId))
-        }
-        ensureMobileWorkspaceListObserver(for: tabManager)
-        notifyMainWindowContextsDidChange()
-        return windowId
     }
 
     func sessionSnapshotForTesting(includeScrollback: Bool = false) -> AppSessionSnapshot? {
