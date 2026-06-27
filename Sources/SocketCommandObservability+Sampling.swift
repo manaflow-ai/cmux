@@ -32,7 +32,7 @@ extension SocketCommandObservability {
                 )
             }
 
-            let text = try String(contentsOf: sampleURL, encoding: .utf8)
+            let text = try await sampleFileContents(at: sampleURL)
             return WatchdogSample(
                 url: sampleURL,
                 mainThreadExcerpt: mainThreadSampleExcerpt(from: text),
@@ -45,6 +45,17 @@ extension SocketCommandObservability {
                 errorDescription: String(describing: error)
             )
         }
+    }
+
+    private func sampleFileContents(at url: URL) async throws -> String {
+        let fileHandle = try FileHandle(forReadingFrom: url)
+        defer { try? fileHandle.close() }
+
+        var data = Data()
+        for try await byte in fileHandle.bytes {
+            data.append(byte)
+        }
+        return String(decoding: data, as: UTF8.self)
     }
 
     private func watchdogSampleURL(for command: Command) throws -> URL {
