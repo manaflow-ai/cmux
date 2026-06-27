@@ -2316,7 +2316,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private var commandPaletteListScope: CommandPaletteListScope {
-        Self.commandPaletteListScope(for: commandPalettePresentation.query)
+        Self.commandPaletteQueryScopePolicy.listScope(for: commandPalettePresentation.query)
     }
 
     private var commandPaletteCurrentSearchFingerprint: Int {
@@ -2333,10 +2333,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     /// snapshot seam, so the builder reads current live state on each call.
     private var commandPaletteSwitcherEntryBuilder: CommandPaletteSwitcherEntryBuilder {
         CommandPaletteSwitcherEntryBuilder(snapshotProvider: self)
-    }
-
-    nonisolated private static func commandPaletteListScope(for query: String) -> CommandPaletteListScope {
-        commandPaletteQueryScopePolicy.listScope(for: query)
     }
 
     static func commandPaletteShouldResetVisibleResultsForQueryTransition(
@@ -2356,7 +2352,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private var commandPaletteSwitcherIncludesSurfaceEntries: Bool {
-        Self.commandPaletteSwitcherIncludesSurfaceEntries(
+        Self.commandPaletteQueryScopePolicy.switcherIncludesSurfaceEntries(
             searchAllSurfaces: commandPaletteSearchAllSurfaces,
             query: commandPalettePresentation.query
         )
@@ -2385,17 +2381,10 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private var commandPaletteQueryForMatching: String {
-        Self.commandPaletteQueryForMatching(
+        Self.commandPaletteQueryScopePolicy.queryForMatching(
             query: commandPalettePresentation.query,
             scope: commandPaletteListScope
         )
-    }
-
-    nonisolated private static func commandPaletteRefreshQuery(
-        stateQuery: String,
-        observedQuery: String?
-    ) -> String {
-        observedQuery ?? stateQuery
     }
 
     nonisolated static func commandPaletteRefreshInputsForTests(
@@ -2403,26 +2392,16 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         observedQuery: String?,
         searchAllSurfaces: Bool
     ) -> (scope: String, matchingQuery: String, includesSurfaces: Bool) {
-        let effectiveQuery = commandPaletteRefreshQuery(
-            stateQuery: stateQuery,
-            observedQuery: observedQuery
-        )
-        let scope = commandPaletteListScope(for: effectiveQuery)
+        let effectiveQuery = observedQuery ?? stateQuery
+        let scope = commandPaletteQueryScopePolicy.listScope(for: effectiveQuery)
         return (
             scope: scope.rawValue,
-            matchingQuery: commandPaletteQueryForMatching(query: effectiveQuery, scope: scope),
-            includesSurfaces: commandPaletteSwitcherIncludesSurfaceEntries(
+            matchingQuery: commandPaletteQueryScopePolicy.queryForMatching(query: effectiveQuery, scope: scope),
+            includesSurfaces: commandPaletteQueryScopePolicy.switcherIncludesSurfaceEntries(
                 searchAllSurfaces: searchAllSurfaces,
                 query: effectiveQuery
             )
         )
-    }
-
-    nonisolated private static func commandPaletteQueryForMatching(
-        query: String,
-        scope: CommandPaletteListScope
-    ) -> String {
-        commandPaletteQueryScopePolicy.queryForMatching(query: query, scope: scope)
     }
 
     private func commandPaletteEntries(for scope: CommandPaletteListScope) -> [CommandPaletteCommand] {
@@ -2443,16 +2422,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         case .switcher:
             return commandPaletteSwitcherEntryBuilder.switcherEntries(includeSurfaces: includeSurfaces)
         }
-    }
-
-    nonisolated private static func commandPaletteSwitcherIncludesSurfaceEntries(
-        searchAllSurfaces: Bool,
-        query: String
-    ) -> Bool {
-        commandPaletteQueryScopePolicy.switcherIncludesSurfaceEntries(
-            searchAllSurfaces: searchAllSurfaces,
-            query: query
-        )
     }
 
     /// Builds the corpus-pipeline seam value the coordinator drives its corpus
@@ -2485,7 +2454,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         for scope: CommandPaletteListScope,
         effectiveQuery: String
     ) -> CommandPaletteSearchCorpusBuildPlan {
-        let includeSurfaces = Self.commandPaletteSwitcherIncludesSurfaceEntries(
+        let includeSurfaces = Self.commandPaletteQueryScopePolicy.switcherIncludesSurfaceEntries(
             searchAllSurfaces: commandPaletteSearchAllSurfaces,
             query: effectiveQuery
         )
@@ -4539,7 +4508,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         cmuxDebugLog("palette.run commandId=\(command.id) dismissOnRun=\(command.dismissOnRun ? 1 : 0)")
 #endif
         let postRunFocusTarget = commandPalettePostRunFocusTarget(for: command)
-        recordCommandPaletteUsage(command.id)
+        commandPalettePresentation.recordUsage(command.id)
         let runPlan = CommandPaletteCommandRunPlan(
             dismissOnRun: command.dismissOnRun,
             dismissBeforeRun: CommandPaletteDismissBeforeRunPolicy(commandId: command.id).shouldDismissBeforeRun,
@@ -5021,23 +4990,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             editor.setSelectedRange(NSRange(location: length, length: 0))
         }
         commandPalettePresentation.pendingTextSelectionBehavior = nil
-    }
-
-    private func refreshCommandPaletteUsageHistory() {
-        commandPalettePresentation.refreshUsageHistory()
-    }
-
-    private func recordCommandPaletteUsage(_ commandId: String) {
-        commandPalettePresentation.recordUsage(commandId)
-    }
-
-    private func commandPaletteHistoryBoost(for commandId: String, queryIsEmpty: Bool) -> Int {
-        CommandPaletteSearchOrchestrator.historyBoost(
-            for: commandId,
-            queryIsEmpty: queryIsEmpty,
-            history: commandPalettePresentation.usageHistoryByCommandId,
-            now: Date().timeIntervalSince1970
-        )
     }
 
     private func selectedWorkspaceIndex() -> Int? {
@@ -9606,17 +9558,10 @@ struct SidebarTabDropDelegate: DropDelegate {
 /// `SidebarSelection` spelling resolving for app-target consumers.
 typealias SidebarSelection = CmuxCore.SidebarSelection
 
-extension ContentView: CommandPaletteListHost {
-    func commandPaletteListBeep() {
-        NSSound.beep()
-    }
-
-    func commandPaletteListAnimate(_ body: () -> Void) {
-        withAnimation(.easeOut(duration: 0.1)) {
-            body()
-        }
-    }
-
+// Command-palette list-host witnesses that touch ContentView's private state
+// stay here; the `CommandPaletteListHost` conformance and its non-private
+// witnesses live in ContentView+CommandPaletteHosting.swift.
+extension ContentView {
     func commandPaletteListSyncDebugState() {
         syncCommandPaletteDebugStateForObservedWindow()
     }
@@ -9638,12 +9583,11 @@ extension ContentView: CommandPaletteListHost {
     }
 }
 
-extension ContentView: CommandPaletteLifecycleHost {
+// Command-palette lifecycle-host witnesses that touch ContentView's private
+// state stay here; the `CommandPaletteLifecycleHost` conformance and its
+// non-private witnesses live in ContentView+CommandPaletteHosting.swift.
+extension ContentView {
     var commandPaletteLifecycleIsPresented: Bool { isCommandPalettePresented }
-
-    var commandPaletteLifecycleDefaultWorkspaceDescriptionHeight: CGFloat {
-        CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
-    }
 
     func commandPaletteLifecycleSetPresented(_ value: Bool) {
         isCommandPalettePresented = value
@@ -9678,11 +9622,7 @@ extension ContentView: CommandPaletteLifecycleHost {
     }
 
     func commandPaletteLifecycleRefreshUsageHistory() {
-        refreshCommandPaletteUsageHistory()
-    }
-
-    func commandPaletteLifecycleClearForkableProbeActivePanelKey() {
-        commandPaletteForkableAgentProbeCoordinator.activePanelKey = nil
+        commandPalettePresentation.refreshUsageHistory()
     }
 
     func commandPaletteLifecycleCancelSearch() {
@@ -9740,12 +9680,6 @@ extension ContentView: CommandPaletteLifecycleHost {
         (observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow).commandPaletteWindowDebugSummary
 #else
         ""
-#endif
-    }
-
-    func commandPaletteLifecycleDebugLog(_ message: @autoclosure () -> String) {
-#if DEBUG
-        cmuxDebugLog(message())
 #endif
     }
 }
