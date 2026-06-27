@@ -220,7 +220,7 @@ public final class AuthCoordinator {
 
     /// Send a sign-in code to `email`, or run the debug `42` shortcut.
     public func sendCode(to email: String) async throws {
-        try await requireOnline()
+        try await requireOnlineForAuth()
         isLoading = true
         defer { isLoading = false }
 
@@ -252,7 +252,7 @@ public final class AuthCoordinator {
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, exchange, user fetch) wins.
         let flow = try await beginSignInFlow()
-        try await requireOnline()
+        try await requireOnlineForAuth()
         isLoading = true
         defer { isLoading = false }
 
@@ -274,7 +274,7 @@ public final class AuthCoordinator {
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, exchange, user fetch) wins.
         let flow = try await beginSignInFlow()
-        try await requireOnline()
+        try await requireOnlineForAuth()
         if setLoading { isLoading = true }
         defer { if setLoading { isLoading = false } }
 
@@ -303,7 +303,7 @@ public final class AuthCoordinator {
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, OAuth exchange, user fetch) wins.
         let flow = try await beginSignInFlow()
-        try await requireOnline()
+        try await requireOnlineForAuth()
         isLoading = true
         defer { isLoading = false }
         do {
@@ -665,6 +665,14 @@ public final class AuthCoordinator {
     func requireOnline() async throws {
         guard await isOnline() else {
             throw AuthError.offline
+        }
+    }
+
+    func requireOnlineForAuth() async throws {
+        do {
+            try await requireOnline()
+        } catch {
+            throw recordAuthError(error)
         }
     }
 
