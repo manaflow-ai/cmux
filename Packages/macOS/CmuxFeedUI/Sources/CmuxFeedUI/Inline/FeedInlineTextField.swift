@@ -99,18 +99,18 @@ public struct FeedInlineTextField: NSViewRepresentable {
             }
         }
 
-        func textDidBeginEditing(_ notification: Notification) {
+        public func textDidBeginEditing(_ notification: Notification) {
             activateField()
         }
 
-        func textDidChange(_ notification: Notification) {
+        public func textDidChange(_ notification: Notification) {
             guard !isProgrammaticMutation else { return }
             guard let textView = notification.object as? NSTextView else { return }
             parent.text = textView.string
             view?.refreshMetrics()
         }
 
-        func textDidEndEditing(_ notification: Notification) {
+        public func textDidEndEditing(_ notification: Notification) {
             if !isProgrammaticMutation, let textView = notification.object as? NSTextView {
                 parent.text = textView.string
             }
