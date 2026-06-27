@@ -6,10 +6,15 @@ import Observation
 @MainActor
 @Observable
 final class WorkspaceSidebarAgentRuntimeObservationModel {
+    @ObservationIgnored
     private(set) var agentPIDs: [String: pid_t] = [:]
+    @ObservationIgnored
     private(set) var agentPIDPanelIdsByKey: [String: UUID] = [:]
+    @ObservationIgnored
     private(set) var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
+    @ObservationIgnored
     private(set) var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
+    @ObservationIgnored
     private(set) var changeGeneration: UInt64 = 0
 
     @ObservationIgnored

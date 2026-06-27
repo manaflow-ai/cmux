@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import Observation
 import Testing
 
 import CmuxSidebar
@@ -76,6 +77,31 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func terminalAgentContextDoesNotObserveAgentRuntimeMaps() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId])
+        let changeFlag = ObservationChangeFlag()
+
+        withObservationTracking {
+            _ = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+        } onChange: {
+            changeFlag.mark()
+        }
+
+        workspace.recordAgentPID(
+            key: "codex.session-c",
+            pid: 12_346,
+            panelId: panelId,
+            refreshPorts: false
+        )
+
+        #expect(
+            changeFlag.fired == false,
+            "Terminal content must not subscribe to sidebar-only agent runtime map churn."
+        )
+    }
+
     @Test func sidebarImmediateObservationPublisherEmitsForLateTitleSubscriber() {
         let workspace = Workspace()
         workspace.title = "Restored Workspace"
@@ -109,5 +135,14 @@ struct WorkspaceSidebarObservationTests {
             publishCount == 0,
             "Expected non-visible remote heartbeat updates to avoid invalidating sidebar rows"
         )
+    }
+}
+
+// Mutable flag captured by Observation's Sendable onChange closure in this test.
+private final class ObservationChangeFlag: @unchecked Sendable {
+    private(set) var fired = false
+
+    func mark() {
+        fired = true
     }
 }
