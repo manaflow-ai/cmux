@@ -6,7 +6,6 @@ import Bonsplit
 import CmuxCore
 import CmuxWorkspaces
 import CmuxTerminal
-import CMUXAgentLaunch
 
 private enum WorkspaceTitlebarInteractionMetrics {
     // Keep in sync with the minimal-mode titlebar strip so the monitor only
@@ -145,7 +144,7 @@ struct WorkspaceContentView: View {
                         isSplit: isSplit,
                         appearance: appearance,
                         hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
-                        terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
+                        terminalAgentContext: workspace.terminalAgentContext(panel: panel),
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the
                             // active workspace. This prevents divergence between the blue focused-tab
@@ -441,16 +440,6 @@ struct WorkspaceContentView: View {
 }
 
 extension WorkspaceContentView {
-    static func terminalAgentContext(panel: any Panel, workspace: Workspace) -> String {
-        let terminalPanel = panel as? TerminalPanel
-        return TerminalAgentContext(
-            initialCommand: terminalPanel?.surface.initialCommand,
-            tmuxStartCommand: terminalPanel?.surface.tmuxStartCommand,
-            restoredAgentKindRawValue: workspace.restoredAgentSnapshotsByPanelId[panel.id]?.kind.rawValue,
-            agentPIDKeys: workspace.agentPIDKeysByPanelId[panel.id] ?? []
-        ).formatted
-    }
-
     #if DEBUG
     static func debugPanelLookup(tab: Bonsplit.Tab, workspace: Workspace) {
         let found = workspace.panel(for: tab.id) != nil

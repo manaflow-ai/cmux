@@ -321,9 +321,8 @@ extension TerminalController: ControlPaneContext {
         }
 
         let tree = ws.bonsplitController.treeSnapshot()
-        var candidates: [V2PaneResizeCandidate] = []
-        let trace = v2PaneResizeCollectCandidates(
-            node: tree,
+        var candidates: [ResizeSplitCandidate] = []
+        let trace = tree.collectResizeCandidates(
             targetPaneId: paneUUID.uuidString,
             candidates: &candidates
         )

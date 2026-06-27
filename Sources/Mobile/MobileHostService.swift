@@ -741,7 +741,7 @@ final class MobileHostService {
                 id: id,
                 connection: connection,
                 authorizeRequest: { request in
-                    if !Self.requiresAuthorization(method: request.method) {
+                    if !MobileHostAuthorizationPolicy().requiresAuthorization(method: request.method) {
                         return nil
                     }
                     return await MobileHostService.shared.authorizationError(for: request)
@@ -949,7 +949,7 @@ final class MobileHostService {
     }
 
     private func authorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
-        guard Self.requiresAuthorization(method: request.method) else {
+        guard MobileHostAuthorizationPolicy().requiresAuthorization(method: request.method) else {
             return nil
         }
         // Stack auth is the SOLE authorization gate for the mobile data plane.
@@ -1028,23 +1028,6 @@ final class MobileHostService {
             createdWorkspaceIDs: createdWorkspaceIDs,
             createdTerminalIDs: createdTerminalIDs
         ).authorizationError(for: request)
-    }
-
-    nonisolated private static func requiresAuthorization(method: String) -> Bool {
-        switch method {
-        // Only the unauthenticated host probe is exempt. `mobile.attach_ticket.create`
-        // mints a bearer credential, so it MUST be authorized: a network caller has no
-        // attach token yet, so it is routed through the same-account Stack Auth token
-        // (the iOS client always sends it for this method). Leaving it exempt would let
-        // any process that can speak the wire protocol self-issue a working ticket and
-        // take over the terminal. The on-Mac QR pairing mints tickets through the local
-        // automation socket (`TerminalController`), not this network path, so it is
-        // unaffected.
-        case "mobile.host.status":
-            return false
-        default:
-            return true
-        }
     }
 
     private func handleListenerState(_ state: NWListener.State, generation: UUID) {

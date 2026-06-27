@@ -202,7 +202,7 @@ extension TerminalController: MobileTerminalRPCHost {
 
     func mobileTerminalIsClaudeCode(panel: TerminalPanel, workspace: Workspace) -> Bool {
         TextBoxAgentDetection.isClaudeCode(
-            context: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+            context: workspace.terminalAgentContext(panel: panel)
         )
     }
 

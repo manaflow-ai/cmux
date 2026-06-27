@@ -121,7 +121,7 @@ final class MobileChatRPCHandler {
         let workspaceID = workspace.id.uuidString
         guard let service = host.mobileChatTranscriptService else { return }
         for panel in workspace.panels.values.compactMap({ $0 as? TerminalPanel }) {
-            let context = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+            let context = workspace.terminalAgentContext(panel: panel)
             let title = workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle
             let normalizedTitle = title.lowercased()
             // Claude is the case the wrapper-launched workflow hits; detect by
@@ -379,7 +379,7 @@ final class MobileChatRPCHandler {
         }
         let title = resolved.workspace.panelTitle(panelId: terminalPanel.id) ?? terminalPanel.displayTitle
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let context = WorkspaceContentView.terminalAgentContext(panel: terminalPanel, workspace: resolved.workspace)
+        let context = resolved.workspace.terminalAgentContext(panel: terminalPanel)
         switch record.agentKind {
         case .claude:
             return TextBoxAgentDetection.isClaudeCode(context: context)

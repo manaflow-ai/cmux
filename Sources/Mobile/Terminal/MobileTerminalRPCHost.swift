@@ -124,7 +124,7 @@ protocol MobileTerminalRPCHost: AnyObject {
 
     /// Whether the resolved surface is running Claude Code, matching the legacy
     /// `TextBoxAgentDetection.isClaudeCode(context:
-    /// WorkspaceContentView.terminalAgentContext(panel:workspace:))` agent-aware
+    /// Workspace.terminalAgentContext(panel:))` agent-aware
     /// submit-key upgrade.
     func mobileTerminalIsClaudeCode(panel: TerminalPanel, workspace: Workspace) -> Bool
 

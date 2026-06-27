@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Bonsplit
+import CmuxPanes
 
 extension TerminalController {
     enum V2PaneResizeDirection: String {
@@ -35,68 +36,6 @@ extension TerminalController {
         }
     }
 
-    struct V2PaneResizeCandidate {
-        let splitId: UUID
-        let orientation: String
-        let paneInFirstChild: Bool
-        let dividerPosition: CGFloat
-        let axisPixels: CGFloat
-    }
-
-    struct V2PaneResizeTrace {
-        let containsTarget: Bool
-        let bounds: CGRect
-    }
-
-    func v2PaneResizeCollectCandidates(
-        node: ExternalTreeNode,
-        targetPaneId: String,
-        candidates: inout [V2PaneResizeCandidate]
-    ) -> V2PaneResizeTrace {
-        switch node {
-        case .pane(let pane):
-            let bounds = CGRect(
-                x: pane.frame.x,
-                y: pane.frame.y,
-                width: pane.frame.width,
-                height: pane.frame.height
-            )
-            return V2PaneResizeTrace(containsTarget: pane.id == targetPaneId, bounds: bounds)
-
-        case .split(let split):
-            let first = v2PaneResizeCollectCandidates(
-                node: split.first,
-                targetPaneId: targetPaneId,
-                candidates: &candidates
-            )
-            let second = v2PaneResizeCollectCandidates(
-                node: split.second,
-                targetPaneId: targetPaneId,
-                candidates: &candidates
-            )
-
-            let combinedBounds = first.bounds.union(second.bounds)
-            let containsTarget = first.containsTarget || second.containsTarget
-
-            if containsTarget,
-               let splitUUID = UUID(uuidString: split.id) {
-                let orientation = split.orientation.lowercased()
-                let axisPixels: CGFloat = orientation == "horizontal"
-                    ? combinedBounds.width
-                    : combinedBounds.height
-                candidates.append(V2PaneResizeCandidate(
-                    splitId: splitUUID,
-                    orientation: orientation,
-                    paneInFirstChild: first.containsTarget,
-                    dividerPosition: CGFloat(split.dividerPosition),
-                    axisPixels: max(axisPixels, 1)
-                ))
-            }
-
-            return V2PaneResizeTrace(containsTarget: containsTarget, bounds: combinedBounds)
-        }
-    }
-
     func v2SetAbsolutePaneSize(
         workspace: Workspace,
         paneUUID: UUID,
@@ -114,9 +53,8 @@ extension TerminalController {
             return nil
         }
 
-        var candidates: [V2PaneResizeCandidate] = []
-        let trace = v2PaneResizeCollectCandidates(
-            node: workspace.bonsplitController.treeSnapshot(),
+        var candidates: [ResizeSplitCandidate] = []
+        let trace = workspace.bonsplitController.treeSnapshot().collectResizeCandidates(
             targetPaneId: paneUUID.uuidString,
             candidates: &candidates
         )
