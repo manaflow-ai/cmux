@@ -877,26 +877,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `registerMainWindow`, dropped by the window teardown paths.
     let windowFocusControllers = WindowScopedStore<MainWindowFocusController>()
 
-    /// Reverse index from a live `TabManager` to its ``WindowID``, kept in sync
-    /// with ``windowTabManagers``. Faithfully replaces the old aggregate's
-    /// `ObjectIdentifier(tabManager)` keying and the recurring
-    /// `registeredMainWindow(forManager: manager)`
-    /// scans with an O(1) lookup. Seeded/updated whenever a window's manager is
-    /// (re)bound and torn down alongside the window's slice.
-    private var tabManagerWindowIds: [ObjectIdentifier: WindowID] {
-        get { windowLifecycle.tabManagerWindowIds }
-        set { windowLifecycle.tabManagerWindowIds = newValue }
-    }
     private var mainWindowControllers: [MainWindowController] = []
 
+    /// The resolved registered window for `id`, or `nil` if none is registered.
+    /// Forwards to ``windowLifecycle``, which funnels through the
+    /// ``WindowLifecycleHosting/resolveRegisteredWindow(for:)`` seam impl below.
+    func registeredMainWindow(for id: WindowID) -> RegisteredMainWindow? {
+        windowLifecycle.registeredWindow(for: id)
+    }
+
+    /// Every registered main window as a resolved value, in no guaranteed order
+    /// (faithfully matching the old `registeredMainWindows` dictionary
+    /// iteration, which was likewise unordered). The single replacement for
+    /// `registeredMainWindows`.
+    var registeredMainWindows: [RegisteredMainWindow] {
+        windowLifecycle.registeredWindows
+    }
+
+    /// The resolved registered window owning `tabManager`, via the coordinator's
+    /// reverse index. Replaces the recurring `registeredMainWindow(forManager:)`.
+    func registeredMainWindow(forManager tabManager: TabManager) -> RegisteredMainWindow? {
+        windowLifecycle.registeredWindow(forManagerObject: ObjectIdentifier(tabManager))
+    }
+
+    /// The resolved registered window for `windowId` (a raw `UUID`), or `nil`.
+    func registeredMainWindow(forWindowId windowId: UUID) -> RegisteredMainWindow? {
+        windowLifecycle.registeredWindow(for: WindowID(windowId))
+    }
+
+    /// The resolved registered window for the NSWindow `window`, by window-object
+    /// identity. Forwards to ``windowLifecycle``, which owns window↔id identity and
+    /// the late-bound-identifier fallback.
+    func registeredMainWindow(forWindow window: NSWindow) -> RegisteredMainWindow? {
+        windowLifecycle.registeredWindow(forWindow: window)
+    }
+
+    /// Binds `tabManager` to `id` and keeps the coordinator's reverse index
+    /// consistent. Forwards to ``windowLifecycle``.
+    private func rebindWindowTabManager(_ tabManager: TabManager, for id: WindowID) {
+        windowLifecycle.rebindTabManager(tabManager, for: id)
+    }
+
+    /// Drops every per-window slice for `id` across all domain stores plus the
+    /// coordinator's reverse index. The single removal funnel for both window
+    /// teardown paths (the AppKit close path via `unregisterMainWindowContext`,
+    /// and the explicit/windowless path via `discardOrphanedMainWindowContext`).
+    /// Forwards to ``windowLifecycle``, whose
+    /// ``WindowLifecycleHosting/removeWindowModelSlices(for:)`` seam impl below
+    /// drops the typed app-side stores.
+    @discardableResult
+    private func removeWindowSlices(for id: WindowID) -> (tabManager: TabManager, focusController: MainWindowFocusController?)? {
+        windowLifecycle.removeWindowSlices(for: id)
+    }
+
+    // MARK: - WindowLifecycleHosting registry seam
+
     /// Builds the ephemeral ``RegisteredMainWindow`` resolved value for `id`, or
-    /// `nil` if no window is registered under `id`. The single funnel every
-    /// resolver method routes through: it reads the per-domain stores
+    /// `nil` if no window is registered under `id`. The god-type leaf the
+    /// coordinator's resolvers funnel through: it reads the per-domain stores
     /// (``windowTabManagers`` / ``windowFocusControllers``) and resolves the live
     /// `NSWindow` through ``windowCoordinator`` then the identifier fallback,
     /// reproducing the old class's `window ?? windowForMainWindowId(windowId)`
     /// read.
-    func registeredMainWindow(for id: WindowID) -> RegisteredMainWindow? {
+    func resolveRegisteredWindow(for id: WindowID) -> RegisteredMainWindow? {
         guard
             let tabManager = windowTabManagers.model(for: id),
             let focusController = windowFocusControllers.model(for: id)
@@ -910,63 +953,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    /// Every registered main window as a resolved value, in no guaranteed order
-    /// (faithfully matching the old `registeredMainWindows` dictionary
-    /// iteration, which was likewise unordered). The single replacement for
-    /// `registeredMainWindows`.
-    var registeredMainWindows: [RegisteredMainWindow] {
-        windowTabManagers.ids.compactMap { registeredMainWindow(for: $0) }
+    /// The ``WindowID``s currently registered, in no guaranteed order (the
+    /// ``windowTabManagers`` id set). Backs the coordinator's `registeredWindows`.
+    var registeredWindowIds: [WindowID] {
+        windowTabManagers.ids
     }
 
-    /// The resolved registered window owning `tabManager`, via the
-    /// ``tabManagerWindowIds`` reverse index. Replaces the recurring
-    /// `registeredMainWindow(forManager: manager)`.
-    func registeredMainWindow(forManager tabManager: TabManager) -> RegisteredMainWindow? {
-        guard let id = tabManagerWindowIds[ObjectIdentifier(tabManager)] else { return nil }
-        return registeredMainWindow(for: id)
+    /// The live `NSWindow` bound to `registeredWindow`, for the coordinator's
+    /// late-bound-identifier `registeredWindow(forWindow:)` fallback.
+    func window(of registeredWindow: RegisteredMainWindow) -> NSWindow? {
+        registeredWindow.window
     }
 
-    /// The resolved registered window for `windowId` (a raw `UUID`), or `nil`.
-    /// Replaces the old `mainWindowContexts.values.first(where: windowId match)`.
-    func registeredMainWindow(forWindowId windowId: UUID) -> RegisteredMainWindow? {
-        registeredMainWindow(for: WindowID(windowId))
-    }
-
-    /// The resolved registered window for the NSWindow `window`, by window-object
-    /// identity. Replaces the recurring
-    /// `mainWindowContexts[ObjectIdentifier(window)]` plus the
-    /// `first(where: { $0.window === window })` fallback: the coordinator owns
-    /// window↔id identity (first clause), and a resolved value's `.window` is
-    /// compared for the late-bound-identifier fallback.
-    func registeredMainWindow(forWindow window: NSWindow) -> RegisteredMainWindow? {
-        if let id = windowCoordinator.id(for: window),
-           let context = registeredMainWindow(for: id) {
-            return context
-        }
-        return registeredMainWindows.first(where: { $0.window === window })
-    }
-
-    /// Binds `tabManager` to `id` in ``windowTabManagers`` and keeps the
-    /// ``tabManagerWindowIds`` reverse index consistent: drops any stale entry
-    /// for a manager previously bound to `id`, then records the new mapping.
-    private func rebindWindowTabManager(_ tabManager: TabManager, for id: WindowID) {
-        if let previous = windowTabManagers.model(for: id), previous !== tabManager {
-            tabManagerWindowIds.removeValue(forKey: ObjectIdentifier(previous))
-        }
+    /// Binds `tabManager` to `id` in ``windowTabManagers``, returning the
+    /// `ObjectIdentifier` of the distinct manager previously bound to `id` (for
+    /// the coordinator's stale reverse-index drop), or `nil`. Faithfully preserves
+    /// the old `previous !== tabManager` guard.
+    func rebindTabManagerSlice(_ tabManager: TabManager, for id: WindowID) -> ObjectIdentifier? {
+        let previous = windowTabManagers.model(for: id)
         windowTabManagers.setModel(tabManager, for: id)
-        tabManagerWindowIds[ObjectIdentifier(tabManager)] = id
+        if let previous, previous !== tabManager {
+            return ObjectIdentifier(previous)
+        }
+        return nil
     }
 
-    /// Drops every per-window slice for `id` across all domain stores plus the
-    /// reverse index. The single removal funnel for both window teardown paths
-    /// (the AppKit close path via `unregisterMainWindowContext`, and the
-    /// explicit/windowless path via `discardOrphanedMainWindowContext`),
-    /// faithfully reproducing the old `mainWindowContexts.removeValue` plus the
-    /// per-store `remove(_:)` calls those paths made.
-    @discardableResult
-    private func removeWindowSlices(for id: WindowID) -> (tabManager: TabManager, focusController: MainWindowFocusController?)? {
+    /// Drops every per-window slice for `id` across the app-side domain stores,
+    /// returning the removed tab manager and focus controller, or `nil` if nothing
+    /// was registered under `id`. Faithfully reproduces the old per-store
+    /// `remove(_:)` calls; the reverse-index drop now lives on the coordinator.
+    func removeWindowModelSlices(for id: WindowID) -> (tabManager: TabManager, focusController: MainWindowFocusController?)? {
         guard let tabManager = windowTabManagers.remove(id) else { return nil }
-        tabManagerWindowIds.removeValue(forKey: ObjectIdentifier(tabManager))
         let focusController = windowFocusControllers.remove(id)
         windowConfigStores.remove(id)
         windowSidebarSelectionStates.remove(id)
