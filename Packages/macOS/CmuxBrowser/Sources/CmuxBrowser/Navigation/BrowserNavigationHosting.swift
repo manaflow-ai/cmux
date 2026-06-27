@@ -16,6 +16,47 @@ public import Foundation
 /// main, so forwarding stays a plain call with no bridging.
 @MainActor
 public protocol BrowserNavigationHosting: AnyObject {
+    /// Whether this surface is backed by a remote-workspace proxy (read-through
+    /// of the panel's `usesRemoteWorkspaceProxy`). Drives the queue-vs-perform
+    /// decision in ``BrowserNavigationIntentCoordinator``.
+    var usesRemoteWorkspaceProxy: Bool { get }
+
+    /// Whether the remote-workspace proxy endpoint is available yet (read-through
+    /// of the panel's `remoteProxyEndpoint != nil`). The endpoint type stays
+    /// panel-owned with its many cross-domain readers; only this nil-check is
+    /// exposed.
+    var hasRemoteProxyEndpoint: Bool { get }
+
+    /// Resets the hidden-web-view discard state before a navigation begins
+    /// (legacy `cancelHiddenWebViewDiscard()` + `clearWebViewDiscardState(reason:)`).
+    func prepareWebViewDiscardStateForNavigation()
+
+    /// Reconsiders whether the hidden web view should be scheduled for discard
+    /// (legacy `reevaluateHiddenWebViewDiscardScheduling(reason:)`), used when a
+    /// stranded pending navigation is cleared.
+    func reevaluateHiddenWebViewDiscardScheduling(reason: String)
+
+    /// Sets the URL shown for the current surface while a navigation is queued
+    /// behind a remote-proxy endpoint (legacy `currentURL = …`).
+    func setCurrentDisplayURL(_ url: URL)
+
+    /// Applies the placeholder render intent for a navigation queued behind a
+    /// pending remote-proxy endpoint: clears the restored-session render intent,
+    /// records `url` as the last attempted URL, refreshes the background, and
+    /// forces the web view to render without loading.
+    func setRenderIntent(forQueuedRemoteNavigationAttempting url: URL)
+
+    /// Performs an immediate navigation in the current tab once any queue gate
+    /// has cleared (legacy `performNavigation(request:originalURL:…)`). The web
+    /// view load, custom user agent, typed-navigation history record, and
+    /// background refresh stay app-side as the host witness.
+    func performNavigation(
+        request: URLRequest,
+        originalURL: URL,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool
+    )
+
     /// Loads `request` in the current tab's web view without re-running the
     /// insecure-HTTP prompt (legacy `navigateWithoutInsecureHTTPPrompt(request:recordTypedNavigation:)`).
     func loadRequestInCurrentTab(_ request: URLRequest, recordTypedNavigation: Bool)
