@@ -1,4 +1,4 @@
-struct HexColorPickerReconcileState: Equatable {
+struct HexColorPickerReconcileState: Equatable, Sendable {
     let storedHex: String
     let revision: Int
 }

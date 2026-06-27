@@ -8,9 +8,10 @@ struct HexColorPicker: View {
     @State private var selection: HexColorPickerSelection
 
     init(storedHex: String, fallback: Color, reconcileRevision: Int, onChange: @escaping (String) -> Void) {
-        self.reconcileState = HexColorPickerReconcileState(storedHex: storedHex, revision: reconcileRevision)
+        let initialState = HexColorPickerReconcileState(storedHex: storedHex, revision: reconcileRevision)
+        self.reconcileState = initialState
         self.onChange = onChange
-        _selection = State(initialValue: HexColorPickerSelection(storedHex: storedHex, fallback: fallback))
+        _selection = State(initialValue: HexColorPickerSelection(state: initialState, fallback: fallback))
     }
 
     var body: some View {
@@ -28,7 +29,7 @@ struct HexColorPicker: View {
         .labelsHidden()
         .frame(width: 38)
         .onChange(of: reconcileState) { _, newState in
-            selection.reconcile(storedHex: newState.storedHex)
+            selection.reconcile(state: newState)
         }
     }
 }
