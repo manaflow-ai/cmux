@@ -50,6 +50,40 @@ struct MobileHostAttachTicketScopeTests {
         #expect(error?.code == "forbidden")
     }
 
+    @Test func testWorkspaceScopedAttachTicketAcceptsScopedWorkspaceList() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "workspace-list",
+            method: "workspace.list",
+            params: ["workspace_id": "workspace"],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error == nil)
+    }
+
+    @Test func testMacScopedAttachTicketAcceptsUnscopedFullWorkspaceList() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "workspace-list",
+            method: "workspace.list",
+            params: [:],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error == nil)
+    }
+
     @Test(arguments: ["mobile.events.subscribe", "mobile.events.unsubscribe"])
     func testMacScopedAttachTicketAcceptsEventSubscription(method: String) throws {
         let ticket = try scopedAttachTicket(workspaceID: "", terminalID: nil)

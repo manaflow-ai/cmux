@@ -420,7 +420,7 @@ struct MobileHostAuthorizationTests {
 
         #expect(error?.code == "forbidden")
     }
-    @Test func testWorkspaceScopedAttachTicketAcceptsFullWorkspaceListAfterAccountGate() throws {
+    @Test func testWorkspaceScopedAttachTicketRejectsUnscopedFullWorkspaceList() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
         let request = MobileHostRPCRequest(
             id: "workspace-list",
@@ -434,7 +434,7 @@ struct MobileHostAuthorizationTests {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        #expect(error == nil)
+        #expect(error?.code == "forbidden")
     }
 
     @Test(arguments: [[String: String](), ["workspace_id": "other-workspace"], ["terminal_id": "terminal"]])
