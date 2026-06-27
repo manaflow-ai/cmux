@@ -578,6 +578,13 @@ fi
 # Find real claude.
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
+if (( cmux_claude_wrapper_reexec_hops > 0 )); then
+    # A previous wrapper pass already made the cmux launch decision and may have
+    # injected --session-id/--settings. While resolving a finite shim chain,
+    # forward those arguments unchanged so hooks are not merged again on re-entry.
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
+fi
+
 ensure_node_options_restore_module() {
     local guard_dir="${TMPDIR:-/tmp}"
     guard_dir="${guard_dir%/}/cmux-claude-node-options"
