@@ -121,6 +121,9 @@ printf '\n---\n' >> "$CMUX_TEST_PI_STDIN_LOG"
   if [ -n "${CUSTOM_PASSWORD-}" ]; then printf 'CUSTOM_PASSWORD=present\n'; fi
   if [ -n "${AMP_API_KEY-}" ]; then printf 'AMP_API_KEY=present\n'; fi
   if [ -n "${CMUX_LEAK_TOKEN-}" ]; then printf 'CMUX_LEAK_TOKEN=present\n'; fi
+  if [ -n "${DATABASE_URL-}" ]; then printf 'DATABASE_URL=present\n'; fi
+  if [ -n "${DB_PASS-}" ]; then printf 'DB_PASS=present\n'; fi
+  if [ -n "${SENTRY_DSN-}" ]; then printf 'SENTRY_DSN=present\n'; fi
 } >> "$CMUX_TEST_PI_ENV_LOG"
 case "$*" in
   *"surface resume get"*)
@@ -160,6 +163,9 @@ esac
         check_env["CUSTOM_PASSWORD"] = "password-should-not-leak"
         check_env["AMP_API_KEY"] = "amp-secret-should-not-leak"
         check_env["CMUX_LEAK_TOKEN"] = "cmux-secret-should-not-leak"
+        check_env["DATABASE_URL"] = "postgres://user:password@example.invalid/db"
+        check_env["DB_PASS"] = "db-pass-should-not-leak"
+        check_env["SENTRY_DSN"] = "https://public:private@example.invalid/1"
         check_source = """
 const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
 const mod = await import(extensionPath);
@@ -282,7 +288,16 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
             return 1
         leaked = [
             name
-            for name in ["OPENAI_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CUSTOM_PASSWORD", "AMP_API_KEY", "CMUX_LEAK_TOKEN"]
+            for name in [
+                "OPENAI_API_KEY",
+                "ANTHROPIC_AUTH_TOKEN",
+                "CUSTOM_PASSWORD",
+                "AMP_API_KEY",
+                "CMUX_LEAK_TOKEN",
+                "DATABASE_URL",
+                "DB_PASS",
+                "SENTRY_DSN",
+            ]
             if f"{name}=present" in env_log
         ]
         if leaked:

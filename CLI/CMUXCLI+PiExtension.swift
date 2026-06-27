@@ -78,16 +78,11 @@ function looksLikePiScript(value: string): boolean {
   );
 }
 
-function looksLikeJavaScriptRuntime(value: string): boolean {
-  const base = path.basename(value).toLowerCase();
-  return base === "node" || base === "bun" || base === "deno" || base === "tsx" || base === "ts-node";
-}
-
 function normalizedLaunchArgv(): string[] {
   const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
   if (raw.length === 0) return [resolveExecutable("pi")];
   if (looksLikePiExecutable(raw[0])) return raw;
-  if (raw.length > 1 && (looksLikePiScript(raw[1]) || looksLikeJavaScriptRuntime(raw[0]))) {
+  if (raw.length > 1 && looksLikePiScript(raw[1])) {
     return [resolveExecutable("pi"), ...raw.slice(2)];
   }
   return [resolveExecutable("pi"), ...raw.slice(1)];
@@ -133,7 +128,6 @@ function safeCmuxEnvKey(key: string): boolean {
   if (key === "CMUX_SURFACE_ID" || key === "CMUX_WORKSPACE_ID" || key === "CMUX_WINDOW_ID") return true;
   if (key === "CMUX_PANE_ID" || key === "CMUX_TAB_ID" || key === "CMUX_PANEL_ID") return true;
   if (key === "CMUX_SOCKET" || key === "CMUX_SOCKET_PATH") return true;
-  if (key === "CMUX_SOCKET_PASSWORD") return true;
   if (key === "CMUX_BUNDLE_ID" || key === "CMUX_BUNDLED_CLI_PATH") return true;
   if (key === "CMUX_CLI_SENTRY_DISABLED" || key === "CMUX_DEBUG_LOG") return true;
   return key.startsWith("CMUX_") && !secretLikeEnvKey(key);
@@ -149,14 +143,19 @@ function shouldPreserveEnvKey(key: string): boolean {
   if (key === "TERM" || key === "TERM_PROGRAM" || key === "TERM_PROGRAM_VERSION" || key === "COLORTERM") return true;
   if (key === "SSH_AUTH_SOCK") return true;
   if (key.startsWith("PI_") || key.startsWith("NODE_")) return !secretLikeEnvKey(key);
-  return !secretLikeEnvKey(key);
+  return false;
 }
 
-function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
+function hookEnvironment(cwd: string, includeSocketPassword = false): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value === undefined) continue;
     if (shouldPreserveEnvKey(key)) env[key] = value;
+  }
+  // Only cmux CLI children need the socket credential; keep it out of the generic allowlist.
+  if (includeSocketPassword) {
+    const socketPassword = process.env.CMUX_SOCKET_PASSWORD;
+    if (socketPassword) env.CMUX_SOCKET_PASSWORD = socketPassword;
   }
   if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
     const argv = normalizedLaunchArgv();
@@ -267,7 +266,7 @@ function warn(ctx: ExtensionContext | null, message: string, details: Record<str
   }
   const ui = (ctx as unknown as { ui?: { notify?: (message: string, type?: string) => void } } | null)?.ui;
   try {
-    ui?.notify?.(`cmux Pi hook warning: ${message}`, "warning");
+    ui?.notify?.("cmux Pi integration warning - check the terminal for details", "warning");
   } catch (_) {}
 }
 
@@ -280,7 +279,7 @@ function runCmux(args: string[], cwd: string, input?: string): CommandResult {
     const result = spawnSync(cmuxExecutable(), args, {
       input,
       encoding: "utf8",
-      env: hookEnvironment(cwd),
+      env: hookEnvironment(cwd, true),
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 5000,
     });
@@ -475,9 +474,9 @@ function ensureResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: stri
   }
 }
 
-function clearResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: string): void {
+function clearResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: string): boolean {
   const target = surfaceTargetArgs();
-  if (!target) return;
+  if (!target) return true;
   const result = runCmux([
     "--json",
     "surface",
@@ -496,6 +495,7 @@ function clearResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: strin
       error: result.error ? String(result.error) : undefined,
     });
   }
+  return result.ok;
 }
 
 function sendFeed(eventName: "PreToolUse" | "PostToolUse", ctx: ExtensionContext, event: unknown, extra: HookExtra = {}): void {
@@ -517,7 +517,7 @@ function sendFeed(eventName: "PreToolUse" | "PostToolUse", ctx: ExtensionContext
   };
   try {
     const child = spawn(cmuxExecutable(), ["hooks", "feed", "--source", "pi", "--event", eventName], {
-      env: hookEnvironment(cwd),
+      env: hookEnvironment(cwd, true),
       stdio: ["pipe", "ignore", "ignore"],
       detached: true,
     });
@@ -585,7 +585,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         cmux_notification_routed: true,
       });
     }
-    clearResumeBinding(ctx, sessionId, cwd);
+    if (clearResumeBinding(ctx, sessionId, cwd)) sessionStates.delete(sessionId);
   });
 }
 """#
@@ -608,7 +608,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 ),
                 url.path
             )
-            throw CLIError(message: "\(message): \(String(describing: error))")
+            throw CLIError(message: "\(message): \((error as NSError).localizedDescription)")
         }
     }
 
