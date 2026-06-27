@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxControlSocket
+import CmuxFeedUI
 import Foundation
 
 /// The feed-domain (workstream) witnesses are the byte-faithful bodies of the

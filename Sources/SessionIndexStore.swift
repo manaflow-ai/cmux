@@ -108,6 +108,22 @@ struct SectionKey: Hashable {
     static func directory(_ path: String?) -> SectionKey { SectionKey(raw: "dir:" + (path ?? "")) }
 
     var isDirectory: Bool { raw.hasPrefix("dir:") }
+
+    /// Parse this section key back into the deep-search scope it represents.
+    /// `agent:<rawValue>` becomes `.agent`, `dir:<path>` becomes `.directory`
+    /// (an empty path maps to the `nil` unknown-folder bucket), and any other
+    /// raw shape falls back to `.directory(nil)`.
+    var searchScope: SessionIndexStore.SearchScope {
+        if raw.hasPrefix("agent:"),
+           let agent = SessionAgent(rawValue: String(raw.dropFirst("agent:".count))) {
+            return .agent(agent)
+        }
+        if raw.hasPrefix("dir:") {
+            let path = String(raw.dropFirst("dir:".count))
+            return .directory(path.isEmpty ? nil : path)
+        }
+        return .directory(nil)
+    }
 }
 
 struct IndexSection: Identifiable, Equatable {

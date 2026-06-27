@@ -3,6 +3,7 @@ import Bonsplit
 import CMUXAgentLaunch
 import Foundation
 @preconcurrency import UserNotifications
+import CmuxFeedUI
 import CmuxFoundation
 import CmuxNotifications
 import CmuxSettings

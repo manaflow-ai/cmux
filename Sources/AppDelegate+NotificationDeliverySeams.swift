@@ -1,5 +1,6 @@
 import AppKit
 import CMUXAgentLaunch
+import CmuxFeedUI
 import CmuxNotifications
 import Foundation
 
