@@ -1941,6 +1941,69 @@ class TabManager {
         return false
     }
 
+    // MARK: Child-exit-path effects (legacy TabManager.closePanelAfterChildExited)
+    // The routing decision + branch order lives in
+    // WorkspaceCloseCoordinator+ChildExit (CmuxWorkspaces); these witnesses
+    // perform each app-coupled read/effect against the Workspace god object /
+    // AppDelegate, lifted verbatim from the legacy in-class body.
+    // `closeRuntimeSurface(tabId:surfaceId:)` already exists above and witnesses
+    // the protocol requirement directly.
+
+    func keepsPersistentRemoteSurfaceOpenAfterChildExit(_ tab: Workspace, surfaceId: UUID) -> Bool {
+        tab.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(surfaceId)
+    }
+
+    func shouldDemoteWorkspaceAfterChildExit(_ tab: Workspace, surfaceId: UUID) -> Bool {
+        tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
+    }
+
+    func panelCount(_ tab: Workspace) -> Int {
+        tab.panels.count
+    }
+
+    func markRemoteTerminalSessionEnded(_ tab: Workspace, surfaceId: UUID) {
+        let relayPort: Int?
+        if tab.remoteConfiguration?.transport == .ssh {
+            relayPort = tab.remoteConfiguration?.relayPort
+        } else {
+            relayPort = nil
+        }
+        tab.markRemoteTerminalSessionEnded(
+            surfaceId: surfaceId,
+            relayPort: relayPort,
+            allowUntracked: !tab.isRemoteTerminalSurface(surfaceId)
+        )
+    }
+
+    func markPersistentRemotePTYAttachFailed(_ tab: Workspace, surfaceId: UUID) {
+        tab.markPersistentRemotePTYAttachFailed(surfaceId: surfaceId)
+    }
+
+    @discardableResult
+    func closeWindowForLastChildExit(workspaceId: UUID) -> Bool {
+        guard let app = AppDelegate.shared else { return false }
+        app.notificationStore?.clearNotifications(forTabId: workspaceId)
+        app.closeMainWindowContainingTabId(workspaceId, recordHistory: false)
+        return true
+    }
+
+    func logChildExitCloseDecision(
+        _ tab: Workspace,
+        surfaceId: UUID,
+        workspaceCount: Int,
+        handlesRemoteExitThroughWorkspace: Bool,
+        keepsPersistentRemoteSurfaceOpen: Bool
+    ) {
+#if DEBUG
+        cmuxDebugLog(
+            "surface.close.childExited tab=\(tab.id.uuidString.prefix(5)) " +
+            "surface=\(surfaceId.uuidString.prefix(5)) panels=\(tab.panels.count) workspaces=\(workspaceCount) " +
+            "remoteWorkspace=\(tab.isRemoteWorkspace ? 1 : 0) keepRemote=\(handlesRemoteExitThroughWorkspace ? 1 : 0) " +
+            "keepPersistentRemote=\(keepsPersistentRemoteSurfaceOpen ? 1 : 0)"
+        )
+#endif
+    }
+
     // MARK: - WorkspaceCreationHosting (WorkspaceCreationCoordinator's effect seam)
     // The creation orchestration lives in WorkspaceCreationCoordinator; these
     // witnesses perform each app-coupled effect against the Workspace god object /
@@ -2213,69 +2276,11 @@ class TabManager {
     /// This should never prompt: the process is already gone, and Ghostty emits the
     /// `SHOW_CHILD_EXITED` action specifically so the host app can decide what to do.
     func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        guard tab.panels[surfaceId] != nil else { return }
-        let keepsPersistentRemoteSurfaceOpen =
-            tab.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(surfaceId)
-        if !keepsPersistentRemoteSurfaceOpen,
-           tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId) {
-            let relayPort: Int?
-            if tab.remoteConfiguration?.transport == .ssh {
-                relayPort = tab.remoteConfiguration?.relayPort
-            } else {
-                relayPort = nil
-            }
-            tab.markRemoteTerminalSessionEnded(
-                surfaceId: surfaceId,
-                relayPort: relayPort,
-                allowUntracked: !tab.isRemoteTerminalSurface(surfaceId)
-            )
-        }
-        let handlesRemoteExitThroughWorkspace =
-            tab.panels.count <= 1 && tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
-
-#if DEBUG
-        cmuxDebugLog(
-            "surface.close.childExited tab=\(tabId.uuidString.prefix(5)) " +
-            "surface=\(surfaceId.uuidString.prefix(5)) panels=\(tab.panels.count) workspaces=\(tabs.count) " +
-            "remoteWorkspace=\(tab.isRemoteWorkspace ? 1 : 0) keepRemote=\(handlesRemoteExitThroughWorkspace ? 1 : 0) " +
-            "keepPersistentRemote=\(keepsPersistentRemoteSurfaceOpen ? 1 : 0)"
-        )
-#endif
-
-        // A persistent SSH workspace must never silently replace a failed remote attach with
-        // a local login shell. Keep the exited surface visible so the user can see the error
-        // and retry instead of making a detached remote workspace look local after relaunch.
-        if keepsPersistentRemoteSurfaceOpen {
-            tab.markPersistentRemotePTYAttachFailed(surfaceId: surfaceId)
-            return
-        }
-
-        // Route the last remote child exit through Workspace close handling so remote teardown
-        // and replacement-panel logic run before TabManager considers removing the workspace.
-        if handlesRemoteExitThroughWorkspace {
-            closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
-            return
-        }
-
-        // Child-exit on the last panel should collapse the workspace, matching explicit close
-        // semantics (and close the window when it was the last workspace).
-        if tab.panels.count <= 1 {
-            if tabs.count <= 1 {
-                if let app = AppDelegate.shared {
-                    app.notificationStore?.clearNotifications(forTabId: tabId)
-                    app.closeMainWindowContainingTabId(tabId, recordHistory: false)
-                } else {
-                    // Headless/test fallback when no AppDelegate window context exists.
-                    closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
-                }
-            } else {
-                closeWorkspace(tab, recordHistory: false)
-            }
-            return
-        }
-
-        closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
+        // Routing decision + branch order lives in WorkspaceCloseCoordinator
+        // (CmuxWorkspaces, Close/WorkspaceCloseCoordinator+ChildExit.swift); the
+        // app-coupled reads/effects invert back through the child-exit
+        // WorkspaceCloseHosting witnesses above.
+        workspaceClosing.closePanelAfterChildExited(tabId: tabId, surfaceId: surfaceId)
     }
 
     private func workspaceNeedsConfirmClose(_ workspace: Workspace) -> Bool {

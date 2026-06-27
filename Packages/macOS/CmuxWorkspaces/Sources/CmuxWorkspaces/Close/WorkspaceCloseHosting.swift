@@ -157,4 +157,63 @@ public protocol WorkspaceCloseHosting<Tab>: AnyObject {
     /// legacy headless / no-`AppDelegate` fallthrough.
     @discardableResult
     func closeWindow(containingWorkspaceId workspaceId: UUID) -> Bool
+
+    // MARK: Child-exit-path effects (legacy TabManager.closePanelAfterChildExited)
+
+    /// Whether the exited surface keeps a persistent remote workspace's panel
+    /// visible instead of demoting it (legacy
+    /// `Workspace.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(_:)`). When
+    /// true the coordinator marks the attach failed and stops, so a failed remote
+    /// attach is never silently replaced by a local login shell.
+    func keepsPersistentRemoteSurfaceOpenAfterChildExit(_ tab: Tab, surfaceId: UUID) -> Bool
+
+    /// Whether the child exit should demote the workspace from remote (legacy
+    /// `Workspace.shouldDemoteWorkspaceAfterChildExit(surfaceId:)`). Read for both
+    /// the remote-session-ended mark guard and the route-through-`closeWorkspace`
+    /// decision, preserving the legacy double evaluation and its short-circuit.
+    func shouldDemoteWorkspaceAfterChildExit(_ tab: Tab, surfaceId: UUID) -> Bool
+
+    /// The workspace's live panel count (legacy `Workspace.panels.count`). The
+    /// coordinator tests it against `<= 1` to decide the last-panel collapse.
+    func panelCount(_ tab: Tab) -> Int
+
+    /// Records that the remote terminal session backing `surfaceId` ended on a
+    /// demoting child exit (legacy `Workspace.markRemoteTerminalSessionEnded(...)`
+    /// with the SSH `relayPort` and the `allowUntracked: !isRemoteTerminalSurface`
+    /// computation). The whole relay-port / untracked derivation stays app-side so
+    /// the seam carries no remote-configuration type.
+    func markRemoteTerminalSessionEnded(_ tab: Tab, surfaceId: UUID)
+
+    /// Marks the persistent remote PTY attach as failed for `surfaceId` so the
+    /// error surface stays visible for retry (legacy
+    /// `Workspace.markPersistentRemotePTYAttachFailed(surfaceId:)`).
+    func markPersistentRemotePTYAttachFailed(_ tab: Tab, surfaceId: UUID)
+
+    /// Closes the addressed runtime surface without confirmation (legacy
+    /// `TabManager.closeRuntimeSurface(tabId:surfaceId:)`). Reused for the
+    /// route-through-workspace path, the headless last-workspace fallback, and
+    /// the non-last-panel default branch.
+    func closeRuntimeSurface(tabId: UUID, surfaceId: UUID)
+
+    /// Closes the window for the last workspace's last child exit, clearing its
+    /// notifications first, returning whether an AppDelegate window context
+    /// existed (legacy: when `AppDelegate.shared` exists,
+    /// `notificationStore?.clearNotifications(forTabId:)` then
+    /// `closeMainWindowContainingTabId(_:recordHistory: false)` and `true`; else
+    /// `false`, so the coordinator falls back to `closeRuntimeSurface` for the
+    /// headless / no-`AppDelegate` case).
+    @discardableResult
+    func closeWindowForLastChildExit(workspaceId: UUID) -> Bool
+
+    /// Emits the legacy `surface.close.childExited` DEBUG trace for the routing
+    /// decision. The host owns the `cmuxDebugLog` sink and reads the workspace's
+    /// `panels.count` / `isRemoteWorkspace` to format the line; release builds
+    /// make this a no-op.
+    func logChildExitCloseDecision(
+        _ tab: Tab,
+        surfaceId: UUID,
+        workspaceCount: Int,
+        handlesRemoteExitThroughWorkspace: Bool,
+        keepsPersistentRemoteSurfaceOpen: Bool
+    )
 }

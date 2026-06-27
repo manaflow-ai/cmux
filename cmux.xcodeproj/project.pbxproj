@@ -515,6 +515,7 @@
 		B900AAA2A1B2C3D4E5F60719 /* GTVHotPathPerfUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900AAA1A1B2C3D4E5F60719 /* GTVHotPathPerfUITests.swift */; };
 		C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000006 /* HelpMenuUITests.swift */; };
 		F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */; };
+		BE12AB34CD56EF7890ABCD01 /* HermesTranscriptReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE12AB34CD56EF7890ABCD02 /* HermesTranscriptReader.swift */; };
 		4931A11B0000000000000002 /* HiddenRightSidebarContentMountingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */; };
 		CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */; };
 		C7A50B000000000000000025 /* HostMobileViewportReportModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000024 /* HostMobileViewportReportModelTests.swift */; };
@@ -1649,6 +1650,7 @@
 		B900AAA1A1B2C3D4E5F60719 /* GTVHotPathPerfUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GTVHotPathPerfUITests.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000006 /* HelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpMenuUITests.swift; sourceTree = "<group>"; };
 		F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesAgentIndex.swift; sourceTree = "<group>"; };
+		BE12AB34CD56EF7890ABCD02 /* HermesTranscriptReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesTranscriptReader.swift; sourceTree = "<group>"; };
 		4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenRightSidebarContentMountingTests.swift; sourceTree = "<group>"; };
 		CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostAccountFlow.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000024 /* HostMobileViewportReportModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostMobileViewportReportModelTests.swift; sourceTree = "<group>"; };
@@ -3118,6 +3120,7 @@
 				A5001661 /* RestorableAgentSession.swift */,
 				A5001681 /* AgentResumeScriptWriter.swift */,
 				A5001673 /* SessionTranscriptLoader.swift */,
+				BE12AB34CD56EF7890ABCD02 /* HermesTranscriptReader.swift */,
 				C0DEF0C10000000000000002 /* AgentForkSupport.swift */,
 				C0DEF0C20000000000000002 /* SemanticVersion.swift */,
 				A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */,
@@ -4226,6 +4229,7 @@
 				3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */,
 				9E31AE7418ECFEB7BFCC0EB1 /* GotoSplitUITestRecorder.swift in Sources */,
 				F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
+				BE12AB34CD56EF7890ABCD01 /* HermesTranscriptReader.swift in Sources */,
 				CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */,
 				CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */,
 				0A1B0AB50000000000000011 /* Image+CmuxFlatSymbolColorRendering.swift in Sources */,
