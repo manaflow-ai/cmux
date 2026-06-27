@@ -959,9 +959,49 @@ extension Workspace {
               bindingKind == restorableAgent.kind else {
             return false
         }
-        let poisonedShellResume = #"'([^']*/)?(bash|csh|dash|fish|ksh|login|sh|tcsh|zsh)' '--resume'"#
-        guard binding.command.range(of: poisonedShellResume, options: .regularExpression) != nil else { return false }
+        guard commandLooksLikePoisonedShellResumeBinding(binding.command, kind: bindingKind) else { return false }
         return capturedAt > binding.updatedAt
+    }
+
+    nonisolated private static func commandLooksLikePoisonedShellResumeBinding(
+        _ command: String,
+        kind: RestorableAgentKind
+    ) -> Bool {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command).map(\.value)
+        for index in words.indices where Self.tokenLooksLikeShellExecutable(words[index]) {
+            let tail = words[words.index(after: index)...]
+            if tail.first.map(Self.isPoisonedShellResumeVerb) == true {
+                return true
+            }
+            if let wrapperToken = tail.first,
+               Self.wrapperTokenLooksLikeAgentResumeLauncher(wrapperToken, kind: kind),
+               tail.dropFirst().first.map(Self.isPoisonedShellResumeVerb) == true {
+                return true
+            }
+        }
+        return false
+    }
+
+    nonisolated private static func tokenLooksLikeShellExecutable(_ token: String) -> Bool {
+        Self.poisonedShellBindingLaunchCaptureTrust.executableLooksLikeShell(token)
+    }
+
+    nonisolated private static func isPoisonedShellResumeVerb(_ token: String) -> Bool {
+        token == "--resume" || token == "resume"
+    }
+
+    nonisolated private static func wrapperTokenLooksLikeAgentResumeLauncher(
+        _ token: String,
+        kind: RestorableAgentKind
+    ) -> Bool {
+        switch kind {
+        case .claude:
+            return token == "claude-teams"
+        case .codex:
+            return token == "codex-teams"
+        default:
+            return false
+        }
     }
 
     nonisolated private static func restorableAgentForSessionRestore(
@@ -2241,6 +2281,8 @@ final class Workspace: Identifiable, ObservableObject {
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
+
+    private nonisolated static let poisonedShellBindingLaunchCaptureTrust = AgentLaunchCaptureTrust()
 
     let id: UUID
     /// When this workspace instance came into existence in this app session
