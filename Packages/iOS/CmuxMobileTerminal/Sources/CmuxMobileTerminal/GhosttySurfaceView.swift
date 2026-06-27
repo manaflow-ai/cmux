@@ -2184,10 +2184,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         fatalError("init(coder:) is not supported")
     }
 
-    @MainActor
     deinit {
-        stopKeyboardHeightAnimation()
-        disposeSurface()
+        // UIKit tears views down on the main thread; Xcode 16.4 does not support
+        // isolated deinit syntax, so assert that contract before sync cleanup.
+        MainActor.assumeIsolated {
+            stopKeyboardHeightAnimation()
+            disposeSurface()
+        }
     }
 
     public override class var layerClass: AnyClass {
