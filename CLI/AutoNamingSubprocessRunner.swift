@@ -43,7 +43,7 @@ struct AutoNamingSubprocessRunner: Sendable {
         var attributes: posix_spawnattr_t?
         guard posix_spawnattr_init(&attributes) == 0 else { return nil }
         defer { posix_spawnattr_destroy(&attributes) }
-        let spawnFlags = Int16(POSIX_SPAWN_SETPGROUP)
+        let spawnFlags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)
         guard posix_spawnattr_setflags(&attributes, spawnFlags) == 0,
               posix_spawnattr_setpgroup(&attributes, 0) == 0 else {
             return nil

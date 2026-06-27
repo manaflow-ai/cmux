@@ -48,14 +48,28 @@ extension CMUXCLI {
 
     func autoNamingMessageBatchKey(for def: AgentHookDef, parsedInput: ClaudeHookParsedInput) -> String? {
         guard usesHookMessageCacheForAutoNaming(def),
-              let object = parsedInput.rawObject ?? parsedInput.object,
-              JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+              let object = parsedInput.rawObject ?? parsedInput.object else {
             return nil
         }
+        let messages = AutoNamingEngine().extractHookMessages(fromPayloadObjects: [object])
+        guard !messages.isEmpty else { return nil }
         let sessionId = normalizedHookValue(parsedInput.sessionId) ?? ""
         let turnId = normalizedHookValue(parsedInput.turnId) ?? ""
-        return "\(def.name)\u{1F}\(sessionId)\u{1F}\(turnId)\u{1F}\(autoNamingBatchFingerprint(data))"
+        let eventIdentity = autoNamingBatchEventIdentity(in: object)
+        let messageIdentity = messages.prefix(8).map { message in
+            "\(message.role)\u{1E}\(String(message.text.prefix(1_000)))"
+        }.joined(separator: "\u{1F}")
+        let seed = "\(def.name)\u{1F}\(sessionId)\u{1F}\(turnId)\u{1F}\(eventIdentity)\u{1F}\(messageIdentity)"
+        return "\(def.name)\u{1F}\(sessionId)\u{1F}\(turnId)\u{1F}\(autoNamingBatchFingerprint(Data(seed.utf8)))"
+    }
+
+    private func autoNamingBatchEventIdentity(in object: [String: Any]) -> String {
+        [
+            "hook_event_name", "hookEventName", "event", "event_name", "type", "kind",
+            "message_id", "messageId", "event_id", "eventId", "request_id", "requestId", "id"
+        ].compactMap { key in
+            normalizedHookValue(firstString(in: object, keys: [key])).map { "\(key)=\($0)" }
+        }.joined(separator: "\u{1E}")
     }
 
     private func autoNamingBatchFingerprint(_ data: Data) -> String {
