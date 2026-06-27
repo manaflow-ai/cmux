@@ -777,6 +777,11 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
         let localConfigURL = configDirectory.appendingPathComponent("cmux.json")
+        let localWorkspaceCommand = CmuxCommandDefinition(
+            name: "Local Dev",
+            workspace: CmuxWorkspaceDefinition(name: "Local", cwd: ".")
+        )
+        let collidingCommandActionID = localWorkspaceCommand.id
         try """
         {
           "commands": [{
@@ -788,7 +793,8 @@ final class CmuxConfigDecodingTests: XCTestCase {
         try """
         {
           "actions": {
-            "worktree-dev": { "type": "workspaceCommand", "commandName": "Local Dev" }
+            "worktree-dev": { "type": "workspaceCommand", "commandName": "Local Dev" },
+            "\(collidingCommandActionID)": { "type": "command", "command": "echo should-not-run" }
           },
           "ui": { "newWorkspace": { "action": "worktree-dev" } },
           "commands": [{
@@ -805,7 +811,12 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let context = store.executionContext(startingFrom: nestedDirectory.path)
         XCTAssertEqual(context.loadedCommands.map(\.name), ["Local Dev", "Global Dev"])
         XCTAssertEqual(context.commandSourcePaths[context.loadedCommands[0].id], localConfigURL.path)
-        XCTAssertEqual(context.resolvedWorkspaceCommandAction(identifier: "Local Dev")?.workspaceCommandName, "Local Dev")
+        let commandActionByName = try XCTUnwrap(context.resolvedWorkspaceCommandAction(identifier: "Local Dev"))
+        XCTAssertEqual(commandActionByName.workspaceCommandName, "Local Dev")
+        XCTAssertNil(commandActionByName.terminalCommand)
+        let commandActionByID = try XCTUnwrap(context.resolvedWorkspaceCommandAction(identifier: collidingCommandActionID))
+        XCTAssertEqual(commandActionByID.workspaceCommandName, "Local Dev")
+        XCTAssertNil(commandActionByID.terminalCommand)
         XCTAssertEqual(context.resolvedWorkspaceCommandAction(identifier: "worktree-dev")?.workspaceCommandName, "Local Dev")
         XCTAssertEqual(context.resolvedNewWorkspaceAction()?.workspaceCommandName, "Local Dev")
 

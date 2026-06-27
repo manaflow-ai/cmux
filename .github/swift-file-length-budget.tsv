@@ -30,7 +30,7 @@
 3896	cmuxTests/WindowAndDragTests.swift
 3688	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3669	cmuxTests/CLIGenericHookPersistenceTests.swift
-3453	Sources/CmuxConfig.swift
+3464	Sources/CmuxConfig.swift
 3364	cmuxTests/TabManagerSessionSnapshotTests.swift
 3053	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
@@ -43,7 +43,7 @@
 2328	cmuxTests/CJKIMEInputTests.swift
 2242	Sources/TerminalNotificationStore.swift
 2233	Sources/TerminalWindowPortal.swift
-2190	cmuxTests/CmuxConfigTests.swift
+2201	cmuxTests/CmuxConfigTests.swift
 2091	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2078	Sources/SessionPersistence.swift
 1952	Sources/KeyboardShortcutSettingsFileStore.swift

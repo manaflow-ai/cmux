@@ -2477,32 +2477,39 @@ final class CmuxConfigStore: ObservableObject {
 
         for command in commands where registry[command.id] == nil {
             let sourcePath = commandSourcePaths[command.id]
-            registry[command.id] = CmuxResolvedConfigAction(
-                id: command.id,
-                title: String(
-                    localized: "command.cmuxConfig.customTitle",
-                    defaultValue: "Custom: \(sanitizeConfigText(command.name))"
-                ),
-                subtitle: command.description.map { sanitizeConfigText($0) }
-                    ?? String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json"),
-                keywords: command.keywords ?? [],
-                palette: true,
-                shortcut: nil,
-                icon: .symbol(command.workspace == nil ? "terminal" : "rectangle.stack.badge.plus"),
-                tooltip: command.description,
-                action: command.workspace == nil
-                    ? .command(command.command ?? "")
-                    : .workspaceCommand(command.name),
-                confirm: command.confirm,
-                terminalCommandTarget: command.workspace == nil ? .currentTerminal : nil,
-                actionSourcePath: sourcePath,
-                iconSourcePath: nil
-            )
+            registry[command.id] = resolvedAction(for: command, sourcePath: sourcePath)
         }
 
         return registry.values.sorted { lhs, rhs in
             lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
         }
+    }
+
+    private func resolvedAction(
+        for command: CmuxCommandDefinition,
+        sourcePath: String?
+    ) -> CmuxResolvedConfigAction {
+        CmuxResolvedConfigAction(
+            id: command.id,
+            title: String(
+                localized: "command.cmuxConfig.customTitle",
+                defaultValue: "Custom: \(sanitizeConfigText(command.name))"
+            ),
+            subtitle: command.description.map { sanitizeConfigText($0) }
+                ?? String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json"),
+            keywords: command.keywords ?? [],
+            palette: true,
+            shortcut: nil,
+            icon: .symbol(command.workspace == nil ? "terminal" : "rectangle.stack.badge.plus"),
+            tooltip: command.description,
+            action: command.workspace == nil
+                ? .command(command.command ?? "")
+                : .workspaceCommand(command.name),
+            confirm: command.confirm,
+            terminalCommandTarget: command.workspace == nil ? .currentTerminal : nil,
+            actionSourcePath: sourcePath,
+            iconSourcePath: nil
+        )
     }
 
     private func resolvedSurfaceTabBarButtons(
@@ -2654,7 +2661,11 @@ final class CmuxConfigStore: ObservableObject {
         }), command.workspace != nil else {
             return nil
         }
-        return resolvedAction(id: command.id)
+        if let action = resolvedAction(id: command.id),
+           action.workspaceCommandName == command.name {
+            return action
+        }
+        return resolvedAction(for: command, sourcePath: commandSourcePaths[command.id])
     }
 
     func executionContext(startingFrom directory: String?) -> CmuxConfigStore {
