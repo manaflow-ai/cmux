@@ -1152,7 +1152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Session snapshot persistence (CmuxSession); composition-root owned.
     /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
-        schemaVersion: SessionSnapshotSchema.currentVersion,
+        schemaVersion: AppSessionSnapshot.currentSchemaVersion,
         bundleIdentifier: Bundle.main.bundleIdentifier
     )
     /// Session-snapshot + primary-window-geometry write coordinator
@@ -3115,7 +3115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         guard !windows.isEmpty else { return nil }
         return AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: Date().timeIntervalSince1970,
             windows: windows
         )

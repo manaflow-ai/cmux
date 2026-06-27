@@ -6,6 +6,7 @@ import Bonsplit
 import CmuxCore
 import CmuxWorkspaces
 import CmuxTerminal
+import CmuxTerminalCore
 
 private enum WorkspaceTitlebarInteractionMetrics {
     // Keep in sync with the minimal-mode titlebar strip so the monitor only
@@ -353,8 +354,7 @@ struct WorkspaceContentView: View {
         }
         deferredThemeRefresh = nil
 
-        let previousSignature = Self.ghosttyAppearanceSignature(
-            config,
+        let previousSignature = config.appearanceSignature(
             usesHostLayerBackground: lastAppliedUsesHostLayerBackground
         )
         let previousBackgroundHex = config.backgroundColor.hexString()
@@ -363,8 +363,7 @@ struct WorkspaceContentView: View {
             backgroundOverride: backgroundOverride
         )
         let nextUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
-        let nextSignature = Self.ghosttyAppearanceSignature(
-            next,
+        let nextSignature = next.appearanceSignature(
             usesHostLayerBackground: nextUsesHostLayerBackground
         )
         let eventLabel = backgroundEventId.map(String.init) ?? "nil"

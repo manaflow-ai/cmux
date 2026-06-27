@@ -46,6 +46,11 @@ final class FileExplorerStore: ObservableObject {
 
     var provider: FileExplorerProvider?
 
+    /// Spawns `git`/`ssh` to compute working-tree status off the main thread.
+    /// Injected via `init` (defaulting to a real `GitStatusService`) so the
+    /// service is constructed once and not re-instantiated per refresh.
+    private let gitStatusService: GitStatusService
+
     /// Whether hidden files are shown. Set from FileExplorerState externally.
     var showHiddenFiles: Bool = false
 
@@ -89,6 +94,10 @@ final class FileExplorerStore: ObservableObject {
             return "ssh://\(sshProvider.displayTarget):\(rootPath)"
         }
         return rootPath.homeRelativeDisplayPath(homePath: provider?.homePath)
+    }
+
+    init(gitStatusService: GitStatusService = GitStatusService()) {
+        self.gitStatusService = gitStatusService
     }
 
     // MARK: - Public API
@@ -150,13 +159,14 @@ final class FileExplorerStore: ObservableObject {
             return
         }
         let path = rootPath
+        let service = gitStatusService
         if let sshProvider = provider as? SSHFileExplorerProvider {
             let dest = sshProvider.destination
             let port = sshProvider.port
             let identity = sshProvider.identityFile
             let opts = sshProvider.sshOptions
-            DispatchQueue.global(qos: .utility).async {
-                let status = GitStatusService().fetchStatusSSH(
+            Task {
+                let status = await service.fetchStatusSSH(
                     directory: path, destination: dest, port: port,
                     identityFile: identity, sshOptions: opts
                 )
@@ -165,8 +175,8 @@ final class FileExplorerStore: ObservableObject {
                 }
             }
         } else {
-            DispatchQueue.global(qos: .utility).async {
-                let status = GitStatusService().fetchStatus(directory: path)
+            Task {
+                let status = await service.fetchStatus(directory: path)
                 DispatchQueue.main.async { [weak self] in
                     self?.gitStatusByPath = status
                 }

@@ -1371,7 +1371,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let restoredWorkspace = try XCTUnwrap(restoredManager.selectedWorkspace)
         restoredWorkspace.setCustomTitle("Previous Work")
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: 1_700_000_000,
             windows: [sessionWindowSnapshot(tabManager: restoredManager)]
         )
@@ -1430,7 +1430,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         ))
 
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: 1_700_000_001,
             windows: [sessionWindowSnapshot(tabManager: restoredManager, windowId: oldRestoredWindowId)]
         )
@@ -10418,7 +10418,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: 1_700_000_000,
             windows: [
                 sessionWindowSnapshot(tabManager: firstManager),

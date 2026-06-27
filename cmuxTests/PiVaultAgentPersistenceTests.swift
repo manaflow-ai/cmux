@@ -1097,7 +1097,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
 
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
         let store = SessionSnapshotRepository<AppSessionSnapshot>(
-            schemaVersion: SessionSnapshotSchema.currentVersion,
+            schemaVersion: AppSessionSnapshot.currentSchemaVersion,
             bundleIdentifier: "com.cmuxterm.tests"
         )
         XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
@@ -1130,7 +1130,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             gitBranch: nil
         )
         return AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: Date().timeIntervalSince1970,
             windows: [
                 SessionWindowSnapshot(

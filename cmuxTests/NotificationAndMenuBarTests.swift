@@ -1182,8 +1182,8 @@ final class NotificationDockBadgeTests: XCTestCase {
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
         let hadSoundValue = defaults.object(forKey: NotificationSoundSettings.key) != nil
         let originalSoundValue = defaults.object(forKey: NotificationSoundSettings.key)
-        let hadCommandValue = defaults.object(forKey: NotificationSoundSettings.customCommandKey) != nil
-        let originalCommandValue = defaults.object(forKey: NotificationSoundSettings.customCommandKey)
+        let hadCommandValue = defaults.object(forKey: NotificationCustomCommandRunner.defaultsKey) != nil
+        let originalCommandValue = defaults.object(forKey: NotificationCustomCommandRunner.defaultsKey)
 
         var deliveredNotificationIDs: [UUID] = []
 
@@ -1197,7 +1197,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         defaults.set("none", forKey: NotificationSoundSettings.key)
         defaults.set(
             "printf '%s\\n%s\\n%s' \"$CMUX_NOTIFICATION_TITLE\" \"$CMUX_NOTIFICATION_SUBTITLE\" \"$CMUX_NOTIFICATION_BODY\" > '\(commandOutputURL.path)'",
-            forKey: NotificationSoundSettings.customCommandKey
+            forKey: NotificationCustomCommandRunner.defaultsKey
         )
 
         defer {
@@ -1211,9 +1211,9 @@ final class NotificationDockBadgeTests: XCTestCase {
                 defaults.removeObject(forKey: NotificationSoundSettings.key)
             }
             if hadCommandValue {
-                defaults.set(originalCommandValue, forKey: NotificationSoundSettings.customCommandKey)
+                defaults.set(originalCommandValue, forKey: NotificationCustomCommandRunner.defaultsKey)
             } else {
-                defaults.removeObject(forKey: NotificationSoundSettings.customCommandKey)
+                defaults.removeObject(forKey: NotificationCustomCommandRunner.defaultsKey)
             }
             try? FileManager.default.removeItem(at: commandOutputURL)
         }

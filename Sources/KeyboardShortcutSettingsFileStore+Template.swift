@@ -119,7 +119,7 @@ extension CmuxSettingsFileStore {
                     "paneFlash": NotificationDefaultsToggle.paneFlash.defaultValue,
                     "sound": NotificationSoundSettings.defaultValue,
                     "customSoundFilePath": NotificationSoundSettings.defaultCustomFilePath,
-                    "command": NotificationSoundSettings.defaultCustomCommand,
+                    "command": NotificationCustomCommandRunner.defaultCommand,
                     "hooksMode": "append",
                     "hooks": [],
                 ],

@@ -167,3 +167,53 @@ public struct GitStatusService: Sendable {
         }
     }
 }
+
+// MARK: - Async offload
+
+extension GitStatusService {
+    /// Computes local working-tree status off the main thread.
+    ///
+    /// The synchronous ``fetchStatus(directory:)`` blocks while it spawns and
+    /// waits on `git`; this overload runs that blocking work on a utility-QoS
+    /// global queue and resumes with the result, so callers no longer manage the
+    /// background dispatch themselves.
+    ///
+    /// - Parameter directory: An absolute path to inspect.
+    /// - Returns: The same path-to-``GitFileStatus`` map as the synchronous call.
+    public func fetchStatus(directory: String) async -> [String: GitFileStatus] {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: self.fetchStatus(directory: directory))
+            }
+        }
+    }
+
+    /// Computes remote working-tree status off the main thread.
+    ///
+    /// The blocking `ssh`/`git` work of ``fetchStatusSSH(directory:destination:port:identityFile:sshOptions:)``
+    /// runs on a utility-QoS global queue, matching the threading the file
+    /// explorer previously arranged inline.
+    ///
+    /// - Parameters:
+    ///   - directory: The absolute remote path to inspect.
+    ///   - destination: The SSH destination (`user@host` or a config alias).
+    ///   - port: An optional SSH port.
+    ///   - identityFile: An optional identity file path.
+    ///   - sshOptions: Extra `-o` options to pass to `ssh`.
+    /// - Returns: The same path-to-``GitFileStatus`` map as the synchronous call.
+    public func fetchStatusSSH(
+        directory: String, destination: String, port: Int?,
+        identityFile: String?, sshOptions: [String]
+    ) async -> [String: GitFileStatus] {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(
+                    returning: self.fetchStatusSSH(
+                        directory: directory, destination: destination, port: port,
+                        identityFile: identityFile, sshOptions: sshOptions
+                    )
+                )
+            }
+        }
+    }
+}
