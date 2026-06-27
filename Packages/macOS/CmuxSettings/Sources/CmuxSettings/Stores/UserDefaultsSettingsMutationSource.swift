@@ -1,6 +1,5 @@
 import Foundation
 import Dispatch
-import os
 
 /// Identifies one caller-originated `UserDefaultsSettingsStore` mutation.
 ///
@@ -34,7 +33,7 @@ public struct UserDefaultsSettingsMutationSource: Sendable, Hashable {
         self.init(
             ownerID: ownerID,
             sequence: sequence,
-            logicalOrder: Self.nextLogicalOrder()
+            logicalOrder: DispatchTime.now().uptimeNanoseconds
         )
     }
 
@@ -64,23 +63,4 @@ public struct UserDefaultsSettingsMutationSource: Sendable, Hashable {
         hasher.combine(sequence)
     }
 
-    static func nextLogicalOrder() -> UInt64 {
-        logicalOrderState.withLock { lastOrder in
-            let clockOrder = DispatchTime.now().uptimeNanoseconds
-            let nextOrder = if clockOrder > lastOrder {
-                clockOrder
-            } else if lastOrder == UInt64.max {
-                UInt64.max
-            } else {
-                lastOrder + 1
-            }
-            lastOrder = nextOrder
-            return nextOrder
-        }
-    }
-
-    // Justification: synchronous source creation needs a process-local logical
-    // clock; this lock only guards one counter and avoids forcing an async
-    // factory into SwiftUI `Binding` setters.
-    private nonisolated static let logicalOrderState = OSAllocatedUnfairLock(initialState: UInt64(0))
 }

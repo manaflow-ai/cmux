@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 
 /// Typed read/write/observe access to settings persisted in `UserDefaults`.
 ///
@@ -197,7 +198,7 @@ public actor UserDefaultsSettingsStore {
         _ source: UserDefaultsSettingsMutationSource?,
         for storageKey: String
     ) {
-        let logicalOrder = source?.logicalOrder ?? UserDefaultsSettingsMutationSource.nextLogicalOrder()
+        let logicalOrder = source?.logicalOrder ?? DispatchTime.now().uptimeNanoseconds
         acceptedMutationLogicalOrders[storageKey] = max(
             acceptedMutationLogicalOrders[storageKey] ?? 0,
             logicalOrder

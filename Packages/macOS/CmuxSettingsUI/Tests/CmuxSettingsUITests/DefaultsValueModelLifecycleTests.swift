@@ -25,17 +25,6 @@ import Testing
 @Suite struct DefaultsValueModelLifecycleTests {
     private typealias DefaultsEvent<Value: SettingCodable> = UserDefaultsSettingsValueEvent<Value>
 
-    /// Box whose flag the stream's `onTermination` flips on the main actor.
-    @MainActor
-    private final class TerminationFlag {
-        var didTerminate = false
-    }
-
-    @MainActor
-    private final class CallbackFlag {
-        var didRun = false
-    }
-
     private func event<Value: SettingCodable>(
         _ value: Value,
         source: UserDefaultsSettingsMutationSource? = nil,
@@ -57,7 +46,7 @@ import Testing
         let key = SettingCatalog().betaFeatures.extensions
 
         let (stream, continuation) = AsyncStream<DefaultsEvent<Bool>>.makeStream()
-        let flag = TerminationFlag()
+        let flag = DefaultsValueModelTerminationFlag()
         continuation.onTermination = { _ in
             Task { @MainActor in flag.didTerminate = true }
         }
@@ -575,7 +564,7 @@ import Testing
             key: key,
             makeStream: { _ in stream }
         )
-        let flag = CallbackFlag()
+        let flag = DefaultsValueModelCallbackFlag()
 
         model.set(true) {
             flag.didRun = true
