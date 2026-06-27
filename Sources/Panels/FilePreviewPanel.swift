@@ -1073,10 +1073,11 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         focusCoordinator.fulfillPendingFocusIfNeeded()
     }
 
-    func navigateToTextPosition(lineNumber: Int, columnNumber: Int) {
+    func navigateToTextPosition(lineNumber: Int?, columnNumber: Int?) {
+        guard let lineNumber else { return }
         pendingTextNavigation = (
             lineNumber: max(1, lineNumber),
-            columnNumber: max(1, columnNumber)
+            columnNumber: max(1, columnNumber ?? 1)
         )
         focusCoordinator.notePreferredIntent(.textEditor)
         _ = restoreFocusIntent(.filePreview(.textEditor))
@@ -1224,6 +1225,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             guard replacingDirtyContent || !isDirty else {
                 hasLoadedTextContent = true
                 isFileUnavailable = true
+                pendingTextNavigation = nil
                 return
             }
             textContent = ""
@@ -1337,12 +1339,22 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             }
         }
 
-        var currentColumn = 1
-        while currentColumn < columnNumber, index < text.endIndex, !text[index].isNewline {
-            index = text.index(after: index)
-            currentColumn += 1
+        let utf8 = text.utf8
+        guard var utf8Index = index.samePosition(in: utf8) else {
+            return index.utf16Offset(in: text)
         }
-        return index.utf16Offset(in: text)
+
+        for _ in 1..<columnNumber {
+            guard utf8Index < utf8.endIndex else { break }
+            let byte = utf8[utf8Index]
+            guard byte != 0x0A, byte != 0x0D else { break }
+            utf8Index = utf8.index(after: utf8Index)
+        }
+
+        while utf8Index < utf8.endIndex, utf8Index.samePosition(in: text) == nil {
+            utf8Index = utf8.index(after: utf8Index)
+        }
+        return (utf8Index.samePosition(in: text) ?? text.endIndex).utf16Offset(in: text)
     }
 }
 

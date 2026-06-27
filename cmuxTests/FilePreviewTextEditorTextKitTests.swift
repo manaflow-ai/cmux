@@ -75,4 +75,74 @@ struct FilePreviewTextEditorTextKitTests {
 
         #expect(textView.selectedRange().location == (content as NSString).range(of: "needle").location)
     }
+
+    @Test("search navigation treats columns as UTF-8 byte offsets")
+    func searchNavigationUsesUTF8ByteColumnOffset() async throws {
+        let content = "first\n🔍 needle\n"
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-preview-utf8-navigation-\(UUID().uuidString)")
+            .appendingPathExtension("swift")
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            textLoader: { _ in .loaded(content, .utf8) }
+        )
+        defer { panel.close() }
+
+        panel.navigateToTextPosition(lineNumber: 2, columnNumber: 6)
+        await panel.loadTextContent().value
+
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = panel.textContent
+        panel.attachTextView(textView)
+
+        #expect(textView.selectedRange().location == (content as NSString).range(of: "needle").location)
+    }
+
+    @Test("unavailable dirty load clears pending search navigation")
+    func unavailableDirtyLoadClearsPendingSearchNavigation() async throws {
+        let loader = PreviewTextLoaderStub(result: .loaded("clean\n", .utf8))
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-preview-unavailable-navigation-\(UUID().uuidString)")
+            .appendingPathExtension("swift")
+        try "clean\n".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            textLoader: loader.load
+        )
+        defer { panel.close() }
+
+        await panel.loadTextContent().value
+        panel.updateTextContent("dirty needle\n")
+        #expect(panel.isDirty)
+
+        panel.navigateToTextPosition(lineNumber: 1, columnNumber: 7)
+        loader.result = .unavailable
+        await panel.loadTextContent(replacingDirtyContent: false).value
+
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = panel.textContent
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        panel.attachTextView(textView)
+
+        #expect(textView.selectedRange().location == 0)
+    }
+}
+
+private final class PreviewTextLoaderStub: @unchecked Sendable {
+    var result: FilePreviewTextLoader.Result
+
+    init(result: FilePreviewTextLoader.Result) {
+        self.result = result
+    }
+
+    func load(_ url: URL) async -> FilePreviewTextLoader.Result {
+        result
+    }
 }

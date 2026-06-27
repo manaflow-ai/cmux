@@ -103,7 +103,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                         focus: true,
                         reuseExisting: true
                     )
-                    Self.applyFilePreviewNavigation(lineNumber: lineNumber, columnNumber: columnNumber, to: panels.first)
+                    panels.first?.navigateToTextPosition(lineNumber: lineNumber, columnNumber: columnNumber)
                 } catch {
                     NSSound.beep()
                 }
@@ -117,7 +117,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                 focus: true,
                 reuseExisting: true
             )
-            Self.applyFilePreviewNavigation(lineNumber: lineNumber, columnNumber: columnNumber, to: panels.first)
+            panels.first?.navigateToTextPosition(lineNumber: lineNumber, columnNumber: columnNumber)
         } else {
             _ = workspace.openFileSurfaces(
                 inPane: paneId,
@@ -126,15 +126,6 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                 reuseExisting: true
             )
         }
-    }
-
-    private static func applyFilePreviewNavigation(
-        lineNumber: Int?,
-        columnNumber: Int?,
-        to panel: FilePreviewPanel?
-    ) {
-        guard let panel, let lineNumber else { return }
-        panel.navigateToTextPosition(lineNumber: lineNumber, columnNumber: columnNumber ?? 1)
     }
 
     var isFocusedInWorkspace: Bool {
