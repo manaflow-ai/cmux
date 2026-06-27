@@ -1,5 +1,7 @@
 public import Bonsplit
 public import Foundation
+import AppKit
+internal import CMUXDebugLog
 
 /// Owns the browser-panel creation orchestration the app-target `TabManager`
 /// used to inline: the workspace resolution, the select-if-not-selected step,
@@ -174,5 +176,71 @@ public final class BrowserOpenCoordinator {
             url: url,
             preferredProfileID: preferredProfileID
         )
+    }
+
+    // MARK: - Embedded link open
+
+    /// Opens `url` in `workspace` for a deferred embedded-link open (the Ghostty
+    /// `open_url` callback's "open in the embedded browser" path), returning
+    /// whether the open was handled.
+    ///
+    /// This is the byte-faithful lift of the post-resolution half of the former
+    /// `GhosttyApp.openEmbeddedBrowserLink`. The browser-availability gate and
+    /// the app-global panel-to-workspace resolution
+    /// (`AppDelegate.shared.workspaceContainingPanel`) stay app-side, because the
+    /// resolution searches every window's tab manager and cannot move down; the
+    /// caller resolves the workspace there and drives the coordinator owned by
+    /// that workspace's window with the resolved handle (so, unlike the
+    /// host-resolved open paths above, this method receives the workspace handle
+    /// directly rather than looking it up through ``BrowserOpenHosting``).
+    ///
+    /// It reuses the source panel's preferred right-side pane when one exists,
+    /// else splits a new browser pane horizontally from the source panel, and
+    /// falls back to opening `url` externally via `NSWorkspace` when the embedded
+    /// browser creation fails. `linkHost` is the URL host, carried only for the
+    /// DEBUG trace.
+    @discardableResult
+    public func openEmbeddedLink(
+        in workspace: any BrowserOpenWorkspaceHandle,
+        url: URL,
+        sourcePanelId: UUID,
+        host linkHost: String
+    ) -> Bool {
+        let openedInBrowser: Bool
+        if let targetPane = workspace.preferredRightSideTargetPane(fromPanelId: sourcePanelId) {
+            #if DEBUG
+            cmuxDebugLog("link.openURL opening in existing browser pane=\(targetPane)")
+            #endif
+            openedInBrowser = workspace.newBrowserSurface(
+                inPane: targetPane,
+                url: url,
+                focus: true,
+                insertAtEnd: false,
+                preferredProfileID: nil
+            ) != nil
+        } else {
+            #if DEBUG
+            cmuxDebugLog("link.openURL opening as new browser split from surface=\(sourcePanelId)")
+            #endif
+            openedInBrowser = workspace.newBrowserSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                url: url,
+                preferredProfileID: nil,
+                focus: true
+            ) != nil
+        }
+
+        guard openedInBrowser else {
+            #if DEBUG
+            cmuxDebugLog(
+                "link.openURL deferred embedded browser creation failed, opening externally " +
+                "host=\(linkHost) url=\(url)"
+            )
+            #endif
+            return NSWorkspace.shared.open(url)
+        }
+
+        return true
     }
 }

@@ -94,21 +94,21 @@ struct CodexAppServerSessionTests {
         let serverURL = try #require(URL(string: "http://127.0.0.1:49211"))
 
         expectEqual(
-            AgentSessionProcessStore.openCodeProcessOutputDisposition(
+            OpenCodeProcessOutputDisposition.classify(
                 text: "opencode server listening on http://127.0.0.1:49211\n",
                 stream: "stdout"
             ),
             .serverURL(serverURL)
         )
         expectEqual(
-            AgentSessionProcessStore.openCodeProcessOutputDisposition(
+            OpenCodeProcessOutputDisposition.classify(
                 text: "INFO request completed\n",
                 stream: "stdout"
             ),
             .suppress
         )
         expectEqual(
-            AgentSessionProcessStore.openCodeProcessOutputDisposition(
+            OpenCodeProcessOutputDisposition.classify(
                 text: "OpenCode session could not be created.\n",
                 stream: "stderr"
             ),
@@ -119,19 +119,19 @@ struct CodexAppServerSessionTests {
     @Test
     func testOpenCodeEventStreamEOFPolicyFailsOnlyForLiveSession() {
         expectTrue(
-            AgentSessionProcessStore.openCodeEventStreamEOFRequiresFailure(
+            OpenCodeProcessOutputDisposition.eventStreamEOFRequiresFailure(
                 isCancelled: false,
                 processIsRunning: true
             )
         )
         expectFalse(
-            AgentSessionProcessStore.openCodeEventStreamEOFRequiresFailure(
+            OpenCodeProcessOutputDisposition.eventStreamEOFRequiresFailure(
                 isCancelled: true,
                 processIsRunning: true
             )
         )
         expectFalse(
-            AgentSessionProcessStore.openCodeEventStreamEOFRequiresFailure(
+            OpenCodeProcessOutputDisposition.eventStreamEOFRequiresFailure(
                 isCancelled: false,
                 processIsRunning: false
             )

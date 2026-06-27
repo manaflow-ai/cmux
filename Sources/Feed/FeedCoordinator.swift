@@ -79,7 +79,7 @@ final class FeedCoordinator: @unchecked Sendable {
     func ingestBlocking(
         event: WorkstreamEvent,
         waitTimeout: TimeInterval
-    ) -> IngestBlockingResult {
+    ) -> WorkstreamIngestBlockingResult {
         guard let requestId = event.requestId, waitTimeout > 0 else {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -223,12 +223,6 @@ final class FeedCoordinator: @unchecked Sendable {
         } else {
             DispatchQueue.main.sync(execute: expire)
         }
-    }
-
-    enum IngestBlockingResult {
-        case acknowledged(itemId: UUID?)
-        case resolved(itemId: UUID?, decision: WorkstreamDecision)
-        case timedOut(itemId: UUID?)
     }
 }
 

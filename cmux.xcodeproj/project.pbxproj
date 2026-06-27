@@ -102,6 +102,7 @@
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */; };
 		A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A47E00010000000000000002 /* AuthEnvironmentTests.swift */; };
+		A1B2C3D4E5F600000000B005 /* AutomationSettingsFileSectionParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000B006 /* AutomationSettingsFileSectionParser.swift */; };
 		B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */; };
 		FF068325E8A04E51A30AE9BA /* AutoNamingCodexAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70034F4D644C4896B8B925F3 /* AutoNamingCodexAdapterTests.swift */; };
 		7C592156DCB3419BB95383E5 /* AutoNamingEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */; };
@@ -207,6 +208,7 @@
 		B900001AA1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */; };
 		B900001BA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900001CA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift */; };
 		C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00020000000000000002 /* CloudVMActionLauncher.swift */; };
+		C10D0E4100000000000C1E22 /* CloudVMHTTPError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D0E4000000000000C1E22 /* CloudVMHTTPError.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
 		C1ADE20002A1B2C3D4E5F719 /* cmux-claude-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */; };
 		A5001623 /* cmux.sdef in Resources */ = {isa = PBXBuildFile; fileRef = A5001622 /* cmux.sdef */; };
@@ -397,6 +399,7 @@
 		5CBC5063C74D4AA1AE633205 /* DebugDragOverlayProbes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3256E38E04AA4255B9025107 /* DebugDragOverlayProbes.swift */; };
 		A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */; };
 		DEB6C0DE00000000000000A0 /* DebugWindowControlsContentProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEB6C0DE00000000000000A1 /* DebugWindowControlsContentProvider.swift */; };
+		DEB6C0DE00000000000000B0 /* DebugWindowScreenshotCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEB6C0DE00000000000000B1 /* DebugWindowScreenshotCapture.swift */; };
 		D7EFA110000000000000001 /* DefaultTerminalRegistrationError+LocalizedCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7EFA110000000000000002 /* DefaultTerminalRegistrationError+LocalizedCopy.swift */; };
 		A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001F000000000000000002 /* DetachedFolderDragIcon.swift */; };
 		B05553C10000000000000001 /* DetachedFolderPathLookupCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B05553C10000000000000002 /* DetachedFolderPathLookupCache.swift */; };
@@ -614,7 +617,6 @@
 		DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */; };
 		4C1A7E10B2D34F56A8C90098 /* MobileHostPublicStatusCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1A7E10B2D34F56A8C90099 /* MobileHostPublicStatusCache.swift */; };
 		4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */; };
-		C7A50B000000000000000014 /* MobileHostService+Capabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000013 /* MobileHostService+Capabilities.swift */; };
 		0E561FAED6907CFE737CD85F /* MobileHostService+RPCDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18929864632768BDC21DBD9B /* MobileHostService+RPCDispatch.swift */; };
 		F67FBC88671C40AC3A3284CE /* MobileHostService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ACA497A6831165EA879C642 /* MobileHostService.swift */; };
 		C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10510000000000000002 /* MobileHostServiceSettingsTests.swift */; };
@@ -982,6 +984,7 @@
 		9C1BEA3D2E6F49709A71C020 /* TerminalControllerTerminalTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C1BEA3D2E6F49709A71C021 /* TerminalControllerTerminalTextTests.swift */; };
 		C7A505000000000000000002 /* TerminalControllerTopSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A505000000000000000001 /* TerminalControllerTopSupport.swift */; };
 		C7A50B000000000000000002 /* TerminalControllerV2ParamParsingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */; };
+		C0DE00000000000000000FF4 /* TerminalDebugTableBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000FF3 /* TerminalDebugTableBuilder.swift */; };
 		0D56BE882EAD4B67AC44F96D /* TerminalDirectoryOpenSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */; };
 		E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */; };
 		A5001542 /* TerminalImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001544 /* TerminalImageTransfer.swift */; };
@@ -1322,6 +1325,7 @@
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthEnvironment.swift; sourceTree = "<group>"; };
 		A47E00010000000000000002 /* AuthEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthEnvironmentTests.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F600000000B006 /* AutomationSettingsFileSectionParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSettingsFileSectionParser.swift; sourceTree = "<group>"; };
 		B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
 		70034F4D644C4896B8B925F3 /* AutoNamingCodexAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingCodexAdapterTests.swift; sourceTree = "<group>"; };
 		7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingEngineTests.swift; sourceTree = "<group>"; };
@@ -1426,6 +1430,7 @@
 		B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceConfirmDialogUITests.swift; sourceTree = "<group>"; };
 		B900001CA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspacesConfirmDialogUITests.swift; sourceTree = "<group>"; };
 		C10D00020000000000000002 /* CloudVMActionLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMActionLauncher.swift; sourceTree = "<group>"; };
+		C10D0E4000000000000C1E22 /* CloudVMHTTPError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudVMHTTPError.swift; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
 		C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-claude-wrapper"; sourceTree = SOURCE_ROOT; };
@@ -1561,6 +1566,7 @@
 		3256E38E04AA4255B9025107 /* DebugDragOverlayProbes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugDragOverlayProbes.swift; sourceTree = "<group>"; };
 		A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DebugLogging.swift; sourceTree = "<group>"; };
 		DEB6C0DE00000000000000A1 /* DebugWindowControlsContentProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugWindowControlsContentProvider.swift; sourceTree = "<group>"; };
+		DEB6C0DE00000000000000B1 /* DebugWindowScreenshotCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugWindowScreenshotCapture.swift; sourceTree = "<group>"; };
 		D7EFA110000000000000002 /* DefaultTerminalRegistrationError+LocalizedCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DefaultTerminalRegistrationError+LocalizedCopy.swift"; sourceTree = "<group>"; };
 		A5001F000000000000000002 /* DetachedFolderDragIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderDragIcon.swift; sourceTree = "<group>"; };
 		B05553C10000000000000002 /* DetachedFolderPathLookupCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderPathLookupCache.swift; sourceTree = "<group>"; };
@@ -1776,7 +1782,6 @@
 		DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathRefreshTests.swift; sourceTree = "<group>"; };
 		4C1A7E10B2D34F56A8C90099 /* MobileHostPublicStatusCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostPublicStatusCache.swift; sourceTree = "<group>"; };
 		47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostRPC.swift; sourceTree = "<group>"; };
-		C7A50B000000000000000013 /* MobileHostService+Capabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileHostService+Capabilities.swift"; sourceTree = "<group>"; };
 		18929864632768BDC21DBD9B /* MobileHostService+RPCDispatch.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostService+RPCDispatch.swift"; sourceTree = "<group>"; };
 		7ACA497A6831165EA879C642 /* MobileHostService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostService.swift; sourceTree = "<group>"; };
 		C0DE10510000000000000002 /* MobileHostServiceSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostServiceSettingsTests.swift; sourceTree = "<group>"; };
@@ -2135,6 +2140,7 @@
 		9C1BEA3D2E6F49709A71C021 /* TerminalControllerTerminalTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerTerminalTextTests.swift; sourceTree = "<group>"; };
 		C7A505000000000000000001 /* TerminalControllerTopSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerTopSupport.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerV2ParamParsingSupport.swift; sourceTree = "<group>"; };
+		C0DE00000000000000000FF3 /* TerminalDebugTableBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDebugTableBuilder.swift; sourceTree = "<group>"; };
 		6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalDirectoryOpenSupport.swift; sourceTree = "<group>"; };
 		E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalFindEscapeRouting.swift; sourceTree = "<group>"; };
 		A5001544 /* TerminalImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransfer.swift; sourceTree = "<group>"; };
@@ -2538,7 +2544,6 @@
 				2BEE656DCB9735DDE9CB2F4C /* MobileTerminalRPCHost.swift */,
 				EDDFBAE53B469F09B029C34B /* MobileTerminalRPCHandler.swift */,
 				18929864632768BDC21DBD9B /* MobileHostService+RPCDispatch.swift */,
-				C7A50B000000000000000013 /* MobileHostService+Capabilities.swift */,
 				DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */,
 				7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */,
 				04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */,
@@ -2559,6 +2564,7 @@
 			isa = PBXGroup;
 			children = (
 				9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */,
+				C10D0E4000000000000C1E22 /* CloudVMHTTPError.swift */,
 				REE0CA0000000000000000A1 /* RemotesClient.swift */,
 				REE0CA0000000000000000D1 /* RemoteRouteSpec.swift */,
 				D1F0A00100000000000000A2 /* PhonePushClient.swift */,
@@ -2742,6 +2748,7 @@
 				A5F10012A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift */,
 				D5F11000A1B2C3D4E5F60720 /* SettingsFileParser.swift */,
 				A1B2C3D4E5F600000000B004 /* BrowserSettingsFileSectionParser.swift */,
+				A1B2C3D4E5F600000000B006 /* AutomationSettingsFileSectionParser.swift */,
 				A1B2C3D4E5F600000000B002 /* ShortcutSettingsFileSectionParser.swift */,
 				D5F11004A1B2C3D4E5F60720 /* SettingsFileReader.swift */,
 				D5F11002A1B2C3D4E5F60720 /* ResolvedSettingsSnapshot.swift */,
@@ -2894,6 +2901,7 @@
 				C0DE00000000000000000F12 /* TerminalController+ControlBrowserTabsContext.swift */,
 				C0DE00000000000000000C6D /* TerminalController+ControlDebugContext.swift */,
 				3256E38E04AA4255B9025107 /* DebugDragOverlayProbes.swift */,
+				DEB6C0DE00000000000000B1 /* DebugWindowScreenshotCapture.swift */,
 				C0DE00000000000000000DB1 /* ControlDebugOverlayEventToken+NSEventType.swift */,
 				C0DE00000000000000000DB3 /* NSPasteboardType+CmuxDebugDragType.swift */,
 				C0DE00000000000000000DB5 /* NSView+CmuxDebugDragHit.swift */,
@@ -2910,6 +2918,7 @@
 				C0DE00000000000000000C63 /* TerminalController+ControlSurfaceContext.swift */,
 				C0DE00000000000000000C65 /* TerminalController+ControlSurfaceContext2.swift */,
 				C0DE00000000000000000C67 /* TerminalController+ControlSurfaceContext3.swift */,
+				C0DE00000000000000000FF3 /* TerminalDebugTableBuilder.swift */,
 				C0DE00000000000000000C69 /* TerminalController+ControlSurfaceContext4.swift */,
 				C0DE00000000000000000C51 /* TerminalController+ControlMobileHostContext.swift */,
 				ACA7C4A7000000000000000E /* TerminalController+MobileChat.swift */,
@@ -4112,6 +4121,7 @@
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,
 				A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */,
 				D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */,
+				A1B2C3D4E5F600000000B005 /* AutomationSettingsFileSectionParser.swift in Sources */,
 				C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */,
 				A50012F1 /* Backport.swift in Sources */,
 				D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */,
@@ -4170,6 +4180,7 @@
 				C10D51710000000000000002 /* ClosedItemHistoryPersistenceActor.swift in Sources */,
 				C10D517A0000000000000002 /* ClosedItemHistoryRecordMutation.swift in Sources */,
 				C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */,
+				C10D0E4100000000000C1E22 /* CloudVMHTTPError.swift in Sources */,
 				A5001654 /* CmuxActionTrust.swift in Sources */,
 				E3309A07 /* cmuxApp+EqualizeSplitsMenu.swift in Sources */,
 				C4160A010000000000000001 /* cmuxApp+HistoryMenu.swift in Sources */,
@@ -4242,6 +4253,7 @@
 				5CBC5063C74D4AA1AE633205 /* DebugDragOverlayProbes.swift in Sources */,
 				A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */,
 				DEB6C0DE00000000000000A0 /* DebugWindowControlsContentProvider.swift in Sources */,
+				DEB6C0DE00000000000000B0 /* DebugWindowScreenshotCapture.swift in Sources */,
 				D7EFA110000000000000001 /* DefaultTerminalRegistrationError+LocalizedCopy.swift in Sources */,
 				A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */,
 				B05553C10000000000000001 /* DetachedFolderPathLookupCache.swift in Sources */,
@@ -4391,7 +4403,6 @@
 				DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */,
 				4C1A7E10B2D34F56A8C90098 /* MobileHostPublicStatusCache.swift in Sources */,
 				4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */,
-				C7A50B000000000000000014 /* MobileHostService+Capabilities.swift in Sources */,
 				0E561FAED6907CFE737CD85F /* MobileHostService+RPCDispatch.swift in Sources */,
 				F67FBC88671C40AC3A3284CE /* MobileHostService.swift in Sources */,
 				4C1A7E10B2D34F56A8C90021 /* MobileHostStackAuthVerifier.swift in Sources */,
@@ -4649,6 +4660,7 @@
 				C7A50A000000000000000002 /* TerminalControllerPaneResizeSupport.swift in Sources */,
 				C7A505000000000000000002 /* TerminalControllerTopSupport.swift in Sources */,
 				C7A50B000000000000000002 /* TerminalControllerV2ParamParsingSupport.swift in Sources */,
+				C0DE00000000000000000FF4 /* TerminalDebugTableBuilder.swift in Sources */,
 				0D56BE882EAD4B67AC44F96D /* TerminalDirectoryOpenSupport.swift in Sources */,
 				E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */,
 				A5001542 /* TerminalImageTransfer.swift in Sources */,

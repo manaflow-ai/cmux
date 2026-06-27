@@ -290,38 +290,26 @@ extension TerminalController {
     }
 
     func notifyTargetQueued(_ args: String) -> String {
-        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
+        let request: ControlNotifyTargetQueuedRequest
+        switch ControlNotifyTargetQueuedRequest.parse(args) {
+        case .success(let parsed):
+            request = parsed
+        case .failure(let error):
+            return error.message
         }
 
-        let parts = trimmed.split(separator: " ", maxSplits: 2).map(String.init)
-        guard parts.count == 3 else {
-            return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
-        }
-        guard let tabId = UUID(uuidString: parts[0]) else {
-            return "ERROR: notify_target_async requires workspace_uuid to be a UUID"
-        }
-        guard let surfaceId = UUID(uuidString: parts[1]) else {
-            return "ERROR: notify_target_async requires surface_uuid to be a UUID"
-        }
-
-        let payload = parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !payload.isEmpty else {
-            return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
-        }
-        let parsed = ControlNotificationPayload.parse(payload)
+        let parsed = ControlNotificationPayload.parse(request.payload)
         let title = parsed.title
         let subtitle = parsed.subtitle
         let body = parsed.body
 #if DEBUG
         cmuxDebugLog(
-            "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) coalesces=0"
+            "socket.notifyTargetAsync.enqueue workspace=\(request.tabId.uuidString.prefix(8)) surface=\(request.surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) coalesces=0"
         )
 #endif
         TerminalMutationBus.shared.enqueueNotification(
-            tabId: tabId,
-            surfaceId: surfaceId,
+            tabId: request.tabId,
+            surfaceId: request.surfaceId,
             title: title,
             subtitle: subtitle,
             body: body,
