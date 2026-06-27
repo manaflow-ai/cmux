@@ -10044,7 +10044,6 @@ struct VerticalTabsSidebar: View {
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
     @State private var selectedWorkspaceTagFilter: String?
-    @State private var workspaceTagsUpdateToken: UInt64 = 0
     @State private var workspaceTagProjection = WorkspaceTagProjection.empty
     @State private var workspaceTagsObservationWorkspaceIds: [UUID] = []
     @State private var workspaceTagsObservationPublishersBuilt = false
@@ -10458,7 +10457,6 @@ struct VerticalTabsSidebar: View {
         let usesDefaultWorkspaceSidebar = CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
             effectiveProviderId: effectiveExtensionSidebarProviderId
         )
-        let _ = workspaceTagsUpdateToken
         let activeWorkspaceTagFilter = usesDefaultWorkspaceSidebar ? selectedWorkspaceTagFilter : nil
         let tagProjection = workspaceTagProjection
         let visibleTabs = Self.visibleWorkspaces(
@@ -10842,7 +10840,6 @@ struct VerticalTabsSidebar: View {
         let nextProjection = Self.workspaceTagProjection(in: tabs)
         guard workspaceTagProjection != nextProjection else { return }
         workspaceTagProjection = nextProjection
-        workspaceTagsUpdateToken &+= 1
     }
 
     private func clearWorkspaceTagsObservationPublisher() {
