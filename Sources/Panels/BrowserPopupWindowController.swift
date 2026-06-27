@@ -639,6 +639,14 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 
         // Only guard main-frame navigations
         guard navigationAction.targetFrame?.isMainFrame != false else {
+            if navigationAction.shouldPerformDownload {
+                if browserShouldBlockInsecureHTTPURL(url) {
+                    decisionHandler(.cancel)
+                } else {
+                    decisionHandler(.download)
+                }
+                return
+            }
             decisionHandler(.allow)
             return
         }
