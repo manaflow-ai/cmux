@@ -116,7 +116,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                     forceStackAuthFallback: true
                 )
             } catch let stackError as MobileShellConnectionError {
-                guard case .authorizationFailed = stackError else { throw stackError }
+                guard shouldRetryStackAuthorizationFailure(stackError) else { throw stackError }
                 try await forceRefreshStackTokenForRetry(deadline: deadline)
                 return try await sendAuthenticatedRequest(
                     requestData,
@@ -134,9 +134,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // stale token. An `account_mismatch` rejection is deliberately NOT
             // retried here — it means the Mac is signed in to a different
             // account, so retrying with a fresh token of THIS account cannot
-            // help and would only weaken the same-account gate; it surfaces as
-            // `.rpcError("account_mismatch", _)`, not `.authorizationFailed`.
-            guard case .authorizationFailed = error else { throw error }
+            // help and would only weaken the same-account gate.
+            guard shouldRetryStackAuthorizationFailure(error) else { throw error }
             try await forceRefreshStackTokenForRetry(deadline: deadline)
             // Re-run with retry disabled so a fresh token that is still rejected
             // surfaces as a definitive auth failure instead of looping.
@@ -152,20 +151,23 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private func shouldRetryAttachTokenAuthorizationFailureWithStackAuth(
         _ error: MobileShellConnectionError
     ) -> Bool {
-        guard case let .authorizationFailed(message) = error else {
+        guard case let .rpcError(code, _) = error else { return false }
+        return normalizedRPCCode(code) == "unauthorized"
+    }
+
+    private func shouldRetryStackAuthorizationFailure(_ error: MobileShellConnectionError) -> Bool {
+        switch error {
+        case .authorizationFailed:
+            return true
+        case let .rpcError(code, _):
+            return normalizedRPCCode(code) == "unauthorized"
+        default:
             return false
         }
-        let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let mentionsAttachToken = normalizedMessage.contains("attach token")
-            || normalizedMessage.contains("attach-token")
-            || normalizedMessage.contains("attach_ticket")
-            || normalizedMessage.contains("invalid_attach_token")
-        guard !mentionsAttachToken else {
-            return false
-        }
-        return normalizedMessage == "unauthorized"
-            || normalizedMessage == "authorization failed"
-            || (normalizedMessage.contains("mobile sync") && normalizedMessage.contains("auth"))
+    }
+
+    private func normalizedRPCCode(_ code: String?) -> String? {
+        code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     /// Force a single Stack token refresh ahead of a retry.
@@ -224,7 +226,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             )
         } catch let error as MobileShellConnectionError {
             if authenticated.usedAttachToken,
-               case .authorizationFailed = error {
+               shouldRetryAttachTokenAuthorizationFailureWithStackAuth(error) {
                 throw MobileCoreRPCAttachTokenAuthorizationFailure(underlying: error)
             }
             throw error
@@ -259,7 +261,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
         let requestMethod = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let requestNeedsAuth = requestMethod != "mobile.host.status"
-        let requestIsCoveredByAttachTicket = !forceStackAuthFallback && !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
+        let requestIsCoveredByAttachTicket = !forceStackAuthFallback && !requestNeedsStackAuthFallback(request, ticket: ticket)
         let routeAllowsBearerAuth = MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
         let routeAllowsStackAuthFallback = allowsStackAuthFallback && routeAllowsBearerAuth
         var auth: [String: Any] = [:]
@@ -349,7 +351,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
 
-    private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
+    private func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         // Only the unauthenticated host probe is exempt. attach_ticket.create has no
         // attach token yet (it mints the ticket), so requiring auth routes it through

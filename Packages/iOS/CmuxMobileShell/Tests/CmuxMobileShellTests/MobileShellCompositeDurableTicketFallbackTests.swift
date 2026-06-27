@@ -8,7 +8,7 @@ import Testing
 
 @MainActor
 @Suite struct MobileShellCompositeDurableTicketFallbackTests {
-    @Test func reconnectRetriesFreshManualTicketWhenPersistedAttachTokenIsUnauthorized() async throws {
+    @Test func reconnectRetriesFreshManualTicketWhenPersistedAttachTokenIsInvalid() async throws {
         let route = try CmxAttachRoute(
             id: "tailscale",
             kind: .tailscale,

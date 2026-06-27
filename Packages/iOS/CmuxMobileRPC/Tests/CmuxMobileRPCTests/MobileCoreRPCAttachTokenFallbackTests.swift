@@ -20,8 +20,9 @@ import Testing
         #expect(sent[1].stackAccessToken == "fresh-stack-token")
     }
 
-    @Test func attachTokenLegacyUnauthorizedVariantRetriesWithStackAuth() async throws {
+    @Test func attachTokenUnauthorizedCodeRetriesWithStackAuthAcrossMessageVariants() async throws {
         let transport = AttachTokenFallbackTransport(
+            firstErrorCode: " Unauthorized ",
             firstErrorMessage: "Mobile sync request unauthorized."
         )
         let (client, request) = try makeClientAndRequest(transport: transport)
@@ -36,21 +37,22 @@ import Testing
         #expect(sent[1].stackAccessToken == "fresh-stack-token")
     }
 
-    @Test func attachTokenSpecificUnauthorizedDoesNotRetryWithStackAuth() async throws {
+    @Test func attachTokenUnauthorizedMessageWithoutCodeDoesNotRetryWithStackAuth() async throws {
         let transport = AttachTokenFallbackTransport(
-            firstErrorCode: "unauthorized",
+            firstErrorCode: "legacy_error",
             firstErrorMessage: "attach token no longer exists"
         )
         let (client, request) = try makeClientAndRequest(transport: transport)
 
         do {
             _ = try await client.sendRequest(request)
-            Issue.record("Expected attach-token-specific authorization failure")
+            Issue.record("Expected structured RPC error")
         } catch let error as MobileShellConnectionError {
-            guard case let .authorizationFailed(message) = error else {
-                Issue.record("Expected authorizationFailed, got \(error)")
+            guard case let .rpcError(code, message) = error else {
+                Issue.record("Expected rpcError, got \(error)")
                 return
             }
+            #expect(code == "legacy_error")
             #expect(message == "attach token no longer exists")
         } catch {
             Issue.record("Expected MobileShellConnectionError, got \(error)")

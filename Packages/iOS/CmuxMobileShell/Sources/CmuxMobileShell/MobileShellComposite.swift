@@ -887,24 +887,105 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairingAttemptID = UUID()
     }
 
-    deinit { MainActor.assumeIsolated {
-        presenceTask?.cancel()
-        networkPathObservationTask?.cancel()
-        terminalEventListenerTask?.cancel()
-        terminalSubscriptionStartTask?.cancel()
-        renderGridLivenessTimer?.cancel()
-        renderGridLivenessProbeTask?.cancel()
-        terminalSubscriptionRefreshTask?.cancel()
-        createWorkspaceTask?.cancel()
-        createTerminalTask?.cancel()
-        workspaceListRefreshTask?.cancel()
-        pullToRefreshTask?.cancel()
-        registryRouteRefreshTasks.values.forEach { $0.task.cancel() }
-        teardownSecondaryMacSubscriptions()
-        if let remoteClient {
-            Task { await remoteClient.disconnect() }
+    #if compiler(>=6.2)
+    isolated deinit {
+        cancelDeinitResources()
+    }
+    #else
+    deinit {
+        Task { @MainActor [
+            presenceTask,
+            networkPathObservationTask,
+            terminalEventListenerTask,
+            terminalSubscriptionStartTask,
+            renderGridLivenessTimer,
+            renderGridLivenessProbeTask,
+            terminalSubscriptionRefreshTask,
+            createWorkspaceTask,
+            createTerminalTask,
+            workspaceListRefreshTask,
+            pullToRefreshTask,
+            registryRouteRefreshTasks,
+            secondaryAggregationTask,
+            secondaryMacSubscriptions,
+            remoteClient
+        ] in
+            Self.cancelDeinitResources(
+                presenceTask: presenceTask,
+                networkPathObservationTask: networkPathObservationTask,
+                terminalEventListenerTask: terminalEventListenerTask,
+                terminalSubscriptionStartTask: terminalSubscriptionStartTask,
+                renderGridLivenessTimer: renderGridLivenessTimer,
+                renderGridLivenessProbeTask: renderGridLivenessProbeTask,
+                terminalSubscriptionRefreshTask: terminalSubscriptionRefreshTask,
+                createWorkspaceTask: createWorkspaceTask,
+                createTerminalTask: createTerminalTask,
+                workspaceListRefreshTask: workspaceListRefreshTask,
+                pullToRefreshTask: pullToRefreshTask,
+                registryRouteRefreshTasks: registryRouteRefreshTasks,
+                secondaryAggregationTask: secondaryAggregationTask,
+                secondaryMacSubscriptions: secondaryMacSubscriptions,
+                remoteClient: remoteClient
+            )
         }
-    } }
+    }
+    #endif
+
+    private func cancelDeinitResources() {
+        Self.cancelDeinitResources(
+            presenceTask: presenceTask,
+            networkPathObservationTask: networkPathObservationTask,
+            terminalEventListenerTask: terminalEventListenerTask,
+            terminalSubscriptionStartTask: terminalSubscriptionStartTask,
+            renderGridLivenessTimer: renderGridLivenessTimer,
+            renderGridLivenessProbeTask: renderGridLivenessProbeTask,
+            terminalSubscriptionRefreshTask: terminalSubscriptionRefreshTask,
+            createWorkspaceTask: createWorkspaceTask,
+            createTerminalTask: createTerminalTask,
+            workspaceListRefreshTask: workspaceListRefreshTask,
+            pullToRefreshTask: pullToRefreshTask,
+            registryRouteRefreshTasks: registryRouteRefreshTasks,
+            secondaryAggregationTask: secondaryAggregationTask,
+            secondaryMacSubscriptions: secondaryMacSubscriptions,
+            remoteClient: remoteClient
+        )
+    }
+
+    private static func cancelDeinitResources(
+        presenceTask: Task<Void, Never>?,
+        networkPathObservationTask: Task<Void, Never>?,
+        terminalEventListenerTask: Task<Void, Never>?,
+        terminalSubscriptionStartTask: Task<Void, Never>?,
+        renderGridLivenessTimer: (any DispatchSourceTimer)?,
+        renderGridLivenessProbeTask: Task<Void, Never>?,
+        terminalSubscriptionRefreshTask: Task<Void, Never>?,
+        createWorkspaceTask: Task<Void, Never>?,
+        createTerminalTask: Task<Void, Never>?,
+        workspaceListRefreshTask: Task<Void, Never>?,
+        pullToRefreshTask: Task<Void, Never>?,
+        registryRouteRefreshTasks: [String: (id: UUID, task: Task<Void, Never>)],
+        secondaryAggregationTask: Task<Void, Never>?,
+        secondaryMacSubscriptions: [String: SecondaryMacSubscription],
+        remoteClient: MobileCoreRPCClient?
+    ) {
+        [
+            presenceTask,
+            networkPathObservationTask,
+            terminalEventListenerTask,
+            terminalSubscriptionStartTask,
+            renderGridLivenessProbeTask,
+            terminalSubscriptionRefreshTask,
+            createWorkspaceTask,
+            createTerminalTask,
+            workspaceListRefreshTask,
+            pullToRefreshTask,
+            secondaryAggregationTask
+        ].forEach { $0?.cancel() }
+        renderGridLivenessTimer?.cancel()
+        registryRouteRefreshTasks.values.forEach { $0.task.cancel() }
+        secondaryMacSubscriptions.values.forEach { $0.cancel() }
+        if let remoteClient { Task { await remoteClient.disconnect() } }
+    }
 
     public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
         CMUXMobileShellStore(
@@ -2581,6 +2662,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return nil
         }
+        func isIPLiteralHost(_ host: String) -> Bool {
+            if host.contains(":") { return true } // IPv6 literal
+            let octets = host.split(separator: ".", omittingEmptySubsequences: false)
+            return octets.count == 4 && octets.allSatisfy { part in
+                guard let value = Int(part), (0...255).contains(value), !part.isEmpty else { return false }
+                return String(value) == part // reject leading zeros / non-canonical
+            }
+        }
         if preferNonLoopback {
             // Among non-loopback routes, prefer one whose host is a numeric IP: a
             // raw tailscale/LAN IP is dialable without DNS, whereas a MagicDNS
@@ -2591,7 +2680,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if let ip = firstHostPort(where: { route in
                 guard route.kind != .debugLoopback,
                       case let .hostPort(host, _) = route.endpoint else { return false }
-                return Self.isIPLiteralHost(host)
+                return isIPLiteralHost(host)
             }) {
                 return ip
             }
@@ -2600,18 +2689,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         return firstHostPort(where: { _ in true })
-    }
-
-    /// Whether `host` is a numeric IP literal (IPv4 or IPv6) rather than a name
-    /// that needs DNS resolution. Used to prefer directly-dialable IP routes over
-    /// MagicDNS hostnames, which fail to resolve on some clients.
-    static func isIPLiteralHost(_ host: String) -> Bool {
-        if host.contains(":") { return true } // IPv6 literal
-        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
-        return octets.count == 4 && octets.allSatisfy { part in
-            guard let value = Int(part), (0...255).contains(value), !part.isEmpty else { return false }
-            return String(value) == part // reject leading zeros / non-canonical
-        }
     }
 
     /// Runs one paired-Mac store mutation on the serialized write chain.

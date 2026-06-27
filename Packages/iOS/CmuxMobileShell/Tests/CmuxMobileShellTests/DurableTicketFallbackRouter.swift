@@ -21,7 +21,7 @@ actor DurableTicketFallbackRouter {
         case ("workspace.list", "stale-token"):
             return try errorFrame(
                 id: request.id,
-                code: "unauthorized",
+                code: "invalid_attach_token",
                 message: "attach token no longer exists"
             )
         case ("mobile.attach_ticket.create", _):
