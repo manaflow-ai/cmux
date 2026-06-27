@@ -40,7 +40,7 @@ extension MobileShellComposite {
                 )
             } catch {
                 secondaryClientLog.warning(
-                    "secondary client: ticket failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                    "secondary client: ticket failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
                 )
                 return nil
             }
@@ -99,7 +99,7 @@ extension MobileShellComposite {
             return try await fetchSecondaryWorkspacesThrowing(on: client, macDeviceID: macDeviceID)
         } catch {
             secondaryClientLog.warning(
-                "secondary workspace fetch failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                "secondary workspace fetch failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
             )
             return nil
         }
