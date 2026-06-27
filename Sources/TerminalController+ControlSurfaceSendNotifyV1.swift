@@ -106,17 +106,7 @@ extension TerminalController {
             includeScrollback: options.includeScrollback,
             lineLimit: options.lineLimit
         )
-        guard response.hasPrefix("OK ") else { return response }
-
-        let payload = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-        if payload.isEmpty {
-            return ""
-        }
-
-        guard let data = Data(base64Encoded: payload) else {
-            return "ERROR: Failed to decode terminal text"
-        }
-        return String(decoding: data, as: UTF8.self)
+        return ControlReadScreenReply.decode(response).text
     }
 
     func helpText() -> String { ControlHelpText.v1.text }

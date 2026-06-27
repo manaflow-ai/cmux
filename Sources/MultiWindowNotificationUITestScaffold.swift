@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import Combine
+import CmuxTerminal
 import CmuxWorkspaces
 import Foundation
 import CmuxTestSupport

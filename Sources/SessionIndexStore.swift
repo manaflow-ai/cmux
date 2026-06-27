@@ -108,6 +108,22 @@ struct SectionKey: Hashable {
     static func directory(_ path: String?) -> SectionKey { SectionKey(raw: "dir:" + (path ?? "")) }
 
     var isDirectory: Bool { raw.hasPrefix("dir:") }
+
+    /// Parse this section key back into the deep-search scope it represents.
+    /// `agent:<rawValue>` becomes `.agent`, `dir:<path>` becomes `.directory`
+    /// (an empty path maps to the `nil` unknown-folder bucket), and any other
+    /// raw shape falls back to `.directory(nil)`.
+    var searchScope: SessionIndexStore.SearchScope {
+        if raw.hasPrefix("agent:"),
+           let agent = SessionAgent(rawValue: String(raw.dropFirst("agent:".count))) {
+            return .agent(agent)
+        }
+        if raw.hasPrefix("dir:") {
+            let path = String(raw.dropFirst("dir:".count))
+            return .directory(path.isEmpty ? nil : path)
+        }
+        return .directory(nil)
+    }
 }
 
 struct IndexSection: Identifiable, Equatable {
@@ -136,16 +152,6 @@ struct IndexSection: Identifiable, Equatable {
 enum SectionIcon: Equatable {
     case agent(SessionAgent)
     case folder
-}
-
-/// Immutable per-directory snapshot consumed by `SectionPopoverView` for
-/// empty-query scrolling. All entries are merged across the three agent
-/// sources and sorted by `modified` desc. The popover slices this array
-/// in-memory to page, so scrolling fires zero store/disk calls.
-struct DirectorySnapshot: Sendable {
-    let cwd: String  // "" represents the unknown-folder bucket
-    let entries: [SessionEntry]
-    let errors: [String]
 }
 
 @MainActor
@@ -489,8 +495,8 @@ final class SessionIndexStore {
     func reload() {
         loadTask?.cancel()
         isLoading = true
-        directorySnapshotGeneration += 1
-        invalidateDirectorySnapshots()
+        directorySnapshotCache.bumpGeneration()
+        directorySnapshotCache.invalidate()
         loadTask = Task.detached(priority: .userInitiated) { [weak self] in
             let scanned = await Self.scanAll()
             await MainActor.run {
@@ -514,16 +520,7 @@ final class SessionIndexStore {
 
     // MARK: - Directory snapshot cache
 
-    @ObservationIgnored private var directorySnapshotCache: [String: DirectorySnapshot] = [:]
-    @ObservationIgnored private var directorySnapshotLRU: [String] = []
-    /// Bumped on every `reload()`. Snapshot builds capture this at start;
-    /// if it changes before the build completes (reload raced with an
-    /// in-flight build), the build's result is discarded instead of
-    /// being written back into the cache — otherwise the stale
-    /// pre-reload result would repopulate the cache after invalidation
-    /// and be reused on the next popover open.
-    @ObservationIgnored private var directorySnapshotGeneration: Int = 0
-    private static let directorySnapshotCacheCapacity = 16
+    @ObservationIgnored private let directorySnapshotCache = DirectorySnapshotCache()
 
     /// Return a cached or freshly-built merged snapshot for a cwd-scoped
     /// directory. Used by the Show-more popover's empty-query scroll
@@ -532,11 +529,11 @@ final class SessionIndexStore {
     /// repeated-refetch-and-merge behavior.
     func loadDirectorySnapshot(cwd: String?) async -> DirectorySnapshot {
         let key = cwd ?? ""
-        if let cached = touchDirectorySnapshotLRU(key) {
+        if let cached = directorySnapshotCache.cached(key) {
             return cached
         }
 
-        let generation = directorySnapshotGeneration
+        let generation = directorySnapshotCache.generation
         let bag = ErrorBag()
         // The per-agent loaders interpret `cwdFilter == nil` as "no filter,
         // return all entries". When `cwd` is nil here we specifically mean
@@ -569,38 +566,10 @@ final class SessionIndexStore {
         // Only cache this result if no `reload()` raced in while the
         // build was running. Otherwise the caller gets a fresh snapshot
         // but the cache stays invalidated; the next open will rebuild.
-        if generation == directorySnapshotGeneration {
-            storeDirectorySnapshot(key: key, snapshot: snapshot)
+        if generation == directorySnapshotCache.generation {
+            directorySnapshotCache.store(key: key, snapshot: snapshot)
         }
         return snapshot
-    }
-
-    private func touchDirectorySnapshotLRU(_ key: String) -> DirectorySnapshot? {
-        guard let cached = directorySnapshotCache[key] else { return nil }
-        if let idx = directorySnapshotLRU.firstIndex(of: key) {
-            directorySnapshotLRU.remove(at: idx)
-        }
-        directorySnapshotLRU.append(key)
-        return cached
-    }
-
-    private func storeDirectorySnapshot(key: String, snapshot: DirectorySnapshot) {
-        if directorySnapshotCache[key] == nil,
-           directorySnapshotCache.count >= Self.directorySnapshotCacheCapacity,
-           let oldestKey = directorySnapshotLRU.first {
-            directorySnapshotCache.removeValue(forKey: oldestKey)
-            directorySnapshotLRU.removeFirst()
-        }
-        directorySnapshotCache[key] = snapshot
-        if let idx = directorySnapshotLRU.firstIndex(of: key) {
-            directorySnapshotLRU.remove(at: idx)
-        }
-        directorySnapshotLRU.append(key)
-    }
-
-    private func invalidateDirectorySnapshots() {
-        directorySnapshotCache.removeAll()
-        directorySnapshotLRU.removeAll()
     }
 
     private func normalizedDirectory(_ value: String?) -> String? {

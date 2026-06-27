@@ -1,5 +1,6 @@
 import AppKit
 import CMUXAgentLaunch
+import CmuxFeedUI
 import CmuxNotifications
 import Foundation
 
@@ -37,7 +38,7 @@ extension AppDelegate {
     }
 
     func notificationDeliveryPermissionCapabilities(requestId: String) -> NotificationFeedPermissionCapabilities? {
-        guard let item = FeedCoordinator.shared.snapshot(pendingOnly: false).reversed().first(where: { item in
+        guard let item = FeedCoordinator.shared.socketRouter.snapshot(pendingOnly: false).reversed().first(where: { item in
             guard case .permissionRequest(let itemRequestId, _, _, _) = item.payload else { return false }
             return itemRequestId == requestId
         }) else {

@@ -6173,7 +6173,7 @@ struct VerticalTabsSidebar: View {
         guard let observedWindow else {
             return MinimalModeSidebarTitlebarControlsMetrics().topInset
         }
-        return minimalModeSidebarTitlebarControlsTopInset(in: observedWindow)
+        return observedWindow.minimalModeSidebarTitlebarControlsTopInset()
     }
 
     private var showsSidebarNotificationMessage: Bool {

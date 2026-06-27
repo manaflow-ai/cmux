@@ -109,6 +109,19 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// `@MainActor` instance, so the registry is an owned `@MainActor` store and
     /// the lock is dropped (every access already runs on the main actor).
     let panelSnapshotStore = PanelSnapshotStore()
+
+    /// Stateless app-side probes for the live system drag pasteboard and the
+    /// app's drag/drop overlay hit-testing, backing the DEBUG-only v1 socket
+    /// commands `seed_drag_pasteboard_types` / `clear_drag_pasteboard` /
+    /// `overlay_hit_gate` / `overlay_drop_gate` / `portal_hit_gate` /
+    /// `sidebar_overlay_gate` / `terminal_drop_overlay_probe` / `drop_hit_test` /
+    /// `drag_hit_chain` (see `DebugDragOverlayProbes` and the
+    /// `ControlDebugContext` witnesses in
+    /// `TerminalController+ControlDebugContext.swift`). The witnesses keep the
+    /// `v2MainSync` focus-allowance scope hop and forward the inner main-thread
+    /// work here; the drag pasteboard and overlay are app-global, so the probe is
+    /// a held `@MainActor` instance with no state.
+    let dragOverlayProbes = DebugDragOverlayProbes()
 #endif
 
     // `internal` (not `private`): the `workspace.remote.pty_*` worker-lane

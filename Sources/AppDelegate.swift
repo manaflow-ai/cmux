@@ -7861,10 +7861,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let textBoxShortcutTabManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             textBoxShortcutTabManager?.clearFocusedTerminalTextBoxHideEscapeArm()
         }
-        let commandPaletteShortcutWindow = shouldHandleCommandPaletteShortcutEvent(
-            event,
+        let commandPaletteShortcutWindow = CommandPaletteShortcutEventOwnership(
             paletteWindow: commandPaletteTargetWindow
-        ) ? commandPaletteTargetWindow : nil
+        ).ownsShortcutEvent(event) ? commandPaletteTargetWindow : nil
         let commandPaletteVisibleInTargetWindow = commandPaletteShortcutWindow.map {
             isCommandPaletteVisible(for: $0)
         } ?? false
@@ -8009,7 +8008,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if commandPaletteInteractiveInTargetWindow,
            let paletteWindow = commandPaletteShortcutWindow {
-            let paletteFieldEditorHasMarkedText = commandPaletteFieldEditorHasMarkedText(in: paletteWindow)
+            let paletteFieldEditorHasMarkedText = CommandPaletteShortcutEventOwnership(
+                paletteWindow: paletteWindow
+            ).fieldEditorHasMarkedText
             let paletteSnapshot = mainWindowId(for: paletteWindow).map(commandPaletteSnapshot(windowId:)) ?? .empty
             let paletteUsesInlineReturnHandling = paletteUsesInlineTextHandling
             if isPlainEscape {
@@ -9224,7 +9225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func focusedBrowserOmnibarField(for event: NSEvent, in window: NSWindow?) -> OmnibarNativeTextField? {
         let panelId = focusedBrowserAddressBarPanelIdForShortcutEvent(event)
-        return browserOmnibarField(panelId: panelId, in: window)
+        return BrowserOmnibarNativeFieldRegistry.shared.omnibarField(panelId: panelId, in: window)
     }
 
     func clearBrowserAddressBarFocus(panelId: UUID, reason: String) {
@@ -9238,7 +9239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let shortcutWindow = resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
         let shortcutResponder = shortcutWindow?.firstResponder
         let responderPanelId = isBrowserOmnibarResponder(shortcutResponder)
-            ? browserOmnibarPanelId(for: shortcutResponder)
+            ? BrowserOmnibarNativeFieldRegistry.shared.omnibarPanelId(for: shortcutResponder)
             : nil
 
         guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
@@ -9299,7 +9300,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return panelId
         }
 
-        let liveOmnibarFieldExists = browserOmnibarField(panelId: panelId, in: shortcutWindow) != nil
+        let liveOmnibarFieldExists = BrowserOmnibarNativeFieldRegistry.shared.omnibarField(panelId: panelId, in: shortcutWindow) != nil
         let trackedPanelMatchesShortcutResponder = browserPanel(panel, ownsShortcutResponder: shortcutResponder, in: shortcutWindow)
         let trackingContext = BrowserAddressBarTrackingContext(
             trackedPanelMatchesWebView: trackedPanelMatchesShortcutResponder,
@@ -9369,7 +9370,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if responder is NSWindow {
             return true
         }
-        if browserOmnibarPanelId(for: responder) == panel.id {
+        if BrowserOmnibarNativeFieldRegistry.shared.omnibarPanelId(for: responder) == panel.id {
             return true
         }
         if cmuxOwningGhosttyView(for: responder) != nil {
@@ -9392,7 +9393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let focusedPanelId = workspace.focusedPanelId,
               let panel = workspace.browserPanel(for: focusedPanelId),
               panel.preferredFocusIntent == .addressBar,
-              let field = browserOmnibarField(panelId: panel.id, in: window) else {
+              let field = BrowserOmnibarNativeFieldRegistry.shared.omnibarField(panelId: panel.id, in: window) else {
             return nil
         }
 
@@ -9408,7 +9409,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         in window: NSWindow?
     ) -> Bool {
         guard let responder, let window else { return false }
-        if browserOmnibarPanelId(for: responder) == panel.id {
+        if BrowserOmnibarNativeFieldRegistry.shared.omnibarPanelId(for: responder) == panel.id {
             return true
         }
         if case .browser(.webView)? = panel.ownedFocusIntent(for: responder, in: window) {
@@ -9457,7 +9458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             preferredFocusIntentIsAddressBar: panel.preferredFocusIntent == .addressBar,
             suppressesWebViewFocus: panel.shouldSuppressWebViewFocus(),
             pointerInitiatedWebFocus: pointerInitiatedWebFocus,
-            liveOmnibarFieldExists: browserOmnibarField(panelId: panel.id, in: resolvedWindow) != nil
+            liveOmnibarFieldExists: BrowserOmnibarNativeFieldRegistry.shared.omnibarField(panelId: panel.id, in: resolvedWindow) != nil
         )
         return trackingContext.shouldPreserveAddressBarTrackingDuringWebViewFocus
     }
@@ -11800,7 +11801,7 @@ private extension NSWindow {
             self.firstResponder as? NSTextView,
             in: self
         )
-        let firstResponderOmnibarPanelId = browserOmnibarPanelId(for: self.firstResponder)
+        let firstResponderOmnibarPanelId = BrowserOmnibarNativeFieldRegistry.shared.omnibarPanelId(for: self.firstResponder)
         let firstResponderIsTextBoxInput = self.firstResponder is TextBoxInputTextView
         // A standalone editable document text view (e.g. the file-preview
         // editor's SavingTextView) owns arrow navigation through its own
@@ -12031,7 +12032,7 @@ private extension NSWindow {
         ) {
             if browserWebKitKeyDownReentry { return false }
             if let focusedOmnibarField = AppDelegate.shared?.focusedBrowserOmnibarField(for: event, in: self),
-               browserOmnibarPanelId(for: self.firstResponder) == nil,
+               BrowserOmnibarNativeFieldRegistry.shared.omnibarPanelId(for: self.firstResponder) == nil,
                focusedOmnibarField.window === self {
                 var currentEditorResponder: NSResponder? = focusedOmnibarField.currentEditor()
                 if currentEditorResponder == nil || self.firstResponder !== currentEditorResponder {
@@ -12216,7 +12217,7 @@ private extension NSWindow {
         in window: NSWindow,
         event: NSEvent?
     ) -> CmuxWebView? {
-        if browserOmnibarPanelId(for: responder) != nil {
+        if BrowserOmnibarNativeFieldRegistry.shared.omnibarPanelId(for: responder) != nil {
             return nil
         }
 

@@ -3,6 +3,7 @@ import Bonsplit
 import CMUXAgentLaunch
 import Foundation
 @preconcurrency import UserNotifications
+import CmuxFeedUI
 import CmuxFoundation
 import CmuxNotifications
 import CmuxSettings
@@ -35,6 +36,11 @@ final class FeedCoordinator: @unchecked Sendable {
     /// on the store and cancels its source. Keyed by PID inside the watcher so
     /// the same agent spawning multiple prompts only installs one watcher.
     let pidExitWatcher = WorkstreamPidExitWatcher()
+
+    /// Routes socket-layer Feed requests (`feed.jump`, `feed.reply`, snapshot
+    /// reads) to the hook-session resolver and the observable store. Holds one
+    /// injected resolver instead of constructing one per call.
+    let socketRouter = FeedSocketRouter()
 
     /// Owns the in-app attention overlay (needs-input sidebar badge, workspace
     /// elevation, bell) for blocking feed decisions. Main-actor isolated:
@@ -232,10 +238,6 @@ private final class UnsafeItemIdSlot: @unchecked Sendable {
     var value: UUID?
 }
 
-private final class SnapshotSlot: @unchecked Sendable {
-    var value: [WorkstreamItem] = []
-}
-
 #if DEBUG
 @MainActor
 enum FeedCoordinatorTestHooks {
@@ -249,52 +251,6 @@ enum FeedCoordinatorTestHooks {
     static var attentionSurfaceObserver: (@Sendable (WorkstreamEvent) -> Void)?
 }
 #endif
-
-// MARK: - Socket-layer helpers
-
-extension FeedCoordinator {
-    /// Thread-safe snapshot of the store's items; hops to main to read
-    /// the observable state (only if called off-main).
-    func snapshot(pendingOnly: Bool) -> [WorkstreamItem] {
-        let slot = SnapshotSlot()
-        let body: @Sendable () -> Void = { [slot] in
-            MainActor.assumeIsolated {
-                guard let store = FeedCoordinator.shared.store else { return }
-                slot.value = pendingOnly ? store.pending : store.items
-            }
-        }
-        if Thread.isMainThread {
-            body()
-        } else {
-            DispatchQueue.main.sync(execute: body)
-        }
-        return slot.value
-    }
-
-    /// Forwards to `HookSessionResolver.resolvesSurface(for:)`: returns `true`
-    /// if `workstreamId` maps to a known hook session so the UI can gate the
-    /// jump gesture. Actual focus is scheduled via `focusIfPossible`.
-    func resolvePossibleSurface(for workstreamId: String) -> Bool {
-        HookSessionResolver().resolvesSurface(for: workstreamId)
-    }
-
-    /// Forwards to `HookSessionResolver.focus(workstreamId:)`: fires a
-    /// best-effort focus for `workstreamId`, returning `true` when a target was
-    /// found and the focus intent was dispatched.
-    @MainActor
-    func focusIfPossible(workstreamId: String) -> Bool {
-        HookSessionResolver().focus(workstreamId: workstreamId)
-    }
-
-    /// Forwards to `HookSessionResolver.sendText(workstreamId:text:)`: types
-    /// `text` into the surface bound to `workstreamId`, followed by Return, so
-    /// Stop-kind cards can reply without switching focus to the terminal.
-    @MainActor
-    @discardableResult
-    func sendTextToWorkstream(workstreamId: String, text: String) -> Bool {
-        HookSessionResolver().sendText(workstreamId: workstreamId, text: text)
-    }
-}
 
 // MARK: - Native notification banner
 
