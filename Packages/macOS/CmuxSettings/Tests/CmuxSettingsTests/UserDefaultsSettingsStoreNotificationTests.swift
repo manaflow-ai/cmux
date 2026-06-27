@@ -81,6 +81,45 @@ struct UserDefaultsSettingsStoreNotificationTests {
         #expect(storedValue == "#EXTERNAL")
     }
 
+    @Test func queuedDirectDefaultsNotificationDoesNotRejectNewerPendingSource() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        let externalDefaults = UserDefaults(suiteName: suiteName)!
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let recorder = UserDefaultsSettingsEventRecorder<String>()
+        let task = Task {
+            let stream = await store.valueEvents(for: key)
+            for await event in stream {
+                await recorder.append(event)
+                if await recorder.count() >= 2 {
+                    break
+                }
+            }
+        }
+        defer {
+            task.cancel()
+        }
+
+        await waitForEventCount(1, in: recorder)
+
+        externalDefaults.set("#EXTERNAL", forKey: key.userDefaultsKey)
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: externalDefaults
+        )
+        let newerSource = UserDefaultsSettingsMutationSource()
+
+        let externalEvent = await waitForEvent(in: recorder) { event in
+            event.value == "#EXTERNAL"
+        }
+        #expect(externalEvent?.value == "#EXTERNAL")
+
+        let acceptedSource = await store.set("#LOCAL", for: key, source: newerSource)
+        let storedValue = await store.value(for: key)
+        #expect(acceptedSource == newerSource)
+        #expect(storedValue == "#LOCAL")
+    }
+
     @Test func valueEventsDrainSupersededSourceAfterUnrelatedSameValueNotification() async {
         let store = UserDefaultsSettingsStore(
             defaults: UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
