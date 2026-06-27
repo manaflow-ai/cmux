@@ -1855,6 +1855,7 @@ final class TerminalOutputCollector {
     #expect(request.attachToken == "stored-ticket-secret")
     #expect(request.stackAccessToken == nil)
     #expect(store.selectedWorkspace?.id.rawValue == "stored-workspace")
+    try await pairedMacStore.removeAll()
 }
 
 @MainActor
