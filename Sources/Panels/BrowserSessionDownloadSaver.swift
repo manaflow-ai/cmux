@@ -211,7 +211,7 @@ final class BrowserSessionDownloadSaver {
             } else {
                 try fileManager.moveItem(at: tempURL, to: destinationURL)
             }
-            try destinationURL.cmuxApplyWebDownloadQuarantine(sourceURL: sourceURL)
+            try? destinationURL.cmuxApplyWebDownloadQuarantine(sourceURL: sourceURL)
         } catch {
             try? fileManager.removeItem(at: tempURL)
             throw error
