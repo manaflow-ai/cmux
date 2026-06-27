@@ -1763,10 +1763,11 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// Interim `Any`-shaped twin of the package's `ControlCallResult`, kept
     /// while the command bodies still build Foundation payloads. Bodies
     /// migrate onto the typed DTO in the ControlCommandCoordinator stage.
-    enum V2CallResult {
-        case ok(Any)
-        case err(code: String, message: String, data: Any?)
-    }
+    ///
+    /// The enum now lives in CmuxBrowser as `BrowserCommandResult`; this alias
+    /// keeps every existing `V2CallResult` / `TerminalController.V2CallResult`
+    /// reference resolving unchanged.
+    typealias V2CallResult = BrowserCommandResult
 
     private nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
         switch res {
@@ -1800,7 +1801,10 @@ class TerminalController: MobileViewportSurfaceLimiting {
         return Self.v2Encoder.encode(value)
     }
 
-    private func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String {
+    // `internal` (not `private`): witnesses the `BrowserControlHosting`
+    // (CmuxBrowser) ref-minting requirement, so the empty conformance extension
+    // must be able to reach it.
+    func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String {
         controlCommandCoordinator.ensureRef(kind: kind, uuid: uuid)
     }
 
@@ -2567,10 +2571,9 @@ class TerminalController: MobileViewportSurfaceLimiting {
         v2BrowserControl.normalizeJSValue(value)
     }
 
-    enum V2JavaScriptResult {
-        case success(Any?)
-        case failure(String)
-    }
+    /// The enum now lives in CmuxBrowser as `BrowserJavaScriptResult`; this alias
+    /// keeps every existing `V2JavaScriptResult` reference resolving unchanged.
+    typealias V2JavaScriptResult = BrowserJavaScriptResult
 
     /// True when a page-world JS failure looks like a CSP block of eval/function
     /// construction (script-src without 'unsafe-eval'). That is the only failure
@@ -2583,13 +2586,15 @@ class TerminalController: MobileViewportSurfaceLimiting {
         v2BrowserControl.failureLooksLikeCSPEvalBlock(message)
     }
 
-    /// Sendable stand-in for `WKContentWorld` so nonisolated callers can pick a world without
-    /// touching the main-actor-isolated `WKContentWorld.page`/`.defaultClient` statics. The real
-    /// world is resolved on the main actor inside `v2RunJavaScript`.
-    // `internal` (not `private`): named at the `v2RunJavaScript(..., world: .page)`
-    // call sites in the cross-file browser console/errors witnesses
-    // (`TerminalController+ControlBrowserConsoleErrorsStateContext.swift`).
-    enum V2JSContentWorld: Sendable { case page, isolated }
+    /// The enum now lives in CmuxBrowser as `BrowserJSContentWorld` (a Sendable
+    /// stand-in for `WKContentWorld` so nonisolated callers can pick a world
+    /// without touching the main-actor-isolated `WKContentWorld.page` /
+    /// `.defaultClient` statics; the real world is resolved on the main actor
+    /// inside `v2RunJavaScript`). This alias keeps the `v2RunJavaScript(...,
+    /// world: .page)` call sites in the cross-file browser console/errors
+    /// witnesses (`TerminalController+ControlBrowserConsoleErrorsStateContext.swift`)
+    /// resolving unchanged.
+    typealias V2JSContentWorld = BrowserJSContentWorld
 
     // `internal` (not `private`): the browser console/errors witnesses in
     // `TerminalController+ControlBrowserConsoleErrorsStateContext.swift` evaluate
@@ -2708,11 +2713,9 @@ class TerminalController: MobileViewportSurfaceLimiting {
         }
     }
 
-    private enum V2BrowserWaitOutcome {
-        case met
-        case timedOut
-        case evaluationFailed(String)
-    }
+    /// The enum now lives in CmuxBrowser as `BrowserWaitOutcome`; this alias keeps
+    /// every existing `V2BrowserWaitOutcome` reference resolving unchanged.
+    private typealias V2BrowserWaitOutcome = BrowserWaitOutcome
 
     // `v2BrowserSelector`, `v2BrowserAllocateElementRef`,
     // `v2BrowserResolveSelector`, and `v2BrowserCurrentFrameSelector` moved to
@@ -5253,3 +5256,13 @@ class TerminalController: MobileViewportSurfaceLimiting {
         // synchronous stop() on the main actor.
     }
 }
+
+// MARK: - BrowserControlHosting
+
+/// `TerminalController` is the app-side host for the CmuxBrowser browser-control
+/// seam. The conformance is satisfied entirely by the controller's existing v2
+/// browser witnesses (`v2RunBrowserJavaScript` / `v2RunJavaScript` / `v2Ref` /
+/// `v2EnsureHandleRef` / `v2RefreshKnownRefs`); no callers are rerouted through
+/// `any BrowserControlHosting` yet. Later sub-slices move the package-side
+/// `browser.*` command logic onto this seam.
+extension TerminalController: BrowserControlHosting {}

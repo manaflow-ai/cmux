@@ -330,12 +330,12 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         if BrowserInsecureHTTPSettings.shouldBlock(url) {
             presentInsecureHTTPAlert(for: url, in: webView) { [weak webView] policy in
                 guard policy == .allow, let webView else { return }
-                browserLoadRequest(request, in: webView)
+                webView.browserLoadRequest(request)
             }
             return
         }
 
-        browserLoadRequest(request, in: webView)
+        webView.browserLoadRequest(request)
     }
 
     // MARK: - Insecure HTTP prompt (parity with main browser)
