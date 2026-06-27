@@ -793,8 +793,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     }
 
     private func socketCommand(_ command: String) -> String? {
-        ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendLine(command) ??
-            controlSocketCommandViaNetcat(command, socketPath: socketPath)
+        controlSocketCommandViaNetcat(command, socketPath: socketPath)
     }
 
     private func typeQueryAndWaitForSuggestions(
