@@ -640,7 +640,7 @@ public final class AuthCoordinator {
         if let authError = error as? AuthError {
             return "AuthError.\(authError.diagnosticName)"
         }
-        return String(describing: type(of: error))
+        return "AuthError.authFailure"
     }
 
     func clearPersistedAuthForUITest() async {

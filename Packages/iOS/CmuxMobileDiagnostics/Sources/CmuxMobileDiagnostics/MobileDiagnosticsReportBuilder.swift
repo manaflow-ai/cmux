@@ -57,36 +57,63 @@ public struct MobileDiagnosticsReportBuilder: Sendable {
         osLogEntries: [MobileDiagnosticsOSLogEntry]
     ) -> String {
         var lines: [String] = []
-        lines.append("cmux iOS diagnostics")
-        lines.append("Generated: \(format(generatedAt))")
+        lines.append(localized("mobile.diagnostics.report.title", defaultValue: "cmux iOS diagnostics"))
+        lines.append(
+            "\(localized("mobile.diagnostics.report.generated", defaultValue: "Generated")): \(format(generatedAt))"
+        )
         lines.append("")
-        lines.append("App")
-        lines.append("- version: \(app.version)")
-        lines.append("- build: \(app.build)")
-        lines.append("- bundle: \(app.bundleIdentifier)")
-        lines.append("- device: \(app.deviceModel)")
-        lines.append("- os: \(app.osVersion)")
+        lines.append(localized("mobile.diagnostics.report.app", defaultValue: "App"))
+        lines.append("- \(localized("mobile.diagnostics.report.version", defaultValue: "version")): \(present(app.version))")
+        lines.append("- \(localized("mobile.diagnostics.report.build", defaultValue: "build")): \(present(app.build))")
+        lines.append(
+            "- \(localized("mobile.diagnostics.report.bundle", defaultValue: "bundle")): \(present(app.bundleIdentifier))"
+        )
+        lines.append(
+            "- \(localized("mobile.diagnostics.report.device", defaultValue: "device")): \(present(app.deviceModel))"
+        )
+        lines.append("- \(localized("mobile.diagnostics.report.os", defaultValue: "os")): \(present(app.osVersion))")
         lines.append("")
-        lines.append("Auth")
-        lines.append("- state: \(auth.isSignedIn ? "signed_in" : "signed_out")")
-        lines.append("- last_error: \(nonEmpty(auth.lastError) ?? "none")")
+        lines.append(localized("mobile.diagnostics.report.auth", defaultValue: "Auth"))
+        let authState = auth.isSignedIn
+            ? localized("mobile.diagnostics.report.signedIn", defaultValue: "signed_in")
+            : localized("mobile.diagnostics.report.signedOut", defaultValue: "signed_out")
+        lines.append(
+            "- \(localized("mobile.diagnostics.report.state", defaultValue: "state")): \(authState)"
+        )
+        lines.append(
+            "- \(localized("mobile.diagnostics.report.lastError", defaultValue: "last_error")): \(present(auth.lastError))"
+        )
         lines.append("")
-        lines.append("Connection")
-        lines.append("- state: \(connection.state)")
-        lines.append("- host: \(nonEmpty(connection.host) ?? "none")")
-        lines.append("- last_error: \(nonEmpty(connection.lastError) ?? "none")")
+        lines.append(localized("mobile.diagnostics.report.connection", defaultValue: "Connection"))
+        lines.append(
+            "- \(localized("mobile.diagnostics.report.state", defaultValue: "state")): \(present(connection.state))"
+        )
+        lines.append("- \(localized("mobile.diagnostics.report.host", defaultValue: "host")): \(present(connection.host))")
+        lines.append(
+            "- \(localized("mobile.diagnostics.report.lastError", defaultValue: "last_error")): \(present(connection.lastError))"
+        )
         lines.append("")
         appendEvents(events, to: &lines)
-        appendBlock(title: "Structured Event Log", text: structuredEventLog, emptyValue: "none", to: &lines)
-        appendBlock(title: "Debug Log", text: debugLog, emptyValue: "none", to: &lines)
+        appendBlock(
+            title: localized("mobile.diagnostics.report.structuredEventLog", defaultValue: "Structured Event Log"),
+            text: structuredEventLog,
+            emptyValue: noneValue,
+            to: &lines
+        )
+        appendBlock(
+            title: localized("mobile.diagnostics.report.debugLog", defaultValue: "Debug Log"),
+            text: debugLog,
+            emptyValue: noneValue,
+            to: &lines
+        )
         appendOSLog(osLogEntries, to: &lines)
         return lines.joined(separator: "\n")
     }
 
     private func appendEvents(_ events: [MobileDiagnosticsEvent], to lines: inout [String]) {
-        lines.append("In-App Event Log")
+        lines.append(localized("mobile.diagnostics.report.inAppEventLog", defaultValue: "In-App Event Log"))
         if events.isEmpty {
-            lines.append("none")
+            lines.append(noneValue)
             lines.append("")
             return
         }
@@ -116,9 +143,9 @@ public struct MobileDiagnosticsReportBuilder: Sendable {
     }
 
     private func appendOSLog(_ entries: [MobileDiagnosticsOSLogEntry], to lines: inout [String]) {
-        lines.append("Recent OSLog")
+        lines.append(localized("mobile.diagnostics.report.recentOSLog", defaultValue: "Recent OSLog"))
         if entries.isEmpty {
-            lines.append("none")
+            lines.append(noneValue)
             lines.append("")
             return
         }
@@ -136,6 +163,18 @@ public struct MobileDiagnosticsReportBuilder: Sendable {
             return nil
         }
         return trimmed
+    }
+
+    private var noneValue: String {
+        localized("mobile.diagnostics.report.none", defaultValue: "none")
+    }
+
+    private func present(_ value: String?) -> String {
+        nonEmpty(value) ?? noneValue
+    }
+
+    private func localized(_ key: String.LocalizationValue, defaultValue: String.LocalizationValue) -> String {
+        String(localized: key, defaultValue: defaultValue)
     }
 
     private func format(_ date: Date) -> String {

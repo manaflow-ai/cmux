@@ -39,6 +39,10 @@ public struct MobileDiagnosticsSecretScrubber: Sendable {
             "$1={redaction}"
         ),
         (
+            #"(?i)(["']?(?:stack_access|stack_refresh|access_token|refresh_token|id_token|auth_token|token|password|passwd|secret|api_key|apikey|client_secret|login_code|polling_code|cmux_auth_state|state|code)["']?\s*:\s*["'])([^"']+)(["'])"#,
+            "$1{redaction}$3"
+        ),
+        (
             #"(?i)\b(stack_access|stack_refresh|access_token|refresh_token|id_token|auth_token|token|password|passwd|secret|api_key|apikey|client_secret|login_code|polling_code|cmux_auth_state|state|code)=([^\s&#,)]+)"#,
             "$1={redaction}"
         ),

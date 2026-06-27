@@ -43,7 +43,12 @@ public struct MobileDiagnosticsAppInfo: Sendable, Equatable {
 
     /// A concise identity stamp for report headers and structured-log exports.
     public var buildStamp: String {
-        "version \(version) (\(build)) | \(bundleIdentifier) | \(deviceModel) | \(osVersion)"
+        let versionPart = [version, build.isEmpty ? "" : "(\(build))"]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return [versionPart, bundleIdentifier, deviceModel, osVersion]
+            .filter { !$0.isEmpty }
+            .joined(separator: " | ")
     }
 
     /// Resolve app and device metadata from the running process.
@@ -53,10 +58,10 @@ public struct MobileDiagnosticsAppInfo: Sendable, Equatable {
     @MainActor
     public static func current(bundle: Bundle = .main) -> MobileDiagnosticsAppInfo {
         let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-            ?? "unknown"
+            ?? ""
         let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-            ?? "unknown"
-        let bundleIdentifier = bundle.bundleIdentifier ?? "unknown"
+            ?? ""
+        let bundleIdentifier = bundle.bundleIdentifier ?? ""
         return MobileDiagnosticsAppInfo(
             version: version,
             build: build,
@@ -86,7 +91,7 @@ public struct MobileDiagnosticsAppInfo: Sendable, Equatable {
             }
         }
         #else
-        return "unknown"
+        return ""
         #endif
     }
 }

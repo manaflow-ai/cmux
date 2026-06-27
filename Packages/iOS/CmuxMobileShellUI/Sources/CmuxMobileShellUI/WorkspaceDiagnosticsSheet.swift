@@ -82,13 +82,13 @@ struct WorkspaceDiagnosticsSheet: View {
     @MainActor
     private func buildReport() async -> String {
         let generatedAt = Date()
-        let debugLogSnapshot = await MobileDebugLog.shared.sink.snapshotWithCount()
-        let structuredEventLogText: String?
+        let (_, debugLog) = await MobileDebugLog.shared.sink.snapshotWithCount()
+        let structuredEventLogData: Data?
         if let diagnosticLog = store.diagnosticLog {
             let data = await diagnosticLog.export()
-            structuredEventLogText = data.isEmpty ? nil : String(decoding: data, as: UTF8.self)
+            structuredEventLogData = data.isEmpty ? nil : data
         } else {
-            structuredEventLogText = nil
+            structuredEventLogData = nil
         }
         let events: [MobileDiagnosticsEvent]
         if let diagnosticsEventLog = store.diagnosticsEventLog {
@@ -99,21 +99,51 @@ struct WorkspaceDiagnosticsSheet: View {
         let osLogEntries = await Task.detached(priority: .utility) {
             Self.recentOSLogEntries(generatedAt: generatedAt)
         }.value
+        let app = MobileDiagnosticsAppInfo.current()
+        let auth = MobileDiagnosticsAuthState(
+            isSignedIn: authManager.isAuthenticated,
+            lastError: authManager.lastAuthError
+        )
+        let connection = MobileDiagnosticsConnectionState(
+            state: String(describing: store.connectionState),
+            host: store.connectedHostName,
+            lastError: store.lastConnectionError
+        )
+        return await Task.detached(priority: .utility) {
+            Self.assembleReport(
+                generatedAt: generatedAt,
+                app: app,
+                auth: auth,
+                connection: connection,
+                events: events,
+                structuredEventLogData: structuredEventLogData,
+                debugLog: debugLog,
+                osLogEntries: osLogEntries
+            )
+        }.value
+    }
+
+    nonisolated private static func assembleReport(
+        generatedAt: Date,
+        app: MobileDiagnosticsAppInfo,
+        auth: MobileDiagnosticsAuthState,
+        connection: MobileDiagnosticsConnectionState,
+        events: [MobileDiagnosticsEvent],
+        structuredEventLogData: Data?,
+        debugLog: String,
+        osLogEntries: [MobileDiagnosticsOSLogEntry]
+    ) -> String {
+        let structuredEventLogText = structuredEventLogData.map {
+            String(decoding: $0, as: UTF8.self)
+        }
         return MobileDiagnosticsReportBuilder().buildReport(
             generatedAt: generatedAt,
-            app: MobileDiagnosticsAppInfo.current(),
-            auth: MobileDiagnosticsAuthState(
-                isSignedIn: authManager.isAuthenticated,
-                lastError: authManager.lastAuthError
-            ),
-            connection: MobileDiagnosticsConnectionState(
-                state: String(describing: store.connectionState),
-                host: store.connectedHostName,
-                lastError: store.lastConnectionError ?? store.connectionError
-            ),
+            app: app,
+            auth: auth,
+            connection: connection,
             events: events,
             structuredEventLog: structuredEventLogText,
-            debugLog: debugLogSnapshot.body,
+            debugLog: debugLog,
             osLogEntries: osLogEntries
         )
     }
@@ -131,7 +161,10 @@ struct WorkspaceDiagnosticsSheet: View {
                     subsystem: "cmux",
                     category: "diagnostics",
                     level: "error",
-                    message: "OSLog unavailable: \(String(describing: type(of: error)))"
+                    message: L10n.string(
+                        "mobile.diagnostics.report.osLogUnavailable",
+                        defaultValue: "OSLog unavailable"
+                    )
                 ),
             ]
         }
