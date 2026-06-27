@@ -24,25 +24,32 @@ public struct MobileDiagnosticsOSLogStoreReader: MobileDiagnosticsOSLogReading {
         let store = try OSLogStore(scope: .currentProcessIdentifier)
         let position = store.position(date: since)
         let entries = try store.getEntries(with: [], at: position, matching: nil)
-        var result: [MobileDiagnosticsOSLogEntry] = []
-        result.reserveCapacity(min(limit, 128))
+        var ring: [MobileDiagnosticsOSLogEntry] = []
+        ring.reserveCapacity(min(limit, 128))
+        var nextIndex = 0
         for entry in entries {
             guard let log = entry as? OSLogEntryLog else { continue }
             if let subsystemPrefix, !log.subsystem.hasPrefix(subsystemPrefix) {
                 continue
             }
-            result.append(MobileDiagnosticsOSLogEntry(
+            let diagnosticsEntry = MobileDiagnosticsOSLogEntry(
                 date: log.date,
                 subsystem: log.subsystem,
                 category: log.category,
                 level: Self.levelName(log.level),
                 message: log.composedMessage
-            ))
-            if result.count > limit {
-                result.removeFirst(result.count - limit)
+            )
+            if ring.count < limit {
+                ring.append(diagnosticsEntry)
+            } else {
+                ring[nextIndex] = diagnosticsEntry
+                nextIndex = (nextIndex + 1) % limit
             }
         }
-        return result
+        if ring.count < limit || nextIndex == 0 {
+            return ring
+        }
+        return Array(ring[nextIndex..<ring.count]) + Array(ring[0..<nextIndex])
     }
 
     private static func levelName(_ level: OSLogEntryLog.Level) -> String {

@@ -144,13 +144,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   !trimmed.isEmpty else {
                 return
             }
-            lastConnectionError = trimmed
-            recordDiagnosticsEvent("conn.error", fields: ["message": trimmed])
+            let scrubbed = MobileDiagnosticsSecretScrubber().scrub(trimmed)
+            lastConnectionError = scrubbed
+            recordDiagnosticsEvent("conn.error", fields: ["message": scrubbed])
         }
     }
-    /// Most recent non-empty connection error retained after the visible error
-    /// clears, so diagnostics still explain the failure that led to the current
-    /// state.
+    /// Most recent non-empty, secret-scrubbed connection error retained after
+    /// the visible error clears, so diagnostics still explain the failure that
+    /// led to the current state.
     public private(set) var lastConnectionError: String?
     /// Actionable next-step line shown beneath ``connectionError`` (for example
     /// "Check that both devices are on the same Tailscale"). Set and cleared
