@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Pure escape-sequence constants plus the capture-paint builder used to seed a
 /// mirror surface from a remote tmux pane.

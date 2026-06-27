@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Bounded off-main writer for the SSH control client's stdin pipe.
 ///

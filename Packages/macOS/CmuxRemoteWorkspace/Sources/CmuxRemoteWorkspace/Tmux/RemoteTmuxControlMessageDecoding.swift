@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Stateless pure decoders for `tmux -CC` control-mode message payloads.
 ///

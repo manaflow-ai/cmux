@@ -1,4 +1,4 @@
-import Observation
+public import Observation
 
 /// Client-size + attach-redraw-kick (SIGWINCH) sub-model for one `tmux -CC` control
 /// connection.
