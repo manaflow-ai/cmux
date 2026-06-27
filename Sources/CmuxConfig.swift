@@ -3360,7 +3360,7 @@ final class CmuxConfigStore: ObservableObject {
 
     private func handleLocalDirectoryWatchEvent() {
         if let searchDirectory = localConfigSearchDirectory {
-            let resolvedPath = resolvedLocalConfigPath(startingFrom: searchDirectory)
+            let resolvedPath = Self.resolvedLocalConfigPath(startingFrom: searchDirectory)
             if resolvedPath != localConfigPath {
                 localConfigPath = resolvedPath
             }
