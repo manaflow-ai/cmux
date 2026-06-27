@@ -1,5 +1,4 @@
 import AppKit
-import CmuxTerminal
 import Testing
 
 #if canImport(cmux_DEV)
@@ -52,19 +51,14 @@ struct TerminalWindowPortalTransientRecoveryTests {
         let anchor = NSView(frame: stableFrame)
         contentView.addSubview(anchor)
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
         )
-        let hosted = surface.hostedView
+        defer { TerminalWindowPortalRegistry.detach(hostedView: hosted) }
         TerminalWindowPortalRegistry.bind(
             hostedView: hosted,
             to: anchor,
-            visibleInUI: true,
-            expectedSurfaceId: surface.id,
-            expectedGeneration: surface.portalBindingGeneration()
+            visibleInUI: true
         )
         TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
         drainMainQueueTurn()
