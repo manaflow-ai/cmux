@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Runs the user-configured shell command when a terminal notification is
 /// delivered, exposing the notification fields to that command through
