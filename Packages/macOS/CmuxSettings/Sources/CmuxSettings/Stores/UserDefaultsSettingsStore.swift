@@ -447,7 +447,7 @@ public actor UserDefaultsSettingsStore {
                         for: key.userDefaultsKey
                     )
                 }
-                continuation.yield(initialSnapshot.event)
+                continuation.yieldPreservingSources(initialSnapshot.event)
 
                 for await signal in signals {
                     if Task.isCancelled { break }
@@ -479,7 +479,7 @@ public actor UserDefaultsSettingsStore {
                         || currentEvent.mutationSource != nil
                         || currentEvent.supersededMutationSource != nil {
                         lastYieldedEvent = currentEvent
-                        continuation.yield(currentEvent)
+                        continuation.yieldPreservingSources(currentEvent)
                     }
                 }
                 continuation.finish()

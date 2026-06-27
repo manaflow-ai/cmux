@@ -25,3 +25,39 @@ public struct UserDefaultsSettingsValueEvent<Value: SettingCodable>: Sendable, E
         self.isInitialSnapshot = isInitialSnapshot
     }
 }
+
+extension UserDefaultsSettingsValueEvent {
+    var deliveryMutationSource: UserDefaultsSettingsMutationSource? {
+        mutationSource ?? supersededMutationSource
+    }
+
+    func mergingDroppedSource(from droppedEvent: Self) -> Self {
+        guard mutationSource == nil,
+              supersededMutationSource == nil,
+              let droppedSource = droppedEvent.deliveryMutationSource
+        else { return self }
+        return Self(
+            value: value,
+            supersededMutationSource: droppedSource,
+            isInitialSnapshot: isInitialSnapshot
+        )
+    }
+}
+
+extension AsyncStream.Continuation {
+    func yieldPreservingSources<Value: SettingCodable>(
+        _ event: UserDefaultsSettingsValueEvent<Value>
+    ) where Element == UserDefaultsSettingsValueEvent<Value> {
+        var mergedEvent = event
+        while true {
+            switch yield(mergedEvent) {
+            case .dropped(let droppedEvent):
+                let nextEvent = mergedEvent.mergingDroppedSource(from: droppedEvent)
+                guard nextEvent != mergedEvent else { return }
+                mergedEvent = nextEvent
+            default:
+                return
+            }
+        }
+    }
+}

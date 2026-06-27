@@ -103,9 +103,14 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// ignored by ``SettingReadDriver``. Views should call this from a mounted
     /// lifecycle hook such as `.task`, not from their initializer.
     public func startObserving() {
-        let pendingSources = Set(pendingStoreEchoes.map(\.source))
         let makeStream = self.makeStream
-        observation.activateAsync({ await makeStream(pendingSources) }) { [weak self] value in
+        observation.activateAsync({ [weak self] in
+            guard let self else {
+                return AsyncStream { continuation in continuation.finish() }
+            }
+            let pendingSources = Set(self.pendingStoreEchoes.map(\.source))
+            return await makeStream(pendingSources)
+        }) { [weak self] value in
             self?.acceptObservedValue(value)
         }
     }
