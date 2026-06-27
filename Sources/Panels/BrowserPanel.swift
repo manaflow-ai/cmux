@@ -2035,15 +2035,10 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
     }
 
     private func resolvedLiveSessionHistoryURL() -> URL? {
-        if let webViewURL = BrowserRemoteProxyURLRewriter.displayURL(for: webView.url),
-           Self.serializableSessionHistoryURLString(webViewURL) != nil {
-            return webViewURL
-        }
-        if let currentURL,
-           Self.serializableSessionHistoryURLString(currentURL) != nil {
-            return currentURL
-        }
-        return nil
+        Self.sessionHistoryURLResolver.resolvedLiveURL(
+            webViewDisplayURL: BrowserRemoteProxyURLRewriter.displayURL(for: webView.url),
+            currentURL: currentURL
+        )
     }
 
     private var isLiveSessionHistoryAlignedWithRestoredCurrent: Bool {
@@ -2177,15 +2172,10 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
     }
 
     func preferredURLStringForSessionSnapshot() -> String? {
-        if let webViewURL = BrowserRemoteProxyURLRewriter.displayURL(for: webView.url),
-           let value = Self.serializableSessionHistoryURLString(webViewURL) {
-            return value
-        }
-        if let currentURL,
-           let value = Self.serializableSessionHistoryURLString(currentURL) {
-            return value
-        }
-        return nil
+        Self.sessionHistoryURLResolver.preferredURLString(
+            webViewDisplayURL: BrowserRemoteProxyURLRewriter.displayURL(for: webView.url),
+            currentURL: currentURL
+        )
     }
 
     private func setupObservers(for webView: WKWebView) {
@@ -5160,15 +5150,11 @@ extension BrowserPanel {
     }
 
     private func resolvedCurrentSessionHistoryURL() -> URL? {
-        if let webViewURL = BrowserRemoteProxyURLRewriter.displayURL(for: webView.url),
-           Self.serializableSessionHistoryURLString(webViewURL) != nil {
-            return webViewURL
-        }
-        if let currentURL,
-           Self.serializableSessionHistoryURLString(currentURL) != nil {
-            return currentURL
-        }
-        return restoredHistoryCurrentURL
+        Self.sessionHistoryURLResolver.resolvedCurrentURL(
+            webViewDisplayURL: BrowserRemoteProxyURLRewriter.displayURL(for: webView.url),
+            currentURL: currentURL,
+            restoredCurrentURL: restoredHistoryCurrentURL
+        )
     }
 
     private func refreshNavigationAvailability() {
@@ -5190,26 +5176,29 @@ extension BrowserPanel {
         refreshNavigationAvailability()
     }
 
-    /// Shared sanitizer mirroring the restored-session-history URL rules, used by
-    /// the surface's WebKit-touching resolution helpers.
-    private static let sessionHistoryURLSanitizer = SessionHistoryURLSanitizer {
-        $0?.isTemporaryBrowserHistory ?? false
-    }
+    /// Shared resolver mirroring the restored-session-history URL rules, used by
+    /// the surface's WebKit-touching resolution helpers. It wraps the sanitizer
+    /// whose temporary-URL classification is supplied app-side.
+    private static let sessionHistoryURLResolver = BrowserSessionHistoryURLResolver(
+        sanitizer: SessionHistoryURLSanitizer {
+            $0?.isTemporaryBrowserHistory ?? false
+        }
+    )
 
     private static func serializableSessionHistoryURLString(_ url: URL?) -> String? {
-        sessionHistoryURLSanitizer.serializableSessionHistoryURLString(url)
+        sessionHistoryURLResolver.serializableSessionHistoryURLString(url)
     }
 
     private static func sanitizedSessionHistoryURL(_ raw: String?) -> URL? {
-        sessionHistoryURLSanitizer.sanitizedSessionHistoryURL(raw)
+        sessionHistoryURLResolver.sanitizedSessionHistoryURL(raw)
     }
 
     private static func sanitizedSessionHistoryURLs(_ values: [String]) -> [URL] {
-        sessionHistoryURLSanitizer.sanitizedSessionHistoryURLs(values)
+        sessionHistoryURLResolver.sanitizedSessionHistoryURLs(values)
     }
 
     private static func isTemporarySessionHistoryURL(_ url: URL?) -> Bool {
-        sessionHistoryURLSanitizer.isTemporarySessionHistoryURL(url)
+        sessionHistoryURLResolver.isTemporarySessionHistoryURL(url)
     }
 
 }
