@@ -17753,13 +17753,9 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
         }
     }
 
-    func attemptUpdate() {
-        attemptUpdate(nil)
-    }
+    func attemptUpdate() { attemptUpdate(nil) }
 
-    func installUpdate() {
-        updateController.installUpdate()
-    }
+    func installUpdate() { applyUpdateIfAvailable(nil) }
 
     var updateLogPath: String {
         updateLog.logPath()
