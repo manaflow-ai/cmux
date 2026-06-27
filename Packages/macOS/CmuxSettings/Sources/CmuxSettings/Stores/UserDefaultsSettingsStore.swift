@@ -17,15 +17,8 @@ import Dispatch
 /// fan-out.
 ///
 /// ```swift
-/// let catalog = SettingCatalog()
-/// let store = UserDefaultsSettingsStore(
-///     defaults: .standard,
-///     migrating: catalog.all
-/// )
-/// await store.set(.dark, for: catalog.appAppearance)
-/// for await mode in store.values(for: catalog.appAppearance) {
-///     applyAppearance(mode)
-/// }
+/// let store = UserDefaultsSettingsStore(defaults: .standard)
+/// await store.set(.dark, for: SettingCatalog().app.appearance)
 /// ```
 public actor UserDefaultsSettingsStore {
     /// The `UserDefaults` suite this store reads and writes.
@@ -96,7 +89,13 @@ public actor UserDefaultsSettingsStore {
         }
         recordAcceptedMutation(source, for: key.userDefaultsKey)
         recordMutationSource(source, value: value, for: key.userDefaultsKey)
+        if let source {
+            observedMutationWatermarks.beginMutationSource(source, for: key.userDefaultsKey)
+        }
         storage.set(value, for: key)
+        if let source {
+            observedMutationWatermarks.endMutationSource(source, for: key.userDefaultsKey)
+        }
         return source
     }
 
@@ -115,7 +114,13 @@ public actor UserDefaultsSettingsStore {
         }
         recordAcceptedMutation(source, for: key.userDefaultsKey)
         recordMutationSource(source, value: key.defaultValue, for: key.userDefaultsKey)
+        if let source {
+            observedMutationWatermarks.beginMutationSource(source, for: key.userDefaultsKey)
+        }
         storage.removeObject(forKey: key.userDefaultsKey)
+        if let source {
+            observedMutationWatermarks.endMutationSource(source, for: key.userDefaultsKey)
+        }
         return source
     }
 
@@ -224,6 +229,11 @@ public actor UserDefaultsSettingsStore {
         knownValues[storageKey] = value
     }
 
+    private func recordSourceLessObservedMutation<Value: SettingCodable>(value: Value, logicalOrder: UInt64, for storageKey: String) {
+        recordAcceptedMutation(nil, logicalOrder: logicalOrder, for: storageKey)
+        recordKnownValue(value, for: storageKey)
+    }
+
     private func knownValue<Value: SettingCodable>(
         _ value: Value,
         matchesValueFor storageKey: String
@@ -277,6 +287,7 @@ public actor UserDefaultsSettingsStore {
         for key: DefaultsKey<Value>,
         consumedSourceSequence: UInt64,
         includedMutationSources: Set<UserDefaultsSettingsMutationSource> = [],
+        deliveredMutationSource: UserDefaultsSettingsMutationSource? = nil,
         isInitialSnapshot: Bool = false
     ) -> (
         event: UserDefaultsSettingsValueEvent<Value>,
@@ -290,7 +301,12 @@ public actor UserDefaultsSettingsStore {
            record.sequence > consumedSourceSequence || includedMutationSources.contains(record.source) {
             nextConsumedSourceSequence = max(record.sequence, consumedSourceSequence)
             if record.matches(value) {
-                source = record.source
+                if includedMutationSources.contains(record.source)
+                    || deliveredMutationSource == record.source {
+                    source = record.source
+                } else {
+                    supersededSource = record.source
+                }
             } else {
                 supersededSource = record.source
             }
@@ -335,19 +351,11 @@ public actor UserDefaultsSettingsStore {
     public nonisolated func values<Value>(for key: DefaultsKey<Value>) -> AsyncStream<Value> {
         let storage = self.storage
         return AsyncStream<Value>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let (signals, signalContinuation) = AsyncStream<(
-                isBackingDefaultsNotification: Bool,
-                logicalOrder: UInt64
-            )>.makeStream(
-                bufferingPolicy: .bufferingNewest(1)
-            )
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
 
-            let observer = storage.addDidChangeObserver { [weak self] isBackingDefaultsNotification in
+            let observer = storage.addDidChangeObserver { [weak self] _ in
                 guard self != nil else { return }
-                signalContinuation.yield((
-                    isBackingDefaultsNotification,
-                    DispatchTime.now().uptimeNanoseconds
-                ))
+                signalContinuation.yield(())
             }
 
             let drainTask = Task { [weak self] in
@@ -398,12 +406,8 @@ public actor UserDefaultsSettingsStore {
         let storageKey = key.userDefaultsKey
         recordKnownValue(storage.value(for: key), for: storageKey)
         return AsyncStream<UserDefaultsSettingsValueEvent<Value>>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let (signals, signalContinuation) = AsyncStream<(
-                isBackingDefaultsNotification: Bool,
-                logicalOrder: UInt64
-            )>.makeStream(
-                bufferingPolicy: .bufferingNewest(1)
-            )
+            typealias Signal = (isBackingDefaultsNotification: Bool, logicalOrder: UInt64, deliveredMutationSource: UserDefaultsSettingsMutationSource?)
+            let (signals, signalContinuation) = AsyncStream<Signal>.makeStream(bufferingPolicy: .bufferingNewest(1))
 
             let observer = storage.addDidChangeObserver { [weak self] isBackingDefaultsNotification in
                 guard self != nil else { return }
@@ -414,7 +418,10 @@ public actor UserDefaultsSettingsStore {
                 )
                 signalContinuation.yield((
                     isBackingDefaultsNotification,
-                    logicalOrder
+                    logicalOrder,
+                    isBackingDefaultsNotification
+                        ? observedMutationWatermarks.activeMutationSource(for: storageKey)
+                        : nil
                 ))
             }
 
@@ -446,15 +453,16 @@ public actor UserDefaultsSettingsStore {
                     if Task.isCancelled { break }
                     let snapshot = await self.valueEvent(
                         for: key,
-                        consumedSourceSequence: consumedSourceSequence
+                        consumedSourceSequence: consumedSourceSequence,
+                        deliveredMutationSource: signal.deliveredMutationSource
                     )
                     consumedSourceSequence = snapshot.consumedSourceSequence
                     let currentEvent = snapshot.event
-                    if currentEvent.value != lastYieldedEvent.value,
-                       currentEvent.mutationSource == nil {
-                        await self.recordKnownValue(currentEvent.value, for: key.userDefaultsKey)
-                        await self.recordAcceptedMutation(
-                            nil,
+                    if currentEvent.mutationSource == nil,
+                       (currentEvent.value != lastYieldedEvent.value
+                        || currentEvent.supersededMutationSource != nil) {
+                        await self.recordSourceLessObservedMutation(
+                            value: currentEvent.value,
                             logicalOrder: signal.logicalOrder,
                             for: key.userDefaultsKey
                         )
