@@ -4597,6 +4597,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             panelId: panelId
         )
+        sidebarMetadata.invalidateWorkspaceObservation()
     }
 
     func agentHibernationLifecycleState(
@@ -4607,12 +4608,10 @@ final class Workspace: Identifiable, ObservableObject {
               !panelStates.isEmpty else {
             return fallback ?? .unknown
         }
-        let states = Array(panelStates.values)
-        if states.contains(.running) { return .running }
-        if states.contains(.needsInput) { return .needsInput }
-        if states.contains(.unknown) { return .unknown }
-        if states.contains(.idle) { return .idle }
-        return fallback ?? .unknown
+        return AgentHibernationLifecycleState.dominantForHibernation(
+            in: Array(panelStates.values),
+            fallback: fallback
+        )
     }
 
     func restorableAgentForHibernation(

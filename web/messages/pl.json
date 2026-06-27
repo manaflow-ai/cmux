@@ -837,6 +837,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "workspaceStatusStyle": "Sposób wyświetlania stanu agenta w wierszach obszarów roboczych paska bocznego rozszerzeń: `sentence` zachowuje tekst podtytułu, a `dot` używa zwartego kolorowego wskaźnika.",
+          "scrollEdgeFade": "Siła górnego i dolnego zanikania krawędzi przewijania nad listą kart paska bocznego.",
           "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
         },
         "fileExplorer": {

@@ -837,6 +837,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "workspaceStatusStyle": "확장 사이드바의 작업 공간 행에서 에이전트 상태를 표시하는 방법입니다. `sentence`는 보조 설명을 표시하고, `dot`은 작은 색상 표시기를 사용합니다.",
+          "scrollEdgeFade": "사이드바 탭 목록의 위쪽과 아래쪽 스크롤 가장자리 페이드 강도입니다.",
           "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다."
         },
         "fileExplorer": {

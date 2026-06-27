@@ -1,5 +1,6 @@
 import CmuxFoundation
 import AppKit
+import CmuxSettings
 import CmuxSidebarProviderKit
 import SwiftUI
 import WebKit
@@ -7,9 +8,10 @@ import WebKit
 struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     let row: CmuxSidebarProviderRow
     let workspace: CmuxSidebarProviderWorkspace?
-    let providerId: String
     let relativeNow: Date
     let isSelected: Bool
+    let workspaceStatusStyle: SidebarWorkspaceStatusStyle
+    let workspaceAgentLifecycleState: AgentHibernationLifecycleState?
     let onSelect: (UUID) -> Void
     let onOpenWindow: (CmuxSidebarProviderWorkspace) -> Void
     @State private var showsInspector = false
@@ -18,9 +20,10 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.row == rhs.row &&
             lhs.workspace == rhs.workspace &&
-            lhs.providerId == rhs.providerId &&
             lhs.relativeNow == rhs.relativeNow &&
-            lhs.isSelected == rhs.isSelected
+            lhs.isSelected == rhs.isSelected &&
+            lhs.workspaceStatusStyle == rhs.workspaceStatusStyle &&
+            lhs.workspaceAgentLifecycleState == rhs.workspaceAgentLifecycleState
     }
 
     private var isSuperCompact: Bool {
@@ -34,15 +37,30 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     var body: some View {
         let primarySize: CGFloat = isSuperCompact ? 10.5 : 12.5
         let secondarySize: CGFloat = isSuperCompact ? 9 : 10
+        let subtitle = rendered(row.subtitle)
         HStack(spacing: isSuperCompact ? 5 : 7) {
             VStack(alignment: .leading, spacing: isSuperCompact ? 0 : 2) {
-                Text(row.title)
-                    .cmuxFont(size: primarySize, weight: .regular)
-                    .foregroundColor(isSelected ? .primary : .primary.opacity(0.86))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                HStack(spacing: 5) {
+                    Text(row.title)
+                        .cmuxFont(size: primarySize, weight: .regular)
+                        .foregroundColor(isSelected ? .primary : .primary.opacity(0.86))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
-                if !isSuperCompact, let subtitle = rendered(row.subtitle) {
+                    if workspaceStatusStyle == .dot, let workspaceAgentLifecycleState {
+                        let accessibilityLabel = agentStatusAccessibilityLabel(
+                            subtitle: hidesSubtitleInDotMode ? subtitle : nil,
+                            state: workspaceAgentLifecycleState
+                        )
+                        Circle()
+                            .fill(agentStatusColor(for: workspaceAgentLifecycleState))
+                            .frame(width: 6, height: 6)
+                            .accessibilityLabel(Text(accessibilityLabel ?? ""))
+                            .accessibilityHidden(accessibilityLabel == nil)
+                    }
+                }
+
+                if !hidesSubtitleInDotMode, !isSuperCompact, let subtitle {
                     Text(subtitle)
                         .cmuxFont(size: secondarySize, weight: .regular)
                         .foregroundColor(.secondary)
@@ -95,8 +113,8 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         }
         .padding(.leading, isSuperCompact ? 14 : 28)
         .padding(.trailing, 8)
-        .padding(.vertical, isSuperCompact ? 2 : (isThin ? 5 : 7))
-        .frame(minHeight: isSuperCompact ? 22 : 32)
+        .padding(.vertical, rowVerticalPadding)
+        .frame(minHeight: rowMinimumHeight)
         .background {
             if isSelected {
                 Rectangle()
@@ -106,6 +124,58 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         .contentShape(Rectangle())
         .onTapGesture {
             onSelect(row.workspaceId)
+        }
+    }
+
+    private var showsStatusDot: Bool {
+        workspaceStatusStyle == .dot && workspaceAgentLifecycleState != nil
+    }
+
+    private var hidesSubtitleInDotMode: Bool {
+        showsStatusDot && row.subtitleRole == .agentStatus
+    }
+
+    private var usesOneLineStatusDotLayout: Bool {
+        showsStatusDot && (row.subtitle == nil || hidesSubtitleInDotMode)
+    }
+
+    private var rowVerticalPadding: CGFloat {
+        if isSuperCompact { return 2 }
+        if isThin || usesOneLineStatusDotLayout { return 5 }
+        return 7
+    }
+
+    private var rowMinimumHeight: CGFloat {
+        if isSuperCompact { return 22 }
+        if usesOneLineStatusDotLayout { return 28 }
+        return 32
+    }
+
+    private func agentStatusColor(for state: AgentHibernationLifecycleState) -> Color {
+        switch state {
+        case .needsInput:
+            return .orange
+        case .running:
+            return .green
+        case .idle, .unknown:
+            return .secondary
+        }
+    }
+
+    private func agentStatusAccessibilityLabel(
+        subtitle: String?,
+        state: AgentHibernationLifecycleState
+    ) -> String? {
+        if state == .needsInput, let subtitle { return subtitle }
+        switch state {
+        case .needsInput:
+            return String(localized: "feed.status.needsInput", defaultValue: "Needs input")
+        case .running:
+            return String(localized: "agentSession.web.status.running", defaultValue: "Running")
+        case .idle:
+            return String(localized: "agentSession.web.status.idle", defaultValue: "Idle")
+        case .unknown:
+            return nil
         }
     }
 

@@ -53,6 +53,7 @@ extension CmuxSettingsFileStore {
                 (action.rawValue, shortcutTemplateValue(action.defaultShortcut, usesNumberedDigits: action.usesNumberedDigitMatching))
             }
         )
+        let sidebarCatalog = SidebarCatalogSection()
 
         return [
             [
@@ -127,6 +128,8 @@ extension CmuxSettingsFileStore {
                     "hideAllDetails": SettingCatalog().sidebar.hideAllDetails.defaultValue,
                     "wrapWorkspaceTitles": SidebarWorkspaceTitleWrapSettings.defaultWrap,
                     "showWorkspaceDescription": SettingCatalog().sidebar.showWorkspaceDescription.defaultValue,
+                    "workspaceStatusStyle": sidebarCatalog.workspaceStatusStyle.defaultValue.rawValue,
+                    "scrollEdgeFade": sidebarCatalog.scrollEdgeFade.defaultValue.rawValue,
                     "branchLayout": SettingCatalog().sidebar.branchVerticalLayout.defaultValue ? "vertical" : "inline",
                     "stackBranchDirectory": SettingCatalog().sidebar.stackBranchDirectory.defaultValue,
                     "pathLastSegmentOnly": SettingCatalog().sidebar.pathLastSegmentOnly.defaultValue,

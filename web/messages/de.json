@@ -837,6 +837,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "workspaceStatusStyle": "Wie Workspace-Zeilen der Erweiterungsseitenleiste den Agentenstatus anzeigen: `sentence` behält den Untertiteltext bei, während `dot` einen kompakten farbigen Indikator nutzt.",
+          "scrollEdgeFade": "Stärke des oberen und unteren Scrollkanten-Fades über der Tab-Liste der Seitenleiste.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
         },
         "fileExplorer": {

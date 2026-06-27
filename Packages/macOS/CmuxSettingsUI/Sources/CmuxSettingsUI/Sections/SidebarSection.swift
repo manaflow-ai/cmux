@@ -20,6 +20,8 @@ public struct SidebarSection: View {
     @State private var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
     @State private var showDesc: DefaultsValueModel<Bool>
+    @State private var workspaceStatusStyle: DefaultsValueModel<SidebarWorkspaceStatusStyle>
+    @State private var scrollEdgeFade: DefaultsValueModel<SidebarScrollEdgeFadeStyle>
     @State private var branchVerticalLayout: DefaultsValueModel<Bool>
     @State private var stackBranchDir: DefaultsValueModel<Bool>
     @State private var pathLastOnly: DefaultsValueModel<Bool>
@@ -46,6 +48,8 @@ public struct SidebarSection: View {
         _hideAll = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails))
         _wrapTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles))
         _showDesc = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showWorkspaceDescription))
+        _workspaceStatusStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.workspaceStatusStyle))
+        _scrollEdgeFade = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.scrollEdgeFade))
         _branchVerticalLayout = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.branchVerticalLayout))
         _stackBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stackBranchDirectory))
         _pathLastOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pathLastSegmentOnly))
@@ -79,6 +83,8 @@ public struct SidebarSection: View {
             hideAll,
             wrapTitles,
             showDesc,
+            workspaceStatusStyle,
+            scrollEdgeFade,
             branchVerticalLayout,
             stackBranchDir,
             pathLastOnly,
@@ -222,6 +228,35 @@ public struct SidebarSection: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.workspaceStatusStyle"),
+                String(localized: "settings.sidebar.workspaceStatusStyle", defaultValue: "Compact Agent Status Dots"),
+                subtitle: workspaceStatusStyle.current.rowDescription
+            ) {
+                Toggle("", isOn: Binding(get: { workspaceStatusStyle.current == .dot }, set: { workspaceStatusStyle.set($0 ? .dot : .sentence) }))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .accessibilityLabel(String(localized: "settings.sidebar.workspaceStatusStyle", defaultValue: "Compact Agent Status Dots"))
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.scrollEdgeFade"),
+                String(localized: "settings.sidebar.scrollEdgeFade", defaultValue: "Tab List Edge Fade"),
+                subtitle: scrollEdgeFade.current.rowDescription,
+                controlWidth: 150
+            ) {
+                Picker("", selection: Binding(get: { scrollEdgeFade.current }, set: { scrollEdgeFade.set($0) })) {
+                    ForEach(SidebarScrollEdgeFadeStyle.allCases, id: \.self) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
             }
             SettingsCardDivider()
 

@@ -34,6 +34,7 @@ private struct SidebarObservationState: Equatable {
     let panelGitBranches: [UUID: SidebarGitBranchState]
     let pullRequest: SidebarPullRequestState?
     let panelPullRequests: [UUID: SidebarPullRequestState]
+    let agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]]
     let remoteConfiguration: WorkspaceRemoteConfiguration?
     let remoteConnectionState: WorkspaceRemoteConnectionState
     let remoteConnectionDetail: String?
@@ -126,6 +127,7 @@ extension Workspace {
                     panelGitBranches: gitFields.1,
                     pullRequest: gitFields.2,
                     panelPullRequests: gitFields.3,
+                    agentLifecycleStatesByPanelId: self.agentLifecycleStatesByPanelId,
                     remoteConfiguration: remoteFields.0,
                     remoteConnectionState: remoteFields.1,
                     remoteConnectionDetail: remoteFields.2,

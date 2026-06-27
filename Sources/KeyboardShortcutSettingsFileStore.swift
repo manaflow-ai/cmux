@@ -655,6 +655,17 @@ final class CmuxSettingsFileStore {
                 snapshot.managedUserDefaults[setting.defaultsKey] = .bool(value)
             }
         }
+        for setting in SidebarSettingsFileMapping.stringEnumSettings {
+            if let raw = jsonString(section[setting.jsonKey]) {
+                if setting.acceptedValues.contains(raw) {
+                    snapshot.managedUserDefaults[setting.defaultsKey] = .string(raw)
+                } else {
+                    logInvalid(setting.invalidPath, sourcePath: sourcePath)
+                }
+            } else if section.keys.contains(setting.jsonKey) {
+                logInvalid(setting.invalidPath, sourcePath: sourcePath)
+            }
+        }
 
         if let raw = jsonString(section["branchLayout"]) {
             if let value = SidebarSettingsFileMapping.branchLayoutStoredValue(raw) {

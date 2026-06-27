@@ -22,6 +22,8 @@ struct UserDefaultsSettingsClientTests {
         #expect(client.value(for: catalog.app.reorderOnNotification) == true)
         #expect(client.value(for: catalog.sidebar.hideAllDetails) == false)
         #expect(client.value(for: catalog.sidebar.showWorkspaceDescription) == true)
+        #expect(client.value(for: catalog.sidebar.workspaceStatusStyle) == .sentence)
+        #expect(client.value(for: catalog.sidebar.scrollEdgeFade) == .full)
         #expect(client.value(for: catalog.sidebar.showNotificationMessage) == true)
         #expect(client.value(for: catalog.sidebar.branchVerticalLayout) == true)
         #expect(client.value(for: catalog.sidebar.stackBranchDirectory) == false)
@@ -57,6 +59,14 @@ struct UserDefaultsSettingsClientTests {
 
         client.set(.solidFill, for: catalog.workspaceColors.indicatorStyle)
         #expect(defaults.string(forKey: "sidebarActiveTabIndicatorStyle") == "solidFill")
+
+        client.set(.dot, for: catalog.sidebar.workspaceStatusStyle)
+        #expect(defaults.string(forKey: "sidebarWorkspaceStatusStyle") == "dot")
+        #expect(client.value(for: catalog.sidebar.workspaceStatusStyle) == .dot)
+
+        client.set(.subtle, for: catalog.sidebar.scrollEdgeFade)
+        #expect(defaults.string(forKey: "sidebarScrollEdgeFade") == "subtle")
+        #expect(client.value(for: catalog.sidebar.scrollEdgeFade) == .subtle)
 
         client.set(.end, for: catalog.workspaceGroups.newWorkspacePlacement)
         #expect(defaults.string(forKey: "workspaceGroup.newWorkspacePlacement") == "end")

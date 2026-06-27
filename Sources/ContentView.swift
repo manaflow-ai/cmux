@@ -10069,6 +10069,8 @@ struct VerticalTabsSidebar: View {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.sidebar.workspaceStatusStyle) private var sidebarWorkspaceStatusStyle
+    @LiveSetting(\.sidebar.scrollEdgeFade) private var sidebarScrollEdgeFade
 
     // The provider to actually render. Built-in views are always honored; only
     // the hosted-extension selection falls back to the default workspaces
@@ -10262,11 +10264,22 @@ struct VerticalTabsSidebar: View {
     }
 
     private var sidebarTopScrimHeight: CGFloat {
-        SidebarWorkspaceListMetrics.topScrimHeight
+        SidebarWorkspaceListMetrics.topScrimHeight * sidebarScrollEdgeFadeHeightScale
     }
 
     private var sidebarBottomScrimHeight: CGFloat {
-        SidebarWorkspaceListMetrics.bottomScrimHeight
+        SidebarWorkspaceListMetrics.bottomScrimHeight * sidebarScrollEdgeFadeHeightScale
+    }
+
+    private var sidebarScrollEdgeFadeHeightScale: CGFloat {
+        switch sidebarScrollEdgeFade {
+        case .full:
+            return 1
+        case .subtle:
+            return 0.5
+        case .off:
+            return 0
+        }
     }
 
     private var isMinimalMode: Bool {
@@ -10603,7 +10616,8 @@ struct VerticalTabsSidebar: View {
                 .mask(
                     SidebarWorkspaceScrollEdgeFadeMask(
                         topHeight: sidebarTopScrimHeight,
-                        bottomHeight: sidebarBottomScrimHeight
+                        bottomHeight: sidebarBottomScrimHeight,
+                        fadeStyle: sidebarScrollEdgeFade
                     )
                 )
                 .overlay(alignment: .top) {
@@ -10781,7 +10795,8 @@ struct VerticalTabsSidebar: View {
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
                     topHeight: 0,
-                    bottomHeight: sidebarBottomScrimHeight
+                    bottomHeight: sidebarBottomScrimHeight,
+                    fadeStyle: sidebarScrollEdgeFade
                 )
             )
         } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
@@ -10814,7 +10829,8 @@ struct VerticalTabsSidebar: View {
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
                     topHeight: sidebarTopScrimHeight,
-                    bottomHeight: sidebarBottomScrimHeight
+                    bottomHeight: sidebarBottomScrimHeight,
+                    fadeStyle: sidebarScrollEdgeFade
                 )
             )
         } else {
@@ -10845,7 +10861,7 @@ struct VerticalTabsSidebar: View {
                 } else {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(model.sections) { section in
-                            extensionSidebarSection(section, providerId: model.providerId, now: now)
+                            extensionSidebarSection(section, now: now, workspaceById: renderContext.workspaceById)
                         }
 
                         SidebarEmptyArea(
@@ -10890,7 +10906,8 @@ struct VerticalTabsSidebar: View {
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
                     topHeight: sidebarTopScrimHeight,
-                    bottomHeight: sidebarBottomScrimHeight
+                    bottomHeight: sidebarBottomScrimHeight,
+                    fadeStyle: sidebarScrollEdgeFade
                 )
             )
             .overlay(alignment: .top) {
@@ -11279,6 +11296,7 @@ struct VerticalTabsSidebar: View {
 
     private func extensionWorkspaceSnapshot(for workspace: Workspace) -> CmuxSidebarProviderWorkspace {
         let rootPath = extensionSidebarRootPath(for: workspace)
+        let agentStatusSnapshot = workspace.agentStatusIndicatorSnapshot()
         return CmuxSidebarProviderWorkspace(
             id: workspace.id,
             title: workspace.title,
@@ -11291,6 +11309,7 @@ struct VerticalTabsSidebar: View {
             remoteConnectionState: workspace.remoteConnectionState.rawValue,
             unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
             latestNotificationText: sidebarUnread.latestNotificationText(forWorkspaceId: workspace.id),
+            agentStatus: CmuxSidebarProviderWorkspaceAgentStatus(rawValue: agentStatusSnapshot?.state.rawValue ?? ""), agentStatusText: agentStatusSnapshot?.text,
             latestSubmittedMessage: workspace.latestSubmittedMessage,
             latestSubmittedAt: workspace.latestSubmittedAt,
             listeningPorts: workspace.listeningPorts,
@@ -11301,7 +11320,6 @@ struct VerticalTabsSidebar: View {
             }
         )
     }
-
     private func extensionSidebarRootPath(for workspace: Workspace) -> String? {
         workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     }
@@ -11682,6 +11700,25 @@ struct VerticalTabsSidebar: View {
         return snapshotsById
     }
 
+    private func extensionSidebarWorkspaceAgentLifecycleStatesById(for rows: [CmuxSidebarProviderRow], workspaceById: [UUID: Workspace])
+        -> [UUID: AgentHibernationLifecycleState] {
+        var statesById: [UUID: AgentHibernationLifecycleState] = [:]
+        for row in rows where statesById[row.workspaceId] == nil {
+            guard let workspace = workspaceById[row.workspaceId],
+                  let state = extensionSidebarAgentLifecycleState(for: workspace) else {
+                continue
+            }
+            statesById[row.workspaceId] = state
+        }
+        return statesById
+    }
+
+    private func extensionSidebarAgentLifecycleState(for workspace: Workspace) -> AgentHibernationLifecycleState? {
+        let states = workspace.agentLifecycleStatesByPanelId.values.flatMap { Array($0.values) }
+        guard !states.isEmpty else { return nil }
+        return AgentHibernationLifecycleState.dominantForStatusIndicator(in: states, fallback: .unknown)
+    }
+
     private func extensionBrowserStackIcon(
         _ icon: CmuxSidebarProviderIcon?,
         size: CGFloat
@@ -11733,15 +11770,13 @@ struct VerticalTabsSidebar: View {
     }
 
     @ViewBuilder
-    private func extensionSidebarSection(
-        _ section: CmuxSidebarProviderSection,
-        providerId: String,
-        now: Date
-    ) -> some View {
+    private func extensionSidebarSection(_ section: CmuxSidebarProviderSection, now: Date,
+                                         workspaceById: [UUID: Workspace]) -> some View {
         let isCollapsed = collapsedExtensionSidebarSectionIds.contains(section.id)
         let canCreateWorktree = section.treeSection.projectRootPath != nil
         let selectedWorkspaceId = tabManager.selectedTabId
         let workspaceSnapshotsById = extensionSidebarWorkspaceSnapshotsById(for: section.rows)
+        let workspaceAgentLifecycleStatesById = extensionSidebarWorkspaceAgentLifecycleStatesById(for: section.rows, workspaceById: workspaceById)
 
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 7) {
@@ -11794,9 +11829,10 @@ struct VerticalTabsSidebar: View {
                         CmuxExtensionSidebarWorkspaceRowView(
                             row: row,
                             workspace: workspaceSnapshotsById[row.workspaceId],
-                            providerId: providerId,
                             relativeNow: now,
                             isSelected: row.workspaceId == selectedWorkspaceId,
+                            workspaceStatusStyle: sidebarWorkspaceStatusStyle,
+                            workspaceAgentLifecycleState: workspaceAgentLifecycleStatesById[row.workspaceId],
                             onSelect: selectExtensionSidebarWorkspace,
                             onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
                         )

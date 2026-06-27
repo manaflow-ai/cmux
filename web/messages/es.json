@@ -837,6 +837,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "workspaceStatusStyle": "Cómo las filas de espacio de trabajo de la barra lateral de extensiones muestran el estado del agente: `sentence` conserva el subtítulo, mientras que `dot` usa un indicador de color compacto.",
+          "scrollEdgeFade": "Intensidad del desvanecimiento superior e inferior del borde de desplazamiento sobre la lista de pestañas de la barra lateral.",
           "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
         },
         "fileExplorer": {

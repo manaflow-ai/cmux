@@ -16,6 +16,24 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
         self == .idle
     }
 
+    static func dominantForHibernation(in states: [Self], fallback: Self?) -> Self {
+        if states.contains(.running) { return .running }
+        if states.contains(.needsInput) { return .needsInput }
+        if states.contains(.unknown) { return .unknown }
+        if states.contains(.idle) { return .idle }
+        return fallback ?? .unknown
+    }
+
+    static func dominantForStatusIndicator(in states: [Self], fallback: Self?) -> Self {
+        // The sidebar dot is an attention signal: a waiting agent should stay visible
+        // even if another panel in the same workspace is still running.
+        if states.contains(.needsInput) { return .needsInput }
+        if states.contains(.running) { return .running }
+        if states.contains(.unknown) { return .unknown }
+        if states.contains(.idle) { return .idle }
+        return fallback ?? .unknown
+    }
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)

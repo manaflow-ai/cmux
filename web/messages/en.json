@@ -1029,6 +1029,8 @@
           "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
         },
         "sidebar": {
+          "workspaceStatusStyle": "How extension-sidebar workspace rows show agent status: `sentence` keeps the subtitle text, while `dot` uses a compact colored indicator.",
+          "scrollEdgeFade": "Strength of the top and bottom scroll-edge fade over the sidebar tab list.",
           "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         },
         "fileExplorer": {

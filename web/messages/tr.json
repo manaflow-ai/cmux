@@ -837,6 +837,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "workspaceStatusStyle": "Uzantı kenar çubuğundaki çalışma alanı satırlarının ajan durumunu gösterme biçimi: `sentence` alt başlık metnini korur, `dot` ise kompakt renkli bir gösterge kullanır.",
+          "scrollEdgeFade": "Kenar çubuğu sekme listesinin üstündeki ve altındaki kaydırma kenarı solma gücü.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },
         "fileExplorer": {

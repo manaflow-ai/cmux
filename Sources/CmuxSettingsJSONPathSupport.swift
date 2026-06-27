@@ -173,7 +173,7 @@ enum TerminalSettingsFileMapping {
 }
 
 enum SidebarSettingsFileMapping {
-    private static let sidebar = SidebarCatalogSection()
+    private static let sidebarCatalog = SidebarCatalogSection()
 
     struct BooleanSetting {
         let jsonKey: String
@@ -183,7 +183,7 @@ enum SidebarSettingsFileMapping {
     static let booleanSettings: [BooleanSetting] = [
         .init(
             jsonKey: "hideAllDetails",
-            defaultsKey: sidebar.hideAllDetails.userDefaultsKey
+            defaultsKey: sidebarCatalog.hideAllDetails.userDefaultsKey
         ),
         .init(
             jsonKey: "wrapWorkspaceTitles",
@@ -191,19 +191,19 @@ enum SidebarSettingsFileMapping {
         ),
         .init(
             jsonKey: "showWorkspaceDescription",
-            defaultsKey: sidebar.showWorkspaceDescription.userDefaultsKey
+            defaultsKey: sidebarCatalog.showWorkspaceDescription.userDefaultsKey
         ),
         .init(
             jsonKey: "stackBranchDirectory",
-            defaultsKey: sidebar.stackBranchDirectory.userDefaultsKey
+            defaultsKey: sidebarCatalog.stackBranchDirectory.userDefaultsKey
         ),
         .init(
             jsonKey: "pathLastSegmentOnly",
-            defaultsKey: sidebar.pathLastSegmentOnly.userDefaultsKey
+            defaultsKey: sidebarCatalog.pathLastSegmentOnly.userDefaultsKey
         ),
         .init(
             jsonKey: "showNotificationMessage",
-            defaultsKey: sidebar.showNotificationMessage.userDefaultsKey
+            defaultsKey: sidebarCatalog.showNotificationMessage.userDefaultsKey
         ),
         .init(
             jsonKey: "showBranchDirectory",
@@ -219,7 +219,7 @@ enum SidebarSettingsFileMapping {
         ),
         .init(
             jsonKey: "makePullRequestsClickable",
-            defaultsKey: sidebar.makePullRequestsClickable.userDefaultsKey
+            defaultsKey: sidebarCatalog.makePullRequestsClickable.userDefaultsKey
         ),
         .init(
             jsonKey: "openPullRequestLinksInCmuxBrowser",
@@ -239,6 +239,26 @@ enum SidebarSettingsFileMapping {
         .init(
             jsonKey: "showCustomMetadata",
             defaultsKey: SidebarWorkspaceDetailDefaults.showCustomMetadataKey
+        ),
+    ]
+
+    static let stringEnumSettings: [(
+        jsonKey: String,
+        defaultsKey: String,
+        acceptedValues: Set<String>,
+        invalidPath: String
+    )] = [
+        (
+            jsonKey: "workspaceStatusStyle",
+            defaultsKey: sidebarCatalog.workspaceStatusStyle.userDefaultsKey,
+            acceptedValues: Set(SidebarWorkspaceStatusStyle.allCases.map(\.rawValue)),
+            invalidPath: "sidebar.workspaceStatusStyle"
+        ),
+        (
+            jsonKey: "scrollEdgeFade",
+            defaultsKey: sidebarCatalog.scrollEdgeFade.userDefaultsKey,
+            acceptedValues: Set(SidebarScrollEdgeFadeStyle.allCases.map(\.rawValue)),
+            invalidPath: "sidebar.scrollEdgeFade"
         ),
     ]
 
@@ -369,6 +389,8 @@ extension CmuxSettingsFileStore {
         "sidebar.hideAllDetails",
         "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",
+        "sidebar.workspaceStatusStyle",
+        "sidebar.scrollEdgeFade",
         "sidebar.branchLayout",
         "sidebar.stackBranchDirectory",
         "sidebar.pathLastSegmentOnly",

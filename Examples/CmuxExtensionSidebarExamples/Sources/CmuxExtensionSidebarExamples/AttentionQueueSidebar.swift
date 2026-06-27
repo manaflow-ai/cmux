@@ -30,7 +30,7 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
                 projectRootPath: nil,
                 workspaces: active
             )
-            .render(subtitle: rowSubtitle),
+            .render(subtitle: rowSubtitle, subtitleRole: rowSubtitleRole),
             ExampleSidebarSection(
                 id: "pinned",
                 title: localized("example.sidebar.group.pinned", "Pinned"),
@@ -38,7 +38,7 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
                 projectRootPath: nil,
                 workspaces: pinned
             )
-            .render(subtitle: rowSubtitle),
+            .render(subtitle: rowSubtitle, subtitleRole: rowSubtitleRole),
             ExampleSidebarSection(
                 id: "attention",
                 title: localized("example.sidebar.group.needsAttention", "Needs Attention"),
@@ -46,7 +46,7 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
                 projectRootPath: nil,
                 workspaces: attention
             )
-            .render(subtitle: rowSubtitle),
+            .render(subtitle: rowSubtitle, subtitleRole: rowSubtitleRole),
             ExampleSidebarSection(
                 id: "quiet",
                 title: localized("example.sidebar.group.quiet", "Quiet"),
@@ -54,7 +54,7 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
                 projectRootPath: nil,
                 workspaces: quiet
             )
-            .render(subtitle: rowSubtitle),
+            .render(subtitle: rowSubtitle, subtitleRole: rowSubtitleRole),
         ]
 
         return renderModel(providerId: descriptor.id, snapshot: snapshot, sections: sections)
@@ -63,6 +63,7 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
     private func needsAttention(_ workspace: CmuxSidebarProviderWorkspace) -> Bool {
         workspace.unreadCount > 0
             || trimmed(workspace.latestNotificationText) != nil
+            || workspace.agentStatus == .needsInput
             || (hasRemoteTarget(workspace) && (
                 workspace.remoteConnectionState == "connecting"
                     || workspace.remoteConnectionState == "reconnecting"
@@ -72,7 +73,16 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
 
     private func rowSubtitle(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? {
         if let notification = trimmed(workspace.latestNotificationText) {
+            if workspace.agentStatus == .needsInput,
+               let statusText = trimmed(workspace.agentStatusText),
+               notification == statusText {
+                return .plain(statusText)
+            }
             return .plain(notification)
+        }
+        if workspace.agentStatus == .needsInput,
+           let statusText = trimmed(workspace.agentStatusText) {
+            return .plain(statusText)
         }
         if hasRemoteTarget(workspace),
            let remoteState = trimmed(workspace.remoteConnectionState),
@@ -80,6 +90,18 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
             return .plain(remoteState)
         }
         return trimmed(workspace.customDescription).map(CmuxSidebarProviderText.plain)
+    }
+
+    private func rowSubtitleRole(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderRowSubtitleRole? {
+        guard workspace.agentStatus == .needsInput,
+              let statusText = trimmed(workspace.agentStatusText) else {
+            return nil
+        }
+        if let notification = trimmed(workspace.latestNotificationText),
+           notification != statusText {
+            return nil
+        }
+        return .agentStatus
     }
 
     private func hasRemoteTarget(_ workspace: CmuxSidebarProviderWorkspace) -> Bool {

@@ -12,6 +12,8 @@ import Testing
 struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
     private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+    private let sidebarWorkspaceStatusStyleKey = "sidebarWorkspaceStatusStyle"
+    private let sidebarScrollEdgeFadeKey = "sidebarScrollEdgeFade"
 
     @Test
     func settingsFileStoreAppliesShowModifierHoldHintsSetting() throws {
@@ -41,6 +43,41 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
             #expect(defaults.object(forKey: key) as? Bool == false)
             #expect(!ShortcutHintDebugSettings(defaults: defaults).modifierHoldHintsEnabled)
             #expect(store.override(for: .openBrowser) == StoredShortcut(key: "3", command: true, shift: false, option: false, control: false))
+        }
+    }
+
+    @Test
+    func settingsFileStoreAppliesSidebarStatusAndScrimSettings() throws {
+        let defaults = UserDefaults.standard
+        let managedKeys = [
+            sidebarWorkspaceStatusStyleKey,
+            sidebarScrollEdgeFadeKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]
+        try preservingDefaults(keys: managedKeys) {
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "sidebar": {
+                "workspaceStatusStyle": "dot",
+                "scrollEdgeFade": "off"
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.string(forKey: sidebarWorkspaceStatusStyleKey) == "dot")
+            #expect(defaults.string(forKey: sidebarScrollEdgeFadeKey) == "off")
         }
     }
 

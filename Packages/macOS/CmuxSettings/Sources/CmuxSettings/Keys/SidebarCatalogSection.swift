@@ -21,6 +21,20 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowWorkspaceDescription"
     )
 
+    /// Stores how agent status subtitles are presented in workspace rows.
+    public let workspaceStatusStyle = DefaultsKey<SidebarWorkspaceStatusStyle>(
+        id: "sidebar.workspaceStatusStyle",
+        defaultValue: .sentence,
+        userDefaultsKey: "sidebarWorkspaceStatusStyle"
+    )
+
+    /// Stores how strongly the sidebar workspace list fades at scroll edges.
+    public let scrollEdgeFade = DefaultsKey<SidebarScrollEdgeFadeStyle>(
+        id: "sidebar.scrollEdgeFade",
+        defaultValue: .full,
+        userDefaultsKey: "sidebarScrollEdgeFade"
+    )
+
     /// Bool-backed to match the legacy in-app store. The on-disk key
     /// `sidebarBranchVerticalLayout` is written as a Bool by every
     /// shipped cmux build; using an enum here would silently revert
