@@ -1688,7 +1688,26 @@ extension CmuxSettings.StoredShortcut {
     /// needs the package type. Remove once the flat->stroke consolidation deletes
     /// the duplicate app type.
     init(_ appShortcut: StoredShortcut) {
-        self.init(first: appShortcut.firstStroke, second: appShortcut.secondStroke)
+        self.init(
+            first: CmuxSettings.ShortcutStroke(
+                key: appShortcut.key,
+                command: appShortcut.command,
+                shift: appShortcut.shift,
+                option: appShortcut.option,
+                control: appShortcut.control,
+                keyCode: appShortcut.keyCode
+            ),
+            second: appShortcut.chordKey.map { chordKey in
+                CmuxSettings.ShortcutStroke(
+                    key: chordKey,
+                    command: appShortcut.chordCommand,
+                    shift: appShortcut.chordShift,
+                    option: appShortcut.chordOption,
+                    control: appShortcut.chordControl,
+                    keyCode: appShortcut.chordKeyCode
+                )
+            }
+        )
     }
 }
 
