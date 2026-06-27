@@ -4,6 +4,7 @@ import WebKit
 
 @MainActor final class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
+    private var shouldPrintAfterCurrentNavigationFinishes = false
     var didStartProvisionalNavigation: ((WKWebView) -> Void)?
     var didCommit: ((WKWebView) -> Void)?
     var didFinish: ((WKWebView) -> Void)?
@@ -28,6 +29,7 @@ import WebKit
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         lastAttemptedURL = lastAttemptedURL ?? webView.url
+        shouldPrintAfterCurrentNavigationFinishes = false
         didStartProvisionalNavigation?(webView)
     }
 
@@ -37,6 +39,10 @@ import WebKit
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         didFinish?(webView)
+        if shouldPrintAfterCurrentNavigationFinishes {
+            shouldPrintAfterCurrentNavigationFinishes = false
+            webView.cmuxRunPrintOperation()
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -222,7 +228,10 @@ import WebKit
             buttonNumber: navigationAction.buttonNumber,
             hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
         )
-        subframeDownloadIntents.updateIfNeeded(navigationAction)
+        subframeDownloadIntents.updateIfNeeded(
+            navigationAction,
+            hasUserActivation: browserNavigationHasSimpleUserActivation()
+        )
 #if DEBUG
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
@@ -357,8 +366,23 @@ import WebKit
 
         let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?
             .value(forHTTPHeaderField: "Content-Disposition")
+        let filenameResolver = BrowserDownloadFilenameResolver()
+        if filenameResolver.shouldPrintPDFAfterLoad(
+            mimeType: mime,
+            responseURL: navigationResponse.response.url,
+            isForMainFrame: navigationResponse.isForMainFrame
+        ) {
+            shouldPrintAfterCurrentNavigationFinishes = true
+        }
+        let isUserActivatedPreviouslyRenderedSubframePDF = subframeDownloadIntents
+            .consumeUserActivatedPreviouslyRenderedSubframePDF(
+                responseURL: navigationResponse.response.url,
+                mimeType: mime,
+                isForMainFrame: navigationResponse.isForMainFrame
+            )
         let allowsSubframeDownload = navigationResponse.isForMainFrame
             || subframeDownloadIntents.consume(for: navigationResponse.response.url)
+            || isUserActivatedPreviouslyRenderedSubframePDF
         if !navigationResponse.isForMainFrame,
            allowsSubframeDownload,
            let url = navigationResponse.response.url,
@@ -369,12 +393,13 @@ import WebKit
             decisionHandler(.cancel)
             return
         }
-        if let reason = BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
+        if let reason = filenameResolver.navigationResponseDownloadReason(
             mimeType: mime,
             canShowMIMEType: canShow,
             contentDisposition: contentDisposition,
             isForMainFrame: navigationResponse.isForMainFrame,
-            allowsSubframeDownload: allowsSubframeDownload
+            allowsSubframeDownload: allowsSubframeDownload,
+            isUserActivatedPreviouslyRenderedSubframePDF: isUserActivatedPreviouslyRenderedSubframePDF
         ) {
             #if DEBUG
             cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime) mainFrame=\(navigationResponse.isForMainFrame ? 1 : 0)")
@@ -383,6 +408,11 @@ import WebKit
             return
         }
 
+        subframeDownloadIntents.markRenderedSubframePDFIfNeeded(
+            responseURL: navigationResponse.response.url,
+            mimeType: mime,
+            isForMainFrame: navigationResponse.isForMainFrame
+        )
         decisionHandler(.allow)
     }
 
@@ -404,5 +434,21 @@ import WebKit
         #endif
         NSLog("BrowserPanel download didBecome from navigationResponse")
         download.delegate = downloadDelegate
+    }
+}
+
+extension WKWebView {
+    @MainActor
+    func cmuxRunPrintOperation() {
+        guard #available(macOS 11.0, *) else { return }
+        let printInfo = (NSPrintInfo.shared.copy() as? NSPrintInfo) ?? NSPrintInfo()
+        let operation = printOperation(with: printInfo)
+        operation.showsPrintPanel = true
+        operation.showsProgressPanel = true
+        if let window {
+            operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+        } else {
+            operation.run()
+        }
     }
 }

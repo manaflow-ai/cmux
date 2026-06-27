@@ -25,8 +25,14 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         canShowMIMEType: Bool,
         contentDisposition: String?,
         isForMainFrame: Bool = true,
-        allowsSubframeDownload: Bool = false
+        allowsSubframeDownload: Bool = false,
+        isUserActivatedPreviouslyRenderedSubframePDF: Bool = false
     ) -> String? {
+        if !isForMainFrame,
+           isUserActivatedPreviouslyRenderedSubframePDF,
+           isPDFMIMEType(mimeType) {
+            return "subframePDFUserAction"
+        }
         let canUseExplicitDownloadSignals = isForMainFrame || allowsSubframeDownload
         if canUseExplicitDownloadSignals,
            shouldForceDownload(mimeType: nil, contentDisposition: contentDisposition) {
@@ -38,6 +44,17 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         }
         guard isForMainFrame else { return nil }
         return canShowMIMEType ? nil : "cannotShowMIME"
+    }
+
+    func shouldPrintPDFAfterLoad(mimeType: String?, responseURL: URL?, isForMainFrame: Bool) -> Bool {
+        guard isForMainFrame, isPDFMIMEType(mimeType) else { return false }
+        guard let components = responseURL.flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else {
+            return false
+        }
+        return components.queryItems?.contains {
+            $0.name.caseInsensitiveCompare("print") == .orderedSame &&
+                (($0.value ?? "").caseInsensitiveCompare("true") == .orderedSame || $0.value == "1")
+        } == true
     }
 
     func httpStatusDecision(for response: URLResponse?) -> BrowserDownloadHTTPStatusDecision {
@@ -227,6 +244,10 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         }
         let normalized = rawType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return normalized.isEmpty ? nil : normalized
+    }
+
+    private func isPDFMIMEType(_ mimeType: String?) -> Bool {
+        Self.normalizedMIMEType(mimeType) == "application/pdf"
     }
 
     private static func contentDispositionRequestsAttachment(_ contentDisposition: String?) -> Bool {

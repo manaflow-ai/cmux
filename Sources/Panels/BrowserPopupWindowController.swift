@@ -4,63 +4,6 @@ import CmuxFoundation
 import ObjectiveC
 import WebKit
 
-func browserPopupContentRect(
-    requestedWidth: CGFloat?,
-    requestedHeight: CGFloat?,
-    requestedX: CGFloat?,
-    requestedTopY: CGFloat?,
-    visibleFrame: NSRect,
-    defaultWidth: CGFloat = 800,
-    defaultHeight: CGFloat = 600,
-    minWidth: CGFloat = 200,
-    minHeight: CGFloat = 150
-) -> NSRect {
-    let clampedWidth = min(max(requestedWidth ?? defaultWidth, minWidth), visibleFrame.width)
-    let clampedHeight = min(max(requestedHeight ?? defaultHeight, minHeight), visibleFrame.height)
-
-    let x: CGFloat
-    let y: CGFloat
-    if let requestedX, let requestedTopY {
-        x = max(visibleFrame.minX, min(requestedX, visibleFrame.maxX - clampedWidth))
-
-        // Web content expresses popup Y as distance from the screen's top edge,
-        // while AppKit window origins are bottom-up.
-        let appKitY = visibleFrame.maxY - requestedTopY - clampedHeight
-        y = max(visibleFrame.minY, min(appKitY, visibleFrame.maxY - clampedHeight))
-    } else {
-        x = visibleFrame.midX - clampedWidth / 2
-        y = visibleFrame.midY - clampedHeight / 2
-    }
-
-    return NSRect(x: x, y: y, width: clampedWidth, height: clampedHeight)
-}
-
-private func browserPopupPanelShouldSuppressStaleCloseTabShortcut(_ event: NSEvent) -> Bool {
-    let closeTabShortcut = KeyboardShortcutSettings.shortcut(for: .closeTab)
-    guard closeTabShortcut.isUnbound || closeTabShortcut != KeyboardShortcutSettings.Action.closeTab.defaultShortcut else {
-        return false
-    }
-    return KeyboardShortcutSettings.Action.closeTab.defaultShortcut.matches(event: event)
-}
-
-/// NSPanel subclass that intercepts the configured Close Tab shortcut before the swizzled
-/// `cmux_performKeyEquivalent` can dispatch it to the main menu's
-/// "Close Tab" action (which would close the parent browser tab).
-final class BrowserPopupPanel: NSPanel {
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if AppDelegate.shared?.handleBrowserPopupCloseShortcutKeyEquivalent(event: event, popupWindow: self) == true {
-            return true
-        }
-        if browserPopupPanelShouldSuppressStaleCloseTabShortcut(event) {
-            #if DEBUG
-            cmuxDebugLog("popup.panel.closeShortcut suppressStaleDefault")
-            #endif
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
-}
-
 /// Hosts a popup `CmuxWebView` in a standalone `NSPanel`, created when a page
 /// calls `window.open()` (scripted new-window requests).
 ///
@@ -607,6 +550,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
     var downloadDelegate: WKDownloadDelegate?
     private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
+    private var shouldPrintAfterCurrentNavigationFinishes = false
 
     func cancelPendingHTTPBasicAuthPrompts() {
         basicAuthPromptCoordinator.cancelAll()
@@ -635,7 +579,10 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             decisionHandler(.cancel)
             return
         }
-        subframeDownloadIntents.updateIfNeeded(navigationAction)
+        subframeDownloadIntents.updateIfNeeded(
+            navigationAction,
+            hasUserActivation: browserNavigationHasSimpleUserActivation()
+        )
 
         // Only guard main-frame navigations
         guard navigationAction.targetFrame?.isMainFrame != false else {
@@ -680,8 +627,23 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         }
 
         let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
+        let filenameResolver = BrowserDownloadFilenameResolver()
+        if filenameResolver.shouldPrintPDFAfterLoad(
+            mimeType: navigationResponse.response.mimeType,
+            responseURL: navigationResponse.response.url,
+            isForMainFrame: navigationResponse.isForMainFrame
+        ) {
+            shouldPrintAfterCurrentNavigationFinishes = true
+        }
+        let isUserActivatedPreviouslyRenderedSubframePDF = subframeDownloadIntents
+            .consumeUserActivatedPreviouslyRenderedSubframePDF(
+                responseURL: navigationResponse.response.url,
+                mimeType: navigationResponse.response.mimeType,
+                isForMainFrame: navigationResponse.isForMainFrame
+            )
         let allowsSubframeDownload = navigationResponse.isForMainFrame
             || subframeDownloadIntents.consume(for: navigationResponse.response.url)
+            || isUserActivatedPreviouslyRenderedSubframePDF
         if !navigationResponse.isForMainFrame,
            allowsSubframeDownload,
            let url = navigationResponse.response.url,
@@ -689,18 +651,35 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             decisionHandler(.cancel)
             return
         }
-        if BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
+        if filenameResolver.navigationResponseDownloadReason(
             mimeType: navigationResponse.response.mimeType,
             canShowMIMEType: navigationResponse.canShowMIMEType,
             contentDisposition: contentDisposition,
             isForMainFrame: navigationResponse.isForMainFrame,
-            allowsSubframeDownload: allowsSubframeDownload
+            allowsSubframeDownload: allowsSubframeDownload,
+            isUserActivatedPreviouslyRenderedSubframePDF: isUserActivatedPreviouslyRenderedSubframePDF
         ) != nil {
             decisionHandler(.download)
             return
         }
 
+        subframeDownloadIntents.markRenderedSubframePDFIfNeeded(
+            responseURL: navigationResponse.response.url,
+            mimeType: navigationResponse.response.mimeType,
+            isForMainFrame: navigationResponse.isForMainFrame
+        )
         decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        shouldPrintAfterCurrentNavigationFinishes = false
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if shouldPrintAfterCurrentNavigationFinishes {
+            shouldPrintAfterCurrentNavigationFinishes = false
+            webView.cmuxRunPrintOperation()
+        }
     }
 
     func webView(
