@@ -835,8 +835,8 @@ final class TerminalOutputCollector {
 @Test func expiredLegacyTicketWhileOfflineReportsOfflineNotExpired() async throws {
     // Expiry no longer classifies pairing inputs: a pairing QR never expires
     // (v2 codes carry no expiry, legacy `e=` values are dropped on decode, and
-    // the host authorizes by Stack account, not ticket age), so a legacy
-    // ticket whose `expiresAt` has passed is still a valid pairing input.
+    // QR URLs carry no bearer token), so a legacy ticket whose `expiresAt` has
+    // passed is still a valid pairing input.
     // While the device is offline the preflight must say so and fail fast
     // with no dial — reconnecting and rescanning the same code is expected
     // to work, so "offline" is the honest, actionable message.

@@ -4596,9 +4596,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .noSupportedRoute
         }
         // No connect-time expiry gate: a pairing QR never expires (new QRs
-        // carry no expiry at all), and the host authorizes by Stack account,
-        // not ticket age. Expiry still gates the RPC-minted attach token at
-        // its point of use (`MobileCoreRPCClient.requestDataWithAuth`).
+        // carry no expiry or bearer token at all). Expiry still gates the
+        // RPC-minted attach token at its point of use
+        // (`MobileCoreRPCClient.requestDataWithAuth`).
         activeTicket = ticket
         activeRoute = firstRoute
         connectedHostName = placeholderHostName(for: ticket, firstRoute: firstRoute)

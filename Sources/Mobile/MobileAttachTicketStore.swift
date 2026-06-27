@@ -131,13 +131,12 @@ final class MobileAttachTicketStore {
     private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
         // Preferred form: the minimal v2 pairing-code grammar — bare Tailscale
         // `host:port` routes in the URL query, nothing else. Everything the
-        // older grammars carried has a better channel: the auth token never
-        // authorized anything (the owner's Stack access token is the host's
-        // sole gate, `MobileHostService.authorizationError(for:)`), the
-        // display name and device id arrive post-handshake from
-        // `mobile.host.status`, and a pairing QR never expires. A DEBUG Mac's
-        // dev loopback route is dropped outright (a scanned code must never
-        // point a phone at itself). The much shorter plain-text URL also
+        // older grammars carried has a better channel: bearer auth tokens stay
+        // in the direct RPC payload, the display name and device id arrive
+        // post-handshake from `mobile.host.status`, and a pairing QR never
+        // expires. A DEBUG Mac's dev loopback route is dropped outright (a
+        // scanned code must never point a phone at itself). The much shorter
+        // plain-text URL also
         // drops the QR several versions, so the code scans faster.
         if let pairingURL = CmxPairingQRCode().encode(ticket), let url = URL(string: pairingURL) {
             return url

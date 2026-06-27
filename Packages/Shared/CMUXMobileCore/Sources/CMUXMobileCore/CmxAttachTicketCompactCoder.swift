@@ -12,10 +12,9 @@ import Foundation
 /// expiry. It does keep non-secret pairing context: the Mac account email,
 /// shared pairing compatibility level, and app version/build, so the phone can
 /// fail fast on an account mismatch and warn before continuing across
-/// compatibility skew. A pairing QR never expires;
-/// the owner's Stack access token is the
-/// host's sole authorization gate (`MobileHostService.authorizationError(for:)`),
-/// so ticket age authorizes nothing.
+/// compatibility skew. A pairing QR never expires and carries no bearer token;
+/// token-bearing RPC tickets are delivered through the direct RPC payload, not
+/// through the compact QR URL.
 ///
 /// Compatibility:
 /// - New decoders accept both grammars: ``CmxAttachTicketInput`` routes a
@@ -45,9 +44,9 @@ public struct CmxAttachTicketCompactCoder: Sendable {
     /// Encode a ticket into the compact JSON grammar.
     ///
     /// Any `authToken`, `macDisplayName`, and `expiresAt` on the ticket are
-    /// intentionally not encoded: the token never authorizes anything on the
-    /// host (Stack auth is the sole gate), the name is read post-handshake
-    /// from `mobile.host.status`, and a pairing QR never expires.
+    /// intentionally not encoded: QR/deep-link URLs are not bearer credentials,
+    /// the name is read post-handshake from `mobile.host.status`, and a pairing
+    /// QR never expires.
     public func encode(_ ticket: CmxAttachTicket) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
