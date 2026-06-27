@@ -1,6 +1,6 @@
 import Foundation
 
-struct MobilePairedMacStoreMacRow {
+nonisolated struct MobilePairedMacStoreMacRow {
     let macDeviceID: String
     let ownerKey: String
     let displayName: String?

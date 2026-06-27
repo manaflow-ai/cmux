@@ -53,6 +53,27 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Update routes in the selected team scope without changing active state.
+    public func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        let team = await resolvedTeam(teamID)
+        let scope = try await visibleScope(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: team)
+        try await inner.updateRoutes(
+            macDeviceID: macDeviceID,
+            displayName: displayName,
+            routes: routes,
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID,
+            now: now
+        )
+    }
+
     /// Load paired Macs scoped to the explicit team when present or the
     /// currently-selected team otherwise.
     public func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {

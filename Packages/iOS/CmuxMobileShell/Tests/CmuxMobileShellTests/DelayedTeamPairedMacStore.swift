@@ -79,6 +79,25 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         resumeUpsertWaiters()
     }
 
+    func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        let key = teamID ?? ""
+        guard let index = recordsByTeam[key]?.firstIndex(where: { $0.macDeviceID == macDeviceID }) else {
+            return
+        }
+        recordsByTeam[key]?[index].displayName = displayName
+        recordsByTeam[key]?[index].routes = routes
+        recordsByTeam[key]?[index].lastSeenAt = now
+        upsertCount += 1
+        resumeUpsertWaiters()
+    }
+
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         let key = teamID ?? ""
         markStarted(key)

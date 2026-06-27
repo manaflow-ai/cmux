@@ -85,6 +85,23 @@ actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        guard let index = records.firstIndex(where: {
+            $0.macDeviceID == macDeviceID
+                && isVisibleInLoadScope($0, stackUserID: stackUserID, teamID: teamID)
+        }) else { return }
+        records[index].displayName = displayName
+        records[index].routes = routes
+        records[index].lastSeenAt = now
+    }
+
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         records
             .filter { isVisibleInLoadScope($0, stackUserID: stackUserID, teamID: teamID) }

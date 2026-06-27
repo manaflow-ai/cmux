@@ -62,6 +62,37 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    public func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        if normalizedTeamID(teamID) != nil {
+            let selectedRows = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
+            let targetTeamID = selectedRows.contains { $0.macDeviceID == macDeviceID } ? teamID : nil
+            try await inner.updateRoutes(
+                macDeviceID: macDeviceID,
+                displayName: displayName,
+                routes: routes,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(targetTeamID),
+                now: now
+            )
+            return
+        }
+        try await inner.updateRoutes(
+            macDeviceID: macDeviceID,
+            displayName: displayName,
+            routes: routes,
+            stackUserID: stackUserID,
+            teamID: scopedTeamID(teamID),
+            now: now
+        )
+    }
+
     public func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         var byID: [String: MobilePairedMac] = [:]
         for mac in try await scopedRows(stackUserID: stackUserID, teamID: teamID) {

@@ -132,6 +132,40 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         }
     }
 
+    /// Update routes locally without changing active state, then mirror the row.
+    public func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        let team = await resolvedTeam(teamID)
+        let account: String?
+        if let stackUserID {
+            account = stackUserID
+        } else {
+            account = try? await accountForMac(macDeviceID, teamID: team)
+        }
+        try await inner.updateRoutes(
+            macDeviceID: macDeviceID,
+            displayName: displayName,
+            routes: routes,
+            stackUserID: account,
+            teamID: team,
+            now: now
+        )
+        guard let account, !account.isEmpty else { return }
+        lastSignedInAccount = account
+        await uploadCurrentRecord(
+            macDeviceID: macDeviceID,
+            account: account,
+            teamID: team,
+            includesCustomizations: false
+        )
+    }
+
     /// Persist local customizations, then mirror the complete record to backup.
     public func setCustomization(
         macDeviceID: String,

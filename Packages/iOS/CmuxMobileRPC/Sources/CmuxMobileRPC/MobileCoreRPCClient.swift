@@ -9,6 +9,15 @@ internal import os
 /// All stored properties are immutable `let`s of `Sendable` types (the session
 /// is an actor), so this is genuinely `Sendable` without opting out of checking.
 public final class MobileCoreRPCClient: MobileSyncing, Sendable {
+    private struct AuthenticatedRequest: Sendable {
+        var data: Data
+        var usedAttachToken: Bool
+    }
+
+    private struct AttachTokenAuthorizationFailure: Error {
+        var underlying: MobileShellConnectionError
+    }
+
     private let runtime: any MobileSyncRuntime
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
@@ -103,6 +112,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 deadline: deadline,
                 allowAuthRetry: true
             )
+        } catch let error as AttachTokenAuthorizationFailure {
+            throw error.underlying
         } catch let error as MobileShellConnectionError {
             // The host rejected this request on Stack-auth grounds. Before
             // surfacing it (which drives the re-auth prompt), force exactly one
@@ -172,11 +183,19 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             deadline: deadline
         )
         try Task.checkCancellation()
-        return try await session.send(
-            payload: authenticated,
-            requestID: id,
-            deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
-        )
+        do {
+            return try await session.send(
+                payload: authenticated.data,
+                requestID: id,
+                deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
+            )
+        } catch let error as MobileShellConnectionError {
+            if authenticated.usedAttachToken,
+               case .authorizationFailed = error {
+                throw AttachTokenAuthorizationFailure(underlying: error)
+            }
+            throw error
+        }
     }
 
     private static func requestWithGuaranteedID(
@@ -197,9 +216,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return (id, data)
     }
 
-    private func requestDataWithAuth(_ requestData: Data, deadline: RPCRequestDeadline) async throws -> Data {
+    private func requestDataWithAuth(
+        _ requestData: Data,
+        deadline: RPCRequestDeadline
+    ) async throws -> AuthenticatedRequest {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
-            return requestData
+            return AuthenticatedRequest(data: requestData, usedAttachToken: false)
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
         let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
@@ -262,7 +284,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         if !auth.isEmpty {
             request["auth"] = auth
         }
-        return try JSONSerialization.data(withJSONObject: request)
+        return try AuthenticatedRequest(
+            data: JSONSerialization.data(withJSONObject: request),
+            usedAttachToken: requestHasAttachAuth
+        )
     }
 
     private func stackAccessTokenForStatus(deadline: RPCRequestDeadline) async throws -> String? {

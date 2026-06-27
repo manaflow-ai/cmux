@@ -14,7 +14,7 @@
 7952	Sources/Panels/BrowserPanelView.swift
 7368	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
-6968	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+7014	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6217	cmuxTests/GhosttyConfigTests.swift
 6183	Sources/TabManager.swift
@@ -176,6 +176,7 @@
 588	cmuxTests/CommandPaletteShortcutCustomizationTests.swift
 586	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+PortScan.swift
 586	Sources/JSONCParser.swift
+585	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift
 585	Sources/Cloud/VMClient.swift
 583	cmuxTests/GhosttyTerminalStartupEnvironmentTests.swift
 580	Packages/macOS/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
@@ -190,7 +191,6 @@
 560	cmuxTests/CLISSHPTYResizeInputTests.swift
 558	Packages/macOS/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
 552	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
-551	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift
 549	Sources/Panels/BrowserAutomation.swift
 541	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift
 540	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift

@@ -1482,11 +1482,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let manualRoutes = directRoute.map { [$0] } ?? []
         guard await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: manualRoutes) == .proceed else { return }
         do {
-            let ticket: CmxAttachTicket
-            if let durableTicket {
-                ticket = durableTicket
+            func finishConnect(with ticket: CmxAttachTicket) async throws -> MobilePairingFailureCategory? {
+                try await connect(
+                    ticket: ticket,
+                    allowsStackAuthFallback: true,
+                    pairedMacDeviceID: pairedMacDeviceID
+                )
+            }
+
+            let ticket: CmxAttachTicket = if let durableTicket {
+                durableTicket
             } else {
-                ticket = try await manualHostTicket(
+                try await manualHostTicket(
                     name: trimmedName,
                     host: normalizedHost,
                     port: port,
@@ -1494,8 +1501,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
             }
             guard isCurrentPairingAttempt(attemptID) else { return }
-            let noThrowFailure = try await connect(
-                ticket: ticket, allowsStackAuthFallback: true, pairedMacDeviceID: pairedMacDeviceID)
+            let noThrowFailure: MobilePairingFailureCategory?
+            do {
+                noThrowFailure = try await finishConnect(with: ticket)
+            } catch {
+                guard durableTicket != nil,
+                      Self.shouldRetryDurableAttachTicket(after: error) else {
+                    throw error
+                }
+                mobileShellLog.info("durable attach ticket rejected; minting a fresh ticket")
+                let refreshedTicket = try await manualHostTicket(
+                    name: trimmedName,
+                    host: normalizedHost,
+                    port: port,
+                    attemptStartedAt: pairingAttemptStartedAt
+                )
+                guard isCurrentPairingAttempt(attemptID) else { return }
+                noThrowFailure = try await finishConnect(with: refreshedTicket)
+            }
             guard isCurrentPairingAttempt(attemptID) else { return }
             if connectionState == .connected {
                 recordPairingSucceeded()
@@ -1523,6 +1546,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
+        }
+    }
+
+    private static func shouldRetryDurableAttachTicket(after error: any Error) -> Bool {
+        guard let connectionError = error as? MobileShellConnectionError else {
+            return false
+        }
+        switch connectionError {
+        case .authorizationFailed:
+            return true
+        case let .rpcError(code, message):
+            let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if let normalizedCode,
+               ["unauthorized", "invalid_token", "token_expired", "expired_token", "auth_required"].contains(normalizedCode) {
+                return true
+            }
+            let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalizedMessage.contains("unauthorized")
+                || normalizedMessage.contains("invalid token")
+                || normalizedMessage.contains("expired token")
+                || normalizedMessage.contains("token expired")
+        case .accountMismatch, .attachTicketExpired, .insecureManualRoute, .connectionClosed, .invalidResponse,
+             .requestTimedOut:
+            return false
         }
     }
 
@@ -1744,8 +1791,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // The network await above suspended; the user may have signed out,
         // switched accounts, forgotten this Mac, or switched the active Mac
         // meanwhile. Re-evaluate against the *current* store/identity before
-        // the `markActive: true` upsert, so a stale refresh can never
-        // resurrect or reactivate a pairing the user removed. Pass the
+        // the route-only update, so a stale refresh can never resurrect a
+        // pairing the user removed. Pass the
         // captured account/team scope through every store call so a team
         // switch cannot make this old-team refresh write into the new team.
         guard await isScopeCurrent(scope) else { return }
@@ -1771,11 +1818,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             targetMacID: macDeviceID
         ) else { return }
         do {
-            try await pairedMacStore.upsert(
+            try await pairedMacStore.updateRoutes(
                 macDeviceID: macDeviceID,
                 displayName: displayName,
                 routes: updated,
-                markActive: true,
                 stackUserID: scope.userID,
                 teamID: scope.teamID,
                 now: Date()

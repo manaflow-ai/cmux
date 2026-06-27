@@ -103,24 +103,48 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 lastSeenAt: now,
                 isActive: markActive
             )
-            try exec(
-                "DELETE FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",
-                binding: [.text(macDeviceID), .text(ownerKey)]
-            )
-            for route in routes {
-                let encoded = try Self.encodeRoute(route)
-                try exec("""
-                    INSERT INTO mac_routes (mac_device_id, owner_key, route_id, kind, endpoint_json, priority)
-                    VALUES (?, ?, ?, ?, ?, ?);
-                """, binding: [
-                    .text(macDeviceID),
-                    .text(ownerKey),
-                    .text(route.id),
-                    .text(route.kind.rawValue),
-                    .text(encoded),
-                    .int(Int64(route.priority)),
-                ])
+            try replaceRoutes(macDeviceID: macDeviceID, ownerKey: ownerKey, routes: routes)
+        }
+    }
+
+    /// Update one paired Mac's routes without changing its current active flag.
+    public func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stackUserID: String?,
+        teamID: String?,
+        now: Date = Date()
+    ) throws {
+        try ensureReady()
+        try transaction {
+            let ownerKey = "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
+            if try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey) == nil,
+               teamID != nil,
+               try fetchMacRow(macDeviceID: macDeviceID, ownerKey: "\(stackUserID ?? "")\u{1F}") != nil {
+                try moveMacRowScope(
+                    macDeviceID: macDeviceID,
+                    fromOwnerKey: "\(stackUserID ?? "")\u{1F}",
+                    toOwnerKey: ownerKey,
+                    teamID: teamID
+                )
             }
+            guard let existing = try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey) else {
+                return
+            }
+            try upsertMacRow(
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey,
+                displayName: displayName,
+                stackUserID: stackUserID,
+                teamID: teamID,
+                attachToken: nil,
+                attachTokenExpiresAt: nil,
+                createdAt: existing.createdAt,
+                lastSeenAt: now,
+                isActive: existing.isActive
+            )
+            try replaceRoutes(macDeviceID: macDeviceID, ownerKey: ownerKey, routes: routes)
         }
     }
 

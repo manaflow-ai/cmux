@@ -54,6 +54,24 @@ actor GatedUpsertStore: MobilePairedMacStoring {
             markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
     }
 
+    func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        try await inner.updateRoutes(
+            macDeviceID: macDeviceID,
+            displayName: displayName,
+            routes: routes,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            now: now
+        )
+    }
+
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
     }

@@ -35,6 +35,23 @@ public protocol MobilePairedMacStoring: Sendable {
         now: Date
     ) async throws
 
+    /// Update one paired Mac's advertised routes without changing active state.
+    /// - Parameters:
+    ///   - macDeviceID: Stable identifier of the Mac.
+    ///   - displayName: Optional human-readable Mac name.
+    ///   - routes: Fresh attach routes advertised for the Mac.
+    ///   - stackUserID: Owning Stack Auth user, if any.
+    ///   - teamID: Stack team this pairing belongs to, if any.
+    ///   - now: Timestamp used for `lastSeenAt`.
+    func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws
+
     /// Load all paired Macs, optionally scoped to a Stack user and team.
     /// - Parameters:
     ///   - stackUserID: When set, returns only Macs owned by that user.
