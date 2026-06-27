@@ -2,7 +2,6 @@
 import CmuxMobileSupport
 import CmuxMobileTerminal
 import CmuxMobileTerminalKit
-import Foundation
 import SwiftUI
 
 /// Editor for the terminal input-accessory shortcut bar: toggle which buttons
@@ -28,7 +27,7 @@ struct TerminalShortcutsSettingsView: View {
     }
 
     var body: some View {
-        let rowActions = ShortcutRowActions(
+        let rowActions = TerminalShortcutRowActions(
             setEnabled: { id, isEnabled in configuration.setEnabled(id, isEnabled) },
             removeCustomAction: { id in configuration.removeCustomAction(id: id) },
             editCustomAction: { action in editingAction = action }
@@ -112,8 +111,8 @@ struct TerminalShortcutsSettingsView: View {
 
     @ViewBuilder
     private func rowView(
-        for row: ShortcutRowSnapshot,
-        actions: ShortcutRowActions
+        for row: TerminalShortcutRowSnapshot,
+        actions: TerminalShortcutRowActions
     ) -> some View {
         Toggle(isOn: Binding(
             get: { row.isEnabled },
@@ -150,9 +149,9 @@ struct TerminalShortcutsSettingsView: View {
         configuration.displayItems.filter(scope.includes)
     }
 
-    private var displayedRows: [ShortcutRowSnapshot] {
+    private var displayedRows: [TerminalShortcutRowSnapshot] {
         displayedItems.map { item in
-            ShortcutRowSnapshot(item: item, isEnabled: configuration.isEnabled(item.id))
+            TerminalShortcutRowSnapshot(item: item, isEnabled: configuration.isEnabled(item.id))
         }
     }
 
@@ -173,38 +172,5 @@ struct TerminalShortcutsSettingsView: View {
         }
         configuration.reorderItems(reorderedFullIDs)
     }
-}
-
-private struct ShortcutRowSnapshot: Identifiable {
-    let item: ResolvedToolbarItem
-    let isEnabled: Bool
-
-    var id: ToolbarItemID {
-        item.id
-    }
-
-    var isCustom: Bool {
-        item.isCustom
-    }
-
-    var customAction: CustomToolbarAction? {
-        item.customAction
-    }
-
-    var settingsDisplayName: String {
-        item.settingsDisplayName
-    }
-
-    var symbolName: String {
-        guard let customAction else { return "character.cursor.ibeam" }
-        if customAction.isMenu { return "ellipsis.circle" }
-        return "character.cursor.ibeam"
-    }
-}
-
-private struct ShortcutRowActions {
-    let setEnabled: (ToolbarItemID, Bool) -> Void
-    let removeCustomAction: (UUID) -> Void
-    let editCustomAction: (CustomToolbarAction) -> Void
 }
 #endif
