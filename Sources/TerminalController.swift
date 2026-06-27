@@ -3419,46 +3419,53 @@ class TerminalController: MobileViewportSurfaceLimiting {
     ) -> ControlBrowserFindResolution {
         switch request {
         case let .role(params, role, name, exact):
-            return v2ControlFindWithScript(
+            return browserAutomation.controlFindWithScript(
                 foundationParams(params),
-                finderBody: v2BrowserControl.findRoleFinderBody(role: role, name: name, exact: exact)
+                finderBody: v2BrowserControl.findRoleFinderBody(role: role, name: name, exact: exact),
+                host: self
             )
         case let .text(params, text, exact):
-            return v2ControlFindWithScript(
+            return browserAutomation.controlFindWithScript(
                 foundationParams(params),
-                finderBody: v2BrowserControl.findTextFinderBody(text: text, exact: exact)
+                finderBody: v2BrowserControl.findTextFinderBody(text: text, exact: exact),
+                host: self
             )
         case let .label(params, label, exact):
-            return v2ControlFindWithScript(
+            return browserAutomation.controlFindWithScript(
                 foundationParams(params),
-                finderBody: v2BrowserControl.findLabelFinderBody(label: label, exact: exact)
+                finderBody: v2BrowserControl.findLabelFinderBody(label: label, exact: exact),
+                host: self
             )
         case let .placeholder(params, placeholder, exact):
-            return v2ControlFindWithScript(
+            return browserAutomation.controlFindWithScript(
                 foundationParams(params),
-                finderBody: v2BrowserControl.findPlaceholderFinderBody(placeholder: placeholder, exact: exact)
+                finderBody: v2BrowserControl.findPlaceholderFinderBody(placeholder: placeholder, exact: exact),
+                host: self
             )
         case let .alt(params, alt, exact):
-            return v2ControlFindWithScript(
+            return browserAutomation.controlFindWithScript(
                 foundationParams(params),
-                finderBody: v2BrowserControl.findAltFinderBody(alt: alt, exact: exact)
+                finderBody: v2BrowserControl.findAltFinderBody(alt: alt, exact: exact),
+                host: self
             )
         case let .title(params, title, exact):
-            return v2ControlFindWithScript(
+            return browserAutomation.controlFindWithScript(
                 foundationParams(params),
-                finderBody: v2BrowserControl.findTitleFinderBody(title: title, exact: exact)
+                finderBody: v2BrowserControl.findTitleFinderBody(title: title, exact: exact),
+                host: self
             )
         case let .testID(params, testID):
-            return v2ControlFindWithScript(
+            return browserAutomation.controlFindWithScript(
                 foundationParams(params),
-                finderBody: v2BrowserControl.findTestIdFinderBody(testId: testID)
+                finderBody: v2BrowserControl.findTestIdFinderBody(testId: testID),
+                host: self
             )
         case let .first(params, rawSelector):
-            return v2ControlFindFirst(foundationParams(params), rawSelector: rawSelector)
+            return browserAutomation.controlFindFirst(foundationParams(params), rawSelector: rawSelector, host: self)
         case let .last(params, rawSelector):
-            return v2ControlFindLast(foundationParams(params), rawSelector: rawSelector)
+            return browserAutomation.controlFindLast(foundationParams(params), rawSelector: rawSelector, host: self)
         case let .nth(params, rawSelector, index):
-            return v2ControlFindNth(foundationParams(params), rawSelector: rawSelector, index: index)
+            return browserAutomation.controlFindNth(foundationParams(params), rawSelector: rawSelector, index: index, host: self)
         }
     }
 
@@ -3525,182 +3532,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// carries the routing selectors verbatim.
     private nonisolated func foundationParams(_ params: [String: JSONValue]) -> [String: Any] {
         params.mapValues { $0.foundationObject }
-    }
-
-    /// The byte-faithful `v2BrowserFindWithScript` body, returning the typed
-    /// resolution instead of a wire payload.
-    private nonisolated func v2ControlFindWithScript(
-        _ params: [String: Any],
-        finderBody: String
-    ) -> ControlBrowserFindResolution {
-        v2ControlResolveOnPanel(params) { ctx in
-            let script = v2BrowserControl.findScript(finderBody: finderBody)
-            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: script) {
-            case .failure(let message):
-                return .jsError(message: message)
-            case .success(let value):
-                guard let dict = value as? [String: Any],
-                      let ok = dict["ok"] as? Bool,
-                      ok,
-                      let selector = dict["selector"] as? String,
-                      !selector.isEmpty else {
-                    return .notFound(data: nil)
-                }
-                return v2ControlFound(
-                    ctx,
-                    selector: selector,
-                    tag: dict["tag"] as? String,
-                    text: (dict["text"] as? String).map { .string($0) } ?? .omitted,
-                    index: nil
-                )
-            }
-        }
-    }
-
-    /// The byte-faithful `v2BrowserFindFirst` body.
-    private nonisolated func v2ControlFindFirst(
-        _ params: [String: Any],
-        rawSelector: String
-    ) -> ControlBrowserFindResolution {
-        v2ControlResolveSelectorOnPanel(params, rawSelector: rawSelector) { ctx, selector in
-            let script = v2BrowserControl.findFirstScript(selector: selector)
-            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: script) {
-            case .failure(let message):
-                return .jsError(message: message)
-            case .success(let value):
-                guard let dict = value as? [String: Any],
-                      let ok = dict["ok"] as? Bool,
-                      ok else {
-                    return .notFound(data: ["selector": .string(selector)])
-                }
-                return v2ControlFound(
-                    ctx,
-                    selector: selector,
-                    tag: nil,
-                    text: .orNull(dict["text"] as? String),
-                    index: nil
-                )
-            }
-        }
-    }
-
-    /// The byte-faithful `v2BrowserFindLast` body.
-    private nonisolated func v2ControlFindLast(
-        _ params: [String: Any],
-        rawSelector: String
-    ) -> ControlBrowserFindResolution {
-        v2ControlResolveSelectorOnPanel(params, rawSelector: rawSelector) { ctx, selector in
-            let script = v2BrowserControl.findLastScript(selector: selector)
-            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: script) {
-            case .failure(let message):
-                return .jsError(message: message)
-            case .success(let value):
-                guard let dict = value as? [String: Any],
-                      let ok = dict["ok"] as? Bool,
-                      ok,
-                      let finalSelector = dict["selector"] as? String,
-                      !finalSelector.isEmpty else {
-                    return .notFound(data: ["selector": .string(selector)])
-                }
-                return v2ControlFound(
-                    ctx,
-                    selector: finalSelector,
-                    tag: nil,
-                    text: .orNull(dict["text"] as? String),
-                    index: nil
-                )
-            }
-        }
-    }
-
-    /// The byte-faithful `v2BrowserFindNth` body.
-    private nonisolated func v2ControlFindNth(
-        _ params: [String: Any],
-        rawSelector: String,
-        index: Int
-    ) -> ControlBrowserFindResolution {
-        v2ControlResolveSelectorOnPanel(params, rawSelector: rawSelector) { ctx, selector in
-            let script = v2BrowserControl.findNthScript(selector: selector, index: index)
-            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: script) {
-            case .failure(let message):
-                return .jsError(message: message)
-            case .success(let value):
-                guard let dict = value as? [String: Any],
-                      let ok = dict["ok"] as? Bool,
-                      ok,
-                      let finalSelector = dict["selector"] as? String,
-                      !finalSelector.isEmpty else {
-                    return .notFound(data: [
-                        "selector": .string(selector),
-                        "index": .int(Int64(index))
-                    ])
-                }
-                return v2ControlFound(
-                    ctx,
-                    selector: finalSelector,
-                    tag: nil,
-                    text: .orNull(dict["text"] as? String),
-                    index: .orNull((dict["index"] as? NSNumber)?.intValue ?? dict["index"] as? Int)
-                )
-            }
-        }
-    }
-
-    /// Resolves the browser panel (the shared `v2BrowserWithPanelContext` head)
-    /// and runs `body` on it, translating a panel-head failure into
-    /// `.panelUnavailable`. `body` returns the typed resolution directly.
-    private nonisolated func v2ControlResolveOnPanel(
-        _ params: [String: Any],
-        _ body: (_ ctx: V2BrowserPanelContext) -> ControlBrowserFindResolution
-    ) -> ControlBrowserFindResolution {
-        var resolution: ControlBrowserFindResolution = .notFound(data: nil)
-        let panelResult = v2BrowserWithPanelContext(params: params) { ctx in
-            resolution = body(ctx)
-            return .ok(NSNull())
-        }
-        if case let .err(code, message, data) = panelResult {
-            return .panelUnavailable(.err(code: code, message: message, data: data.flatMap { JSONValue(foundationObject: $0) }))
-        }
-        return resolution
-    }
-
-    /// `v2ControlResolveOnPanel` plus the shared `v2BrowserResolveSelector` step
-    /// (the first/last/nth "Element reference not found" branch).
-    private nonisolated func v2ControlResolveSelectorOnPanel(
-        _ params: [String: Any],
-        rawSelector: String,
-        _ body: (_ ctx: V2BrowserPanelContext, _ selector: String) -> ControlBrowserFindResolution
-    ) -> ControlBrowserFindResolution {
-        v2ControlResolveOnPanel(params) { ctx in
-            guard let selector = browserAutomation.resolveSelector(rawSelector, surfaceId: ctx.surfaceId) else {
-                return .selectorReferenceNotFound(rawSelector: rawSelector)
-            }
-            return body(ctx, selector)
-        }
-    }
-
-    /// Builds a `.found` resolution from a resolved panel context, allocating the
-    /// element ref against `selector` and computing the workspace/surface refs
-    /// (the shared tail of every find body).
-    private nonisolated func v2ControlFound(
-        _ ctx: V2BrowserPanelContext,
-        selector: String,
-        tag: String?,
-        text: ControlBrowserFindResultText,
-        index: ControlBrowserFindResultIndex?
-    ) -> ControlBrowserFindResolution {
-        let ref = browserAutomation.allocateElementRef(surfaceId: ctx.surfaceId, selector: selector)
-        return .found(ControlBrowserFoundElement(
-            workspaceID: ctx.workspaceId,
-            workspaceRef: (v2Ref(kind: .workspace, uuid: ctx.workspaceId) as? String) ?? ctx.workspaceId.uuidString,
-            surfaceID: ctx.surfaceId,
-            surfaceRef: (v2Ref(kind: .surface, uuid: ctx.surfaceId) as? String) ?? ctx.surfaceId.uuidString,
-            selector: selector,
-            elementRef: ref,
-            tag: tag,
-            text: text,
-            index: index
-        ))
     }
 
     /// The ``ControlBrowserInteractionReading`` seam resolver for the worker-lane
