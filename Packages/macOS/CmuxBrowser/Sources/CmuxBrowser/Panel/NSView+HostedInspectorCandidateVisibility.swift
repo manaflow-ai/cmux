@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 extension NSView {
     /// Whether this view is a viable hosted Web Inspector candidate: shown, opaque

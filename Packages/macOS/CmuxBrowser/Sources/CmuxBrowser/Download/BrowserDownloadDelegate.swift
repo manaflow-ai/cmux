@@ -78,7 +78,7 @@ public final class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         _ download: WKDownload,
         decideDestinationUsing response: URLResponse,
         suggestedFilename: String,
-        completionHandler: @escaping (URL?) -> Void
+        completionHandler: @escaping @MainActor @Sendable (URL?) -> Void
     ) {
         // Save to a temp file — return synchronously so WebKit is never blocked.
         let filenameResolver = BrowserDownloadFilenameResolver(defaultFilename: defaultFilename)

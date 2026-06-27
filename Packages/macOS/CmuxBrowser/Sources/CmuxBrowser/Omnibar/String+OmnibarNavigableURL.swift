@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 extension String {
     /// This string interpreted as omnibar / address-bar input, resolved to a

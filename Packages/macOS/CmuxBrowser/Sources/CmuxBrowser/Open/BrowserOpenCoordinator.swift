@@ -209,7 +209,7 @@ public final class BrowserOpenCoordinator {
         let openedInBrowser: Bool
         if let targetPane = workspace.preferredRightSideTargetPane(fromPanelId: sourcePanelId) {
             #if DEBUG
-            cmuxDebugLog("link.openURL opening in existing browser pane=\(targetPane)")
+            CMUXDebugLog.logDebugEvent("link.openURL opening in existing browser pane=\(targetPane)")
             #endif
             openedInBrowser = workspace.newBrowserSurface(
                 inPane: targetPane,
@@ -220,7 +220,7 @@ public final class BrowserOpenCoordinator {
             ) != nil
         } else {
             #if DEBUG
-            cmuxDebugLog("link.openURL opening as new browser split from surface=\(sourcePanelId)")
+            CMUXDebugLog.logDebugEvent("link.openURL opening as new browser split from surface=\(sourcePanelId)")
             #endif
             openedInBrowser = workspace.newBrowserSplit(
                 from: sourcePanelId,
@@ -233,7 +233,7 @@ public final class BrowserOpenCoordinator {
 
         guard openedInBrowser else {
             #if DEBUG
-            cmuxDebugLog(
+            CMUXDebugLog.logDebugEvent(
                 "link.openURL deferred embedded browser creation failed, opening externally " +
                 "host=\(linkHost) url=\(url)"
             )
