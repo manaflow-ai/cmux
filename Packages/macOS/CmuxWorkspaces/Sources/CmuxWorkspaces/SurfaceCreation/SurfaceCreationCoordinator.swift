@@ -777,6 +777,157 @@ public final class SurfaceCreationCoordinator {
         return descriptor.id
     }
 
+    /// Creates an agent-session surface tab in `paneId`, mirroring the legacy
+    /// `Workspace.newAgentSessionSurface(inPane:providerID:rendererKind:workingDirectory:focus:targetIndex:)`
+    /// body step for step. The coordinator owns the create-tab orchestration; every
+    /// live read and registry/bonsplit mutation is driven through
+    /// ``SurfaceCreationHosting``. The package cannot name the app's
+    /// `AgentSessionPanel`, so this returns the new panel's `id` (`nil` on a failed
+    /// tab insert) and the workspace maps it back to the typed panel via
+    /// `panels[id] as? AgentSessionPanel`.
+    ///
+    /// Same shape as ``newProjectSurface(inPane:projectPath:focus:targetIndex:host:)``
+    /// with three differences: the working directory defaults to
+    /// ``SurfaceCreationHosting/currentDirectory`` when the caller passes none, and
+    /// the registration witness records it in `panelDirectories`; the focused branch
+    /// also calls the panel's intrinsic focus
+    /// (``SurfaceCreationHosting/focusAgentSessionPanel(id:)``) between selecting the
+    /// tab and applying the tab selection; and the tail installs the agent-session
+    /// title/dirty subscription. The provider/renderer cross the seam as their frozen
+    /// `rawValue` strings because the package cannot name the app enums.
+    ///
+    /// - Parameters:
+    ///   - paneId: the pane that receives the new agent-session surface.
+    ///   - providerIDRawValue: the agent provider's frozen `rawValue`.
+    ///   - rendererKindRawValue: the agent renderer's frozen `rawValue`.
+    ///   - workingDirectory: an explicit working directory, or `nil` to default to
+    ///     the host's current directory.
+    ///   - focus: explicit focus intent, or `nil` to auto-focus only when `paneId`
+    ///     is already the focused pane.
+    ///   - targetIndex: an optional tab index to reorder the new tab to.
+    ///   - host: the workspace live-state seam.
+    /// - Returns: the new agent-session panel's id, or `nil` when the bonsplit tab
+    ///   could not be created.
+    @discardableResult
+    public func newAgentSessionSurface(
+        inPane paneId: PaneID,
+        providerIDRawValue: String,
+        rendererKindRawValue: String,
+        workingDirectory: String?,
+        focus: Bool?,
+        targetIndex: Int?,
+        host: any SurfaceCreationHosting
+    ) -> UUID? {
+        let shouldFocusNewTab = focus ?? (host.focusedBonsplitPaneId == paneId)
+        let previousFocusedPanelId = host.focusedPanelId
+        let previousHostedView = host.focusedTerminalHostedView
+        let directory = workingDirectory ?? host.currentDirectory
+
+        let descriptor = host.registerAgentSessionPanel(
+            providerIDRawValue: providerIDRawValue,
+            rendererKindRawValue: rendererKindRawValue,
+            workingDirectory: directory
+        )
+
+        guard let newTabId = host.createSurfaceTab(
+            descriptor: descriptor,
+            kind: SurfaceKind.agentSession.rawValue,
+            inPane: paneId
+        ) else {
+            host.discardPanelRegistration(id: descriptor.id)
+            return nil
+        }
+
+        if let targetIndex {
+            _ = host.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        host.publishCmuxSurfaceCreated(
+            descriptor.id,
+            paneId: paneId,
+            kind: "agent_session",
+            origin: "agent_session_tab",
+            focused: shouldFocusNewTab
+        )
+        if shouldFocusNewTab {
+            host.focusPane(paneId)
+            host.selectTab(newTabId)
+            host.focusAgentSessionPanel(id: descriptor.id)
+            host.applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            host.preserveSurfaceFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: descriptor.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        host.installAgentSessionPanelSubscription(id: descriptor.id)
+        return descriptor.id
+    }
+
+    /// Creates a sidebar extension-browser surface tab in `paneId`, mirroring the
+    /// legacy `Workspace.newSidebarExtensionBrowserSurface(inPane:title:focus:)` body
+    /// step for step. The coordinator owns the create-tab orchestration; every
+    /// registry/bonsplit mutation is driven through ``SurfaceCreationHosting``. The
+    /// package cannot name the app's `CMUXSidebarExtensionBrowserPanel`, so this
+    /// returns the new panel's `id` (`nil` on a failed tab insert) and the workspace
+    /// maps it back to the typed panel.
+    ///
+    /// Unlike the other create-tab paths, the extension-browser body takes no
+    /// `targetIndex` (no reorder), resolves focus with `focus || …` rather than
+    /// `focus ?? …` (the legacy `focus` is a non-optional `Bool`), and has no
+    /// non-focus branch (it never preserves focus on the previously focused panel).
+    /// The focused branch focuses the panel via its intrinsic
+    /// ``SurfaceCreationHosting/focusExtensionBrowserPanel(id:)`` between selecting
+    /// the tab and applying the tab selection. The published `kind` is the frozen
+    /// `SurfaceKind.extensionBrowser.rawValue` (matching the legacy literal), not a
+    /// separate string.
+    ///
+    /// - Parameters:
+    ///   - paneId: the pane that receives the new extension-browser surface.
+    ///   - title: the display title used for the tab and panel.
+    ///   - focus: when `true`, selects the new tab and moves focus to its pane.
+    ///   - host: the workspace live-state seam.
+    /// - Returns: the new extension-browser panel's id, or `nil` when the bonsplit
+    ///   tab could not be created.
+    @discardableResult
+    public func newSidebarExtensionBrowserSurface(
+        inPane paneId: PaneID,
+        title: String,
+        focus: Bool,
+        host: any SurfaceCreationHosting
+    ) -> UUID? {
+        let shouldFocusNewTab = focus || (host.focusedBonsplitPaneId == paneId)
+
+        let descriptor = host.registerExtensionBrowserPanel(title: title)
+
+        guard let newTabId = host.createSurfaceTab(
+            descriptor: descriptor,
+            kind: SurfaceKind.extensionBrowser.rawValue,
+            inPane: paneId
+        ) else {
+            host.discardPanelRegistration(id: descriptor.id)
+            return nil
+        }
+
+        host.publishCmuxSurfaceCreated(
+            descriptor.id,
+            paneId: paneId,
+            kind: SurfaceKind.extensionBrowser.rawValue,
+            origin: "extension_browser_tab",
+            focused: shouldFocusNewTab
+        )
+
+        if shouldFocusNewTab {
+            host.focusPane(paneId)
+            host.selectTab(newTabId)
+            host.focusExtensionBrowserPanel(id: descriptor.id)
+            host.applyTabSelection(tabId: newTabId, inPane: paneId)
+        }
+
+        return descriptor.id
+    }
+
     /// Promotes the inherited surface config so the pane is held open after a
     /// startup command exits, mirroring the legacy inline block in
     /// `Workspace.newTerminalSplitLocal`/`newTerminalSurfaceLocal`:

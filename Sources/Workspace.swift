@@ -6604,48 +6604,23 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     ///   - title: The display title used for the tab and panel.
     ///   - focus: When true, selects the new tab and moves focus to its pane. The tab is not restored from saved workspace sessions.
     /// - Returns: The created extension browser panel, or `nil` if the pane cannot accept a new tab.
+    /// Thin forwarder to ``SurfaceCreationCoordinator/newSidebarExtensionBrowserSurface(inPane:title:focus:host:)``.
+    /// The coordinator owns the create-tab orchestration and drives every
+    /// registry/bonsplit mutation back through this `Workspace`'s
+    /// ``SurfaceCreationHosting`` conformance; it returns the new panel's `id`,
+    /// which this maps back to the typed `CMUXSidebarExtensionBrowserPanel`.
     @discardableResult
     func newSidebarExtensionBrowserSurface(
         inPane paneId: PaneID,
         title: String,
         focus: Bool = true
     ) -> CMUXSidebarExtensionBrowserPanel? {
-        let shouldFocusNewTab = focus || bonsplitController.focusedPaneId == paneId
-        let extensionBrowserPanel = CMUXSidebarExtensionBrowserPanel(title: title)
-        panels[extensionBrowserPanel.id] = extensionBrowserPanel
-        panelTitles[extensionBrowserPanel.id] = extensionBrowserPanel.displayTitle
-
-        guard let newTabId = bonsplitController.createTab(
-            title: extensionBrowserPanel.displayTitle,
-            icon: extensionBrowserPanel.displayIcon,
-            kind: SurfaceKind.extensionBrowser.rawValue,
-            isDirty: false,
-            isLoading: false,
-            isPinned: false,
-            inPane: paneId
-        ) else {
-            panels.removeValue(forKey: extensionBrowserPanel.id)
-            panelTitles.removeValue(forKey: extensionBrowserPanel.id)
-            return nil
-        }
-
-        surfaceIdToPanelId[newTabId] = extensionBrowserPanel.id
-        publishCmuxSurfaceCreated(
-            extensionBrowserPanel.id,
-            paneId: paneId,
-            kind: SurfaceKind.extensionBrowser.rawValue,
-            origin: "extension_browser_tab",
-            focused: shouldFocusNewTab
-        )
-
-        if shouldFocusNewTab {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(newTabId)
-            extensionBrowserPanel.focus()
-            applyTabSelection(tabId: newTabId, inPane: paneId)
-        }
-
-        return extensionBrowserPanel
+        surfaceCreation.newSidebarExtensionBrowserSurface(
+            inPane: paneId,
+            title: title,
+            focus: focus,
+            host: self
+        ).flatMap { panels[$0] as? CMUXSidebarExtensionBrowserPanel }
     }
 
     /// Reuses an existing file-backed panel of kind `P` showing `filePath`, via
@@ -6942,6 +6917,12 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         return toolPanel
     }
 
+    /// Thin forwarder to ``SurfaceCreationCoordinator/newAgentSessionSurface(inPane:providerIDRawValue:rendererKindRawValue:workingDirectory:focus:targetIndex:host:)``.
+    /// The coordinator owns the create-tab orchestration and drives every live read
+    /// and registry/bonsplit mutation back through this `Workspace`'s
+    /// ``SurfaceCreationHosting`` conformance; it returns the new panel's `id`,
+    /// which this maps back to the typed `AgentSessionPanel`. The app enums cross the
+    /// seam as their frozen `rawValue` strings.
     @discardableResult
     func newAgentSessionSurface(
         inPane paneId: PaneID,
@@ -6951,65 +6932,15 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> AgentSessionPanel? {
-        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
-        let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
-        let directory = workingDirectory ?? currentDirectory
-
-        let agentPanel = AgentSessionPanel(
-            workspaceId: id,
-            rendererKind: rendererKind,
-            initialProviderID: providerID,
-            workingDirectory: directory
-        )
-        panels[agentPanel.id] = agentPanel
-        panelTitles[agentPanel.id] = agentPanel.displayTitle
-        if !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            panelDirectories[agentPanel.id] = directory
-        }
-
-        guard let newTabId = bonsplitController.createTab(
-            title: agentPanel.displayTitle,
-            icon: agentPanel.displayIcon,
-            kind: SurfaceKind.agentSession.rawValue,
-            isDirty: agentPanel.isDirty,
-            isLoading: false,
-            isPinned: false,
-            inPane: paneId
-        ) else {
-            panels.removeValue(forKey: agentPanel.id)
-            panelTitles.removeValue(forKey: agentPanel.id)
-            return nil
-        }
-
-        surfaceIdToPanelId[newTabId] = agentPanel.id
-        if let targetIndex {
-            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
-        }
-        publishCmuxSurfaceCreated(
-            agentPanel.id,
-            paneId: paneId,
-            kind: "agent_session",
-            origin: "agent_session_tab",
-            focused: shouldFocusNewTab
-        )
-
-        if shouldFocusNewTab {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(newTabId)
-            agentPanel.focus()
-            applyTabSelection(tabId: newTabId, inPane: paneId)
-        } else {
-            preserveFocusAfterNonFocusSplit(
-                preferredPanelId: previousFocusedPanelId,
-                splitPanelId: agentPanel.id,
-                previousHostedView: previousHostedView
-            )
-        }
-
-        installAgentSessionPanelSubscription(agentPanel)
-
-        return agentPanel
+        surfaceCreation.newAgentSessionSurface(
+            inPane: paneId,
+            providerIDRawValue: providerID.rawValue,
+            rendererKindRawValue: rendererKind.rawValue,
+            workingDirectory: workingDirectory,
+            focus: focus,
+            targetIndex: targetIndex,
+            host: self
+        ).flatMap { panels[$0] as? AgentSessionPanel }
     }
 
     /// Thin forwarder to ``SurfaceCreationCoordinator/splitPaneWithFilePreview(targetPane:orientation:insertFirst:filePath:host:)``.
@@ -8870,6 +8801,76 @@ extension Workspace: SurfaceCreationHosting {
     func installFilePreviewPanelSubscription(id: UUID) {
         guard let filePreviewPanel = panels[id] as? FilePreviewPanel else { return }
         installFilePreviewPanelSubscription(filePreviewPanel)
+    }
+
+    // MARK: Agent-session create live state
+    //
+    // `currentDirectory`, `focusedBonsplitPaneId`, `focusedPanelId`,
+    // `focusedTerminalHostedView`, `createSurfaceTab`, `reorderTab`,
+    // `publishCmuxSurfaceCreated`, `focusPane`, `selectTab`, `applyTabSelection`,
+    // `preserveSurfaceFocusAfterNonFocusSplit`, and `discardPanelRegistration` are
+    // already implemented above or for sibling conformances (`currentDirectory` is
+    // the workspace's stored projection). The members below are the agent-session
+    // create-specific witnesses. The provider/renderer arrive as their frozen
+    // `rawValue` strings; both always round-trip for live callers, so the failable
+    // inits below cannot take their backstops in practice.
+
+    func registerAgentSessionPanel(
+        providerIDRawValue: String,
+        rendererKindRawValue: String,
+        workingDirectory: String
+    ) -> SurfaceTabDescriptor {
+        let providerID = AgentSessionProviderID(rawValue: providerIDRawValue) ?? .codex
+        let rendererKind = AgentSessionRendererKind(rawValue: rendererKindRawValue) ?? .react
+        let agentPanel = AgentSessionPanel(
+            workspaceId: id,
+            rendererKind: rendererKind,
+            initialProviderID: providerID,
+            workingDirectory: workingDirectory
+        )
+        panels[agentPanel.id] = agentPanel
+        panelTitles[agentPanel.id] = agentPanel.displayTitle
+        if !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            panelDirectories[agentPanel.id] = workingDirectory
+        }
+        return SurfaceTabDescriptor(
+            id: agentPanel.id,
+            displayTitle: agentPanel.displayTitle,
+            displayIcon: agentPanel.displayIcon,
+            isDirty: agentPanel.isDirty
+        )
+    }
+
+    func focusAgentSessionPanel(id: UUID) {
+        (panels[id] as? AgentSessionPanel)?.focus()
+    }
+
+    func installAgentSessionPanelSubscription(id: UUID) {
+        guard let agentPanel = panels[id] as? AgentSessionPanel else { return }
+        installAgentSessionPanelSubscription(agentPanel)
+    }
+
+    // MARK: Extension-browser create live state
+    //
+    // `focusedBonsplitPaneId`, `createSurfaceTab`, `publishCmuxSurfaceCreated`,
+    // `focusPane`, `selectTab`, `applyTabSelection`, and `discardPanelRegistration`
+    // are already implemented above or for sibling conformances. The members below
+    // are the extension-browser create-specific witnesses.
+
+    func registerExtensionBrowserPanel(title: String) -> SurfaceTabDescriptor {
+        let extensionBrowserPanel = CMUXSidebarExtensionBrowserPanel(title: title)
+        panels[extensionBrowserPanel.id] = extensionBrowserPanel
+        panelTitles[extensionBrowserPanel.id] = extensionBrowserPanel.displayTitle
+        return SurfaceTabDescriptor(
+            id: extensionBrowserPanel.id,
+            displayTitle: extensionBrowserPanel.displayTitle,
+            displayIcon: extensionBrowserPanel.displayIcon,
+            isDirty: false
+        )
+    }
+
+    func focusExtensionBrowserPanel(id: UUID) {
+        (panels[id] as? CMUXSidebarExtensionBrowserPanel)?.focus()
     }
 }
 

@@ -271,4 +271,66 @@ public protocol SurfaceCreationHosting: AnyObject {
     /// `FilePreviewPanel` by `id`; a no-op if the id no longer maps to a
     /// file-preview panel.
     func installFilePreviewPanelSubscription(id: UUID)
+
+    // MARK: Agent-session create live state
+
+    /// The workspace's current working directory, read as the default working
+    /// directory for a new agent session when the caller passes none. Mirrors the
+    /// legacy `let directory = workingDirectory ?? currentDirectory` read at the
+    /// head of `Workspace.newAgentSessionSurface`.
+    var currentDirectory: String { get }
+
+    /// Constructs the app's `AgentSessionPanel` for the given provider/renderer
+    /// (carried as their frozen `rawValue` strings, because the package cannot name
+    /// `AgentSessionProviderID`/`AgentSessionRendererKind`) and `workingDirectory`,
+    /// registers it in the workspace panel and panel-title registries, records the
+    /// directory in `panelDirectories` when it is non-empty (exactly the legacy
+    /// `if !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    /// panelDirectories[agentPanel.id] = directory }` guard), and returns its
+    /// Sendable descriptor. The descriptor's `displayIcon` carries the raw
+    /// `agentPanel.displayIcon` (like the project/markdown registrations, not the
+    /// resolved icon the file-preview registration carries) and `isDirty` carries
+    /// `agentPanel.isDirty`. Both rawValues always round-trip for live callers (the
+    /// app forwarder passes `providerID.rawValue`/`rendererKind.rawValue` from real
+    /// enum cases); the witness reconstructs them via the failable inits and the
+    /// app's own defaults are unreachable backstops. The registries stay app-side
+    /// behind this witness.
+    func registerAgentSessionPanel(
+        providerIDRawValue: String,
+        rendererKindRawValue: String,
+        workingDirectory: String
+    ) -> SurfaceTabDescriptor
+
+    /// Focuses the agent-session panel `id` by calling the panel's own
+    /// `AgentSessionPanel.focus()`, mirroring the legacy `agentPanel.focus()` call
+    /// in the focused branch of `newAgentSessionSurface`. This is the panel's
+    /// intrinsic focus, distinct from the workspace's `focusPanel(_:)`
+    /// (``focusSurfacePanel(_:)``). The host resolves the typed `AgentSessionPanel`
+    /// by `id`; a no-op if the id no longer maps to an agent-session panel.
+    func focusAgentSessionPanel(id: UUID)
+
+    /// Installs the agent-session panel's title/dirty subscription after the tab is
+    /// wired up, mirroring the legacy `installAgentSessionPanelSubscription(_:)`
+    /// call. The host resolves the typed `AgentSessionPanel` by `id`; a no-op if the
+    /// id no longer maps to an agent-session panel.
+    func installAgentSessionPanelSubscription(id: UUID)
+
+    // MARK: Extension-browser create live state
+
+    /// Constructs the app's `CMUXSidebarExtensionBrowserPanel` for `title`,
+    /// registers it in the workspace panel and panel-title registries, and returns
+    /// its Sendable descriptor. Mirrors the legacy `let extensionBrowserPanel =
+    /// CMUXSidebarExtensionBrowserPanel(title: title); panels[…] = …; panelTitles[…]
+    /// = extensionBrowserPanel.displayTitle` prelude. The descriptor's `displayIcon`
+    /// carries the raw `extensionBrowserPanel.displayIcon` (like the project/markdown
+    /// registrations, not resolved like file-preview) and `isDirty` is `false`. The
+    /// registries stay app-side behind this witness.
+    func registerExtensionBrowserPanel(title: String) -> SurfaceTabDescriptor
+
+    /// Focuses the extension-browser panel `id` by calling the panel's own
+    /// `CMUXSidebarExtensionBrowserPanel.focus()`, mirroring the legacy
+    /// `extensionBrowserPanel.focus()` call in the focused branch of
+    /// `newSidebarExtensionBrowserSurface`. The host resolves the typed panel by
+    /// `id`; a no-op if the id no longer maps to an extension-browser panel.
+    func focusExtensionBrowserPanel(id: UUID)
 }
