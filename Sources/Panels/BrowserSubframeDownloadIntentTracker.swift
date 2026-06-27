@@ -7,6 +7,7 @@ final class BrowserSubframeDownloadIntentTracker {
 
     private var recentIntentKeys: [(key: String, recordedAt: TimeInterval)] = []
     private var recentUserActivatedSubframeNavigationKeys: [(key: String, recordedAt: TimeInterval)] = []
+    private var recentPDFPrintIntentKeys: [(key: String, recordedAt: TimeInterval)] = []
     private var renderedSubframePDFKeys: [String] = []
 
     func updateIfNeeded(_ navigationAction: WKNavigationAction, hasUserActivation: Bool = false) {
@@ -95,9 +96,35 @@ final class BrowserSubframeDownloadIntentTracker {
         }
     }
 
+    func recordPDFPrintIntent(_ url: URL) {
+        guard Self.isHTTPDownloadIntentURL(url),
+              Self.isPDFPrintRequestURL(url) else { return }
+        let now = ProcessInfo.processInfo.systemUptime; prune(now: now)
+        let key = Self.pdfPrintIntentKey(for: url)
+        recentPDFPrintIntentKeys.removeAll { $0.key == key }
+        recentPDFPrintIntentKeys.append((key, now))
+        if recentPDFPrintIntentKeys.count > Self.maxIntentCount {
+            recentPDFPrintIntentKeys.removeFirst(recentPDFPrintIntentKeys.count - Self.maxIntentCount)
+        }
+    }
+
+    func consumePDFPrintIntent(responseURL: URL?, mimeType: String?, isForMainFrame: Bool) -> Bool {
+        guard isForMainFrame,
+              Self.isPDFMIMEType(mimeType),
+              let responseURL,
+              Self.isHTTPDownloadIntentURL(responseURL),
+              Self.isPDFPrintRequestURL(responseURL) else { return false }
+        let now = ProcessInfo.processInfo.systemUptime; prune(now: now)
+        let key = Self.pdfPrintIntentKey(for: responseURL)
+        guard let index = recentPDFPrintIntentKeys.firstIndex(where: { $0.key == key }) else { return false }
+        recentPDFPrintIntentKeys.remove(at: index)
+        return true
+    }
+
     private func prune(now: TimeInterval) {
         recentIntentKeys.removeAll { now - $0.recordedAt > Self.intentLifetime }
         recentUserActivatedSubframeNavigationKeys.removeAll { now - $0.recordedAt > Self.intentLifetime }
+        recentPDFPrintIntentKeys.removeAll { now - $0.recordedAt > Self.intentLifetime }
     }
 
     private static func isHTTPDownloadIntentURL(_ url: URL) -> Bool {
@@ -111,6 +138,14 @@ final class BrowserSubframeDownloadIntentTracker {
             .caseInsensitiveCompare("application/pdf") == .orderedSame
     }
 
+    private static func isPDFPrintRequestURL(_ url: URL) -> Bool {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
+        return components.queryItems?.contains {
+            $0.name.caseInsensitiveCompare("print") == .orderedSame &&
+                (($0.value ?? "").caseInsensitiveCompare("true") == .orderedSame || $0.value == "1")
+        } == true
+    }
+
     private static func downloadIntentKey(for url: URL) -> String {
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return url.absoluteString
@@ -120,6 +155,15 @@ final class BrowserSubframeDownloadIntentTracker {
     }
 
     private static func subframePDFIntentKey(for url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.absoluteString
+        }
+        components.query = nil
+        components.fragment = nil
+        return components.string ?? url.absoluteString
+    }
+
+    private static func pdfPrintIntentKey(for url: URL) -> String {
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return url.absoluteString
         }

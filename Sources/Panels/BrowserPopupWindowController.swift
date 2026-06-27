@@ -550,7 +550,6 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
     var downloadDelegate: WKDownloadDelegate?
     private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
-    private var shouldPrintAfterCurrentNavigationFinishes = false
 
     func cancelPendingHTTPBasicAuthPrompts() {
         basicAuthPromptCoordinator.cancelAll()
@@ -628,13 +627,6 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 
         let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
         let filenameResolver = BrowserDownloadFilenameResolver()
-        if filenameResolver.shouldPrintPDFAfterLoad(
-            mimeType: navigationResponse.response.mimeType,
-            responseURL: navigationResponse.response.url,
-            isForMainFrame: navigationResponse.isForMainFrame
-        ) {
-            shouldPrintAfterCurrentNavigationFinishes = true
-        }
         let isUserActivatedPreviouslyRenderedSubframePDF = subframeDownloadIntents
             .consumeUserActivatedPreviouslyRenderedSubframePDF(
                 responseURL: navigationResponse.response.url,
@@ -669,17 +661,6 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             isForMainFrame: navigationResponse.isForMainFrame
         )
         decisionHandler(.allow)
-    }
-
-    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        shouldPrintAfterCurrentNavigationFinishes = false
-    }
-
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        if shouldPrintAfterCurrentNavigationFinishes {
-            shouldPrintAfterCurrentNavigationFinishes = false
-            webView.cmuxRunPrintOperation()
-        }
     }
 
     func webView(

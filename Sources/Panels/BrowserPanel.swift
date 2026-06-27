@@ -4107,8 +4107,8 @@ final class BrowserPanel: Panel, ObservableObject {
             guard let self else { return }
             self.openLinkInNewTab(url: url)
         }
-        browserUIDelegate.requestNavigation = { [weak self] request, intent in
-            self?.requestNavigation(request, intent: intent)
+        browserUIDelegate.requestNavigation = { [weak self, weak navDelegate] request, intent in
+            navDelegate?.recordPDFPrintIntentIfNeeded(request); self?.requestNavigation(request, intent: intent)
         }
         browserUIDelegate.presentAlert = { [weak self] alert, webView, completion, cancel in
             guard let self else {

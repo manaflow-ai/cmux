@@ -91,22 +91,24 @@ import WebKit
         let renderedPDFURL = try #require(URL(string: "https://mail-attachment.example.test/report.pdf?token=1&disp=inline"))
         let toolbarPDFURL = try #require(URL(string: "https://mail-attachment.example.test/report.pdf?token=2&disp=download"))
         let printURL = try #require(URL(string: "https://docs-viewer.example.test/report.pdf?print=true"))
+        let redirectedPrintURL = try #require(URL(string: "https://docs-viewer.example.test/report.pdf?print=1&nonce=2"))
         #expect(resolver.navigationResponseDownloadReason(
             mimeType: "application/pdf", canShowMIMEType: true, contentDisposition: nil,
             isForMainFrame: false, isUserActivatedPreviouslyRenderedSubframePDF: true
         ) == "subframePDFUserAction")
-        #expect(!resolver.shouldPrintPDFAfterLoad(mimeType: "application/pdf", responseURL: printURL, isForMainFrame: false))
-        #expect(resolver.shouldPrintPDFAfterLoad(mimeType: "application/pdf", responseURL: printURL, isForMainFrame: true))
+        #expect(!resolver.shouldPrintPDFAfterLoad(mimeType: "application/pdf", responseURL: printURL, isForMainFrame: true, hasTrustedPrintIntent: false))
+        #expect(!resolver.shouldPrintPDFAfterLoad(mimeType: "application/pdf", responseURL: printURL, isForMainFrame: false, hasTrustedPrintIntent: true))
+        #expect(resolver.shouldPrintPDFAfterLoad(mimeType: "application/pdf", responseURL: printURL, isForMainFrame: true, hasTrustedPrintIntent: true))
         let tracker = BrowserSubframeDownloadIntentTracker()
+        #expect(!tracker.consumePDFPrintIntent(responseURL: printURL, mimeType: "application/pdf", isForMainFrame: true))
+        tracker.recordPDFPrintIntent(printURL)
+        #expect(tracker.consumePDFPrintIntent(responseURL: redirectedPrintURL, mimeType: "application/pdf", isForMainFrame: true))
+        #expect(!tracker.consumePDFPrintIntent(responseURL: redirectedPrintURL, mimeType: "application/pdf", isForMainFrame: true))
         tracker.recordUserActivatedSubframeNavigation(toolbarPDFURL)
-        #expect(!tracker.consumeUserActivatedPreviouslyRenderedSubframePDF(
-            responseURL: toolbarPDFURL, mimeType: "application/pdf", isForMainFrame: false
-        ))
+        #expect(!tracker.consumeUserActivatedPreviouslyRenderedSubframePDF(responseURL: toolbarPDFURL, mimeType: "application/pdf", isForMainFrame: false))
         tracker.markRenderedSubframePDFIfNeeded(responseURL: renderedPDFURL, mimeType: "application/pdf", isForMainFrame: false)
         tracker.recordUserActivatedSubframeNavigation(toolbarPDFURL)
-        #expect(tracker.consumeUserActivatedPreviouslyRenderedSubframePDF(
-            responseURL: toolbarPDFURL, mimeType: "application/pdf", isForMainFrame: false
-        ))
+        #expect(tracker.consumeUserActivatedPreviouslyRenderedSubframePDF(responseURL: toolbarPDFURL, mimeType: "application/pdf", isForMainFrame: false))
     }
 
     @Test func subframeDownloadIntentTrackerTransfersRedirectIntent() throws {

@@ -367,10 +367,16 @@ import WebKit
         let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?
             .value(forHTTPHeaderField: "Content-Disposition")
         let filenameResolver = BrowserDownloadFilenameResolver()
+        let hasTrustedPDFPrintIntent = subframeDownloadIntents.consumePDFPrintIntent(
+            responseURL: navigationResponse.response.url,
+            mimeType: mime,
+            isForMainFrame: navigationResponse.isForMainFrame
+        )
         if filenameResolver.shouldPrintPDFAfterLoad(
             mimeType: mime,
             responseURL: navigationResponse.response.url,
-            isForMainFrame: navigationResponse.isForMainFrame
+            isForMainFrame: navigationResponse.isForMainFrame,
+            hasTrustedPrintIntent: hasTrustedPDFPrintIntent
         ) {
             shouldPrintAfterCurrentNavigationFinishes = true
         }
@@ -418,6 +424,15 @@ import WebKit
 
     func recordSubframeDownloadIntent(_ url: URL) {
         subframeDownloadIntents.record(url)
+    }
+
+    func recordPDFPrintIntent(_ url: URL) {
+        subframeDownloadIntents.recordPDFPrintIntent(url)
+    }
+
+    func recordPDFPrintIntentIfNeeded(_ request: URLRequest) {
+        guard browserNavigationHasSimpleUserActivation(), let url = request.url else { return }
+        recordPDFPrintIntent(url)
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {

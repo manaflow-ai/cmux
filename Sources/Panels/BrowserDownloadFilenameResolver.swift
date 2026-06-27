@@ -46,9 +46,18 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         return canShowMIMEType ? nil : "cannotShowMIME"
     }
 
-    func shouldPrintPDFAfterLoad(mimeType: String?, responseURL: URL?, isForMainFrame: Bool) -> Bool {
-        guard isForMainFrame, isPDFMIMEType(mimeType) else { return false }
-        guard let components = responseURL.flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else {
+    func shouldPrintPDFAfterLoad(
+        mimeType: String?,
+        responseURL: URL?,
+        isForMainFrame: Bool,
+        hasTrustedPrintIntent: Bool
+    ) -> Bool {
+        guard hasTrustedPrintIntent, isForMainFrame, isPDFMIMEType(mimeType) else { return false }
+        return isPDFPrintRequestURL(responseURL)
+    }
+
+    func isPDFPrintRequestURL(_ url: URL?) -> Bool {
+        guard let components = url.flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else {
             return false
         }
         return components.queryItems?.contains {
