@@ -1385,7 +1385,7 @@ final class MobileHostService {
         case "mobile.workspace.list", "workspace.list":
             return ticketTerminalAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value, terminalSelection: terminalSelection.value)
         case "workspace.create":
-            return nil
+            return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: nil)
         case "workspace.group.collapse", "workspace.group.expand":
             // Display-only group state. Keyed by `group_id` (not a workspace or
             // terminal selection), so it is Mac-scoped like the workspace list and
@@ -1397,7 +1397,7 @@ final class MobileHostService {
                 workspaceSelection: workspaceSelection.value
             )
         case "mobile.terminal.create", "terminal.create":
-            return nil
+            return terminalSelection.value != nil || authorization.ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? scopedTicketError : ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
         case "mobile.terminal.input", "terminal.input",
              "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",

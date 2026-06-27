@@ -48,6 +48,50 @@ import Testing
         #expect(await tokenStarted.isSet() == false)
     }
 
+    @Test func attachTokenIsNotSentOverUntrustedRoute() async throws {
+        let tokenStarted = AsyncFlag()
+        let route = try hostPortRoute(kind: .tailscale, host: "192.168.1.20", port: 58465)
+        let transport = QueuedCancellationProbeTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessTokenProvider: {
+                await tokenStarted.set()
+                return "fresh-stack-token"
+            },
+            now: { Self.fixedNow }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Self.fixedNow.addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "workspace.list",
+            params: ["workspace_id": "workspace-main"]
+        )
+
+        do {
+            _ = try await client.sendRequest(request)
+            Issue.record("Expected untrusted route to reject bearer credentials")
+        } catch MobileShellConnectionError.insecureManualRoute {
+        } catch {
+            Issue.record("Expected insecureManualRoute, got \(error)")
+        }
+
+        #expect(try await transport.sentRequests().isEmpty)
+        #expect(await tokenStarted.isSet() == false)
+    }
+
     @Test func unscopedWorkspaceListUsesStackTokenForScopedAttachTicket() async throws {
         let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
         let transport = QueuedCancellationProbeTransport()
@@ -78,6 +122,118 @@ import Testing
         #expect(frame.attachToken == nil)
         #expect(frame.stackAccessToken == "fresh-stack-token")
         #expect(frame.hasAuth)
+    }
+
+    @Test func scopedWorkspaceCreateUsesStackToken() async throws {
+        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let transport = QueuedCancellationProbeTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessToken: "fresh-stack-token",
+            now: { Self.fixedNow }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Self.fixedNow.addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "workspace.create",
+            params: ["title": "New workspace"]
+        )
+        let frame = try await sentFrame(client: client, transport: transport, request: request)
+
+        #expect(frame.method == "workspace.create")
+        #expect(frame.attachToken == nil)
+        #expect(frame.stackAccessToken == "fresh-stack-token")
+        #expect(frame.hasAuth)
+    }
+
+    @Test func terminalScopedTerminalCreateUsesStackToken() async throws {
+        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let transport = QueuedCancellationProbeTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessToken: "fresh-stack-token",
+            now: { Self.fixedNow }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Self.fixedNow.addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "terminal.create",
+            params: ["workspace_id": "workspace-main"]
+        )
+        let frame = try await sentFrame(client: client, transport: transport, request: request)
+
+        #expect(frame.method == "terminal.create")
+        #expect(frame.workspaceID == "workspace-main")
+        #expect(frame.attachToken == nil)
+        #expect(frame.stackAccessToken == "fresh-stack-token")
+        #expect(frame.hasAuth)
+    }
+
+    @Test func workspaceScopedTerminalCreateUsesAttachTokenInScope() async throws {
+        let tokenStarted = AsyncFlag()
+        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let transport = QueuedCancellationProbeTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessTokenProvider: {
+                await tokenStarted.set()
+                return "fresh-stack-token"
+            },
+            now: { Self.fixedNow }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Self.fixedNow.addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "terminal.create",
+            params: ["workspace_id": "workspace-main"]
+        )
+        let frame = try await sentFrame(client: client, transport: transport, request: request)
+
+        #expect(frame.method == "terminal.create")
+        #expect(frame.workspaceID == "workspace-main")
+        #expect(frame.attachToken == "ticket-secret")
+        #expect(frame.stackAccessToken == nil)
+        #expect(frame.hasAuth)
+        #expect(await tokenStarted.isSet() == false)
     }
 
     @Test func ticketCoveredTerminalScrollDoesNotWaitForStackToken() async throws {

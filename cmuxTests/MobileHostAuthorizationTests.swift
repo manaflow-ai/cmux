@@ -456,7 +456,7 @@ struct MobileHostAuthorizationTests {
 
         #expect(error == nil)
     }
-    @Test func testAttachTicketAcceptsTerminalCreateForPairedDevice() throws {
+    @Test func testTerminalScopedAttachTicketRejectsTerminalCreateOutsideScope() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "terminal-create",
@@ -472,10 +472,10 @@ struct MobileHostAuthorizationTests {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        #expect(error == nil)
+        #expect(error?.code == "forbidden")
     }
-    @Test func testAttachTicketAcceptsWorkspaceCreateForPairedDevice() throws {
-        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+    @Test(arguments: [("workspace", false), ("", true)]) func testAttachTicketAuthorizesWorkspaceCreateOnlyWhenMacScoped(_ workspaceID: String, _ allowed: Bool) throws {
+        let ticket = try scopedAttachTicket(workspaceID: workspaceID, terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "workspace-create",
             method: "workspace.create",
@@ -488,7 +488,7 @@ struct MobileHostAuthorizationTests {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        #expect(error == nil)
+        #expect(allowed ? error == nil : error?.code == "forbidden")
     }
     @Test func testAttachTicketAcceptsReplayForCreatedWorkspace() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
@@ -536,12 +536,12 @@ struct MobileHostAuthorizationTests {
 
         #expect(error == nil)
     }
-    @Test func testWorkspaceScopedAttachTicketAcceptsTerminalCreate() throws {
-        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+    @Test(arguments: [("workspace", "workspace", true), ("workspace", "other-workspace", false), ("", "other-workspace", true)]) func testAttachTicketAuthorizesTerminalCreateInScope(_ ticketWorkspaceID: String, _ requestWorkspaceID: String, _ allowed: Bool) throws {
+        let ticket = try scopedAttachTicket(workspaceID: ticketWorkspaceID, terminalID: nil)
         let request = MobileHostRPCRequest(
             id: "terminal-create",
             method: "terminal.create",
-            params: ["workspace_id": "workspace"],
+            params: ["workspace_id": requestWorkspaceID],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
                 stackAccessToken: nil
@@ -550,7 +550,7 @@ struct MobileHostAuthorizationTests {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        #expect(error == nil)
+        #expect(allowed ? error == nil : error?.code == "forbidden")
     }
     @Test func testTerminalScopedAttachTicketRejectsConflictingTerminalAliases() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal-a")

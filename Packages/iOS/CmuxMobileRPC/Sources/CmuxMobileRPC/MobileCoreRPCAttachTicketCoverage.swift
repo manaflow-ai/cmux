@@ -37,6 +37,35 @@ struct MobileCoreRPCAttachTicketCoverage {
         return workspaceSelection == ticketWorkspaceID
     }
 
+    func ticketCoversWorkspaceCreateRequest(ticket: CmxAttachTicket) -> Bool {
+        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ticketWorkspaceID.isEmpty
+    }
+
+    func ticketCoversTerminalCreateRequest(
+        ticket: CmxAttachTicket,
+        workspaceSelection: String?,
+        terminalSelection: String?
+    ) -> Bool {
+        if terminalSelection != nil {
+            return false
+        }
+
+        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Empty workspaceID means the ticket is Mac-wide (general pairing).
+        // It covers creating terminals in any workspace on the paired Mac.
+        if ticketWorkspaceID.isEmpty {
+            return true
+        }
+
+        if let ticketTerminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !ticketTerminalID.isEmpty {
+            return false
+        }
+
+        return workspaceSelection == ticketWorkspaceID
+    }
+
     func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
         params["workspaceID"] != nil || params["terminalID"] != nil
     }

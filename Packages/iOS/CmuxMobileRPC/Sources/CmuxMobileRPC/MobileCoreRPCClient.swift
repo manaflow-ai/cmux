@@ -225,8 +225,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
         let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
-        let routeAllowsStackAuthFallback = allowsStackAuthFallback
-            && MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
+        let routeAllowsBearerAuth = MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
+        let routeAllowsStackAuthFallback = allowsStackAuthFallback && routeAllowsBearerAuth
         var auth: [String: Any] = [:]
         let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachToken = attachToken?.isEmpty == false
@@ -241,7 +241,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 if !routeAllowsStackAuthFallback {
                     throw MobileShellConnectionError.attachTicketExpired
                 }
-            } else {
+            } else if routeAllowsBearerAuth {
                 auth["attach_token"] = attachToken
             }
         }
@@ -337,14 +337,18 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 terminalSelection: terminalSelection.value
             )
         case "workspace.create":
-            return false
+            return !ticketCoverage.ticketCoversWorkspaceCreateRequest(ticket: ticket)
         case "workspace.action", "workspace.close":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value
             )
         case "mobile.terminal.create", "terminal.create":
-            return false
+            return !ticketCoverage.ticketCoversTerminalCreateRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value,
+                terminalSelection: terminalSelection.value
+            )
         case "mobile.terminal.input", "terminal.input",
              "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
