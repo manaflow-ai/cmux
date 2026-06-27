@@ -911,21 +911,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairingAttemptID = UUID()
     }
 
-    isolated deinit {
-        presenceTask?.cancel()
-        networkPathObservationTask?.cancel()
-        terminalEventListenerTask?.cancel()
-        terminalSubscriptionStartTask?.cancel()
-        renderGridLivenessTimer?.cancel()
-        renderGridLivenessProbeTask?.cancel()
-        terminalSubscriptionRefreshTask?.cancel()
-        createWorkspaceTask?.cancel()
-        createTerminalTask?.cancel()
-        workspaceListRefreshTask?.cancel()
-        pullToRefreshTask?.cancel()
-        teardownSecondaryMacSubscriptions()
-        if let remoteClient {
-            Task { await remoteClient.disconnect() }
+    deinit {
+        // Xcode 16.4 does not support isolated deinit syntax. The store is
+        // @MainActor-owned, so assert that contract before sync teardown.
+        MainActor.assumeIsolated {
+            presenceTask?.cancel()
+            networkPathObservationTask?.cancel()
+            terminalEventListenerTask?.cancel()
+            terminalSubscriptionStartTask?.cancel()
+            renderGridLivenessTimer?.cancel()
+            renderGridLivenessProbeTask?.cancel()
+            terminalSubscriptionRefreshTask?.cancel()
+            createWorkspaceTask?.cancel()
+            createTerminalTask?.cancel()
+            workspaceListRefreshTask?.cancel()
+            pullToRefreshTask?.cancel()
+            teardownSecondaryMacSubscriptions()
+            if let remoteClient {
+                Task { await remoteClient.disconnect() }
+            }
         }
     }
 
