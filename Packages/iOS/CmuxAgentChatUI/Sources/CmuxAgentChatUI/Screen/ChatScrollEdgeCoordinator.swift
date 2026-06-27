@@ -67,8 +67,12 @@ final class ChatScrollEdgeCoordinator {
             } else {
                 interaction = UIScrollEdgeElementContainerInteraction()
                 interaction.edge = .bottom
-                composerView.addInteraction(interaction)
                 bottomInteraction = interaction
+            }
+
+            if interaction.view !== composerView {
+                interaction.view?.removeInteraction(interaction)
+                composerView.addInteraction(interaction)
             }
 
             if bottomInteractionTableView !== tableView {
