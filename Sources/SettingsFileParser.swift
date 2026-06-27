@@ -43,7 +43,8 @@ struct SettingsFileParser {
             parseSidebarAppearanceSection(sidebarAppearanceSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
         if let automationSection = root["automation"] as? [String: Any] {
-            parseAutomationSection(automationSection, sourcePath: sourcePath, snapshot: &snapshot)
+            AutomationSettingsFileSectionParser(projection: projection)
+                .parse(automationSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
         if let browserSection = root["browser"] as? [String: Any] {
             BrowserSettingsFileSectionParser(projection: projection)
@@ -474,60 +475,6 @@ struct SettingsFileParser {
         if let value = jsonDouble(section["tintOpacity"]) {
             let clamped = min(max(value, 0), 1)
             snapshot.managedUserDefaults["sidebarTintOpacity"] = .double(clamped)
-        }
-    }
-
-    private func parseAutomationSection(
-        _ section: [String: Any],
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        if let raw = jsonString(section["socketControlMode"]) {
-            let knownModes = Set([
-                "off", "cmuxonly", "automation", "password", "allowall", "openaccess", "fullopenaccess",
-                "notifications", "full",
-            ])
-            let normalizedRaw = raw.replacingOccurrences(of: "-", with: "").lowercased()
-            guard knownModes.contains(normalizedRaw) else {
-                logInvalid("automation.socketControlMode", sourcePath: sourcePath)
-                return
-            }
-            snapshot.managedUserDefaults[SocketControlSettings.appStorageKey] = .string(
-                SocketControlSettings.migrateMode(raw).rawValue
-            )
-        }
-        if section.keys.contains("socketPassword") {
-            if section["socketPassword"] is NSNull {
-                snapshot.managedCustomSettings.socketPassword = .clear
-            } else if let raw = jsonString(section["socketPassword"]) {
-                snapshot.managedCustomSettings.socketPassword = raw.isEmpty ? .clear : .set(raw)
-            } else {
-                logInvalid("automation.socketPassword", sourcePath: sourcePath)
-                return
-            }
-        }
-        projection.applyBooleanSettings(AutomationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, into: &snapshot)
-        projection.applyStringSettings(AutomationSettingsFileMapping.stringSettings, from: section, into: &snapshot)
-        if let raw = jsonString(section["kiroNotificationLevel"]) {
-            if KiroNotificationLevel(rawValue: raw) != nil {
-                snapshot.managedUserDefaults[IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey] = .string(raw)
-            } else {
-                logInvalid("automation.kiroNotificationLevel", sourcePath: sourcePath)
-            }
-        }
-        if let value = jsonInt(section["portBase"]) {
-            guard value > 0 else {
-                logInvalid("automation.portBase", sourcePath: sourcePath)
-                return
-            }
-            snapshot.managedUserDefaults[AutomationSettings.portBaseKey] = .int(value)
-        }
-        if let value = jsonInt(section["portRange"]) {
-            guard value > 0 else {
-                logInvalid("automation.portRange", sourcePath: sourcePath)
-                return
-            }
-            snapshot.managedUserDefaults[AutomationSettings.portRangeKey] = .int(value)
         }
     }
 

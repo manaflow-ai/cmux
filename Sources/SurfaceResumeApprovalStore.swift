@@ -1,6 +1,7 @@
 import CmuxSettings
 import CmuxWorkspaces
 import Foundation
+import CmuxFoundation
 #if canImport(Security)
 import Security
 #endif
@@ -405,7 +406,7 @@ struct SurfaceResumeApprovalStore {
             return .missing
         }
         do {
-            let sanitized = try JSONCParser.preprocess(data: data)
+            let sanitized = try data.jsoncPreprocessed()
             guard let root = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any] else {
                 return .invalid
             }
@@ -448,7 +449,7 @@ struct SurfaceResumeApprovalStore {
                 return false
             case .parsed:
                 guard let existingData = fileManager.contents(atPath: fileURL.path),
-                      let decodedSource = try? JSONCParser.source(data: existingData),
+                      let decodedSource = try? existingData.jsoncSource(),
                       let updatedSource = JSONCObjectEditor.setNestedObjectProperty(
                           parentKey: Self.settingsTerminalSectionKey,
                           childKey: Self.settingsRecordsKey,
@@ -460,7 +461,7 @@ struct SurfaceResumeApprovalStore {
                 guard let updatedData = updatedSource.data(using: decodedSource.encoding) else {
                     return false
                 }
-                let sanitized = try JSONCParser.preprocess(data: updatedData)
+                let sanitized = try updatedData.jsoncPreprocessed()
                 guard let root = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any],
                       JSONSerialization.isValidJSONObject(root) else {
                     return false

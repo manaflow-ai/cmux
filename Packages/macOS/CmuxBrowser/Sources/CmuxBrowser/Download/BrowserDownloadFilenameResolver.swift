@@ -1,15 +1,28 @@
-import CmuxBrowser
-import Foundation
+public import Foundation
+public import UniformTypeIdentifiers
 import ImageIO
-import UniformTypeIdentifiers
 
-nonisolated enum BrowserDownloadHTTPStatusDecision: Equatable, Sendable {
-    case allow
-    case reject(statusCode: Int)
-}
+/// Pure filename and download-policy resolution for the browser download paths.
+///
+/// Decides whether a navigation response should be forced to download, sanitizes
+/// and image-corrects suggested filenames, and classifies HTTP status. Every
+/// member is a pure function of its inputs with no live browser or webview state.
+/// The localized fallback filename (used when no usable name can be derived) is
+/// injected at construction so the string resolves in the app bundle; see the
+/// app-side `init()` convenience that supplies it.
+public struct BrowserDownloadFilenameResolver: Sendable {
+    /// Localized fallback filename used when no usable name can be derived.
+    private let defaultFilename: String
 
-nonisolated struct BrowserDownloadFilenameResolver: Sendable {
-    func shouldForceDownload(
+    /// Create a resolver with the localized fallback filename to use when no
+    /// usable name can be derived from a response, URL, or suggested filename.
+    public init(defaultFilename: String) {
+        self.defaultFilename = defaultFilename
+    }
+
+    /// Whether the response's MIME type or `Content-Disposition` requires forcing
+    /// a download rather than rendering inline.
+    public func shouldForceDownload(
         mimeType: String?,
         contentDisposition: String?
     ) -> Bool {
@@ -22,7 +35,10 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         return Self.forceDownloadMIMETypes.contains(normalizedMIMEType)
     }
 
-    func navigationResponseDownloadReason(
+    /// The reason a navigation response should become a download, or `nil` when it
+    /// can be shown inline. Returns `content-disposition`, `forceDownloadMIME`, or
+    /// `cannotShowMIME`.
+    public func navigationResponseDownloadReason(
         mimeType: String?,
         canShowMIMEType: Bool,
         contentDisposition: String?
@@ -36,7 +52,9 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         return canShowMIMEType ? nil : "cannotShowMIME"
     }
 
-    func httpStatusDecision(for response: URLResponse?) -> BrowserDownloadHTTPStatusDecision {
+    /// Whether the response's HTTP status permits saving the payload (2xx allows,
+    /// any other HTTP status rejects, non-HTTP responses allow).
+    public func httpStatusDecision(for response: URLResponse?) -> BrowserDownloadHTTPStatusDecision {
         guard let httpResponse = response as? HTTPURLResponse else {
             return .allow
         }
@@ -46,7 +64,8 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         return .allow
     }
 
-    func imageType(forImageData data: Data) -> UTType? {
+    /// The image UTType of raw bytes, or `nil` when the data is not a recognized image.
+    public func imageType(forImageData data: Data) -> UTType? {
         guard let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
               let typeIdentifier = CGImageSourceGetType(imageSource) as String?,
               let type = UTType(typeIdentifier),
@@ -56,7 +75,8 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         return type
     }
 
-    func imageType(forDownloadedFileAt fileURL: URL) -> UTType? {
+    /// The image UTType of a file on disk, or `nil` when the file is not a recognized image.
+    public func imageType(forDownloadedFileAt fileURL: URL) -> UTType? {
         guard let imageSource = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
               let typeIdentifier = CGImageSourceGetType(imageSource) as String?,
               let type = UTType(typeIdentifier),
@@ -66,7 +86,9 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         return type
     }
 
-    func suggestedFilename(
+    /// The sanitized filename to suggest in a save panel, image-corrected when an
+    /// `imageType` is known so the extension matches the actual image format.
+    public func suggestedFilename(
         suggestedFilename: String?,
         response: URLResponse?,
         sourceURL: URL,
@@ -88,7 +110,8 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         )
     }
 
-    func suggestedFilename(
+    /// The sanitized filename to suggest, inferring the image type from `imageData`.
+    public func suggestedFilename(
         suggestedFilename: String?,
         response: URLResponse?,
         sourceURL: URL,
@@ -102,7 +125,8 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         )
     }
 
-    func suggestedFilename(
+    /// The sanitized filename to suggest, inferring the image type from a downloaded file.
+    public func suggestedFilename(
         suggestedFilename: String?,
         sourceURL: URL,
         imageFileURL: URL
@@ -115,7 +139,9 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         )
     }
 
-    func suggestedFilenameForDataURL(
+    /// The filename to suggest for a `data:` URL download, deriving an extension
+    /// from the MIME type when no usable suggested filename is provided.
+    public func suggestedFilenameForDataURL(
         mimeType: String?,
         suggestedFilename: String?
     ) -> String {
@@ -170,10 +196,6 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         let nsFilename = filename as NSString
         let base = nsFilename.deletingPathExtension
         return base.isEmpty ? defaultFilename : base
-    }
-
-    private var defaultFilename: String {
-        String(localized: "browser.download.defaultFilename", defaultValue: "download")
     }
 
     private static let forceDownloadMIMETypes: Set<String> = [

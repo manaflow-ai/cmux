@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 import os
 
 nonisolated private let settingsFileReaderLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
@@ -71,7 +72,7 @@ struct SettingsFileReader {
         }
 
         do {
-            let sanitized = try JSONCParser.preprocess(data: data)
+            let sanitized = try data.jsoncPreprocessed()
             let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
             guard let root = object as? [String: Any] else {
                 return .invalid

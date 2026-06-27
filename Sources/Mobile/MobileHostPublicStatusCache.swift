@@ -10,8 +10,8 @@ import Foundation
 ///
 /// Stays app-side (rather than in ``CMUXMobileCore``) because ``result(includeIdentity:)``
 /// renders each route through `CmxAttachRoute.mobileHostJSONObject` (an app
-/// extension) and folds it into `MobileHostService.publicStatusPayload` /
-/// `identityStatusPayload`, both app-owned.
+/// extension) and folds it into `MobileHostPublicStatus.jsonObject` /
+/// `MobileHostService.identityStatusPayload`, the latter app-owned.
 ///
 /// A real instance type replacing the former caseless-enum namespace; the app
 /// holds one process-wide default at its composition point
@@ -49,7 +49,7 @@ final class MobileHostPublicStatusCache: @unchecked Sendable {
         return .ok(
             includeIdentity
                 ? MobileHostService.identityStatusPayload(routesPayload: routesPayload)
-                : MobileHostService.publicStatusPayload(routesPayload: routesPayload)
+                : MobileHostPublicStatus(routesPayload: routesPayload).jsonObject
         )
     }
 }

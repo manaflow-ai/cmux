@@ -1,3 +1,4 @@
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxGit
 import AppKit
@@ -569,3 +570,11 @@ final class FileExplorerStore: ObservableObject {
         directoryWatchTask?.cancel()
     }
 }
+
+// MARK: - FileExplorerNavigationStore
+
+// The selection/expansion mutators and navigation-anchor paths the
+// `FileExplorerOutlineNavigator` (CmuxAppKitSupportUI) drives are already
+// members of `FileExplorerStore`; this conformance exposes that narrow slice
+// through the package seam without moving the broader store down a layer.
+extension FileExplorerStore: FileExplorerNavigationStore {}

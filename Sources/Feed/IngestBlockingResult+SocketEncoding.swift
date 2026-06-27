@@ -1,11 +1,11 @@
 import CMUXAgentLaunch
 import Foundation
 
-extension FeedCoordinator.IngestBlockingResult {
+extension WorkstreamIngestBlockingResult {
     /// The `[String: Any]` JSON payload the `feed.push` socket handler emits for
     /// a blocking-ingest outcome. Byte-faithful port of the legacy
-    /// `FeedSocketEncoding.payload(for:)`. Stays app-side because it consumes the
-    /// app-owned ``FeedCoordinator/IngestBlockingResult``; the resolved decision's
+    /// `FeedSocketEncoding.payload(for:)`. Stays app-side because the resolved
+    /// decision's
     /// own JSON shape comes from the package
     /// ``WorkstreamDecision/socketEncodedDictionary``.
     var socketEncodedDictionary: [String: Any] {

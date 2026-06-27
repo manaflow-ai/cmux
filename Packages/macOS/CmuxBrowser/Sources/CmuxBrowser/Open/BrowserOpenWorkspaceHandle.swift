@@ -49,6 +49,13 @@ public protocol BrowserOpenWorkspaceHandle: AnyObject {
     /// (legacy `workspace.topRightBrowserReusePane()`).
     func topRightBrowserReusePane() -> PaneID?
 
+    /// The pane an embedded-link open should reuse for a new browser surface,
+    /// found by walking the source panel's split-tree ancestry to the closest
+    /// horizontal ancestor where the source is in the first (left) branch
+    /// (legacy `workspace.preferredRightSideTargetPane(fromPanelId:)`). `nil`
+    /// when no such pane exists, in which case the open splits from the source.
+    func preferredRightSideTargetPane(fromPanelId panelId: UUID) -> PaneID?
+
     /// Creates a new browser surface in `paneId`, returning the created panel's
     /// id (legacy `workspace.newBrowserSurface(inPane:url:focus:insertAtEnd:
     /// preferredProfileID:)?.id`).

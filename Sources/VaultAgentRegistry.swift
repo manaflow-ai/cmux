@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 import OSLog
 import CMUXAgentLaunch
 
@@ -524,7 +525,7 @@ struct CmuxVaultAgentRegistry: Sendable {
             return nil
         }
         do {
-            let sanitized = try JSONCParser.preprocess(data: data)
+            let sanitized = try data.jsoncPreprocessed()
             return try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
         } catch {
             logger.fault(

@@ -2,6 +2,7 @@
 @_spi(CmuxHostTransport) import CmuxSidebarUI
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import AppKit
+import CmuxAppKitSupportUI
 import ExtensionFoundation
 import SwiftUI
 

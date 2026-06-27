@@ -1,5 +1,6 @@
 public import AppKit
 import Dispatch
+import ObjectiveC.runtime
 
 extension NSWindow {
     /// The frame the minimal-mode sidebar titlebar control host occupies in this
@@ -74,5 +75,44 @@ extension NSWindow {
     private func minimalModeTrafficLightFrameInContentCoordinates() -> NSRect? {
         guard let contentView else { return nil }
         return minimalModeTrafficLightFrameInContentCoordinates(contentView: contentView)
+    }
+}
+
+extension NSWindow {
+    // Associated-object key token + opaque pointer key backing the minimal-mode
+    // sidebar titlebar controls availability flag. `nonisolated(unsafe)`: an
+    // immutable `NSObject` identity used only as an opaque objc-runtime key,
+    // reachable from the `nonisolated` availability accessors below (their
+    // app-target callers are non-isolated free functions).
+    private nonisolated(unsafe) static let minimalModeSidebarTitlebarControlsAvailableToken = NSObject()
+    private nonisolated static let minimalModeSidebarTitlebarControlsAvailableKey =
+        UnsafeRawPointer(Unmanaged.passUnretained(minimalModeSidebarTitlebarControlsAvailableToken).toOpaque())
+
+    /// Records whether the minimal-mode sidebar titlebar controls are currently
+    /// available (mounted/visible) for this window, stored as an NSWindow
+    /// associated object. Faithful lift of the app-side
+    /// `setMinimalModeSidebarTitlebarControlsAvailable(_:in:)` free function;
+    /// optionality now lives at the call site.
+    public nonisolated func setMinimalModeSidebarTitlebarControlsAvailable(_ isAvailable: Bool) {
+        objc_setAssociatedObject(
+            self,
+            NSWindow.minimalModeSidebarTitlebarControlsAvailableKey,
+            NSNumber(value: isAvailable),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    /// Whether the minimal-mode sidebar titlebar controls are available for this
+    /// window. Defaults to `true` when the flag has never been set. Faithful lift
+    /// of the app-side `minimalModeSidebarTitlebarControlsAreAvailable(in:)` free
+    /// function.
+    public nonisolated var minimalModeSidebarTitlebarControlsAreAvailable: Bool {
+        guard let value = objc_getAssociatedObject(
+            self,
+            NSWindow.minimalModeSidebarTitlebarControlsAvailableKey
+        ) as? NSNumber else {
+            return true
+        }
+        return value.boolValue
     }
 }

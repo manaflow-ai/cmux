@@ -122,6 +122,15 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// work here; the drag pasteboard and overlay are app-global, so the probe is
     /// a held `@MainActor` instance with no state.
     let dragOverlayProbes = DebugDragOverlayProbes()
+
+    /// Stateless app-side capture of the preferred visible window to a PNG,
+    /// backing the DEBUG-only v1 socket command `screenshot` (see
+    /// `DebugWindowScreenshotCapture` and the `controlDebugCaptureScreenshot`
+    /// witness in `TerminalController+ControlDebugContext.swift`). The witness
+    /// keeps the `v2MainSync` focus-allowance scope hop and forwards the inner
+    /// window-select/render/write work here; the window list and rendering are
+    /// app-global, so the probe is a held `@MainActor` instance with no state.
+    let debugWindowScreenshotCapture = DebugWindowScreenshotCapture()
 #endif
 
     // `internal` (not `private`): the `workspace.remote.pty_*` worker-lane
@@ -4919,11 +4928,11 @@ class TerminalController: MobileViewportSurfaceLimiting {
         // paths, so the advertised capabilities can never drift. Includes
         // workspace.actions.v1 (the mobile-gated pin/unpin/rename handler), which
         // the iOS client uses to show or hide rename/pin.
-        let capabilities = MobileHostService.mobileHostCapabilities
+        let capabilities = MobileHostCapabilities.advertised.identifiers
         guard includePrivateMetadata else {
-            return .ok(MobileHostService.publicStatusPayload(
+            return .ok(MobileHostPublicStatus(
                 routesPayload: status.routes.map(\.mobileHostJSONObject)
-            ))
+            ).jsonObject)
         }
 
         let tabManager = v2ResolveTabManager(params: params)

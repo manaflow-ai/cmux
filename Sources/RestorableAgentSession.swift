@@ -723,30 +723,11 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 }
 
-nonisolated struct SurfaceResumeBindingIndex: Sendable {
-    static let empty = SurfaceResumeBindingIndex(bindingsByPanel: [:])
-
-    typealias PanelKey = RestorableAgentSessionIndex.PanelKey
-
-    private let bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]
-    private let bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot]
-
-    init(bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]) {
-        self.bindingsByPanel = bindingsByPanel
-        var bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
-        for (key, binding) in bindingsByPanel {
-            let existing = bindingsByPanelId[key.panelId]
-            if existing == nil || binding.updatedAt >= (existing?.updatedAt ?? 0) {
-                bindingsByPanelId[key.panelId] = binding
-            }
-        }
-        self.bindingsByPanelId = bindingsByPanelId
-    }
-
-    func binding(workspaceId: UUID, panelId: UUID) -> SurfaceResumeBindingSnapshot? {
-        bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? bindingsByPanelId[panelId]
-    }
-
+// The `SurfaceResumeBindingIndex` value-type core (stored maps, init, and the
+// `binding(workspaceId:panelId:)` accessor) lives in CmuxWorkspaces. Only the two
+// process-detection factories stay app-side because they read the app-target
+// `processDetectedTmuxBindings` scanner.
+extension SurfaceResumeBindingIndex {
     static func loadProcessDetectedBindingsSynchronously(
         fileManager: FileManager = .default
     ) -> SurfaceResumeBindingIndex {

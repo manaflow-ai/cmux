@@ -1601,30 +1601,15 @@ class GhosttyApp {
         }
         #endif
 
-        let openedInBrowser: Bool
-        if let targetPane = workspace.preferredRightSideTargetPane(fromPanelId: sourcePanelId) {
-            #if DEBUG
-            cmuxDebugLog("link.openURL opening in existing browser pane=\(targetPane)")
-            #endif
-            openedInBrowser = workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
-        } else {
-            #if DEBUG
-            cmuxDebugLog("link.openURL opening as new browser split from surface=\(sourcePanelId)")
-            #endif
-            openedInBrowser = workspace.newBrowserSplit(from: sourcePanelId, orientation: .horizontal, url: url) != nil
-        }
-
-        guard openedInBrowser else {
-            #if DEBUG
-            cmuxDebugLog(
-                "link.openURL deferred embedded browser creation failed, opening externally " +
-                "host=\(host) url=\(url)"
-            )
-            #endif
-            return NSWorkspace.shared.open(url)
-        }
-
-        return true
+        // The app-global resolution above stays here (it searches every window's
+        // tab manager); the post-resolution open is owned by the resolved
+        // workspace's BrowserOpenCoordinator in CmuxBrowser.
+        return resolved.tabManager.browserOpen.openEmbeddedLink(
+            in: workspace,
+            url: url,
+            sourcePanelId: sourcePanelId,
+            host: host
+        )
     }
 
     private static func callbackContext(from userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceCallbackContext? {
