@@ -92,8 +92,20 @@ cmux_claude_wrapper_target_looks_like_reexec_shim() {
     cmux_claude_wrapper_is_self_or_shim "$target" && return 0
     [[ -f "$target" && -r "$target" ]] || return 1
 
-    local snippet
-    snippet="$(head -c 8192 "$target" 2>/dev/null || true)"
+    case "$target" in
+        */.asdf/shims/claude|*/.mise/shims/claude|*/.local/share/mise/shims/claude|*/.volta/bin/claude)
+            return 1
+            ;;
+    esac
+
+    local magic
+    magic="$(od -An -N2 -tx1 "$target" 2>/dev/null | tr -d '[:space:]')"
+    [[ "$magic" == "2321" ]] || return 1
+
+    local first_line snippet
+    IFS= read -r first_line < "$target" || first_line=""
+    snippet="$(sed -n '1,160p' "$target" 2>/dev/null || true)"
+
     case "$snippet" in
         *"exec claude"*|*"exec \"claude\""*|*"exec 'claude'"*|\
         *"exec env claude"*|*"exec /usr/bin/env claude"*|\
@@ -119,6 +131,14 @@ cmux_claude_wrapper_target_looks_like_reexec_shim() {
                     return 0
                     ;;
             esac
+            ;;
+    esac
+    case "$first_line" in
+        *node*|*Node*)
+            return 1
+            ;;
+        *sh*|*bash*|*zsh*|*fish*|*python*|*ruby*|*perl*)
+            return 0
             ;;
     esac
     return 1
