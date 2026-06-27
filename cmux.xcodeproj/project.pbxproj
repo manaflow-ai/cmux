@@ -97,6 +97,9 @@
 		E7DCC11AE1444130B34965BB /* AutoNamingPromptLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDAB409B8C504586AFDD1912 /* AutoNamingPromptLanguage.swift */; };
 		06FF95CA91A743A18403BD15 /* AutoNamingSanitizationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27F56FD14E6C4A1E884C04D6 /* AutoNamingSanitizationOutcome.swift */; };
 		586FFC5DC8F447DA90424F7B /* AutoNamingSanitizationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27F56FD14E6C4A1E884C04D6 /* AutoNamingSanitizationOutcome.swift */; };
+		A0A100000000000000000002 /* AutoNamingSubprocessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0A100000000000000000001 /* AutoNamingSubprocessRunner.swift */; };
+		A0A100000000000000000003 /* AutoNamingSubprocessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0A100000000000000000001 /* AutoNamingSubprocessRunner.swift */; };
+		A0A100000000000000000005 /* AutoNamingSubprocessRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0A100000000000000000004 /* AutoNamingSubprocessRunnerTests.swift */; };
 		1FCDB66B73934A30AC409460 /* AutoNamingTranscriptExtraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90B3ABB70F3E4DD3AC66B845 /* AutoNamingTranscriptExtraction.swift */; };
 		E971B0E1B617430B927B1C39 /* AutoNamingTranscriptExtraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90B3ABB70F3E4DD3AC66B845 /* AutoNamingTranscriptExtraction.swift */; };
 		A0B100000000000000000002 /* AutoNamingTranscriptSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0B100000000000000000001 /* AutoNamingTranscriptSource.swift */; };
@@ -1271,6 +1274,8 @@
 		46792DAA478444ED87B17B31 /* AutoNamingHookPayloadAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingHookPayloadAdapterTests.swift; sourceTree = "<group>"; };
 		DDAB409B8C504586AFDD1912 /* AutoNamingPromptLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingPromptLanguage.swift; sourceTree = "<group>"; };
 		27F56FD14E6C4A1E884C04D6 /* AutoNamingSanitizationOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingSanitizationOutcome.swift; sourceTree = "<group>"; };
+		A0A100000000000000000001 /* AutoNamingSubprocessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingSubprocessRunner.swift; sourceTree = "<group>"; };
+		A0A100000000000000000004 /* AutoNamingSubprocessRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingSubprocessRunnerTests.swift; sourceTree = "<group>"; };
 		90B3ABB70F3E4DD3AC66B845 /* AutoNamingTranscriptExtraction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingTranscriptExtraction.swift; sourceTree = "<group>"; };
 		A0B100000000000000000001 /* AutoNamingTranscriptSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingTranscriptSource.swift; sourceTree = "<group>"; };
 		C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundWorkspacePrimeCoordinator.swift; sourceTree = "<group>"; };
@@ -3126,6 +3131,7 @@
 				90B3ABB70F3E4DD3AC66B845 /* AutoNamingTranscriptExtraction.swift */,
 				A0B100000000000000000001 /* AutoNamingTranscriptSource.swift */,
 				27F56FD14E6C4A1E884C04D6 /* AutoNamingSanitizationOutcome.swift */,
+				A0A100000000000000000001 /* AutoNamingSubprocessRunner.swift */,
 				5257257034CA4729B1211166 /* CMUXCLI+AutoNaming.swift */,
 				5257257034CA4729B121116A /* CMUXCLI+AutoNamingDispatch.swift */,
 				5257257034CA4729B1211167 /* CMUXCLI+AutoNamingGenericHooks.swift */,
@@ -3285,6 +3291,7 @@
 				70034F4D644C4896B8B925F3 /* AutoNamingCodexAdapterTests.swift */,
 				07EC52007B2144C59C047774 /* AutoNamingGrokAdapterTests.swift */,
 				46792DAA478444ED87B17B31 /* AutoNamingHookPayloadAdapterTests.swift */,
+				A0A100000000000000000004 /* AutoNamingSubprocessRunnerTests.swift */,
 				F016B5C09357B3226FA2E014 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift */,
 				C9A57514C9A57514C9A57514 /* SidebarScrollViewConfiguratorTests.swift */,
 				C9A57506C9A57506C9A57506 /* SidebarWorkspaceScrollLayoutTests.swift */,
@@ -4518,6 +4525,7 @@
 				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
 				E7DCC11AE1444130B34965BB /* AutoNamingPromptLanguage.swift in Sources */,
 				586FFC5DC8F447DA90424F7B /* AutoNamingSanitizationOutcome.swift in Sources */,
+				A0A100000000000000000002 /* AutoNamingSubprocessRunner.swift in Sources */,
 				E971B0E1B617430B927B1C39 /* AutoNamingTranscriptExtraction.swift in Sources */,
 				A0B100000000000000000003 /* AutoNamingTranscriptSource.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
@@ -4649,6 +4657,8 @@
 				74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */,
 				1CAF0A7B546A4386A4220BDE /* AutoNamingPromptLanguage.swift in Sources */,
 				06FF95CA91A743A18403BD15 /* AutoNamingSanitizationOutcome.swift in Sources */,
+				A0A100000000000000000003 /* AutoNamingSubprocessRunner.swift in Sources */,
+				A0A100000000000000000005 /* AutoNamingSubprocessRunnerTests.swift in Sources */,
 				1FCDB66B73934A30AC409460 /* AutoNamingTranscriptExtraction.swift in Sources */,
 				A0B100000000000000000002 /* AutoNamingTranscriptSource.swift in Sources */,
 				D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */,
