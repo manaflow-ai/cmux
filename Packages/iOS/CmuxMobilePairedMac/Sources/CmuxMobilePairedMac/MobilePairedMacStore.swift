@@ -145,7 +145,6 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         } else {
             copiedLegacyAttachToken = false
         }
-        let attachTokenChanged = attachToken != nil
         let shouldStoreAttachTokenMetadata: Bool
         if let attachToken {
             shouldStoreAttachTokenMetadata = saveAttachTokenSecret(
@@ -153,12 +152,10 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 macDeviceID: macDeviceID,
                 ownerKey: ownerKey
             )
-            if !shouldStoreAttachTokenMetadata {
-                deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: ownerKey)
-            }
         } else {
             shouldStoreAttachTokenMetadata = false
         }
+        let attachTokenChanged = shouldStoreAttachTokenMetadata
         do {
             try transaction {
                 if markActive {

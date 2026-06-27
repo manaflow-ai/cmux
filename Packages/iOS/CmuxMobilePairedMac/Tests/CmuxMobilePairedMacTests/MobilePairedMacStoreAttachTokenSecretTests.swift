@@ -154,6 +154,55 @@ import Testing
         #expect(secretStore.snapshot().isEmpty)
     }
 
+    @Test func failedAttachTokenRefreshPreservesExistingSecret() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("paired-macs.sqlite3")
+        let secretStore = InMemoryAttachTokenSecretStore()
+        let route = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.5", port: 8443)
+        )
+        let store = try MobilePairedMacStore(databaseURL: url, attachTokenSecrets: secretStore)
+        try await store.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mac A",
+            routes: [route],
+            attachToken: "existing-secret",
+            attachTokenExpiresAt: Date(timeIntervalSince1970: 2_000_000_000),
+            attachTokenWorkspaceID: "workspace-a",
+            attachTokenTerminalID: nil,
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 1)
+        )
+
+        secretStore.rejectSaves = true
+        try await store.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mac A",
+            routes: [route],
+            attachToken: "fresh-secret",
+            attachTokenExpiresAt: Date(timeIntervalSince1970: 2_000_003_600),
+            attachTokenWorkspaceID: "workspace-fresh",
+            attachTokenTerminalID: "terminal-fresh",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        let saved = try #require(try await store.activeMac(stackUserID: "user-1", teamID: "team-a"))
+        #expect(saved.attachToken == "existing-secret")
+        #expect(saved.attachTokenWorkspaceID == "workspace-a")
+        #expect(saved.attachTokenTerminalID == nil)
+        #expect(secretStore.snapshot().values.sorted() == ["existing-secret"])
+    }
+
     @Test func failedLegacyClaimDeletesCopiedAttachTokenSecret() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

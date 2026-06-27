@@ -25,7 +25,7 @@ final class MobileAttachTicketStore {
     private let lock = NSLock()
     private var recordsByAuthToken: [String: Record] = [:]
 
-    init(maximumStoredTickets: Int = Self.defaultMaximumStoredTickets) {
+    init(maximumStoredTickets: Int = MobileAttachTicketStore.defaultMaximumStoredTickets) {
         self.maximumStoredTickets = max(1, maximumStoredTickets)
     }
 

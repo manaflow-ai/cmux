@@ -59,11 +59,32 @@ struct MobilePairedMacKeychainAttachTokenSecretStore: MobileAttachTokenSecretSto
 
     private func keychainWrite(_ value: String, account: String) -> Bool {
         guard let data = value.data(using: .utf8) else { return false }
-        keychainDelete(account: account)
+        let update: [String: Any] = [kSecValueData as String: data]
+        let updateStatus = SecItemUpdate(baseQuery(account: account) as CFDictionary, update as CFDictionary)
+        if updateStatus == errSecSuccess {
+            return true
+        }
+        guard updateStatus == errSecItemNotFound else {
+            pairedMacStoreLog.warning(
+                "attach token keychain update failed status=\(updateStatus, privacy: .public) account=\(account, privacy: .private)"
+            )
+            return false
+        }
+
         var insert = baseQuery(account: account)
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(insert as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            let retryStatus = SecItemUpdate(baseQuery(account: account) as CFDictionary, update as CFDictionary)
+            if retryStatus == errSecSuccess {
+                return true
+            }
+            pairedMacStoreLog.warning(
+                "attach token keychain duplicate update failed status=\(retryStatus, privacy: .public) account=\(account, privacy: .private)"
+            )
+            return false
+        }
         if status != errSecSuccess {
             pairedMacStoreLog.warning(
                 "attach token keychain write failed status=\(status, privacy: .public) account=\(account, privacy: .private)"
