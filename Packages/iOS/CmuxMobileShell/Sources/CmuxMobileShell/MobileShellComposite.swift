@@ -4827,7 +4827,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let hasAttachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
 
         var requests: [WorkspaceListRequest] = []
-        if hasAttachToken {
+        if hasAttachToken && ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             requests.append(
                 WorkspaceListRequest(
                     data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),

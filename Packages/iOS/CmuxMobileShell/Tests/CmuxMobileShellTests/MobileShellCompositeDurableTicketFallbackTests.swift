@@ -147,6 +147,8 @@ private actor DurableTicketFallbackTransport: CmxByteTransport {
 }
 
 private actor DurableTicketFallbackRouter {
+    private static let workspaceID = "11111111-1111-4111-8111-111111111111"
+
     private let route: CmxAttachRoute
     private let expiresAt: Date
     private var recordedRequests: [DurableTicketFallbackRequest] = []
@@ -185,7 +187,7 @@ private actor DurableTicketFallbackRouter {
 
     private func attachTicketFrame(id: String?) throws -> Data {
         let ticket = try CmxAttachTicket(
-            workspaceID: "fresh-workspace",
+            workspaceID: Self.workspaceID,
             terminalID: nil,
             macDeviceID: "mac-a",
             macDisplayName: "Desk Mac",
@@ -203,7 +205,7 @@ private actor DurableTicketFallbackRouter {
         try resultFrame(id: id, result: [
             "workspaces": [
                 [
-                    "id": "fresh-workspace",
+                    "id": workspaceID,
                     "title": "Fresh Workspace",
                     "current_directory": "/Users/test/project",
                     "is_selected": true,
