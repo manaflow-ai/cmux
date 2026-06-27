@@ -32,6 +32,8 @@ actor DurableTicketFallbackRouter {
                 code: "forbidden",
                 message: "Full workspace list requires Mac-wide authorization"
             )
+        case ("workspace.list", "scoped-token") where request.workspaceID == Self.workspaceID:
+            return try workspaceListFrame(id: request.id)
         case ("workspace.list", "fresh-token") where request.workspaceID == Self.workspaceID:
             return try workspaceListFrame(id: request.id)
         default:

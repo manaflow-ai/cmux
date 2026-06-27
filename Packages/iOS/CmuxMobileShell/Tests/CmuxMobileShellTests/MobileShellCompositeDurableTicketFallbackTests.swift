@@ -76,6 +76,60 @@ import Testing
         #expect(requests[3].workspaceID == DurableTicketFallbackRouter.workspaceID)
     }
 
+    @Test func scopedDurableReconnectUsesAttachTokenBeforeStackProbe() async throws {
+        let route = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+        )
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let expiresAt = now.addingTimeInterval(3600)
+        let pairedStore = DelayedTeamPairedMacStore(recordsByTeam: ["": [MobilePairedMac(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [route],
+            attachToken: "scoped-token",
+            attachTokenExpiresAt: expiresAt,
+            attachTokenWorkspaceID: DurableTicketFallbackRouter.workspaceID,
+            attachTokenTerminalID: nil,
+            createdAt: now,
+            lastSeenAt: now,
+            isActive: true,
+            stackUserID: "user-1",
+            teamID: nil
+        )]], blockedTeams: [])
+
+        let router = DurableTicketFallbackRouter(
+            route: route,
+            expiresAt: expiresAt
+        )
+        let runtime = DurableTicketFallbackRuntime(
+            transportFactory: DurableTicketFallbackTransportFactory(router: router),
+            now: { now }
+        )
+        let defaultsSuiteName = "MobileShellCompositeScopedDurableTicketTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: defaults,
+            multiMacAggregationDefaults: defaults
+        )
+
+        let reconnected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+
+        #expect(reconnected)
+        let firstRequest = try #require(await router.requests().first)
+        #expect(firstRequest.method == "workspace.list")
+        #expect(firstRequest.attachToken == "scoped-token")
+        #expect(firstRequest.stackAccessToken == nil)
+        #expect(firstRequest.workspaceID == DurableTicketFallbackRouter.workspaceID)
+    }
+
     @Test func durableAttachTicketPreservesPersistedScope() throws {
         let route = try CmxAttachRoute(
             id: "tailscale",
