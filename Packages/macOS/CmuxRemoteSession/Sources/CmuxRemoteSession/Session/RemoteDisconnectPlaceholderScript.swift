@@ -12,7 +12,7 @@ public import Foundation
 /// The target and every banner string are base64-encoded and decoded inside the
 /// shell so no value (`$(id)`, backticks, quotes, escape sequences, or a
 /// translator's metacharacters) is ever interpreted as shell syntax.
-public struct RemoteDisconnectPlaceholderScript: Sendable {
+public struct RemoteDisconnectPlaceholderScript {
     /// The localized banner strings rendered by the POSIX `printf` inside the
     /// wrapper. Resolved app-side so `String(localized:)` binds to the app
     /// bundle's localization tables (the package never localizes). All three use
