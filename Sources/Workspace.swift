@@ -950,8 +950,7 @@ extension Workspace {
         _ restorableAgent: SessionRestorableAgentSnapshot?,
         over binding: SurfaceResumeBindingSnapshot
     ) -> Bool {
-        guard let restorableAgent,
-              let capturedAt = restorableAgent.launchCommand?.capturedAt else {
+        guard let restorableAgent else {
             return false
         }
         guard let bindingKindValue = normalizedResumeBindingValue(binding.kind),
@@ -960,7 +959,7 @@ extension Workspace {
             return false
         }
         guard commandLooksLikePoisonedShellResumeBinding(binding.command, kind: bindingKind) else { return false }
-        return capturedAt > binding.updatedAt
+        return restorableAgent.resumeCommand != nil
     }
 
     nonisolated private static func commandLooksLikePoisonedShellResumeBinding(
