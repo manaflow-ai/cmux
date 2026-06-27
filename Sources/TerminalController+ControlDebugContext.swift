@@ -1129,35 +1129,7 @@ extension TerminalController: ControlDebugContext {
         // Capture the main window on main thread
         var captureError: String?
         v2MainSync {
-            let candidateWindows = NSApp.windows.filter { window in
-                window.isVisible &&
-                !window.isMiniaturized &&
-                window.contentView != nil &&
-                !window.frame.isEmpty
-            }
-            let preferredWindow = [NSApp.keyWindow, NSApp.mainWindow]
-                .compactMap { $0 }
-                .first { candidateWindows.contains($0) }
-            let window = preferredWindow ?? candidateWindows.max { lhs, rhs in
-                (lhs.frame.width * lhs.frame.height) < (rhs.frame.width * rhs.frame.height)
-            } ?? NSApp.mainWindow ?? NSApp.windows.first
-
-            guard let window else {
-                captureError = "No window available"
-                return
-            }
-
-            guard let pngData = window.compositedDebugPNGData
-                ?? window.appKitDebugPNGData else {
-                captureError = "Failed to create PNG data"
-                return
-            }
-
-            do {
-                try pngData.write(to: outputPath)
-            } catch {
-                captureError = "Failed to write file: \(error.localizedDescription)"
-            }
+            captureError = self.debugWindowScreenshotCapture.captureMainWindowPNG(to: outputPath)
         }
 
         if let error = captureError {

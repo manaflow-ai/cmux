@@ -627,16 +627,6 @@ final class SessionIndexStore {
         return (providerModel, agentName?.isEmpty == false ? agentName : nil)
     }
 
-    nonisolated static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
-        guard let cString = sqlite3_column_text(stmt, index) else { return nil }
-        return String(cString: cString)
-    }
-
-    nonisolated static func sqliteMessage(_ db: OpaquePointer?) -> String? {
-        guard let db, let cString = sqlite3_errmsg(db) else { return nil }
-        return String(cString: cString)
-    }
-
     // MARK: - Deep search (popover "Show more")
 
     enum SearchScope {
@@ -1142,7 +1132,7 @@ final class SessionIndexStore {
 
         var db: OpaquePointer?
         guard sqlite3_open_v2(snapshot.databaseURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
-            errorBag.add("OpenCode: cannot open opencode.db (\(sqliteMessage(db) ?? "unknown error"))")
+            errorBag.add("OpenCode: cannot open opencode.db (\(SQLiteConnection(db).errorMessage ?? "unknown error"))")
             sqlite3_close(db)
             return []
         }
@@ -1170,7 +1160,7 @@ final class SessionIndexStore {
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            errorBag.add("OpenCode: schema unsupported — \(sqliteMessage(db) ?? "prepare failed")")
+            errorBag.add("OpenCode: schema unsupported — \(SQLiteConnection(db).errorMessage ?? "prepare failed")")
             sqlite3_finalize(stmt)
             return []
         }
@@ -1189,12 +1179,12 @@ final class SessionIndexStore {
 
         var results: [SessionEntry] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
-            let sid = sqliteText(stmt, 0) ?? ""
-            let title = sqliteText(stmt, 1) ?? ""
-            let directory = sqliteText(stmt, 2)
+            let sid = SQLitePreparedStatement(stmt).text(atColumn: 0) ?? ""
+            let title = SQLitePreparedStatement(stmt).text(atColumn: 1) ?? ""
+            let directory = SQLitePreparedStatement(stmt).text(atColumn: 2)
             let updatedMs = sqlite3_column_int64(stmt, 3)
             let modified = Date(timeIntervalSince1970: TimeInterval(updatedMs) / 1000.0)
-            let lastJSON = sqliteText(stmt, 4)
+            let lastJSON = SQLitePreparedStatement(stmt).text(atColumn: 4)
             let (providerModel, agentName) = parseOpenCodeAssistant(lastJSON)
             results.append(SessionEntry(
                 id: "opencode:" + sid,

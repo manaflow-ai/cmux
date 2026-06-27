@@ -2,14 +2,6 @@ import CmuxFoundation
 import Darwin
 import Foundation
 
-struct FileSearchResult: Equatable, Sendable {
-    let path: String
-    let relativePath: String
-    let lineNumber: Int
-    let columnNumber: Int
-    let preview: String
-}
-
 enum FileSearchRipgrepParser {
     static func parseMatchLine(_ line: String, rootPath: String) -> FileSearchResult? {
         guard let data = line.data(using: .utf8),
@@ -46,25 +38,6 @@ enum FileSearchRipgrepParser {
         }
         return String(decoding: data, as: UTF8.self)
     }
-}
-
-struct FileSearchSnapshot: Equatable, Sendable {
-    enum Status: Equatable, Sendable {
-        case idle
-        case unsupported
-        case searching
-        case noMatches
-        case matches
-        case limited(Int)
-        case failed(String)
-    }
-
-    var query: String
-    var results: [FileSearchResult]
-    var status: Status
-    var isSearching: Bool
-
-    static let empty = FileSearchSnapshot(query: "", results: [], status: .idle, isSearching: false)
 }
 
 enum FileExplorerSearchMessages {

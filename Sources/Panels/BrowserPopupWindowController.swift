@@ -47,7 +47,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private var urlObservation: NSKeyValueObservation?
     private var childPopups: [BrowserPopupWindowController] = []
     private let popupUIDelegate: PopupUIDelegate
-    private let popupNavigationDelegate: PopupNavigationDelegate
+    private let popupNavigationDelegate: BrowserPopupNavigationDelegate
     private let downloadDelegate: BrowserDownloadDelegate
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
 
@@ -137,7 +137,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         // Build delegate objects before super.init so they can be assigned
         let uiDel = PopupUIDelegate()
-        let navDel = PopupNavigationDelegate()
+        let navDel = BrowserPopupNavigationDelegate()
         let dlDel = BrowserDownloadDelegate()
         self.popupUIDelegate = uiDel
         self.popupNavigationDelegate = navDel
@@ -173,7 +173,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         // --- Delegates ---
         uiDel.controller = self
-        navDel.controller = self
+        navDel.host = self
         navDel.downloadDelegate = dlDel
         webView.uiDelegate = uiDel
         webView.navigationDelegate = navDel
@@ -316,7 +316,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    fileprivate func handleWebContentProcessTermination(for terminatedWebView: WKWebView) {
+    func handleWebContentProcessTermination(for terminatedWebView: WKWebView) {
         guard terminatedWebView === webView else { return }
 #if DEBUG
         cmuxDebugLog("popup.webcontent.terminated depth=\(nestingDepth)")
@@ -324,7 +324,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         closePopup()
     }
 
-    fileprivate func requestNavigation(_ request: URLRequest, in webView: WKWebView) {
+    func requestNavigation(_ request: URLRequest, in webView: WKWebView) {
         guard let url = request.url else { return }
 
         if BrowserInsecureHTTPSettings.shouldBlock(url) {
@@ -347,7 +347,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     /// preserving translations); the resolved strings and host are handed to
     /// `BrowserInsecureHTTPAlertPresenter` in CmuxBrowser, which owns the AppKit
     /// alert presentation and allowlist-persistence decision.
-    fileprivate func presentInsecureHTTPAlert(
+    func presentInsecureHTTPAlert(
         for url: URL,
         in webView: WKWebView,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
@@ -507,103 +507,35 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
     }
 }
 
-// MARK: - PopupNavigationDelegate
+// MARK: - BrowserPopupNavigationHosting
 
-private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
-    weak var controller: BrowserPopupWindowController?
-    var downloadDelegate: WKDownloadDelegate?
-
-    func webView(
-        _ webView: WKWebView,
-        decidePolicyFor navigationAction: WKNavigationAction,
-        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
-    ) {
-        // Branch classification lives in the package; the delegate executes the
-        // resolved case (external routing, insecure-HTTP prompt, allow/download).
-        switch PopupNavigationActionDecision.resolve(
-            url: navigationAction.request.url,
-            isMainFrame: navigationAction.targetFrame?.isMainFrame != false,
-            shouldPerformDownload: navigationAction.shouldPerformDownload
-        ) {
-        case .allow:
-            decisionHandler(.allow)
-
-        case .routeExternally(let url):
-            // External URL schemes → hand off to macOS
-            browserHandleExternalNavigation(
-                url,
-                source: "popupNavDelegate",
-                webView: webView,
-                loadFallbackRequest: { [weak controller] request in
-                    controller?.requestNavigation(request, in: webView)
-                }
-            )
-            decisionHandler(.cancel)
-
-        case .promptInsecureHTTP(let url):
-            // Insecure HTTP → show same prompt as main browser
-            #if DEBUG
-            cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
-            #endif
-            controller?.presentInsecureHTTPAlert(for: url, in: webView, decisionHandler: decisionHandler)
-
-        case .download:
-            decisionHandler(.download)
-        }
-    }
-
-    func webView(
-        _ webView: WKWebView,
-        decidePolicyFor navigationResponse: WKNavigationResponse,
-        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
-    ) {
-        // Branch classification lives in the package; the delegate executes the
-        // resolved case. The download determination stays app-side (it consults
-        // the app's download-filename resolver) and is evaluated lazily so it runs
-        // only after the main-frame and scheme guards pass, matching the original.
-        switch PopupNavigationResponseDecision.resolve(
-            isForMainFrame: navigationResponse.isForMainFrame,
-            scheme: navigationResponse.response.url?.scheme,
-            isDownload: {
-                let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
-                return BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
-                    mimeType: navigationResponse.response.mimeType, canShowMIMEType: navigationResponse.canShowMIMEType, contentDisposition: contentDisposition
-                ) != nil
+extension BrowserPopupWindowController: BrowserPopupNavigationHosting {
+    /// Hands an external-scheme URL off to macOS via the app's
+    /// `browserHandleExternalNavigation`, with `requestNavigation(_:in:)` as the
+    /// browser-fallback loader. Lives app-side because the external-navigation
+    /// presenter cannot move into the package; the package delegate forwards the
+    /// `.routeExternally` decision here.
+    func routeExternalPopupNavigation(_ url: URL, source: String, in webView: WKWebView) {
+        browserHandleExternalNavigation(
+            url,
+            source: source,
+            webView: webView,
+            loadFallbackRequest: { [weak self] request in
+                self?.requestNavigation(request, in: webView)
             }
-        ) {
-        case .allow:
-            decisionHandler(.allow)
-
-        case .download:
-            decisionHandler(.download)
-        }
+        )
     }
 
-    func webView(
-        _ webView: WKWebView,
-        didReceive challenge: URLAuthenticationChallenge,
-        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
-    ) {
-        // Parity with main browser: performDefaultHandling enables system keychain
-        // lookups, MDM client certs, and SSO extensions (e.g. Microsoft Entra ID).
-        completionHandler(.performDefaultHandling, nil)
-    }
-
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        controller?.handleWebContentProcessTermination(for: webView)
-    }
-
-    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
-        #if DEBUG
-        cmuxDebugLog("popup.download.didBecome source=navigationAction")
-        #endif
-        download.delegate = downloadDelegate
-    }
-
-    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
-        #if DEBUG
-        cmuxDebugLog("popup.download.didBecome source=navigationResponse")
-        #endif
-        download.delegate = downloadDelegate
+    /// Whether `navigationResponse` should be downloaded, per the app's
+    /// `BrowserDownloadFilenameResolver`. The package delegate evaluates this
+    /// lazily (only after the main-frame and scheme guards pass), so the resolver
+    /// runs in the same order as the original in-delegate closure.
+    func popupNavigationResponseIsDownload(_ navigationResponse: WKNavigationResponse) -> Bool {
+        let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
+        return BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
+            mimeType: navigationResponse.response.mimeType,
+            canShowMIMEType: navigationResponse.canShowMIMEType,
+            contentDisposition: contentDisposition
+        ) != nil
     }
 }

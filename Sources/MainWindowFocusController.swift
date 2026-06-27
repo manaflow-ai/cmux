@@ -17,6 +17,7 @@ final class MainWindowFocusController {
     private weak var tabManager: TabManager?
     private weak var fileExplorerState: FileExplorerState?
     private let hostRouter = RightSidebarFocusHostRouter()
+    private let surfaceFocusResolver: any TerminalSurfaceFocusResolving
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
@@ -36,12 +37,14 @@ final class MainWindowFocusController {
         windowId: UUID,
         window: NSWindow?,
         tabManager: TabManager,
-        fileExplorerState: FileExplorerState?
+        fileExplorerState: FileExplorerState?,
+        surfaceFocusResolver: any TerminalSurfaceFocusResolving
     ) {
         self.windowId = windowId
         self.window = window
         self.tabManager = tabManager
         self.fileExplorerState = fileExplorerState
+        self.surfaceFocusResolver = surfaceFocusResolver
         self.rememberedRightSidebarMode = fileExplorerState?.mode
         syncBonsplitTabShortcutHintEligibility()
     }
@@ -121,7 +124,7 @@ final class MainWindowFocusController {
     }
 
     func allowsTerminalFocus(workspaceId: UUID, panelId: UUID) -> Bool {
-        if GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) {
+        if surfaceFocusResolver.isRightSidebarDockSurface(id: panelId) {
             return true
         }
         switch intent {
@@ -584,20 +587,13 @@ final class MainWindowFocusController {
         )
     }
 
-    private struct TerminalFocusRequest {
-        let workspaceId: UUID
-        let panelId: UUID
-    }
-
-    private func terminalFocusRequest(for responder: NSResponder?) -> TerminalFocusRequest? {
-        guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
-              let workspaceId = ghosttyView.tabId,
-              let panelId = ghosttyView.terminalSurface?.id else {
+    private func terminalFocusRequest(for responder: NSResponder?) -> TerminalSurfaceFocusOwner? {
+        guard let owner = surfaceFocusResolver.owningTerminalSurfaceFocus(for: responder) else {
             return nil
         }
-        if GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) {
+        if surfaceFocusResolver.isRightSidebarDockSurface(id: owner.panelId) {
             return nil
         }
-        return TerminalFocusRequest(workspaceId: workspaceId, panelId: panelId)
+        return owner
     }
 }

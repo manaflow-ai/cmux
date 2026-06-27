@@ -274,7 +274,7 @@ final class AgentSessionProcessStore {
 
     private func handleOutputLine(_ text: String, session: AgentSessionRunningSession, stream: String) {
         if session.providerID == .opencode {
-            switch Self.openCodeProcessOutputDisposition(text: text, stream: stream) {
+            switch OpenCodeProcessOutputDisposition.classify(text: text, stream: stream) {
             case .serverURL(let baseURL):
                 if session.openCodeBaseURL == nil {
                     session.openCodeBaseURL = baseURL
@@ -320,16 +320,6 @@ final class AgentSessionProcessStore {
             stream: stream,
             text: text
         )
-    }
-
-    static func openCodeProcessOutputDisposition(text: String, stream: String) -> OpenCodeProcessOutputDisposition {
-        if let baseURL = OpenCodeServerClient.serverURL(from: text) {
-            return .serverURL(baseURL)
-        }
-        if stream == "stdout" {
-            return .suppress
-        }
-        return .emit
     }
 
     private func createOpenCodeSession(_ session: AgentSessionRunningSession) {
@@ -437,14 +427,10 @@ final class AgentSessionProcessStore {
     }
 
     private func openCodeEventStreamEOFRequiresFailure(sessionId: String) -> Bool {
-        Self.openCodeEventStreamEOFRequiresFailure(
+        OpenCodeProcessOutputDisposition.eventStreamEOFRequiresFailure(
             isCancelled: false,
             processIsRunning: sessions[sessionId]?.process.isRunning == true
         )
-    }
-
-    static func openCodeEventStreamEOFRequiresFailure(isCancelled: Bool, processIsRunning: Bool) -> Bool {
-        !isCancelled && processIsRunning
     }
 
     private func failOpenCodeEventStream(sessionId: String, openCodeSessionID: String) {

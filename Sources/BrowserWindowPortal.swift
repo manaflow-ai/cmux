@@ -706,7 +706,7 @@ final class WindowBrowserHostView: NSView {
 
     private func hostedInspectorDividerCandidate(in slot: WindowBrowserSlotView) -> HostedInspectorDividerHit? {
         let inspectorCandidates = slot.visibleDescendants
-            .filter { Self.isVisibleHostedInspectorCandidate($0) && Self.isInspectorView($0) }
+            .filter { $0.isVisibleHostedInspectorCandidate && Self.isInspectorView($0) }
             .sorted { lhs, rhs in
                 let lhsFrame = slot.convert(lhs.bounds, from: lhs)
                 let rhsFrame = slot.convert(rhs.bounds, from: rhs)
@@ -741,7 +741,7 @@ final class WindowBrowserHostView: NSView {
             guard let containerView = inspectorView.superview else { break }
 
             let pageCandidates = containerView.subviews.compactMap { candidate -> (view: NSView, dockSide: HostedInspectorDockSide)? in
-                guard Self.isVisibleHostedInspectorSiblingCandidate(candidate) else { return nil }
+                guard candidate.isVisibleHostedInspectorSiblingCandidate else { return nil }
                 guard candidate !== inspectorView else { return nil }
                 guard candidate.frame.verticalOverlap(with: inspectorView.frame) > 8 else {
                     return nil
@@ -960,19 +960,6 @@ final class WindowBrowserHostView: NSView {
 
     private static func isInspectorView(_ view: NSView) -> Bool {
         cmuxIsWebInspectorObject(view)
-    }
-
-    private static func isVisibleHostedInspectorCandidate(_ view: NSView) -> Bool {
-        !view.isHidden &&
-            view.alphaValue > 0 &&
-            view.frame.width > 1 &&
-            view.frame.height > 1
-    }
-
-    private static func isVisibleHostedInspectorSiblingCandidate(_ view: NSView) -> Bool {
-        !view.isHidden &&
-            view.alphaValue > 0 &&
-            view.frame.height > 1
     }
 
 }

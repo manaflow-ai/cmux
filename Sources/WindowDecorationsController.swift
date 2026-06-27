@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxNotifications
 import CmuxTestSupport
 import CmuxWindowing

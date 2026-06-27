@@ -78,29 +78,13 @@ final class MobileHostService {
     /// accept and emit paths mutate and read it off the main actor.
     nonisolated static let sharedConnectionRegistry = MobileHostConnectionRegistry()
 
-    /// The single shape every public `mobile.host.status` reply uses (the
-    /// public-status cache, the network status gate, and
-    /// `TerminalController`'s no-private-metadata branch), so the fields
-    /// cannot drift. Identity-free: routes, fidelity, and capabilities are a
-    /// reachability probe any peer may ask for, but the Mac's stable identity
-    /// (`mac_device_id`, `mac_display_name`) is never on this unauthenticated
-    /// surface — see ``networkStatusResult(for:)`` for the verified-caller
-    /// reply that carries it.
-    nonisolated static func publicStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
-        [
-            "routes": routesPayload,
-            "terminal_fidelity": "render_grid",
-            "capabilities": mobileHostCapabilities,
-        ]
-    }
-
-    /// `publicStatusPayload` plus the Mac's identity, for a caller that has
+    /// The identity-free public-status payload plus the Mac's identity, for a caller that has
     /// proven same-account Stack ownership. The pairing QR no longer carries
     /// the display name or the device id, so this reply is where a freshly
     /// paired phone learns what to call this Mac and which paired-Mac record
     /// the connection belongs to.
     nonisolated static func identityStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
-        var payload = publicStatusPayload(routesPayload: routesPayload)
+        var payload = MobileHostPublicStatus(routesPayload: routesPayload).jsonObject
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
         if let displayName = MobileHostIdentity.displayName() {
             payload["mac_display_name"] = displayName

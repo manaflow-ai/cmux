@@ -80,18 +80,13 @@ final class RemoteTmuxControlConnection {
     /// never come.
     private let activityQueries = RemoteTmuxActivityQueryRegistry()
 
-    private var process: Process?
-    private var stdinWriter: RemoteTmuxControlPipeWriter?
-    private var stdoutReader: FileHandle?
-    private var stderrReader: FileHandle?
-    private var streamContinuation: AsyncStream<Data>.Continuation?
-    private var stderrContinuation: AsyncStream<Data>.Continuation?
-    /// Consumes the current spawn's stderr into `stderrBuffer`. Awaited before a
-    /// failed reconnect attempt is classified, so the decision sees the complete
-    /// error rather than racing the async stderr delivery.
-    private var stderrTask: Task<Void, Never>?
+    /// Subprocess + pipe-plumbing sub-model. Owns the `ssh tmux -CC` `Process`, its
+    /// three pipes, the bounded stdin writer, and the stdout/stderr consumer tasks.
+    /// This connection drives it through the ``RemoteTmuxControlTransportHost``
+    /// conformance below (delivering parser bytes, stream-end, captured stderr, and the
+    /// two backpressure reconnect signals) and attaches itself in `init`.
+    private let transport = RemoteTmuxControlTransport()
     private var parser = RemoteTmuxControlStreamParser()
-    private var ingestTask: Task<Void, Never>?
     private var pendingCommands: [CommandKind] = []
     private let connectionWaiters = RemoteTmuxConnectionWaiters()
     /// `false` until the attach command's own `%begin`/`%end` block — always the
@@ -130,15 +125,6 @@ final class RemoteTmuxControlConnection {
 
     /// Cap on captured stderr (bytes) so a noisy/hostile remote can't grow it unbounded.
     private static let maxStderrBytes = 8 * 1024
-    /// Cap queued stdin bytes while the dedicated writer is backpressured. Above
-    /// this, mutations are rejected and the connection reconnects instead of
-    /// accepting unbounded user input that may never reach tmux.
-    private static let maxPendingStdinBytes = 256 * 1024
-    /// Cap pending stdout chunks between SSH's pipe callback and the main-actor
-    /// parser. A full buffer means parsing/rendering has fallen behind remote
-    /// output; reconnecting and re-seeding is safer than corrupting the stream by
-    /// dropping arbitrary control-mode bytes or growing memory without bound.
-    private static let maxPendingStdoutChunks = 16
 
     /// Pure builders for the tmux control-mode command strings this connection
     /// writes, plus the parser for the activity-query lines it reads back. Holds
@@ -160,6 +146,7 @@ final class RemoteTmuxControlConnection {
         self.createIfMissing = createIfMissing
         clientSize.attach(host: self)
         reconnect.attach(host: self)
+        transport.attach(host: self)
     }
 
     // MARK: - Observers
@@ -292,108 +279,16 @@ final class RemoteTmuxControlConnection {
         stderrBuffer = ""
         enterReceived = false
 
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        proc.arguments = host.controlModeArguments(
-            sessionName: sessionName,
-            createIfMissing: createIfMissing
+        // The host descriptor (and so the argument vector) stays app-side; the
+        // transport owns only the subprocess + pipe plumbing. A failed launch throws
+        // without latching `started`, so a later attach can replace this connection
+        // instead of reusing a dead one.
+        try transport.spawn(
+            arguments: host.controlModeArguments(
+                sessionName: sessionName,
+                createIfMissing: createIfMissing
+            )
         )
-        let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
-        proc.standardInput = inPipe
-        proc.standardOutput = outPipe
-        proc.standardError = errPipe
-        let stdinWriter = RemoteTmuxControlPipeWriter(
-            handle: inPipe.fileHandleForWriting,
-            label: "com.cmux.remote-tmux.stdin.\(UUID().uuidString)",
-            maxPendingBytes: Self.maxPendingStdinBytes,
-            onFailure: { [weak self] in
-                self?.handleStdinWriteFailure()
-            }
-        )
-
-        let (stream, continuation) = AsyncStream<Data>.makeStream(
-            bufferingPolicy: .bufferingOldest(Self.maxPendingStdoutChunks)
-        )
-        let reader = outPipe.fileHandleForReading
-        reader.readabilityHandler = { [weak self] handle in
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                handle.readabilityHandler = nil
-                continuation.finish()
-                return
-            }
-
-            switch continuation.yield(chunk) {
-            case .enqueued:
-                break
-            case .dropped, .terminated:
-                handle.readabilityHandler = nil
-                continuation.finish()
-                Task { @MainActor [weak self] in
-                    self?.handleStdoutBackpressureOverflow()
-                }
-            @unknown default:
-                handle.readabilityHandler = nil
-                continuation.finish()
-                Task { @MainActor [weak self] in
-                    self?.handleStdoutBackpressureOverflow()
-                }
-            }
-        }
-        // Capture stderr via its own AsyncStream so a failed reconnect attempt can be
-        // classified deterministically: `handleStreamEnd` awaits `stderrTask` (which
-        // finishes on stderr EOF) before reading `stderrBuffer`, so the decision can't
-        // race a not-yet-delivered chunk.
-        let (errStream, errContinuation) = AsyncStream<Data>.makeStream()
-        let errReader = errPipe.fileHandleForReading
-        errReader.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                handle.readabilityHandler = nil
-                errContinuation.finish()
-            } else {
-                errContinuation.yield(chunk)
-            }
-        }
-        // Finish BOTH streams on process exit so the consumers (and any awaiter)
-        // always complete even if a reader's EOF callback is delayed.
-        proc.terminationHandler = { _ in
-            continuation.finish()
-            errContinuation.finish()
-        }
-
-        do {
-            try proc.run()
-        } catch {
-            // Don't latch `started` on a failed launch, so a later attach can
-            // replace this connection instead of reusing a dead one. Close the
-            // stdin writer too, so the connection is left in a clean, retry-safe
-            // state instead of holding a dead pipe that silently EPIPEs on write.
-            reader.readabilityHandler = nil
-            errReader.readabilityHandler = nil
-            continuation.finish()
-            errContinuation.finish()
-            stdinWriter.close()
-            throw error
-        }
-        process = proc
-        self.stdinWriter = stdinWriter
-        stdoutReader = reader
-        stderrReader = errReader
-        streamContinuation = continuation
-        stderrContinuation = errContinuation
-        stderrTask = Task { [weak self] in
-            for await chunk in errStream {
-                guard let text = String(data: chunk, encoding: .utf8), !text.isEmpty else { continue }
-                self?.appendStderr(text)
-            }
-        }
-        ingestTask = Task { [weak self] in
-            for await chunk in stream {
-                self?.ingest(chunk)
-            }
-            await self?.handleStreamEnd()
-        }
     }
 
     /// Appends captured stderr, bounded (by UTF-8 bytes) so a noisy/hostile remote
@@ -670,7 +565,7 @@ final class RemoteTmuxControlConnection {
         // detach / quit / window-close (preserve) and transport drops do not.
         connectionState = .ended
         cancelScheduledWork()
-        teardownProcessHandles()
+        transport.teardown()
     }
 
     /// Cancels every scheduled follow-up (reconnect, debounced size send, redraw
@@ -683,43 +578,18 @@ final class RemoteTmuxControlConnection {
         pendingPostAttachAction = nil
     }
 
-    /// Tears down the current spawn's process and I/O handles WITHOUT changing
-    /// `connectionState`, so the connection can either end (``stop()``) or re-spawn
-    /// (reconnect) from a clean slate.
-    private func teardownProcessHandles() {
-        ingestTask?.cancel()
-        ingestTask = nil
-        stderrTask?.cancel()
-        stderrTask = nil
-        process?.terminationHandler = nil
-        // Tear down the readers deterministically rather than waiting for EOF (the
-        // consumers are already cancelled).
-        stdoutReader?.readabilityHandler = nil
-        stdoutReader = nil
-        stderrReader?.readabilityHandler = nil
-        stderrReader = nil
-        streamContinuation?.finish()
-        streamContinuation = nil
-        stderrContinuation?.finish()
-        stderrContinuation = nil
-        stdinWriter?.close()
-        stdinWriter = nil
-        process?.terminate()
-        process = nil
-    }
-
     // MARK: - Internals
 
     @discardableResult
     private func sendInternal(_ command: String, kind: CommandKind) -> Bool {
-        guard connectionState == .connected, let stdinWriter else { return false }
+        guard connectionState == .connected, transport.hasStdinWriter else { return false }
         let line = command.hasSuffix("\n") ? command : command + "\n"
         guard let data = line.data(using: .utf8) else { return false }
         // Record before the writer can emit bytes, so a fast `%begin`/`%end`
         // reply never outruns its local FIFO slot. If the bounded writer rejects
         // the command, remove this slot immediately and reconnect.
         pendingCommands.append(kind)
-        guard stdinWriter.enqueue(data) else {
+        guard transport.enqueueStdin(data) else {
             pendingCommands.removeLast()
             record("stdin-write-backpressure")
             beginReconnecting()
@@ -767,13 +637,13 @@ final class RemoteTmuxControlConnection {
             // Drain the attempt's stderr to completion (the process has exited, so the
             // stream finishes) BEFORE classifying, so the decision can't race a
             // not-yet-delivered chunk and misclassify a gone session as transient.
-            await stderrTask?.value
+            await transport.awaitStderrDrained()
             // A state change may have raced the drain (e.g. a deliberate stop()).
             guard connectionState == .reconnecting else { return }
             // Classify: a session/server found gone is a genuine end; anything else
             // (host unreachable, refused) is transient — keep retrying with backoff.
             let sessionGone = decoding.stderrIndicatesSessionGone(stderrBuffer)
-            teardownProcessHandles()
+            transport.teardown()
             if sessionGone {
                 record("reconnect-session-gone")
                 connectionState = .ended
@@ -796,7 +666,7 @@ final class RemoteTmuxControlConnection {
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingActivityQueries()
-        teardownProcessHandles()
+        transport.teardown()
         reconnect.resetAttempts()
         connectionState = .reconnecting
         reconnect.scheduleAttempt()
@@ -1132,7 +1002,7 @@ final class RemoteTmuxControlConnection {
     }
 
     #if DEBUG
-    func installStdinWriterForTesting(_ writer: RemoteTmuxControlPipeWriter) { stdinWriter = writer }
+    func installStdinWriterForTesting(_ writer: RemoteTmuxControlPipeWriter) { transport.installStdinWriterForTesting(writer) }
     func handleMessageForTesting(_ message: RemoteTmuxControlMessage) { handle(message) }
     var pendingCommandKindsForTesting: [RemoteTmuxControlCommandKind] { pendingCommands }
     #endif
@@ -1186,5 +1056,34 @@ extension RemoteTmuxControlConnection: RemoteTmuxReconnectHost {
 
     func recordReconnectEvent(_ message: String) {
         record(message)
+    }
+}
+
+// MARK: - RemoteTmuxControlTransportHost
+
+/// Byte/lifecycle seam the ``transport`` sub-model drives. Keeps the control-stream
+/// parser, the pending-command FIFO, the captured-stderr buffer + session-gone
+/// classification, and the connection-state machine on this side, receiving only raw
+/// stdout chunks, the stream-end edge, decoded stderr text, and the two backpressure
+/// reconnect signals from the package transport.
+extension RemoteTmuxControlConnection: RemoteTmuxControlTransportHost {
+    func transportDidReceiveStdoutChunk(_ data: Data) {
+        ingest(data)
+    }
+
+    func transportStreamDidEnd() async {
+        await handleStreamEnd()
+    }
+
+    func transportDidReceiveStderrText(_ text: String) {
+        appendStderr(text)
+    }
+
+    func transportStdinWriteDidFail() {
+        handleStdinWriteFailure()
+    }
+
+    func transportStdoutBackpressureDidOverflow() {
+        handleStdoutBackpressureOverflow()
     }
 }
