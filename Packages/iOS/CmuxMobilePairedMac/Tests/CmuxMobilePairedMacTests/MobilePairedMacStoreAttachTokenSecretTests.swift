@@ -200,6 +200,44 @@ import Testing
         #expect(await secretStore.snapshot().values.sorted() == ["legacy-secret"])
     }
 
+    @Test func inFlightAttachTokenUpsertDoesNotRecreateRemovedMac() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("paired-macs.sqlite3")
+        let secretStore = SuspendingAttachTokenSecretStore()
+        let route = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.5", port: 8443)
+        )
+        let store = try MobilePairedMacStore(databaseURL: url, attachTokenSecrets: secretStore)
+        let upsert = Task {
+            try await store.upsert(
+                macDeviceID: "mac-a",
+                displayName: "Mac A",
+                routes: [route],
+                attachToken: "ticket-secret",
+                attachTokenExpiresAt: Date(timeIntervalSince1970: 2_000_000_000),
+                attachTokenWorkspaceID: "",
+                attachTokenTerminalID: nil,
+                markActive: true,
+                stackUserID: "user-1",
+                teamID: "team-a",
+                now: Date(timeIntervalSince1970: 1)
+            )
+        }
+        await secretStore.waitForSaveStart()
+
+        try await store.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: "team-a")
+        await secretStore.resumeSave()
+        try await upsert.value
+
+        #expect(try await store.loadAll(stackUserID: "user-1", teamID: "team-a").isEmpty)
+        #expect(await secretStore.snapshot().isEmpty)
+    }
+
     private func sqliteAttachTokens(at url: URL) throws -> [String?] {
         var handle: OpaquePointer?
         #expect(sqlite3_open(url.path, &handle) == SQLITE_OK)
@@ -216,5 +254,52 @@ import Testing
             values.append(String(cString: cString))
         }
         return values
+    }
+}
+
+actor SuspendingAttachTokenSecretStore: MobileAttachTokenSecretStoring {
+    private var tokensByAccount: [String: String] = [:]
+    private var saveStarted = false
+    private var saveStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var saveResume: CheckedContinuation<Void, Never>?
+
+    func readAttachToken(account: String) async -> String? {
+        tokensByAccount[account]
+    }
+
+    func saveAttachToken(_ token: String, account: String) async -> Bool {
+        if !saveStarted {
+            saveStarted = true
+            let waiters = saveStartWaiters
+            saveStartWaiters = []
+            for waiter in waiters {
+                waiter.resume()
+            }
+            await withCheckedContinuation { continuation in
+                saveResume = continuation
+            }
+        }
+        tokensByAccount[account] = token
+        return true
+    }
+
+    func deleteAttachToken(account: String) async {
+        tokensByAccount.removeValue(forKey: account)
+    }
+
+    func waitForSaveStart() async {
+        if saveStarted { return }
+        await withCheckedContinuation { continuation in
+            saveStartWaiters.append(continuation)
+        }
+    }
+
+    func resumeSave() {
+        saveResume?.resume()
+        saveResume = nil
+    }
+
+    func snapshot() -> [String: String] {
+        tokensByAccount
     }
 }
