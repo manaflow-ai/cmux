@@ -244,6 +244,28 @@ import Testing
         #expect(checklist.trust.status == .pending)
     }
 
+    @Test func connectTrustFailurePreservesNetworkSuccess() {
+        let checklist = MobilePairingChecklist.inProgress.applyingFailure(
+            .unsupportedRoute,
+            phase: .connect
+        )
+
+        #expect(checklist.network.status == .succeeded)
+        #expect(checklist.authentication.status == .pending)
+        #expect(checklist.trust.status == .failed)
+    }
+
+    @Test func routeSelectionTrustFailureDoesNotClaimNetworkSucceeded() {
+        let checklist = MobilePairingChecklist.inProgress.applyingFailure(
+            .noSupportedRoute,
+            phase: .routeSelection
+        )
+
+        #expect(checklist.network.status == .pending)
+        #expect(checklist.authentication.status == .pending)
+        #expect(checklist.trust.status == .failed)
+    }
+
     @Test func offlineCategoryHasNonEmptyMessage() {
         let category = MobilePairingFailureCategory.offline
         #expect(category.analyticsReason == "offline")

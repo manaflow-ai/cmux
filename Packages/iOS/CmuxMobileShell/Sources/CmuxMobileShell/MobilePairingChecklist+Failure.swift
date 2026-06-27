@@ -33,7 +33,7 @@ extension MobilePairingFailureCategory {
         case .authentication?:
             return phase == .validation ? [] : [.network]
         case .trust?:
-            return []
+            return phase == .validation || phase == .routeSelection ? [] : [.network]
         case nil:
             return []
         }
