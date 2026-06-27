@@ -110,10 +110,7 @@ jobs:
   mobile-core-package:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    # PR-triggered iOS gates use the same macOS 15 pool as app-host CI so they
-    # do not starve behind the dedicated macOS 26 iOS runner queue. Manual
-    # workflow_dispatch runs still target MACOS_RUNNER_IOS for runner dogfood.
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -153,10 +150,12 @@ jobs:
   ios-simulator:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    # PR-triggered iOS gates use the same macOS 15 pool as app-host CI so they
-    # do not starve behind the dedicated macOS 26 iOS runner queue. Manual
-    # workflow_dispatch runs still target MACOS_RUNNER_IOS for runner dogfood.
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') }}
+    # Blacksmith, not the bare `macos-26` label (which our self-hosted fleet
+    # carries). iOS simulator XCTest runs inside the Simulator, not as a
+    # foregrounded Mac app, so the Blacksmith macOS foreground limitation that
+    # blocks macOS app-host XCTest does not apply here; this lane is verified
+    # green on blacksmith-6vcpu-macos-26.
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
