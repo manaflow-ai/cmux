@@ -4,38 +4,6 @@ import Bonsplit
 import CmuxPanes
 
 extension TerminalController {
-    enum V2PaneResizeDirection: String {
-        case left
-        case right
-        case up
-        case down
-
-        var splitOrientation: String {
-            switch self {
-            case .left, .right:
-                return "horizontal"
-            case .up, .down:
-                return "vertical"
-            }
-        }
-
-        /// A split controls the target pane's right/bottom edge when target is first child,
-        /// and left/top edge when target is second child.
-        var requiresPaneInFirstChild: Bool {
-            switch self {
-            case .right, .down:
-                return true
-            case .left, .up:
-                return false
-            }
-        }
-
-        /// Positive value moves divider toward second child (right/down).
-        var dividerDeltaSign: CGFloat {
-            requiresPaneInFirstChild ? 1 : -1
-        }
-    }
-
     func v2SetAbsolutePaneSize(
         workspace: Workspace,
         paneUUID: UUID,

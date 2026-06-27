@@ -377,7 +377,7 @@ final class WindowDecorationsController {
         let shouldInstall = window.isMainWorkspaceWindow
             && WorkspacePresentationModeSettings.isMinimal()
             && !window.styleMask.contains(.fullScreen)
-            && minimalModeSidebarTitlebarControlsAreAvailable(in: window)
+            && window.minimalModeSidebarTitlebarControlsAreAvailable
         guard shouldInstall,
               let contentView = window.contentView else {
             #if DEBUG

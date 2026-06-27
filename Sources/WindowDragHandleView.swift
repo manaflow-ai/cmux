@@ -220,32 +220,6 @@ final class MinimalModeSidebarChromeHoverState: ObservableObject {
     }
 }
 
-private enum MinimalModeSidebarTitlebarControlAssociatedKeys {
-    private static let sidebarVisibleToken = NSObject()
-
-    static let sidebarVisible = UnsafeRawPointer(Unmanaged.passUnretained(sidebarVisibleToken).toOpaque())
-}
-
-func setMinimalModeSidebarTitlebarControlsAvailable(_ isAvailable: Bool, in window: NSWindow?) {
-    guard let window else { return }
-    objc_setAssociatedObject(
-        window,
-        MinimalModeSidebarTitlebarControlAssociatedKeys.sidebarVisible,
-        NSNumber(value: isAvailable),
-        .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-    )
-}
-
-func minimalModeSidebarTitlebarControlsAreAvailable(in window: NSWindow) -> Bool {
-    guard let value = objc_getAssociatedObject(
-        window,
-        MinimalModeSidebarTitlebarControlAssociatedKeys.sidebarVisible
-    ) as? NSNumber else {
-        return true
-    }
-    return value.boolValue
-}
-
 func isMinimalModeSidebarChromeHoverCandidate(
     window: NSWindow,
     locationInWindow: NSPoint,
@@ -263,7 +237,7 @@ func isMinimalModeSidebarChromeHoverCandidate(
     guard isMinimalMode, !isFullScreen, isMainWindow, contentBounds.contains(locationInWindow) else {
         return false
     }
-    guard minimalModeSidebarTitlebarControlsAreAvailable(in: window) else {
+    guard window.minimalModeSidebarTitlebarControlsAreAvailable else {
         return false
     }
 
@@ -307,7 +281,7 @@ func minimalModeSidebarControlActionSlot(
     guard isMinimalMode, !isFullScreen, isMainWindow, contentBounds.contains(locationInWindow) else {
         return nil
     }
-    guard minimalModeSidebarTitlebarControlsAreAvailable(in: window) else {
+    guard window.minimalModeSidebarTitlebarControlsAreAvailable else {
         return nil
     }
 
@@ -360,7 +334,7 @@ func recordMinimalModeSidebarChromeHoverForUITest(
     let isMinimal = WorkspacePresentationModeSettings.isMinimal(defaults: defaults)
     let isFullScreen = window.styleMask.contains(.fullScreen)
     let isMainWindow = window.isMainWorkspaceWindow
-    let sidebarControlsAvailable = minimalModeSidebarTitlebarControlsAreAvailable(in: window)
+    let sidebarControlsAvailable = window.minimalModeSidebarTitlebarControlsAreAvailable
     let contentBounds = window.contentView?.bounds ?? .zero
     let inTitlebarBand = MinimalModeTitlebarBand.isMinimalModeWindowTitlebarClickCandidate(
         isMinimalMode: isMinimal,

@@ -1998,7 +1998,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         })
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { _, isVisible in
-            setMinimalModeSidebarTitlebarControlsAvailable(isVisible, in: observedWindow)
+            observedWindow?.setMinimalModeSidebarTitlebarControlsAvailable(isVisible)
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
             }
@@ -2106,7 +2106,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     ) {
         window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
         window.isRestorable = false
-        setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
+        window.setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible)
         window.titlebarAppearsTransparent = true
         // Native AppKit titlebar dragging steals pane-tab drags in minimal
         // mode. Keep the main window immovable by default; explicit chrome

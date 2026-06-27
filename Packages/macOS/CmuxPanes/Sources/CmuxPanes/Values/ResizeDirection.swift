@@ -1,7 +1,10 @@
 public import CoreGraphics
 
 /// Resize direction for backwards compatibility.
-public enum ResizeDirection: Sendable {
+///
+/// The raw value is the wire token (`"left"`/`"right"`/`"up"`/`"down"`) so a
+/// caller maps an inbound string straight to a case via `init(rawValue:)`.
+public enum ResizeDirection: String, Sendable {
     /// Move the controlling divider left.
     case left
     /// Move the controlling divider right.

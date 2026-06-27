@@ -5487,7 +5487,7 @@ extension SessionPersistenceTests {
 
     private func jsonObject(at url: URL) throws -> [String: Any] {
         let data = try Data(contentsOf: url)
-        let sanitized = try JSONCParser.preprocess(data: data)
+        let sanitized = try data.jsoncPreprocessed()
         return try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
     }
 

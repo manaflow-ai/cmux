@@ -353,7 +353,7 @@ extension TerminalController: ControlPaneContext {
             return .noAbsoluteSplitAncestor(paneID: paneUUID, absoluteAxis: inputs.absoluteAxis)
         }
 
-        guard let direction = inputs.direction.flatMap(V2PaneResizeDirection.init(rawValue:)) else {
+        guard let direction = inputs.direction.flatMap(ResizeDirection.init(rawValue:)) else {
             // Unreachable: the coordinator pre-validates the relative path.
             return .noAdjacentBorder(paneID: paneUUID, direction: inputs.direction ?? "")
         }

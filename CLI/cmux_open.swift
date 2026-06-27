@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import CmuxFoundation
 
 struct CMUXAgentTurnDiffBaselineRecord: Codable {
     var workspaceId: String
@@ -1307,7 +1308,7 @@ extension CMUXCLI {
     private func diffViewerSettingsRoot(at path: String) -> [String: Any]? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               !data.isEmpty,
-              let sanitized = try? JSONCParser.preprocess(data: data),
+              let sanitized = try? data.jsoncPreprocessed(),
               let root = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any] else {
             return nil
         }
@@ -5348,7 +5349,7 @@ extension CMUXCLI {
     private func diffViewerShortcutSettings(at path: String) -> [DiffViewerShortcutAction: DiffViewerShortcut]? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               !data.isEmpty,
-              let sanitized = try? JSONCParser.preprocess(data: data),
+              let sanitized = try? data.jsoncPreprocessed(),
               let root = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
               let shortcutsSection = root["shortcuts"] as? [String: Any] else {
             return nil

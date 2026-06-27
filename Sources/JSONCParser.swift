@@ -1,234 +1,6 @@
 import Foundation
 
-enum JSONCParser {
-    static func preprocess(data: Data) throws -> Data {
-        let source = try sourceString(from: data)
-        let withoutBOM = source.hasPrefix("\u{feff}") ? String(source.dropFirst()) : source
-        let stripped = try stripComments(from: withoutBOM)
-        let normalized = try stripTrailingCommas(from: stripped)
-        return Data(normalized.utf8)
-    }
-
-    static func source(data: Data) throws -> (text: String, encoding: String.Encoding) {
-        if let encoding = detectedJSONEncoding(for: data),
-           let source = String(data: data, encoding: encoding) {
-            return (source, encoding)
-        }
-        if let source = String(data: data, encoding: .utf8) {
-            return (source, .utf8)
-        }
-
-        var convertedString: NSString?
-        var usedLossyConversion = ObjCBool(false)
-        let encoding = NSString.stringEncoding(
-            for: data,
-            encodingOptions: [
-                .suggestedEncodingsKey: [
-                    String.Encoding.utf8.rawValue,
-                    String.Encoding.utf16BigEndian.rawValue,
-                    String.Encoding.utf16LittleEndian.rawValue,
-                    String.Encoding.utf32BigEndian.rawValue,
-                    String.Encoding.utf32LittleEndian.rawValue,
-                ],
-                .useOnlySuggestedEncodingsKey: true,
-                .allowLossyKey: false,
-            ],
-            convertedString: &convertedString,
-            usedLossyConversion: &usedLossyConversion
-        )
-
-        if let convertedString, !usedLossyConversion.boolValue {
-            let stringEncoding = encoding == 0 ? String.Encoding.utf8 : String.Encoding(rawValue: encoding)
-            return (convertedString as String, stringEncoding)
-        }
-        if encoding != 0, !usedLossyConversion.boolValue {
-            let stringEncoding = String.Encoding(rawValue: encoding)
-            if let string = String(data: data, encoding: stringEncoding) {
-                return (string, stringEncoding)
-            }
-        }
-        throw JSONCError.invalidTextEncoding
-    }
-
-    private static func sourceString(from data: Data) throws -> String {
-        try source(data: data).text
-    }
-
-    private static func detectedJSONEncoding(for data: Data) -> String.Encoding? {
-        let bytes = Array(data.prefix(4))
-        if bytes.starts(with: [0x00, 0x00, 0xFE, 0xFF]) { return .utf32BigEndian }
-        if bytes.starts(with: [0xFF, 0xFE, 0x00, 0x00]) { return .utf32LittleEndian }
-        if bytes.starts(with: [0xFE, 0xFF]) { return .utf16BigEndian }
-        if bytes.starts(with: [0xFF, 0xFE]) { return .utf16LittleEndian }
-        if bytes.starts(with: [0xEF, 0xBB, 0xBF]) { return .utf8 }
-        guard bytes.count >= 4 else { return nil }
-
-        switch (bytes[0] == 0, bytes[1] == 0, bytes[2] == 0, bytes[3] == 0) {
-        case (true, true, true, false):
-            return .utf32BigEndian
-        case (false, true, true, true):
-            return .utf32LittleEndian
-        case (true, false, true, false):
-            return .utf16BigEndian
-        case (false, true, false, true):
-            return .utf16LittleEndian
-        default:
-            return nil
-        }
-    }
-
-    static func isLineTerminator(_ character: Character) -> Bool {
-        // Swift treats "\r\n" as a single extended grapheme cluster, so comparing
-        // against "\n" alone misses CRLF line endings and would let line comments
-        // run to end-of-file. Match any character whose first scalar is CR or LF.
-        guard let scalar = character.unicodeScalars.first else { return false }
-        return scalar == "\n" || scalar == "\r"
-    }
-
-    private static func stripComments(from source: String) throws -> String {
-        var result = ""
-        var index = source.startIndex
-        var inString = false
-        var isEscaped = false
-
-        while index < source.endIndex {
-            let character = source[index]
-
-            if inString {
-                result.append(character)
-                if isEscaped {
-                    isEscaped = false
-                } else if character == "\\" {
-                    isEscaped = true
-                } else if character == "\"" {
-                    inString = false
-                }
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "\"" {
-                inString = true
-                result.append(character)
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "/" {
-                let nextIndex = source.index(after: index)
-                if nextIndex < source.endIndex {
-                    let next = source[nextIndex]
-                    if next == "/" {
-                        index = source.index(after: nextIndex)
-                        while index < source.endIndex && !JSONCParser.isLineTerminator(source[index]) {
-                            index = source.index(after: index)
-                        }
-                        continue
-                    }
-                    if next == "*" {
-                        index = source.index(after: nextIndex)
-                        var didClose = false
-                        while index < source.endIndex {
-                            let current = source[index]
-                            let followingIndex = source.index(after: index)
-                            if current == "*" && followingIndex < source.endIndex && source[followingIndex] == "/" {
-                                index = source.index(after: followingIndex)
-                                didClose = true
-                                break
-                            }
-                            index = followingIndex
-                        }
-                        guard didClose else {
-                            throw JSONCError.unterminatedBlockComment
-                        }
-                        continue
-                    }
-                }
-            }
-
-            result.append(character)
-            index = source.index(after: index)
-        }
-
-        return result
-    }
-
-    private static func stripTrailingCommas(from source: String) throws -> String {
-        var result = ""
-        var index = source.startIndex
-        var inString = false
-        var isEscaped = false
-        var lastSignificantCharacter: Character?
-
-        while index < source.endIndex {
-            let character = source[index]
-
-            if inString {
-                result.append(character)
-                if isEscaped {
-                    isEscaped = false
-                } else if character == "\\" {
-                    isEscaped = true
-                } else if character == "\"" {
-                    inString = false
-                    lastSignificantCharacter = character
-                }
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "\"" {
-                inString = true
-                result.append(character)
-                index = source.index(after: index)
-                continue
-            }
-
-            if character == "," {
-                var lookahead = source.index(after: index)
-                while lookahead < source.endIndex && source[lookahead].isWhitespace {
-                    lookahead = source.index(after: lookahead)
-                }
-                if lookahead < source.endIndex && (source[lookahead] == "}" || source[lookahead] == "]") {
-                    if lastSignificantCharacter == nil ||
-                        lastSignificantCharacter == "," ||
-                        lastSignificantCharacter == "{" ||
-                        lastSignificantCharacter == "[" ||
-                        lastSignificantCharacter == ":" {
-                        throw JSONCError.invalidTrailingComma
-                    }
-                    index = source.index(after: index)
-                    continue
-                }
-            }
-
-            result.append(character)
-            if !character.isWhitespace {
-                lastSignificantCharacter = character
-            }
-            index = source.index(after: index)
-        }
-
-        return result
-    }
-
-    private enum JSONCError: LocalizedError {
-        case invalidTextEncoding
-        case invalidTrailingComma
-        case unterminatedBlockComment
-
-        var errorDescription: String? {
-            switch self {
-            case .invalidTextEncoding:
-                return "config file text encoding is not supported"
-            case .invalidTrailingComma:
-                return "invalid trailing comma"
-            case .unterminatedBlockComment:
-                return "unterminated block comment"
-            }
-        }
-    }
-}
+import CmuxFoundation
 
 enum JSONCObjectEditor {
     static func setNestedObjectProperty(
@@ -363,7 +135,7 @@ enum JSONCObjectEditor {
                 let next = source.index(after: index)
                 if next < source.endIndex, source[next] == "/" {
                     index = source.index(after: next)
-                    while index < source.endIndex, !JSONCParser.isLineTerminator(source[index]) {
+                    while index < source.endIndex, !source[index].isJSONCLineTerminator {
                         index = source.index(after: index)
                     }
                     continue
@@ -460,7 +232,7 @@ enum JSONCObjectEditor {
                 let next = source.index(after: index)
                 if next < source.endIndex, source[next] == "/" {
                     index = source.index(after: next)
-                    while index < source.endIndex, !JSONCParser.isLineTerminator(source[index]) {
+                    while index < source.endIndex, !source[index].isJSONCLineTerminator {
                         index = source.index(after: index)
                     }
                     continue
@@ -491,7 +263,7 @@ enum JSONCObjectEditor {
         var lineStart = index
         while lineStart > source.startIndex {
             let previous = source.index(before: lineStart)
-            if JSONCParser.isLineTerminator(source[previous]) {
+            if source[previous].isJSONCLineTerminator {
                 break
             }
             lineStart = previous
