@@ -34,6 +34,8 @@ struct CustomToolbarMenuEditorView: View {
     }
 
     var body: some View {
+        let ordinalsByID = itemOrdinalsByID
+
         NavigationStack {
             Form {
                 Section {
@@ -53,10 +55,10 @@ struct CustomToolbarMenuEditorView: View {
                 }
 
                 Section {
-                    ForEach(Array(items.indices), id: \.self) { index in
+                    ForEach($items) { item in
                         itemEditor(
-                            $items[index],
-                            ordinal: index + 1
+                            item,
+                            ordinal: ordinalsByID[item.wrappedValue.id, default: 1]
                         )
                     }
 
@@ -110,6 +112,14 @@ struct CustomToolbarMenuEditorView: View {
 
     private var isValid: Bool {
         !trimmedTitle.isEmpty && !items.isEmpty && items.allSatisfy(\.isValid)
+    }
+
+    private var itemOrdinalsByID: [UUID: Int] {
+        var ordinals: [UUID: Int] = [:]
+        for (index, item) in items.enumerated() {
+            ordinals[item.id] = index + 1
+        }
+        return ordinals
     }
 
     @ViewBuilder
