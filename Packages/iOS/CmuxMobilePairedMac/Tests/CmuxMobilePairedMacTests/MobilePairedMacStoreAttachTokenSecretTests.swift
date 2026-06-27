@@ -168,7 +168,59 @@ import Testing
         #expect(saved.attachTokenExpiresAt == nil)
         #expect(saved.attachTokenWorkspaceID == nil)
         #expect(saved.attachTokenTerminalID == nil)
-        #expect(secretStore.snapshot().values.sorted() == ["legacy-secret"])
+        #expect(secretStore.snapshot().isEmpty)
+    }
+
+    @Test func failedLegacySecretCopyDuringRouteUpdateDeletesClaimedSecretAndMetadata() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("paired-macs.sqlite3")
+        let secretStore = InMemoryAttachTokenSecretStore()
+        let legacyRoute = try CmxAttachRoute(
+            id: "legacy",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.5", port: 8443)
+        )
+        let updatedRoute = try CmxAttachRoute(
+            id: "updated",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.6", port: 8443)
+        )
+        let store = try MobilePairedMacStore(databaseURL: url, attachTokenSecrets: secretStore)
+
+        try await store.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mac A",
+            routes: [legacyRoute],
+            attachToken: "legacy-secret",
+            attachTokenExpiresAt: Date(timeIntervalSince1970: 2_000_000_000),
+            attachTokenWorkspaceID: "",
+            attachTokenTerminalID: nil,
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+
+        secretStore.rejectSaves = true
+        try await store.updateRoutes(
+            macDeviceID: "mac-a",
+            displayName: "Mac A",
+            routes: [updatedRoute],
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        let saved = try #require(try await store.activeMac(stackUserID: "user-1", teamID: "team-a"))
+        #expect(saved.attachToken == nil)
+        #expect(saved.attachTokenExpiresAt == nil)
+        #expect(saved.attachTokenWorkspaceID == nil)
+        #expect(saved.attachTokenTerminalID == nil)
+        #expect(saved.routes.map(\.id) == ["updated"])
+        #expect(secretStore.snapshot().isEmpty)
     }
 
     @Test func failedUpsertDeletesNewAttachTokenSecret() async throws {
