@@ -211,11 +211,60 @@ printf 'real claude reached %s\\n' "$*"
             failures.append(f"guard fired for finite shim chain: {combined_output!r}")
 
 
+def test_passthrough_real_node_claude_does_not_receive_guard_env(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-passthrough-guard-env-") as td:
+        root = Path(td)
+        cmux_shim_dir = root / "tmp" / "cmux-cli-shims" / "surface-passthrough"
+        real_dir = root / "real-bin"
+        for directory in (cmux_shim_dir, real_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        cmux_shim = cmux_shim_dir / "claude"
+        shutil.copy2(WRAPPER, cmux_shim)
+        cmux_shim.chmod(0o755)
+
+        write_executable(
+            real_dir / "claude",
+            """#!/usr/bin/env node
+const guard = process.env.CMUX_CLAUDE_WRAPPER_REEXEC_GUARD ?? "__unset__";
+const targets = process.env.CMUX_CLAUDE_WRAPPER_REEXEC_TARGETS ?? "__unset__";
+const surface = process.env.CMUX_SURFACE_ID ?? "__unset__";
+process.stdout.write(`guard=${guard}\\ntargets=${targets}\\nsurface=${surface}\\n`);
+""",
+        )
+
+        inherited_path = os.environ.get("PATH", "/usr/bin:/bin")
+        env = {
+            "HOME": str(root / "home"),
+            "PATH": f"{cmux_shim_dir}:{real_dir}:{inherited_path}",
+            "CMUX_CLAUDE_WRAPPER_SHIM": str(cmux_shim),
+            "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
+            "CMUX_SOCKET_PATH": str(root / "missing.sock"),
+            "CMUX_SURFACE_ID": "surface-passthrough",
+        }
+        result = subprocess.run(
+            [str(cmux_shim), "--version"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        expected = "guard=__unset__\ntargets=__unset__\nsurface=__unset__"
+        output = result.stdout.strip()
+        combined_output = result.stdout + result.stderr
+        if result.returncode != 0:
+            failures.append(f"passthrough real node claude failed with {result.returncode}: {combined_output!r}")
+        if output != expected:
+            failures.append(f"expected passthrough cleanup output {expected!r}, got: {combined_output!r}")
+
+
 def main() -> int:
     failures: list[str] = []
     test_wrapper_stops_mutual_foreign_shim_loop(failures)
     test_wrapper_guard_allows_child_claude_process(failures)
     test_wrapper_allows_finite_layered_foreign_shims(failures)
+    test_passthrough_real_node_claude_does_not_receive_guard_env(failures)
     if failures:
         print("FAIL: claude wrapper mutual shim loop checks failed")
         for failure in failures:

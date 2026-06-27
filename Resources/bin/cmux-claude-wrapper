@@ -95,6 +95,26 @@ cmux_claude_wrapper_reexec_target_seen() {
     return 1
 }
 
+cmux_claude_wrapper_target_is_obvious_real_claude() {
+    local target="$1"
+    [[ -f "$target" && -r "$target" ]] || return 1
+
+    local first_line
+    first_line="$(head -n 1 "$target" 2>/dev/null || true)"
+    case "$first_line" in
+        *node*|*Node*)
+            return 0
+            ;;
+        '#!'*)
+            return 1
+            ;;
+    esac
+
+    # Non-script executables are binaries; do not leak the shim-bounce guard
+    # into a genuine Claude process.
+    return 0
+}
+
 cmux_claude_wrapper_exec_resolved_claude() {
     local target="$1"
     shift
@@ -104,6 +124,11 @@ cmux_claude_wrapper_exec_resolved_claude() {
     fi
     if (( cmux_claude_wrapper_reexec_hops >= cmux_claude_wrapper_reexec_guard_limit )); then
         cmux_claude_wrapper_fail_reexec_guard
+    fi
+    if cmux_claude_wrapper_target_is_obvious_real_claude "$target"; then
+        unset CMUX_CLAUDE_WRAPPER_REEXEC_GUARD
+        unset CMUX_CLAUDE_WRAPPER_REEXEC_TARGETS
+        exec "$target" "$@"
     fi
 
     local hops="${cmux_claude_wrapper_reexec_hops:-0}"
