@@ -3,21 +3,19 @@ import CmuxMobileSupport
 import CmuxMobileTerminalKit
 
 extension TerminalSpecialKey {
-    static var toolbarEditorOptions: [TerminalSpecialKey] {
-        [
-            .escape,
-            .tab,
-            .upArrow,
-            .downArrow,
-            .leftArrow,
-            .rightArrow,
-            .home,
-            .end,
-            .pageUp,
-            .pageDown,
-            .delete,
-        ]
-    }
+    static let toolbarEditorOptions: [TerminalSpecialKey] = [
+        .escape,
+        .tab,
+        .upArrow,
+        .downArrow,
+        .leftArrow,
+        .rightArrow,
+        .home,
+        .end,
+        .pageUp,
+        .pageDown,
+        .delete,
+    ]
 
     var toolbarEditorDisplayName: String {
         switch self {

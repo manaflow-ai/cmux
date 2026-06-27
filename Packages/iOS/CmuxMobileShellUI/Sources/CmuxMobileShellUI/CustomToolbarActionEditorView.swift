@@ -213,10 +213,8 @@ struct CustomToolbarActionEditorView: View {
 
     private var macroPayload: ToolbarActionPayload? {
         let steps = macroSteps.compactMap(\.macroStep)
-        guard steps.count == macroSteps.count else { return nil }
-        let payload = ToolbarActionPayload.macro(steps)
-        guard payload.output != nil else { return nil }
-        return payload
+        guard !steps.isEmpty, steps.count == macroSteps.count else { return nil }
+        return .macro(steps)
     }
 
     private var payload: ToolbarActionPayload? {
