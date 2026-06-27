@@ -126,7 +126,8 @@ cmux_claude_wrapper_target_looks_like_reexec_shim() {
             ;;
     esac
     case "$snippet" in
-        *'=claude'*|*'="claude"'*|*"='claude'"*)
+        *'=claude'*|*'="claude"'*|*"='claude'"*|\
+        *':-claude}'*|*':-"claude"}'*|*":-'claude'}"*)
             case "$snippet" in
                 *'exec "$'*|*'exec ${'*)
                     return 0
@@ -142,9 +143,6 @@ cmux_claude_wrapper_target_looks_like_reexec_shim() {
     case "$first_line" in
         *node*|*Node*)
             return 1
-            ;;
-        *sh*|*bash*|*zsh*|*fish*|*python*|*ruby*|*perl*)
-            return 0
             ;;
     esac
     return 1

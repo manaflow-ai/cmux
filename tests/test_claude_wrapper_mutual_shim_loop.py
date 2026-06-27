@@ -584,6 +584,79 @@ process.exit(child.status ?? 1);
             failures.append(f"guard fired for real shell claude launcher child: {combined_output!r}")
 
 
+def test_custom_shell_wrapper_execing_real_claude_allows_child_claude(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-custom-real-wrapper-") as td:
+        root = Path(td)
+        cmux_shim_dir = root / "tmp" / "cmux-cli-shims" / "surface-custom-real"
+        custom_dir = root / "custom-bin"
+        real_dir = root / "real-bin"
+        for directory in (cmux_shim_dir, custom_dir, real_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        cmux_shim = cmux_shim_dir / "claude"
+        shutil.copy2(WRAPPER, cmux_shim)
+        cmux_shim.chmod(0o755)
+
+        custom_wrapper = custom_dir / "claude-wrapper"
+        write_executable(
+            custom_wrapper,
+            f"""#!/usr/bin/env bash
+export CLAUDE_CUSTOM_WRAPPER_SEEN=1
+exec "{real_dir}/claude" "$@"
+""",
+        )
+        write_executable(
+            real_dir / "claude",
+            """#!/usr/bin/env node
+const { spawnSync } = require("node:child_process");
+if (process.argv[2] === "child") {
+  const guard = process.env.cmux_claude_wrapper_reexec_guard ?? "__unset__";
+  const targets = process.env.cmux_claude_wrapper_reexec_targets ?? "__unset__";
+  const wrapperSeen = process.env.CLAUDE_CUSTOM_WRAPPER_SEEN ?? "__unset__";
+  process.stdout.write(`custom child ok guard=${guard} targets=${targets} wrapper=${wrapperSeen}\\n`);
+  process.exit(0);
+}
+const command = ["cl", "aude"].join("");
+const child = spawnSync(command, ["child"], {
+  env: process.env,
+  encoding: "utf8",
+});
+if (child.error) {
+  process.stderr.write(`${child.error.message}\\n`);
+  process.exit(1);
+}
+process.stdout.write(child.stdout || "");
+process.stderr.write(child.stderr || "");
+process.exit(child.status ?? 1);
+""",
+        )
+
+        inherited_path = os.environ.get("PATH", "/usr/bin:/bin")
+        env = {
+            "HOME": str(root / "home"),
+            "PATH": f"{cmux_shim_dir}:{real_dir}:{inherited_path}",
+            "CMUX_CLAUDE_WRAPPER_SHIM": str(cmux_shim),
+            "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
+            "CMUX_CUSTOM_CLAUDE_PATH": str(custom_wrapper),
+        }
+        result = subprocess.run(
+            [str(cmux_shim)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        combined_output = result.stdout + result.stderr
+        if result.returncode != 0:
+            failures.append(f"custom shell wrapper failed with {result.returncode}: {combined_output!r}")
+        expected = "custom child ok guard=__unset__ targets=__unset__ wrapper=1"
+        if result.stdout.strip() != expected:
+            failures.append(f"expected custom shell wrapper child output {expected!r}, got: {combined_output!r}")
+        if "possible infinite claude shim loop" in combined_output:
+            failures.append(f"guard fired for custom shell wrapper child: {combined_output!r}")
+
+
 def main() -> int:
     failures: list[str] = []
     test_wrapper_stops_mutual_foreign_shim_loop(failures)
@@ -594,6 +667,7 @@ def main() -> int:
     test_passthrough_real_node_claude_does_not_receive_guard_env(failures)
     test_custom_shim_path_with_colon_is_tracked_as_one_target(failures)
     test_real_shell_claude_launcher_allows_child_claude_process(failures)
+    test_custom_shell_wrapper_execing_real_claude_allows_child_claude(failures)
     if failures:
         print("FAIL: claude wrapper mutual shim loop checks failed")
         for failure in failures:
