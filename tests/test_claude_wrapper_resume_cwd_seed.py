@@ -142,7 +142,7 @@ def test_copy_failure_in_current_root_allows_fallback_root(failures: list[str]) 
         inherited_config = root / "bad-config"
         fallback_config = root / ".claude"
         origin_cwd = root / "repo-main"
-        target_cwd = root / "worktrees" / "feature"
+        target_cwd = root / "worktrees" / "feature.v2"
         sid = "39c1eb84-5555-6666-7777-888888888888"
         for directory in (wrapper_bin, real_bin, origin_cwd, target_cwd):
             directory.mkdir(parents=True, exist_ok=True)
@@ -159,9 +159,9 @@ def test_copy_failure_in_current_root_allows_fallback_root(failures: list[str]) 
             origin_project.mkdir(parents=True, exist_ok=True)
             (origin_project / f"{sid}.jsonl").write_text(content, encoding="utf-8")
 
-        for project_dir_name in cwd_project_dir_names(target_cwd):
-            blocked_target_project = inherited_config / "projects" / project_dir_name
-            blocked_target_project.write_text("not a directory\n", encoding="utf-8")
+        blocked_project_dir_name = str(target_cwd).replace("/", "-")
+        blocked_target_project = inherited_config / "projects" / blocked_project_dir_name
+        blocked_target_project.write_text("not a directory\n", encoding="utf-8")
 
         real_seen_transcript = root / "real-seen-transcript.log"
         write_executable(
@@ -217,6 +217,13 @@ cat "$transcript" > {str(real_seen_transcript)!r}
             failures.append(
                 f"fallback wrapper exited {result.returncode}: stdout={result.stdout!r} stderr={result.stderr!r}"
             )
+        inherited_seeded_targets = [
+            inherited_config / "projects" / project_dir_name / f"{sid}.jsonl"
+            for project_dir_name in cwd_project_dir_names(target_cwd)
+            if project_dir_name != blocked_project_dir_name
+        ]
+        if not any(target.exists() for target in inherited_seeded_targets):
+            failures.append("current root did not partially seed an unblocked dotted cwd variant")
         if not any(target.exists() for target in fallback_targets):
             failures.append("fallback root target transcript was not seeded")
         for fallback_target in fallback_targets:

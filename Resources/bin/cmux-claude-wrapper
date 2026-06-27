@@ -285,7 +285,7 @@ cmux_claude_seed_resume_session_for_current_cwd() {
     source_project_dir="$(dirname "$source_transcript")"
     source_sidecar="$source_project_dir/$sid"
 
-    local seeded=false
+    local seeded=false copy_failed=false
     while IFS= read -r cwd; do
         [[ -n "$cwd" ]] || continue
         while IFS= read -r project_dir_name; do
@@ -304,8 +304,14 @@ cmux_claude_seed_resume_session_for_current_cwd() {
                 fi
                 continue
             fi
-            mkdir -p "$target_project_dir" 2>/dev/null || continue
-            cp -p "$source_transcript" "$target_transcript" 2>/dev/null || continue
+            if ! mkdir -p "$target_project_dir" 2>/dev/null; then
+                copy_failed=true
+                continue
+            fi
+            if ! cp -p "$source_transcript" "$target_transcript" 2>/dev/null; then
+                copy_failed=true
+                continue
+            fi
             seeded=true
             if [[ -d "$source_sidecar" && ! -e "$target_sidecar" ]]; then
                 cp -Rp "$source_sidecar" "$target_sidecar" 2>/dev/null || true
@@ -313,7 +319,7 @@ cmux_claude_seed_resume_session_for_current_cwd() {
         done < <(cmux_claude_project_dir_names_for_cwd "$cwd")
     done < <(cmux_claude_current_cwd_candidates)
 
-    [[ "$seeded" == true ]]
+    [[ "$seeded" == true && "$copy_failed" != true ]]
 }
 
 claude_option_consumes_value() {
