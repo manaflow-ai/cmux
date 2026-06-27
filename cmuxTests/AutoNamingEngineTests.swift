@@ -191,6 +191,26 @@ import Testing
         #expect(engine.latestClaudeConversationTitle(fromTranscriptLines: lines) == "Rename Claude tabs")
     }
 
+    @Test func latestClaudeConversationTitleFiltersBySessionId() {
+        let lines = [
+            #"{"type":"ai-title","sessionId":"target-session","aiTitle":"Matching title"}"#,
+            #"{"type":"ai-title","session_id":"other-session","aiTitle":"Unrelated newer title"}"#
+        ]
+
+        #expect(
+            engine.latestClaudeConversationTitle(
+                fromTranscriptLines: lines,
+                matchingSessionId: "target-session"
+            ) == "Matching title"
+        )
+        #expect(
+            engine.latestClaudeConversationTitle(
+                fromTranscriptLines: lines,
+                matchingSessionId: "missing-session"
+            ) == nil
+        )
+    }
+
     @Test func latestClaudeConversationTitleIgnoresGenericAndMalformedTitles() {
         let lines = [
             #"{"type":"ai-title","aiTitle":"✳ Claude Code"}"#,

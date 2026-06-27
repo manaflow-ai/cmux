@@ -807,7 +807,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         try [
             #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
-            #"{"type":"ai-title","aiTitle":"Claude Conversation Names"}"#
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"Claude Conversation Names"}"#
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startClaudeSurfaceResolutionServer(
@@ -912,15 +912,15 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
 
         try [
             #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
-            #"{"type":"ai-title","aiTitle":"First Auto Title"}"#
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"First Auto Title"}"#
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
         assertSuccessfulHook(runAutoNameHook())
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
 
         try [
             #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
-            #"{"type":"ai-title","aiTitle":"First Auto Title"}"#,
-            #"{"type":"ai-title","aiTitle":"Second Auto Title"}"#
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"First Auto Title"}"#,
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"Second Auto Title"}"#
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
         assertSuccessfulHook(runAutoNameHook())
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
@@ -953,7 +953,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         let transcriptURL = context.root.appendingPathComponent("claude-transcript.jsonl")
         try [
             #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
-            #"{"type":"ai-title","aiTitle":"Async Stop Hook Title"}"#
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"Async Stop Hook Title"}"#
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startClaudeSurfaceResolutionServer(
@@ -1013,7 +1013,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         try [
             #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
-            #"{"type":"ai-title","aiTitle":"Retry Failed Side"}"#
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"Retry Failed Side"}"#
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startClaudeSurfaceResolutionServer(
@@ -1076,7 +1076,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         try [
             #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
-            #"{"type":"ai-title","aiTitle":"Manual Tab Stays"}"#
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"Manual Tab Stays"}"#
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startClaudeSurfaceResolutionServer(
@@ -1139,7 +1139,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         try [
             #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
-            #"{"type":"ai-title","aiTitle":"Respect Manual Workspace"}"#
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"Respect Manual Workspace"}"#
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startClaudeSurfaceResolutionServer(

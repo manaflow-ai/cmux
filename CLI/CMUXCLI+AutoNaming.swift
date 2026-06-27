@@ -231,12 +231,21 @@ struct AutoNamingEngine: Sendable {
 
     /// Returns the latest Claude Code conversation title recorded in the
     /// transcript (`type: ai-title`), if one is usable.
-    func latestClaudeConversationTitle(fromTranscriptLines lines: [String]) -> String? {
+    func latestClaudeConversationTitle(
+        fromTranscriptLines lines: [String],
+        matchingSessionId sessionId: String? = nil
+    ) -> String? {
+        let expectedSessionId = sessionId?.trimmingCharacters(in: .whitespacesAndNewlines)
         for line in lines.reversed() {
             guard let data = line.data(using: .utf8),
                   let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                   object["type"] as? String == "ai-title" else {
                 continue
+            }
+            if let expectedSessionId, !expectedSessionId.isEmpty {
+                let recordSessionId = firstString(in: object, keys: ["sessionId", "session_id"])?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard recordSessionId == expectedSessionId else { continue }
             }
             let rawTitle = firstString(in: object, keys: ["aiTitle", "title"])
             guard var title = sanitizeResponse(rawTitle, currentTitle: nil) else { continue }

@@ -109,9 +109,15 @@ extension TerminalController {
                 return .invalidTitle
             }
             let trimmedTitle = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-            let source: Workspace.CustomTitleSource = titleSource?.lowercased() == "auto" ? .auto : .user
+            let normalizedTitleSource = titleSource?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            let source: Workspace.CustomTitleSource = normalizedTitleSource == "auto" ? .auto : .user
             guard workspace.setPanelCustomTitle(panelId: surfaceId, title: trimmedTitle, source: source) else {
-                return .titleUserOwned
+                return .titleUserOwned(message: String(
+                    localized: "socket.tabAction.error.titleUserOwned",
+                    defaultValue: "Tab title is user-owned"
+                ))
             }
             return finish(.title(trimmedTitle))
 

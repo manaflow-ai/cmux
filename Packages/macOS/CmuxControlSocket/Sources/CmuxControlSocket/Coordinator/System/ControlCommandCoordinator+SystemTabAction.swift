@@ -58,8 +58,8 @@ extension ControlCommandCoordinator {
             )
         case .invalidTitle:
             return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
-        case .titleUserOwned:
-            return .err(code: "title_user_owned", message: "Tab title is user-owned", data: nil)
+        case .titleUserOwned(let message):
+            return .err(code: "title_user_owned", message: message, data: nil)
         case .invalidURL(let rawURL):
             return .err(
                 code: "invalid_params",

@@ -40,7 +40,10 @@ extension CMUXCLI {
             method: "workspace.set_auto_title",
             params: ["probe": true, "workspace_id": workspaceId]
         )
-        if let claudeTitle = engine.latestClaudeConversationTitle(fromTranscriptLines: lines) {
+        if let claudeTitle = engine.latestClaudeConversationTitle(
+            fromTranscriptLines: lines,
+            matchingSessionId: sessionId
+        ) {
             applyClaudeConversationTitleIfNeeded(
                 claudeTitle,
                 sessionId: sessionId,

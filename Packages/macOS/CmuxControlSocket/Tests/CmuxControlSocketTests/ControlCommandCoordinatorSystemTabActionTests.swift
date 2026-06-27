@@ -60,7 +60,7 @@ struct ControlCommandCoordinatorSystemTabActionTests {
 
     @Test func tabActionMapsUserOwnedTitleRejection() {
         let context = FakeSystemTabActionContext()
-        context.resolution = .titleUserOwned
+        context.resolution = .titleUserOwned(message: "Localized tab title is user-owned")
         let coordinator = ControlCommandCoordinator(context: context)
 
         let result = coordinator.handle(request([
@@ -69,6 +69,6 @@ struct ControlCommandCoordinatorSystemTabActionTests {
             "title_source": .string("auto"),
         ]))
 
-        #expect(result == .err(code: "title_user_owned", message: "Tab title is user-owned", data: nil))
+        #expect(result == .err(code: "title_user_owned", message: "Localized tab title is user-owned", data: nil))
     }
 }
