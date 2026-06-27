@@ -837,6 +837,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "hideWorkspaceCloseButton": "Sakrij dugme za zatvaranje po radnom prostoru u bočnoj traci kako bi naslovi radnih prostora mogli koristiti oslobođenu širinu.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
         },
         "fileExplorer": {
