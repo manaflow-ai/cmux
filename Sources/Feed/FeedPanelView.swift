@@ -849,16 +849,7 @@ final class FeedKeyboardFocusView: NSView, FeedFocusHosting {
 // MARK: - Row snapshot + actions (respects snapshot-boundary rule)
 
 /// Closure bundle; binds to `FeedCoordinator` by default.
-struct FeedRowActions {
-    let approvePermission: (UUID, WorkstreamPermissionMode) -> Void
-    let replyQuestion: (UUID, [String]) -> Void
-    let approveExitPlan: (UUID, WorkstreamExitPlanMode, String?) -> Void
-    let jump: (String) -> Void
-    /// Types the user's reply into the agent's terminal surface and
-    /// presses Return. Used by Stop-kind cards so the user can nudge
-    /// Claude without switching focus to the terminal.
-    let sendText: (String, String) -> Void
-
+extension FeedRowActions {
     static func bound() -> FeedRowActions {
         FeedRowActions(
             approvePermission: { itemId, mode in
