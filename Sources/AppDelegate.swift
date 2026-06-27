@@ -551,7 +551,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var windowKeyObservers: [NSObjectProtocol] = []
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
-    private var menuBarVisibilityObserver: NSObjectProtocol?
     private var mobileHostSettingsObserver: NSObjectProtocol?
     private var reloadConfigurationMenuItemRefreshScheduled = false
     /// Orchestrates per-window cmux config-store reloads + window-title refresh.
@@ -658,9 +657,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog, settingsRuntime: settingsRuntime)
     private let windowDecorationsController = WindowDecorationsController()
     private let systemWideHotkeyController = SystemWideHotkeyController()
-    private var menuBarExtraController: MenuBarExtraController?
-    private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
-    private var lastMenuBarExtraShouldInstall: Bool?
+    /// Owns the menu-bar status item lifecycle and application-presentation
+    /// preferences. The status menu's app-delegate actions are injected as a
+    /// closure seam so the coordinator does not reach back through `self`.
+    private lazy var menuBarExtraCoordinator = MenuBarExtraCoordinator(
+        callbacks: .init(
+            showMainWindow: { [weak self] in
+                self?.showMainWindowFromMenuBar()
+            },
+            showNotifications: { [weak self] in
+                self?.showNotificationsPopoverFromMenuBar()
+            },
+            openNotification: { [weak self] notification in
+                _ = self?.openTerminalNotification(notification)
+            },
+            jumpToLatestUnread: { [weak self] in
+                self?.jumpToLatestUnread()
+            },
+            checkForUpdates: { [weak self] in
+                self?.checkForUpdates(nil)
+            },
+            openPreferences: { [weak self] in
+                self?.openPreferencesWindow(debugSource: "menuBarExtra")
+            }
+        )
+    )
     private lazy var mainWindowVisibilityController = MainWindowVisibilityController(
         dependencies: .init(
             isActivationSuppressed: {
@@ -1435,7 +1456,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             NSApp.setActivationPolicy(.regular)
         } else {
             MenuBarOnlySettings.normalizeLegacyStoredPreference()
-            syncActivationPolicy()
+            menuBarExtraCoordinator.syncActivationPolicy()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
 
@@ -1608,8 +1629,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if !isRunningUnderXCTest {
             configureUserNotifications()
-            installMenuBarVisibilityObserver()
-            syncApplicationPresentationPreferences()
+            menuBarExtraCoordinator.installMenuBarVisibilityObserver()
+            menuBarExtraCoordinator.syncApplicationPresentationPreferences()
             updateController.actionDelegate = self
             updateController.startUpdaterIfNeeded()
         }
@@ -6570,125 +6591,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restartSocketListenerIfEnabled(source: "menu.command")
     }
 
-    private func setupMenuBarExtra() {
-        guard menuBarExtraController == nil else { return }
-        removeTransientGlobalSearchMenuBarExtraController()
-        menuBarExtraController = makeMenuBarExtraController()
-    }
-
-    private func makeMenuBarExtraController() -> MenuBarExtraController {
-        let store = TerminalNotificationStore.shared
-        return MenuBarExtraController(
-            notificationStore: store,
-            onShowGlobalSearch: { button, onDismiss in
-                GlobalSearchCoordinator.shared.togglePalette(anchor: button, onDismiss: onDismiss)
-            },
-            onShowMainWindow: { [weak self] in
-                self?.showMainWindowFromMenuBar()
-            },
-            onShowNotifications: { [weak self] in
-                self?.showNotificationsPopoverFromMenuBar()
-            },
-            onOpenNotification: { [weak self] notification in
-                _ = self?.openTerminalNotification(notification)
-            },
-            onJumpToLatestUnread: { [weak self] in
-                self?.jumpToLatestUnread()
-            },
-            onOpenTaskManager: {
-                TaskManagerWindowController.shared.show()
-            },
-            onCheckForUpdates: { [weak self] in
-                self?.checkForUpdates(nil)
-            },
-            onOpenPreferences: { [weak self] in
-                self?.openPreferencesWindow(debugSource: "menuBarExtra")
-            },
-            onQuitApp: {
-                NSApp.terminate(nil)
-            }
-        )
-    }
-
     func toggleGlobalSearchPaletteFromGlobalHotkey() {
-        if menuBarExtraController == nil,
-           MenuBarExtraSettings.shouldInstallMenuBarExtra() {
-            setupMenuBarExtra()
-        }
-
-        if let menuBarExtraController,
-           menuBarExtraController.toggleGlobalSearchPalette() {
-            return
-        }
-
-        if toggleGlobalSearchPaletteFromTransientMenuBarExtra() {
-            return
-        }
-
-        NSSound.beep()
-    }
-
-    private func toggleGlobalSearchPaletteFromTransientMenuBarExtra() -> Bool {
-        if let controller = transientGlobalSearchMenuBarExtraController {
-            if controller.toggleGlobalSearchPalette(
-                onDismiss: transientGlobalSearchDismissalHandler(for: controller)
-            ) {
-                return true
-            }
-            controller.removeFromMenuBar()
-            transientGlobalSearchMenuBarExtraController = nil
-        }
-
-        let controller = makeMenuBarExtraController()
-        transientGlobalSearchMenuBarExtraController = controller
-
-        let onDismiss = transientGlobalSearchDismissalHandler(for: controller)
-
-        guard controller.toggleGlobalSearchPalette(onDismiss: onDismiss) else {
-            controller.removeFromMenuBar()
-            transientGlobalSearchMenuBarExtraController = nil
-            return false
-        }
-
-        return true
-    }
-
-    private func removeTransientGlobalSearchMenuBarExtraController() {
-        transientGlobalSearchMenuBarExtraController?.removeFromMenuBar()
-        transientGlobalSearchMenuBarExtraController = nil
-    }
-
-    private func transientGlobalSearchDismissalHandler(
-        for controller: MenuBarExtraController
-    ) -> () -> Void {
-        return { [weak self, weak controller] in
-            guard let self,
-                  let controller,
-                  self.transientGlobalSearchMenuBarExtraController === controller else {
-                return
-            }
-            controller.removeFromMenuBar()
-            self.transientGlobalSearchMenuBarExtraController = nil
-        }
-    }
-
-    private func installMenuBarVisibilityObserver() {
-        guard menuBarVisibilityObserver == nil else { return }
-        menuBarVisibilityObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.syncApplicationPresentationPreferences()
-            }
-        }
-    }
-
-    private func syncApplicationPresentationPreferences(defaults: UserDefaults = .standard) {
-        MenuBarOnlySettings.normalizeLegacyStoredPreference(defaults: defaults)
-        syncActivationPolicy(defaults: defaults)
-        syncMenuBarExtraVisibility(defaults: defaults)
+        menuBarExtraCoordinator.toggleGlobalSearchPaletteFromGlobalHotkey()
     }
 
     private func installMobileHostSettingsObserver() {
@@ -6706,28 +6610,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func syncMobileHostService() {
         MobileHostService.shared.syncToSettings()
-    }
-
-    private func syncActivationPolicy(defaults: UserDefaults = .standard) {
-        MenuBarOnlySettings.applyActivationPolicy(defaults: defaults)
-    }
-
-    private func syncMenuBarExtraVisibility(defaults: UserDefaults = .standard) {
-        let shouldInstall = MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults)
-        let previousShouldInstall = lastMenuBarExtraShouldInstall
-        lastMenuBarExtraShouldInstall = shouldInstall
-
-        if shouldInstall {
-            setupMenuBarExtra()
-            return
-        }
-
-        let hadPersistentController = menuBarExtraController != nil
-        menuBarExtraController?.removeFromMenuBar()
-        menuBarExtraController = nil
-        if previousShouldInstall == true || hadPersistentController {
-            removeTransientGlobalSearchMenuBarExtraController()
-        }
     }
 
     @MainActor
@@ -6763,7 +6645,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func refreshMenuBarExtraForDebug() {
-        menuBarExtraController?.refreshForDebugControls()
+        menuBarExtraCoordinator.refreshMenuBarExtraForDebug()
     }
 
     func openTaskManagerWindow() {
