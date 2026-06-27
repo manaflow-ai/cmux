@@ -81,6 +81,34 @@ struct UserDefaultsSettingsStoreNotificationTests {
         #expect(storedValue == "#EXTERNAL")
     }
 
+    @Test func directDefaultsNotificationRejectsOlderPendingSourceBeforeDrain() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        let externalDefaults = UserDefaults(suiteName: suiteName)!
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let staleSource = UserDefaultsSettingsMutationSource(
+            ownerID: UUID(),
+            sequence: 1,
+            logicalOrder: 1
+        )
+        let stream = await store.valueEvents(for: key)
+        var iterator = stream.makeAsyncIterator()
+
+        let initial = await iterator.next()
+        #expect(initial?.value == key.defaultValue)
+
+        externalDefaults.set("#EXTERNAL", forKey: key.userDefaultsKey)
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: externalDefaults
+        )
+
+        let acceptedSource = await store.set("#STALE", for: key, source: staleSource)
+        let storedValue = await store.value(for: key)
+        #expect(acceptedSource == nil)
+        #expect(storedValue == "#EXTERNAL")
+    }
+
     @Test func queuedDirectDefaultsNotificationDoesNotRejectNewerPendingSource() async {
         let suiteName = "cmux.tests.\(UUID().uuidString)"
         let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
