@@ -2060,9 +2060,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // An absolute `set_font_size:<target>` keeps libghostty in lockstep
         // with `liveFontSize`, which we keep inside [minimumSize, maximumSize].
         let action = "set_font_size:\(target)"
+        let surfaceHandle = QueuedGhosttySurfaceHandle(surface: surface)
         Self.outputQueue.async {
             action.withCString { pointer in
-                _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+                _ = ghostty_surface_binding_action(surfaceHandle.surface, pointer, UInt(action.utf8.count))
             }
         }
         // Render the new font (the grid reflows inside the current surface) but
@@ -2183,6 +2184,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         fatalError("init(coder:) is not supported")
     }
 
+    @MainActor
     deinit {
         stopKeyboardHeightAnimation()
         disposeSurface()
@@ -2303,11 +2305,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // scene-update watchdog (0x8BADF00D) kills the app. It must run off
         // the main thread. Feed it on a serial background queue (order
         // preserved) and hop back to main only for the Swift-side UI state.
+        let surfaceHandle = QueuedGhosttySurfaceHandle(surface: surface)
         Self.outputQueue.async { [weak self] in
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
-                ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+                ghostty_surface_process_output(surfaceHandle.surface, pointer, UInt(buffer.count))
             }
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
@@ -2323,7 +2326,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let a11yNow = CACurrentMediaTime()
             if a11yNow - Self.lastAccessibilityTextTime > 0.5 {
                 Self.lastAccessibilityTextTime = a11yNow
-                accessibilityText = Self.accessibilitySurfaceText(surface)
+                accessibilityText = Self.accessibilitySurfaceText(surfaceHandle.surface)
             }
             #endif
             DispatchQueue.main.async {
@@ -2375,9 +2378,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // `process_output` also preserves ordering. The return was already
         // discarded.
         let action = "scroll_to_bottom"
+        let surfaceHandle = QueuedGhosttySurfaceHandle(surface: surface)
         Self.outputQueue.async {
             action.withCString { pointer in
-                _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+                _ = ghostty_surface_binding_action(surfaceHandle.surface, pointer, UInt(action.utf8.count))
             }
         }
     }
@@ -3663,6 +3667,15 @@ private struct VisibleSnapshotRequest: @unchecked Sendable {
     let surface: ghostty_surface_t
 }
 
+/// Carrier for one queued libghostty operation.
+///
+/// The `ghostty_surface_t` is only dereferenced on `GhosttySurfaceView.outputQueue`
+/// and the queue is FIFO-ordered before any queued surface free, so carrying it
+/// across that queue hop is safe — hence `@unchecked Sendable`.
+private struct QueuedGhosttySurfaceHandle: @unchecked Sendable {
+    let surface: ghostty_surface_t
+}
+
 /// Carrier for the snapshot text produced off `GhosttySurfaceView.outputQueue`.
 ///
 /// `sections` is written exactly once on that queue before its semaphore is
@@ -3680,6 +3693,7 @@ private class DisplayLinkProxy {
         self.target = target
     }
 
+    @MainActor
     @objc func handleDisplayLink() {
         target?.handleDisplayLinkFire()
     }
