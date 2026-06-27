@@ -165,7 +165,7 @@ struct WorkspaceDetailView: View {
         )
         .id(session.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .safeAreaPadding(.top, terminalTopPadding)
+        .mobileChatTopScrollEdgeLayout(legacyTopPadding: terminalTopPadding)
         .mobileTerminalNavigationChrome()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
