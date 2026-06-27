@@ -437,4 +437,89 @@ public final class WorkstreamStore {
         lastContextByWorkstream[item.workstreamId] = next
     }
 
+    private func parseQuestions(fromToolInput json: String?) -> [WorkstreamQuestionPrompt] {
+        guard let root = Self.jsonObject(from: json) as? [String: Any] else { return [] }
+        if let questions = root["questions"] as? [[String: Any]] {
+            return questions.enumerated().map { idx, question in
+                Self.makeQuestion(from: question, fallbackId: "q\(idx)")
+            }
+        }
+        return [Self.makeQuestion(from: root, fallbackId: "q0")]
+    }
+
+    private static func makeQuestion(from dict: [String: Any], fallbackId: String) -> WorkstreamQuestionPrompt {
+        let rawOptions = dict["options"] as? [Any] ?? []
+        let options: [WorkstreamQuestionOption] = rawOptions.enumerated().compactMap { idx, raw in
+            if let label = raw as? String {
+                return WorkstreamQuestionOption(id: "opt\(idx)", label: label)
+            }
+            guard let option = raw as? [String: Any] else { return nil }
+            let id = (option["id"] as? String) ?? "opt\(idx)"
+            let label = (option["label"] as? String) ?? (option["title"] as? String) ?? id
+            let description = (option["description"] as? String) ?? (option["detail"] as? String)
+            return WorkstreamQuestionOption(id: id, label: label, description: description)
+        }
+        let header = (dict["header"] as? String) ?? (dict["title"] as? String)
+        let prompt = (dict["question"] as? String) ?? (dict["prompt"] as? String) ?? ""
+        let multi = (dict["multiSelect"] as? Bool) ?? (dict["multi_select"] as? Bool) ?? false
+        return WorkstreamQuestionPrompt(id: (dict["id"] as? String) ?? fallbackId, header: header, prompt: prompt, multiSelect: multi, options: options)
+    }
+
+    private static func jsonObject(from json: String?) -> Any? {
+        guard let json, let data = json.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+    }
+
+    private static func promptText(from json: String?) -> String {
+        if let dict = jsonObject(from: json) as? [String: Any] {
+            return (dict["prompt"] as? String)
+                ?? (dict["text"] as? String)
+                ?? (dict["message"] as? String)
+                ?? ""
+        }
+        return json ?? ""
+    }
+
+    private static func carriedContext(from context: WorkstreamContext) -> WorkstreamContext? {
+        let carried = WorkstreamContext(
+            lastUserMessage: context.lastUserMessage,
+            assistantPreamble: context.assistantPreamble,
+            permissionMode: context.permissionMode
+        )
+        return carried.isEmpty ? nil : carried
+    }
+
+    private static func stopReason(from json: String?) -> String? {
+        if let dict = jsonObject(from: json) as? [String: Any] {
+            return (dict["reason"] as? String)
+                ?? (dict["message"] as? String)
+                ?? (dict["cause"] as? String)
+        }
+        return nil
+    }
+
+    private static func todos(from json: String?) -> [WorkstreamTaskTodo] {
+        let rawTodos: [Any]
+        if let dict = jsonObject(from: json) as? [String: Any] {
+            rawTodos = dict["todos"] as? [Any] ?? []
+        } else {
+            rawTodos = jsonObject(from: json) as? [Any] ?? []
+        }
+        return rawTodos.enumerated().compactMap { idx, raw in
+            guard let dict = raw as? [String: Any] else { return nil }
+            let content = (dict["content"] as? String)
+                ?? (dict["text"] as? String)
+                ?? (dict["title"] as? String)
+                ?? ""
+            guard !content.isEmpty else { return nil }
+            let rawState = (dict["state"] as? String) ?? (dict["status"] as? String) ?? "pending"
+            let state: WorkstreamTaskTodo.State = switch rawState {
+            case "completed", "done": .completed
+            case "inProgress", "in_progress", "active": .inProgress
+            default: .pending
+            }
+            return WorkstreamTaskTodo(id: (dict["id"] as? String) ?? "todo\(idx)", content: content, state: state)
+        }
+    }
+
 }
