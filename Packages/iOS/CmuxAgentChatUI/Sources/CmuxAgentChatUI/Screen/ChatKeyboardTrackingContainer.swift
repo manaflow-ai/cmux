@@ -6,8 +6,8 @@ struct ChatKeyboardTrackingContainer<Transcript: View, Composer: View>: UIViewCo
     let composer: Composer
     let showsComposer: Bool
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
+    func makeCoordinator() -> ChatKeyboardTrackingCoordinator {
+        ChatKeyboardTrackingCoordinator()
     }
 
     func makeUIViewController(
@@ -53,9 +53,5 @@ struct ChatKeyboardTrackingContainer<Transcript: View, Composer: View>: UIViewCo
         )
     }
 
-    @MainActor
-    final class Coordinator {
-        let overlayGeometry = ChatTranscriptOverlayGeometry()
-    }
 }
 #endif

@@ -106,12 +106,10 @@ public struct ChatScreen: View {
                             if value.translation.height < -8 { store.dismissError() }
                         }
                 )
-                // Bounded auto-dismiss: the task is keyed on the error
-                // text, so a new error restarts the window, and SwiftUI
-                // cancels the sleep when the banner leaves.
-                .task(id: error) {
-                    try? await Task.sleep(for: .seconds(8))
-                    guard !Task.isCancelled else { return }
+                // Bounded auto-dismiss: the view is keyed on the error text,
+                // so a new error restarts the timer subscription.
+                .id(error)
+                .onReceive(Timer.publish(every: 8, on: .main, in: .common).autoconnect()) { _ in
                     store.dismissError()
                 }
         }
