@@ -107,158 +107,15 @@ enum GhosttyBackgroundTheme {
 // `CmuxBrowser` package (imported above); the call sites reference them
 // unqualified through that import.
 
-// Adapts `BrowserHistoryStore` to the `CmuxBrowser` history seams so the
-// profile repository can manage per-profile history stores without depending on
-// the app-target `BrowserHistoryStore` type.
-extension BrowserHistoryStore: BrowserProfileHistoryStore {}
-
-@MainActor
-private final class BrowserProfileHistoryAdapter: BrowserProfileHistoryProviding {
-    var sharedHistoryStore: any BrowserProfileHistoryStore { BrowserHistoryStore.shared }
-
-    func makeHistoryStore(fileURL: URL?) -> any BrowserProfileHistoryStore {
-        BrowserHistoryStore(fileURL: fileURL)
-    }
-
-    func defaultHistoryFileURLForCurrentBundle() -> URL? {
-        BrowserHistoryStore.defaultHistoryFileURLForCurrentBundle()
-    }
-
-    func normalizedBrowserHistoryNamespace(forBundleIdentifier bundleIdentifier: String) -> String {
-        BrowserHistoryStore.normalizedBrowserHistoryNamespaceForBundleIdentifier(bundleIdentifier)
-    }
-
-    func flushSharedHistoryPendingSaves() {
-        BrowserHistoryStore.shared.flushPendingSaves()
-    }
-}
-
-// Adapts WebKit's `WKWebsiteDataStore` to the `CmuxBrowser` data-store
-// seam, mapping the built-in default profile to the default store and bridging
-// the legacy completion-handler wipe to `async`/`await` at this one boundary.
-@MainActor
-private final class BrowserProfileWebsiteDataStoreAdapter: BrowserProfileWebsiteDataStoreProviding {
-    var defaultWebsiteDataStore: AnyObject { WKWebsiteDataStore.default() }
-
-    func makeWebsiteDataStore(forProfileID profileID: UUID) -> AnyObject {
-        WKWebsiteDataStore(forIdentifier: profileID)
-    }
-
-    var allWebsiteDataTypes: [String] { Array(WKWebsiteDataStore.allWebsiteDataTypes()) }
-
-    func removeAllData(ofTypes dataTypes: [String], from store: AnyObject) async {
-        guard let store = store as? WKWebsiteDataStore else { return }
-        let types = Set(dataTypes)
-        await withCheckedContinuation { continuation in
-            store.removeData(ofTypes: types, modifiedSince: .distantPast) {
-                continuation.resume()
-            }
-        }
-    }
-}
-
-// Removes profile-owned files via a detached utility task, matching the original
-// best-effort, ignore-errors deletion behavior.
-private struct BrowserProfileFileRemover: BrowserProfileFileRemoving {
-    func removeItemIfExists(at url: URL) async {
-        await Task.detached(priority: .utility) {
-            try? FileManager.default.removeItem(at: url)
-        }.value
-    }
-}
-
-@MainActor
-final class BrowserProfileStore: ObservableObject {
-    static let shared = BrowserProfileStore()
-
-    @Published private(set) var profiles: [BrowserProfileDefinition] = []
-    @Published private(set) var lastUsedProfileID: UUID = BrowserProfileRepository.builtInDefaultProfileID
-
-    private let repository: BrowserProfileRepository
-
-    init(defaults: UserDefaults = .standard) {
-        repository = BrowserProfileRepository(
-            defaults: defaults,
-            historyProvider: BrowserProfileHistoryAdapter(),
-            websiteDataStoreProvider: BrowserProfileWebsiteDataStoreAdapter(),
-            fileRemover: BrowserProfileFileRemover(),
-            bundleIdentifier: Bundle.main.bundleIdentifier ?? "cmux",
-            defaultProfileDisplayName: String(localized: "browser.profile.default", defaultValue: "Default")
-        )
-        mirrorPublishedState()
-    }
-
-    private func mirrorPublishedState() {
-        profiles = repository.profiles
-        lastUsedProfileID = repository.lastUsedProfileID
-    }
-
-    var builtInDefaultProfileID: UUID {
-        repository.builtInDefaultProfileID
-    }
-
-    var effectiveLastUsedProfileID: UUID {
-        repository.effectiveLastUsedProfileID
-    }
-
-    func profileDefinition(id: UUID) -> BrowserProfileDefinition? {
-        repository.profileDefinition(id: id)
-    }
-
-    func displayName(for id: UUID) -> String {
-        repository.displayName(for: id)
-    }
-
-    func createProfile(named rawName: String) -> BrowserProfileDefinition? {
-        let result = repository.createProfile(named: rawName)
-        mirrorPublishedState()
-        return result
-    }
-
-    func renameProfile(id: UUID, to rawName: String) -> Bool {
-        let result = repository.renameProfile(id: id, to: rawName)
-        mirrorPublishedState()
-        return result
-    }
-
-    func canRenameProfile(id: UUID) -> Bool {
-        repository.canRenameProfile(id: id)
-    }
-
-    func deleteProfile(id: UUID) -> BrowserProfileDefinition? {
-        let result = repository.deleteProfile(id: id)
-        mirrorPublishedState()
-        return result
-    }
-
-    func clearProfileData(id: UUID) async -> BrowserProfileClearOutcome? {
-        let result = await repository.clearProfileData(id: id)
-        mirrorPublishedState()
-        return result
-    }
-
-    func noteUsed(_ id: UUID) {
-        repository.noteUsed(id)
-        mirrorPublishedState()
-    }
-
-    func websiteDataStore(for profileID: UUID) -> WKWebsiteDataStore {
-        // Safe force-cast: the adapter only ever vends `WKWebsiteDataStore` handles.
-        repository.websiteDataStore(for: profileID) as! WKWebsiteDataStore
-    }
-
-    func historyStore(for profileID: UUID) -> BrowserHistoryStore {
-        // Safe force-cast: the adapter only ever vends `BrowserHistoryStore` handles.
-        repository.historyStore(for: profileID) as! BrowserHistoryStore
-    }
-
-    func historyFileURL(for profileID: UUID) -> URL? {
-        repository.historyFileURL(for: profileID)
-    }
-
-    func flushPendingSaves() {
-        repository.flushPendingSaves()
-    }
+// `BrowserProfileStore` (the profile-selection ObservableObject facade) plus its
+// history/website-data-store/file-remover seam adapters now live in the
+// `CmuxBrowser` package (imported above). The process-wide singleton stays here
+// in the composition root so its localized default-profile display name resolves
+// `String(localized:)` against the app bundle's `.xcstrings`.
+extension BrowserProfileStore {
+    static let shared = BrowserProfileStore(
+        defaultProfileDisplayName: String(localized: "browser.profile.default", defaultValue: "Default")
+    )
 }
 
 // The browser link/availability/insecure-HTTP policy settings moved to the
@@ -6483,7 +6340,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 // CmuxBrowser (Import/Resolution + Import/Values). The app supplies the
 // destination-profile store and the app-bundle-localized failure strings.
 
-extension BrowserProfileStore: BrowserImportProfileProvisioning {}
+extension BrowserProfileStore: @retroactive BrowserImportProfileProvisioning {}
 
 extension BrowserImportRealizationStrings {
     /// App-bundle-localized realization failure messages.
@@ -6527,7 +6384,7 @@ extension BrowserImportPlanResolver {
 // (Import/Engine/BrowserDataImportService). The app supplies the destination
 // cookie/history sink and the app-bundle-localized warning strings.
 
-extension BrowserProfileStore: BrowserImportProfileDataWriting {
+extension BrowserProfileStore: @retroactive BrowserImportProfileDataWriting {
     func httpCookieStore(forProfileID profileID: UUID) -> WKHTTPCookieStore {
         websiteDataStore(for: profileID).httpCookieStore
     }

@@ -16,6 +16,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CMUXAgentLaunch"),
         .package(path: "../CMUXDebugLog"),
+        .package(path: "../CmuxAppKitSupportUI"),
         .package(path: "../CmuxFoundation"),
     ],
     targets: [
@@ -24,6 +25,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CMUXAgentLaunch", package: "CMUXAgentLaunch"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
+                .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
             ],
             swiftSettings: [

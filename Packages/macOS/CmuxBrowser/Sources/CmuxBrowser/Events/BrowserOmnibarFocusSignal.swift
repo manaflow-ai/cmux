@@ -11,10 +11,10 @@ public import Foundation
 /// now forward to `notificationName` here so each string lives in one place.
 ///
 /// The wire shape is unchanged. The names are `"browserFocusAddressBar"`,
-/// `"browserMoveOmnibarSelection"`, `"browserDidExitAddressBar"`, and
-/// `"browserDidFocusAddressBar"`, posted with the browser panel id as `object`
-/// (and, for `moveSelection`, a `["delta": Int]` `userInfo` payload assembled at
-/// the post site).
+/// `"browserMoveOmnibarSelection"`, `"browserDidExitAddressBar"`,
+/// `"browserDidFocusAddressBar"`, and `"browserDidBlurAddressBar"`, posted with
+/// the browser panel id as `object` (and, for `moveSelection`, a `["delta": Int]`
+/// `userInfo` payload assembled at the post site).
 public enum BrowserOmnibarFocusSignal: Sendable {
     /// A command to move keyboard focus into the browser address bar / omnibar.
     case focusAddressBar
@@ -24,6 +24,8 @@ public enum BrowserOmnibarFocusSignal: Sendable {
     case didExitAddressBar
     /// The address bar gained focus (the omnibar editing session began).
     case didFocusAddressBar
+    /// The address bar resigned first responder (the omnibar field blurred).
+    case didBlurAddressBar
 
     /// The `NotificationCenter` name for this signal.
     public var notificationName: Notification.Name {
@@ -36,6 +38,8 @@ public enum BrowserOmnibarFocusSignal: Sendable {
             return Notification.Name("browserDidExitAddressBar")
         case .didFocusAddressBar:
             return Notification.Name("browserDidFocusAddressBar")
+        case .didBlurAddressBar:
+            return Notification.Name("browserDidBlurAddressBar")
         }
     }
 }
