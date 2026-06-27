@@ -280,7 +280,6 @@ struct TextBoxAttachment: Identifiable, TextBoxSubmissionAttachment {
 }
 
 private enum TextBoxDraftAttachmentStorage {
-    private static let directoryName = "textbox-draft-attachments"
     private struct DraftCopyState {
         var copiedDraftPathByOriginalPath: [String: String] = [:]
         var pendingOriginalPaths: Set<String> = []
@@ -461,83 +460,15 @@ private enum TextBoxDraftAttachmentStorage {
     }
 
     private static func copyToDurableStorage(_ sourceURL: URL) -> URL? {
-        let sourceURL = sourceURL.standardizedFileURL
-        guard let destinationURL = durableStorageURL(for: sourceURL) else { return nil }
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            return destinationURL.standardizedFileURL
-        }
-        do {
-            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-            return destinationURL.standardizedFileURL
-        } catch {
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                return destinationURL.standardizedFileURL
-            }
-            return nil
-        }
+        TextBoxDraftAttachmentDurableStorage().copyToDurableStorage(sourceURL)
     }
 
     private static func linkToDurableStorageIfPossible(_ sourceURL: URL) -> URL? {
-        let sourceURL = sourceURL.standardizedFileURL
-        guard let destinationURL = durableStorageURL(for: sourceURL) else { return nil }
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            return destinationURL
-        }
-        do {
-            try FileManager.default.linkItem(at: sourceURL, to: destinationURL)
-            return destinationURL
-        } catch {
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                return destinationURL
-            }
-            return nil
-        }
-    }
-
-    private static func durableStorageURL(for sourceURL: URL) -> URL? {
-        guard let directory = storageDirectory() else { return nil }
-        let sourceURL = sourceURL.standardizedFileURL
-        let fileExtension = sourceURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
-        let pathToken = stablePathToken(sourceURL.path)
-        let fallbackName = fileExtension.isEmpty ? "attachment" : "attachment.\(fileExtension)"
-        let filename = "\(pathToken)-\(sourceURL.lastPathComponent.isEmpty ? fallbackName : sourceURL.lastPathComponent)"
-        return directory.appendingPathComponent(filename, isDirectory: false).standardizedFileURL
+        TextBoxDraftAttachmentDurableStorage().linkToDurableStorageIfPossible(sourceURL)
     }
 
     static func isOwnedDraftCopy(_ fileURL: URL) -> Bool {
-        guard let directory = storageDirectory(createIfMissing: false) else { return false }
-        let directoryPath = directory.standardizedFileURL.path
-        let filePath = fileURL.standardizedFileURL.path
-        return filePath == directoryPath || filePath.hasPrefix(directoryPath + "/")
-    }
-
-    private static func stablePathToken(_ path: String) -> String {
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in path.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 1_099_511_628_211
-        }
-        return String(hash, radix: 16)
-    }
-
-    private static func storageDirectory(createIfMissing: Bool = true) -> URL? {
-        guard let appSupportDirectory = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else {
-            return nil
-        }
-        let directory = appSupportDirectory
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent(directoryName, isDirectory: true)
-        if createIfMissing {
-            do {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            } catch {
-                return nil
-            }
-        }
-        return directory
+        TextBoxDraftAttachmentDurableStorage().isOwnedDraftCopy(fileURL)
     }
 
 #if DEBUG
