@@ -26,9 +26,6 @@ enum NotificationSoundSettings {
     // shared, mirroring `soundPlayer`/`customCommandRunner`.
     private static let customSoundStagingService = CustomSoundStagingService()
 
-    static let customCommandKey = "notificationCustomCommand"
-    static let defaultCustomCommand = ""
-
     static let systemSounds: [(label: String, value: String)] = [
         ("Default", "default"),
         ("Basso", "Basso"),
@@ -229,10 +226,11 @@ enum NotificationSoundSettings {
         return trimmed
     }
 
+    // Shared composition-point instance: one runner backs the whole process so
+    // custom commands serialize on the runner's single queue.
     private static let customCommandRunner = NotificationCustomCommandRunner()
 
     static func runCustomCommand(title: String, subtitle: String, body: String, defaults: UserDefaults = .standard) {
-        let command = defaults.string(forKey: customCommandKey) ?? defaultCustomCommand
-        customCommandRunner.run(command: command, title: title, subtitle: subtitle, body: body)
+        customCommandRunner.run(title: title, subtitle: subtitle, body: body, defaults: defaults)
     }
 }

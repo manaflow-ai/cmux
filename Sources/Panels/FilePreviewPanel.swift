@@ -738,37 +738,6 @@ private struct FilePreviewPDFView: NSViewRepresentable {
     }
 }
 
-final class FilePreviewPDFChromeHostView: NSView {
-    var interactiveOverlayViews: [NSView] = []
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        for overlayView in interactiveOverlayViews.reversed() where !overlayView.isHidden {
-            let convertedPoint = convert(point, to: overlayView)
-            if let hitView = interactiveHit(in: overlayView, at: convertedPoint) {
-                return hitView
-            }
-        }
-        return nil
-    }
-
-    private func interactiveHit(in view: NSView, at point: NSPoint) -> NSView? {
-        guard !view.isHidden, view.bounds.contains(point) else { return nil }
-        for subview in view.subviews.reversed() {
-            let convertedPoint = view.convert(point, to: subview)
-            if let hitView = interactiveHit(in: subview, at: convertedPoint) {
-                return hitView
-            }
-        }
-        return view is NSControl || view is FilePreviewPDFChromeHostingView ? view : nil
-    }
-}
-
-final class FilePreviewPDFChromeHostingView: NSHostingView<AnyView> {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
-    }
-}
-
 final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSource, NSCollectionViewDelegate, NSCollectionViewDelegateFlowLayout {
     private enum Metrics {
         static let thumbnailHeight = FilePreviewPDFSizing.thumbnailMaximumSize.height

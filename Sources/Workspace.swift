@@ -25,21 +25,6 @@ import Darwin
 import Network
 import CoreText
 
-#if DEBUG
-private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
-    guard let text else { return "nil" }
-    let escaped = text
-        .replacingOccurrences(of: "\\", with: "\\\\")
-        .replacingOccurrences(of: "\n", with: "\\n")
-        .replacingOccurrences(of: "\r", with: "\\r")
-        .replacingOccurrences(of: "\t", with: "\\t")
-    if escaped.count <= limit {
-        return escaped
-    }
-    return "\(escaped.prefix(limit))..."
-}
-#endif
-
 private struct SessionPaneRestoreEntry {
     let paneId: PaneID
     let snapshot: SessionPaneLayoutSnapshot
@@ -3775,7 +3760,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             "workspace.title.updatePanel workspace=\(id.uuidString.prefix(5)) " +
             "panel=\(panelId.uuidString.prefix(5)) panels=\(panelCount) custom=\(hasCustomTitle ? 1 : 0) " +
             "panelChanged=\(didMutatePanelTitle ? 1 : 0) workspaceChanged=\(didMutateWorkspaceTitle ? 1 : 0) " +
-            "title=\"\(debugWorkspaceDescriptionPreview(trimmedTitle, limit: 80))\""
+            "title=\"\(trimmedTitle.debugDescriptionPreview(limit: 80))\""
         )
 #endif
     }
@@ -3945,8 +3930,8 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
 #if DEBUG
         cmuxDebugLog(
             "workspace.title.applyProcess workspace=\(id.uuidString.prefix(5)) " +
-            "from=\"\(debugWorkspaceDescriptionPreview(previousTitle, limit: 80))\" " +
-            "to=\"\(debugWorkspaceDescriptionPreview(title, limit: 80))\""
+            "from=\"\(previousTitle.debugDescriptionPreview(limit: 80))\" " +
+            "to=\"\(title.debugDescriptionPreview(limit: 80))\""
         )
 #endif
     }
@@ -3965,8 +3950,8 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             "inputNewlines=\(inputNewlines) " +
             "normalizedLen=\((normalizedDescription as NSString?)?.length ?? 0) " +
             "normalizedNewlines=\(normalizedNewlines) " +
-            "input=\"\(debugWorkspaceDescriptionPreview(description))\" " +
-            "normalized=\"\(debugWorkspaceDescriptionPreview(normalizedDescription))\""
+            "input=\"\(description?.debugDescriptionPreview() ?? "nil")\" " +
+            "normalized=\"\(normalizedDescription?.debugDescriptionPreview() ?? "nil")\""
         )
 #endif
     }

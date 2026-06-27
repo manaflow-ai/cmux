@@ -36,22 +36,4 @@ extension WorkspaceContentView {
         }
         return next
     }
-
-    static func ghosttyAppearanceSignature(_ config: GhosttyConfig, usesHostLayerBackground: Bool) -> String {
-        [
-            config.backgroundColor.hexString(includeAlpha: true),
-            config.foregroundColor.hexString(includeAlpha: true),
-            config.cursorColor.hexString(includeAlpha: true),
-            config.cursorTextColor.hexString(includeAlpha: true),
-            config.selectionBackground.hexString(includeAlpha: true),
-            config.selectionForeground.hexString(includeAlpha: true),
-            String(format: "%.4f", config.backgroundOpacity),
-            String(describing: config.backgroundBlur),
-            String(format: "%.4f", config.surfaceTabBarFontSize),
-            String(format: "%.4f", config.unfocusedSplitOpacity),
-            config.unfocusedSplitFill?.hexString(includeAlpha: true) ?? "nil",
-            config.splitDividerColor?.hexString(includeAlpha: true) ?? "nil",
-            String(usesHostLayerBackground),
-        ].joined(separator: "|")
-    }
 }

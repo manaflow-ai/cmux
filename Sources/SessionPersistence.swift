@@ -12,9 +12,10 @@ import CryptoKit
 import Security
 #endif
 
-enum SessionSnapshotSchema {
-    static let currentVersion = 1
-}
+// The current snapshot schema version (legacy `SessionSnapshotSchema.currentVersion`)
+// now lives in CmuxWorkspaces as `SessionSnapshotRepresenting.currentSchemaVersion`,
+// a static on the schema seam already owned by the package. The value is unchanged;
+// call it as `AppSessionSnapshot.currentSchemaVersion`.
 
 enum SessionPersistencePolicy {
     static let sidebarMinimumWidthKey = "sidebarMinimumWidth"

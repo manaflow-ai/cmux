@@ -127,7 +127,7 @@ enum NotificationSettingsFileMapping {
 
     static let stringSettings: [SettingsFileStringMapping] = [
         .init(jsonKey: "customSoundFilePath", defaultsKey: NotificationSoundSettings.customFilePathKey),
-        .init(jsonKey: "command", defaultsKey: NotificationSoundSettings.customCommandKey),
+        .init(jsonKey: "command", defaultsKey: NotificationCustomCommandRunner.defaultsKey),
     ]
 }
 

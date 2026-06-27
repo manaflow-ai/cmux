@@ -80,7 +80,11 @@ final class CmuxWebView: WKWebView {
     }
 
     private static var contextMenuFallbackKey: UInt8 = 0
-    private static let pasteAsPlainTextKeyCode: UInt16 = 9 // V key (hardware position, layout-independent)
+    // The V-key hardware position + flag-normalization that decide whether a key
+    // event is the paste-as-plain-text command equivalent live in CmuxBrowser
+    // (BrowserPasteAsPlainTextShortcut); this holds the one shortcut and forwards
+    // each event's keyCode + modifierFlags into it.
+    private static let pasteAsPlainTextShortcut = BrowserPasteAsPlainTextShortcut()
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
@@ -207,9 +211,7 @@ final class CmuxWebView: WKWebView {
     }
 
     private static func isPasteAsPlainTextCommandEquivalent(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
-        return event.keyCode == pasteAsPlainTextKeyCode && normalizedFlags == [.command, .shift]
+        pasteAsPlainTextShortcut.matches(keyCode: event.keyCode, modifierFlags: event.modifierFlags)
     }
 
     private func webKitPasteAsPlainTextFallback(_ sender: Any?) {
@@ -1158,22 +1160,15 @@ final class CmuxWebView: WKWebView {
     // AppKit only bubbles up through superviews, not siblings.
     //
     // Fix: filter out text-based types that conflict with bonsplit tab drags, but keep
-    // file URL types so Finder file drops and HTML drag-and-drop work.
-    private static let blockedDragTypes: Set<NSPasteboard.PasteboardType> = [
-        .string, // public.utf8-plain-text — matches bonsplit's NSString tab drags
-        NSPasteboard.PasteboardType("public.text"),
-        NSPasteboard.PasteboardType("public.plain-text"),
-        NSPasteboard.PasteboardType("com.splittabbar.tabtransfer"),
-        NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder"),
-    ]
-
+    // file URL types so Finder file drops and HTML drag-and-drop work. The blocked-type
+    // set and filter live in CmuxBrowser's `InternalPaneDragTypeFilter`.
     static func shouldRejectInternalPaneDrag(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
         DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
             || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
     }
 
     override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
-        let filtered = newTypes.filter { !Self.blockedDragTypes.contains($0) }
+        let filtered = InternalPaneDragTypeFilter.standard.allowedTypes(from: newTypes)
         if !filtered.isEmpty {
             super.registerForDraggedTypes(filtered)
         }

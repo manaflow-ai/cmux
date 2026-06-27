@@ -2001,7 +2001,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             .appendingPathComponent("cmux-ssh-session-restore-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: snapshotURL) }
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: Date().timeIntervalSince1970,
             windows: [
                 SessionWindowSnapshot(
@@ -2013,7 +2013,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             ]
         )
         let store = SessionSnapshotRepository<AppSessionSnapshot>(
-            schemaVersion: SessionSnapshotSchema.currentVersion,
+            schemaVersion: AppSessionSnapshot.currentSchemaVersion,
             bundleIdentifier: "com.cmuxterm.tests"
         )
         XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
@@ -2139,7 +2139,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             .appendingPathComponent("cmux-ssh-pty-session-restore-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: snapshotURL) }
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: Date().timeIntervalSince1970,
             windows: [
                 SessionWindowSnapshot(
@@ -2151,7 +2151,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             ]
         )
         let store = SessionSnapshotRepository<AppSessionSnapshot>(
-            schemaVersion: SessionSnapshotSchema.currentVersion,
+            schemaVersion: AppSessionSnapshot.currentSchemaVersion,
             bundleIdentifier: "com.cmuxterm.tests"
         )
         XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
@@ -3021,7 +3021,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             .appendingPathComponent("cmux-ssh-pty-durable-restore-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: snapshotURL) }
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: Date().timeIntervalSince1970,
             windows: [
                 SessionWindowSnapshot(
@@ -3033,7 +3033,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             ]
         )
         let store = SessionSnapshotRepository<AppSessionSnapshot>(
-            schemaVersion: SessionSnapshotSchema.currentVersion,
+            schemaVersion: AppSessionSnapshot.currentSchemaVersion,
             bundleIdentifier: "com.cmuxterm.tests"
         )
         XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
