@@ -2878,7 +2878,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     var isShowingBlankBrowserPage: Bool {
         Self.isBlankBrowserPage(
-            liveURL: Self.remoteProxyDisplayURL(for: webView.url) ?? webView.url,
+            liveURL: restorableDisplayURLForCurrentErrorPage(liveURL: webView.url) ?? webView.url,
             currentURL: currentURL,
             pendingNavigationURL: Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
                 ?? navigationDelegate?.lastAttemptedURL,
@@ -3340,7 +3340,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelHiddenWebViewDiscard()
 
         let oldWebView = webView
-        let restoreURL = Self.remoteProxyDisplayURL(for: oldWebView.url) ?? currentURL
+        let restoreURL = restorableDisplayURLForCurrentErrorPage(liveURL: oldWebView.url)
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar() ?? restoreURL?.absoluteString
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
@@ -4403,7 +4403,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let previousWebView = webView
         let wasRenderable = shouldRenderWebView
-        let restoreURL = previousWebView.url ?? currentURL
+        let restoreURL = restorableDisplayURLForCurrentErrorPage(liveURL: previousWebView.url)
         let restoreURLString = restoreURL?.absoluteString
         let shouldRestoreURL = wasRenderable && restoreURLString != nil && restoreURLString != blankURLString
         let history = sessionNavigationHistorySnapshot()
@@ -4505,9 +4505,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func resolvedLiveSessionHistoryURL() -> URL? {
-        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
-           Self.serializableSessionHistoryURLString(webViewURL) != nil {
-            return webViewURL
+        if let displayURL = restorableDisplayURLForCurrentErrorPage(liveURL: webView.url),
+           Self.serializableSessionHistoryURLString(displayURL) != nil {
+            return displayURL
         }
         if let currentURL,
            Self.serializableSessionHistoryURLString(currentURL) != nil {
@@ -4647,8 +4647,8 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func preferredURLStringForSessionSnapshot() -> String? {
-        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
-           let value = Self.serializableSessionHistoryURLString(webViewURL) {
+        if let displayURL = restorableDisplayURLForCurrentErrorPage(liveURL: webView.url),
+           let value = Self.serializableSessionHistoryURLString(displayURL) {
             return value
         }
         if let currentURL,
@@ -4898,6 +4898,30 @@ final class BrowserPanel: Panel, ObservableObject {
         return value.caseInsensitiveCompare("about:blank") == .orderedSame
     }
 
+    static func restorableDisplayURL(
+        liveURL: URL?,
+        currentURL: URL?,
+        activeErrorPageDisplayURL: URL?
+    ) -> URL? {
+        restorableDisplayURLCandidate(for: activeErrorPageDisplayURL)
+            ?? restorableDisplayURLCandidate(for: liveURL)
+            ?? restorableDisplayURLCandidate(for: currentURL)
+    }
+
+    private static func restorableDisplayURLCandidate(for url: URL?) -> URL? {
+        let displayURL = remoteProxyDisplayURL(for: url) ?? url
+        guard !isBlankBrowserPageURL(displayURL) else { return nil }
+        return displayURL
+    }
+
+    private func restorableDisplayURLForCurrentErrorPage(liveURL: URL?) -> URL? {
+        Self.restorableDisplayURL(
+            liveURL: liveURL,
+            currentURL: currentURL,
+            activeErrorPageDisplayURL: navigationDelegate?.activeErrorPageDisplayURL
+        )
+    }
+
     nonisolated static func isBlankBrowserPage(
         liveURL: URL?,
         currentURL: URL?,
@@ -4970,8 +4994,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let wasRenderable = shouldRenderWebView
         let attemptedURL = Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
             ?? navigationDelegate?.lastAttemptedURL
-        let liveURL = Self.remoteProxyDisplayURL(for: oldWebView.url)
-            ?? currentURL
+        let liveURL = restorableDisplayURLForCurrentErrorPage(liveURL: oldWebView.url)
         let restoreURL = (isMainFrameProvisionalNavigationActive ? attemptedURL : nil)
             ?? liveURL
             ?? attemptedURL
@@ -7877,7 +7900,7 @@ extension BrowserPanel {
     /// Returns the most reliable URL string for omnibar-related matching and UI decisions.
     /// `currentURL` can lag behind navigation changes, so prefer the live WKWebView URL.
     func preferredURLStringForOmnibar() -> String? {
-        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url)?.absoluteString
+        if let webViewURL = restorableDisplayURLForCurrentErrorPage(liveURL: webView.url)?.absoluteString
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !webViewURL.isEmpty,
            webViewURL != blankURLString {
@@ -7895,9 +7918,9 @@ extension BrowserPanel {
     }
 
     private func resolvedCurrentSessionHistoryURL() -> URL? {
-        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
-           Self.serializableSessionHistoryURLString(webViewURL) != nil {
-            return webViewURL
+        if let displayURL = restorableDisplayURLForCurrentErrorPage(liveURL: webView.url),
+           Self.serializableSessionHistoryURLString(displayURL) != nil {
+            return displayURL
         }
         if let currentURL,
            Self.serializableSessionHistoryURLString(currentURL) != nil {

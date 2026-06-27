@@ -147,6 +147,25 @@ struct BrowserSSLTrustBypassStateTests {
     }
 
     @Test
+    func errorPageDisplayURLIsRestoredWhenLiveInterstitialURLIsBlank() throws {
+        let blankURL = try #require(URL(string: "about:blank"))
+        let failedURL = try #require(URL(string: "https://self-signed.internal/path"))
+        let staleURL = try #require(URL(string: "https://previous.internal/"))
+
+        #expect(BrowserPanel.restorableDisplayURL(
+            liveURL: blankURL,
+            currentURL: staleURL,
+            activeErrorPageDisplayURL: failedURL
+        ) == failedURL)
+
+        #expect(BrowserPanel.restorableDisplayURL(
+            liveURL: blankURL,
+            currentURL: failedURL,
+            activeErrorPageDisplayURL: nil
+        ) == failedURL)
+    }
+
+    @Test
     func pendingBypassRejectsOversizedAndStreamedRequestBodies() throws {
         let url = try #require(URL(string: "https://upload.internal/submit"))
         let scope = try #require(BrowserSSLTrustScope(url: url))
