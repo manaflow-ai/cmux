@@ -311,7 +311,7 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.playSuppressedNotificationFeedback(for: notification, effects: effects)
     }
-    private var lastNotificationDateByCooldownKey: [String: Date] = [:]
+    private var cooldownTracker = NotificationCooldownTracker()
     private var notificationHookFailureThrottle = NotificationHookFailureThrottle()
     private var indexes = NotificationIndexes()
 
@@ -654,7 +654,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         if let cooldownKey,
            let resolvedCooldownInterval,
-           let lastNotificationDate = lastNotificationDateByCooldownKey[cooldownKey],
+           let lastNotificationDate = cooldownTracker.lastDate(forKey: cooldownKey),
            now.timeIntervalSince(lastNotificationDate) < resolvedCooldownInterval {
 #if DEBUG
             cmuxDebugLog(
@@ -663,12 +663,12 @@ final class TerminalNotificationStore: ObservableObject {
 #endif
             return
         }
-        let cooldownReservation = makeCooldownReservation(
+        let cooldownReservation = cooldownTracker.makeReservation(
             key: cooldownKey,
             interval: resolvedCooldownInterval
         )
         if let cooldownReservation {
-            lastNotificationDateByCooldownKey[cooldownReservation.key] = now
+            cooldownTracker.commit(cooldownReservation, at: now)
         }
 
         let policyContext = makeNotificationPolicyContext(
@@ -732,43 +732,10 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private struct NotificationCooldownReservation: Sendable {
-        let key: String
-        let previousDate: Date?
-    }
-
     private struct NotificationPolicyContext: Sendable {
         let request: TerminalNotificationPolicyRequest
         let hooks: [CmuxResolvedNotificationHook]
         let globalConfigPath: String?
-    }
-
-    private func makeCooldownReservation(
-        key: String?,
-        interval: TimeInterval?
-    ) -> NotificationCooldownReservation? {
-        guard let key, interval != nil else { return nil }
-        return NotificationCooldownReservation(
-            key: key,
-            previousDate: lastNotificationDateByCooldownKey[key]
-        )
-    }
-
-    private func commitCooldownReservation(
-        _ reservation: NotificationCooldownReservation?,
-        at date: Date
-    ) {
-        guard let reservation else { return }
-        lastNotificationDateByCooldownKey[reservation.key] = date
-    }
-
-    private func restoreCooldownReservation(_ reservation: NotificationCooldownReservation?) {
-        guard let reservation else { return }
-        if let previousDate = reservation.previousDate {
-            lastNotificationDateByCooldownKey[reservation.key] = previousDate
-        } else {
-            lastNotificationDateByCooldownKey.removeValue(forKey: reservation.key)
-        }
     }
 
     private func makeNotificationPolicyContext(
@@ -889,9 +856,9 @@ final class TerminalNotificationStore: ObservableObject {
                 .moveTabToTopForNotification(notification.tabId)
         }
         if hasAnyNotificationEffect(effects) {
-            commitCooldownReservation(cooldownReservation, at: now)
+            cooldownTracker.commit(cooldownReservation, at: now)
         } else {
-            restoreCooldownReservation(cooldownReservation)
+            cooldownTracker.restore(cooldownReservation)
         }
         deliverNotificationSideEffects(
             notification,
@@ -933,7 +900,7 @@ final class TerminalNotificationStore: ObservableObject {
         updated.insert(notification, at: 0)
         setWorkspaceManualUnread(false, forTabId: notification.tabId)
         notifications = updated
-        commitCooldownReservation(cooldownReservation, at: now)
+        cooldownTracker.commit(cooldownReservation, at: now)
 #if DEBUG
         cmuxDebugLog(
             "notification.store.record workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") removed=\(idsToClear.count) unread=\(!notification.isRead ? 1 : 0) paneFlash=\(notification.paneFlash ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0) total=\(notifications.count)"

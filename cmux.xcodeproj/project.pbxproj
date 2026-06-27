@@ -554,6 +554,7 @@
 		2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C06000000000000000001 /* MainWindowVisibilityController.swift */; };
 		17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */; };
 		A6D1F0100000000000000002 /* MainWindowVisibilityLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0100000000000000001 /* MainWindowVisibilityLifecycleTests.swift */; };
+		D5E40A01D5E40A01D5E40A01 /* ManagedDefaultSideEffectApplier.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E40A01D5E40A01D5E40A04 /* ManagedDefaultSideEffectApplier.swift */; };
 		A9D9000000000000000F0017 /* markdown-viewer in Resources */ = {isa = PBXBuildFile; fileRef = A9D9000000000000000F0016 /* markdown-viewer */; };
 		F5168A040000000000000001 /* MarkdownFontFamily.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A040000000000000002 /* MarkdownFontFamily.swift */; };
 		F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */; };
@@ -632,6 +633,7 @@
 		0A1B0AB50000000000000001 /* OmnibarAddressButtonStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1B0AB50000000000000002 /* OmnibarAddressButtonStyle.swift */; };
 		4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */; };
 		9637C6D3170F4BE1A7EF6243 /* OmnibarSubmitDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */; };
+		A50014A1 /* OmnibarSuggestionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014A0 /* OmnibarSuggestionsView.swift */; };
 		0A0F00550000000000000001 /* OmpSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0F00550000000000000002 /* OmpSupportTests.swift */; };
 		D1BEF00002A1B2C3D4E5F719 /* open in Copy CLI */ = {isa = PBXBuildFile; fileRef = D1BEF00001A1B2C3D4E5F719 /* open */; };
 		FEED0000000000000000F007 /* opencode-plugin.js in Resources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F006 /* opencode-plugin.js */; };
@@ -1687,6 +1689,7 @@
 		2F0C06000000000000000001 /* MainWindowVisibilityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowVisibilityController.swift; sourceTree = "<group>"; };
 		17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowVisibilityControllerTests.swift; sourceTree = "<group>"; };
 		A6D1F0100000000000000001 /* MainWindowVisibilityLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowVisibilityLifecycleTests.swift; sourceTree = "<group>"; };
+		D5E40A01D5E40A01D5E40A04 /* ManagedDefaultSideEffectApplier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedDefaultSideEffectApplier.swift; sourceTree = "<group>"; };
 		A9D9000000000000000F0016 /* markdown-viewer */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "markdown-viewer"; sourceTree = "<group>"; };
 		F5168A040000000000000002 /* MarkdownFontFamily.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontFamily.swift; sourceTree = "<group>"; };
 		F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontFamilyCache.swift; sourceTree = "<group>"; };
@@ -1764,6 +1767,7 @@
 		0A1B0AB50000000000000002 /* OmnibarAddressButtonStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OmnibarAddressButtonStyle.swift; sourceTree = "<group>"; };
 		B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarAndToolsTests.swift; sourceTree = "<group>"; };
 		48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarSubmitDecisionTests.swift; sourceTree = "<group>"; };
+		A50014A0 /* OmnibarSuggestionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OmnibarSuggestionsView.swift; sourceTree = "<group>"; };
 		0A0F00550000000000000002 /* OmpSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmpSupportTests.swift; sourceTree = "<group>"; };
 		D1BEF00001A1B2C3D4E5F719 /* open */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Resources/bin/open; sourceTree = SOURCE_ROOT; };
 		FEED0000000000000000F006 /* opencode-plugin.js */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.javascript; path = "opencode-plugin.js"; sourceTree = "<group>"; };
@@ -2874,6 +2878,7 @@
 				F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */,
 				D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */,
 				A1C04E00A1C04E00A1C04E04 /* AppIconRuntime.swift */,
+				D5E40A01D5E40A01D5E40A04 /* ManagedDefaultSideEffectApplier.swift */,
 				A5001090 /* AppDelegate.swift */,
 				FE0DEB02 /* AppDelegateDebugTerminalActionsHosting.swift */,
 				FE05ID02 /* SidebarTabItemSettingsStore.swift */,
@@ -2962,6 +2967,7 @@
 				109D0E38E29A8779FA0BAE82 /* BrowserRemoteWorkspaceStatus.swift */,
 				326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */,
 				A5001414 /* BrowserPanelView.swift */,
+				A50014A0 /* OmnibarSuggestionsView.swift */,
 				0A1B0AB50000000000000002 /* OmnibarAddressButtonStyle.swift */,
 				0A1B0AB50000000000000012 /* Image+CmuxFlatSymbolColorRendering.swift */,
 				0A1B0AB50000000000000022 /* BrowserOmnibarPreferenceKeys.swift */,
@@ -4249,6 +4255,7 @@
 				B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */,
 				A6D1F0300000000000000002 /* MainWindowVisibilityController+Lifecycle.swift in Sources */,
 				2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */,
+				D5E40A01D5E40A01D5E40A01 /* ManagedDefaultSideEffectApplier.swift in Sources */,
 				F5168A040000000000000001 /* MarkdownFontFamily.swift in Sources */,
 				F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */,
 				F5168A030000000000000001 /* MarkdownFontSizeSettings.swift in Sources */,
@@ -4306,6 +4313,7 @@
 				C0DE00000000000000000DB6 /* NSView+CmuxDebugDragHit.swift in Sources */,
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
 				0A1B0AB50000000000000001 /* OmnibarAddressButtonStyle.swift in Sources */,
+				A50014A1 /* OmnibarSuggestionsView.swift in Sources */,
 				A9F200000000000000000017 /* OpenCodeEventStreamParser.swift in Sources */,
 				A9F200000000000000000018 /* OpenCodeEventTextAccumulator.swift in Sources */,
 				A9F200000000000000000019 /* OpenCodeProcessOutputDisposition.swift in Sources */,

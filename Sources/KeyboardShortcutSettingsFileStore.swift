@@ -77,6 +77,7 @@ final class CmuxSettingsFileStore {
     private let managedDefaultsRepository = ManagedDefaultsRepository(defaults: .standard)
     private let managedDefaultsBackupService: ManagedDefaultsBackupService
     private let managedDefaultsApplicator: ManagedDefaultsApplicator
+    private let managedDefaultSideEffectApplier: ManagedDefaultSideEffectApplier
     private let stateLock = NSLock()
 
     private var watchers: [FileWatcher] = []
@@ -118,6 +119,10 @@ final class CmuxSettingsFileStore {
             paletteSeam: paletteSeam
         )
         self.managedDefaultsApplicator = ManagedDefaultsApplicator(paletteSeam: paletteSeam)
+        self.managedDefaultSideEffectApplier = ManagedDefaultSideEffectApplier(
+            notificationCenter: notificationCenter,
+            appearanceEnvironment: appearanceEnvironment
+        )
         self.reader = SettingsFileReader(
             primaryPath: self.primaryPath,
             fallbackPaths: self.fallbackPaths,
@@ -170,7 +175,7 @@ final class CmuxSettingsFileStore {
     }
 
     func applyDeferredManagedDefaultSideEffects() {
-        applyManagedDefaultBatchSideEffects(drainDeferredManagedDefaultSideEffects())
+        managedDefaultSideEffectApplier.applyManagedDefaultBatchSideEffects(drainDeferredManagedDefaultSideEffects())
     }
 
     private func reload(
@@ -384,34 +389,10 @@ final class CmuxSettingsFileStore {
         if applyLiveDefaultSideEffects {
             var sideEffectsToApply = drainDeferredManagedDefaultSideEffects()
             sideEffectsToApply.merge(sideEffects)
-            applyManagedDefaultBatchSideEffects(sideEffectsToApply)
+            managedDefaultSideEffectApplier.applyManagedDefaultBatchSideEffects(sideEffectsToApply)
         } else {
-            deferManagedDefaultSideEffects(applyLaunchManagedDefaultSideEffects(sideEffects))
+            deferManagedDefaultSideEffects(managedDefaultSideEffectApplier.applyLaunchManagedDefaultSideEffects(sideEffects))
         }
-    }
-
-    private func applyLaunchManagedDefaultSideEffects(
-        _ sideEffects: ManagedDefaultBatchSideEffects
-    ) -> ManagedDefaultBatchSideEffects {
-        var deferredSideEffects = ManagedDefaultBatchSideEffects()
-        for change in sideEffects.changes {
-            if change.defaultsKey == AppearanceSettings.appearanceModeKey {
-                AppearanceSettings.applyStoredMode(
-                    rawValue: UserDefaults.standard.string(forKey: change.defaultsKey),
-                    source: change.source,
-                    duringLaunch: true,
-                    synchronizeTerminalTheme: false,
-                    environment: appearanceEnvironment
-                )
-            } else {
-                deferredSideEffects.append(
-                    defaultsKey: change.defaultsKey,
-                    source: change.source,
-                    synchronizeAppearanceTerminalTheme: change.synchronizeAppearanceTerminalTheme
-                )
-            }
-        }
-        return deferredSideEffects
     }
 
     private func deferManagedDefaultSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
@@ -443,73 +424,6 @@ final class CmuxSettingsFileStore {
                     try? passwordStore.clearPassword()
                 }
             }
-        }
-    }
-
-    private func applyManagedDefaultBatchSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
-        guard !sideEffects.isEmpty else { return }
-        let notificationCenter = notificationCenter
-        let changes = sideEffects.changes
-        let apply = {
-            var agentSessionAutoResumeDidChange = false
-            var agentHibernationDidChange = false
-            var rendererRealizationDidChange = false
-            for change in changes {
-                if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
-                    TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
-                }
-
-                if change.defaultsKey == TerminalCopyOnSelectSettings.copyOnSelectKey {
-                    TerminalCopyOnSelectSettings.notifyDidChange(notificationCenter: notificationCenter)
-                }
-
-                if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {
-                    agentSessionAutoResumeDidChange = true
-                }
-                if change.defaultsKey == AgentHibernationSettings.enabledKey ||
-                    change.defaultsKey == AgentHibernationSettings.idleSecondsKey ||
-                    change.defaultsKey == AgentHibernationSettings.maxLiveTerminalsKey ||
-                    change.defaultsKey == AgentHibernationSettings.confirmationSecondsKey {
-                    agentHibernationDidChange = true
-                }
-                if change.defaultsKey == RendererRealizationSettings.enabledKey ||
-                    change.defaultsKey == RendererRealizationSettings.idleSecondsKey ||
-                    change.defaultsKey == RendererRealizationSettings.maxWarmRenderersKey {
-                    rendererRealizationDidChange = true
-                }
-
-                if change.defaultsKey == AppCatalogSection().language.userDefaultsKey {
-                    let rawValue = UserDefaults.standard.string(forKey: change.defaultsKey) ?? ""
-                    LanguageSettingsStore(defaults: .standard).applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)
-                } else if change.defaultsKey == AppearanceSettings.appearanceModeKey {
-                    AppearanceSettings.applyStoredMode(
-                        rawValue: UserDefaults.standard.string(forKey: change.defaultsKey),
-                        source: change.source,
-                        duringLaunch: !change.synchronizeAppearanceTerminalTheme,
-                        synchronizeTerminalTheme: change.synchronizeAppearanceTerminalTheme,
-                        environment: self.appearanceEnvironment
-                    )
-                } else if change.defaultsKey == AppCatalogSection().appIcon.userDefaultsKey {
-                    // `apply` runs only on the main thread (gated below), so the
-                    // `@MainActor` applier is safe to enter here.
-                    MainActor.assumeIsolated { appIconApplier.applyResolvedMode() }
-                }
-            }
-
-            if agentSessionAutoResumeDidChange {
-                AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
-            }
-            if agentHibernationDidChange {
-                AgentHibernationSettings.notifyDidChange(notificationCenter: notificationCenter)
-            }
-            if rendererRealizationDidChange {
-                RendererRealizationSettings.notifyDidChange(notificationCenter: notificationCenter)
-            }
-        }
-        if Thread.isMainThread {
-            apply()
-        } else {
-            DispatchQueue.main.async { apply() }
         }
     }
 
