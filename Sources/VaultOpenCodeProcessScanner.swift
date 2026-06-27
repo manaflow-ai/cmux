@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxFoundation
 import CmuxWorkspaces
 import SQLite3
 
@@ -8,8 +9,8 @@ import SQLite3
 /// id in the OpenCode store. Holds an injected `FileManager` as the scan's
 /// filesystem dependency seam (preserving the original threaded parameter; the
 /// OpenCode snapshot path currently manages its own temp store via
-/// `OpenCodeDatabaseSnapshot`). The SQLite text helper stays app-side
-/// (`SessionIndexStore.sqliteText`).
+/// `OpenCodeDatabaseSnapshot`). The SQLite text bridge comes from
+/// `CmuxFoundation` (`SQLitePreparedStatement.text(atColumn:)`).
 struct VaultOpenCodeProcessScanner {
     private let fileManager: FileManager
 
@@ -176,7 +177,7 @@ struct VaultOpenCodeProcessScanner {
         sqlite3_bind_text(stmt, bindIndex, parentId, -1, SQLITE_TRANSIENT_FN)
 
         guard sqlite3_step(stmt) == SQLITE_ROW,
-              let sessionId = SessionIndexStore.sqliteText(stmt, 0),
+              let sessionId = SQLitePreparedStatement(stmt).text(atColumn: 0),
               !sessionId.isEmpty else {
             return nil
         }

@@ -95,6 +95,7 @@
 		A1C04E00A1C04E00A1C04E01 /* AppIconRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C04E00A1C04E00A1C04E04 /* AppIconRuntime.swift */; };
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
 		AAFD5E01000100010001000A /* AppSelectedWorkspaceDirectoryReadingAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFD5E02000200020002000B /* AppSelectedWorkspaceDirectoryReadingAdapter.swift */; };
+		A77E5040F0C5410B9A7E0001 /* AppTerminalSurfaceFocusResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77E5040F0C5410B9A7E0002 /* AppTerminalSurfaceFocusResolver.swift */; };
 		AAFD7A01000100010001000A /* AppTmuxWorkspacePaneOverlayTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFD7A02000200020002000B /* AppTmuxWorkspacePaneOverlayTarget.swift */; };
 		A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */; };
 		A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */; };
@@ -1314,6 +1315,7 @@
 		A1C04E00A1C04E00A1C04E04 /* AppIconRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconRuntime.swift; sourceTree = "<group>"; };
 		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
 		AAFD5E02000200020002000B /* AppSelectedWorkspaceDirectoryReadingAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSelectedWorkspaceDirectoryReadingAdapter.swift; sourceTree = "<group>"; };
+		A77E5040F0C5410B9A7E0002 /* AppTerminalSurfaceFocusResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppTerminalSurfaceFocusResolver.swift; sourceTree = "<group>"; };
 		AAFD7A02000200020002000B /* AppTmuxWorkspacePaneOverlayTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTmuxWorkspacePaneOverlayTarget.swift; sourceTree = "<group>"; };
 		A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowBackdropControllerDependencies.swift; sourceTree = "<group>"; };
 		A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowChromeComposition.swift; sourceTree = "<group>"; };
@@ -2693,6 +2695,7 @@
 				6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */,
 				C1713001C1713001C1713001 /* CommandPaletteShortcutRouting.swift */,
 				B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */,
+				A77E5040F0C5410B9A7E0002 /* AppTerminalSurfaceFocusResolver.swift */,
 				81B8CFAF8FCA4231C702D16A /* WindowKeyDownReplayGuard.swift */,
 				604500200000000000000002 /* WindowTitleTemplateContext.swift */,
 				604500100000000000000002 /* WindowTitleTemplate.swift */,
@@ -4104,6 +4107,7 @@
 				A1C04E00A1C04E00A1C04E01 /* AppIconRuntime.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
 				AAFD5E01000100010001000A /* AppSelectedWorkspaceDirectoryReadingAdapter.swift in Sources */,
+				A77E5040F0C5410B9A7E0001 /* AppTerminalSurfaceFocusResolver.swift in Sources */,
 				AAFD7A01000100010001000A /* AppTmuxWorkspacePaneOverlayTarget.swift in Sources */,
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,
 				A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */,
