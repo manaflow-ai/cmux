@@ -27,6 +27,12 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/BrowserSystemProxyMirrorTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
 }
+LAST_IN_SHARD_SELECTORS = {
+    # This suite intentionally exercises native WebKit inspector detach/attach
+    # crash paths. Keep it last so expected WebKit crashes cannot poison later
+    # selectors in the same app-host shard.
+    "cmuxTests/BrowserDeveloperToolsVisibilityPersistenceTests",
+}
 
 
 @dataclass(frozen=True)
@@ -189,7 +195,13 @@ def shard_selectors(
         buckets[bucket_index].append(selector)
         bucket_weights[bucket_index] += selector.weight
 
-    return sorted(buckets[shard_index - 1], key=lambda selector: selector.identifier)
+    return sorted(
+        buckets[shard_index - 1],
+        key=lambda selector: (
+            selector.identifier in LAST_IN_SHARD_SELECTORS,
+            selector.identifier,
+        ),
+    )
 
 
 def write_output(path: Path, selectors: list[TestSelector]) -> None:

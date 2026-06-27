@@ -106,6 +106,10 @@ def main() -> int:
                 print(f"FAIL: repo shard helper exited {result.returncode}")
                 return 1
             shard_selectors = output.read_text(encoding="utf-8").splitlines()
+            delayed_selector = "-only-testing:cmuxTests/BrowserDeveloperToolsVisibilityPersistenceTests"
+            if delayed_selector in shard_selectors and shard_selectors[-1] != delayed_selector:
+                print(f"FAIL: crash-prone selector must run last in shard: {delayed_selector}")
+                return 1
             for focused_selector in (
                 "-only-testing:cmuxTests/BrowserSystemProxyMirrorTests",
                 "-only-testing:cmuxTests/GhosttyOptionAsAltModsTests",
