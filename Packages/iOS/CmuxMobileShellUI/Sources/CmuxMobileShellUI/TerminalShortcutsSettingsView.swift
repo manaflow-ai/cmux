@@ -2,6 +2,7 @@
 import CmuxMobileSupport
 import CmuxMobileTerminal
 import CmuxMobileTerminalKit
+import Foundation
 import SwiftUI
 
 /// Editor for the terminal input-accessory shortcut bar: toggle which buttons
@@ -27,11 +28,17 @@ struct TerminalShortcutsSettingsView: View {
     }
 
     var body: some View {
+        let rowActions = ShortcutRowActions(
+            setEnabled: { id, isEnabled in configuration.setEnabled(id, isEnabled) },
+            removeCustomAction: { id in configuration.removeCustomAction(id: id) },
+            editCustomAction: { action in editingAction = action }
+        )
+
         NavigationStack {
             List {
                 Section {
-                    ForEach(displayedItems) { item in
-                        row(for: item)
+                    ForEach(displayedRows) { row in
+                        rowView(for: row, actions: rowActions)
                     }
                     .onMove(perform: moveDisplayedItems)
                 } header: {
@@ -104,26 +111,32 @@ struct TerminalShortcutsSettingsView: View {
     }
 
     @ViewBuilder
-    private func row(for item: ResolvedToolbarItem) -> some View {
-        Toggle(isOn: binding(for: item.id)) {
-            if item.isCustom {
-                Label(item.settingsDisplayName, systemImage: customRowSymbol(for: item))
+    private func rowView(
+        for row: ShortcutRowSnapshot,
+        actions: ShortcutRowActions
+    ) -> some View {
+        Toggle(isOn: Binding(
+            get: { row.isEnabled },
+            set: { actions.setEnabled(row.id, $0) }
+        )) {
+            if row.isCustom {
+                Label(row.settingsDisplayName, systemImage: row.symbolName)
             } else {
-                Text(item.settingsDisplayName)
+                Text(row.settingsDisplayName)
             }
         }
-        .accessibilityIdentifier("TerminalShortcutToggle.\(item.id.storageKey)")
+        .accessibilityIdentifier("TerminalShortcutToggle.\(row.id.storageKey)")
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if let custom = item.customAction {
+            if let custom = row.customAction {
                 Button(role: .destructive) {
-                    configuration.removeCustomAction(id: custom.id)
+                    actions.removeCustomAction(custom.id)
                 } label: {
                     Label(L10n.string("mobile.common.delete", defaultValue: "Delete"), systemImage: "trash")
                 }
                 .accessibilityIdentifier("TerminalShortcutDelete.\(custom.id.uuidString)")
 
                 Button {
-                    editingAction = custom
+                    actions.editCustomAction(custom)
                 } label: {
                     Label(L10n.string("mobile.common.edit", defaultValue: "Edit"), systemImage: "pencil")
                 }
@@ -133,21 +146,14 @@ struct TerminalShortcutsSettingsView: View {
         }
     }
 
-    private func binding(for id: ToolbarItemID) -> Binding<Bool> {
-        Binding(
-            get: { configuration.isEnabled(id) },
-            set: { configuration.setEnabled(id, $0) }
-        )
-    }
-
     private var displayedItems: [ResolvedToolbarItem] {
         configuration.displayItems.filter(scope.includes)
     }
 
-    private func customRowSymbol(for item: ResolvedToolbarItem) -> String {
-        guard let custom = item.customAction else { return "character.cursor.ibeam" }
-        if custom.isMenu { return "ellipsis.circle" }
-        return "character.cursor.ibeam"
+    private var displayedRows: [ShortcutRowSnapshot] {
+        displayedItems.map { item in
+            ShortcutRowSnapshot(item: item, isEnabled: configuration.isEnabled(item.id))
+        }
     }
 
     private func moveDisplayedItems(from offsets: IndexSet, to destination: Int) {
@@ -167,5 +173,38 @@ struct TerminalShortcutsSettingsView: View {
         }
         configuration.reorderItems(reorderedFullIDs)
     }
+}
+
+private struct ShortcutRowSnapshot: Identifiable {
+    let item: ResolvedToolbarItem
+    let isEnabled: Bool
+
+    var id: ToolbarItemID {
+        item.id
+    }
+
+    var isCustom: Bool {
+        item.isCustom
+    }
+
+    var customAction: CustomToolbarAction? {
+        item.customAction
+    }
+
+    var settingsDisplayName: String {
+        item.settingsDisplayName
+    }
+
+    var symbolName: String {
+        guard let customAction else { return "character.cursor.ibeam" }
+        if customAction.isMenu { return "ellipsis.circle" }
+        return "character.cursor.ibeam"
+    }
+}
+
+private struct ShortcutRowActions {
+    let setEnabled: (ToolbarItemID, Bool) -> Void
+    let removeCustomAction: (UUID) -> Void
+    let editCustomAction: (CustomToolbarAction) -> Void
 }
 #endif
