@@ -101,10 +101,30 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return try await sendAuthenticatedRequest(
                 requestData,
                 deadline: deadline,
-                allowAuthRetry: true
+                allowAuthRetry: true,
+                forceStackAuthFallback: false
             )
         } catch let error as MobileCoreRPCAttachTokenAuthorizationFailure {
-            throw error.underlying
+            guard Self.shouldRetryAttachTokenAuthorizationFailureWithStackAuth(error.underlying) else {
+                throw error.underlying
+            }
+            do {
+                return try await sendAuthenticatedRequest(
+                    requestData,
+                    deadline: deadline,
+                    allowAuthRetry: false,
+                    forceStackAuthFallback: true
+                )
+            } catch let stackError as MobileShellConnectionError {
+                guard case .authorizationFailed = stackError else { throw stackError }
+                try await forceRefreshStackTokenForRetry(deadline: deadline)
+                return try await sendAuthenticatedRequest(
+                    requestData,
+                    deadline: deadline,
+                    allowAuthRetry: false,
+                    forceStackAuthFallback: true
+                )
+            }
         } catch let error as MobileShellConnectionError {
             // The host rejected this request on Stack-auth grounds. Before
             // surfacing it (which drives the re-auth prompt), force exactly one
@@ -123,9 +143,20 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return try await sendAuthenticatedRequest(
                 requestData,
                 deadline: deadline,
-                allowAuthRetry: false
+                allowAuthRetry: false,
+                forceStackAuthFallback: false
             )
         }
+    }
+
+    private static func shouldRetryAttachTokenAuthorizationFailureWithStackAuth(
+        _ error: MobileShellConnectionError
+    ) -> Bool {
+        guard case let .authorizationFailed(message) = error else {
+            return false
+        }
+        let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalizedMessage == "Mobile sync authorization failed."
     }
 
     /// Force a single Stack token refresh ahead of a retry.
@@ -158,7 +189,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private func sendAuthenticatedRequest(
         _ requestData: Data,
         deadline: RPCRequestDeadline,
-        allowAuthRetry: Bool
+        allowAuthRetry: Bool,
+        forceStackAuthFallback: Bool
     ) async throws -> Data {
         // Multiplexed over a persistent transport: each request gets a unique
         // id, the session's reader task routes the response back here. No
@@ -171,7 +203,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         )
         let authenticated = try await requestDataWithAuth(
             augmented,
-            deadline: deadline
+            deadline: deadline,
+            forceStackAuthFallback: forceStackAuthFallback
         )
         try Task.checkCancellation()
         do {
@@ -209,13 +242,14 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
     private func requestDataWithAuth(
         _ requestData: Data,
-        deadline: RPCRequestDeadline
+        deadline: RPCRequestDeadline,
+        forceStackAuthFallback: Bool
     ) async throws -> MobileCoreRPCAuthenticatedRequest {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             return MobileCoreRPCAuthenticatedRequest(data: requestData, usedAttachToken: false)
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
-        let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
+        let requestIsCoveredByAttachTicket = !forceStackAuthFallback && !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
         let routeAllowsBearerAuth = MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
         let routeAllowsStackAuthFallback = allowsStackAuthFallback && routeAllowsBearerAuth
         var auth: [String: Any] = [:]
@@ -241,7 +275,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         // the fallback for tokenless pairing flows, requests outside the ticket's
         // scope, and trusted routes whose attach token has expired locally.
         let requestHasAttachAuth = auth["attach_token"] != nil
-        let shouldSendStackAuth = requestNeedsAuth && !requestHasAttachAuth
+        let shouldSendStackAuth = requestNeedsAuth && (forceStackAuthFallback || !requestHasAttachAuth)
         if shouldSendStackAuth {
             guard routeAllowsStackAuthFallback else {
                 throw MobileShellConnectionError.insecureManualRoute

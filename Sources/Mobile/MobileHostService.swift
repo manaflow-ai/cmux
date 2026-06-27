@@ -1276,23 +1276,20 @@ final class MobileHostService {
     }
 
     private func authorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
-        guard Self.requiresAuthorization(method: request.method) else {
-            return nil
-        }
-        if devStackTokenAuthorized(request) {
-            return nil
-        }
+        guard Self.requiresAuthorization(method: request.method) else { return nil }
+        if devStackTokenAuthorized(request) { return nil }
+        let hasPresentedAttachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         if let ticketAuthorization = ticketStore.validAuthorization(authToken: request.auth?.attachToken) {
             if let ticketError = Self.ticketAuthorizationError(
                 authorization: ticketAuthorization,
                 request: request
             ) {
-                if request.auth?.stackAccessToken == nil {
-                    return .failure(ticketError)
-                }
+                if request.auth?.stackAccessToken == nil { return .failure(ticketError) }
             } else {
                 return nil
             }
+        } else if hasPresentedAttachToken, request.auth?.stackAccessToken == nil {
+            return .failure(Self.invalidAttachTokenError)
         }
         do {
             try await Self.verifyStackAuthOffMainActor(auth: request.auth)
@@ -1499,6 +1496,9 @@ final class MobileHostService {
         )
     }
 
+    private static var invalidAttachTokenError: MobileHostRPCError {
+        MobileHostRPCError(code: "invalid_attach_token", message: "Attach token is no longer valid.")
+    }
     private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
         params["workspaceID"] != nil || params["terminalID"] != nil
     }

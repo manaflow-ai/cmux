@@ -1559,7 +1559,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case let .rpcError(code, _):
             let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if let normalizedCode,
-               ["unauthorized", "invalid_token", "token_expired", "expired_token", "auth_required"].contains(normalizedCode) {
+               ["unauthorized", "invalid_attach_token", "invalid_token", "token_expired", "expired_token", "auth_required"].contains(normalizedCode) {
                 return true
             }
             return false
@@ -6873,7 +6873,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case let .rpcError(code, message):
             let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if let normalizedCode,
-               ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "auth_required"].contains(normalizedCode) {
+               ["unauthorized", "forbidden", "invalid_attach_token", "invalid_token", "token_expired", "expired_token", "auth_required"].contains(normalizedCode) {
                 return true
             }
             let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

@@ -145,6 +145,13 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         } else {
             copiedLegacyAttachToken = false
         }
+        let previousAttachTokenSecret: String?
+        if attachToken != nil {
+            let account = attachTokenSecretAccount(macDeviceID: macDeviceID, ownerKey: ownerKey)
+            previousAttachTokenSecret = attachTokenSecrets.readAttachToken(account: account)
+        } else {
+            previousAttachTokenSecret = nil
+        }
         let shouldStoreAttachTokenMetadata: Bool
         if let attachToken {
             shouldStoreAttachTokenMetadata = saveAttachTokenSecret(
@@ -189,7 +196,17 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try replaceRoutes(macDeviceID: macDeviceID, ownerKey: ownerKey, routes: routes)
             }
         } catch {
-            if shouldStoreAttachTokenMetadata || copiedLegacyAttachToken {
+            if shouldStoreAttachTokenMetadata {
+                if let previousAttachTokenSecret {
+                    _ = saveAttachTokenSecret(
+                        previousAttachTokenSecret,
+                        macDeviceID: macDeviceID,
+                        ownerKey: ownerKey
+                    )
+                } else {
+                    deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: ownerKey)
+                }
+            } else if copiedLegacyAttachToken {
                 deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: ownerKey)
             }
             throw error
