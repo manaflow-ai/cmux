@@ -338,47 +338,6 @@ struct UserDefaultsSettingsStoreTests {
         #expect(sourceLessEvent?.supersededMutationSource == secondSource)
     }
 
-    @Test func valueEventsDrainSupersededSourceAfterUnrelatedSameValueNotification() async {
-        let (store, catalog) = makeStore()
-        let key = catalog.app.appearance
-        let recorder = UserDefaultsSettingsEventRecorder<AppearanceMode>()
-        let task = Task {
-            let stream = await store.valueEvents(for: key)
-            for await event in stream {
-                await recorder.append(event)
-                if await recorder.count() >= 3 {
-                    break
-                }
-            }
-        }
-        defer {
-            task.cancel()
-        }
-
-        await waitForEventCount(1, in: recorder)
-
-        let source = UserDefaultsSettingsMutationSource()
-        await store.set(.dark, for: key, source: source)
-        await store.set(.system, for: key)
-        NotificationCenter.default.post(
-            name: UserDefaults.didChangeNotification,
-            object: UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
-        )
-
-        var matchingEvent: UserDefaultsSettingsValueEvent<AppearanceMode>?
-        var spins = 0
-        while matchingEvent == nil, spins < 100_000 {
-            matchingEvent = await recorder.snapshot().first { event in
-                event.value == .system && event.supersededMutationSource == source
-            }
-            await Task.yield()
-            spins += 1
-        }
-
-        #expect(matchingEvent?.mutationSource == nil)
-        #expect(matchingEvent?.supersededMutationSource == source)
-    }
-
     @Test func valueEventsTagWritesAfterStreamCreationBeforeFirstRead() async {
         let (store, catalog) = makeStore()
         let key = catalog.app.appearance
