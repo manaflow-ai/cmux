@@ -47,17 +47,13 @@ cmux_claude_wrapper_is_nonnegative_integer() {
 }
 
 cmux_claude_wrapper_fail_reexec_guard() {
-    local target="${1:-}"
     cat >&2 <<'EOF'
 cmux: stopped a possible infinite claude shim loop.
-cmux's per-surface claude shim re-entered before a real Claude binary started.
+cmux's per-surface claude shim re-entered before the real binary started.
 This is usually caused by a conflicting `claude` shim from another tool on PATH.
-Set CMUX_CUSTOM_CLAUDE_PATH, or set Automation > Claude Code > Claude Binary Path
-to the real Claude Code binary, then start a new Claude surface.
+Set CMUX_CUSTOM_CLAUDE_PATH, or set Automation > Claude Binary Path to the real
+claude binary, then start a new surface.
 EOF
-    if [[ -n "$target" ]]; then
-        printf 'Repeated claude target: %s\n' "$target" >&2
-    fi
     exit 126
 }
 
