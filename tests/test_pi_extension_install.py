@@ -203,11 +203,13 @@ const ctx = {
 await handlers.get("session_start")({}, ctx);
 await handlers.get("before_agent_start")({ prompt: "hello pi" }, ctx);
 await handlers.get("tool_execution_start")({
+  id: "tool-event-start-should-not-be-turn-id",
   toolCallId: "tool-call-1",
   toolName: "bash",
   args: { command: "echo ok" }
 }, ctx);
 await handlers.get("tool_execution_end")({
+  id: "tool-event-end-should-not-be-turn-id",
   toolCallId: "tool-call-1",
   toolName: "bash",
   result: { content: [{ type: "text", text: "ok" }] },
@@ -275,6 +277,9 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
         feed_events = [payload for payload in payloads if payload.get("hook_event_name") in {"PreToolUse", "PostToolUse"}]
         if len(feed_events) != 2 or {payload.get("tool_name") for payload in feed_events} != {"bash"}:
             print(f"FAIL: Pi Feed bridge payloads were incomplete: {feed_events!r}")
+            return 1
+        if {payload.get("turn_id") for payload in feed_events} != {prompt_turn_id}:
+            print(f"FAIL: Pi Feed bridge did not use the active prompt turn id: {feed_events!r}")
             return 1
         notification_payload = next(
             (payload for payload in payloads if payload.get("hook_event_name") == "Notification"),

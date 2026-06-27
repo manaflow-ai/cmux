@@ -227,8 +227,7 @@ function stateFor(sessionId: string): SessionState {
 
 function eventTurnId(event: unknown): string | null {
   return firstString(
-    objectValue(event, ["turn_id", "turnId", "turnID"]),
-    objectValue(event, ["id", "request_id", "requestId"])
+    objectValue(event, ["turn_id", "turnId", "turnID"])
   );
 }
 
@@ -608,7 +607,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 ),
                 url.path
             )
-            throw CLIError(message: "\(message): \((error as NSError).localizedDescription)")
+            throw CLIError(message: message)
         }
     }
 
