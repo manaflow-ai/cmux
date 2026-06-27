@@ -116,17 +116,19 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         // Keep suggestions deterministic.
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
         launchAndEnsureForeground(app)
+        XCTAssertTrue(
+            waitForGotoSplitSetup(timeout: 10.0),
+            "Expected goto_split setup data before typing. data=\(String(describing: loadGotoSplitData()))"
+        )
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
         XCTAssertTrue(
-            focusOmnibarForTyping(app: app, omnibar: omnibar, timeout: 10.0),
-            "Expected omnibar to accept keyboard focus before typing"
+            typeQueryAndWaitForSuggestions(app: app, omnibar: omnibar, query: "exam", timeout: 8.0, attempts: 5),
+            "Expected omnibar suggestions to appear for 'exam'"
         )
 
         // Focus omnibar and navigate to example.com via autocompletion (row 0).
-        app.typeText("exam")
-
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
         XCTAssertTrue(suggestionsElement.waitForExistence(timeout: 6.0))
 
@@ -546,14 +548,17 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
         launchAndEnsureForeground(app)
+        XCTAssertTrue(
+            waitForGotoSplitSetup(timeout: 10.0),
+            "Expected goto_split setup data before typing. data=\(String(describing: loadGotoSplitData()))"
+        )
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
         XCTAssertTrue(
-            focusOmnibarForTyping(app: app, omnibar: omnibar, timeout: 10.0),
-            "Expected omnibar to accept keyboard focus before typing"
+            typeQueryAndWaitForSuggestions(app: app, omnibar: omnibar, query: "exam", timeout: 8.0, attempts: 5),
+            "Expected omnibar suggestions to appear for 'exam'"
         )
-        app.typeText("exam")
 
         let valueAfterTyping = waitForInlineCompletion(
             in: omnibar,
@@ -722,6 +727,23 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         return rawValue.localizedCaseInsensitiveContains("selected")
     }
 
+    private func waitForGotoSplitSetup(timeout: TimeInterval) -> Bool {
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadGotoSplitData() else { return false }
+            return data["browserPanelId"]?.isEmpty == false &&
+                data["webViewFocused"] == "true"
+        }
+    }
+
+    private func loadGotoSplitData() -> [String: String]? {
+        guard !dataPath.isEmpty,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: dataPath)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return nil
+        }
+        return object
+    }
+
     private func typeQueryAndWaitForSuggestions(
         app: XCUIApplication,
         omnibar: XCUIElement,
@@ -737,11 +759,11 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             }
             app.typeKey("l", modifierFlags: [.command])
             guard omnibar.waitForExistence(timeout: 6.0) else { continue }
-            omnibar.click()
+            clickOmnibarForTyping(app: app, omnibar: omnibar)
             app.typeKey("a", modifierFlags: [.command])
             app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
-            omnibar.click()
-            omnibar.typeText(query)
+            clickOmnibarForTyping(app: app, omnibar: omnibar)
+            app.typeText(query)
             if suggestions.waitForExistence(timeout: timeout) {
                 return true
             }
@@ -749,6 +771,15 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
         return suggestions.exists
+    }
+
+    private func clickOmnibarForTyping(app: XCUIApplication, omnibar: XCUIElement) {
+        let pill = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarPill").firstMatch
+        if pill.waitForExistence(timeout: 1.0), pill.isHittable {
+            pill.click()
+            return
+        }
+        omnibar.click()
     }
 
     private func waitForInlineCompletion(
@@ -768,61 +799,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
                 observedValue.utf16.count > typedPrefix.utf16.count
         }
         return matched ? observedValue : nil
-    }
-
-    private func focusOmnibarForTyping(app: XCUIApplication, omnibar: XCUIElement, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        var attempt = 0
-        repeat {
-            attempt += 1
-            if app.state != .runningForeground {
-                app.activate()
-                _ = app.wait(for: .runningForeground, timeout: 2.0)
-            }
-
-            app.typeKey("l", modifierFlags: [.command])
-            guard omnibar.waitForExistence(timeout: 1.0) else { continue }
-
-            let probe = "z\(attempt)"
-            if confirmOmnibarAcceptsInput(app: app, omnibar: omnibar, probe: probe) {
-                return true
-            }
-
-            omnibar.click()
-            if confirmOmnibarAcceptsInput(app: app, omnibar: omnibar, probe: "\(probe)click", typeIntoElement: true) {
-                return true
-            }
-
-            app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-        } while Date() < deadline
-        return false
-    }
-
-    private func confirmOmnibarAcceptsInput(
-        app: XCUIApplication,
-        omnibar: XCUIElement,
-        probe: String,
-        typeIntoElement: Bool = false
-    ) -> Bool {
-        let before = (omnibar.value as? String) ?? ""
-        if typeIntoElement {
-            omnibar.typeText(probe)
-        } else {
-            app.typeText(probe)
-        }
-
-        let acceptedProbe = waitForCondition(timeout: 1.0, predicate: {
-            let value = (omnibar.value as? String) ?? ""
-            return value != before && value.localizedCaseInsensitiveContains(probe)
-        })
-        guard acceptedProbe else { return false }
-
-        app.typeKey("a", modifierFlags: [.command])
-        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
-        return waitForCondition(timeout: 1.0, predicate: {
-            ((omnibar.value as? String) ?? "").isEmpty
-        })
     }
 
     private func containsExampleDomain(_ value: String) -> Bool {
