@@ -91,6 +91,9 @@ extension TerminalController {
                 .filter { mobileChatBindingIsCurrentAgent($0) }
                 .map(\.descriptor)
             let encoded = descriptors.compactMap { service.wirePayload($0) }
+            #if DEBUG
+            cmuxDebugLog("agentChat.list workspace=nil records=\(service.sessionRecords(workspaceID: nil).count) returned=\(encoded.count)")
+            #endif
             return .ok(["sessions": encoded])
         }
         // Resolve W to its live Workspace once; build the set of its live
@@ -99,14 +102,24 @@ extension TerminalController {
             params: ["workspace_id": workspaceID],
             requireTerminal: false
         ) else {
+            #if DEBUG
+            cmuxDebugLog("agentChat.list workspace=\(workspaceID.prefix(8)) RESOLVE_FAILED returned=0")
+            #endif
             return .ok(["sessions": []])
         }
         let workspace = resolved.workspace
         var encoded: [[String: Any]] = []
+        #if DEBUG
+        var dropNotInWorkspace = 0, dropDeadPID = 0, kept = 0
+        let allRecords = service.sessionRecords(workspaceID: nil)
+        #endif
         for record in service.sessionRecords(workspaceID: nil) {
             guard let surfaceID = record.surfaceID,
                   let surfaceUUID = UUID(uuidString: surfaceID),
                   workspace.terminalPanel(for: surfaceUUID) != nil else {
+                #if DEBUG
+                dropNotInWorkspace += 1
+                #endif
                 continue
             }
             // A LIVE session must still be the current agent on the terminal, so
@@ -118,8 +131,15 @@ extension TerminalController {
             // go stale and vanish on tap after the agent exited.
             if record.state != .ended,
                !mobileChatRecordMatchesAgent(record: record) {
+                #if DEBUG
+                dropDeadPID += 1
+                cmuxDebugLog("agentChat.list drop=deadPID session=\(record.sessionID.prefix(8)) kind=\(record.agentKind.sourceName) surface=\(record.surfaceID?.prefix(8) ?? "nil") pid=\(record.pid.map(String.init) ?? "nil")")
+                #endif
                 continue
             }
+            #if DEBUG
+            kept += 1
+            #endif
             // Re-stamp stale-workspace records to W so the seed and live pushes
             // both scope to the current workspace, then encode the re-stamped
             // descriptor.
@@ -131,6 +151,9 @@ extension TerminalController {
                 encoded.append(payload)
             }
         }
+        #if DEBUG
+        cmuxDebugLog("agentChat.list workspace=\(workspaceID.prefix(8)) total=\(allRecords.count) dropNotInWS=\(dropNotInWorkspace) dropDeadPID=\(dropDeadPID) kept=\(kept) returned=\(encoded.count)")
+        #endif
         return .ok(["sessions": encoded])
     }
 
