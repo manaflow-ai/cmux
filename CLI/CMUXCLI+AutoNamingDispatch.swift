@@ -4,9 +4,10 @@ import CmuxSettings
 
 extension CMUXCLI {
     /// Reads live auto-naming settings from the app. Returns nil when naming is
-    /// disabled or the workspace is already user-owned.
+    /// disabled or no workspace/panel title target is writable.
     func probeAutoNaming(
         workspaceId: String,
+        surfaceId: String,
         agent: String,
         client: SocketClient,
         telemetryKey: String,
@@ -16,7 +17,7 @@ extension CMUXCLI {
         do {
             probe = try client.sendV2(
                 method: "workspace.set_auto_title",
-                params: ["probe": true, "workspace_id": workspaceId]
+                params: autoNamingProbeParams(workspaceId: workspaceId, surfaceId: surfaceId)
             )
         } catch {
             telemetry.breadcrumb("\(telemetryKey).probe-failed")
@@ -27,11 +28,31 @@ extension CMUXCLI {
             telemetry.breadcrumb("\(telemetryKey).disabled")
             return nil
         }
-        guard probe["workspace_user_owned"] as? Bool != true else {
+        guard autoNamingProbeHasWritableTarget(probe) else {
             telemetry.breadcrumb("\(telemetryKey).user-owned")
             return nil
         }
         return probe
+    }
+
+    func autoNamingProbeParams(workspaceId: String, surfaceId: String?) -> [String: Any] {
+        var params: [String: Any] = [
+            "probe": true,
+            "workspace_id": workspaceId
+        ]
+        if let surfaceId = normalizedHookValue(surfaceId) {
+            params["panel_id"] = surfaceId
+            params["panel_only_if_multiple"] = true
+        }
+        return params
+    }
+
+    func autoNamingProbeHasWritableTarget(_ probe: [String: Any]) -> Bool {
+        guard probe["enabled"] as? Bool == true else { return false }
+        if probe["workspace_user_owned"] as? Bool == true {
+            return probe["auto_naming_panel_writable"] as? Bool == true
+        }
+        return true
     }
 
     /// Converts the app probe's resolved language fields into the engine's

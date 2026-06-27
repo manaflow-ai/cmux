@@ -3,8 +3,28 @@ import Foundation
 import Testing
 
 @Suite struct AutoNamingSubprocessRunnerTests {
-    @Test func returnsOutputWhenTermIgnoringDescendantKeepsStdoutOpenAndCleansProcessGroup() throws {
+    @Test func returnsLeaderOutputWithoutWaitingForDescendantStdout() throws {
         let root = try temporaryDirectory(named: "autoname-runner-stdout")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = try executableScript(in: root, named: "summarizer", body: """
+        ( sleep 0.1; printf ' title\\n' ) &
+        printf 'Good'
+        exit 0
+        """)
+
+        let output = AutoNamingSubprocessRunner().run(
+            executable: script,
+            arguments: [],
+            prompt: "",
+            environment: processEnvironment(),
+            timeout: 2
+        )
+
+        #expect(output == "Good")
+    }
+
+    @Test func leaderExitWithOpenDescendantStdoutReturnsAndCleansProcessGroup() throws {
+        let root = try temporaryDirectory(named: "autoname-runner-stdout-timeout")
         defer { try? FileManager.default.removeItem(at: root) }
         let marker = root.appendingPathComponent("descendant-survived", isDirectory: false)
         let script = try executableScript(in: root, named: "summarizer", body: """
@@ -18,7 +38,7 @@ import Testing
             arguments: [],
             prompt: "",
             environment: processEnvironment(marker: marker),
-            timeout: 2
+            timeout: 0.2
         )
 
         #expect(output == "Good title\n")

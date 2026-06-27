@@ -1082,6 +1082,7 @@
 		604500200000000000000001 /* WindowTitleTemplateContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500200000000000000002 /* WindowTitleTemplateContext.swift */; };
 		604500100000000000000003 /* WindowTitleTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000004 /* WindowTitleTemplateTests.swift */; };
 		A5001209 /* WindowToolbarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001219 /* WindowToolbarController.swift */; };
+		A7B6C5D40000000000000001 /* Workspace+AutoNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7B6C5D40000000000000002 /* Workspace+AutoNaming.swift */; };
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
 		C57B00030000000000000001 /* Workspace+CustomSidebarPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */; };
 		9FC97DA1B422776BB1EEC821 /* Workspace+CustomSidebarPullRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */; };
@@ -2222,6 +2223,7 @@
 		604500200000000000000002 /* WindowTitleTemplateContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WindowTitleTemplateContext.swift; sourceTree = "<group>"; };
 		604500100000000000000004 /* WindowTitleTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTitleTemplateTests.swift; sourceTree = "<group>"; };
 		A5001219 /* WindowToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowToolbarController.swift; sourceTree = "<group>"; };
+		A7B6C5D40000000000000002 /* Workspace+AutoNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AutoNaming.swift"; sourceTree = "<group>"; };
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
 		C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarPane.swift"; sourceTree = "<group>"; };
 		42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarPullRequests.swift"; sourceTree = "<group>"; };
@@ -2733,6 +2735,7 @@
 				D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */,
 				C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */,
 				42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */,
+				A7B6C5D40000000000000002 /* Workspace+AutoNaming.swift */,
 				E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */,
 				EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */,
 				EE30D5000000000000000003 /* WorkspaceRemoteRelayCommandRewriter.swift */,
@@ -4605,6 +4608,7 @@
 				604500100000000000000001 /* WindowTitleTemplate.swift in Sources */,
 				604500200000000000000001 /* WindowTitleTemplateContext.swift in Sources */,
 				A5001209 /* WindowToolbarController.swift in Sources */,
+				A7B6C5D40000000000000001 /* Workspace+AutoNaming.swift in Sources */,
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
 				C57B00030000000000000001 /* Workspace+CustomSidebarPane.swift in Sources */,
 				9FC97DA1B422776BB1EEC821 /* Workspace+CustomSidebarPullRequests.swift in Sources */,

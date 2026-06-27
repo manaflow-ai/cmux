@@ -159,6 +159,7 @@
 642	cmuxTests/RemoteTmuxControlParserTests.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
 636	Sources/TerminalController+ControlPaneContext.swift
+633	CLI/CMUXCLI+AutoNaming.swift
 632	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 627	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
@@ -168,7 +169,6 @@
 615	Sources/SettingsNavigation.swift
 612	cmuxUITests/FeedSidebarUITests.swift
 607	Sources/SleepyFaceView.swift
-607	CLI/CMUXCLI+AutoNaming.swift
 604	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteNucleoFFITests.swift
 602	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift
 601	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift

@@ -29,6 +29,7 @@ extension CMUXCLI {
         parsedInput: ClaudeHookParsedInput,
         client: SocketClient,
         workspaceId: String,
+        surfaceId: String,
         engine: AutoNamingEngine = AutoNamingEngine()
     ) -> [AutoNamingTranscriptMessage] {
         guard usesHookMessageCacheForAutoNaming(def),
@@ -37,9 +38,8 @@ extension CMUXCLI {
         }
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
-        ), probe["enabled"] as? Bool == true,
-           probe["workspace_user_owned"] as? Bool != true else {
+            params: autoNamingProbeParams(workspaceId: workspaceId, surfaceId: surfaceId)
+        ), autoNamingProbeHasWritableTarget(probe) else {
             return []
         }
         return engine.extractHookMessages(fromPayloadObjects: [object])
@@ -63,6 +63,7 @@ extension CMUXCLI {
         let telemetryKey = "\(def.name)-hook.auto-name"
         guard let probe = probeAutoNaming(
             workspaceId: workspaceId,
+            surfaceId: surfaceId,
             agent: def.name,
             client: client,
             telemetryKey: telemetryKey,
@@ -388,7 +389,7 @@ extension CMUXCLI {
             reportAutoNamingProblem("apply_failed", agent: agent, workspaceId: workspaceId, client: client)
             return (nil, true)
         }
-        if payload["workspace_applied"] as? Bool == true {
+        if payload["workspace_applied"] as? Bool == true || payload["panel_applied"] as? Bool == true {
             telemetry.breadcrumb("\(telemetryKey).applied")
             return (title, false)
         }

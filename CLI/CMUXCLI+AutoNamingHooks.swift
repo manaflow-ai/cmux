@@ -17,6 +17,7 @@ extension CMUXCLI {
         let telemetryKey = "claude-hook.auto-name"
         guard let probe = probeAutoNaming(
             workspaceId: workspaceId,
+            surfaceId: surfaceId,
             agent: "claude",
             client: client,
             telemetryKey: telemetryKey,
@@ -228,6 +229,7 @@ extension CMUXCLI {
         let telemetryKey = "codex-hook.auto-name"
         guard let probe = probeAutoNaming(
             workspaceId: workspaceId,
+            surfaceId: surfaceId,
             agent: "codex",
             client: client,
             telemetryKey: telemetryKey,

@@ -30171,7 +30171,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                             for: def,
                             parsedInput: input,
                             client: client,
-                            workspaceId: workspaceId
+                            workspaceId: workspaceId, surfaceId: surfaceId
                         ),
                         rejectTerminalTurn: def.name == "codex"
                     )) ?? (staleTerminalTurn: false, nested: false)
@@ -30491,7 +30491,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         for: def,
                         parsedInput: input,
                         client: client,
-                        workspaceId: workspaceId
+                        workspaceId: workspaceId, surfaceId: surfaceId
                     )
                 )) ?? false
             } else {
@@ -30653,10 +30653,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if autoNamingSource(for: def) != nil, !suppressVisibleMutations, !sessionId.isEmpty,
                let autoNameProbe = try? client.sendV2(
                    method: "workspace.set_auto_title",
-                   params: ["probe": true, "workspace_id": workspaceId]
+                   params: autoNamingProbeParams(workspaceId: workspaceId, surfaceId: surfaceId)
                ),
-               autoNameProbe["enabled"] as? Bool == true,
-               autoNameProbe["workspace_user_owned"] as? Bool != true {
+               autoNamingProbeHasWritableTarget(autoNameProbe) {
                 spawnDetachedAgentAutoName(
                     def: def,
                     sessionId: sessionId,
@@ -30871,7 +30870,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                             for: def,
                             parsedInput: input,
                             client: client,
-                            workspaceId: workspaceId
+                            workspaceId: workspaceId, surfaceId: surfaceId
                         )
                     )
                 } else {
@@ -31004,7 +31003,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                             for: def,
                             parsedInput: input,
                             client: client,
-                            workspaceId: mapped.workspaceId
+                            workspaceId: mapped.workspaceId, surfaceId: mapped.surfaceId
                         )
                     )
                 }

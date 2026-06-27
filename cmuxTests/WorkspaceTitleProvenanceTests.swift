@@ -95,10 +95,12 @@ import Testing
         #expect(workspace.setPanelCustomTitle(panelId: panelId, title: "Fix auth bug", source: .auto))
         #expect(workspace.panelCustomTitles[panelId] == "Fix auth bug")
         #expect(workspace.panelCustomTitleSources[panelId] == .auto)
+        #expect(workspace.canAutoNamePanel(requestedPanelId: panelId, onlyIfMultiple: false))
 
         // User rename wins and claims ownership.
         #expect(workspace.setPanelCustomTitle(panelId: panelId, title: "Build Pane"))
         #expect(workspace.panelCustomTitleSources[panelId] == .user)
+        #expect(!workspace.canAutoNamePanel(requestedPanelId: panelId, onlyIfMultiple: false))
         #expect(!workspace.setPanelCustomTitle(panelId: panelId, title: "Other", source: .auto))
         #expect(workspace.panelCustomTitles[panelId] == "Build Pane")
 
@@ -106,6 +108,7 @@ import Testing
         #expect(workspace.setPanelCustomTitle(panelId: panelId, title: nil))
         #expect(workspace.panelCustomTitles[panelId] == nil)
         #expect(workspace.panelCustomTitleSources[panelId] == nil)
+        #expect(workspace.canAutoNamePanel(requestedPanelId: panelId, onlyIfMultiple: false))
         #expect(workspace.setPanelCustomTitle(panelId: panelId, title: "Refreshed", source: .auto))
         #expect(workspace.panelCustomTitleSources[panelId] == .auto)
     }
@@ -119,6 +122,7 @@ import Testing
         // Simulate a carried title (move/respawn flows write the dictionary
         // directly when no provenance traveled with the title).
         workspace.panelCustomTitles[panelId] = "Carried Tab"
+        #expect(!workspace.canAutoNamePanel(requestedPanelId: panelId, onlyIfMultiple: false))
         #expect(!workspace.setPanelCustomTitle(panelId: panelId, title: "Other", source: .auto))
         #expect(workspace.panelCustomTitles[panelId] == "Carried Tab")
     }

@@ -157,8 +157,15 @@ struct AutoNamingEnvironmentPolicy: Sendable {
 /// Pure auto-naming logic: throttle decisions, transcript extraction,
 /// prompt construction, and response sanitization.
 struct AutoNamingEngine: Sendable {
-    private static let codexInjectedUserPrefixes = ["<user_instructions", "<environment_context", "<permissions", "<collaboration_mode",
-                                                    "<turn_aborted", "<subagent_notification", "# AGENTS.md instructions"]
+    private static let codexInjectedUserBlockTags = [
+        "user_instructions",
+        "environment_context",
+        "permissions",
+        "permissions instructions",
+        "collaboration_mode",
+        "turn_aborted",
+        "subagent_notification"
+    ]
     var config: AutoNamingConfig
 
     init(config: AutoNamingConfig = AutoNamingConfig()) {
@@ -295,7 +302,7 @@ struct AutoNamingEngine: Sendable {
                 continue
             }
             // Drop only known Codex harness blocks; keep user XML/HTML/JSX prompts.
-            if role == "user", Self.codexInjectedUserPrefixes.contains(where: { trimmed.hasPrefix($0) }) {
+            if role == "user", Self.isCodexInjectedUserMessage(trimmed) {
                 skipped += 1
                 continue
             }
@@ -308,6 +315,25 @@ struct AutoNamingEngine: Sendable {
             malformedRecordCount: parsed.malformedCount,
             skippedRecordCount: skipped
         )
+    }
+
+    private static func isCodexInjectedUserMessage(_ text: String) -> Bool {
+        if text.hasPrefix("# AGENTS.md instructions for "), text.contains("\n<INSTRUCTIONS>") {
+            return true
+        }
+        return codexInjectedUserBlockTags.contains { tag in
+            isWrappedCodexBlock(text, tag: tag)
+        }
+    }
+
+    private static func isWrappedCodexBlock(_ text: String, tag: String) -> Bool {
+        let openingPrefix = "<\(tag)"
+        guard text.hasPrefix(openingPrefix) else { return false }
+        guard let boundary = text.dropFirst(openingPrefix.count).first,
+              boundary == ">" || boundary == " " || boundary == "\n" || boundary == "\t" else {
+            return false
+        }
+        return text.contains("</\(tag)>")
     }
 
     // MARK: - Transcript extraction (Grok chat_history JSONL)

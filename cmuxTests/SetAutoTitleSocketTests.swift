@@ -223,20 +223,25 @@ import Testing
     @Test func probeWithWorkspaceIdReportsUserOwnership() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in
-                var envelope = try call(method: "workspace.set_auto_title", params: [
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+                let params: [String: Any] = [
                     "probe": true,
-                    "workspace_id": workspace.id.uuidString
-                ])
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "panel_only_if_multiple": true
+                ]
+                var envelope = try call(method: "workspace.set_auto_title", params: params)
                 var result = try #require(envelope["result"] as? [String: Any])
                 #expect(result["workspace_user_owned"] as? Bool == false)
+                #expect(result["auto_naming_panel_writable"] as? Bool == true)
 
                 workspace.setCustomTitle("My Project")
-                envelope = try call(method: "workspace.set_auto_title", params: [
-                    "probe": true,
-                    "workspace_id": workspace.id.uuidString
-                ])
+                envelope = try call(method: "workspace.set_auto_title", params: params)
                 result = try #require(envelope["result"] as? [String: Any])
                 #expect(result["workspace_user_owned"] as? Bool == true)
+                #expect(result["auto_naming_panel_writable"] as? Bool == true)
             }
         }
     }
@@ -392,18 +397,26 @@ import Testing
         }
     }
 
-    @Test func rejectedOverUserTitleWithDistinguishableResult() throws {
+    @Test func userWorkspaceTitleStillAllowsPanelApplyWithDistinguishableResult() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+                AutoNamingStatusStore.record(rawCategory: "failed", agent: "codex", at: 1)
                 workspace.setCustomTitle("My Project")
                 let envelope = try call(method: "workspace.set_auto_title", params: [
                     "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
                     "title": "Fix auth bug"
                 ])
                 #expect(envelope["ok"] as? Bool == true)
                 let result = try #require(envelope["result"] as? [String: Any])
                 #expect(result["workspace_applied"] as? Bool == false)
+                #expect(result["panel_applied"] as? Bool == true)
                 #expect(workspace.title == "My Project")
+                #expect(workspace.panelCustomTitles[panelId] == "Fix auth bug")
+                #expect(AutoNamingStatusStore.current() == nil)
             }
         }
     }

@@ -3262,22 +3262,28 @@ class TerminalController {
                 "auto_naming_language_name": language.promptName,
                 "auto_naming_language_tag": language.bcp47Tag
             ]
-            // With a workspace_id the probe also reports user ownership, so
-            // naming engines can skip the LLM call entirely for workspaces
-            // the user renamed.
+            // With a workspace_id the probe also reports writable title targets,
+            // so naming engines can skip LLM calls that cannot apply anywhere.
             if let workspaceId = v2UUID(params, "workspace_id"),
                let tabManager = v2ResolveTabManager(params: params) {
-                var userOwned: Bool?
+                var userOwned: Bool?, panelWritable: Bool?
                 var currentAutoTitle: String?
+                let requestedPanelId = v2UUID(params, "panel_id")
+                let panelOnlyIfMultiple = v2Bool(params, "panel_only_if_multiple") ?? false
                 v2MainSync {
                     guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
                     userOwned = workspace.effectiveCustomTitleSource == .user
-                    if workspace.effectiveCustomTitleSource == .auto {
-                        currentAutoTitle = workspace.customTitle
+                    if workspace.effectiveCustomTitleSource == .auto { currentAutoTitle = workspace.customTitle }
+                    if let requestedPanelId {
+                        panelWritable = workspace.canAutoNamePanel(
+                            requestedPanelId: requestedPanelId,
+                            onlyIfMultiple: panelOnlyIfMultiple
+                        )
                     }
                 }
                 result["workspace_user_owned"] = v2OrNull(userOwned)
                 result["auto_naming_current_title"] = v2OrNull(currentAutoTitle)
+                if requestedPanelId != nil { result["auto_naming_panel_writable"] = v2OrNull(panelWritable) }
             }
             return .ok(result)
         }
@@ -3320,16 +3326,10 @@ class TerminalController {
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
             found = true
             workspaceApplied = tabManager.setCustomTitle(tabId: workspaceId, title: title, source: .auto)
-            if let panelId {
-                // Hook payloads carry surface ids; accept either a panel id
-                // or a surface id for the tab target.
-                let resolvedPanelId = workspace.panels[panelId] != nil
-                    ? panelId
-                    : workspace.panelIdFromSurfaceId(TabID(uuid: panelId))
-                if let resolvedPanelId,
-                   !(panelOnlyIfMultiple && workspace.panels.count < 2) {
-                    panelApplied = workspace.setPanelCustomTitle(panelId: resolvedPanelId, title: title, source: .auto)
-                }
+            if let panelId,
+               let resolvedPanelId = workspace.autoNamingResolvedPanelId(for: panelId),
+               !(panelOnlyIfMultiple && workspace.panels.count < 2) {
+                panelApplied = workspace.setPanelCustomTitle(panelId: resolvedPanelId, title: title, source: .auto)
             }
         }
 
@@ -3342,7 +3342,7 @@ class TerminalController {
 
         // A title landed, so the naming agent is working again: clear any stale
         // failure the Settings status line may be showing.
-        if workspaceApplied {
+        if workspaceApplied || panelApplied == true {
             AutoNamingStatusStore.clear()
         }
 

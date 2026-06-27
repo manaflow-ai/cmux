@@ -94,15 +94,15 @@ struct AutoNamingSubprocessRunner: Sendable {
         )
         closeFD(&stdinFDs[1])
         guard firstWait.outputWithinLimit else {
-            terminateProcessGroup(pid: spawnedPID, stdoutFD: stdoutFD, output: &output)
+            terminateProcessGroup(pid: spawnedPID)
             return nil
         }
         guard firstWait.promptDelivered else {
-            terminateProcessGroup(pid: spawnedPID, stdoutFD: stdoutFD, output: &output)
+            terminateProcessGroup(pid: spawnedPID)
             return nil
         }
         guard let rawStatus = firstWait.rawStatus else {
-            terminateProcessGroup(pid: spawnedPID, stdoutFD: stdoutFD, output: &output)
+            terminateProcessGroup(pid: spawnedPID)
             return nil
         }
         forceCleanupProcessGroup(pid: spawnedPID)
@@ -111,37 +111,10 @@ struct AutoNamingSubprocessRunner: Sendable {
     }
 
     @discardableResult
-    private func terminateProcessGroup(
-        pid: pid_t,
-        stdoutFD: Int32,
-        output: inout Data
-    ) -> Int32? {
+    private func terminateProcessGroup(pid: pid_t) -> Int32? {
         signalProcessGroup(pid: pid, signal: SIGTERM)
-        var noStdin: Int32 = -1
-        let terminated = waitForProcess(
-            pid: pid,
-            stdinFD: &noStdin,
-            promptData: Data(),
-            stdoutFD: stdoutFD,
-            output: &output,
-            timeout: 2
-        )
-        if let rawStatus = terminated.rawStatus {
-            forceCleanupProcessGroup(pid: pid)
-            return rawStatus
-        }
         signalProcessGroup(pid: pid, signal: SIGKILL)
-        noStdin = -1
-        let killed = waitForProcess(
-            pid: pid,
-            stdinFD: &noStdin,
-            promptData: Data(),
-            stdoutFD: stdoutFD,
-            output: &output,
-            timeout: 1
-        ).rawStatus
-        forceCleanupProcessGroup(pid: pid)
-        return killed
+        return Self.waitForProcessExit(pid: pid, timeout: 1)
     }
 
     private func waitForProcess(
@@ -286,6 +259,18 @@ struct AutoNamingSubprocessRunner: Sendable {
             if result == -1 && errno == EINTR { continue }
             if result == -1 && errno == ECHILD { return 0 }
             return nil
+        }
+    }
+
+    private static func waitForProcessExit(pid: pid_t, timeout: TimeInterval) -> Int32? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            if let rawStatus = reapProcessIfExited(pid: pid) {
+                return rawStatus
+            }
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return nil }
+            waitForProcessExitEvent(pid: pid, timeout: min(remaining, 0.25))
         }
     }
 

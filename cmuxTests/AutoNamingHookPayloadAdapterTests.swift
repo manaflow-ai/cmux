@@ -187,6 +187,131 @@ import Darwin
         )
     }
 
+    @Test func userOwnedWorkspaceStillRunsPanelWritableHookAutoName() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let socketPath = Self.makeSocketPath("opencode-panel-auto")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        let state = MockSocketState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-panel-auto-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "opencode-panel-cache-session"
+
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try Self.writeExecutable(
+            at: bin.appendingPathComponent("opencode", isDirectory: false),
+            body: "#!/bin/sh\nprintf 'Panel Only Title\\n'\n"
+        )
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let now = Date().timeIntervalSince1970
+        let active = ["sessionId": sessionId, "updatedAt": now] as [String: Any]
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                    "autoNameMessageSequence": 2,
+                    "autoNameRecentMessages": [
+                        ["role": "user", "text": "Keep the workspace title but name this panel"],
+                        ["role": "assistant", "text": "I updated the panel-specific workflow."],
+                    ],
+                ],
+            ],
+            "activeSessionsByWorkspace": [workspaceId: active],
+            "activeSessionsBySurface": [surfaceId: active],
+        ]
+        let storeURL = root.appendingPathComponent("opencode-hook-sessions.json", isDirectory: false)
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
+            .write(to: storeURL, options: .atomic)
+
+        let serverDone = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            guard method == "workspace.set_auto_title" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            if params["probe"] as? Bool == true {
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "enabled": true,
+                        "workspace_user_owned": true,
+                        "auto_naming_panel_writable": true,
+                        "summarizer_agent": "auto",
+                        "auto_naming_language_name": "English",
+                        "auto_naming_language_tag": "en",
+                    ]
+                )
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["workspace_applied": false, "panel_applied": true]
+            )
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "\(bin.path):/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": storeURL.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC": "2",
+        ]
+        let result = Self.runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "hooks", "opencode", "auto-name",
+                "--session", sessionId,
+                "--workspace", workspaceId,
+                "--surface", surfaceId,
+            ],
+            environment: environment
+        )
+
+        #expect(serverDone.wait(timeout: .now() + 5) == .success)
+        #expect(result.status == 0, "stderr: \(result.stderr)")
+
+        let autoTitleRequests = state.snapshot().compactMap { command -> [String: Any]? in
+            guard let payload = Self.jsonObject(command),
+                  payload["method"] as? String == "workspace.set_auto_title" else { return nil }
+            return payload["params"] as? [String: Any]
+        }
+        #expect(autoTitleRequests.contains {
+            $0["probe"] as? Bool == true
+                && $0["panel_id"] as? String == surfaceId
+                && $0["panel_only_if_multiple"] as? Bool == true
+        })
+        #expect(autoTitleRequests.contains {
+            $0["title"] as? String == "Panel Only Title"
+                && $0["panel_id"] as? String == surfaceId
+                && $0["panel_only_if_multiple"] as? Bool == true
+        }, "expected panel-only apply after user-owned workspace probe, saw \(state.snapshot())")
+    }
+
     // Test server state crosses a DispatchQueue callback and is read after the socket drains.
     private final class MockSocketState: @unchecked Sendable {
         private let lock = NSLock()
@@ -252,6 +377,11 @@ import Darwin
             throw POSIXError(.init(rawValue: errno) ?? .EIO)
         }
         return fd
+    }
+
+    private static func writeExecutable(at url: URL, body: String) throws {
+        try body.write(to: url, atomically: true, encoding: .utf8)
+        _ = chmod(url.path, 0o755)
     }
 
     private static func startMockServer(
