@@ -1,6 +1,7 @@
 import AppKit
 import CmuxFoundation
 import CmuxSettings
+import CoreText
 import SwiftUI
 
 /// **Appearance** section: app theme, terminal font, UI text sizing, sidebar
@@ -45,7 +46,7 @@ public struct AppearanceSection: View {
         _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
         _terminalFontFamily = State(initialValue: hostActions.terminalFontFamily())
         _terminalFontSize = State(initialValue: hostActions.terminalFontSize())
-        _terminalFontFamilies = State(initialValue: Self.monospacedFontFamilies())
+        _terminalFontFamilies = State(initialValue: [])
         _sidebarFont = State(initialValue: hostActions.sidebarFontSize())
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
     }
@@ -59,7 +60,10 @@ public struct AppearanceSection: View {
             sidebarCard
             workspaceColorsCard
         }
-        .task { startObservingSettings() }
+        .task {
+            startObservingSettings()
+            await loadTerminalFontFamiliesIfNeeded()
+        }
     }
 
     private var globalFontMagnificationSubtitle: String {
@@ -95,6 +99,15 @@ public struct AppearanceSection: View {
             badgeHex,
         ]
         models.forEach { $0.startObserving() }
+    }
+
+    private func loadTerminalFontFamiliesIfNeeded() async {
+        guard terminalFontFamilies.isEmpty else { return }
+        let families = await Task.detached(priority: .userInitiated) {
+            Self.monospacedFontFamilies()
+        }.value
+        guard !Task.isCancelled else { return }
+        terminalFontFamilies = families
     }
 
     private func setGlobalFontMagnification(_ percent: Int) {
@@ -423,16 +436,23 @@ public struct AppearanceSection: View {
         }
     }
 
-    private static func monospacedFontFamilies() -> [String] {
-        NSFontManager.shared.availableFontFamilies
+    nonisolated private static func monospacedFontFamilies() -> [String] {
+        let families = (CTFontManagerCopyAvailableFontFamilyNames() as NSArray)
+            .compactMap { $0 as? String }
+        return families
             .filter(isMonospacedFamily)
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
-    private static func isMonospacedFamily(_ family: String) -> Bool {
-        let descriptor = NSFontDescriptor(fontAttributes: [.family: family])
-        let matches = descriptor.matchingFontDescriptors(withMandatoryKeys: Set([.family]))
-        return matches.contains { $0.symbolicTraits.contains(.monoSpace) }
+    nonisolated private static func isMonospacedFamily(_ family: String) -> Bool {
+        let descriptor = CTFontDescriptorCreateWithAttributes([
+            kCTFontFamilyNameAttribute: family
+        ] as CFDictionary)
+        let matches = CTFontDescriptorCreateMatchingFontDescriptors(descriptor, nil) as? [CTFontDescriptor] ?? []
+        return matches.contains { descriptor in
+            let font = CTFontCreateWithFontDescriptor(descriptor, 12, nil)
+            return CTFontGetSymbolicTraits(font).contains(.traitMonoSpace)
+        }
     }
 
     private static func cmuxAccentColor() -> Color {

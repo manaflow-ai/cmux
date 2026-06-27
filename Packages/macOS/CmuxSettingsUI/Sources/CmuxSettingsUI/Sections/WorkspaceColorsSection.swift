@@ -3,19 +3,10 @@ import AppKit
 import CmuxSettings
 import SwiftUI
 
-/// **Workspace Colors** section — mirrors the legacy in-app section:
-/// indicator-style picker, selection highlight color, notification
-/// badge color, then a per-palette-entry editor and a Reset Palette
-/// action.
+/// **Workspace Colors** section: per-palette-entry editor and Reset Palette
+/// action. Indicator, selection, and badge color controls live in Appearance.
 @MainActor
 public struct WorkspaceColorsSection: View {
-    private let jsonStore: JSONConfigStore
-    private let catalog: SettingCatalog
-    private let errorLog: SettingsErrorLog
-
-    @State private var indicator: DefaultsValueModel<WorkspaceIndicatorStyle>
-    @State private var selectionHex: DefaultsValueModel<String>
-    @State private var badgeHex: DefaultsValueModel<String>
     @State private var paletteModel: DefaultsValueModel<[String: String]>
 
     /// Built-in palette order and default hexes. Mirrors
@@ -48,12 +39,6 @@ public struct WorkspaceColorsSection: View {
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog
     ) {
-        self.jsonStore = jsonStore
-        self.catalog = catalog
-        self.errorLog = errorLog
-        _indicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle))
-        _selectionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex))
-        _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
         _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
     }
 
@@ -67,9 +52,6 @@ public struct WorkspaceColorsSection: View {
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
-            indicator,
-            selectionHex,
-            badgeHex,
             paletteModel,
         ]
         models.forEach { $0.startObserving() }
@@ -78,38 +60,6 @@ public struct WorkspaceColorsSection: View {
     @ViewBuilder
     private var mainCard: some View {
         SettingsCard {
-            SettingsCardRow(
-                configurationReview: .json("workspaceColors.indicatorStyle"),
-                String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"),
-                controlWidth: 196
-            ) {
-                Picker("", selection: Binding(get: { indicator.current }, set: { indicator.set($0) })) {
-                    ForEach(WorkspaceIndicatorStyle.allCases, id: \.self) { style in
-                        Text(indicatorStyleLabel(style)).tag(style)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-            }
-            SettingsCardDivider()
-
-            colorRow(
-                title: String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"),
-                subtitle: String(localized: "settings.workspaceColors.selectionColor.subtitle", defaultValue: "Background color of the selected workspace in the sidebar."),
-                json: "workspaceColors.selectionColor",
-                resetLabel: String(localized: "settings.workspaceColors.selectionColor.reset", defaultValue: "Reset"),
-                model: selectionHex
-            )
-            SettingsCardDivider()
-            colorRow(
-                title: String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"),
-                subtitle: String(localized: "settings.workspaceColors.notificationBadgeColor.subtitle", defaultValue: "Color of the unread notification badge on workspace tabs."),
-                json: "workspaceColors.notificationBadgeColor",
-                resetLabel: String(localized: "settings.workspaceColors.notificationBadgeColor.reset", defaultValue: "Reset"),
-                model: badgeHex
-            )
-            SettingsCardDivider()
-
             SettingsCardNote(
                 String(localized: "settings.workspaceColors.dictionaryNote", defaultValue: "Edit cmux.json to add or remove named colors. \"Choose Custom Color...\" still adds local Custom N entries.")
             )
@@ -139,34 +89,6 @@ public struct WorkspaceColorsSection: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func colorRow(title: String, subtitle: String, json: String, resetLabel: String, model: DefaultsValueModel<String>) -> some View {
-        let isCustom = !model.current.isEmpty
-        SettingsCardRow(
-            configurationReview: .json(json),
-            title,
-            subtitle: subtitle
-        ) {
-            HStack(spacing: 8) {
-                if isCustom {
-                    Button(resetLabel) { model.reset() }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                }
-                ColorPicker("", selection: Binding(
-                    get: { Color(cmuxHex: model.current) ?? Self.cmuxAccentColor() },
-                    set: { newColor in model.set(newColor.cmuxHexString) }
-                ), supportsOpacity: false)
-                .labelsHidden()
-                .frame(width: 38)
-                Text(isCustom ? model.current : String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
-                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 76, alignment: .trailing)
             }
         }
     }
@@ -253,32 +175,4 @@ public struct WorkspaceColorsSection: View {
         Self.builtInPalette.first(where: { $0.name == name })?.hex
     }
 
-    /// Localized label for an indicator style.
-    ///
-    /// Uses the legacy `sidebar.activeTabIndicator.*` localization keys
-    /// (mirrors `SidebarActiveTabIndicatorStyle.displayName` in the app
-    /// target) so existing translations apply.
-    private func indicatorStyleLabel(_ style: WorkspaceIndicatorStyle) -> String {
-        switch style {
-        case .leftRail: return String(localized: "sidebar.activeTabIndicator.leftRail", defaultValue: "Left Rail")
-        case .solidFill: return String(localized: "sidebar.activeTabIndicator.solidFill", defaultValue: "Solid Fill")
-        }
-    }
-
-
-    /// cmux-themed accent color used as the live ColorPicker fallback
-    /// when the selection or notification badge has no custom hex.
-    /// Mirrors the legacy `cmuxAccentColor()` helper (see
-    /// `Sources/Sidebar/SidebarAppearanceSupport.swift`) so the rendered
-    /// swatch matches the rest of the app instead of the system accent.
-    private static func cmuxAccentColor() -> Color {
-        let nsColor = NSColor(name: nil) { appearance in
-            let bestMatch = appearance.bestMatch(from: [.darkAqua, .aqua])
-            if bestMatch == .darkAqua {
-                return NSColor(srgbRed: 0, green: 145.0 / 255.0, blue: 1.0, alpha: 1.0)
-            }
-            return NSColor(srgbRed: 0, green: 136.0 / 255.0, blue: 1.0, alpha: 1.0)
-        }
-        return Color(nsColor: nsColor)
-    }
 }
