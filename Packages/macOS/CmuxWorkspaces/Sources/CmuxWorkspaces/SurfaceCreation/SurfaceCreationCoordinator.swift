@@ -928,6 +928,89 @@ public final class SurfaceCreationCoordinator {
         return descriptor.id
     }
 
+    /// Creates a right-sidebar-tool surface tab in `paneId`, mirroring the legacy
+    /// `Workspace.newRightSidebarToolSurface(inPane:mode:focus:targetIndex:)` body
+    /// step for step. The coordinator owns the create-tab orchestration; every
+    /// registry/bonsplit mutation is driven through ``SurfaceCreationHosting``. The
+    /// package cannot name the app's `RightSidebarToolPanel`, so this returns the
+    /// new panel's `id` (`nil` on the `canOpenAsPane` guard or a failed tab insert)
+    /// and the workspace maps it back to the typed panel via
+    /// `panels[id] as? RightSidebarToolPanel`.
+    ///
+    /// Two differences from the other create-tab paths. First, it leads with the
+    /// legacy `guard mode.canOpenAsPane else { return nil }`: the workspace computes
+    /// `mode.canOpenAsPane` app-side (the `RightSidebarMode` affordance lives in a
+    /// sibling UI package this package does not depend on) and passes it as
+    /// `canOpenAsPane`, so the short-circuit is byte-identical. Second, the focused
+    /// branch only focuses the panel via the workspace's
+    /// ``SurfaceCreationHosting/focusSurfacePanel(_:)`` (the legacy
+    /// `focusPanel(toolPanel.id)`); unlike the project/agent/extension-browser
+    /// paths it does NOT call `focusPane`/`selectTab`/`applyTabSelection`, and the
+    /// non-focus branch preserves focus via
+    /// ``SurfaceCreationHosting/preserveSurfaceFocusAfterNonFocusSplit(preferredPanelId:splitPanelId:previousHostedView:)``,
+    /// exactly as the legacy body did. The mode crosses the seam as its frozen
+    /// `rawValue` string because the package cannot name `RightSidebarToolPanel`.
+    ///
+    /// - Parameters:
+    ///   - paneId: the pane that receives the new right-sidebar-tool surface.
+    ///   - modeRawValue: the right-sidebar mode's frozen `rawValue`.
+    ///   - canOpenAsPane: the workspace-resolved `mode.canOpenAsPane`; `false`
+    ///     short-circuits to `nil` exactly as the legacy guard did.
+    ///   - focus: explicit focus intent, or `nil` to auto-focus only when `paneId`
+    ///     is already the focused pane.
+    ///   - targetIndex: an optional tab index to reorder the new tab to.
+    ///   - host: the workspace live-state seam.
+    /// - Returns: the new right-sidebar-tool panel's id, or `nil` when the mode
+    ///   cannot open as a pane or the bonsplit tab could not be created.
+    @discardableResult
+    public func newRightSidebarToolSurface(
+        inPane paneId: PaneID,
+        modeRawValue: String,
+        canOpenAsPane: Bool,
+        focus: Bool?,
+        targetIndex: Int?,
+        host: any SurfaceCreationHosting
+    ) -> UUID? {
+        guard canOpenAsPane else { return nil }
+        let shouldFocusNewTab = focus ?? (host.focusedBonsplitPaneId == paneId)
+        let previousFocusedPanelId = host.focusedPanelId
+        let previousHostedView = host.focusedTerminalHostedView
+
+        let descriptor = host.registerRightSidebarToolPanel(modeRawValue: modeRawValue)
+
+        guard let newTabId = host.createSurfaceTab(
+            descriptor: descriptor,
+            kind: SurfaceKind.rightSidebarTool.rawValue,
+            inPane: paneId
+        ) else {
+            host.discardPanelRegistration(id: descriptor.id)
+            return nil
+        }
+
+        if let targetIndex {
+            _ = host.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        host.publishCmuxSurfaceCreated(
+            descriptor.id,
+            paneId: paneId,
+            kind: "right_sidebar_tool",
+            origin: "right_sidebar_tool_tab",
+            focused: shouldFocusNewTab
+        )
+
+        if shouldFocusNewTab {
+            host.focusSurfacePanel(descriptor.id)
+        } else {
+            host.preserveSurfaceFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: descriptor.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return descriptor.id
+    }
+
     /// Promotes the inherited surface config so the pane is held open after a
     /// startup command exits, mirroring the legacy inline block in
     /// `Workspace.newTerminalSplitLocal`/`newTerminalSurfaceLocal`:

@@ -333,4 +333,24 @@ public protocol SurfaceCreationHosting: AnyObject {
     /// `newSidebarExtensionBrowserSurface`. The host resolves the typed panel by
     /// `id`; a no-op if the id no longer maps to an extension-browser panel.
     func focusExtensionBrowserPanel(id: UUID)
+
+    // MARK: Right-sidebar-tool create live state
+
+    /// Constructs the app's `RightSidebarToolPanel` for the right-sidebar mode
+    /// (carried as its frozen `RightSidebarMode` `rawValue` string, because the
+    /// package cannot name the app's `RightSidebarToolPanel` and the
+    /// `RightSidebarMode` enum is owned by a sibling UI package the workspace
+    /// package does not depend on), registers it in the workspace panel and
+    /// panel-title registries, and returns its Sendable descriptor. Mirrors the
+    /// legacy `let toolPanel = RightSidebarToolPanel(workspace: self, mode: mode);
+    /// panels[toolPanel.id] = toolPanel; panelTitles[toolPanel.id] =
+    /// toolPanel.displayTitle` prelude. The descriptor's `displayIcon` carries the
+    /// raw `toolPanel.displayIcon` (like the project/extension-browser
+    /// registrations, not the resolved icon the file-preview registration carries)
+    /// and `isDirty` is `false`, matching the legacy `createTab(isDirty: false)`
+    /// literal. The `rawValue` always round-trips for live callers (the app
+    /// forwarder passes `mode.rawValue` from a real enum case), so the failable
+    /// init's backstop is an unreachable default. The registries stay app-side
+    /// behind this witness.
+    func registerRightSidebarToolPanel(modeRawValue: String) -> SurfaceTabDescriptor
 }

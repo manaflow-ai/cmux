@@ -6868,6 +6868,14 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         return panels[existingId] as? RightSidebarToolPanel
     }
 
+    /// Thin forwarder to ``SurfaceCreationCoordinator/newRightSidebarToolSurface(inPane:modeRawValue:canOpenAsPane:focus:targetIndex:host:)``.
+    /// The coordinator owns the create-tab orchestration and drives every registry/
+    /// bonsplit mutation back through this `Workspace`'s ``SurfaceCreationHosting``
+    /// conformance; it returns the new panel's `id`, which this maps back to the
+    /// typed `RightSidebarToolPanel`. The mode crosses the seam as its frozen
+    /// `rawValue` string, and `mode.canOpenAsPane` is resolved here (the affordance
+    /// lives in a sibling UI package the workspace package does not depend on) and
+    /// passed through, so the coordinator's leading guard is byte-identical.
     @discardableResult
     func newRightSidebarToolSurface(
         inPane paneId: PaneID,
@@ -6875,46 +6883,14 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> RightSidebarToolPanel? {
-        guard mode.canOpenAsPane else { return nil }
-        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
-        let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
-
-        let toolPanel = RightSidebarToolPanel(workspace: self, mode: mode)
-        panels[toolPanel.id] = toolPanel
-        panelTitles[toolPanel.id] = toolPanel.displayTitle
-
-        guard let newTabId = bonsplitController.createTab(
-            title: toolPanel.displayTitle,
-            icon: toolPanel.displayIcon,
-            kind: SurfaceKind.rightSidebarTool.rawValue,
-            isDirty: false,
-            isLoading: false,
-            isPinned: false,
-            inPane: paneId
-        ) else {
-            panels.removeValue(forKey: toolPanel.id)
-            panelTitles.removeValue(forKey: toolPanel.id)
-            return nil
-        }
-
-        surfaceIdToPanelId[newTabId] = toolPanel.id
-        if let targetIndex {
-            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
-        }
-        publishCmuxSurfaceCreated(toolPanel.id, paneId: paneId, kind: "right_sidebar_tool", origin: "right_sidebar_tool_tab", focused: shouldFocusNewTab)
-
-        if shouldFocusNewTab {
-            focusPanel(toolPanel.id)
-        } else {
-            preserveFocusAfterNonFocusSplit(
-                preferredPanelId: previousFocusedPanelId,
-                splitPanelId: toolPanel.id,
-                previousHostedView: previousHostedView
-            )
-        }
-
-        return toolPanel
+        surfaceCreation.newRightSidebarToolSurface(
+            inPane: paneId,
+            modeRawValue: mode.rawValue,
+            canOpenAsPane: mode.canOpenAsPane,
+            focus: focus,
+            targetIndex: targetIndex,
+            host: self
+        ).flatMap { panels[$0] as? RightSidebarToolPanel }
     }
 
     /// Thin forwarder to ``SurfaceCreationCoordinator/newAgentSessionSurface(inPane:providerIDRawValue:rendererKindRawValue:workingDirectory:focus:targetIndex:host:)``.
@@ -8871,6 +8847,29 @@ extension Workspace: SurfaceCreationHosting {
 
     func focusExtensionBrowserPanel(id: UUID) {
         (panels[id] as? CMUXSidebarExtensionBrowserPanel)?.focus()
+    }
+
+    // MARK: Right-sidebar-tool create live state
+    //
+    // `focusedBonsplitPaneId`, `focusedPanelId`, `focusedTerminalHostedView`,
+    // `createSurfaceTab`, `reorderTab`, `publishCmuxSurfaceCreated`,
+    // `focusSurfacePanel`, `preserveSurfaceFocusAfterNonFocusSplit`, and
+    // `discardPanelRegistration` are already implemented above or for sibling
+    // conformances. The member below is the right-sidebar-tool create-specific
+    // witness. The mode arrives as its frozen `rawValue` string; it always
+    // round-trips for live callers, so the failable init's backstop is unreachable.
+
+    func registerRightSidebarToolPanel(modeRawValue: String) -> SurfaceTabDescriptor {
+        let mode = RightSidebarMode(rawValue: modeRawValue) ?? .files
+        let toolPanel = RightSidebarToolPanel(workspace: self, mode: mode)
+        panels[toolPanel.id] = toolPanel
+        panelTitles[toolPanel.id] = toolPanel.displayTitle
+        return SurfaceTabDescriptor(
+            id: toolPanel.id,
+            displayTitle: toolPanel.displayTitle,
+            displayIcon: toolPanel.displayIcon,
+            isDirty: false
+        )
     }
 }
 
