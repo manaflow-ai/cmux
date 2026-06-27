@@ -68,7 +68,7 @@ struct AgentChatDemoScreen: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .safeAreaPadding(.top, 4)
+                .mobileChatTopScrollEdgeLayout(legacyTopPadding: 4)
                 .mobileTerminalNavigationChrome()
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
