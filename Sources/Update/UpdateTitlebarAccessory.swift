@@ -1179,9 +1179,7 @@ struct TitlebarControlsView: View {
         iconGeometryKeyPrefix: String? = nil
     ) -> some View {
         titlebarIconChrome(config: config, iconGeometryKeyPrefix: iconGeometryKeyPrefix) {
-            Image(systemName: systemName)
-                .symbolRenderingMode(.monochrome)
-                .cmuxSymbolRasterSize(config.iconSize, weight: TitlebarControlIconStyle.weight)
+            CmuxSystemSymbolImage(systemName: systemName, pointSize: config.iconSize, weight: TitlebarControlIconStyle.weight)
         }
     }
 
@@ -2199,8 +2197,7 @@ private struct NotificationsPopoverView: View {
             Spacer()
             Button(action: jumpToLatestUnread) {
                 HStack(spacing: 5) {
-                    Image(systemName: "arrow.down.to.line")
-                        .cmuxSymbolRasterSize(10, weight: .semibold)
+                    CmuxSystemSymbolImage(systemName: "arrow.down.to.line", pointSize: 10, weight: .semibold)
                     Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
                         .cmuxFont(size: 11)
                     if !jumpToUnreadShortcut.displayString.isEmpty {
@@ -2323,8 +2320,7 @@ private struct NotificationsPopoverView: View {
 
     private func emptyState(systemImage: String, title: String, subtitle: String?) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .cmuxSymbolRasterSize(30, weight: .light)
+            CmuxSystemSymbolImage(systemName: systemImage, pointSize: 30, weight: .light)
                 .foregroundColor(.secondary.opacity(0.7))
             Text(title)
                 .cmuxFont(size: 14, weight: .medium)
@@ -2507,8 +2503,7 @@ private struct NotificationPopoverRow: View {
             ZStack {
                 Circle()
                     .fill(Color.primary.opacity(0.1))
-                Image(systemName: "xmark")
-                    .cmuxSymbolRasterSize(9, weight: .bold)
+                CmuxSystemSymbolImage(systemName: "xmark", pointSize: 9, weight: .bold)
                     .foregroundColor(.primary.opacity(0.7))
             }
             .frame(width: 20, height: 20)

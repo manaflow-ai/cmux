@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CMUXMobileCore
 import CmuxMobileDiagnostics
+import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import GhosttyKit
 import OSLog
@@ -215,11 +216,15 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// stable; its default on-bar position is curated separately in
     /// ``defaultConfigurableOrder``.
     case returnKey
-    var title: String {
+    /// Short label rendered on the terminal accessory button.
+    public var title: String {
         title(isMacRemote: false)
     }
 
-    func title(isMacRemote: Bool) -> String {
+    /// Short label rendered on the terminal accessory button for the remote kind.
+    /// - Parameter isMacRemote: Whether the target terminal is a macOS remote.
+    /// - Returns: The compact title used by the accessory bar.
+    public func title(isMacRemote: Bool) -> String {
         switch self {
         case .control:
             return isMacRemote ? "⌃" : String(localized: "terminal.input_accessory.title.control", defaultValue: "Ctrl")
@@ -284,7 +289,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         }
     }
 
-    var accessibilityIdentifier: String {
+    /// Stable accessibility identifier used by the terminal accessory button.
+    public var accessibilityIdentifier: String {
         switch self {
         case .control: return "terminal.inputAccessory.control"
         case .alternate: return "terminal.inputAccessory.alt"
@@ -319,7 +325,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         }
     }
 
-    var accessibilityLabel: String? {
+    /// VoiceOver label for icon-only accessory actions.
+    public var accessibilityLabel: String? {
         switch self {
         case .zoomOut:
             return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
@@ -334,7 +341,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         }
     }
 
-    var symbolName: String? {
+    /// SF Symbol name for icon-only accessory actions.
+    public var symbolName: String? {
         switch self {
         case .zoomOut:
             return "minus.magnifyingglass"
@@ -361,7 +369,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     }
 
     /// Whether this action is a modifier key (toggleable armed state).
-    var isModifier: Bool {
+    public var isModifier: Bool {
         switch self {
         case .control, .alternate, .command, .shift: return true
         default: return false
@@ -741,13 +749,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "chromeHidden=\(chromeHidden ? 1 : 0)",
             "composerActive=\(composerActive ? 1 : 0)",
             "fieldFocused=\(composerFieldIsFirstResponder ? 1 : 0)",
-            "keyboardUp=\(keyboardHeight > 0 ? 1 : 0)",
+            "keyboardUp=\(keyboardVisible ? 1 : 0)",
             "proxyFirstResponder=\(inputProxy.isFirstResponder ? 1 : 0)",
             "bandMounted=\(composerContainer.subviews.isEmpty ? 0 : 1)",
             "toolbarVisible=\(dockedToolbar?.isHidden == false ? 1 : 0)",
             "surfaceMinXInWindow=\(surfaceMinXInWindow)",
             "toolbarOriginX=\(toolbarOriginX)",
             "lastIntent=\(intent)",
+            "viewportHeight=\(Int(terminalViewportHeight))",
+            "renderMinY=\(Int(lastRenderRect.minY))",
+            "renderMaxY=\(Int(lastRenderRect.maxY))",
             // Rendered terminal height vs the surface bounds, so a UI test can
             // assert the grid returns to (near) full height once the keyboard is
             // down: the "terminal not full height when keyboard closed" guard. The
@@ -823,6 +834,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// coordinate space. Kept so the border layer can match it without a
     /// second set_size round-trip.
     private var lastRenderRect: CGRect = .zero
+    private var keyboardHeightAnimation: TerminalKeyboardHeightAnimation?
+    private var keyboardHeightAnimationID = 0
 
     #if DEBUG
     struct DebugGeometrySnapshot {
@@ -858,7 +871,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func setKeyboardHeightForTesting(_ height: CGFloat) {
+        stopKeyboardHeightAnimation()
         keyboardHeight = max(0, height)
+        layoutRenderedTerminalForCurrentViewport()
+        layoutBottomDock()
         syncSurfaceGeometry(shouldReassertNaturalSize: true)
     }
     #endif
@@ -944,7 +960,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // terminal tap focuses the proxy without closing the band), and the proxy
             // is a sibling of `composerContainer`, so `endEditing` on the container
             // alone would resign nothing and the keyboard would stay up.
-            if self.keyboardHeight > 0 {
+            if self.keyboardVisible {
                 if self.inputProxy.isFirstResponder {
                     self.resignInput()
                 } else {
@@ -987,6 +1003,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         bridge.attach(to: self)
         backgroundColor = .black
         isOpaque = true
+        clipsToBounds = true
         #if DEBUG
         // The surface is a container, not a leaf, so the docked toolbar's
         // buttons stay accessible. `debugAccessibilityProxy` carries the
@@ -1041,14 +1058,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(handleKeyboardWillShow(_:)),
-            name: UIResponder.keyboardWillShowNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleKeyboardWillHide(_:)),
-            name: UIResponder.keyboardWillHideNotification,
+            selector: #selector(handleKeyboardWillChangeFrame(_:)),
+            name: UIResponder.keyboardWillChangeFrameNotification,
             object: nil
         )
     }
@@ -1112,6 +1123,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private var keyboardHeight: CGFloat = 0
+    private var keyboardVisible = false
     /// Height the persistent bottom toolbar reserves in the terminal grid. The
     /// toolbar is docked above the keyboard (when up) or the home indicator
     /// (when down) via `keyboardLayoutGuide`, so the grid must shrink by this
@@ -1124,9 +1136,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// height (`TerminalInputTextView.dockedButtonRowHeight`) so the grid reserves
     /// EXACTLY the strip the buttons occupy — no taller. Round 3 reserved 44 while
     /// the strip was only 34, so the extra 10pt rendered as bar background below
-    /// the buttons (the "gap below" Lawrence kept seeing). Matching them removes it,
-    /// leaving only the sub-cell render remainder, which the bar absorbs below the
-    /// top-pinned button row.
+    /// the buttons (the "gap below" Lawrence kept seeing). Matching them keeps the
+    /// toolbar's live top edge equal to the viewport edge; any whole-cell render
+    /// remainder stays inside the terminal viewport instead of becoming toolbar fill.
     private static let persistentToolbarHeight: CGFloat = TerminalInputTextView.dockedButtonRowHeight
     /// The docked accessory bar. Positioned by ``bottomDockFrames()`` with the
     /// SAME bottom-occupancy math as the grid reservation, so its top is always
@@ -1178,43 +1190,30 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// whichever registered surface happens to sort first.
     public var hostSurfaceID: String?
 
-    @objc private func handleKeyboardWillShow(_ notification: Notification) {
-        guard let frameEnd = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
-              let window else { return }
-        let keyboardFrameInView = convert(frameEnd, from: window)
-        let overlap = max(0, bounds.maxY - keyboardFrameInView.minY)
-        guard overlap != keyboardHeight else { return }
-        let wasDown = keyboardHeight == 0
-        keyboardHeight = overlap
-        inputProxy.setKeyboardShown(true)
-        // The bar is keyboard-tied: reveal it (and reserve its grid height) as the
-        // keyboard comes up. Done before the frame animation so it animates in
-        // with the keyboard instead of popping after.
-        if wasDown { updateDockedToolbarVisibility() }
-        animateDockedToolbar(with: notification)
-        setNeedsGeometrySync()
-    }
-
-    @objc private func handleKeyboardWillHide(_ notification: Notification) {
-        guard keyboardHeight != 0 else { return }
+    @objc private func handleKeyboardWillChangeFrame(_ notification: Notification) {
+        guard let transition = MobileKeyboardTransition(notification: notification) else { return }
+        let overlap = transition.overlap(in: self)
+        let willBeVisible = transition.isVisible(in: self)
+        guard abs(overlap - keyboardHeight) > 0.5 || willBeVisible != keyboardVisible else { return }
+        let wasVisible = keyboardVisible
         #if DEBUG
         // The composer-up/keyboard-down desync can be reached WITHOUT the dismiss
         // button (code 24): a swipe-to-dismiss, an attached hardware keyboard, or
-        // backgrounding all collapse the keyboard straight through this overlap→0
+        // backgrounding all collapse the keyboard straight through this visible→false
         // transition. Codes 23/24 are silent on those paths, so the onset of the
-        // desync — `keyboardHeight→0 while the composer is still active` — is recorded
+        // desync — `keyboardVisible→false while the composer is still active` — is recorded
         // here too, with the resolved first-responder owner, so a Capture&Send trace
         // is complete no matter how the keyboard went down. Pure diagnostics; the hide
         // behavior below is unchanged.
-        if composerActive {
+        if wasVisible, !willBeVisible, composerActive {
             let frOwner = TerminalInputTextView.responderIdentity(of: CurrentResponderProbe().current())
             MobileDebugLog.anchormux(
                 "composer.keyboardHideWhilePresented prevKeyboardHeight=\(Int(keyboardHeight)) frOwner=\(frOwner.rawValue) proxyIsFR=\(inputProxy.isFirstResponder ? 1 : 0)"
             )
         }
         #endif
-        keyboardHeight = 0
-        inputProxy.setKeyboardShown(false)
+        keyboardVisible = willBeVisible
+        inputProxy.setKeyboardShown(willBeVisible)
         // Round 8 removes the `composerPresented ⇒ keyboardUp` enforcement: the
         // toolbar is ALWAYS visible and the composer band survives a keyboard-down, so
         // the keyboard collapsing no longer dismisses the composer. The composer's
@@ -1229,24 +1228,64 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // reclaims the keyboard's space (minus the now-reserved safe area + toolbar +
         // composer band).
         updateDockedToolbarVisibility()
-        animateDockedToolbar(with: notification)
-        setNeedsGeometrySync()
-        // Bug fix (terminal not full height when keyboard closed): the inset this
-        // first sync reads can be stale. At `keyboardWillHide` the view's own
-        // `safeAreaInsets.bottom` (and sometimes the window's) has not yet settled
-        // to its keyboard-down value, and `setNeedsGeometrySync` only QUEUES a sync
-        // for the next display-link frame — if the link is momentarily stopped
-        // (a transition, a quick background/foreground) that queued sync can be
-        // missed, leaving the grid stuck at the shorter keyboard-up height until an
-        // unrelated relayout corrects it. Force a second sync after the keyboard
-        // hide layout pass settles so full height is restored deterministically.
-        // `safeAreaInsetsDidChange` already covers the inset-arrives-late case, but
-        // it does not fire when the inset value is unchanged yet the sync was
-        // dropped, so this is the belt-and-suspenders path.
-        scheduleKeyboardHideHeightResync()
-        // No explicit scrollback request here: the grid grew, so the viewport
-        // report resizes the Mac surface and the producer exports the taller
-        // viewport (which reveals more history) on its own.
+        startKeyboardHeightAnimation(to: overlap, transition: transition)
+    }
+
+    private func startKeyboardHeightAnimation(
+        to targetHeight: CGFloat,
+        transition: MobileKeyboardTransition
+    ) {
+        stopKeyboardHeightAnimation()
+        let clampedTarget = max(0, targetHeight)
+        guard transition.duration > 0, abs(clampedTarget - keyboardHeight) > 0.5 else {
+            applyKeyboardHeight(clampedTarget)
+            if clampedTarget == 0 {
+                scheduleKeyboardHideHeightResync()
+            }
+            return
+        }
+
+        keyboardHeightAnimationID &+= 1
+        let animationID = keyboardHeightAnimationID
+        keyboardHeightAnimation = TerminalKeyboardHeightAnimation(id: animationID)
+        startDisplayLink()
+        transition.animate {
+            self.applyKeyboardHeight(clampedTarget)
+            self.layoutIfNeeded()
+        } completion: { _ in
+            guard self.keyboardHeightAnimationID == animationID else { return }
+            self.finishKeyboardHeightAnimation(targetHeight: clampedTarget)
+        }
+    }
+
+    private func stopKeyboardHeightAnimation() {
+        keyboardHeightAnimationID &+= 1
+        keyboardHeightAnimation = nil
+    }
+
+    private func finishKeyboardHeightAnimation(targetHeight: CGFloat) {
+        stopKeyboardHeightAnimation()
+        applyKeyboardHeight(targetHeight)
+        if targetHeight == 0 {
+            scheduleKeyboardHideHeightResync()
+        }
+    }
+
+    private func advanceKeyboardHeightAnimation() {
+        guard keyboardHeightAnimation != nil else { return }
+        layoutRenderedTerminalForCurrentViewport()
+        layoutZoomOverlay()
+    }
+
+    private func applyKeyboardHeight(_ height: CGFloat) {
+        let clamped = max(0, height)
+        if abs(keyboardHeight - clamped) > 0.25 {
+            keyboardHeight = clamped
+            setNeedsGeometrySync()
+        }
+        layoutBottomDock()
+        layoutRenderedTerminalForCurrentViewport()
+        layoutZoomOverlay()
     }
 
     /// Force a follow-up geometry sync shortly after the keyboard-hide layout
@@ -1272,11 +1311,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the software keyboard. Drives the exact same geometry path as a real
     /// keyboard. Used only by the terminal-layout preview harness.
     public func debugSetKeyboardHeightForLayoutPreview(_ height: CGFloat) {
+        stopKeyboardHeightAnimation()
+        keyboardVisible = height > 0
+        inputProxy.setKeyboardShown(keyboardVisible)
         keyboardHeight = max(0, height)
-        inputProxy.setKeyboardShown(height > 0)
         // Mirror the live keyboard-tied visibility so the preview shows the bar
         // only when the synthetic keyboard is "up".
         updateDockedToolbarVisibility()
+        layoutRenderedTerminalForCurrentViewport()
         layoutBottomDock()
         setNeedsGeometrySync()
         setNeedsLayout()
@@ -1352,6 +1394,69 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
     }
 
+    /// The current viewport the terminal content is allowed to occupy, after
+    /// subtracting the keyboard/safe-area, composer band, and toolbar reservation.
+    /// This is main-actor transition state, so it moves every keyboard animation
+    /// frame instead of waiting for the async libghostty geometry readback.
+    private var targetTerminalViewportHeight: CGFloat {
+        TerminalLetterboxGeometry.terminalContainerSize(
+            bounds: bounds.size,
+            keyboardHeight: keyboardHeight,
+            composerBandHeight: composerBandHeight,
+            toolbarHeight: reservedToolbarHeight,
+            bottomSafeAreaInset: safeAreaInsetsBottom,
+            chromeHidden: chromeHidden
+        ).height
+    }
+
+    private var terminalViewportHeight: CGFloat {
+        guard dockedToolbarShouldBeVisible,
+              let toolbar = dockedToolbar,
+              !toolbar.isHidden
+        else {
+            return targetTerminalViewportHeight
+        }
+        let liveFrame = toolbar.layer.presentation()?.frame ?? toolbar.frame
+        guard !liveFrame.isNull, !liveFrame.isEmpty else {
+            return targetTerminalViewportHeight
+        }
+        return min(max(1, liveFrame.minY), max(1, bounds.height))
+    }
+
+    private var terminalViewportRect: CGRect {
+        CGRect(x: 0, y: 0, width: max(1, bounds.width), height: terminalViewportHeight)
+    }
+
+    /// Keep the rendered terminal's bottom edge attached to the live viewport edge.
+    /// During keyboard show the old render layer is taller than the shrinking
+    /// viewport, so this translates it upward and clips from the top. During
+    /// keyboard hide the old render layer is shorter than the expanding viewport,
+    /// so it remains bottom-pinned until the async resize result catches up.
+    private func renderRectPinnedToCurrentViewport(size: CGSize) -> CGRect {
+        let viewport = terminalViewportRect
+        return CGRect(
+            x: viewport.minX,
+            y: viewport.maxY - size.height,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    private func layoutRenderedTerminalForCurrentViewport() {
+        snapshotFallbackView.frame = terminalViewportRect
+        guard !lastRenderRect.isEmpty else { return }
+        let renderRect = renderRectPinnedToCurrentViewport(size: lastRenderRect.size)
+        guard renderRect != lastRenderRect else { return }
+        lastRenderRect = renderRect
+        syncRendererLayerFrame(scale: preferredScreenScale, renderRect: renderRect)
+        updateLetterboxBorder(
+            renderRect: renderRect,
+            isLetterboxed: renderRect.width + 0.5 < terminalViewportRect.width
+                || renderRect.height + 0.5 < terminalViewportRect.height
+        )
+        updateCursorOverlay()
+    }
+
     /// The bottom safe-area inset (home-indicator height) in this surface's bounds.
     ///
     /// The surface extends under the bottom safe area (the host applies
@@ -1381,6 +1486,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // ``bottomDockFrames()``); toggling `isHidden` also stops it intercepting taps.
         composerContainer.isHidden = !shouldShow || composerContainer.subviews.isEmpty
         reservedToolbarHeight = reserved
+        layoutRenderedTerminalForCurrentViewport()
         setNeedsGeometrySync()
         setNeedsLayout()
     }
@@ -1396,7 +1502,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func setChromeHidden(_ hidden: Bool) {
         guard chromeHidden != hidden else { return }
         chromeHidden = hidden
-        if hidden, keyboardHeight > 0 {
+        if hidden, keyboardVisible {
             // Drop the keyboard first; its hide notification re-seats the dock, then
             // the visibility update below removes the toolbar/composer. Resign
             // whichever responder actually owns the keyboard — the band can be
@@ -1441,18 +1547,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   keyboard is still up, so iOS hands the keyboard over in place. Resigning
     ///   first tore the keyboard down and the composer re-summoned it (a flicker).
     /// - Closing (`active == false`): two distinct intents share this path, told
-    ///   apart by ``keyboardHeight``:
-    ///   - Chevron-close while typing: `keyboardHeight > 0`. The user wants to keep the
+    ///   apart by ``keyboardVisible``:
+    ///   - Chevron-close while typing: `keyboardVisible == true`. The user wants to keep the
     ///     keyboard (a genuine return to the terminal). The composer's field resigns
     ///     first responder as it is torn out, with nothing to take it back, so re-take it
     ///     on the terminal input proxy in the same update — some responder is always
     ///     first responder at runloop end and the keyboard hands back in place instead of
     ///     dropping.
-    ///   - Chevron-close while the keyboard is already down: `keyboardHeight == 0` (a
+    ///   - Chevron-close while the keyboard is already down: `keyboardVisible == false` (a
     ///     legal Round 8 state — the composer survives a keyboard-down). Do NOT re-focus
     ///     the proxy; that would re-summon the keyboard the user already dismissed. The
     ///     toolbar stays visible regardless, so closing the composer just collapses its
-    ///     band. Gating the re-focus on `keyboardHeight > 0` makes both directions
+    ///     band. Gating the re-focus on `keyboardVisible` makes both directions
     ///     correct.
     ///   No sleep / `asyncAfter`: the `become` is issued synchronously here.
     public func setComposerActive(_ active: Bool) {
@@ -1468,14 +1574,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // the host mounts and measures the field.
         } else {
             // Closing: re-take first responder on the terminal input proxy ONLY when the
-            // keyboard is still up (`keyboardHeight > 0`, a chevron-close while typing) so
+            // keyboard is still up (`keyboardVisible == true`, a chevron-close while typing) so
             // the keyboard hands back in place instead of dropping. When the keyboard is
             // already down (a legal Round 8 state — the composer survived a keyboard-down)
             // re-focusing would re-summon the keyboard the user dismissed, so skip it. The
             // host animates the band height back to 0 (with the field still mounted, item
             // 3), so the band shrink reads as one motion; do NOT snap it to 0 here or that
             // pre-empts the animation.
-            if keyboardHeight > 0, window != nil, !isDismantled, !inputProxy.isFirstResponder {
+            if keyboardVisible, window != nil, !isDismantled, !inputProxy.isFirstResponder {
                 Self.activeInputSurface = self
                 inputProxy.updateAccessoryLayoutInsets()
                 inputProxy.becomeFirstResponder()
@@ -1548,7 +1654,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             chromeHidden: chromeHidden,
             composerPresented: composerActive,
             fieldFocused: composerFieldIsFirstResponder,
-            keyboardUp: keyboardHeight > 0
+            keyboardUp: keyboardVisible
         )
         let intent = dockState.intentForComposeButtonTap()
         #if DEBUG
@@ -1672,6 +1778,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         composerBandHeight = clamped
         let apply = { [weak self] in
             guard let self else { return }
+            self.layoutRenderedTerminalForCurrentViewport()
             self.layoutBottomDock()
             self.layoutIfNeeded()
         }
@@ -1692,8 +1799,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Duration (seconds) of the composer band grow/shrink reflow. Matches the system
     /// keyboard's default animation duration so a field-grow reads as one smooth
-    /// motion with the dock; the keyboard show/hide reflow uses the notification's own
-    /// curve/duration (``animateDockedToolbar(with:)``).
+    /// motion with the dock; keyboard show/hide reflow samples the notification's
+    /// own curve/duration through ``startKeyboardHeightAnimation(to:transition:)``.
     private static let composerReflowDuration: TimeInterval = 0.25
 
     /// Frames for the whole bottom dock, computed together so the composer band, the
@@ -1711,13 +1818,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///
     /// The toolbar's button row is bottom-pinned inside its container (see
     /// `TerminalInputTextView.dockedButtonRowHeight`), so the controls always hug the
-    /// band's bottom no matter how tall the container is — the round-6 fix for "toolbar
-    /// rides up off the keyboard on a letterbox/resize", kept for free because the
-    /// toolbar never leaves the surface. When there is no composer band, the toolbar's
-    /// TOP floats up to the rendered terminal's bottom (`lastRenderRect.maxY`) to
-    /// absorb the sub-cell remainder (no terminal-background gap above the bar). When
-    /// the composer band is open, the toolbar is exactly its button band and the
-    /// composer below absorbs the layout.
+    /// band's bottom. The toolbar's TOP is the live terminal viewport bottom. The
+    /// rendered layer is independently bottom-pinned to that same viewport while
+    /// async libghostty resize catches up, so the keyboard transition has one moving
+    /// bottom edge instead of a dock edge derived from stale render readback.
     ///
     /// While the HIDE button has suppressed the chrome (``chromeHidden``) the dock is
     /// off screen (both frames `.zero`); the grid reservation matches (it reserves 0),
@@ -1744,20 +1848,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // composer), and its reserved top is one button-row band above that.
         let toolbarBottom = effectiveComposerHeight > 0 ? composerTop : bottomEdge
         let toolbarReservedTop = toolbarBottom - Self.persistentToolbarHeight
-        // Toolbar top: with a composer band below, the toolbar container is exactly its
-        // button band (no slack to absorb — the composer owns the space below). Without
-        // a composer, let the top float up to the rendered terminal's bottom so the
-        // container's background fills the sub-cell remainder (libghostty floors the
-        // grid to whole cells and top-anchors the render, so `lastRenderRect.maxY` is at
-        // or above `toolbarReservedTop`). Never drop below `toolbarReservedTop` (that
-        // would re-open the gap) and never go negative.
-        let toolbarTop: CGFloat
-        if effectiveComposerHeight > 0 {
-            toolbarTop = max(0, toolbarReservedTop)
-        } else {
-            let renderBottom = lastRenderRect.isEmpty ? toolbarReservedTop : lastRenderRect.maxY
-            toolbarTop = max(0, min(renderBottom, toolbarReservedTop))
-        }
+        let toolbarTop = max(0, toolbarReservedTop)
         let toolbarFrame = CGRect(x: 0, y: toolbarTop, width: width, height: toolbarBottom - toolbarTop)
         return (composerFrame, toolbarFrame)
     }
@@ -1771,23 +1862,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         dockedToolbar?.frame = frames.toolbar
     }
 
-    /// Animate the whole bottom dock (composer band + toolbar) in lockstep with a
-    /// keyboard show/hide so it rides the keyboard edge instead of jumping. There is no
-    /// interactive (swipe-down) dismissal in this terminal, so a notification-driven
-    /// animate is sufficient and avoids the `keyboardLayoutGuide` safe-area mismatch.
-    private func animateDockedToolbar(with notification: Notification) {
-        let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-        let curveRaw = (notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int)
-            ?? Int(UIView.AnimationCurve.easeInOut.rawValue)
-        animateBottomDock(duration: duration, curveOption: UIView.AnimationOptions(rawValue: UInt(curveRaw) << 16))
-    }
-
     /// Animate the whole bottom dock (composer band + toolbar) to its current target
-    /// frames over the given duration/curve. Used by ``animateDockedToolbar(with:)``
-    /// (keyboard show/hide, with the notification's own curve) and by the HIDE/show and
-    /// composer close paths (item 3), which have no keyboard notification and so default
-    /// to the system keyboard duration + easeInOut so the motion still reads as one
-    /// smooth coordinated reflow.
+    /// frames over the given duration/curve. Used by the HIDE/show and composer close
+    /// paths (item 3), which have no keyboard notification and so default to the system
+    /// keyboard duration + easeInOut so the motion still reads as one smooth coordinated
+    /// reflow. Real keyboard changes use the per-frame keyboard height owner, so the
+    /// exact UIKit keyboard transaction drives the dock.
     private func animateBottomDock(
         duration: TimeInterval = 0.25,
         curveOption: UIView.AnimationOptions = .curveEaseInOut
@@ -2104,6 +2184,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     deinit {
+        stopKeyboardHeightAnimation()
         disposeSurface()
     }
 
@@ -2113,7 +2194,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     public override func layoutSubviews() {
         super.layoutSubviews()
-        snapshotFallbackView.frame = bounds
+        layoutRenderedTerminalForCurrentViewport()
         layoutScrollMechanicsView()
         #if DEBUG
         debugAccessibilityProxy.frame = bounds
@@ -2141,6 +2222,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// next unrelated relayout.
     public override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
+        layoutRenderedTerminalForCurrentViewport()
         layoutBottomDock()
         setNeedsGeometrySync()
     }
@@ -2359,6 +2441,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// and resume; only ``prepareForDismantle()`` marks the surface dead.
     private func prepareForReuseAfterDetach() {
         resignInput()
+        stopKeyboardHeightAnimation()
         stopDisplayLink()
         setFocus(false)
         #if DEBUG
@@ -2623,6 +2706,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 zoomSettleFrames = frames
             }
         }
+        advanceKeyboardHeightAnimation()
         // Apply geometry at most once per frame. Every trigger (resize, zoom,
         // keyboard, effective-grid pin) only marks `needsGeometrySync`, so a
         // fast pinch can no longer drive a synchronous per-event storm of
@@ -3080,13 +3164,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             width: max(1, CGFloat(result.naturalSize.pixelWidth) / scale),
             height: max(1, CGFloat(result.naturalSize.pixelHeight) / scale)
         )
-        let renderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
+        let measuredRenderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
             ?? CGRect(origin: .zero, size: naturalRenderSize)
+        let renderRect = renderRectPinnedToCurrentViewport(size: measuredRenderRect.size)
         lastRenderRect = renderRect
-        // The docked toolbar's top hugs `lastRenderRect.maxY` (see
-        // ``bottomDockFrames()``), so re-seat the whole bottom dock now that the
-        // rendered terminal bottom has moved; otherwise the bar keeps the pre-geometry
-        // position and the sub-cell gap above it reappears.
+        // Re-seat the whole bottom dock after geometry readback so any composer
+        // or safe-area changes that landed while the async resize was running are
+        // reflected with the same viewport edge used by the render layer.
         layoutBottomDock()
         MobileDebugLog.anchormux(
             "geom container=\(Int(containerW))x\(Int(containerH)) scale=\(scale) "
@@ -3094,12 +3178,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             + "natural=\(result.naturalSize.columns)x\(result.naturalSize.rows) "
             + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
             + "pinned=\(result.pinnedSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") "
-            + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))"
+            + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))@\(Int(renderRect.minY))"
         )
         syncRendererLayerFrame(scale: scale, renderRect: renderRect)
         updateLetterboxBorder(
             renderRect: renderRect,
-            isLetterboxed: renderRect.width + 0.5 < containerW || renderRect.height + 0.5 < containerH
+            isLetterboxed: renderRect.width + 0.5 < terminalViewportRect.width
+                || renderRect.height + 0.5 < terminalViewportRect.height
         )
         updateCursorOverlay()
         needsDraw = true
@@ -3599,147 +3684,5 @@ private class DisplayLinkProxy {
         target?.handleDisplayLinkFire()
     }
 }
-
-// MARK: - Arrow Nub (draggable directional pad)
-
-final class TerminalArrowNubView: UIView {
-    var onArrowKey: ((TerminalInputAccessoryAction) -> Void)?
-
-    // Locked to the size the docked bar actually pins the nub to, so the circular
-    // background (cornerRadius = nubSize/2) and the drag clamp track the real frame.
-    private let nubSize: CGFloat = TerminalInputTextView.dockedNubSize
-    private let deadZone: CGFloat = 8
-    private let repeatInterval: Duration = .milliseconds(80)
-    private let innerDot = UIView()
-    private var dragOrigin: CGPoint = .zero
-    /// Drives the immediate + interval arrow repeats off an injected `Clock`
-    /// (replacing the run-loop `Timer`); cancellation is wired to the gesture.
-    private let arrowRepeatService = TerminalArrowRepeatService()
-    /// The in-flight repeat stream consumer. Cancelled on direction change /
-    /// gesture end, which terminates the service stream's cadence.
-    private var repeatTask: Task<Void, Never>?
-    private var lastDirection: Direction?
-    private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
-
-    private enum Direction {
-        case up, down, left, right
-
-        var repeatDirection: TerminalArrowRepeatService.Direction {
-            switch self {
-            case .up:    return .upArrow
-            case .down:  return .downArrow
-            case .right: return .rightArrow
-            case .left:  return .leftArrow
-            }
-        }
-
-        var accessoryAction: TerminalInputAccessoryAction {
-            switch self {
-            case .up:    return .upArrow
-            case .down:  return .downArrow
-            case .right: return .rightArrow
-            case .left:  return .leftArrow
-            }
-        }
-    }
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = UIColor(white: 0.25, alpha: 0.85)
-        layer.cornerRadius = nubSize / 2
-
-        innerDot.backgroundColor = UIColor(white: 0.85, alpha: 1)
-        innerDot.layer.cornerRadius = 6
-        innerDot.frame = CGRect(x: 0, y: 0, width: 12, height: 12)
-        innerDot.layer.shadowColor = UIColor.white.cgColor
-        innerDot.layer.shadowOpacity = 0.3
-        innerDot.layer.shadowRadius = 3
-        innerDot.layer.shadowOffset = .zero
-        addSubview(innerDot)
-
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        addGestureRecognizer(pan)
-
-        feedbackGenerator.prepare()
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        if repeatTask == nil {
-            innerDot.center = CGPoint(x: bounds.midX, y: bounds.midY)
-        }
-    }
-
-    override var intrinsicContentSize: CGSize {
-        CGSize(width: nubSize, height: nubSize)
-    }
-
-    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        let translation = gesture.translation(in: self)
-        switch gesture.state {
-        case .began:
-            dragOrigin = innerDot.center
-            feedbackGenerator.prepare()
-        case .changed:
-            let maxOffset: CGFloat = nubSize / 2 - 8
-            let clampedX = max(-maxOffset, min(maxOffset, translation.x))
-            let clampedY = max(-maxOffset, min(maxOffset, translation.y))
-            innerDot.center = CGPoint(x: dragOrigin.x + clampedX, y: dragOrigin.y + clampedY)
-
-            let direction = directionFrom(dx: translation.x, dy: translation.y)
-            if direction != lastDirection {
-                lastDirection = direction
-                stopRepeat()
-                if let direction {
-                    startRepeat(direction)
-                }
-            }
-        case .ended, .cancelled:
-            stopRepeat()
-            lastDirection = nil
-            UIView.animate(withDuration: 0.15) {
-                self.innerDot.center = CGPoint(x: self.bounds.midX, y: self.bounds.midY)
-            }
-        default:
-            break
-        }
-    }
-
-    private func directionFrom(dx: CGFloat, dy: CGFloat) -> Direction? {
-        let dist = sqrt(dx * dx + dy * dy)
-        guard dist > deadZone else { return nil }
-        if abs(dx) > abs(dy) {
-            return dx > 0 ? .right : .left
-        } else {
-            return dy > 0 ? .down : .up
-        }
-    }
-
-    /// Consume the service's repeat stream for `direction`: it emits the first
-    /// arrow immediately and one per interval. Each emission fires haptics and
-    /// forwards the bytes on the main actor. Cancelled by ``stopRepeat()``.
-    private func startRepeat(_ direction: Direction) {
-        let stream = arrowRepeatService.repeats(
-            of: direction.repeatDirection,
-            every: repeatInterval,
-            clock: ContinuousClock()
-        )
-        repeatTask = Task { @MainActor [weak self] in
-            for await _ in stream {
-                guard let self else { return }
-                self.feedbackGenerator.impactOccurred()
-                self.onArrowKey?(direction.accessoryAction)
-            }
-        }
-    }
-
-    private func stopRepeat() {
-        repeatTask?.cancel()
-        repeatTask = nil
-    }
-}
-
 
 #endif
