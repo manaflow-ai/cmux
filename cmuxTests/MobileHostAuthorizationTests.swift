@@ -610,6 +610,28 @@ struct MobileHostAuthorizationTests {
 
         #expect(error == nil)
     }
+    @Test func testScopedAttachTicketAcceptsTerminalMouse() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "terminal-mouse",
+            method: "mobile.terminal.mouse",
+            params: [
+                "workspace_id": "workspace",
+                "surface_id": "terminal",
+                "client_id": "ios-client",
+                "col": 4,
+                "row": 8,
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error == nil)
+    }
     @Test func testTerminalScopedAttachTicketRejectsDifferentTerminalInput() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
@@ -702,6 +724,22 @@ struct MobileHostAuthorizationTests {
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error == nil && MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: MobileHostRPCRequest(id: "events", method: "mobile.events.subscribe", params: ["topics": ["terminal.render_grid"]], auth: request.auth))?.code == "forbidden")
+    }
+    @Test func testScopedAttachTicketRejectsWorkspaceGroupMutation() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "workspace-group-collapse",
+            method: "workspace.group.collapse",
+            params: ["group_id": "group-main"],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error?.code == "forbidden")
     }
     @Test func testStackUserIDAuthorizationRequiresSignedInMacUser() throws {
         #expect(throws: (any Error).self) {
