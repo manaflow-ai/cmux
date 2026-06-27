@@ -3275,10 +3275,8 @@ class TerminalController {
                     userOwned = workspace.effectiveCustomTitleSource == .user
                     if workspace.effectiveCustomTitleSource == .auto { currentAutoTitle = workspace.customTitle }
                     if let requestedPanelId {
-                        panelWritable = workspace.canAutoNamePanel(
-                            requestedPanelId: requestedPanelId,
-                            onlyIfMultiple: panelOnlyIfMultiple
-                        )
+                        panelWritable = workspace.canAutoNamePanel(requestedPanelId: requestedPanelId, onlyIfMultiple: panelOnlyIfMultiple)
+                        if panelWritable == true { currentAutoTitle = workspace.currentAutoNamingPanelTitle(requestedPanelId: requestedPanelId, onlyIfMultiple: panelOnlyIfMultiple) }
                     }
                 }
                 result["workspace_user_owned"] = v2OrNull(userOwned)

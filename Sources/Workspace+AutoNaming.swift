@@ -23,4 +23,16 @@ extension Workspace {
         }
         return panelCustomTitleSources[panelId] == .auto
     }
+
+    func currentAutoNamingPanelTitle(
+        requestedPanelId: UUID,
+        onlyIfMultiple: Bool
+    ) -> String? {
+        guard canAutoNamePanel(requestedPanelId: requestedPanelId, onlyIfMultiple: onlyIfMultiple),
+              let panelId = autoNamingResolvedPanelId(for: requestedPanelId),
+              panelCustomTitleSources[panelId] == .auto else {
+            return nil
+        }
+        return panelCustomTitles[panelId]
+    }
 }
