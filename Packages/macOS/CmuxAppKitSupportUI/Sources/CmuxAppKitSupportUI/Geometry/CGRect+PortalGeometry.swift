@@ -21,6 +21,16 @@ extension CGRect {
             abs(size.height - other.size.height) <= epsilon
     }
 
+    /// Whether `self` (a view frame) differs from `bounds` beyond `epsilon` on any
+    /// edge-aligned component. Compares `minX`/`minY`/`width`/`height` so a hosted
+    /// webview frame reset is skipped when the frame already fills its container.
+    public func differsFromBounds(_ bounds: CGRect, epsilon: CGFloat) -> Bool {
+        abs(minX - bounds.minX) > epsilon ||
+            abs(minY - bounds.minY) > epsilon ||
+            abs(width - bounds.width) > epsilon ||
+            abs(height - bounds.height) > epsilon
+    }
+
     /// Returns `self` snapped to device pixels using `view`'s backing scale
     /// factor (falling back to the main screen's, then 1.0). Non-finite rects are
     /// returned unchanged; snapped width and height are clamped to be non-negative.
