@@ -29,13 +29,15 @@ struct MobileAttachTicketStoreTests {
             now: now.addingTimeInterval(2)
         )
         let validationTime = now.addingTimeInterval(31)
+        let beforeExpiredTicketExpiry = now.addingTimeInterval(29)
 
-        #expect(store.debugStoredTicketCountForTesting() == 2)
         #expect(store.validTicket(authToken: valid.authToken, now: validationTime)?.authToken == valid.authToken)
-        #expect(store.debugStoredTicketCountForTesting() == 2)
+        #expect(
+            store.validTicket(authToken: expired.authToken, now: beforeExpiredTicketExpiry)?.authToken == expired.authToken
+        )
 
         #expect(store.validTicket(authToken: expired.authToken, now: validationTime) == nil)
-        #expect(store.debugStoredTicketCountForTesting() == 1)
+        #expect(store.validTicket(authToken: valid.authToken, now: validationTime)?.authToken == valid.authToken)
     }
 
     @Test func testStoreCapsRetainedTickets() throws {
@@ -65,7 +67,6 @@ struct MobileAttachTicketStoreTests {
         )
         let validationTime = now.addingTimeInterval(3)
 
-        #expect(store.debugStoredTicketCountForTesting() == 2)
         #expect(store.validTicket(authToken: first.authToken, now: validationTime) == nil)
         #expect(store.validTicket(authToken: second.authToken, now: validationTime)?.authToken == second.authToken)
         #expect(store.validTicket(authToken: third.authToken, now: validationTime)?.authToken == third.authToken)

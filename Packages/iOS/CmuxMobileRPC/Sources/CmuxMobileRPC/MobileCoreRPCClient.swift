@@ -105,7 +105,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 forceStackAuthFallback: false
             )
         } catch let error as MobileCoreRPCAttachTokenAuthorizationFailure {
-            guard Self.shouldRetryAttachTokenAuthorizationFailureWithStackAuth(error.underlying) else {
+            guard shouldRetryAttachTokenAuthorizationFailureWithStackAuth(error.underlying) else {
                 throw error.underlying
             }
             do {
@@ -149,7 +149,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
 
-    private static func shouldRetryAttachTokenAuthorizationFailureWithStackAuth(
+    private func shouldRetryAttachTokenAuthorizationFailureWithStackAuth(
         _ error: MobileShellConnectionError
     ) -> Bool {
         guard case let .authorizationFailed(message) = error else {

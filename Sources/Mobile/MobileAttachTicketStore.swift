@@ -143,13 +143,6 @@ final class MobileAttachTicketStore {
         recordsByAuthToken[authToken] = record
     }
 
-    func debugStoredTicketCountForTesting() -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-
-        return recordsByAuthToken.count
-    }
-
     private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
         // Preferred form: the minimal v2 pairing-code grammar — bare Tailscale
         // `host:port` routes in the URL query, nothing else. Everything the
