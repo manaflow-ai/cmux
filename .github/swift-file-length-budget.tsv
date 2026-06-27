@@ -4,7 +4,7 @@
 34711	CLI/cmux.swift
 17854	Sources/AppDelegate.swift
 16109	Sources/ContentView.swift
-13913	Sources/TerminalController.swift
+13920	Sources/TerminalController.swift
 12838	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12237	Sources/GhosttyTerminalView.swift
@@ -71,12 +71,12 @@
 1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1295	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
 1295	cmuxTests/MobileHostAuthorizationTests.swift
+1294	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1277	cmuxTests/RestorableAgentSessionIndexTests.swift
 1258	Sources/Feed/FeedCoordinator.swift
 1209	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
 1204	cmuxTests/FileExplorerStoreTests.swift
-1201	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1166	Sources/VaultAgentProcessScanner.swift
 1164	Sources/RemoteTmuxController.swift

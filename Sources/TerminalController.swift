@@ -4075,7 +4075,14 @@ class TerminalController {
                     return
                 }
                 let title = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-                tabManager.setCustomTitle(tabId: workspace.id, title: title)
+                let source: Workspace.CustomTitleSource = v2String(params, "title_source")?.lowercased() == "auto" ? .auto : .user
+                guard tabManager.setCustomTitle(tabId: workspace.id, title: title, source: source) else {
+                    result = .err(code: "title_user_owned", message: "Workspace title is user-owned", data: [
+                        "workspace_id": workspace.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id)
+                    ])
+                    return
+                }
                 finish(["title": title])
 
             case "clear_name":

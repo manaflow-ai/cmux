@@ -32,6 +32,7 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         actionKey: String?,
         title: String?,
+        titleSource: String?,
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
@@ -108,7 +109,10 @@ extension TerminalController {
                 return .invalidTitle
             }
             let trimmedTitle = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-            workspace.setPanelCustomTitle(panelId: surfaceId, title: trimmedTitle)
+            let source: Workspace.CustomTitleSource = titleSource?.lowercased() == "auto" ? .auto : .user
+            guard workspace.setPanelCustomTitle(panelId: surfaceId, title: trimmedTitle, source: source) else {
+                return .titleUserOwned
+            }
             return finish(.title(trimmedTitle))
 
         case "clear_name":

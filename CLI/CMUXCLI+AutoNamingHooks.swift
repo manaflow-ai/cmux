@@ -149,6 +149,7 @@ extension CMUXCLI {
             if let payload = try? client.sendV2(method: "workspace.action", params: [
                 "action": "rename",
                 "workspace_id": workspaceId,
+                "title_source": "auto",
                 "title": title
             ]), payload["title"] as? String == title {
                 workspaceApplied = true
@@ -164,6 +165,7 @@ extension CMUXCLI {
                 "action": "rename",
                 "workspace_id": workspaceId,
                 "surface_id": surfaceId,
+                "title_source": "auto",
                 "title": title
             ]), payload["title"] as? String == title {
                 tabApplied = true

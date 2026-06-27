@@ -448,6 +448,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
     final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private var commands: [String] = []
+        private var workspaceUserOwned = false
 
         func append(_ command: String) {
             lock.lock()
@@ -458,6 +459,19 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         func snapshot() -> [String] {
             lock.lock()
             let value = commands
+            lock.unlock()
+            return value
+        }
+
+        func setWorkspaceUserOwned(_ value: Bool) {
+            lock.lock()
+            workspaceUserOwned = value
+            lock.unlock()
+        }
+
+        func isWorkspaceUserOwned() -> Bool {
+            lock.lock()
+            let value = workspaceUserOwned
             lock.unlock()
             return value
         }
@@ -612,6 +626,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         failingMethods: Set<String> = []
     ) -> DispatchSemaphore {
         let resolvedTTYWorkspaceId = ttyWorkspaceId ?? context.workspaceId
+        context.state.setWorkspaceUserOwned(workspaceUserOwned)
         return startMockServer(
             listenerFD: context.listenerFD,
             state: context.state,
@@ -672,15 +687,17 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                 if params?["probe"] as? Bool == true {
                     return v2Response(id: id, ok: true, result: [
                         "enabled": false,
-                        "workspace_user_owned": workspaceUserOwned,
+                        "workspace_user_owned": context.state.isWorkspaceUserOwned(),
                     ])
                 }
                 return v2Response(id: id, ok: false, error: ["code": "disabled", "message": "disabled in test"])
             case "workspace.action":
                 let params = payload["params"] as? [String: Any]
+                context.state.setWorkspaceUserOwned((params?["title_source"] as? String) != "auto")
                 return v2Response(id: id, ok: true, result: [
                     "action": params?["action"] as? String ?? "",
                     "workspace_id": params?["workspace_id"] as? String ?? context.workspaceId,
+                    "title_source": params?["title_source"] as? String ?? "",
                     "title": params?["title"] as? String ?? "",
                 ])
             case "tab.action":
@@ -689,6 +706,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                     "action": params?["action"] as? String ?? "",
                     "workspace_id": params?["workspace_id"] as? String ?? context.workspaceId,
                     "surface_id": params?["surface_id"] as? String ?? context.surfaceId,
+                    "title_source": params?["title_source"] as? String ?? "",
                     "title": params?["title"] as? String ?? "",
                 ])
             default:
@@ -840,6 +858,78 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             return method == "workspace.action" || method == "tab.action"
         }.count
         #expect(repeatedRenameRequestCount == renameRequestCount)
+    }
+
+    @Test func claudeAutoNameKeepsConversationTitleRenamesAutoOwned() throws {
+        let context = try makeClaudeHookContext(name: "claude-ai-title-auto-owned")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-ai-title-auto-owned-session"
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let transcriptURL = context.root.appendingPathComponent("claude-transcript.jsonl")
+        try writeClaudeHookStore(
+            to: storeURL,
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            active: true
+        )
+
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-claude-ai-title-auto-owned",
+            ttySurfaceId: context.surfaceId
+        )
+
+        func runAutoNameHook() -> ProcessRunResult {
+            runProcess(
+                executablePath: context.cliPath,
+                arguments: ["hooks", "claude", "auto-name"],
+                environment: claudeHookEnvironment(
+                    context: context,
+                    surfaceId: context.surfaceId,
+                    ttyName: "ttys-claude-ai-title-auto-owned",
+                    storeURL: storeURL
+                ),
+                standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+                timeout: 5
+            )
+        }
+
+        try [
+            #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
+            #"{"type":"ai-title","aiTitle":"First Auto Title"}"#
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        assertSuccessfulHook(runAutoNameHook())
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+
+        try [
+            #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
+            #"{"type":"ai-title","aiTitle":"First Auto Title"}"#,
+            #"{"type":"ai-title","aiTitle":"Second Auto Title"}"#
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        assertSuccessfulHook(runAutoNameHook())
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+
+        let requests = context.state.snapshot().compactMap { jsonObject($0) }
+        let workspaceTitles = requests.compactMap { request -> String? in
+            guard request["method"] as? String == "workspace.action",
+                  let params = request["params"] as? [String: Any],
+                  params["action"] as? String == "rename",
+                  params["title_source"] as? String == "auto" else { return nil }
+            return params["title"] as? String
+        }
+        let tabTitles = requests.compactMap { request -> String? in
+            guard request["method"] as? String == "tab.action",
+                  let params = request["params"] as? [String: Any],
+                  params["action"] as? String == "rename",
+                  params["title_source"] as? String == "auto" else { return nil }
+            return params["title"] as? String
+        }
+        #expect(workspaceTitles == ["First Auto Title", "Second Auto Title"])
+        #expect(tabTitles == ["First Auto Title", "Second Auto Title"])
     }
 
     @Test func claudeAutoNameRenamesWhenSessionRecordRacesStopUpsert() throws {
@@ -1008,6 +1098,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             return params["action"] as? String == "rename"
                 && params["workspace_id"] as? String == context.workspaceId
                 && params["surface_id"] as? String == context.surfaceId
+                && params["title_source"] as? String == "auto"
                 && params["title"] as? String == "Respect Manual Workspace"
         })
 
@@ -1028,6 +1119,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                   let params = request["params"] as? [String: Any] else { return false }
             return params["action"] as? String == "rename"
                 && params["workspace_id"] as? String == context.workspaceId
+                && params["title_source"] as? String == "auto"
                 && params["title"] as? String == title
         })
         #expect(requests.contains { request in
@@ -1036,6 +1128,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             return params["action"] as? String == "rename"
                 && params["workspace_id"] as? String == context.workspaceId
                 && params["surface_id"] as? String == context.surfaceId
+                && params["title_source"] as? String == "auto"
                 && params["title"] as? String == title
         })
     }
