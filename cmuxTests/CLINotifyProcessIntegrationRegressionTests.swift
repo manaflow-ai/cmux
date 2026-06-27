@@ -3492,21 +3492,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testSSHPersistentPTYJSONReportsResolvedSessionID() throws {
         let run = try runMockedSSH(arguments: [], jsonOutput: true)
-        let payload: [String: Any]
-        do {
-            payload = try jsonPayload(from: run.stdout)
-        } catch {
-            XCTFail("Expected JSON object, got: \(run.stdout); error: \(error)")
-            return
-        }
-        guard let sessionID = payload["ssh_pty_session_id"] as? String else {
-            XCTFail("Expected ssh_pty_session_id in payload: \(payload)")
-            return
-        }
-        guard let persistentDaemonSlot = payload["persistent_daemon_slot"] as? String else {
-            XCTFail("Expected persistent_daemon_slot in payload: \(payload)")
-            return
-        }
+        let payload = (try? jsonPayload(from: run.stdout)) ?? ["_stdout": run.stdout]
+        let sessionID = payload["ssh_pty_session_id"] as? String ?? "<missing ssh_pty_session_id in \(payload)>"
+        let persistentDaemonSlot = payload["persistent_daemon_slot"] as? String ?? "<missing persistent_daemon_slot in \(payload)>"
 
         XCTAssertEqual(sessionID, "ssh-\(run.workspaceId)-\(run.surfaceId)")
         XCTAssertFalse(sessionID.contains("$"), sessionID)
@@ -3517,21 +3505,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testSSHPersistentPTYJSONResolvesSessionIDWhenWorkspaceCreateOmitsSurfaceID() throws {
         let run = try runMockedSSH(arguments: [], jsonOutput: true, omitWorkspaceCreateSurfaceID: true)
-        let payload: [String: Any]
-        do {
-            payload = try jsonPayload(from: run.stdout)
-        } catch {
-            XCTFail("Expected JSON object, got: \(run.stdout); error: \(error)")
-            return
-        }
-        guard let sessionID = payload["ssh_pty_session_id"] as? String else {
-            XCTFail("Expected ssh_pty_session_id in payload: \(payload)")
-            return
-        }
-        guard let persistentDaemonSlot = payload["persistent_daemon_slot"] as? String else {
-            XCTFail("Expected persistent_daemon_slot in payload: \(payload)")
-            return
-        }
+        let payload = (try? jsonPayload(from: run.stdout)) ?? ["_stdout": run.stdout]
+        let sessionID = payload["ssh_pty_session_id"] as? String ?? "<missing ssh_pty_session_id in \(payload)>"
+        let persistentDaemonSlot = payload["persistent_daemon_slot"] as? String ?? "<missing persistent_daemon_slot in \(payload)>"
 
         XCTAssertEqual(sessionID, "ssh-\(run.workspaceId)-\(run.surfaceId)")
         XCTAssertTrue(persistentDaemonSlot.hasPrefix("ssh-"), persistentDaemonSlot)
