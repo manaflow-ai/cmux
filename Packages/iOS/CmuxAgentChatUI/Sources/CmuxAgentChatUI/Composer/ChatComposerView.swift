@@ -368,7 +368,7 @@ public struct ChatComposerView: View {
         isDraftFocused = true
     }
 
-    private var attachButton: some View {
+    @MainActor private var attachButton: some View {
         PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
             MobileComposerIconLabel(
                 systemImage: "paperclip",
