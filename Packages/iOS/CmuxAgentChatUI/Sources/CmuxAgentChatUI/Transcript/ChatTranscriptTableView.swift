@@ -44,14 +44,20 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.allowsSelection = false
         tableView.accessibilityIdentifier = "ChatTranscriptTableView"
-        if #available(iOS 26.0, *) {
-            tableView.topEdgeEffect.style = .soft
-            tableView.bottomEdgeEffect.style = .soft
-        }
+        configureScrollEdgeEffects(tableView)
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
         context.coordinator.attach(tableView)
         return tableView
+    }
+
+    private func configureScrollEdgeEffects(_ tableView: ChatTranscriptUITableView) {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            tableView.topEdgeEffect.style = .soft
+            tableView.bottomEdgeEffect.style = .soft
+        }
+        #endif
     }
 
     func updateUIView(_ tableView: ChatTranscriptUITableView, context: Context) {
