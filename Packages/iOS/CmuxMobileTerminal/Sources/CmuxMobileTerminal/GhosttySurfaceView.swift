@@ -2060,9 +2060,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // An absolute `set_font_size:<target>` keeps libghostty in lockstep
         // with `liveFontSize`, which we keep inside [minimumSize, maximumSize].
         let action = "set_font_size:\(target)"
-        Self.outputQueue.async {
+        Self.outputQueue.async { [surfaceHandle = GhosttySurfaceHandle(surface)] in
             action.withCString { pointer in
-                _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+                _ = ghostty_surface_binding_action(surfaceHandle.pointer, pointer, UInt(action.utf8.count))
             }
         }
         // Render the new font (the grid reflows inside the current surface) but
@@ -2184,8 +2184,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     deinit {
-        stopKeyboardHeightAnimation()
-        disposeSurface()
+        MainActor.assumeIsolated { stopKeyboardHeightAnimation(); disposeSurface() }
     }
 
     public override class var layerClass: AnyClass {
@@ -2303,11 +2302,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // scene-update watchdog (0x8BADF00D) kills the app. It must run off
         // the main thread. Feed it on a serial background queue (order
         // preserved) and hop back to main only for the Swift-side UI state.
-        Self.outputQueue.async { [weak self] in
+        Self.outputQueue.async { [weak self, surfaceHandle = GhosttySurfaceHandle(surface)] in
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
-                ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+                ghostty_surface_process_output(surfaceHandle.pointer, pointer, UInt(buffer.count))
             }
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
@@ -2375,9 +2374,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // `process_output` also preserves ordering. The return was already
         // discarded.
         let action = "scroll_to_bottom"
-        Self.outputQueue.async {
+        Self.outputQueue.async { [surfaceHandle = GhosttySurfaceHandle(surface)] in
             action.withCString { pointer in
-                _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+                _ = ghostty_surface_binding_action(surfaceHandle.pointer, pointer, UInt(action.utf8.count))
             }
         }
     }
@@ -2585,8 +2584,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // backlog drains before the free. (Retain the bridge across the hop; it
         // owns the userdata libghostty still references until the free.)
         let retainedBridge = Unmanaged.passRetained(bridge)
-        Self.outputQueue.async {
-            ghostty_surface_free(surface)
+        Self.outputQueue.async { [surfaceHandle = GhosttySurfaceHandle(surface)] in
+            ghostty_surface_free(surfaceHandle.pointer)
             retainedBridge.release()
         }
     }
@@ -2806,12 +2805,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         renderInFlight = true
         let enqueuedAt = CACurrentMediaTime()
-        Self.outputQueue.async { [weak self] in
+        Self.outputQueue.async { [weak self, surfaceHandle = GhosttySurfaceHandle(surface)] in
             // Queue LAG = how long this render waited behind other ops. If this
             // climbs into hundreds of ms the queue is backlogged (the freeze).
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
             if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
-            ghostty_surface_render_now(surface)
+            ghostty_surface_render_now(surfaceHandle.pointer)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.renderInFlight = false
@@ -3087,12 +3086,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
         if pushContentScale { lastAppliedContentScale = scale }
 
-        Self.outputQueue.async { [weak self] in
+        Self.outputQueue.async { [weak self, surfaceHandle = GhosttySurfaceHandle(surface)] in
             if pushContentScale {
-                ghostty_surface_set_content_scale(surface, scale, scale)
+                ghostty_surface_set_content_scale(surfaceHandle.pointer, scale, scale)
             }
-            ghostty_surface_set_size(surface, containerPxW, containerPxH)
-            let measured = ghostty_surface_size(surface)
+            ghostty_surface_set_size(surfaceHandle.pointer, containerPxW, containerPxH)
+            let measured = ghostty_surface_size(surfaceHandle.pointer)
 
             var cell = CGSize.zero
             if measured.columns > 0, measured.rows > 0, measured.width_px > 0, measured.height_px > 0 {
@@ -3680,7 +3679,7 @@ private class DisplayLinkProxy {
         self.target = target
     }
 
-    @objc func handleDisplayLink() {
+    @MainActor @objc func handleDisplayLink() {
         target?.handleDisplayLinkFire()
     }
 }
