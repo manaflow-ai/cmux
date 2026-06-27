@@ -1,6 +1,9 @@
 import CMUXMobileCore
 import Foundation
 import SQLite3
+import os
+
+nonisolated private let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedMacStore")
 
 extension MobilePairedMacStore {
     func fetchMacRow(macDeviceID: String, ownerKey: String) throws -> MobilePairedMacStoreMacRow? {

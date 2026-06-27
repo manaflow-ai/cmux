@@ -1,4 +1,7 @@
 import SQLite3
+import os
+
+nonisolated private let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedMacStore")
 
 extension MobilePairedMacStore {
     /// Run schema migrations exactly once, on first store access (actor-isolated).

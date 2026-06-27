@@ -1,7 +1,10 @@
 import Foundation
+import os
 #if canImport(Security)
 import Security
 #endif
+
+nonisolated private let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedMacStore")
 
 struct MobilePairedMacKeychainAttachTokenSecretStore: MobileAttachTokenSecretStoring {
     private let service: String
