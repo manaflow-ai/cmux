@@ -6836,6 +6836,11 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         )
     }
 
+    /// Thin forwarder to ``SurfaceCreationCoordinator/newFilePreviewSurface(inPane:filePath:focus:targetIndex:host:)``.
+    /// The coordinator owns the create-tab orchestration and drives every live read
+    /// and registry/bonsplit mutation back through this `Workspace`'s
+    /// ``SurfaceCreationHosting`` conformance; it returns the new panel's `id`,
+    /// which this maps back to the typed `FilePreviewPanel`.
     @discardableResult
     func newFilePreviewSurface(
         inPane paneId: PaneID,
@@ -6843,48 +6848,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> FilePreviewPanel? {
-        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
-        let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
-
-        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
-        panels[filePreviewPanel.id] = filePreviewPanel
-        panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
-
-        guard let newTabId = bonsplitController.createTab(
-            title: filePreviewPanel.displayTitle,
-            icon: RenderableSystemSymbol.resolvedSurfaceTabIcon(filePreviewPanel.displayIcon),
-            kind: SurfaceKind.filePreview.rawValue,
-            isDirty: filePreviewPanel.isDirty,
-            isLoading: false,
-            isPinned: false,
-            inPane: paneId
-        ) else {
-            panels.removeValue(forKey: filePreviewPanel.id)
-            panelTitles.removeValue(forKey: filePreviewPanel.id)
-            return nil
-        }
-
-        surfaceIdToPanelId[newTabId] = filePreviewPanel.id
-        if let targetIndex {
-            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
-        }
-        publishCmuxSurfaceCreated(filePreviewPanel.id, paneId: paneId, kind: "file_preview", origin: "file_preview_tab", focused: shouldFocusNewTab)
-        if shouldFocusNewTab {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(newTabId)
-            filePreviewPanel.focus()
-            applyTabSelection(tabId: newTabId, inPane: paneId)
-        } else {
-            preserveFocusAfterNonFocusSplit(
-                preferredPanelId: previousFocusedPanelId,
-                splitPanelId: filePreviewPanel.id,
-                previousHostedView: previousHostedView
-            )
-        }
-
-        installFilePreviewPanelSubscription(filePreviewPanel)
-        return filePreviewPanel
+        surfaceCreation.newFilePreviewSurface(
+            inPane: paneId,
+            filePath: filePath,
+            focus: focus,
+            targetIndex: targetIndex,
+            host: self
+        ).flatMap { panels[$0] as? FilePreviewPanel }
     }
 
     @discardableResult
@@ -7042,6 +7012,11 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         return agentPanel
     }
 
+    /// Thin forwarder to ``SurfaceCreationCoordinator/splitPaneWithFilePreview(targetPane:orientation:insertFirst:filePath:host:)``.
+    /// The coordinator owns the split orchestration and drives every live read and
+    /// registry/bonsplit mutation back through this `Workspace`'s
+    /// ``SurfaceCreationHosting`` conformance; it returns the new panel's `id`,
+    /// which this maps back to the typed `FilePreviewPanel`.
     @discardableResult
     func splitPaneWithFilePreview(
         targetPane paneId: PaneID,
@@ -7049,34 +7024,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         insertFirst: Bool,
         filePath: String
     ) -> FilePreviewPanel? {
-        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
-        panels[filePreviewPanel.id] = filePreviewPanel
-        panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
-
-        let newTab = Bonsplit.Tab(
-            title: filePreviewPanel.displayTitle,
-            icon: RenderableSystemSymbol.resolvedSurfaceTabIcon(filePreviewPanel.displayIcon),
-            kind: SurfaceKind.filePreview.rawValue,
-            isDirty: filePreviewPanel.isDirty,
-            isLoading: false,
-            isPinned: false
-        )
-        surfaceIdToPanelId[newTab.id] = filePreviewPanel.id
-
-        isProgrammaticSplit = true
-        defer { isProgrammaticSplit = false }
-        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
-            panels.removeValue(forKey: filePreviewPanel.id)
-            panelTitles.removeValue(forKey: filePreviewPanel.id)
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
-            return nil
-        }
-        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: filePreviewPanel.id, kind: "file_preview", origin: "file_preview_split", focused: true)
-
-        bonsplitController.selectTab(newTab.id)
-        filePreviewPanel.focus()
-        installFilePreviewPanelSubscription(filePreviewPanel)
-        return filePreviewPanel
+        surfaceCreation.splitPaneWithFilePreview(
+            targetPane: paneId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            filePath: filePath,
+            host: self
+        ).flatMap { panels[$0] as? FilePreviewPanel }
     }
 
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
@@ -8882,6 +8836,40 @@ extension Workspace: SurfaceCreationHosting {
     func installMarkdownPanelSubscription(id: UUID) {
         guard let markdownPanel = panels[id] as? MarkdownPanel else { return }
         installMarkdownPanelSubscription(markdownPanel)
+    }
+
+    // MARK: FilePreview create + split live state
+    //
+    // `focusedBonsplitPaneId`, `focusedPanelId`, `focusedTerminalHostedView`,
+    // `createSurfaceTab`, `reorderTab`, `publishCmuxSurfaceCreated`,
+    // `publishCmuxSplitCreated`, `splitSurface`, `selectSurfaceTab`, `focusPane`,
+    // `selectTab`, `applyTabSelection`, `preserveSurfaceFocusAfterNonFocusSplit`,
+    // and `discardPanelRegistration` are shared witnesses already implemented
+    // above or for sibling conformances. The members below are the file-preview
+    // create/split-specific witnesses. `registerFilePreviewPanel` resolves the
+    // tab icon app-side (the legacy file-preview bodies passed
+    // `RenderableSystemSymbol.resolvedSurfaceTabIcon(displayIcon)` to bonsplit,
+    // unlike the project/markdown registrations which pass the raw `displayIcon`).
+
+    func registerFilePreviewPanel(filePath: String) -> SurfaceTabDescriptor {
+        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
+        panels[filePreviewPanel.id] = filePreviewPanel
+        panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
+        return SurfaceTabDescriptor(
+            id: filePreviewPanel.id,
+            displayTitle: filePreviewPanel.displayTitle,
+            displayIcon: RenderableSystemSymbol.resolvedSurfaceTabIcon(filePreviewPanel.displayIcon),
+            isDirty: filePreviewPanel.isDirty
+        )
+    }
+
+    func focusFilePreviewPanel(id: UUID) {
+        (panels[id] as? FilePreviewPanel)?.focus()
+    }
+
+    func installFilePreviewPanelSubscription(id: UUID) {
+        guard let filePreviewPanel = panels[id] as? FilePreviewPanel else { return }
+        installFilePreviewPanelSubscription(filePreviewPanel)
     }
 }
 

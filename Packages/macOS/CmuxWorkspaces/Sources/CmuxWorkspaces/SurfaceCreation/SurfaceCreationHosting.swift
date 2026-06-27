@@ -238,4 +238,37 @@ public protocol SurfaceCreationHosting: AnyObject {
     /// call. The host resolves the typed `MarkdownPanel` by `id`; a no-op if the id
     /// no longer maps to a markdown panel.
     func installMarkdownPanelSubscription(id: UUID)
+
+    // MARK: FilePreview create + split live state
+
+    /// Constructs the app's `FilePreviewPanel` for `filePath`, registers it in the
+    /// workspace panel and panel-title registries, and returns its Sendable
+    /// descriptor. Mirrors the legacy `let filePreviewPanel =
+    /// FilePreviewPanel(workspaceId: id, filePath: filePath); panels[…] = …;
+    /// panelTitles[…] = filePreviewPanel.displayTitle` prelude shared by
+    /// `newFilePreviewSurface` and `splitPaneWithFilePreview`. Unlike the project
+    /// and markdown registrations, the descriptor's `displayIcon` carries the
+    /// already-resolved tab icon (`RenderableSystemSymbol.resolvedSurfaceTabIcon(
+    /// filePreviewPanel.displayIcon)`), because the legacy file-preview bodies
+    /// resolved the icon before handing it to bonsplit; the app type
+    /// `RenderableSystemSymbol` stays app-side in this witness. The descriptor's
+    /// `isDirty` carries `filePreviewPanel.isDirty`. The registries stay app-side
+    /// behind this witness.
+    func registerFilePreviewPanel(filePath: String) -> SurfaceTabDescriptor
+
+    /// Focuses the file-preview panel `id` by calling the panel's own
+    /// `FilePreviewPanel.focus()`, mirroring the legacy `filePreviewPanel.focus()`
+    /// call in the focused branch of `newFilePreviewSurface` and in
+    /// `splitPaneWithFilePreview`. This is the panel's intrinsic focus (restore the
+    /// preferred focus intent), distinct from the workspace's `focusPanel(_:)`
+    /// (``focusSurfacePanel(_:)``). The host resolves the typed `FilePreviewPanel`
+    /// by `id`; a no-op if the id no longer maps to a file-preview panel.
+    func focusFilePreviewPanel(id: UUID)
+
+    /// Installs the file-preview panel's title/dirty/icon Combine subscription
+    /// after the tab is wired up, mirroring the legacy
+    /// `installFilePreviewPanelSubscription(_:)` call. The host resolves the typed
+    /// `FilePreviewPanel` by `id`; a no-op if the id no longer maps to a
+    /// file-preview panel.
+    func installFilePreviewPanelSubscription(id: UUID)
 }

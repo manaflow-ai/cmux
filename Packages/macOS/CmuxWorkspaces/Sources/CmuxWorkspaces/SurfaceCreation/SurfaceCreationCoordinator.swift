@@ -642,6 +642,141 @@ public final class SurfaceCreationCoordinator {
         return descriptor.id
     }
 
+    /// Creates a file-preview surface tab in `paneId`, mirroring the legacy
+    /// `Workspace.newFilePreviewSurface(inPane:filePath:focus:targetIndex:)` body
+    /// step for step. The coordinator owns the create-tab orchestration; every live
+    /// read and registry/bonsplit mutation is driven through
+    /// ``SurfaceCreationHosting``. The package cannot name the app's
+    /// `FilePreviewPanel`, so this returns the new panel's `id` (`nil` on a failed
+    /// tab insert) and the workspace maps it back to the typed panel via
+    /// `panels[id] as? FilePreviewPanel`.
+    ///
+    /// Identical shape to ``newMarkdownSurface(inPane:filePath:focus:targetIndex:host:)``
+    /// except the panel is a file-preview panel (registered via
+    /// ``SurfaceCreationHosting/registerFilePreviewPanel(filePath:)``, whose
+    /// descriptor already carries the resolved tab icon), the published kind/origin
+    /// are `"file_preview"`/`"file_preview_tab"`, the focused branch additionally
+    /// calls the panel's own focus
+    /// (``SurfaceCreationHosting/focusFilePreviewPanel(id:)``) between selecting the
+    /// tab and applying the tab-selection side effects, and the tail installs the
+    /// file-preview title/dirty/icon subscription.
+    ///
+    /// - Parameters:
+    ///   - paneId: the pane that receives the new file-preview surface.
+    ///   - filePath: the file to preview.
+    ///   - focus: explicit focus intent, or `nil` to auto-focus only when `paneId`
+    ///     is already the focused pane.
+    ///   - targetIndex: an optional tab index to reorder the new tab to.
+    ///   - host: the workspace live-state seam.
+    /// - Returns: the new file-preview panel's id, or `nil` when the bonsplit tab
+    ///   could not be created.
+    @discardableResult
+    public func newFilePreviewSurface(
+        inPane paneId: PaneID,
+        filePath: String,
+        focus: Bool?,
+        targetIndex: Int?,
+        host: any SurfaceCreationHosting
+    ) -> UUID? {
+        let shouldFocusNewTab = focus ?? (host.focusedBonsplitPaneId == paneId)
+        let previousFocusedPanelId = host.focusedPanelId
+        let previousHostedView = host.focusedTerminalHostedView
+
+        let descriptor = host.registerFilePreviewPanel(filePath: filePath)
+
+        guard let newTabId = host.createSurfaceTab(
+            descriptor: descriptor,
+            kind: SurfaceKind.filePreview.rawValue,
+            inPane: paneId
+        ) else {
+            host.discardPanelRegistration(id: descriptor.id)
+            return nil
+        }
+
+        if let targetIndex {
+            _ = host.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        host.publishCmuxSurfaceCreated(
+            descriptor.id,
+            paneId: paneId,
+            kind: "file_preview",
+            origin: "file_preview_tab",
+            focused: shouldFocusNewTab
+        )
+        if shouldFocusNewTab {
+            host.focusPane(paneId)
+            host.selectTab(newTabId)
+            host.focusFilePreviewPanel(id: descriptor.id)
+            host.applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            host.preserveSurfaceFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: descriptor.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        host.installFilePreviewPanelSubscription(id: descriptor.id)
+        return descriptor.id
+    }
+
+    /// Splits `paneId` with a new file-preview surface, mirroring the legacy
+    /// `Workspace.splitPaneWithFilePreview(targetPane:orientation:insertFirst:filePath:)`
+    /// body step for step. Like ``splitPaneWithMarkdown(targetPane:orientation:insertFirst:filePath:host:)``
+    /// this targets a pane directly (no `paneId(forPanelId:)` lookup) and always
+    /// focuses the new surface; unlike it, the file-preview split publishes the
+    /// `cmux.split.created` event (with the new surface id) and focuses via the
+    /// panel's own ``SurfaceCreationHosting/focusFilePreviewPanel(id:)``. Returns
+    /// the new panel's `id`, or `nil` when the split fails.
+    ///
+    /// The order is exact: register the panel, split (rolling the registration back
+    /// on failure), publish the split-created event for the new pane, select the
+    /// new tab, focus the file-preview panel, then install the file-preview
+    /// subscription.
+    ///
+    /// - Parameters:
+    ///   - paneId: the pane to split.
+    ///   - orientation: the split orientation.
+    ///   - insertFirst: whether the new pane is inserted before the source pane.
+    ///   - filePath: the file to preview.
+    ///   - host: the workspace live-state seam.
+    /// - Returns: the new file-preview panel's id, or `nil` on split failure.
+    @discardableResult
+    public func splitPaneWithFilePreview(
+        targetPane paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        filePath: String,
+        host: any SurfaceCreationHosting
+    ) -> UUID? {
+        let descriptor = host.registerFilePreviewPanel(filePath: filePath)
+
+        guard let newPaneId = host.splitSurface(
+            paneId,
+            orientation: orientation,
+            withTab: descriptor,
+            kind: SurfaceKind.filePreview.rawValue,
+            insertFirst: insertFirst
+        ) else {
+            host.discardPanelRegistration(id: descriptor.id)
+            return nil
+        }
+        host.publishCmuxSplitCreated(
+            newPaneId,
+            sourcePaneId: paneId,
+            orientation: orientation,
+            surfaceId: descriptor.id,
+            kind: "file_preview",
+            origin: "file_preview_split",
+            focused: true
+        )
+
+        host.selectSurfaceTab(panelId: descriptor.id)
+        host.focusFilePreviewPanel(id: descriptor.id)
+        host.installFilePreviewPanelSubscription(id: descriptor.id)
+        return descriptor.id
+    }
+
     /// Promotes the inherited surface config so the pane is held open after a
     /// startup command exits, mirroring the legacy inline block in
     /// `Workspace.newTerminalSplitLocal`/`newTerminalSurfaceLocal`:
