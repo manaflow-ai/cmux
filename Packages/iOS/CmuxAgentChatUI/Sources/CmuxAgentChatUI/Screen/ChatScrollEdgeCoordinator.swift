@@ -82,7 +82,9 @@ final class ChatScrollEdgeCoordinator {
     }
 
     private func clearTopContentScrollViewController() {
-        topContentScrollViewController?.setContentScrollView(nil, for: .top)
+        if #available(iOS 26.0, *) {
+            topContentScrollViewController?.setContentScrollView(nil, for: .top)
+        }
         topContentScrollViewController = nil
     }
 

@@ -319,7 +319,10 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         updateConstraint(transcriptClipTopConstraint, to: 0)
         updateConstraint(transcriptClipBottomConstraint, to: bottomSafeAreaUnderlap)
         updateConstraint(transcriptHeightConstraint, to: fullTranscriptHeight)
-        transcriptOverlayGeometry?.composerBottomInset = bottomInset
+        if let transcriptOverlayGeometry,
+           abs(transcriptOverlayGeometry.composerBottomInset - bottomInset) > 0.5 {
+            transcriptOverlayGeometry.composerBottomInset = bottomInset
+        }
         updateTranscriptViewportInsets(composerBottomInset: bottomInset)
     }
 
