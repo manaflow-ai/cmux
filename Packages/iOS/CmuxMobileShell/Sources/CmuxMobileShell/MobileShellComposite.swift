@@ -1569,7 +1569,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func durableAttachTicket(for mac: MobilePairedMac) -> CmxAttachTicket? {
+    func durableAttachTicket(for mac: MobilePairedMac) -> CmxAttachTicket? {
         guard let attachToken = mac.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !attachToken.isEmpty,
               let expiresAt = mac.attachTokenExpiresAt,
@@ -3091,115 +3091,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Build a persistent read-only client to one OTHER Mac (route + manual
-    /// ticket), or nil if it has no reachable route / the ticket fails. The caller
-    /// owns disconnecting it. Routes are loopback-deprioritized on device. Never
-    /// touches the foreground connection.
-    private func makeSecondaryClient(for mac: MobilePairedMac) async -> SecondaryClientHandle? {
-        guard let runtime else { return nil }
-        let supportedKinds = runtime.supportedRouteKinds
-        guard let (host, port) = Self.firstReconnectHostPortRoute(
-            mac.routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
-        ) else {
-            return nil
-        }
-        let ticket: CmxAttachTicket
-        if let durableTicket = durableAttachTicket(for: mac) {
-            ticket = durableTicket
-        } else {
-            do {
-                ticket = try await manualHostTicket(
-                    name: mac.displayName ?? host,
-                    host: host,
-                    port: port,
-                    attemptStartedAt: nil
-                )
-            } catch {
-                mobileShellLog.warning(
-                    "secondary client: ticket failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
-                )
-                return nil
-            }
-        }
-        let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
-        // Dial the route we PROVED reachable above (the non-loopback host/port the
-        // ticket was built from), NOT `supportedRoutes.first`: on a physical phone a
-        // Mac ticket can advertise a higher-priority `debugLoopback` (127.0.0.1)
-        // route, and dialing that makes every secondary subscription connect to the
-        // phone itself — so the Mac is unreachable and silently drops out of the
-        // aggregate. Prefer the exact matching route, then any non-loopback, then any.
-        let route = supportedRoutes.first(where: { route in
-            if case let .hostPort(routeHost, routePort) = route.endpoint {
-                return routeHost == host && routePort == port
-            }
-            return false
-        }) ?? supportedRoutes.first(where: { $0.kind != .debugLoopback })
-            ?? supportedRoutes.first
-        guard let route else { return nil }
-        let client = MobileCoreRPCClient(
-            runtime: runtime,
-            route: route,
-            ticket: ticket,
-            allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
-            connectAttemptRegistry: connectAttemptRegistry,
-            stackTokenGate: stackTokenGate,
-            stackTokenForceRefreshGate: stackTokenForceRefreshGate
-        )
-        let capabilities = await fetchSecondaryHostCapabilities(on: client)
-        return SecondaryClientHandle(
-            client: client,
-            route: route,
-            ticket: ticket,
-            supportedHostCapabilities: capabilities,
-            actionCapabilities: Self.workspaceActionCapabilities(from: capabilities)
-        )
-    }
-
-    private func fetchSecondaryHostCapabilities(on client: MobileCoreRPCClient) async -> Set<String> {
-        guard let runtime else { return [] }
-        do {
-            let data = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:]),
-                timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
-            )
-            guard let payload = try? MobileHostStatusResponse.decode(data) else { return [] }
-            return Set(payload.capabilities)
-        } catch {
-            mobileShellLog.warning("secondary host status failed: \(String(describing: error), privacy: .private)")
-            return []
-        }
-    }
-
-    /// Fetch one Mac's workspace list over an EXISTING client, tagged with its
-    /// `macDeviceID`. Nil on any failure (best-effort; an unreachable Mac just
-    /// contributes nothing).
-    private func fetchSecondaryWorkspaces(
-        on client: MobileCoreRPCClient,
-        macDeviceID: String
-    ) async -> [MobileWorkspacePreview]? {
-        guard let runtime else { return nil }
-        do {
-            let requestData = try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:])
-            let resultData = try await client.sendRequest(
-                requestData,
-                timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
-            )
-            let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-            return response.workspaces.map { remote in
-                var workspace = MobileWorkspacePreview(remote: remote)
-                workspace.macDeviceID = macDeviceID
-                return workspace
-            }
-        } catch {
-            mobileShellLog.warning(
-                "secondary workspace fetch failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
-            )
-            return nil
-        }
-    }
-
     /// Ensure a live read-only subscription exists for every signed-in paired Mac
     /// that is NOT the foreground connection, and drop subscriptions for Macs that
     /// disappeared or became the foreground. Each subscription keeps its
@@ -3348,12 +3239,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async {
         let macID = mac.macDeviceID
         guard secondaryMacSubscriptions[macID] == nil else { return }
-        guard let handle = await makeSecondaryClient(for: mac) else {
+        guard var handle = await makeSecondaryClient(for: mac) else {
             guard await isSecondaryMacStillVisible(macID, scope: scope) else { return }
             markSecondaryMacUnavailable(macID)
             return
         }
-        let client = handle.client
+        var client = handle.client
         // Re-check after the async client build so a concurrent refresh cannot
         // open a duplicate connection, AND so a sign-out / account/team switch
         // during the connect does not leave an old-scope connection live or write
@@ -3363,7 +3254,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await client.disconnect()
             return
         }
-        let subscription = SecondaryMacSubscription(
+        var subscription = SecondaryMacSubscription(
             macDeviceID: macID,
             client: client,
             route: handle.route,
@@ -3373,7 +3264,48 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         secondaryMacSubscriptions[macID] = subscription
         let displayName = mac.displayName
-        let previews = await fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
+        let previews: [MobileWorkspacePreview]?
+        do {
+            previews = try await fetchSecondaryWorkspacesThrowing(on: client, macDeviceID: macID)
+        } catch {
+            if handle.usedDurableTicket,
+               Self.shouldRetryDurableAttachTicket(after: error),
+               let fallbackHandle = await makeSecondaryClient(for: mac, allowDurableTicket: false) {
+                subscription.cancel()
+                if secondaryMacSubscriptions[macID] === subscription {
+                    secondaryMacSubscriptions[macID] = nil
+                }
+                handle = fallbackHandle
+                client = fallbackHandle.client
+                guard secondaryMacSubscriptions[macID] == nil,
+                      await isSecondaryMacStillVisible(macID, scope: scope) else {
+                    await client.disconnect()
+                    return
+                }
+                subscription = SecondaryMacSubscription(
+                    macDeviceID: macID,
+                    client: client,
+                    route: handle.route,
+                    ticket: handle.ticket,
+                    supportedHostCapabilities: handle.supportedHostCapabilities,
+                    actionCapabilities: handle.actionCapabilities
+                )
+                secondaryMacSubscriptions[macID] = subscription
+                do {
+                    previews = try await fetchSecondaryWorkspacesThrowing(on: client, macDeviceID: macID)
+                } catch {
+                    mobileShellLog.warning(
+                        "secondary workspace fetch failed mac=\(macID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                    )
+                    previews = nil
+                }
+            } else {
+                mobileShellLog.warning(
+                    "secondary workspace fetch failed mac=\(macID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
+                previews = nil
+            }
+        }
         // The fetch await is another sign-out window: drop the just-opened
         // connection and entry rather than seed another account's workspaces.
         guard await isAggregationScopeValid(scope),
@@ -4788,7 +4720,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var preferActiveTicketTarget: Bool
     }
 
-    private static func supportedRoutes(
+    static func supportedRoutes(
         for ticket: CmxAttachTicket,
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
