@@ -145,6 +145,7 @@ extension CMUXCLI {
 
         var workspaceApplied = false
         var tabApplied = false
+        var tabSkippedUserOwned = false
         if decision.shouldRenameWorkspace {
             if let payload = try? client.sendV2(method: "workspace.action", params: [
                 "action": "rename",
@@ -161,28 +162,41 @@ extension CMUXCLI {
         }
 
         if decision.shouldRenameTab {
-            if let payload = try? client.sendV2(method: "tab.action", params: [
-                "action": "rename",
-                "workspace_id": workspaceId,
-                "surface_id": surfaceId,
-                "title_source": "auto",
-                "title": title
-            ]), payload["title"] as? String == title {
-                tabApplied = true
-            } else {
-                telemetry.breadcrumb("claude-hook.conversation-title.tab-failed")
+            do {
+                let payload = try client.sendV2(method: "tab.action", params: [
+                    "action": "rename",
+                    "workspace_id": workspaceId,
+                    "surface_id": surfaceId,
+                    "title_source": "auto",
+                    "title": title
+                ])
+                if payload["title"] as? String == title {
+                    tabApplied = true
+                } else {
+                    telemetry.breadcrumb("claude-hook.conversation-title.tab-failed")
+                }
+            } catch {
+                if (error as? CLIError)?.v2Code == "title_user_owned" {
+                    tabSkippedUserOwned = true
+                    telemetry.breadcrumb("claude-hook.conversation-title.tab-user-owned")
+                } else {
+                    telemetry.breadcrumb("claude-hook.conversation-title.tab-failed")
+                }
             }
         }
 
-        guard workspaceApplied || tabApplied else { return }
+        guard workspaceApplied || tabApplied || tabSkippedUserOwned else { return }
         try? sessionStore.recordClaudeConversationTitleApplied(
             sessionId: sessionId,
             title: title,
             workspaceApplied: workspaceApplied,
             tabApplied: tabApplied,
+            tabSkippedUserOwned: tabSkippedUserOwned,
             now: Date()
         )
-        telemetry.breadcrumb("claude-hook.conversation-title.applied")
+        if workspaceApplied || tabApplied {
+            telemetry.breadcrumb("claude-hook.conversation-title.applied")
+        }
     }
 
     /// Spawns a detached generic-agent auto-name pass via a bounded shell wrapper.

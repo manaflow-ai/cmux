@@ -15,10 +15,12 @@ import Security
 struct CLIError: Error, CustomStringConvertible {
     let message: String
     let exitCode: Int32
+    let v2Code: String?
 
-    init(message: String, exitCode: Int32 = 1) {
+    init(message: String, exitCode: Int32 = 1, v2Code: String? = nil) {
         self.message = message
         self.exitCode = exitCode
+        self.v2Code = v2Code
     }
 
     var description: String { message }
@@ -182,6 +184,10 @@ struct ClaudeHookSessionRecord: Codable {
     /// rename. Tracked separately from workspace application so partial socket
     /// failures retry only the missing half.
     var claudeConversationLastAppliedTabTitle: String?
+    /// Last Claude transcript `ai-title` cmux skipped for the tab because the
+    /// target tab was user-owned. This suppresses permanent rejection loops
+    /// without masking transient socket failures.
+    var claudeConversationLastSkippedUserOwnedTabTitle: String?
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -426,7 +432,9 @@ final class ClaudeHookSessionStore {
             )
             let legacyTitle = record.claudeConversationLastAppliedTitle
             let workspaceTitle = record.claudeConversationLastAppliedWorkspaceTitle ?? legacyTitle
-            let tabTitle = record.claudeConversationLastAppliedTabTitle ?? legacyTitle
+            let tabTitle = record.claudeConversationLastSkippedUserOwnedTabTitle
+                ?? record.claudeConversationLastAppliedTabTitle
+                ?? legacyTitle
             let decision = ClaudeConversationTitleApplyDecision(
                 shouldRenameWorkspace: allowWorkspaceRename && workspaceTitle != trimmed,
                 shouldRenameTab: tabTitle != trimmed
@@ -444,11 +452,12 @@ final class ClaudeHookSessionStore {
         title: String,
         workspaceApplied: Bool,
         tabApplied: Bool,
+        tabSkippedUserOwned: Bool,
         now: Date
     ) throws {
         let normalized = normalizeSessionId(sessionId)
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty, !trimmed.isEmpty, workspaceApplied || tabApplied else { return }
+        guard !normalized.isEmpty, !trimmed.isEmpty, workspaceApplied || tabApplied || tabSkippedUserOwned else { return }
         try withLockedState { state in
             guard var record = state.sessions[normalized] else { return }
             if workspaceApplied {
@@ -456,6 +465,9 @@ final class ClaudeHookSessionStore {
             }
             if tabApplied {
                 record.claudeConversationLastAppliedTabTitle = trimmed
+                record.claudeConversationLastSkippedUserOwnedTabTitle = nil
+            } else if tabSkippedUserOwned {
+                record.claudeConversationLastSkippedUserOwnedTabTitle = trimmed
             }
             if workspaceApplied && tabApplied {
                 record.claudeConversationLastAppliedTitle = trimmed
@@ -2677,7 +2689,8 @@ final class SocketClient {
                     action: action,
                     reason: reason,
                     details: safeV2Details(error["details"])
-                )
+                ),
+                v2Code: code
             )
         }
 

@@ -623,6 +623,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         agentPIDSurfaceId: String? = nil,
         requiredSocketPassword: String? = nil,
         workspaceUserOwned: Bool = false,
+        tabTitleUserOwned: Bool = false,
         failingMethods: Set<String> = []
     ) -> DispatchSemaphore {
         let resolvedTTYWorkspaceId = ttyWorkspaceId ?? context.workspaceId
@@ -702,6 +703,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                 ])
             case "tab.action":
                 let params = payload["params"] as? [String: Any]
+                if tabTitleUserOwned {
+                    return v2Response(id: id, ok: false, error: [
+                        "code": "title_user_owned",
+                        "message": "Tab title is user-owned",
+                    ])
+                }
                 return v2Response(id: id, ok: true, result: [
                     "action": params?["action"] as? String ?? "",
                     "workspace_id": params?["workspace_id"] as? String ?? context.workspaceId,
@@ -735,29 +742,34 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         workspaceId: String,
         surfaceId: String,
         cwd: String,
-        active: Bool = false
+        active: Bool = false,
+        claudeConversationLastAppliedTabTitle: String? = nil
     ) throws {
         let now = Date().timeIntervalSince1970
+        var sessionRecord: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": workspaceId,
+            "surfaceId": surfaceId,
+            "cwd": cwd,
+            "isRestorable": true,
+            "launchCommand": [
+                "launcher": "claude",
+                "executablePath": "/usr/local/bin/claude",
+                "arguments": ["/usr/local/bin/claude"],
+                "workingDirectory": cwd,
+                "capturedAt": now,
+                "source": "test",
+            ],
+            "startedAt": now,
+            "updatedAt": now,
+        ]
+        if let claudeConversationLastAppliedTabTitle {
+            sessionRecord["claudeConversationLastAppliedTabTitle"] = claudeConversationLastAppliedTabTitle
+        }
         var store: [String: Any] = [
             "version": 1,
             "sessions": [
-                sessionId: [
-                    "sessionId": sessionId,
-                    "workspaceId": workspaceId,
-                    "surfaceId": surfaceId,
-                    "cwd": cwd,
-                    "isRestorable": true,
-                    "launchCommand": [
-                        "launcher": "claude",
-                        "executablePath": "/usr/local/bin/claude",
-                        "arguments": ["/usr/local/bin/claude"],
-                        "workingDirectory": cwd,
-                        "capturedAt": now,
-                        "source": "test",
-                    ],
-                    "startedAt": now,
-                    "updatedAt": now,
-                ],
+                sessionId: sessionRecord,
             ],
         ]
         if active {
@@ -1044,6 +1056,70 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         let record = try #require(sessions[sessionId] as? [String: Any])
         #expect(record["claudeConversationLastAppliedWorkspaceTitle"] as? String == "Retry Failed Side")
         #expect(record["claudeConversationLastAppliedTabTitle"] == nil)
+    }
+
+    @Test func claudeAutoNameDoesNotRetryUserOwnedTabRejectionForSameTitle() throws {
+        let context = try makeClaudeHookContext(name: "claude-ai-title-tab-owned")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-ai-title-tab-owned-session"
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let transcriptURL = context.root.appendingPathComponent("claude-transcript.jsonl")
+        try writeClaudeHookStore(
+            to: storeURL,
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            active: true,
+            claudeConversationLastAppliedTabTitle: "Previous Auto Title"
+        )
+        try [
+            #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
+            #"{"type":"ai-title","aiTitle":"Manual Tab Stays"}"#
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-claude-ai-title-tab-owned",
+            ttySurfaceId: context.surfaceId,
+            tabTitleUserOwned: true
+        )
+
+        for _ in 0..<2 {
+            let result = runProcess(
+                executablePath: context.cliPath,
+                arguments: ["hooks", "claude", "auto-name"],
+                environment: claudeHookEnvironment(
+                    context: context,
+                    surfaceId: context.surfaceId,
+                    ttyName: "ttys-claude-ai-title-tab-owned",
+                    storeURL: storeURL
+                ),
+                standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+                timeout: 5
+            )
+            assertSuccessfulHook(result)
+            #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        }
+
+        let requests = context.state.snapshot().compactMap { jsonObject($0) }
+        let workspaceRenameRequestCount = requests.filter { request in
+            request["method"] as? String == "workspace.action"
+        }.count
+        let tabRenameRequestCount = requests.filter { request in
+            request["method"] as? String == "tab.action"
+        }.count
+        #expect(workspaceRenameRequestCount == 1)
+        #expect(tabRenameRequestCount == 1)
+
+        let state = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try #require(state["sessions"] as? [String: Any])
+        let record = try #require(sessions[sessionId] as? [String: Any])
+        #expect(record["claudeConversationLastAppliedWorkspaceTitle"] as? String == "Manual Tab Stays")
+        #expect(record["claudeConversationLastAppliedTabTitle"] == nil)
+        #expect(record["claudeConversationLastSkippedUserOwnedTabTitle"] as? String == "Manual Tab Stays")
     }
 
     @Test func claudeAutoNameDoesNotOverwriteUserOwnedWorkspaceTitle() throws {
