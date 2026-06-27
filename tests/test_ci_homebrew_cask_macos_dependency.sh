@@ -19,9 +19,13 @@ for file in "${FILES[@]}"; do
   fi
 
   symbols="$(
-    grep -E '^[[:space:]]*depends_on macos:[[:space:]]*:[[:alpha:]_][[:alpha:]_0-9]*[[:space:]]*$' "$file" \
-      | sed -E 's/.*depends_on macos:[[:space:]]*(:[[:alpha:]_][[:alpha:]_0-9]*).*/\1/' \
-      | sort -u
+    awk '
+      /^[[:space:]]*depends_on macos:[[:space:]]*:[[:alpha:]_][[:alpha:]_0-9]*[[:space:]]*$/ {
+        sub(/.*depends_on macos:[[:space:]]*/, "")
+        sub(/[[:space:]]*$/, "")
+        print
+      }
+    ' "$file" | sort -u
   )"
   symbol_count="$(printf '%s\n' "$symbols" | sed '/^$/d' | wc -l | tr -d ' ')"
   if [ "$symbol_count" -ne 1 ]; then
