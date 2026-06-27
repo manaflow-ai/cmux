@@ -7100,7 +7100,6 @@ extension BrowserPanel {
         let scale = Self.minimumViewportMagnification(
             webViewBounds: webView.bounds.size,
             minimumViewportSize: minimumViewportSize,
-            pageZoom: webView.pageZoom,
             minimumMagnification: minViewportMagnification
         )
         guard scale.isFinite else { return false }
@@ -7114,28 +7113,25 @@ extension BrowserPanel {
     static func minimumViewportMagnification(
         webViewBounds: CGSize,
         minimumViewportSize: CGSize?,
-        pageZoom: CGFloat = 1.0,
         minimumMagnification: CGFloat = 0.1
     ) -> CGFloat {
         guard let minimumViewportSize else { return 1.0 }
         guard webViewBounds.width > 1, webViewBounds.height > 1 else { return 1.0 }
-        let pageZoom = pageZoom.isFinite && pageZoom > 0 ? pageZoom : 1.0
 
         var scale: CGFloat = 1.0
-        if minimumViewportSize.width * pageZoom > webViewBounds.width {
-            scale = min(scale, webViewBounds.width / (minimumViewportSize.width * pageZoom))
+        if minimumViewportSize.width > webViewBounds.width {
+            scale = min(scale, webViewBounds.width / minimumViewportSize.width)
         }
-        if minimumViewportSize.height * pageZoom > webViewBounds.height {
-            scale = min(scale, webViewBounds.height / (minimumViewportSize.height * pageZoom))
+        if minimumViewportSize.height > webViewBounds.height {
+            scale = min(scale, webViewBounds.height / minimumViewportSize.height)
         }
         return max(minimumMagnification, min(1.0, scale))
     }
 
     func maximumReachableMinimumViewportSize() -> CGSize? {
-        let pageZoom = webView.pageZoom.isFinite && webView.pageZoom > 0 ? webView.pageZoom : 1.0
         guard webView.bounds.width > 1, webView.bounds.height > 1 else { return nil }
-        let maxWidth = webView.bounds.width / (minViewportMagnification * pageZoom)
-        let maxHeight = webView.bounds.height / (minViewportMagnification * pageZoom)
+        let maxWidth = webView.bounds.width / minViewportMagnification
+        let maxHeight = webView.bounds.height / minViewportMagnification
         return CGSize(
             width: min(Self.maximumMinimumViewportDimension, max(0, maxWidth)),
             height: min(Self.maximumMinimumViewportDimension, max(0, maxHeight))
@@ -8135,9 +8131,6 @@ private extension BrowserPanel {
             return false
         }
         webView.pageZoom = clamped
-        if minimumViewportSize != nil {
-            _ = applyMinimumViewportSize(reason: "pageZoom.changed")
-        }
         return true
     }
 
