@@ -4,6 +4,33 @@ import Testing
 
 @Suite("UserDefaultsSettingsStore notification ordering")
 struct UserDefaultsSettingsStoreNotificationTests {
+    @Test func observedDirectDefaultsWriteRejectsOlderPendingSource() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let staleSource = UserDefaultsSettingsMutationSource(
+            ownerID: UUID(),
+            sequence: 1,
+            logicalOrder: 1
+        )
+        let stream = await store.valueEvents(for: key)
+        var iterator = stream.makeAsyncIterator()
+
+        let initial = await iterator.next()
+        #expect(initial?.value == key.defaultValue)
+
+        UserDefaults(suiteName: suiteName)!.set("#EXTERNAL", forKey: key.userDefaultsKey)
+        let external = await iterator.next()
+        #expect(external?.value == "#EXTERNAL")
+        #expect(external?.mutationSource == nil)
+
+        let acceptedSource = await store.set("#LOCAL", for: key, source: staleSource)
+
+        let storedValue = await store.value(for: key)
+        #expect(acceptedSource == nil)
+        #expect(storedValue == "#EXTERNAL")
+    }
+
     @Test func valueEventsDrainSupersededSourceAfterUnrelatedSameValueNotification() async {
         let store = UserDefaultsSettingsStore(
             defaults: UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
