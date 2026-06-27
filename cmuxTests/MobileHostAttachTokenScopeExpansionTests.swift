@@ -43,7 +43,7 @@ struct MobileHostAttachTokenScopeExpansionTests {
         )
 
         #expect(await service.authorizationError(for: createRequest) == nil)
-        service.recordCreatedResourcesIfNeeded(
+        await service.recordCreatedResourcesIfNeeded(
             request: createRequest,
             result: .ok(["created_workspace_id": "stack-created-workspace"])
         )
