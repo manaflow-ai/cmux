@@ -30,7 +30,7 @@
 3896	cmuxTests/WindowAndDragTests.swift
 3688	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3669	cmuxTests/CLIGenericHookPersistenceTests.swift
-3464	Sources/CmuxConfig.swift
+3472	Sources/CmuxConfig.swift
 3364	cmuxTests/TabManagerSessionSnapshotTests.swift
 3053	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift

@@ -2652,12 +2652,20 @@ final class CmuxConfigStore: ObservableObject {
     func resolvedWorkspaceCommandAction(identifier: String) -> CmuxResolvedConfigAction? {
         let trimmed = sanitizeConfigText(identifier)
         guard !trimmed.isEmpty else { return nil }
+        if let command = loadedCommands.first(where: { $0.id == trimmed }) {
+            guard command.workspace != nil else { return nil }
+            if let action = resolvedAction(id: command.id),
+               action.workspaceCommandName == command.name {
+                return action
+            }
+            return resolvedAction(for: command, sourcePath: commandSourcePaths[command.id])
+        }
         if let action = resolvedAction(id: trimmed),
            action.workspaceCommandName != nil {
             return action
         }
         guard let command = loadedCommands.first(where: { command in
-            command.name == trimmed || command.id == trimmed
+            command.name == trimmed
         }), command.workspace != nil else {
             return nil
         }

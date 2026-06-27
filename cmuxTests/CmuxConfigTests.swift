@@ -794,7 +794,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         {
           "actions": {
             "worktree-dev": { "type": "workspaceCommand", "commandName": "Local Dev" },
-            "\(collidingCommandActionID)": { "type": "command", "command": "echo should-not-run" }
+            "\(collidingCommandActionID)": { "type": "workspaceCommand", "commandName": "Global Dev" }
           },
           "ui": { "newWorkspace": { "action": "worktree-dev" } },
           "commands": [{
