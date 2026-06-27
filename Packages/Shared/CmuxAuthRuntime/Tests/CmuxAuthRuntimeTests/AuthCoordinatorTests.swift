@@ -117,11 +117,44 @@ import Testing
         #expect(coordinator.isAuthenticated)
     }
 
-    @Test func offlineFailsFast() async {
+    @Test func offlinePasswordSignInRecordsDiagnostic() async {
         let (coordinator, _) = makeCoordinator(client: FakeAuthClient(), isOnline: { false })
         await #expect(throws: AuthError.offline) {
             try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         }
+        #expect(coordinator.lastAuthError == "AuthError.offline")
+    }
+
+    @Test func offlineSendCodeRecordsDiagnostic() async {
+        let (coordinator, _) = makeCoordinator(client: FakeAuthClient(), isOnline: { false })
+        await #expect(throws: AuthError.offline) {
+            try await coordinator.sendCode(to: "a@b.com")
+        }
+        #expect(coordinator.lastAuthError == "AuthError.offline")
+    }
+
+    @Test func offlineVerifyCodeRecordsDiagnostic() async throws {
+        let connectivity = ConnectivityProbe(isOnline: true)
+        let (coordinator, _) = makeCoordinator(
+            client: FakeAuthClient(),
+            isOnline: { await connectivity.isOnline() }
+        )
+        try await coordinator.sendCode(to: "a@b.com")
+
+        await connectivity.setOnline(false)
+
+        await #expect(throws: AuthError.offline) {
+            try await coordinator.verifyCode("123456")
+        }
+        #expect(coordinator.lastAuthError == "AuthError.offline")
+    }
+
+    @Test func offlineOAuthRecordsDiagnostic() async {
+        let (coordinator, _) = makeCoordinator(client: FakeAuthClient(), isOnline: { false })
+        await #expect(throws: AuthError.offline) {
+            try await coordinator.signInWithApple()
+        }
+        #expect(coordinator.lastAuthError == "AuthError.offline")
     }
 
     @Test func oauthAppleAndGoogleRouteToProviders() async throws {
