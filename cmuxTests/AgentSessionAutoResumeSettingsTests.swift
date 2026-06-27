@@ -1,6 +1,7 @@
 import Foundation
 import CmuxCore
 import XCTest
+@testable import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -99,7 +100,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let disabledPanel = try XCTUnwrap(restoredWithoutAutoResume.terminalPanel(for: disabledPanelId))
         assertNoAgentResumeLaunchOnRestore(disabledPanel)
         restoredWithoutAutoResume.focusPanel(disabledPanelId)
-        XCTAssertNil(disabledPanel.surface.debugNextRuntimeInitialInputForTesting())
+        XCTAssertNil(disabledPanel.surface.nextRuntimeInitialInput)
         XCTAssertEqual(
             restoredWithoutAutoResume.restoredAgentResumeStatesByPanelId[disabledPanelId],
             .manualResumeAvailable
@@ -161,7 +162,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 "session ID must still be available for manual resume"
             )
             restored.focusPanel(restoredPanelId)
-            XCTAssertNil(restoredPanel.surface.debugNextRuntimeInitialInputForTesting())
+            XCTAssertNil(restoredPanel.surface.nextRuntimeInitialInput)
             XCTAssertEqual(
                 restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
                 .manualResumeAvailable
@@ -359,7 +360,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 panelId: restoredPanelId,
                 sessionId: "codex-remote-long-running-session"
             )
-            if let restoredInput = restoredPanel.surface.debugNextRuntimeInitialInputForTesting() {
+            if let restoredInput = restoredPanel.surface.nextRuntimeInitialInput {
                 XCTAssertGreaterThan(restoredInput.utf8.count, SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
                 XCTAssertTrue(restoredInput.contains(longPath), restoredInput)
                 XCTAssertFalse(restoredInput.contains("cmux-agent-resume"), restoredInput)
@@ -782,7 +783,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         XCTAssertFalse(input.hasInitialInput, file: file, line: line)
         XCTAssertEqual(input.byteCount, 0, file: file, line: line)
         XCTAssertNil(panel.surface.debugInitialCommand(), file: file, line: line)
-        XCTAssertNil(panel.surface.debugNextRuntimeInitialInputForTesting(), file: file, line: line)
+        XCTAssertNil(panel.surface.nextRuntimeInitialInput, file: file, line: line)
     }
 
     @MainActor
@@ -795,7 +796,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     ) throws {
         workspace.focusPanel(panelId)
         let panel = try XCTUnwrap(workspace.terminalPanel(for: panelId), file: file, line: line)
-        if let input = panel.surface.debugNextRuntimeInitialInputForTesting() {
+        if let input = panel.surface.nextRuntimeInitialInput {
             XCTAssertTrue(input.contains("'resume'"), input, file: file, line: line)
             XCTAssertTrue(input.contains(sessionId), input, file: file, line: line)
         } else {

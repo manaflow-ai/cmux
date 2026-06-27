@@ -136,12 +136,6 @@ extension TerminalSurface {
         backgroundSurfaceStartQueued
     }
 
-    /// The input currently primed for the next runtime spawn (test hook).
-    @MainActor
-    public func debugNextRuntimeInitialInputForTesting() -> String? {
-        nextRuntimeInitialInput
-    }
-
     /// Whether the hidden bootstrap window exists (test hook).
     @MainActor
     public func debugHasHeadlessStartupWindowForTesting() -> Bool {

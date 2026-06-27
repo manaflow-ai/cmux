@@ -2,6 +2,7 @@ import Foundation
 import CmuxCore
 import CmuxSidebar
 import Testing
+@testable import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -618,7 +619,7 @@ struct AgentSessionAutoResumeSwiftTests {
         #expect(!input.hasInitialInput)
         #expect(input.byteCount == 0)
         #expect(panel.surface.debugInitialCommand() == nil)
-        #expect(panel.surface.debugNextRuntimeInitialInputForTesting() == nil)
+        #expect(panel.surface.nextRuntimeInitialInput == nil)
     }
 
     @MainActor
@@ -632,7 +633,7 @@ struct AgentSessionAutoResumeSwiftTests {
     ) throws {
         workspace.focusPanel(panelId)
         let panel = try #require(workspace.terminalPanel(for: panelId))
-        if let input = panel.surface.debugNextRuntimeInitialInputForTesting() {
+        if let input = panel.surface.nextRuntimeInitialInput {
             #expect(input.contains("'resume'"), Comment(rawValue: input))
             #expect(input.contains(sessionId), Comment(rawValue: input))
             for needle in needles {

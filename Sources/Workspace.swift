@@ -10589,9 +10589,7 @@ final class Workspace: Identifiable, ObservableObject {
         var didChange = agentHibernationAutoResumePresentationVisible
             ? resumeVisibleAgentHibernationPanels(panelIds: visiblePanelIds)
             : false
-        if agentHibernationAutoResumePresentationVisible {
-            didChange = resumeVisibleRestoredAgentPanels(panelIds: visiblePanelIds) || didChange
-        }
+        didChange = resumeVisibleRestoredAgentPanels(panelIds: visiblePanelIds) || didChange
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
