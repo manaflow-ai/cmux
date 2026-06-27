@@ -1,5 +1,5 @@
 public import Foundation
-import AppKit
+public import AppKit
 
 /// Owns main-window identity and the close-broadcast subscription that drives
 /// per-window teardown.
@@ -23,11 +23,14 @@ import AppKit
 /// live and no bridging is needed (mirrors ``WindowCoordinator``'s isolation
 /// ruling).
 @MainActor
-public final class WindowLifecycleCoordinator {
-    /// App-side teardown seam, held weakly so the app delegate ↔ coordinator
-    /// ownership stays one-directional (the app delegate owns this coordinator
-    /// strongly).
-    public weak var host: (any WindowLifecycleHosting)?
+public final class WindowLifecycleCoordinator<Host: WindowLifecycleHosting> {
+    /// App-side teardown + god-type-leaf seam, held weakly so the app delegate ↔
+    /// coordinator ownership stays one-directional (the app delegate owns this
+    /// coordinator strongly). Generic over the concrete host so the resolver and
+    /// removal methods can speak the host's app-target value types
+    /// (`RegisteredMainWindow`, `TabManager`, `MainWindowFocusController`) through
+    /// its associated types, which a package type cannot name directly.
+    public weak var host: Host?
 
     /// Owns window identity and lifecycle: the live ``WindowID`` set, the
     /// `NSWindow` handle per window, and the single window-closed broadcast.
@@ -61,7 +64,7 @@ public final class WindowLifecycleCoordinator {
     /// exactly one at the composition root and injects itself as `host`.
     public init(
         windowCoordinator: any WindowManaging = WindowCoordinator(),
-        host: (any WindowLifecycleHosting)? = nil
+        host: Host? = nil
     ) {
         self.windowCoordinator = windowCoordinator
         self.host = host
@@ -132,5 +135,74 @@ public final class WindowLifecycleCoordinator {
     /// Whether `windowId`'s closed-window history is currently suppressed.
     public func containsSuppressedWindowId(_ windowId: UUID) -> Bool {
         closedWindowHistorySuppressedWindowIds.contains(windowId)
+    }
+
+    // MARK: - Registry resolvers
+
+    /// The resolved registered window for `id`, or `nil` if none is registered.
+    /// Funnels through ``WindowLifecycleHosting/resolveRegisteredWindow(for:)``,
+    /// which reads the app-side per-domain stores and resolves the live
+    /// `NSWindow`. Every other resolver routes here.
+    public func registeredWindow(for id: WindowID) -> Host.RegisteredWindow? {
+        host?.resolveRegisteredWindow(for: id)
+    }
+
+    /// Every registered main window as a resolved value, in no guaranteed order
+    /// (faithfully matching the old dictionary iteration, which was likewise
+    /// unordered).
+    public var registeredWindows: [Host.RegisteredWindow] {
+        guard let host else { return [] }
+        return host.registeredWindowIds.compactMap { host.resolveRegisteredWindow(for: $0) }
+    }
+
+    /// The resolved registered window owning the tab manager identified by
+    /// `object`, via the ``tabManagerWindowIds`` reverse index this coordinator
+    /// owns.
+    public func registeredWindow(forManagerObject object: ObjectIdentifier) -> Host.RegisteredWindow? {
+        guard let id = tabManagerWindowIds[object] else { return nil }
+        return host?.resolveRegisteredWindow(for: id)
+    }
+
+    /// The resolved registered window for the NSWindow `window`, by window-object
+    /// identity. The ``WindowManaging`` coordinator owns window↔id identity (first
+    /// clause); a resolved value's window is compared for the
+    /// late-bound-identifier fallback.
+    public func registeredWindow(forWindow window: NSWindow) -> Host.RegisteredWindow? {
+        if let id = windowCoordinator.id(for: window),
+           let context = host?.resolveRegisteredWindow(for: id) {
+            return context
+        }
+        guard let host else { return nil }
+        return registeredWindows.first(where: { host.window(of: $0) === window })
+    }
+
+    // MARK: - Registry binding + removal funnel
+
+    /// Binds `tabManager` to `id` in the app-side tab-manager store and keeps the
+    /// ``tabManagerWindowIds`` reverse index consistent: drops any stale entry for
+    /// a manager previously bound to `id`, then records the new mapping. The store
+    /// write + stale-object detection is the host's
+    /// ``WindowLifecycleHosting/rebindTabManagerSlice(_:for:)``; the reverse-index
+    /// mutations stay here.
+    public func rebindTabManager(_ tabManager: Host.WindowTabManagerModel, for id: WindowID) {
+        if let staleObject = host?.rebindTabManagerSlice(tabManager, for: id) {
+            tabManagerWindowIds.removeValue(forKey: staleObject)
+        }
+        tabManagerWindowIds[ObjectIdentifier(tabManager)] = id
+    }
+
+    /// Drops every per-window slice for `id` across the app-side domain stores
+    /// plus this coordinator's reverse index. The single removal funnel for both
+    /// window teardown paths (the AppKit close path and the explicit/windowless
+    /// path). The app-side store drops happen behind
+    /// ``WindowLifecycleHosting/removeWindowModelSlices(for:)``; the reverse-index
+    /// drop, keyed by the removed manager's `ObjectIdentifier`, stays here.
+    @discardableResult
+    public func removeWindowSlices(
+        for id: WindowID
+    ) -> (tabManager: Host.WindowTabManagerModel, focusController: Host.WindowFocusModel?)? {
+        guard let removed = host?.removeWindowModelSlices(for: id) else { return nil }
+        tabManagerWindowIds.removeValue(forKey: ObjectIdentifier(removed.tabManager))
+        return removed
     }
 }
