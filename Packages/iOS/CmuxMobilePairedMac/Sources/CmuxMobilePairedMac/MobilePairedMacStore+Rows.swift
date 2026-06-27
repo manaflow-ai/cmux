@@ -202,7 +202,7 @@ extension MobilePairedMacStore {
                 macDeviceID: row.macDeviceID,
                 displayName: row.displayName,
                 routes: routesByKey[key] ?? [],
-                attachToken: await attachTokenSecret(for: row),
+                attachToken: attachTokenSecret(for: row),
                 attachTokenExpiresAt: row.attachTokenExpiresAt,
                 attachTokenWorkspaceID: row.attachTokenWorkspaceID,
                 attachTokenTerminalID: row.attachTokenTerminalID,

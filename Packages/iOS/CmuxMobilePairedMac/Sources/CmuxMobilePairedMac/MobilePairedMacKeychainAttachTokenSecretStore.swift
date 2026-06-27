@@ -3,7 +3,7 @@ import Foundation
 import Security
 #endif
 
-actor MobilePairedMacKeychainAttachTokenSecretStore: MobileAttachTokenSecretStoring {
+struct MobilePairedMacKeychainAttachTokenSecretStore: MobileAttachTokenSecretStoring {
     private let service: String
 
     init(bundleIdentifier: String?) {
@@ -18,15 +18,15 @@ actor MobilePairedMacKeychainAttachTokenSecretStore: MobileAttachTokenSecretStor
         self.service = service
     }
 
-    func readAttachToken(account: String) async -> String? {
+    func readAttachToken(account: String) -> String? {
         keychainRead(account: account)
     }
 
-    func saveAttachToken(_ token: String, account: String) async -> Bool {
+    func saveAttachToken(_ token: String, account: String) -> Bool {
         keychainWrite(token, account: account)
     }
 
-    func deleteAttachToken(account: String) async {
+    func deleteAttachToken(account: String) {
         keychainDelete(account: account)
     }
 

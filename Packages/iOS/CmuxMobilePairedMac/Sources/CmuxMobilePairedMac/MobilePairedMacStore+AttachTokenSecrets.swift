@@ -11,19 +11,19 @@ extension MobilePairedMacStore {
         return "paired-mac-attach-token-v1:\(encoded)"
     }
 
-    func attachTokenSecret(for row: MobilePairedMacStoreMacRow) async -> String? {
+    func attachTokenSecret(for row: MobilePairedMacStoreMacRow) -> String? {
         guard row.attachTokenExpiresAt != nil else { return nil }
         let account = attachTokenSecretAccount(macDeviceID: row.macDeviceID, ownerKey: row.ownerKey)
-        return await attachTokenSecrets.readAttachToken(account: account)
+        return attachTokenSecrets.readAttachToken(account: account)
     }
 
     func saveAttachTokenSecret(
         _ token: String,
         macDeviceID: String,
         ownerKey: String
-    ) async -> Bool {
+    ) -> Bool {
         let account = attachTokenSecretAccount(macDeviceID: macDeviceID, ownerKey: ownerKey)
-        return await attachTokenSecrets.saveAttachToken(token, account: account)
+        return attachTokenSecrets.saveAttachToken(token, account: account)
     }
 
     @discardableResult
@@ -31,22 +31,22 @@ extension MobilePairedMacStore {
         macDeviceID: String,
         fromOwnerKey: String,
         toOwnerKey: String
-    ) async -> Bool {
+    ) -> Bool {
         guard fromOwnerKey != toOwnerKey else { return false }
         let source = attachTokenSecretAccount(macDeviceID: macDeviceID, ownerKey: fromOwnerKey)
-        guard let token = await attachTokenSecrets.readAttachToken(account: source) else { return false }
+        guard let token = attachTokenSecrets.readAttachToken(account: source) else { return false }
         let destination = attachTokenSecretAccount(macDeviceID: macDeviceID, ownerKey: toOwnerKey)
-        return await attachTokenSecrets.saveAttachToken(token, account: destination)
+        return attachTokenSecrets.saveAttachToken(token, account: destination)
     }
 
-    func deleteAttachTokenSecret(macDeviceID: String, ownerKey: String) async {
+    func deleteAttachTokenSecret(macDeviceID: String, ownerKey: String) {
         let account = attachTokenSecretAccount(macDeviceID: macDeviceID, ownerKey: ownerKey)
-        await attachTokenSecrets.deleteAttachToken(account: account)
+        attachTokenSecrets.deleteAttachToken(account: account)
     }
 
-    func deleteAttachTokenSecrets(for rows: [MobilePairedMacStoreMacRow]) async {
+    func deleteAttachTokenSecrets(for rows: [MobilePairedMacStoreMacRow]) {
         for row in rows {
-            await deleteAttachTokenSecret(macDeviceID: row.macDeviceID, ownerKey: row.ownerKey)
+            deleteAttachTokenSecret(macDeviceID: row.macDeviceID, ownerKey: row.ownerKey)
         }
     }
 }

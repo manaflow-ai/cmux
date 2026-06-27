@@ -137,7 +137,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         let shouldClaimLegacy = legacy != nil
         let copiedLegacyAttachToken: Bool
         if attachToken == nil, shouldClaimLegacy {
-            copiedLegacyAttachToken = await copyAttachTokenSecret(
+            copiedLegacyAttachToken = copyAttachTokenSecret(
                 macDeviceID: macDeviceID,
                 fromOwnerKey: legacyOwnerKey,
                 toOwnerKey: ownerKey
@@ -148,13 +148,13 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         let attachTokenChanged = attachToken != nil
         let shouldStoreAttachTokenMetadata: Bool
         if let attachToken {
-            shouldStoreAttachTokenMetadata = await saveAttachTokenSecret(
+            shouldStoreAttachTokenMetadata = saveAttachTokenSecret(
                 attachToken,
                 macDeviceID: macDeviceID,
                 ownerKey: ownerKey
             )
             if !shouldStoreAttachTokenMetadata {
-                await deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: ownerKey)
+                deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: ownerKey)
             }
         } else {
             shouldStoreAttachTokenMetadata = false
@@ -193,12 +193,12 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             }
         } catch {
             if shouldStoreAttachTokenMetadata || copiedLegacyAttachToken {
-                await deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: ownerKey)
+                deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: ownerKey)
             }
             throw error
         }
         if shouldClaimLegacy {
-            await deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
+            deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
         }
     }
 
@@ -221,7 +221,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         let shouldDeleteLegacySecret = legacy != nil
         let copiedLegacyAttachToken: Bool
         if shouldDeleteLegacySecret {
-            copiedLegacyAttachToken = await copyAttachTokenSecret(
+            copiedLegacyAttachToken = copyAttachTokenSecret(
                 macDeviceID: macDeviceID,
                 fromOwnerKey: legacyOwnerKey,
                 toOwnerKey: ownerKey
@@ -262,12 +262,12 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             }
         } catch {
             if copiedLegacyAttachToken {
-                await deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: ownerKey)
+                deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: ownerKey)
             }
             throw error
         }
         if shouldDeleteLegacySecret {
-            await deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
+            deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
         }
     }
 
@@ -341,7 +341,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 binding: [.text(macDeviceID), .text("\(stackUserID ?? "")\u{1F}\(teamID ?? "")")]
             )
         }
-        await deleteAttachTokenSecrets(for: rows)
+        deleteAttachTokenSecrets(for: rows)
     }
 
     /// Remove every locally stored paired Mac and route.
@@ -349,6 +349,6 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         try ensureReady()
         let rows = try fetchAllMacRows()
         try exec("DELETE FROM paired_macs;")
-        await deleteAttachTokenSecrets(for: rows)
+        deleteAttachTokenSecrets(for: rows)
     }
 }

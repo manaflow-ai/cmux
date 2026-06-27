@@ -36,7 +36,7 @@ import Testing
 
         let saved = try #require(try await store.activeMac(stackUserID: "user-1", teamID: "team-a"))
         #expect(saved.attachToken == "ticket-secret")
-        #expect(await secretStore.snapshot().values.sorted() == ["ticket-secret"])
+        #expect(secretStore.snapshot().values.sorted() == ["ticket-secret"])
         #expect(try sqliteAttachTokens(at: url) == [nil])
     }
 
@@ -70,7 +70,7 @@ import Testing
 
         try await store.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: "team-a")
 
-        #expect(await secretStore.snapshot().isEmpty)
+        #expect(secretStore.snapshot().isEmpty)
         #expect(try await store.loadAll(stackUserID: "user-1", teamID: "team-a").isEmpty)
     }
 
@@ -117,7 +117,7 @@ import Testing
 
         let saved = try #require(try await store.activeMac(stackUserID: "user-1", teamID: "team-a"))
         #expect(saved.attachToken == "fresh-secret")
-        #expect(await secretStore.snapshot().values.sorted() == ["fresh-secret"])
+        #expect(secretStore.snapshot().values.sorted() == ["fresh-secret"])
     }
 
     @Test func failedUpsertDeletesNewAttachTokenSecret() async throws {
@@ -151,7 +151,7 @@ import Testing
                 now: Date(timeIntervalSince1970: 1)
             )
         }
-        #expect(await secretStore.snapshot().isEmpty)
+        #expect(secretStore.snapshot().isEmpty)
     }
 
     @Test func failedLegacyClaimDeletesCopiedAttachTokenSecret() async throws {
@@ -197,7 +197,7 @@ import Testing
                 now: Date(timeIntervalSince1970: 2)
             )
         }
-        #expect(await secretStore.snapshot().values.sorted() == ["legacy-secret"])
+        #expect(secretStore.snapshot().values.sorted() == ["legacy-secret"])
     }
 
     @Test func inFlightAttachTokenUpsertDoesNotRecreateRemovedMac() async throws {
@@ -206,36 +206,37 @@ import Testing
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("paired-macs.sqlite3")
-        let secretStore = SuspendingAttachTokenSecretStore()
+        let secretStore = ReentrantAttachTokenSecretStore()
+        let removalCompletion = RemovalCompletion()
         let route = try CmxAttachRoute(
             id: "tailscale",
             kind: .tailscale,
             endpoint: .hostPort(host: "100.64.0.5", port: 8443)
         )
         let store = try MobilePairedMacStore(databaseURL: url, attachTokenSecrets: secretStore)
-        let upsert = Task {
-            try await store.upsert(
-                macDeviceID: "mac-a",
-                displayName: "Mac A",
-                routes: [route],
-                attachToken: "ticket-secret",
-                attachTokenExpiresAt: Date(timeIntervalSince1970: 2_000_000_000),
-                attachTokenWorkspaceID: "",
-                attachTokenTerminalID: nil,
-                markActive: true,
-                stackUserID: "user-1",
-                teamID: "team-a",
-                now: Date(timeIntervalSince1970: 1)
-            )
+        secretStore.onSave = {
+            Task {
+                try? await store.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: "team-a")
+                await removalCompletion.finish()
+            }
         }
-        await secretStore.waitForSaveStart()
-
-        try await store.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: "team-a")
-        await secretStore.resumeSave()
-        try await upsert.value
+        try await store.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mac A",
+            routes: [route],
+            attachToken: "ticket-secret",
+            attachTokenExpiresAt: Date(timeIntervalSince1970: 2_000_000_000),
+            attachTokenWorkspaceID: "",
+            attachTokenTerminalID: nil,
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        await removalCompletion.wait()
 
         #expect(try await store.loadAll(stackUserID: "user-1", teamID: "team-a").isEmpty)
-        #expect(await secretStore.snapshot().isEmpty)
+        #expect(secretStore.snapshot().isEmpty)
     }
 
     private func sqliteAttachTokens(at url: URL) throws -> [String?] {
@@ -257,49 +258,47 @@ import Testing
     }
 }
 
-actor SuspendingAttachTokenSecretStore: MobileAttachTokenSecretStoring {
+// Test instances are owned by one test and called through the store actor.
+final class ReentrantAttachTokenSecretStore: MobileAttachTokenSecretStoring, @unchecked Sendable {
     private var tokensByAccount: [String: String] = [:]
-    private var saveStarted = false
-    private var saveStartWaiters: [CheckedContinuation<Void, Never>] = []
-    private var saveResume: CheckedContinuation<Void, Never>?
+    var onSave: (@Sendable () -> Void)?
 
-    func readAttachToken(account: String) async -> String? {
+    func readAttachToken(account: String) -> String? {
         tokensByAccount[account]
     }
 
-    func saveAttachToken(_ token: String, account: String) async -> Bool {
-        if !saveStarted {
-            saveStarted = true
-            let waiters = saveStartWaiters
-            saveStartWaiters = []
-            for waiter in waiters {
-                waiter.resume()
-            }
-            await withCheckedContinuation { continuation in
-                saveResume = continuation
-            }
-        }
+    func saveAttachToken(_ token: String, account: String) -> Bool {
+        onSave?()
         tokensByAccount[account] = token
         return true
     }
 
-    func deleteAttachToken(account: String) async {
+    func deleteAttachToken(account: String) {
         tokensByAccount.removeValue(forKey: account)
-    }
-
-    func waitForSaveStart() async {
-        if saveStarted { return }
-        await withCheckedContinuation { continuation in
-            saveStartWaiters.append(continuation)
-        }
-    }
-
-    func resumeSave() {
-        saveResume?.resume()
-        saveResume = nil
     }
 
     func snapshot() -> [String: String] {
         tokensByAccount
+    }
+}
+
+actor RemovalCompletion {
+    private var finished = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func finish() {
+        finished = true
+        let waiters = waiters
+        self.waiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    func wait() async {
+        if finished { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
     }
 }
