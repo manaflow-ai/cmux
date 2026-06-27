@@ -4572,35 +4572,26 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func toggleCommandPalette() {
-        if isCommandPalettePresented {
-            dismissCommandPalette()
-        } else {
-            presentCommandPalette(initialQuery: Self.commandPaletteQueryScopePolicy.commandsPrefix)
-        }
+        commandPaletteCoordinator.toggleCommandPaletteLifecycle(
+            host: self,
+            presentation: commandPalettePresentation
+        )
     }
 
     private func openCommandPaletteCommands() {
-        handleCommandPaletteListRequest(scope: .commands)
+        commandPaletteCoordinator.handleCommandPaletteListRequest(
+            scope: .commands,
+            host: self,
+            presentation: commandPalettePresentation
+        )
     }
 
     private func openCommandPaletteSwitcher() {
-        handleCommandPaletteListRequest(scope: .switcher)
-    }
-
-    private func handleCommandPaletteListRequest(scope: CommandPaletteListScope) {
-        let initialQuery = (scope == .commands) ? Self.commandPaletteQueryScopePolicy.commandsPrefix : ""
-        guard isCommandPalettePresented else {
-            presentCommandPalette(initialQuery: initialQuery)
-            return
-        }
-
-        if case .commands = commandPalettePresentation.mode,
-           commandPaletteListScope == scope {
-            dismissCommandPalette()
-            return
-        }
-
-        resetCommandPaletteListState(initialQuery: initialQuery)
+        commandPaletteCoordinator.handleCommandPaletteListRequest(
+            scope: .switcher,
+            host: self,
+            presentation: commandPalettePresentation
+        )
     }
 
     private func openCommandPaletteRenameTabInput() {
@@ -4678,37 +4669,19 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func presentCommandPalette(initialQuery: String) {
-        refreshCachedDefaultTerminalStatus(refreshSearchCorpusIfPresented: false)
-        if let panelContext = focusedPanelContext {
-            commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
-                workspaceId: panelContext.workspace.id,
-                panelId: panelContext.panelId,
-                intent: panelContext.panel.captureFocusIntent(in: observedWindow)
-            )
-        } else {
-            commandPaletteRestoreFocusTarget = nil
-        }
-        isCommandPalettePresented = true
-        commandPaletteForkableAgentProbeCoordinator.activePanelKey = nil
-        refreshCommandPaletteUsageHistory()
-        resetCommandPaletteListState(initialQuery: initialQuery)
+        commandPaletteCoordinator.presentCommandPalette(
+            initialQuery: initialQuery,
+            host: self,
+            presentation: commandPalettePresentation
+        )
     }
 
     private func resetCommandPaletteListState(initialQuery: String) {
-        commandPalettePresentation.mode = .commands
-        commandPalettePresentation.query = initialQuery
-        commandPalettePresentation.renameDraft = ""
-        commandPalettePresentation.workspaceDescriptionDraft = ""
-        commandPalettePresentation.workspaceDescriptionHeight = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
-        commandPalettePresentation.selectedResultIndex = 0
-        commandPalettePresentation.selectionAnchorCommandID = nil
-        commandPalettePresentation.scrollTargetIndex = nil
-        commandPalettePresentation.scrollTargetAnchor = nil
-        commandPaletteShouldFocusWorkspaceDescriptionEditor = false
-        scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
-        syncCommandPaletteOverlayCommandListState()
-        resetCommandPaletteSearchFocus()
-        syncCommandPaletteDebugStateForObservedWindow()
+        commandPaletteCoordinator.resetCommandPaletteListState(
+            initialQuery: initialQuery,
+            host: self,
+            presentation: commandPalettePresentation
+        )
     }
 
     private func dismissCommandPalette(restoreFocus: Bool = true) {
@@ -4719,58 +4692,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         restoreFocus: Bool,
         preferredFocusTarget: CommandPaletteRestoreFocusTarget?
     ) {
-        let focusTarget = preferredFocusTarget ?? commandPaletteRestoreFocusTarget
-#if DEBUG
-        if case .workspaceDescriptionInput(let target) = commandPalettePresentation.mode {
-            let newlineCount = commandPalettePresentation.workspaceDescriptionDraft.reduce(into: 0) { count, character in
-                if character == "\n" { count += 1 }
-            }
-            cmuxDebugLog(
-                "palette.wsDescription.dismiss workspace=\(target.workspaceId.uuidString.prefix(8)) " +
-                "restoreFocus=\(restoreFocus ? 1 : 0) " +
-                "draftLen=\((commandPalettePresentation.workspaceDescriptionDraft as NSString).length) " +
-                "newlines=\(newlineCount) " +
-                "window={\((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow).commandPaletteWindowDebugSummary)}"
-            )
-        }
-#endif
-        cancelCommandPaletteSearch()
-        cancelCommandPaletteSearchIndexBuild()
-        cancelCommandPaletteForkableAgentAvailabilityProbe()
-        commandPaletteForkableAgentProbeCoordinator.activePanelKey = nil
-        commandPaletteCoordinator.searchRequestID &+= 1
-        isCommandPalettePresented = false
-        commandPalettePresentation.mode = .commands
-        commandPalettePresentation.query = ""
-        commandPalettePresentation.renameDraft = ""
-        commandPalettePresentation.workspaceDescriptionDraft = ""
-        commandPalettePresentation.workspaceDescriptionHeight = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
-        commandPalettePresentation.selectedResultIndex = 0
-        commandPalettePresentation.selectionAnchorCommandID = nil
-        commandPalettePresentation.scrollTargetIndex = nil
-        commandPalettePresentation.scrollTargetAnchor = nil
-        commandPaletteShouldFocusWorkspaceDescriptionEditor = false
-        isCommandPaletteSearchFocused = false
-        isCommandPaletteRenameFocused = false
-        commandPaletteRestoreFocusTarget = nil
-        commandPaletteCoordinator.resetSearchCorpus()
-        commandPaletteCoordinator.resetResultsPipeline()
-        commandPalettePresentation.pendingTextSelectionBehavior = nil
-        commandPaletteCoordinator.resolvedSearchRequestID = commandPaletteCoordinator.searchRequestID
-        commandPaletteCoordinator.resolvedSearchScope = nil
-        commandPaletteCoordinator.resolvedSearchFingerprint = nil
-        commandPaletteTerminalOpenTargetAvailability = []
-        commandPaletteCoordinator.isSearchPending = false
-        commandPalettePresentation.pendingActivation = nil
-        commandPalettePresentation.resultsRevision &+= 1
-        syncCommandPaletteOverlayCommandListState()
-        if let window = observedWindow {
-            _ = window.makeFirstResponder(nil)
-        }
-        syncCommandPaletteDebugStateForObservedWindow()
-
-        guard restoreFocus, let focusTarget else { return }
-        requestCommandPaletteFocusRestore(target: focusTarget)
+        commandPaletteCoordinator.dismissCommandPalette(
+            restoreFocus: restoreFocus,
+            preferredFocusTarget: preferredFocusTarget,
+            host: self,
+            presentation: commandPalettePresentation
+        )
     }
 
     private func handleCommandPaletteBackdropClick(atContentPoint contentPoint: CGPoint) {
@@ -9708,6 +9635,118 @@ extension ContentView: CommandPaletteListHost {
 
     func commandPaletteListRunResolvedActivation(_ activation: CommandPaletteResolvedActivation) {
         runCommandPaletteResolvedActivation(activation)
+    }
+}
+
+extension ContentView: CommandPaletteLifecycleHost {
+    var commandPaletteLifecycleIsPresented: Bool { isCommandPalettePresented }
+
+    var commandPaletteLifecycleDefaultWorkspaceDescriptionHeight: CGFloat {
+        CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
+    }
+
+    func commandPaletteLifecycleSetPresented(_ value: Bool) {
+        isCommandPalettePresented = value
+    }
+
+    func commandPaletteLifecycleCaptureFocusRestoreTarget() {
+        if let panelContext = focusedPanelContext {
+            commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
+                workspaceId: panelContext.workspace.id,
+                panelId: panelContext.panelId,
+                intent: panelContext.panel.captureFocusIntent(in: observedWindow)
+            )
+        } else {
+            commandPaletteRestoreFocusTarget = nil
+        }
+    }
+
+    func commandPaletteLifecycleCurrentRestoreFocusTarget() -> CommandPaletteRestoreFocusTarget? {
+        commandPaletteRestoreFocusTarget
+    }
+
+    func commandPaletteLifecycleClearRestoreFocusTarget() {
+        commandPaletteRestoreFocusTarget = nil
+    }
+
+    func commandPaletteLifecycleRequestFocusRestore(target: CommandPaletteRestoreFocusTarget) {
+        requestCommandPaletteFocusRestore(target: target)
+    }
+
+    func commandPaletteLifecycleRefreshCachedDefaultTerminalStatus() {
+        refreshCachedDefaultTerminalStatus(refreshSearchCorpusIfPresented: false)
+    }
+
+    func commandPaletteLifecycleRefreshUsageHistory() {
+        refreshCommandPaletteUsageHistory()
+    }
+
+    func commandPaletteLifecycleClearForkableProbeActivePanelKey() {
+        commandPaletteForkableAgentProbeCoordinator.activePanelKey = nil
+    }
+
+    func commandPaletteLifecycleCancelSearch() {
+        cancelCommandPaletteSearch()
+    }
+
+    func commandPaletteLifecycleCancelSearchIndexBuild() {
+        cancelCommandPaletteSearchIndexBuild()
+    }
+
+    func commandPaletteLifecycleCancelForkableAgentAvailabilityProbe() {
+        cancelCommandPaletteForkableAgentAvailabilityProbe()
+    }
+
+    func commandPaletteLifecycleSetShouldFocusWorkspaceDescriptionEditor(_ value: Bool) {
+        commandPaletteShouldFocusWorkspaceDescriptionEditor = value
+    }
+
+    func commandPaletteLifecycleClearSearchFocused() {
+        isCommandPaletteSearchFocused = false
+    }
+
+    func commandPaletteLifecycleClearRenameFocused() {
+        isCommandPaletteRenameFocused = false
+    }
+
+    func commandPaletteLifecycleClearTerminalOpenTargetAvailability() {
+        commandPaletteTerminalOpenTargetAvailability = []
+    }
+
+    func commandPaletteLifecycleScheduleResultsRefresh(forceSearchCorpusRefresh: Bool) {
+        scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: forceSearchCorpusRefresh)
+    }
+
+    func commandPaletteLifecycleSyncOverlayCommandListState() {
+        syncCommandPaletteOverlayCommandListState()
+    }
+
+    func commandPaletteLifecycleResetSearchFocus() {
+        resetCommandPaletteSearchFocus()
+    }
+
+    func commandPaletteLifecycleClearFirstResponderAndBrowserFocus() {
+        if let window = observedWindow {
+            _ = window.makeFirstResponder(nil)
+        }
+    }
+
+    func commandPaletteLifecycleSyncDebugState() {
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    func commandPaletteLifecycleObservedWindowDebugSummary() -> String {
+#if DEBUG
+        (observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow).commandPaletteWindowDebugSummary
+#else
+        ""
+#endif
+    }
+
+    func commandPaletteLifecycleDebugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+        cmuxDebugLog(message())
+#endif
     }
 }
 
