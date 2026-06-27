@@ -42,6 +42,11 @@ for workflow in "$WORKFLOW_DIR"/*.yml; do
 done
 
 if awk '
+  /^permissions:[[:space:]]*(write-all|read-all)([[:space:]]|$)/ {
+    printf "%s:%d broad top-level permissions: %s\n", FILENAME, NR, $0
+    failed=1
+    next
+  }
   /^permissions:/ { in_permissions=1; next }
   in_permissions && /^[^[:space:]]/ { in_permissions=0 }
   in_permissions && /^[[:space:]]+[A-Za-z0-9_-]+:[[:space:]]+write[[:space:]]*$/ {
