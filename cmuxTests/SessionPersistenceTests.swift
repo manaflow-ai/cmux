@@ -4581,6 +4581,51 @@ extension SessionPersistenceTests {
     }
 
     @MainActor
+    func testClearingCheckpointlessBindingPreservesDifferentHistoryEntries() throws {
+        let activeSources: [String?] = ["agent-hook", nil]
+        for activeSource in activeSources {
+            let workspace = Workspace()
+            let panelId = try XCTUnwrap(workspace.focusedPanelId)
+            XCTAssertTrue(
+                workspace.setSurfaceResumeBinding(
+                    SurfaceResumeBindingSnapshot(
+                        name: "Codex",
+                        kind: "codex",
+                        command: "codex resume real-thread",
+                        cwd: "/tmp/real",
+                        checkpointId: "real-thread",
+                        source: "agent-hook",
+                        autoResume: true,
+                        updatedAt: 10
+                    ),
+                    panelId: panelId
+                )
+            )
+            XCTAssertTrue(
+                workspace.setSurfaceResumeBinding(
+                    SurfaceResumeBindingSnapshot(
+                        name: "Codex",
+                        kind: "codex",
+                        command: "codex resume scratch-thread",
+                        cwd: "/tmp/scratch",
+                        checkpointId: nil,
+                        source: activeSource,
+                        autoResume: true,
+                        updatedAt: 20
+                    ),
+                    panelId: panelId
+                )
+            )
+
+            XCTAssertTrue(workspace.clearSurfaceResumeBinding(panelId: panelId))
+            XCTAssertNil(workspace.surfaceResumeBinding(panelId: panelId))
+            let history = workspace.surfaceResumeBindingHistory(panelId: panelId)
+            XCTAssertEqual(history.map(\.command), ["codex resume real-thread"])
+            XCTAssertEqual(history.compactMap(\.checkpointId), ["real-thread"])
+        }
+    }
+
+    @MainActor
     func testSnapshotPrefersProcessDetectedTmuxOverAgentHookBinding() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)

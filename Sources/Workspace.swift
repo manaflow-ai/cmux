@@ -4829,25 +4829,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func removeSurfaceResumeBindingFromHistory(
         panelId: UUID,
-        checkpointId: String?,
-        source: String?
+        binding removedBinding: SurfaceResumeBindingSnapshot
     ) {
         guard let existing = surfaceResumeBindingHistoriesByPanelId[panelId], !existing.isEmpty else {
             return
         }
-        let normalizedCheckpoint = checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedSource = source?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filtered: [SurfaceResumeBindingSnapshot]
-        if normalizedCheckpoint?.isEmpty == false || normalizedSource?.isEmpty == false {
-            filtered = existing.filter { binding in
-                let checkpointMatches = normalizedCheckpoint?.isEmpty != false ||
-                    binding.checkpointId == normalizedCheckpoint
-                let sourceMatches = normalizedSource?.isEmpty != false ||
-                    binding.source == normalizedSource
-                return !(checkpointMatches && sourceMatches)
-            }
-        } else {
-            filtered = []
+        let removedIdentity = Self.surfaceResumeBindingHistoryIdentity(removedBinding)
+        let filtered = existing.filter {
+            Self.surfaceResumeBindingHistoryIdentity($0) != removedIdentity
         }
         if filtered.isEmpty {
             surfaceResumeBindingHistoriesByPanelId.removeValue(forKey: panelId)
@@ -4874,8 +4863,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let removed {
             removeSurfaceResumeBindingFromHistory(
                 panelId: panelId,
-                checkpointId: removed.checkpointId,
-                source: removed.source
+                binding: removed
             )
         } else {
             surfaceResumeBindingHistoriesByPanelId.removeValue(forKey: panelId)
