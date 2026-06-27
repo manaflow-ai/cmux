@@ -331,6 +331,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
         switch method {
         case "mobile.workspace.list", "workspace.list":
+            if ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false && workspaceSelection.value == nil {
+                return true
+            }
             return !ticketCoverage.ticketCoversTerminalRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value,

@@ -1383,7 +1383,7 @@ final class MobileHostService {
 
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
-            return ticketTerminalAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value, terminalSelection: terminalSelection.value)
+            return authorization.ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false && workspaceSelection.value == nil ? scopedTicketError : ticketTerminalAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value, terminalSelection: terminalSelection.value)
         case "workspace.create":
             return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: nil)
         case "workspace.group.collapse", "workspace.group.expand":

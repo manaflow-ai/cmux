@@ -420,7 +420,7 @@ struct MobileHostAuthorizationTests {
 
         #expect(error?.code == "forbidden")
     }
-    @Test(arguments: [[String: String](), ["workspace_id": "other-workspace"]])
+    @Test(arguments: [[String: String](), ["workspace_id": "other-workspace"], ["terminal_id": "terminal"]])
     func testScopedAttachTicketRejectsWorkspaceListOutsideScope(params: [String: String]) throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(

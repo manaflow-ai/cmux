@@ -393,7 +393,7 @@ let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.sortKey(f
     actor FakePairedStore: MobilePairedMacStoring {
         var macs: [MobilePairedMac]
         init(macs: [MobilePairedMac]) { self.macs = macs }
-        func upsert(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], attachToken: String?, attachTokenExpiresAt: Date?, markActive: Bool, stackUserID: String?, teamID: String?, now: Date) async throws {}
+        func upsert(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], attachToken: String?, attachTokenExpiresAt: Date?, attachTokenWorkspaceID: String?, attachTokenTerminalID: String?, markActive: Bool, stackUserID: String?, teamID: String?, now: Date) async throws {}
         func updateRoutes(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], stackUserID: String?, teamID: String?, now: Date) async throws {}
         func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
             guard let stackUserID else { return macs }
