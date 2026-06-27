@@ -24,53 +24,59 @@ final class ChatScrollEdgeCoordinator {
 
     private func configureEdgeEffect(for tableView: ChatTranscriptUITableView?) {
         guard let tableView else { return }
-        if #available(iOS 26.0, *) {
-            tableView.topEdgeEffect.style = .soft
-            tableView.bottomEdgeEffect.style = .soft
-        }
+        #if compiler(>=6.2)
+            if #available(iOS 26.0, *) {
+                tableView.topEdgeEffect.style = .soft
+                tableView.bottomEdgeEffect.style = .soft
+            }
+        #endif
     }
 
     private func configureContentScrollView(
         _ tableView: ChatTranscriptUITableView?,
         owner: UIViewController
     ) {
-        if #available(iOS 26.0, *) {
-            let topController = tableView == nil
-                ? nil
-                : nearestNavigationContentViewController(from: owner) ?? owner
-            if topContentScrollViewController !== topController {
-                clearTopContentScrollViewController()
-                topContentScrollViewController = topController
+        #if compiler(>=6.2)
+            if #available(iOS 26.0, *) {
+                let topController = tableView == nil
+                    ? nil
+                    : nearestNavigationContentViewController(from: owner) ?? owner
+                if topContentScrollViewController !== topController {
+                    clearTopContentScrollViewController()
+                    topContentScrollViewController = topController
+                }
+                topController?.setContentScrollView(tableView, for: .top)
             }
-            topController?.setContentScrollView(tableView, for: .top)
-        }
+        #endif
     }
 
     private func configureBottomInteraction(
         _ tableView: ChatTranscriptUITableView?,
         composerView: UIView
     ) {
-        if #available(iOS 26.0, *) {
-            guard let tableView else {
-                resetBottomInteraction()
-                return
-            }
+        #if compiler(>=6.2)
+            if #available(iOS 26.0, *) {
+                guard let tableView else {
+                    resetBottomInteraction()
+                    return
+                }
 
-            let interaction: UIScrollEdgeElementContainerInteraction
-            if let existing = bottomInteraction as? UIScrollEdgeElementContainerInteraction {
-                interaction = existing
-            } else {
-                interaction = UIScrollEdgeElementContainerInteraction()
-                interaction.edge = .bottom
-                composerView.addInteraction(interaction)
-                bottomInteraction = interaction
-            }
+                let interaction: UIScrollEdgeElementContainerInteraction
+                if let existing = bottomInteraction as? UIScrollEdgeElementContainerInteraction {
+                    interaction = existing
+                } else {
+                    interaction = UIScrollEdgeElementContainerInteraction()
+                    interaction.edge = .bottom
+                    composerView.addInteraction(interaction)
+                    bottomInteraction = interaction
+                }
 
-            if bottomInteractionTableView !== tableView {
-                interaction.scrollView = tableView
-                bottomInteractionTableView = tableView
+                if bottomInteractionTableView !== tableView {
+                    interaction.scrollView = tableView
+                    bottomInteractionTableView = tableView
+                }
             }
-        }
+        #endif
     }
 
     private func resetBottomInteraction() {
@@ -82,9 +88,11 @@ final class ChatScrollEdgeCoordinator {
     }
 
     private func clearTopContentScrollViewController() {
-        if #available(iOS 26.0, *) {
-            topContentScrollViewController?.setContentScrollView(nil, for: .top)
-        }
+        #if compiler(>=6.2)
+            if #available(iOS 26.0, *) {
+                topContentScrollViewController?.setContentScrollView(nil, for: .top)
+            }
+        #endif
         topContentScrollViewController = nil
     }
 

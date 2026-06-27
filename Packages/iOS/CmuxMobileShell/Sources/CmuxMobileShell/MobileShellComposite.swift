@@ -4758,21 +4758,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let hasAttachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
 
         var requests: [WorkspaceListRequest] = []
-        if hasAttachToken {
-            requests.append(
-                WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
-                    isScoped: false,
-                    preferActiveTicketTarget: true
-                )
-            )
-        }
-
         if !scopedParams.isEmpty {
             requests.append(
                 WorkspaceListRequest(
                     data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: scopedParams),
-                    isScoped: !scopedParams.isEmpty,
+                    isScoped: true,
+                    preferActiveTicketTarget: true
+                )
+            )
+        } else if hasAttachToken {
+            requests.append(
+                WorkspaceListRequest(
+                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
+                    isScoped: false,
                     preferActiveTicketTarget: true
                 )
             )

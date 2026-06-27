@@ -61,19 +61,15 @@ import Testing
             "workspace.list",
             "mobile.attach_ticket.create",
             "workspace.list",
-            "workspace.list",
         ])
-        guard requests.count >= 4 else { return }
+        guard requests.count >= 3 else { return }
         #expect(requests[0].attachToken == "stale-token")
         #expect(requests[0].stackAccessToken == nil)
         #expect(requests[1].attachToken == nil)
         #expect(requests[1].stackAccessToken == "fresh-stack-token")
-        #expect(requests[2].attachToken == nil)
-        #expect(requests[2].stackAccessToken == "fresh-stack-token")
-        #expect(requests[2].workspaceID == nil)
-        #expect(requests[3].attachToken == "fresh-token")
-        #expect(requests[3].stackAccessToken == nil)
-        #expect(requests[3].workspaceID == DurableTicketFallbackRouter.workspaceID)
+        #expect(requests[2].attachToken == "fresh-token")
+        #expect(requests[2].stackAccessToken == nil)
+        #expect(requests[2].workspaceID == DurableTicketFallbackRouter.workspaceID)
     }
 
     @Test func scopedDurableReconnectUsesAttachTokenBeforeStackProbe() async throws {
