@@ -256,7 +256,7 @@ import WebKit
 
     @MainActor
     @Test func promptedDownloadCompletionCallbacksPostFinalEvents() throws {
-        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false); defer { panel.close() }
         let delegate = try #require(panel.downloadDelegate)
         let capture = BrowserDownloadEventCapture()
         let observer = NotificationCenter.default.addObserver(
@@ -286,12 +286,12 @@ import WebKit
         #expect(events[0]["filename"] as? String == "report.csv")
         #expect(events[0]["path"] as? String == savedURL.path)
         #expect(events[1]["filename"] as? String == "cancelled.txt")
-        #expect(events[2]["error"] as? String == "disk full")
+        #expect(events[2]["error"] as? String == String(localized: "browser.download.error.generic", defaultValue: "Download failed"))
     }
 
     @MainActor
     @Test func sessionDownloadBridgePostsAutomationEvents() throws {
-        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false); defer { panel.close() }
         let capture = BrowserDownloadEventCapture()
         let observer = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,

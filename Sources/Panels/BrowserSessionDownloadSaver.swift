@@ -49,9 +49,14 @@ final class BrowserSessionDownloadSaver {
             case .success(let destinationURL):
                 self.debugLog("browser.ctxdl.\(logCategory) trace=\(traceID) stage=saveSuccess path=<redacted>")
                 self.notifyEvent(["type": "saved", "download_id": downloadID, "filename": saveName, "path": destinationURL.path])
-            case .failure(let error):
-                self.debugLog("browser.ctxdl.\(logCategory) trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)")
-                self.notifyEvent(["type": "failed", "download_id": downloadID, "filename": saveName, "error": error.localizedDescription])
+            case .failure:
+                self.debugLog("browser.ctxdl.\(logCategory) trace=\(traceID) stage=saveFailure error=<redacted>")
+                self.notifyEvent([
+                    "type": "failed",
+                    "download_id": downloadID,
+                    "filename": saveName,
+                    "error": String(localized: "browser.download.error.generic", defaultValue: "Download failed"),
+                ])
                 if let failureFallbackReason {
                     self.runFallback(fallbackAction, fallbackTarget, sender, traceID, failureFallbackReason)
                 }

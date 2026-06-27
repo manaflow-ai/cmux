@@ -4076,12 +4076,12 @@ final class BrowserPanel: Panel, ObservableObject {
                 ]
             )
         }
-        dlDelegate.onDownloadFailed = { [weak self] error, shouldEndActivity, downloadID in
+        dlDelegate.onDownloadFailed = { [weak self] _, shouldEndActivity, downloadID in
             guard let self else { return }
             if shouldEndActivity { self.endDownloadActivity() }
             var event: [String: Any] = [
                 "type": "failed",
-                "error": error.localizedDescription
+                "error": String(localized: "browser.download.error.generic", defaultValue: "Download failed")
             ]
             if let downloadID {
                 event["download_id"] = downloadID
