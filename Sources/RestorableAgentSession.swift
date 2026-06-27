@@ -1250,22 +1250,22 @@ struct RestorableAgentSessionIndex: Sendable {
         normalizedNonEmptyValue(rawValue)
     }
 
-    /// Drops launch captures that cannot describe this agent kind: a capture
-    /// inherited from a different agent's session (codex started under claude
-    /// carries claude's `CMUX_AGENT_LAUNCH_*`) or the hook dispatch shell's own
-    /// argv. Resume/fork then fall back to the kind's bare verbs instead of
-    /// rendering the foreign binary. Existing poisoned records heal on load.
+    /// Drops cross-kind launch captures. Shell-dispatch argv is neutralized without
+    /// losing trusted cwd/environment, so resume/fork fall back to bare verbs.
     private static func trustedLaunchCommand(
         _ launchCommand: AgentLaunchCommandSnapshot?,
         kind: RestorableAgentKind
     ) -> AgentLaunchCommandSnapshot? {
         guard let launchCommand else { return nil }
         let launchCaptureTrust = AgentLaunchCaptureTrust()
-        guard launchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
-              !launchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
+        guard launchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue) else {
             return nil
         }
-        return launchCommand
+        guard launchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else { return launchCommand }
+        var sanitized = launchCommand
+        sanitized.executablePath = nil
+        sanitized.arguments = []
+        return sanitized
     }
 
     private static func hookRecordIsRestorable(

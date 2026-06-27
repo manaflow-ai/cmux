@@ -92,21 +92,27 @@ public struct AgentLaunchCaptureTrust: Sendable, Equatable {
     /// `zsh -lc …`) rather than an agent launch. This happens when the
     /// launch-capture PID fallback resolves to the hook's own dispatch shell
     /// instead of the agent process. Requires both a shell argv[0] basename and
-    /// a command-string flag, so an agent that merely shares a shell's name
-    /// (e.g. a wrapper script named `fish`) is not misclassified.
+    /// shell dispatcher/profile-startup flags, so an agent that merely shares a
+    /// shell's name (e.g. a wrapper script named `fish`) is not misclassified.
     /// - Parameter arguments: The captured process argv, including argv[0].
     /// - Returns: Whether argv is a shell command-string dispatcher.
     public func argvLooksLikeShellWrapper(_ arguments: [String]) -> Bool {
         guard executableLooksLikeShell(arguments.first) else { return false }
+        var sawShellStartupOnlyFlag = false
         for argument in arguments.dropFirst() {
             if shellCommandStringFlag(argument) {
                 return true
             }
+            if shellStartupOnlyFlag(argument) {
+                sawShellStartupOnlyFlag = true
+                continue
+            }
             if argument == "--" || !argument.hasPrefix("-") {
                 return false
             }
+            return false
         }
-        return false
+        return sawShellStartupOnlyFlag
     }
 
     private func shellCommandStringFlag(_ flag: String) -> Bool {
@@ -115,6 +121,15 @@ public struct AgentLaunchCaptureTrust: Sendable, Equatable {
         return !letters.isEmpty
             && letters.contains("c")
             && letters.allSatisfy { "cilms".contains($0) }
+    }
+
+    private func shellStartupOnlyFlag(_ flag: String) -> Bool {
+        switch flag {
+        case "--no-config", "--no-rcs", "--noprofile", "--norc":
+            return true
+        default:
+            return false
+        }
     }
 
     /// True when PID-derived process metadata describes the same native agent as
