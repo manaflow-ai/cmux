@@ -56,6 +56,10 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Internal for the cross-file attention extension only.
     @MainActor var pendingApprovalWaitAttentionTargets: [String: AttentionTarget] = [:]
 
+    /// Optional observer for needs-input attention requests. It observes the
+    /// shared production path without replacing workspace/sidebar mutation.
+    @MainActor var needsInputAttentionRequestObserver: (@Sendable (WorkstreamEvent) -> Void)?
+
     private init() {}
 
     /// Must be called once at app launch to install the store.
@@ -88,7 +92,7 @@ final class FeedCoordinator: @unchecked Sendable {
         src.setEventHandler { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
-                self.store?.expireItems(forPpid: ppid)
+                self.expireItemsForTerminatedProcess(ppid: ppid)
                 self.pidWatchers[ppid]?.cancel()
                 self.pidWatchers.removeValue(forKey: ppid)
             }
@@ -105,22 +109,19 @@ final class FeedCoordinator: @unchecked Sendable {
         waitTimeout: TimeInterval
     ) -> IngestBlockingResult {
         guard let requestId = event.requestId, waitTimeout > 0 else {
-            let resolvedAttentionTarget = event.hookEventName == .approvalWait
-                ? Self.resolveAttentionTarget(event: event)
-                : nil
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     FeedCoordinator.shared.concludeApprovalWaitAttention(forWorkstreamId: event.sessionId)
                     FeedCoordinator.shared.store.ingest(event)
+                    let insertedItemId = FeedCoordinator.shared.store.items.last?.id
                     if let ppid = event.ppid, ppid > 0 {
                         FeedCoordinator.shared.armPidWatcher(ppid: ppid)
                     }
-                    if event.hookEventName == .approvalWait,
-                       let target = FeedCoordinator.shared.surfaceNeedsInputAttention(
-                           event: event,
-                           resolved: resolvedAttentionTarget
-                       ) {
-                        FeedCoordinator.shared.pendingApprovalWaitAttentionTargets[event.sessionId] = target
+                    if event.hookEventName == .approvalWait, let insertedItemId {
+                        FeedCoordinator.shared.surfaceApprovalWaitAttentionAfterAcknowledgement(
+                            event: event,
+                            itemId: insertedItemId
+                        )
                     }
                 }
             }
@@ -146,6 +147,7 @@ final class FeedCoordinator: @unchecked Sendable {
             : nil
         DispatchQueue.main.sync {
             MainActor.assumeIsolated {
+                FeedCoordinator.shared.concludeApprovalWaitAttention(forWorkstreamId: event.sessionId)
                 FeedCoordinator.shared.store.ingest(event)
                 itemIdSlot.value = FeedCoordinator.shared.store.items.last?.id
                 if let ppid = event.ppid, ppid > 0 {
@@ -220,6 +222,16 @@ final class FeedCoordinator: @unchecked Sendable {
             conclude()
         } else {
             DispatchQueue.main.async(execute: conclude)
+        }
+    }
+
+    /// Expires items for a terminated agent process and clears any approval-wait
+    /// sidebar attention tied to those expired rows.
+    @MainActor
+    func expireItemsForTerminatedProcess(ppid: Int) {
+        let expiredApprovalWaits = store?.expireItems(forPpid: ppid) ?? []
+        for workstreamId in expiredApprovalWaits {
+            concludeApprovalWaitAttention(forWorkstreamId: workstreamId)
         }
     }
 
@@ -335,11 +347,6 @@ enum FeedCoordinatorTestHooks {
     static var afterBlockingEventIngested: (@Sendable (WorkstreamEvent, String) -> Void)?
     static var isAppActiveOverride: (@Sendable () -> Bool)?
     static var notificationPostObserver: (@Sendable (WorkstreamEvent, String) -> Void)?
-    /// Fires when a needs-input event requests in-app attention surfacing
-    /// (needs-input status + bell + elevation). When set, production
-    /// surfacing is short-circuited so tests can assert the request without a
-    /// live `TabManager`.
-    static var attentionSurfaceObserver: (@Sendable (WorkstreamEvent) -> Void)?
 }
 #endif
 
@@ -1002,9 +1009,10 @@ enum FeedSocketEncoding {
             }
             assignLimitedText(toolInputJSON, key: "tool_input", to: &dict)
             if let pattern { dict["pattern"] = pattern }
-        case .approvalWait(let toolName, let toolInputJSON):
+        case .approvalWait(let toolName, _):
             dict["tool_name"] = toolName
-            assignLimitedText(toolInputJSON, key: "tool_input", to: &dict)
+            dict["tool_input"] = "[REDACTED]"
+            dict["tool_input_redacted"] = true
         case .exitPlan(let requestId, let plan, let defaultMode):
             dict["request_id"] = requestId
             assignLimitedText(plan, key: "plan", to: &dict)

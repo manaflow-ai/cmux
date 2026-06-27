@@ -171,16 +171,6 @@ public final class WorkstreamStore {
         items[idx].updatedAt = now
     }
 
-    /// Marks one still-pending approval-wait item as cleared because the
-    /// agent emitted another event and is no longer waiting at that prompt.
-    public func markCleared(_ itemId: UUID) {
-        guard let idx = items.firstIndex(where: { $0.id == itemId }) else { return }
-        guard items[idx].kind == .approvalWait, items[idx].status.isPending else { return }
-        let now = clock()
-        items[idx].status = .cleared(at: now)
-        items[idx].updatedAt = now
-    }
-
     /// Marks every still-pending item created before `threshold` as
     /// expired. Call periodically to clean stale items.
     public func expirePending(olderThan threshold: TimeInterval) {
@@ -249,17 +239,27 @@ public final class WorkstreamStore {
         )
     }
 
-    /// Marks every pending item with `ppid` as `.expired`. Meant to
-    /// be called from a kqueue/DispatchSource process-exit handler
-    /// so the exact moment an agent dies, its pending cards close.
-    public func expireItems(forPpid ppid: Int) {
+    /// Marks every pending item with `ppid` as `.expired`.
+    ///
+    /// Meant to be called from a kqueue/DispatchSource process-exit handler so
+    /// the exact moment an agent dies, its pending cards close.
+    ///
+    /// - Returns: Workstream IDs for approval-wait rows expired by this call.
+    @discardableResult
+    public func expireItems(forPpid ppid: Int) -> [String] {
         let now = clock()
+        var expiredApprovalWaitWorkstreamIds: [String] = []
         for idx in items.indices {
             guard items[idx].status.isPending,
                   items[idx].ppid == ppid else { continue }
+            if items[idx].kind == .approvalWait,
+               !expiredApprovalWaitWorkstreamIds.contains(items[idx].workstreamId) {
+                expiredApprovalWaitWorkstreamIds.append(items[idx].workstreamId)
+            }
             items[idx].status = .expired(at: now)
             items[idx].updatedAt = now
         }
+        return expiredApprovalWaitWorkstreamIds
     }
 
     /// Marks every pending item whose emitting agent process is no

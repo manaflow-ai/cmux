@@ -54,15 +54,7 @@ extension FeedCoordinator {
         resolved: (workspaceId: UUID, surfaceId: UUID?)?
     ) -> AttentionTarget? {
         guard Self.isNeedsInputAttentionEvent(event.hookEventName) else { return nil }
-
-        #if DEBUG
-        // Tests observe every needs-input request through this seam without
-        // requiring a live workspace/sidebar graph.
-        if let observer = FeedCoordinatorTestHooks.attentionSurfaceObserver {
-            observer(event)
-            return nil
-        }
-        #endif
+        needsInputAttentionRequestObserver?(event)
 
         guard let resolved else {
             #if DEBUG
@@ -113,6 +105,26 @@ extension FeedCoordinator {
         return target
     }
 
+    /// Resolves a non-blocking approval wait target after `feed.push` has
+    /// already acknowledged the socket caller.
+    @MainActor
+    func surfaceApprovalWaitAttentionAfterAcknowledgement(event: WorkstreamEvent, itemId: UUID) {
+        Task.detached(priority: .utility) { [event, itemId] in
+            let resolved = Self.resolveAttentionTarget(event: event)
+            await MainActor.run {
+                guard FeedCoordinator.shared.hasPendingApprovalWait(itemId: itemId) else {
+                    return
+                }
+                if let target = FeedCoordinator.shared.surfaceNeedsInputAttention(
+                    event: event,
+                    resolved: resolved
+                ) {
+                    FeedCoordinator.shared.pendingApprovalWaitAttentionTargets[event.sessionId] = target
+                }
+            }
+        }
+    }
+
     /// Concludes a needs-input attention overlay without clearing newer agent state.
     @MainActor
     func concludeNeedsInputAttention(_ target: AttentionTarget) {
@@ -144,6 +156,15 @@ extension FeedCoordinator {
             return
         }
         concludeNeedsInputAttention(target)
+    }
+
+    @MainActor
+    private func hasPendingApprovalWait(itemId: UUID) -> Bool {
+        store.items.contains { item in
+            item.id == itemId
+                && item.kind == .approvalWait
+                && item.status.isPending
+        }
     }
 
     /// Resolves the `(workspace, surface)` an attention overlay should target.

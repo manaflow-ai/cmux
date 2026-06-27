@@ -92,6 +92,30 @@ struct WorkstreamStoreTests {
         #expect(store.items[2].status.isPending)
     }
 
+    @Test("expireItems reports approval-wait workstream IDs it expired")
+    func expireItemsReportsApprovalWaitWorkstreamIds() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .approvalWait,
+            source: "codex",
+            toolName: "shell",
+            toolInputJSON: #"{"command":"touch /tmp/x"}"#,
+            ppid: 123
+        ))
+        store.ingest(.permission("claude-session", requestId: "r1", ppid: 123))
+
+        let expiredApprovalWaitIds = store.expireItems(forPpid: 123)
+
+        #expect(expiredApprovalWaitIds == ["codex-session"])
+        #expect(store.pending.isEmpty)
+        if case .expired = store.items[0].status {
+            // ok
+        } else {
+            Issue.record("expected approval wait to expire")
+        }
+    }
+
     @Test("expirePending moves stale pending items to expired")
     func expirePending() {
         let clock = TestClock(initial: Date(timeIntervalSince1970: 0))

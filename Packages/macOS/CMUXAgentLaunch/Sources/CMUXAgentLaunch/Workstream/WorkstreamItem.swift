@@ -14,7 +14,7 @@ public enum WorkstreamDecision: Codable, Sendable, Equatable {
 /// Lifecycle state of a `WorkstreamItem`.
 public enum WorkstreamStatus: Codable, Sendable, Equatable {
     /// Actionable item awaiting user input. Only valid for
-    /// `.permissionRequest`, `.exitPlan`, `.question`.
+    /// `.permissionRequest`, `.approvalWait`, `.exitPlan`, `.question`.
     case pending
     /// Actionable item the user resolved with the given decision.
     case resolved(WorkstreamDecision, at: Date)
