@@ -67,6 +67,11 @@ struct WorkspaceDetailView: View {
     @State private var chatSessions: [ChatSessionDescriptor] = []
     /// Per-session composer drafts, surviving toggles back to the terminal.
     @State private var chatDrafts: [String: String] = [:]
+    /// App lifecycle phase. Returning from `.background` re-pulls the session
+    /// list: pushes are best-effort and can be dropped while suspended, so on
+    /// foreground we re-read the host's authoritative list rather than trust
+    /// that every push arrived.
+    @Environment(\.scenePhase) private var scenePhase
     #endif
 
     private var selectedTerminal: MobileTerminalPreview? {
@@ -204,9 +209,19 @@ struct WorkspaceDetailView: View {
         pinnedChatSessionID = isChatMode ? chosenChatSession?.id : nil
     }
 
-    /// Identity for the session refetch: workspace plus connection epoch.
+    /// Identity for the session refetch: workspace, connection epoch, and a
+    /// foreground epoch. A change re-runs `.task(id:)`, which re-subscribes to
+    /// the push stream and re-pulls the authoritative session list.
+    ///
+    /// The foreground epoch flips only on `.background` (not transient
+    /// `.inactive` like control center or a banner), so a real
+    /// background-then-foreground re-pulls while momentary inactivity does not
+    /// churn the subscription. `.background` tears the stream down to save
+    /// battery; returning to the foreground re-establishes and reconciles.
     private var chatRefreshKey: String {
-        "\(workspace.id.rawValue)#\(store.connectionState == .connected ? 1 : 0)"
+        let connected = store.connectionState == .connected ? 1 : 0
+        let foreground = scenePhase == .background ? 0 : 1
+        return "\(workspace.id.rawValue)#\(connected)#\(foreground)"
     }
 
     /// Keeps the chat-capable session list current while this workspace is
@@ -232,11 +247,33 @@ struct WorkspaceDetailView: View {
         // wire is the "appears real quickly but not smooth" moment).
         let seeded = (try? await source.sessions(workspaceID: workspace.id.rawValue)) ?? []
         withAnimation(.snappy(duration: 0.25)) { chatSessions = seeded }
+        repinToReopenedSession()
         applyChatModeFallback()
         for await frame in stream {
             let next = reducer.applying(frame, to: chatSessions)
             withAnimation(.snappy(duration: 0.25)) { chatSessions = next }
+            repinToReopenedSession()
             applyChatModeFallback()
+        }
+    }
+
+    /// While chat is open and pinned to a session that has ENDED, if the agent
+    /// was reopened on the same terminal (a newer, non-ended session bound to
+    /// the same terminal id), re-pin to it so the GUI becomes editable again.
+    /// Only an ended pin is switched, never a live one, so an active read is
+    /// never swapped out; `.id(session.id)` rebuilds the conversation store for
+    /// the new session.
+    private func repinToReopenedSession() {
+        guard isChatMode,
+              let pinnedID = pinnedChatSessionID,
+              let pinned = chatSessions.first(where: { $0.id == pinnedID }),
+              pinned.state == .ended,
+              let terminalID = pinned.terminalID else { return }
+        let live = chatSessions
+            .filter { $0.terminalID == terminalID && $0.id != pinnedID && $0.state != .ended }
+            .max { ($0.lastActivityAt ?? .distantPast) < ($1.lastActivityAt ?? .distantPast) }
+        if let live {
+            pinnedChatSessionID = live.id
         }
     }
 
