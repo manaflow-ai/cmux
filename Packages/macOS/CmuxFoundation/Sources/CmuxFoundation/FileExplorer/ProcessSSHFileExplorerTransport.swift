@@ -6,7 +6,7 @@ public import Foundation
 /// (the blocking `waitUntilExit` would otherwise stall the pool) and bridges
 /// cancellation to `Process.terminate()` via a ``ProcessTerminationGate``. Home
 /// resolution and listing capture stdout; download streams stdout into a local file.
-public final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
+public final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport, Sendable {
     /// The shared process-based transport used by SSH file-explorer providers.
     public static let shared = ProcessSSHFileExplorerTransport()
 

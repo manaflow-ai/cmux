@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Lenient coercion reads over an untyped JSON scalar.
 ///
