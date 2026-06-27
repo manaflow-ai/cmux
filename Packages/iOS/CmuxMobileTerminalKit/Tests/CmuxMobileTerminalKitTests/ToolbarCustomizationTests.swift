@@ -264,14 +264,19 @@ struct CustomToolbarActionTests {
             title: "⌥←",
             payload: .keyCombo(modifiers: [.alternate], key: .leftArrow)
         )
+        // Option+Left is the readline META word-move ESC b — what macOS terminals
+        // send for Option+Arrow and what zsh/bash bind. (The xterm Alt-cursor form
+        // ESC[1;3D is unbound and echoes literally — the build-4 regression.)
         #expect(altLeft.output == Data([0x1B, 0x62]))
     }
 
     @Test("unencodable key combo produces no output")
     func unencodableCombo() {
+        // Ctrl+Tab has no terminal encoding (Tab defines only plain + Shift); the
+        // arrow/nav keys are all encodable now via the CSI modifier matrix.
         let action = CustomToolbarAction(
             title: "x",
-            payload: .keyCombo(modifiers: [.control], key: .upArrow)
+            payload: .keyCombo(modifiers: [.control], key: .tab)
         )
         #expect(action.output == nil)
     }

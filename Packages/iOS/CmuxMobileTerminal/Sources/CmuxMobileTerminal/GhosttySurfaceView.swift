@@ -575,10 +575,39 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// elapsed time regardless of frame rate.
     private var zoomOverlayLastInteraction: CFTimeInterval = 0
     private static let zoomOverlayVisibleDuration: CFTimeInterval = 2.5
+    /// Transient "Copied N characters" HUD shown after a drag-select copy, created
+    /// lazily on the first copy. A blur chip + label (matching the zoom HUD's
+    /// title chip), centered near the top so it never overlaps the centered zoom
+    /// HUD.
+    private var copyToastOverlay: UIView?
+    private var copyToastLabel: UILabel?
+    /// Whether the copy toast is currently presented (alpha animating toward 1).
+    private var copyToastShown = false
+    /// Media time the copy toast was last shown. The display link fades it once
+    /// this is older than `copyToastVisibleDuration` — time-based off the per-frame
+    /// callback, NOT a `Timer`/`DispatchQueue.asyncAfter`, so it honors the same
+    /// no-sleep rule as the zoom HUD fade and tracks real elapsed time.
+    private var copyToastLastShown: CFTimeInterval = 0
+    private static let copyToastVisibleDuration: CFTimeInterval = 1.5
     /// Persisted user "default zoom" backing the zoom-control overlay's
     /// reset/save/restore actions. Owned by the surface (constructed at init)
     /// rather than reached through a singleton, so it is injectable in tests.
     private let zoomPreference = MobileTerminalZoomPreference()
+    /// Persisted "one-finger selects / two-finger scrolls" gesture mode. Owned by
+    /// the surface (like ``zoomPreference``) so it is injectable in tests; applied
+    /// live via ``applyGesturePreference()`` on its change notification.
+    private let gesturePreference = MobileTerminalGesturePreference()
+    /// The one-finger text-selection drag, retained weakly so
+    /// ``applyGesturePreference()`` can enable/disable it as the preference flips.
+    /// Restricted to `.direct` (finger) touches so it never double-fires with the
+    /// indirect-pointer selection pan below.
+    private weak var selectionPanRecognizer: UIPanGestureRecognizer?
+    /// The trackpad / indirect-pointer (mouse) click-drag text-selection pan,
+    /// routed to the same ``handleSelectionPan(_:)`` handler. Restricted to
+    /// `.indirectPointer` touches and kept always-enabled: the one-finger-selects
+    /// preference governs finger touches only, and a trackpad click-drag is
+    /// unambiguous selection intent.
+    private weak var selectionPointerPanRecognizer: UIPanGestureRecognizer?
     private let bridge = GhosttySurfaceBridge()
     private let prefersSnapshotFallbackRendering = false
     var onFocusInputRequestedForTesting: (() -> Void)?
@@ -586,6 +615,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var displayLink: CADisplayLink?
     private var cursorBlinkState = TerminalCursorBlinkState()
     private var cursorOverlayLayer: CALayer?
+    /// Self-owned drag-selection highlight, layered above the Metal surface so
+    /// inbound render-grid frames never overwrite it. The on-device ghostty
+    /// selection is invisible on the iPad mirror (the Mac owns it and re-streams
+    /// highlighted cells), so the one-finger / trackpad drag selection is drawn
+    /// and tracked entirely here; see ``handleSelectionPan(_:)``. Lazily created
+    /// on the first drag.
+    private var selectionOverlay: TerminalSelectionOverlay?
+    /// Viewport cell captured at the drag's true touch-down (`.began`), held as
+    /// the fixed anchor while the focus cell tracks the finger on `.changed`.
+    /// `nil` whenever no drag selection is in flight.
+    private var selectionAnchorCell: TerminalGridCell?
+    /// Terminal `selection-background` color, read from config alongside the
+    /// background/cursor colors. `nil` falls back to a translucent system tint.
+    private(set) var configSelectionColor: UIColor?
     /// Whether the host terminal currently wants the cursor shown (DECTCEM).
     /// TUIs that hide the cursor (vim, fzf, htop, less, …) emit `ESC [ ? 25 l`;
     /// the render-grid producer forwards that in the VT-patch bytes, so we track
@@ -1028,6 +1071,31 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         addGestureRecognizer(pinch)
 
+        // One-finger text-selection drag. Enabled (and the scroll view bumped to
+        // two-finger) only while `gesturePreference.oneFingerSelects` is on; see
+        // `applyGesturePreference()`, called at the end of init and on the pref's
+        // change notification.
+        let selectPan = UIPanGestureRecognizer(target: self, action: #selector(handleSelectionPan(_:)))
+        selectPan.maximumNumberOfTouches = 1
+        selectPan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        selectPan.delegate = self
+        addGestureRecognizer(selectPan)
+        selectionPanRecognizer = selectPan
+
+        // Trackpad / indirect-pointer (mouse) click-drag selection. Same handler
+        // as `selectPan`, but restricted to `.indirectPointer` touches so the two
+        // never double-fire, and always enabled (a trackpad click-drag is
+        // unambiguous selection intent, independent of the one-finger-selects
+        // touch preference). `allowedScrollTypesMask` stays empty: two-finger
+        // trackpad scrolling is a scroll event handled by `scrollMechanicsView`,
+        // not a pointer click-drag, so this pan correctly ignores it.
+        let pointerSelectPan = UIPanGestureRecognizer(target: self, action: #selector(handleSelectionPan(_:)))
+        pointerSelectPan.maximumNumberOfTouches = 1
+        pointerSelectPan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)]
+        pointerSelectPan.delegate = self
+        addGestureRecognizer(pointerSelectPan)
+        selectionPointerPanRecognizer = pointerSelectPan
+
         // Suspend rendering on `willResignActive` (fires before
         // `didEnterBackground`, while the GPU is still usable) so an in-flight
         // `render_now` drains and no new one is dispatched into the background.
@@ -1062,6 +1130,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             name: UIResponder.keyboardWillChangeFrameNotification,
             object: nil
         )
+        // Flip the one-finger-selects / two-finger-scroll wiring live when the
+        // Settings toggle changes it.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleGesturePreferenceChanged),
+            name: MobileTerminalGesturePreference.didChangeNotification,
+            object: nil
+        )
+
+        applyGesturePreference()
     }
 
     @objc private func handleAppWillResignActive() {
@@ -1926,14 +2004,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
-    /// alt-screen mouse-wheel reports at the cell under the finger.
+    /// alt-screen mouse-wheel reports at the cell under the finger and the drag
+    /// selection anchors on the cell the finger is actually over. Routed through
+    /// ``selectionGeometry(for:)`` so this point→cell hit-test and the overlay's
+    /// cell→rect math are the SAME ghostty geometry — true cell advance plus the
+    /// `window-padding` glyph inset — and can never drift apart.
     private func scrollCell(at point: CGPoint) -> (col: Int, row: Int) {
-        let scale = max(preferredScreenScale, 1)
-        let cellW = max(cellPixelSize.width / scale, 1)
-        let cellH = max(cellPixelSize.height / scale, 1)
-        let col = max(0, Int((point.x - lastRenderRect.minX) / cellW))
-        let row = max(0, Int((point.y - lastRenderRect.minY) / cellH))
-        return (col, row)
+        guard let surface, let geometry = selectionGeometry(for: surface) else { return (0, 0) }
+        let cell = TerminalSelectionGeometry.cell(at: point, geometry: geometry)
+        return (cell.col, cell.row)
     }
 
     private func flushPendingScrollIfNeeded() {
@@ -1943,6 +2022,245 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingScrollLines = 0
         applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
         delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
+    }
+
+    /// Apply the one-finger-selects preference to the live recognizers. When on,
+    /// a single finger drives text selection and the scroll view needs two
+    /// fingers to pan; when off, the scroll view reverts to one-finger scrolling
+    /// (the original behavior) and the selection drag is disabled.
+    private func applyGesturePreference() {
+        if gesturePreference.oneFingerSelects {
+            scrollMechanicsView.panGestureRecognizer.minimumNumberOfTouches = 2
+            selectionPanRecognizer?.isEnabled = true
+        } else {
+            scrollMechanicsView.panGestureRecognizer.minimumNumberOfTouches = 1
+            selectionPanRecognizer?.isEnabled = false
+        }
+    }
+
+    @objc private func handleGesturePreferenceChanged() {
+        applyGesturePreference()
+    }
+
+    /// One-finger (and trackpad / indirect-pointer) drag → a self-owned text
+    /// selection highlight, independent of ghostty's selection and the inbound
+    /// render-grid stream.
+    ///
+    /// The iPad terminal is a thin mirror: the Mac owns ghostty's selection and
+    /// re-streams already-highlighted cells, so driving the LOCAL surface's
+    /// selection (the old `ghostty_surface_mouse_*` path) was invisible — the
+    /// Mac never heard it and the next inbound frame repainted over it. Instead
+    /// the drag tracks an anchor cell at touch-down and a focus cell under the
+    /// finger, paints the selected rects into ``selectionOverlay`` (layered above
+    /// the Metal surface), and on release extracts the text from the local grid
+    /// mirror via `ghostty_surface_read_text` and copies it to the pasteboard.
+    ///
+    /// The double/triple-tap word/line path (``handleTap`` → `didTapAtCol` → Mac
+    /// round-trip) is unaffected; only the drag is local.
+    @objc private func handleSelectionPan(_ recognizer: UIPanGestureRecognizer) {
+        let kind = recognizer === selectionPointerPanRecognizer ? "pointer" : "touch"
+        guard let surface else {
+            log.notice("selectPan ignored kind=\(kind, privacy: .public) reason=no-surface state=\(recognizer.state.rawValue, privacy: .public)")
+            return
+        }
+        guard let geometry = selectionGeometry(for: surface) else {
+            log.notice("selectPan ignored kind=\(kind, privacy: .public) reason=no-geometry state=\(recognizer.state.rawValue, privacy: .public)")
+            return
+        }
+        let point = recognizer.location(in: self)
+        switch recognizer.state {
+        case .began:
+            // A `UIPanGestureRecognizer` only reaches `.began` AFTER the touch
+            // crosses the ~10pt pan slop, so `point` is already past the true
+            // touch-down. Recover the down-point from the recognizer's cumulative
+            // translation so the anchor cell is the cell the finger actually
+            // started on (the same recovery taps rely on for the start cell).
+            let translation = recognizer.translation(in: self)
+            let startPoint = CGPoint(x: point.x - translation.x, y: point.y - translation.y)
+            let anchor = gridCell(at: startPoint)
+            let focus = gridCell(at: point)
+            selectionAnchorCell = anchor
+            ensureSelectionOverlay().setColor(selectionHighlightColor.cgColor)
+            renderSelectionOverlay(anchor: anchor, focus: focus, geometry: geometry)
+            log.notice("selectPan.began kind=\(kind, privacy: .public) anchorCell=(\(anchor.col, privacy: .public),\(anchor.row, privacy: .public)) nowCell=(\(focus.col, privacy: .public),\(focus.row, privacy: .public))")
+        case .changed:
+            guard let anchor = selectionAnchorCell else { return }
+            let focus = gridCell(at: point)
+            renderSelectionOverlay(anchor: anchor, focus: focus, geometry: geometry)
+        case .ended:
+            guard let anchor = selectionAnchorCell else { return }
+            let focus = gridCell(at: point)
+            renderSelectionOverlay(anchor: anchor, focus: focus, geometry: geometry)
+            log.notice("selectPan.ended kind=\(kind, privacy: .public) anchorCell=(\(anchor.col, privacy: .public),\(anchor.row, privacy: .public)) endCell=(\(focus.col, privacy: .public),\(focus.row, privacy: .public))")
+            finalizeLocalSelection(anchor: anchor, focus: focus, geometry: geometry, surface: surface)
+        case .cancelled, .failed:
+            log.notice("selectPan.cancelled kind=\(kind, privacy: .public)")
+            clearLocalSelectionOverlay()
+        default:
+            break
+        }
+    }
+
+    /// Wrap `scrollCell(at:)` into a ``TerminalGridCell``. Taps use the same
+    /// mapping, so the drag anchor lands on the same cell a tap there would.
+    private func gridCell(at point: CGPoint) -> TerminalGridCell {
+        let cell = scrollCell(at: point)
+        return TerminalGridCell(col: cell.col, row: cell.row)
+    }
+
+    /// Snapshot the current cell metrics for selection math, using ghostty's OWN
+    /// rendering geometry so a cell's rect covers the exact pixels ghostty drew
+    /// the glyph into (and `scrollCell(at:)` maps a point inside that rect back
+    /// to the same cell):
+    ///
+    /// - cell size is the TRUE per-cell advance `cell_width_px` / `cell_height_px`
+    ///   reported by `ghostty_surface_size`, NOT the legacy `width_px / columns`
+    ///   (`width_px` is the full surface incl. padding, so that average folds the
+    ///   right-edge remainder into every column and drifts the highlight off the
+    ///   glyphs — worse the further right you go);
+    /// - origin is `lastRenderRect.origin` plus the `window-padding` glyph inset,
+    ///   because ghostty draws the grid inset from the surface edge
+    ///   (`col = floor((x − padding.left) / cell_width)`, `renderer/size.zig`).
+    ///
+    /// `nil` until the first layout has measured a non-empty render rect and a
+    /// real cell size.
+    private func selectionGeometry(for surface: ghostty_surface_t) -> TerminalSelectionCellGeometry? {
+        guard !lastRenderRect.isEmpty, cellPixelSize.width > 0, cellPixelSize.height > 0 else {
+            return nil
+        }
+        let size = ghostty_surface_size(surface)
+        guard size.cell_width_px > 0, size.cell_height_px > 0 else { return nil }
+        let scale = max(preferredScreenScale, 1)
+        let inset = Self.gridGlyphInsetPoints(scale: scale)
+        return TerminalSelectionCellGeometry(
+            origin: CGPoint(
+                x: lastRenderRect.minX + inset.x,
+                y: lastRenderRect.minY + inset.y
+            ),
+            cellWidth: max(CGFloat(size.cell_width_px) / scale, 1),
+            cellHeight: max(CGFloat(size.cell_height_px) / scale, 1),
+            columns: Int(size.columns),
+            rows: Int(size.rows)
+        )
+    }
+
+    /// Points the rendered grid's first glyph sits inside `lastRenderRect`.
+    /// Ghostty insets the grid by `window-padding-x` / `window-padding-y`
+    /// (``GhosttyRuntime`` iOS config: x left at ghostty's 2pt default, y forced
+    /// to 0), resolved as `floor(points · scale)` pixels then back to points —
+    /// the same `scaledPadding` math `ghostty/src/Surface.zig` runs (iOS font DPI
+    /// is 72, so the cell-pixel scale and the screen-point scale are identical).
+    /// Folding the inset into the selection origin keeps the hit-test and the
+    /// overlay rects on ghostty's true glyph origin instead of the bare
+    /// render-rect corner.
+    private static func gridGlyphInsetPoints(scale: CGFloat) -> CGPoint {
+        let leftPx = (windowPaddingXPoints * scale).rounded(.down)
+        let topPx = (windowPaddingYPoints * scale).rounded(.down)
+        return CGPoint(x: leftPx / scale, y: topPx / scale)
+    }
+
+    /// `window-padding-x` from the iOS ghostty config — left at ghostty's 2pt
+    /// default in ``GhosttyRuntime``; the grid's left glyph edge is inset this far.
+    private static let windowPaddingXPoints: CGFloat = 2
+    /// `window-padding-y` from the iOS ghostty config (``GhosttyRuntime`` sets 0).
+    private static let windowPaddingYPoints: CGFloat = 0
+
+    /// Translucent highlight tint: the terminal's configured `selection-background`
+    /// if present, else a system tint. Alpha is forced translucent so the glyphs
+    /// under the highlight stay legible.
+    private var selectionHighlightColor: UIColor {
+        (configSelectionColor ?? .systemBlue).withAlphaComponent(0.35)
+    }
+
+    private func ensureSelectionOverlay() -> TerminalSelectionOverlay {
+        if let selectionOverlay {
+            return selectionOverlay
+        }
+        let overlay = TerminalSelectionOverlay(color: selectionHighlightColor.cgColor)
+        overlay.attach(to: layer)
+        selectionOverlay = overlay
+        return overlay
+    }
+
+    /// Paint the selection rects for the inclusive `anchor…focus` range.
+    private func renderSelectionOverlay(
+        anchor: TerminalGridCell,
+        focus: TerminalGridCell,
+        geometry: TerminalSelectionCellGeometry
+    ) {
+        let rects = TerminalSelectionGeometry.selectionRects(
+            anchor: anchor,
+            focus: focus,
+            geometry: geometry
+        )
+        ensureSelectionOverlay().update(rects: rects, scale: max(preferredScreenScale, 1))
+    }
+
+    /// On release: extract the selected text from the local grid mirror and put
+    /// it on the system pasteboard. The highlight stays painted (the overlay is
+    /// the source of truth) until a tap, scroll, zoom, or new drag clears it.
+    private func finalizeLocalSelection(
+        anchor: TerminalGridCell,
+        focus: TerminalGridCell,
+        geometry: TerminalSelectionCellGeometry,
+        surface: ghostty_surface_t
+    ) {
+        let range = TerminalSelectionGeometry.normalizedRange(
+            anchor: anchor,
+            focus: focus,
+            columns: geometry.columns,
+            rows: geometry.rows
+        )
+        guard let text = readLocalGridText(start: range.start, end: range.end, surface: surface),
+              !text.isEmpty else {
+            // An empty read (e.g. a whitespace-only span ghostty trims away) has
+            // nothing to copy.
+            log.notice("selectCopy local empty start=(\(range.start.col, privacy: .public),\(range.start.row, privacy: .public)) end=(\(range.end.col, privacy: .public),\(range.end.row, privacy: .public))")
+            return
+        }
+        UIPasteboard.general.string = text
+        log.notice("selectCopy local len=\(text.utf8.count, privacy: .public)")
+
+        // Confirm the copy with a transient HUD ("Copied N characters").
+        presentCopyToast(characterCount: text.count)
+    }
+
+    /// Read the mirrored text for the inclusive viewport cell range. The local
+    /// ghostty surface is fed the Mac's PTY bytes via `process_output`, so its
+    /// screen buffer holds the same cell contents the Mac shows — a
+    /// `GHOSTTY_POINT_VIEWPORT` / `GHOSTTY_POINT_COORD_EXACT` read over the range
+    /// returns the selected text (ghostty handles line joins / trailing-space
+    /// trimming). Only the on-device *selection* is unreliable, not the content.
+    private func readLocalGridText(
+        start: TerminalGridCell,
+        end: TerminalGridCell,
+        surface: ghostty_surface_t
+    ) -> String? {
+        let topLeft = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT,
+            coord: GHOSTTY_POINT_COORD_EXACT,
+            x: UInt32(max(start.col, 0)),
+            y: UInt32(max(start.row, 0))
+        )
+        let bottomRight = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT,
+            coord: GHOSTTY_POINT_COORD_EXACT,
+            x: UInt32(max(end.col, 0)),
+            y: UInt32(max(end.row, 0))
+        )
+        let selection = ghostty_selection_s(top_left: topLeft, bottom_right: bottomRight, rectangle: false)
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let ptr = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
+    }
+
+    /// Drop the drag anchor and hide the highlight. Called on a tap, a scroll, a
+    /// zoom, and a cancelled drag.
+    private func clearLocalSelectionOverlay() {
+        selectionAnchorCell = nil
+        selectionOverlay?.clear()
     }
 
     /// A tap both raises the software keyboard (so the user can type) and
@@ -1957,6 +2275,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // brings back a still-presented composer must restore focus to the COMPOSER
         // field, not the terminal proxy — otherwise the next compose-button tap reads
         // "presented but unfocused" and the prior round dismissed it, losing the draft.
+        // A tap elsewhere dismisses the local drag-selection highlight. The
+        // Mac-owned word/line highlight (double/triple-tap, rendered into the
+        // Metal layer) is independent and unaffected.
+        clearLocalSelectionOverlay()
         let wasHidden = chromeHidden
         if chromeHidden {
             setChromeHidden(false)
@@ -1980,6 +2302,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         switch gesture.state {
         case .began:
             pinchAccumulatedScale = 1.0
+            // A zoom changes the cell size and reflows the viewport, so any
+            // painted selection rects would land on the wrong cells. Drop it.
+            clearLocalSelectionOverlay()
         case .changed:
             let delta = gesture.scale - pinchAccumulatedScale
             if abs(delta) >= 0.15 {
@@ -2168,6 +2493,80 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let availableH = max(1, bounds.height - bottomReserve)
         zoomOverlay.bounds = CGRect(origin: .zero, size: size)
         zoomOverlay.center = CGPoint(x: bounds.midX, y: availableH * 0.45)
+    }
+
+    /// Present (or refresh) the "Copied N characters" HUD and restart its
+    /// quiet-fade window. Mirrors ``showZoomOverlay()``: animate alpha→1 on first
+    /// show, stamp `copyToastLastShown`, and let the display link fade it later.
+    private func presentCopyToast(characterCount: Int) {
+        let overlay = ensureCopyToastOverlay()
+        copyToastLabel?.text = String(
+            localized: "terminal.copy_toast.copied",
+            defaultValue: "Copied \(characterCount) characters"
+        )
+        layoutCopyToastOverlay()
+        copyToastLastShown = CACurrentMediaTime()
+        if !copyToastShown {
+            copyToastShown = true
+            overlay.isHidden = false
+            bringSubviewToFront(overlay)
+            UIView.animate(withDuration: 0.18) { overlay.alpha = 1 }
+        }
+    }
+
+    /// Fade the copy toast out (mirrors ``fadeOutZoomOverlay()``). Driven by the
+    /// display link once the toast has been quiet for `copyToastVisibleDuration`.
+    private func fadeOutCopyToast() {
+        guard copyToastShown, let overlay = copyToastOverlay else { return }
+        copyToastShown = false
+        UIView.animate(
+            withDuration: 0.3,
+            animations: { overlay.alpha = 0 },
+            completion: { [weak overlay] _ in
+                if overlay?.alpha == 0 { overlay?.isHidden = true }
+            }
+        )
+    }
+
+    /// Lazily build the copy toast: a blur chip wrapping a centered label, styled
+    /// to match the zoom HUD's title chip so the two HUDs read as one system.
+    private func ensureCopyToastOverlay() -> UIView {
+        if let copyToastOverlay { return copyToastOverlay }
+        let chip = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterialDark))
+        chip.layer.cornerRadius = 9
+        chip.layer.cornerCurve = .continuous
+        chip.layer.zPosition = 1100
+        chip.clipsToBounds = true
+        chip.alpha = 0
+        chip.isHidden = true
+        let label = UILabel()
+        label.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+        label.textColor = .white
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        chip.contentView.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: chip.contentView.topAnchor, constant: 6),
+            label.bottomAnchor.constraint(equalTo: chip.contentView.bottomAnchor, constant: -6),
+            label.leadingAnchor.constraint(equalTo: chip.contentView.leadingAnchor, constant: 14),
+            label.trailingAnchor.constraint(equalTo: chip.contentView.trailingAnchor, constant: -14),
+        ])
+        addSubview(chip)
+        copyToastOverlay = chip
+        copyToastLabel = label
+        return chip
+    }
+
+    /// Center the copy toast horizontally and pin it near the top of the area
+    /// above the keyboard/toolbar (the zoom HUD owns mid-height at 0.45).
+    private func layoutCopyToastOverlay() {
+        guard let copyToastOverlay else { return }
+        let fitting = copyToastOverlay.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        let size = CGSize(width: max(fitting.width, 1), height: max(fitting.height, 1))
+        let bottomReserve = composerBandHeight + reservedToolbarHeight + keyboardOccupancyInBounds
+        let availableH = max(1, bounds.height - bottomReserve)
+        copyToastOverlay.bounds = CGRect(origin: .zero, size: size)
+        copyToastOverlay.center = CGPoint(x: bounds.midX, y: availableH * 0.14)
     }
 
     #if DEBUG
@@ -2570,6 +2969,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     func disposeSurface() {
         stopDisplayLink()
+        clearLocalSelectionOverlay()
         guard let surface else { return }
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
@@ -2772,6 +3172,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
            CACurrentMediaTime() - zoomOverlayLastInteraction > Self.zoomOverlayVisibleDuration {
             fadeOutZoomOverlay()
         }
+
+        // Fade the copy toast on the SAME quiet-elapsed check, off the same
+        // display link (no timer / `Task.sleep`).
+        if copyToastShown,
+           CACurrentMediaTime() - copyToastLastShown > Self.copyToastVisibleDuration {
+            fadeOutCopyToast()
+        }
     }
 
     /// Drive a full render cycle via `ghostty_surface_render_now`, dispatched
@@ -2933,6 +3340,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 red: CGFloat(cursorColor.r) / 255.0,
                 green: CGFloat(cursorColor.g) / 255.0,
                 blue: CGFloat(cursorColor.b) / 255.0,
+                alpha: 1.0
+            )
+        }
+        var selectionColor = ghostty_config_color_s()
+        let selectionKey = "selection-background"
+        if ghostty_config_get(config, &selectionColor, selectionKey, UInt(selectionKey.lengthOfBytes(using: .utf8))) {
+            configSelectionColor = UIColor(
+                red: CGFloat(selectionColor.r) / 255.0,
+                green: CGFloat(selectionColor.g) / 255.0,
+                blue: CGFloat(selectionColor.b) / 255.0,
                 alpha: 1.0
             )
         }
@@ -3622,6 +4039,24 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
         }
         return true
     }
+
+    /// Let the text-selection pans recognize alongside the full-bounds scroll
+    /// view's recognizers (and its private single-finger touch tracking). The
+    /// scroll view fills the surface and cancels content touches, so UIKit's
+    /// default exclusive arbitration let it starve the ancestor selection pan —
+    /// a one-finger hold-drag never reached `.began` on device. Scoped to the
+    /// selection pans only (direct + indirect pointer); scroll/pinch/tap
+    /// arbitration is unchanged. The pans still honor their own touch-count
+    /// limits, so a two-finger scroll never trips the one-finger selection pan.
+    public func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer === selectionPanRecognizer
+            || gestureRecognizer === selectionPointerPanRecognizer
+            || otherGestureRecognizer === selectionPanRecognizer
+            || otherGestureRecognizer === selectionPointerPanRecognizer
+    }
 }
 
 extension GhosttySurfaceView: UIScrollViewDelegate {
@@ -3639,6 +4074,12 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
 
         let deltaY = offsetY - previousOffsetY
         lastScrollMechanicsOffsetY = offsetY
+        if deltaY != 0 {
+            // Scrolling shifts viewport content under the (viewport-anchored)
+            // highlight, so the painted rects no longer match the selected
+            // cells. Drop the local selection on any real scroll delta.
+            clearLocalSelectionOverlay()
+        }
         if scrollView.isTracking || scrollView.isDragging {
             lastScrollMechanicsTouchPoint = scrollView.panGestureRecognizer.location(in: self)
         }

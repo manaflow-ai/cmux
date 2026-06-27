@@ -7,41 +7,15 @@ import UIKit
 struct TerminalHardwareKeyResolver {
     private init() {}
 
-    private static let supportedModifierFlags: UIKeyModifierFlags = [.shift, .control, .alternate]
-    private static let keyCommands: [TerminalHardwareKeyCommand] = {
-        let navigation = [
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [.alternate]),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [.alternate]),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputHome, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputEnd, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputPageUp, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputPageDown, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputDelete, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputDelete, modifierFlags: [.alternate]),
-            TerminalHardwareKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: []),
-            TerminalHardwareKeyCommand(input: "\t", modifierFlags: []),
-            TerminalHardwareKeyCommand(input: "\t", modifierFlags: [.shift]),
-        ]
-        let controlInputs = Array("abcdefghijklmnopqrstuvwxyz[]\\ 234567/").map(String.init)
-            .map { TerminalHardwareKeyCommand(input: $0, modifierFlags: [.control]) }
-        let shiftedControlInputs = Array("@^_?").map(String.init)
-            .map { TerminalHardwareKeyCommand(input: $0, modifierFlags: [.control, .shift]) }
-        return navigation + controlInputs + shiftedControlInputs
-    }()
-
-    static func makeKeyCommands(target: Any, action: Selector) -> [UIKeyCommand] {
-        keyCommands.map { command in
-            UIKeyCommand(
-                input: command.input,
-                modifierFlags: command.modifierFlags,
-                action: action
-            )
-        }
-    }
+    // No `UIKeyCommand` table lives here anymore. Hardware keys are captured
+    // exclusively by `TerminalInputTextView.pressesBegan` (which runs below the
+    // text-editing layer); a parallel `keyCommands` set produced a second,
+    // racing handler for the same arrows/Ctrl/Shift-Arrow chords — the source of
+    // the inconsistent ("janky") modifier behavior. `pressesBegan` now routes
+    // every special key and Control/Option/Shift chord straight through `data`
+    // below. The lone surviving `UIKeyCommand` (Cmd+V → paste) is wired in
+    // `TerminalInputTextView.keyCommands`, since `shouldConsume` deliberately
+    // lets plain Command fall through to the system paste path.
 
     /// Maps a `UIKeyCommand.input*` string to a platform-neutral special key.
     /// Returns `nil` for ordinary character inputs.
