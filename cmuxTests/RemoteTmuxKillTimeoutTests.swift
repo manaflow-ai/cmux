@@ -56,26 +56,56 @@ import Testing
         _ work: @Sendable @escaping () async -> Void,
         sourceLocation: SourceLocation = #_sourceLocation
     ) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { await work() }
-            group.addTask {
-                try await Task.sleep(for: .seconds(guardSeconds))
-                throw TimedOutWaiting()
-            }
+        let completion = CompletionLatch()
+        let workTask = Task.detached {
+            await work()
+            await completion.complete(.workFinished)
+        }
+        let timeoutTask = Task.detached {
             do {
-                _ = try await group.next()
-                group.cancelAll()
-            } catch is TimedOutWaiting {
-                group.cancelAll()
-                Issue.record(
-                    "remote tmux kill did not return within \(guardSeconds)s after its timeout fired",
-                    sourceLocation: sourceLocation
-                )
-                throw TimedOutWaiting()
-            }
+                try await Task.sleep(for: .seconds(guardSeconds))
+                await completion.complete(.timedOut)
+            } catch {}
+        }
+
+        switch await completion.wait() {
+        case .workFinished:
+            timeoutTask.cancel()
+        case .timedOut:
+            workTask.cancel()
+            Issue.record(
+                "remote tmux kill did not return within \(guardSeconds)s after its timeout fired",
+                sourceLocation: sourceLocation
+            )
+            throw TimedOutWaiting()
         }
     }
 
     /// Sentinel thrown by the guard task when the regression hangs.
     private struct TimedOutWaiting: Error {}
+
+    /// One-shot completion race for the unstructured work and timeout tasks.
+    private actor CompletionLatch {
+        private var outcome: CompletionOutcome?
+        private var continuation: CheckedContinuation<CompletionOutcome, Never>?
+
+        func wait() async -> CompletionOutcome {
+            if let outcome { return outcome }
+            return await withCheckedContinuation { continuation in
+                self.continuation = continuation
+            }
+        }
+
+        func complete(_ outcome: CompletionOutcome) {
+            guard self.outcome == nil else { return }
+            self.outcome = outcome
+            continuation?.resume(returning: outcome)
+            continuation = nil
+        }
+    }
+
+    private enum CompletionOutcome {
+        case workFinished
+        case timedOut
+    }
 }
