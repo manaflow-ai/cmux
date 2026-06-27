@@ -134,8 +134,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         let legacy = existing == nil && teamID != nil
             ? try fetchMacRow(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
             : nil
-        let shouldDeleteLegacySecret = attachToken == nil && legacy != nil
-        if shouldDeleteLegacySecret {
+        let shouldClaimLegacy = legacy != nil
+        if attachToken == nil, shouldClaimLegacy {
             await copyAttachTokenSecret(
                 macDeviceID: macDeviceID,
                 fromOwnerKey: legacyOwnerKey,
@@ -187,7 +187,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             )
             try replaceRoutes(macDeviceID: macDeviceID, ownerKey: ownerKey, routes: routes)
         }
-        if shouldDeleteLegacySecret {
+        if shouldClaimLegacy {
             await deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
         }
     }
