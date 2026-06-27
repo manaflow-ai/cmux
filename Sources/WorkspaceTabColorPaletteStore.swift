@@ -85,10 +85,11 @@ struct WorkspaceTabColorPaletteStore {
     }
 
     func addCustomColor(_ hex: String) -> String? {
-        let previousPalette = resolvedPaletteMap()
+        let storedPalette = effectiveStoredPaletteMap()
+        let previousPalette = tokens.effectivePaletteMap(stored: storedPalette)
         guard let result = tokens.paletteMapByAddingCustomColor(
             hex,
-            stored: effectiveStoredPaletteMap()
+            stored: storedPalette
         ) else { return nil }
 
         if result.paletteMap != previousPalette {
@@ -171,7 +172,7 @@ struct WorkspaceTabColorPaletteStore {
             for rawHex in rawCustomColors {
                 guard let normalized = normalizedHex(rawHex),
                       seenCustomHexes.insert(normalized).inserted else { continue }
-                let name = nextCustomColorName(
+                let name = tokens.nextCustomColorName(
                     existingNames: Set(palette.keys),
                     startingAt: index
                 )
@@ -181,20 +182,6 @@ struct WorkspaceTabColorPaletteStore {
         }
 
         return palette
-    }
-
-    private func nextCustomColorName(
-        existingNames: Set<String>,
-        startingAt initialIndex: Int = 1
-    ) -> String {
-        var index = max(1, initialIndex)
-        while true {
-            let candidate = "Custom \(index)"
-            if !existingNames.contains(where: { $0.caseInsensitiveCompare(candidate) == .orderedSame }) {
-                return candidate
-            }
-            index += 1
-        }
     }
 }
 

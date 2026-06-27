@@ -205,12 +205,17 @@ public struct WorkspaceTabColorPalette: Equatable, Sendable {
         return (normalized, palette)
     }
 
-    private func normalizedColorName(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func nextCustomColorName(
+    /// Returns the next available generated custom color name.
+    ///
+    /// Names use the `Custom N` format and compare existing names
+    /// case-insensitively so user-entered variants cannot collide.
+    ///
+    /// - Parameters:
+    ///   - existingNames: Palette entry names that are already in use.
+    ///   - initialIndex: The first numeric suffix to try. Values below `1`
+    ///     are treated as `1`.
+    /// - Returns: The first available generated custom color name.
+    public func nextCustomColorName(
         existingNames: Set<String>,
         startingAt initialIndex: Int = 1
     ) -> String {
@@ -222,5 +227,10 @@ public struct WorkspaceTabColorPalette: Equatable, Sendable {
             }
             index += 1
         }
+    }
+
+    private func normalizedColorName(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

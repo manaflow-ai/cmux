@@ -73,4 +73,16 @@ struct WorkspaceTabColorPaletteTests {
         #expect(second.normalizedHex == "#00AA33")
         #expect(second.paletteMap == first.paletteMap)
     }
+
+    @Test
+    func nextCustomColorNameSkipsExistingNamesCaseInsensitively() {
+        let palette = WorkspaceTabColorPalette.workspaceTabs
+
+        #expect(
+            palette.nextCustomColorName(
+                existingNames: ["Custom 1", "custom 2", "Other"],
+                startingAt: 0
+            ) == "Custom 3"
+        )
+    }
 }
