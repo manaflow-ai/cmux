@@ -2,12 +2,10 @@ import CmuxAgentChat
 import CmuxMobileSupport
 import Foundation
 import SwiftUI
-
 #if os(iOS)
 import PhotosUI
 import UIKit
 #endif
-
 public struct ChatComposerView: View {
     private let agentState: ChatAgentState
     private let agentKind: ChatAgentKind
@@ -39,7 +37,6 @@ public struct ChatComposerView: View {
     private static let maxAttachmentDimension: CGFloat = 2048
     private static let jpegQuality: CGFloat = 0.85
     private static let hardStopWindow: TimeInterval = 2
-
     public init(
         agentState: ChatAgentState,
         agentKind: ChatAgentKind,
@@ -99,6 +96,7 @@ public struct ChatComposerView: View {
     #if os(iOS)
     @ViewBuilder
     private var composerSurface: some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             GlassEffectContainer {
                 composerStack
@@ -106,6 +104,9 @@ public struct ChatComposerView: View {
         } else {
             composerStack
         }
+        #else
+        composerStack
+        #endif
     }
     #endif
 

@@ -40,10 +40,12 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.allowsSelection = false
         tableView.accessibilityIdentifier = "ChatTranscriptTableView"
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             tableView.topEdgeEffect.style = .soft
             tableView.bottomEdgeEffect.style = .soft
         }
+        #endif
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
         context.coordinator.attach(tableView)
