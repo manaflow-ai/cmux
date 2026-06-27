@@ -222,7 +222,7 @@
 516	Sources/TerminalImageTransfer.swift
 514	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 514	cmuxUITests/UpdatePillUITests.swift
-511	Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Composer/ChatComposerView.swift
+513	Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Composer/ChatComposerView.swift
 509	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 507	Sources/TerminalControllerTopSupport.swift
 506	Sources/App/MainWindowVisibilityController.swift
