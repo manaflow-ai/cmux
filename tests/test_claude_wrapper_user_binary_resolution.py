@@ -226,14 +226,19 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                 first_entry = str(first)
                 last_entry = str(last)
                 shim_entry = str(shim_root)
-                if not entries or entries[0] != shim_entry:
-                    failures.append(f"{shell_name} expected shim first in PATH, got {output!r}")
-                if shim_entry in entries[1:]:
-                    failures.append(f"{shell_name} expected shim only once in PATH, got {output!r}")
-                if first_entry not in entries or last_entry not in entries:
-                    failures.append(f"{shell_name} expected user PATH entries in PATH, got {output!r}")
-                elif entries.index(first_entry) >= entries.index(last_entry):
-                    failures.append(f"{shell_name} expected user PATH order to be preserved, got {output!r}")
+                expected_entries = [shim_entry, "", first_entry, "", last_entry, ""]
+                normalized_entries = [
+                    str(Path(entry).resolve()) if entry else ""
+                    for entry in entries
+                ]
+                normalized_expected_entries = [
+                    str(Path(entry).resolve()) if entry else ""
+                    for entry in expected_entries
+                ]
+                if normalized_entries != normalized_expected_entries:
+                    failures.append(
+                        f"{shell_name} expected PATH entries {expected_entries!r}, got {entries!r}"
+                    )
                 continue
             if output != expected_path:
                 failures.append(f"{shell_name} expected PATH {expected_path!r}, got {output!r}")

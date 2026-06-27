@@ -1,0 +1,17 @@
+import Foundation
+
+struct MobilePairedMacStoreMacRow {
+    let macDeviceID: String
+    let ownerKey: String
+    let displayName: String?
+    let stackUserID: String?
+    var teamID: String? = nil
+    let createdAt: Date
+    let lastSeenAt: Date
+    let isActive: Bool
+    var customName: String? = nil
+    var customColor: String? = nil
+    var customIcon: String? = nil
+    var attachToken: String? = nil
+    var attachTokenExpiresAt: Date? = nil
+}
