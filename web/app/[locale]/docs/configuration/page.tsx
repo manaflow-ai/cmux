@@ -39,6 +39,7 @@ const schemaSourceUrl =
 const sectionOrder = [
   "app",
   "terminal",
+  "badge",
   "notifications",
   "sidebar",
   "workspaceGroups",
