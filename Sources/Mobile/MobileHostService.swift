@@ -1276,7 +1276,14 @@ final class MobileHostService {
         if devStackTokenAuthorized(request) { return nil }
         let hasPresentedAttachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         if let ticketAuthorization = ticketStore.validAuthorization(authToken: request.auth?.attachToken) {
-            if let ticketError = Self.ticketAuthorizationError(
+            let matchesCurrentMacAccount = MobileAttachTicketStore.ticketMatchesCurrentMacAccount(
+                ticket: ticketAuthorization.ticket,
+                currentUserID: await currentAuthenticatedLocalUserID(),
+                currentUserEmail: await currentAuthenticatedLocalUserEmail()
+            )
+            if !matchesCurrentMacAccount {
+                if request.auth?.stackAccessToken == nil { return .failure(Self.accountMismatchError) }
+            } else if let ticketError = Self.ticketAuthorizationError(
                 authorization: ticketAuthorization,
                 request: request
             ) {
@@ -1296,10 +1303,7 @@ final class MobileHostService {
             // so the client can drive a re-authentication flow into the right
             // account rather than showing a generic failure.
             mobileHostLog.error("mobile host authorization rejected: account mismatch method=\(request.method, privacy: .public)")
-            return .failure(MobileHostRPCError(
-                code: "account_mismatch",
-                message: "Sign in with the account that owns this Mac to continue."
-            ))
+            return .failure(Self.accountMismatchError)
         } catch {
             mobileHostLog.error("mobile host authorization failed method=\(request.method, privacy: .public) error=\(String(describing: error), privacy: .public)")
             return .failure(MobileHostRPCError(
@@ -1320,6 +1324,11 @@ final class MobileHostService {
         result: MobileHostRPCResult
     ) {
         guard let attachToken = request.auth?.attachToken, let ticketAuthorization = ticketStore.validAuthorization(authToken: attachToken), Self.ticketAuthorizationError(authorization: ticketAuthorization, request: request) == nil else { return }
+        guard MobileAttachTicketStore.ticketMatchesCurrentMacAccount(
+            ticket: ticketAuthorization.ticket,
+            currentUserID: await currentAuthenticatedLocalUserID(),
+            currentUserEmail: await currentAuthenticatedLocalUserEmail()
+        ) else { return }
         guard case let .ok(payload) = result,
               let object = payload as? [String: Any] else { return }
 
@@ -1494,6 +1503,13 @@ final class MobileHostService {
 
     private static var invalidAttachTokenError: MobileHostRPCError {
         MobileHostRPCError(code: "invalid_attach_token", message: "Attach token is no longer valid.")
+    }
+
+    private static var accountMismatchError: MobileHostRPCError {
+        MobileHostRPCError(
+            code: "account_mismatch",
+            message: "Sign in with the account that owns this Mac to continue."
+        )
     }
     private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
         params["workspaceID"] != nil || params["terminalID"] != nil

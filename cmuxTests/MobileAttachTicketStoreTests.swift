@@ -72,6 +72,58 @@ struct MobileAttachTicketStoreTests {
         #expect(store.validTicket(authToken: third.authToken, now: validationTime)?.authToken == third.authToken)
     }
 
+    @Test func testTicketOwnerPolicyRequiresMatchingCurrentMacAccount() throws {
+        let store = MobileAttachTicketStore()
+        let route = try Self.debugRoute()
+        let bound = try store.createTicket(
+            workspaceID: "workspace",
+            terminalID: "terminal",
+            routes: [route],
+            ttl: 3600,
+            macUserEmail: "old@example.com",
+            macUserID: "old-user"
+        )
+        let emailOnly = try store.createTicket(
+            workspaceID: "workspace",
+            terminalID: "terminal",
+            routes: [route],
+            ttl: 3600,
+            macUserEmail: "Mac@Example.com"
+        )
+        let unbound = try store.createTicket(
+            workspaceID: "workspace",
+            terminalID: "terminal",
+            routes: [route],
+            ttl: 3600
+        )
+
+        #expect(MobileAttachTicketStore.ticketMatchesCurrentMacAccount(
+            ticket: bound,
+            currentUserID: "old-user",
+            currentUserEmail: nil
+        ))
+        #expect(!MobileAttachTicketStore.ticketMatchesCurrentMacAccount(
+            ticket: bound,
+            currentUserID: nil,
+            currentUserEmail: "old@example.com"
+        ))
+        #expect(!MobileAttachTicketStore.ticketMatchesCurrentMacAccount(
+            ticket: bound,
+            currentUserID: "new-user",
+            currentUserEmail: "old@example.com"
+        ))
+        #expect(MobileAttachTicketStore.ticketMatchesCurrentMacAccount(
+            ticket: emailOnly,
+            currentUserID: nil,
+            currentUserEmail: "mac@example.com"
+        ))
+        #expect(MobileAttachTicketStore.ticketMatchesCurrentMacAccount(
+            ticket: unbound,
+            currentUserID: nil,
+            currentUserEmail: nil
+        ))
+    }
+
     private static func debugRoute() throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "debug",

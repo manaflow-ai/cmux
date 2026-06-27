@@ -111,6 +111,20 @@ final class MobileAttachTicketStore {
         )
     }
 
+    static func ticketMatchesCurrentMacAccount(
+        ticket: CmxAttachTicket,
+        currentUserID: String?,
+        currentUserEmail: String?
+    ) -> Bool {
+        if let ticketUserID = normalizedNonEmpty(ticket.macUserID) {
+            return normalizedNonEmpty(currentUserID) == ticketUserID
+        }
+        if let ticketEmail = normalizedEmail(ticket.macUserEmail) {
+            return normalizedEmail(currentUserEmail) == ticketEmail
+        }
+        return true
+    }
+
     func recordCreatedResources(
         authToken: String?,
         workspaceID: String?,
@@ -199,6 +213,15 @@ final class MobileAttachTicketStore {
     private static func normalizedAuthToken(_ authToken: String?) -> String? {
         let trimmed = authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private static func normalizedNonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private static func normalizedEmail(_ value: String?) -> String? {
+        normalizedNonEmpty(value)?.lowercased()
     }
 
     private static func jsonObject<T: Encodable>(_ value: T) throws -> Any {
