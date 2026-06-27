@@ -5,11 +5,11 @@ import Testing
 
 @Suite("UserDefaultsSettingsStore source ordering")
 struct UserDefaultsSettingsStoreSourceOrderingTests {
-    @Test func generatedMutationSourceOrdersAreStrictlyIncreasing() {
+    @Test func generatedMutationSourceOrdersAreNonDecreasing() {
         let first = UserDefaultsSettingsMutationSource(ownerID: UUID(), sequence: 1)
         let second = UserDefaultsSettingsMutationSource(ownerID: UUID(), sequence: 1)
 
-        #expect(second.logicalOrder > first.logicalOrder)
+        #expect(second.logicalOrder >= first.logicalOrder)
     }
 
     @Test func mutationSourceIdentityIgnoresLogicalOrder() {
@@ -79,6 +79,29 @@ struct UserDefaultsSettingsStoreSourceOrderingTests {
         let value = await store.value(for: key)
         #expect(acceptedSource == nil)
         #expect(value == key.defaultValue)
+    }
+
+    @Test func acceptsEqualOrderMutationSourcesInsteadOfDroppingLaterWrite() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let firstSource = UserDefaultsSettingsMutationSource(
+            ownerID: UUID(),
+            sequence: 1,
+            logicalOrder: 1
+        )
+        let secondSource = UserDefaultsSettingsMutationSource(
+            ownerID: UUID(),
+            sequence: 1,
+            logicalOrder: 1
+        )
+
+        await store.set("#FIRST", for: key, source: firstSource)
+        let acceptedSource = await store.set("#SECOND", for: key, source: secondSource)
+
+        let value = await store.value(for: key)
+        #expect(acceptedSource == secondSource)
+        #expect(value == "#SECOND")
     }
 
     @Test func rejectsOlderMutationSourceAfterSourceLessWrite() async {

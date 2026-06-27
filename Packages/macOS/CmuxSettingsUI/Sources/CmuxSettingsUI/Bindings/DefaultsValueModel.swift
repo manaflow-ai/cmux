@@ -120,7 +120,6 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         let source = recordPendingStoreEcho(value)
         updateCurrent(value)
         Task { @MainActor [self, store, key, source, value] in
-            guard shouldCommitStoreWrite(for: source) else { return }
             guard await store.set(value, for: key, source: source) != nil else {
                 let committedValue = await store.value(for: key)
                 reconcileRejectedStoreWrite(source: source, committedValue: committedValue)
@@ -148,7 +147,6 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         let source = recordPendingStoreEcho(value)
         updateCurrent(value)
         Task { @MainActor [self, store, key, source, value, afterCommit] in
-            guard shouldCommitStoreWrite(for: source) else { return }
             guard await store.set(value, for: key, source: source) != nil else {
                 let committedValue = await store.value(for: key)
                 reconcileRejectedStoreWrite(source: source, committedValue: committedValue)
@@ -177,7 +175,6 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         let source = recordPendingStoreEcho(defaultValue)
         updateCurrent(defaultValue)
         Task { @MainActor [self, store, key, source] in
-            guard shouldCommitStoreWrite(for: source) else { return }
             guard await store.reset(key, source: source) != nil else {
                 let committedValue = await store.value(for: key)
                 reconcileRejectedStoreWrite(source: source, committedValue: committedValue)
@@ -231,13 +228,6 @@ public final class DefaultsValueModel<Value: SettingCodable> {
             pendingStoreEchoes.removeFirst(overflow)
         }
         return source
-    }
-
-    private func shouldCommitStoreWrite(for source: UserDefaultsSettingsMutationSource) -> Bool {
-        guard let index = pendingStoreEchoes.firstIndex(where: { $0.source == source }) else {
-            return false
-        }
-        return index == pendingStoreEchoes.index(before: pendingStoreEchoes.endIndex)
     }
 
     private func consumePendingStoreEcho(source: UserDefaultsSettingsMutationSource?, value: Value) -> Bool {

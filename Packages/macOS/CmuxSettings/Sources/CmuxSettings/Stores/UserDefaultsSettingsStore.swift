@@ -191,7 +191,7 @@ public actor UserDefaultsSettingsStore {
             return true
         }
 
-        return source.logicalOrder > acceptedOrder
+        return source.logicalOrder >= acceptedOrder
     }
 
     private func recordAcceptedMutation(
