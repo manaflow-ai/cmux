@@ -4,14 +4,14 @@
 34643	CLI/cmux.swift
 17854	Sources/AppDelegate.swift
 16476	Sources/ContentView.swift
-13913	Sources/TerminalController.swift
-12886	Sources/Workspace.swift
+13980	Sources/TerminalController.swift
+12889	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12237	Sources/GhosttyTerminalView.swift
-11567	Sources/Panels/BrowserPanel.swift
+11661	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8016	CLI/cmux_open.swift
-7952	Sources/Panels/BrowserPanelView.swift
+7958	Sources/Panels/BrowserPanelView.swift
 7366	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6895	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
@@ -20,7 +20,7 @@
 6187	Sources/TabManager.swift
 6077	Sources/TextBoxInput.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
-5573	cmuxTests/BrowserConfigTests.swift
+5594	cmuxTests/BrowserConfigTests.swift
 4487	Sources/Panels/FilePreviewPanel.swift
 4478	Sources/cmuxApp.swift
 4367	cmuxTests/BrowserPanelTests.swift
@@ -45,7 +45,7 @@
 2233	Sources/TerminalWindowPortal.swift
 2126	cmuxTests/CmuxConfigTests.swift
 2091	cmuxTests/ShortcutAndCommandPaletteTests.swift
-2078	Sources/SessionPersistence.swift
+2088	Sources/SessionPersistence.swift
 1960	Sources/RestorableAgentSession.swift
 1952	Sources/KeyboardShortcutSettingsFileStore.swift
 1900	cmuxTests/NotificationAndMenuBarTests.swift
@@ -212,6 +212,7 @@
 527	CLI/CLISocketPathResolver.swift
 527	cmuxTests/BrowserHTTPBasicAuthPromptTests.swift
 526	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Workstream/WorkstreamStore.swift
+526	cmuxTests/BrowserWebContentProcessTests.swift
 525	Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/SocketControlSettings.swift
 524	CLI/CMUXCLI+AutoNaming.swift
 520	CLI/CMUXCLI+AmpExtension.swift

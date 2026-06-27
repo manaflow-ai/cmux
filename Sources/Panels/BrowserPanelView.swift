@@ -7407,6 +7407,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             webView,
             in: host.currentHostedWebViewContainer(preferredSlotView: slotView)
         )
+        panel.applyMinimumViewportSize(reason: "localInline.pinHostedWebView")
         // Local-inline hosting takes ownership of the live WKWebView hierarchy.
         // Drop any stale portal entry once local-inline hosting owns the live
         // WKWebView hierarchy so deferred portal recovery cannot mutate the
@@ -7634,6 +7635,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: activePaneDropContext)
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
             BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
+            browserPanel.applyMinimumViewportSize(reason: "portalHostBind.didMoveToWindow")
             coordinator.lastPortalHostId = ObjectIdentifier(host)
             coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
         }
@@ -7673,6 +7675,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 coordinator.lastPortalHostId = hostId
             }
             BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
+            browserPanel.applyMinimumViewportSize(reason: "portalHostBind.geometryChanged")
             coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
         }
 
@@ -7709,6 +7712,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                     webView: webView,
                     reason: "portalHostBind"
                 )
+                panel.applyMinimumViewportSize(reason: "portalHostBind")
                 coordinator.lastPortalHostId = hostId
                 coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
             }
@@ -7721,6 +7725,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             if !shouldBindNow,
                coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
                 BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
+                panel.applyMinimumViewportSize(reason: "portalHostBind.resync")
                 coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
             }
         } else if portalHostAccepted {
@@ -7784,6 +7789,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         if hostOwnsPortal {
             panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "representable.update")
         }
+        panel.applyMinimumViewportSize(reason: "representable.update")
         Self.applyWebViewFirstResponderPolicy(
             panel: panel,
             webView: webView,

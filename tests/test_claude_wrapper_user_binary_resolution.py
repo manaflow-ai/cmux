@@ -200,6 +200,7 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                 "--norc",
                 "-c",
                 'PATH="$CMUX_TEST_INPUT_PATH"; '
+                'export PATH; '
                 'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; '
                 'printf "%s\\n" "$PATH"',
             ],
@@ -208,6 +209,7 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                 "-f",
                 "-c",
                 'PATH="$CMUX_TEST_INPUT_PATH"; '
+                'export PATH; '
                 'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; '
                 'printf "%s\\n" "$PATH"',
             ],

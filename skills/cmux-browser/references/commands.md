@@ -73,7 +73,14 @@ cmux browser <surface> cookies get|set|clear ...
 cmux browser <surface> storage local|session get|set|clear ...
 cmux browser <surface> tab list|new|switch|close ...
 cmux browser <surface> state save|load <path>
+cmux browser <surface> viewport <width> <height>  # set a minimum CSS viewport size
 ```
+
+`viewport` width and height must be between 0 and 100000 CSS pixels and within
+the current pane's emulation range. `0 0` clears emulation. If the browser pane
+has not been laid out yet, retry after a `not_ready` response. Successful calls
+return `handled: true`; `changed` reports whether the stored viewport state or
+magnification changed.
 
 ### Diagnostics
 
@@ -94,7 +101,6 @@ cmux browser <surface> download wait --timeout-ms 10000
 
 ## Known WKWebView Gaps (`not_supported`)
 
-- `browser.viewport.set`
 - `browser.geolocation.set`
 - `browser.offline.set`
 - `browser.trace.start|stop`

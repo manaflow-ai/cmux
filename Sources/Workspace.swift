@@ -540,11 +540,14 @@ extension Workspace {
             terminalSnapshot = nil
             let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
             let diffViewerComponents = browserPanel.diffViewerSessionComponents()
+            let minimumViewportSize = browserPanel.currentMinimumViewportSize()
             browserSnapshot = SessionBrowserPanelSnapshot(
                 urlString: browserPanel.preferredURLStringForSessionSnapshot(),
                 profileID: browserPanel.profileID,
                 shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
                 pageZoom: Double(browserPanel.currentPageZoomFactor()),
+                minimumViewportWidth: minimumViewportSize.map { Double($0.width) },
+                minimumViewportHeight: minimumViewportSize.map { Double($0.height) },
                 developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
                 isMuted: browserPanel.isMuted,
                 omnibarVisible: browserPanel.isOmnibarVisible,
