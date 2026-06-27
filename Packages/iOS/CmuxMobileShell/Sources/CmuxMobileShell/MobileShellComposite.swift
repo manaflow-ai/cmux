@@ -191,7 +191,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               activeTicket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             return false
         }
-        return Self.attachTicketIsUnexpired(activeTicket, now: runtime?.now() ?? Date())
+        return attachTicketIsUnexpired(activeTicket, now: runtime?.now() ?? Date())
     }
     /// User-entered pairing code or pairing URL text for the current connection attempt.
     public var pairingCode: String
@@ -1506,7 +1506,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 noThrowFailure = try await finishConnect(with: ticket)
             } catch {
                 guard durableTicket != nil,
-                      Self.shouldRetryDurableAttachTicket(after: error) else {
+                      shouldRetryDurableAttachTicket(after: error) else {
                     throw error
                 }
                 mobileShellLog.info("durable attach ticket rejected; minting a fresh ticket")
@@ -1549,7 +1549,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private static func shouldRetryDurableAttachTicket(after error: any Error) -> Bool {
+    private func shouldRetryDurableAttachTicket(after error: any Error) -> Bool {
         guard let connectionError = error as? MobileShellConnectionError else {
             return false
         }
@@ -2682,7 +2682,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     macDeviceID: ticket.macDeviceID,
                     displayName: displayName,
                     routes: ticket.routes,
-                    attachToken: Self.normalizedAttachToken(ticket.authToken),
+                    attachToken: normalizedAttachToken(ticket.authToken),
                     attachTokenExpiresAt: ticket.expiresAt,
                     attachTokenWorkspaceID: ticket.workspaceID,
                     attachTokenTerminalID: ticket.terminalID,
@@ -2702,7 +2702,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private static func normalizedAttachToken(_ token: String?) -> String? {
+    private func normalizedAttachToken(_ token: String?) -> String? {
         guard let token = token?.trimmingCharacters(in: .whitespacesAndNewlines),
               !token.isEmpty else {
             return nil
@@ -2974,7 +2974,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // pairing input now (expiry is enforced solely where the RPC attach
         // token is used), so an expired legacy code scanned offline must say
         // "offline", not crawl the route loop's stacked timeouts.
-        let candidateRoutes = Self.supportedRoutes(for: ticket, supportedKinds: runtime?.supportedRouteKinds ?? [])
+        let candidateRoutes = supportedRoutes(for: ticket, supportedKinds: runtime?.supportedRouteKinds ?? [])
         if !candidateRoutes.isEmpty {
             switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: candidateRoutes) {
             case .failedOffline: return .failed
@@ -3272,7 +3272,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             previews = try await fetchSecondaryWorkspacesThrowing(on: client, macDeviceID: macID)
         } catch {
             if handle.usedDurableTicket,
-               Self.shouldRetryDurableAttachTicket(after: error),
+               shouldRetryDurableAttachTicket(after: error),
                let fallbackHandle = await makeSecondaryClient(for: mac, allowDurableTicket: false) {
                 subscription.cancel()
                 if secondaryMacSubscriptions[macID] === subscription {
@@ -4561,7 +4561,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
+        let supportedRoutes = supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let firstRoute = supportedRoutes.first else {
             // No route kind this build can dial: set the specific category;
             // the caller records the matching analytics reason from it.
@@ -4723,7 +4723,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var preferActiveTicketTarget: Bool
     }
 
-    static func supportedRoutes(
+    func supportedRoutes(
         for ticket: CmxAttachTicket,
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
@@ -4737,7 +4737,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private static func attachTicketIsUnexpired(_ ticket: CmxAttachTicket, now: Date) -> Bool {
+    private func attachTicketIsUnexpired(_ ticket: CmxAttachTicket, now: Date) -> Bool {
         !ticket.isExpired(at: now)
     }
 

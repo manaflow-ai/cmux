@@ -17,13 +17,13 @@ extension MobilePairedMacStore {
         guard step == SQLITE_ROW else {
             throw MobilePairedMacStoreError.stepFailed(step, lastErrorMessage())
         }
-        let displayName = Self.readNullableText(statement, column: 0)
-        let stackUserID = Self.readNullableText(statement, column: 1)
+        let displayName = readNullableText(statement, column: 0)
+        let stackUserID = readNullableText(statement, column: 1)
         let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 2))
         let lastSeenAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 3))
         let isActive = sqlite3_column_int(statement, 4) != 0
-        let teamID = Self.readNullableText(statement, column: 5)
-        let attachToken = Self.readNullableText(statement, column: 6)
+        let teamID = readNullableText(statement, column: 5)
+        let attachToken = readNullableText(statement, column: 6)
         let attachTokenExpiresAt: Date?
         if sqlite3_column_type(statement, 7) == SQLITE_NULL {
             attachTokenExpiresAt = nil
@@ -41,8 +41,8 @@ extension MobilePairedMacStore {
             isActive: isActive,
             attachToken: attachToken,
             attachTokenExpiresAt: attachTokenExpiresAt,
-            attachTokenWorkspaceID: Self.readNullableText(statement, column: 8),
-            attachTokenTerminalID: Self.readNullableText(statement, column: 9)
+            attachTokenWorkspaceID: readNullableText(statement, column: 8),
+            attachTokenTerminalID: readNullableText(statement, column: 9)
         )
     }
 
@@ -168,7 +168,7 @@ extension MobilePairedMacStore {
             binding: [.text(macDeviceID), .text(ownerKey)]
         )
         for route in routes {
-            let encoded = try Self.encodeRoute(route)
+            let encoded = try encodeRoute(route)
             try exec("""
                 INSERT INTO mac_routes (mac_device_id, owner_key, route_id, kind, endpoint_json, priority)
                 VALUES (?, ?, ?, ?, ?, ?);
@@ -211,8 +211,8 @@ extension MobilePairedMacStore {
                 continue
             }
             let ownerKey = String(cString: ownerCString)
-            let displayName = Self.readNullableText(statement, column: 2)
-            let storedStackUserID = Self.readNullableText(statement, column: 3)
+            let displayName = readNullableText(statement, column: 2)
+            let storedStackUserID = readNullableText(statement, column: 3)
             let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 4))
             let lastSeenAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 5))
             let isActive = sqlite3_column_int(statement, 6) != 0
@@ -227,17 +227,17 @@ extension MobilePairedMacStore {
                 ownerKey: ownerKey,
                 displayName: displayName,
                 stackUserID: storedStackUserID,
-                teamID: Self.readNullableText(statement, column: 10),
+                teamID: readNullableText(statement, column: 10),
                 createdAt: createdAt,
                 lastSeenAt: lastSeenAt,
                 isActive: isActive,
-                customName: Self.readNullableText(statement, column: 7),
-                customColor: Self.readNullableText(statement, column: 8),
-                customIcon: Self.readNullableText(statement, column: 9),
-                attachToken: Self.readNullableText(statement, column: 11),
+                customName: readNullableText(statement, column: 7),
+                customColor: readNullableText(statement, column: 8),
+                customIcon: readNullableText(statement, column: 9),
+                attachToken: readNullableText(statement, column: 11),
                 attachTokenExpiresAt: attachTokenExpiresAt,
-                attachTokenWorkspaceID: Self.readNullableText(statement, column: 13),
-                attachTokenTerminalID: Self.readNullableText(statement, column: 14)
+                attachTokenWorkspaceID: readNullableText(statement, column: 13),
+                attachTokenTerminalID: readNullableText(statement, column: 14)
             ))
             step = sqlite3_step(statement)
         }
@@ -353,7 +353,7 @@ extension MobilePairedMacStore {
         return routesByKey
     }
 
-    static func encodeRoute(_ route: CmxAttachRoute) throws -> String {
+    func encodeRoute(_ route: CmxAttachRoute) throws -> String {
         let encoder = JSONEncoder()
         let data = try encoder.encode(route)
         guard let string = String(data: data, encoding: .utf8) else {
@@ -362,7 +362,7 @@ extension MobilePairedMacStore {
         return string
     }
 
-    private static func readNullableText(_ statement: OpaquePointer?, column: Int32) -> String? {
+    private func readNullableText(_ statement: OpaquePointer?, column: Int32) -> String? {
         guard let cString = sqlite3_column_text(statement, column) else { return nil }
         return String(cString: cString)
     }

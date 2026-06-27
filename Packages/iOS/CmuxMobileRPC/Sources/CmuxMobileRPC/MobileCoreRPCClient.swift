@@ -9,15 +9,6 @@ internal import os
 /// All stored properties are immutable `let`s of `Sendable` types (the session
 /// is an actor), so this is genuinely `Sendable` without opting out of checking.
 public final class MobileCoreRPCClient: MobileSyncing, Sendable {
-    private struct AuthenticatedRequest: Sendable {
-        var data: Data
-        var usedAttachToken: Bool
-    }
-
-    private struct AttachTokenAuthorizationFailure: Error {
-        var underlying: MobileShellConnectionError
-    }
-
     private let runtime: any MobileSyncRuntime
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
@@ -112,7 +103,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 deadline: deadline,
                 allowAuthRetry: true
             )
-        } catch let error as AttachTokenAuthorizationFailure {
+        } catch let error as MobileCoreRPCAttachTokenAuthorizationFailure {
             throw error.underlying
         } catch let error as MobileShellConnectionError {
             // The host rejected this request on Stack-auth grounds. Before
@@ -192,7 +183,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         } catch let error as MobileShellConnectionError {
             if authenticated.usedAttachToken,
                case .authorizationFailed = error {
-                throw AttachTokenAuthorizationFailure(underlying: error)
+                throw MobileCoreRPCAttachTokenAuthorizationFailure(underlying: error)
             }
             throw error
         }
@@ -219,9 +210,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private func requestDataWithAuth(
         _ requestData: Data,
         deadline: RPCRequestDeadline
-    ) async throws -> AuthenticatedRequest {
+    ) async throws -> MobileCoreRPCAuthenticatedRequest {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
-            return AuthenticatedRequest(data: requestData, usedAttachToken: false)
+            return MobileCoreRPCAuthenticatedRequest(data: requestData, usedAttachToken: false)
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
         let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
@@ -287,7 +278,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         if !auth.isEmpty {
             request["auth"] = auth
         }
-        return try AuthenticatedRequest(
+        return try MobileCoreRPCAuthenticatedRequest(
             data: JSONSerialization.data(withJSONObject: request),
             usedAttachToken: requestHasAttachAuth
         )

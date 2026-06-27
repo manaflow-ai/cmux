@@ -41,7 +41,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// - Parameter databaseURL: On-disk SQLite file location.
     /// - Throws: ``MobilePairedMacStoreError`` if the connection cannot be opened.
     public init(databaseURL: URL) throws {
-        self.db = try Self.openConnection(path: databaseURL.path)
+        self.db = try MobilePairedMacSQLiteConnectionOpener().open(path: databaseURL.path)
     }
 
     /// Open the store at ``defaultDatabaseURL(fileManager:)``.

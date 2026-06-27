@@ -1,12 +1,7 @@
 import SQLite3
 
-extension MobilePairedMacStore {
-    /// Open the SQLite connection and set connection pragmas. `nonisolated`
-    /// `static` so the actor's synchronous initializer can build the handle
-    /// without hopping isolation. Opened with `SQLITE_OPEN_FULLMUTEX` so SQLite
-    /// serializes access internally; the actor adds an outer serialization layer.
-    /// Schema migration runs lazily on first store access via `ensureReady()`.
-    nonisolated static func openConnection(path: String) throws -> OpaquePointer {
+struct MobilePairedMacSQLiteConnectionOpener {
+    func open(path: String) throws -> OpaquePointer {
         var handle: OpaquePointer?
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
         let rc = sqlite3_open_v2(path, &handle, flags, nil)

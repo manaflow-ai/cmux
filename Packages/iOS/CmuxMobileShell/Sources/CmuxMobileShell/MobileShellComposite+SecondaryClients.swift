@@ -46,7 +46,7 @@ extension MobileShellComposite {
             }
             usedDurableTicket = false
         }
-        let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
+        let supportedRoutes = supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         let route = supportedRoutes.first(where: { route in
             if case let .hostPort(routeHost, routePort) = route.endpoint {
                 return routeHost == host && routePort == port
