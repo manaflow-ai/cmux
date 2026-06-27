@@ -272,6 +272,78 @@ import Testing
     secondaryCollector.unmount()
 }
 
+/// A repaired refresh that was started by an empty-list caller must still
+/// perform the global repair work: replay every mounted surface and refresh
+/// workspace state.
+@MainActor
+@Test func defaultRefreshRepairingLostSubscriptionReplaysMountedSurfaces() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setTerminalFidelity("raw_bytes")
+    await router.setCapabilities(["events.v1", "terminal.replay.v1"])
+    await router.delaySubscribeRequest(number: 2)
+    await router.setReplayFrames([
+        (seq: 4, text: "primary-old"),
+        (seq: 8, text: "primary-gap"),
+        (seq: 12, text: "primary-repaired"),
+    ])
+    await router.setReplayFrames([
+        (seq: 6, text: "peer-old"),
+        (seq: 14, text: "peer-repaired"),
+    ], surfaceID: "secondary-terminal")
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+
+    let primaryCollector = OutputCollector()
+    let secondaryCollector = OutputCollector()
+    primaryCollector.mount(store: store, surfaceID: "live-terminal")
+    secondaryCollector.mount(store: store, surfaceID: "secondary-terminal")
+    let deliveredInitialReplays = try await pollUntil {
+        primaryCollector.lines.contains { $0.contains("primary-old") }
+            && secondaryCollector.lines.contains { $0.contains("peer-old") }
+    }
+    #expect(deliveredInitialReplays, "the mount replays establish both local rendered sequences")
+
+    let workspaceListsBeforeRepair = await router.count(of: "mobile.workspace.list")
+        + router.count(of: "workspace.list")
+    await router.dropSubscription()
+    let gapEvent = try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 20, text: "gap")
+    let transport = try #require(box.get())
+    await transport.deliver(gapEvent)
+
+    let defaultRefreshStarted = try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 2
+    }
+    #expect(defaultRefreshStarted, "a byte gap starts a default refresh with no repair replay list")
+
+    await router.releaseAllHeld()
+    let replayedSecondaryAfterRepair = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay", surfaceID: "secondary-terminal") >= 2
+    }
+    #expect(
+        replayedSecondaryAfterRepair,
+        "a repaired empty-list refresh must replay all mounted surfaces, not only the surface that triggered the refresh"
+    )
+    let deliveredRepairReplay = try await pollUntil {
+        secondaryCollector.lines.contains { $0.contains("peer-repaired") }
+    }
+    #expect(deliveredRepairReplay)
+    let workspaceRefetched = try await pollUntil {
+        let current = await router.count(of: "mobile.workspace.list")
+            + router.count(of: "workspace.list")
+        return current > workspaceListsBeforeRepair
+    }
+    #expect(workspaceRefetched, "any repaired subscription must re-fetch workspace state, even without an explicit replay list")
+    primaryCollector.unmount()
+    secondaryCollector.unmount()
+}
+
 /// The watchdog's original purpose (the ~85s silent-death hang) must keep
 /// working: silence past the threshold plus a host that stops answering the
 /// probe must still tear down and re-subscribe.

@@ -63,10 +63,12 @@ actor LivenessHostRouter {
     private var heldHostStatusRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
+    private var delayedSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var terminalFidelity = "render_grid"
     private let terminalInputSeq: UInt64 = 12
     private var replayFramesBySurfaceID: [String: [(seq: UInt64, text: String)]] = [:]
     private var replayResponseCountsBySurfaceID: [String: Int] = [:]
@@ -84,6 +86,10 @@ actor LivenessHostRouter {
 
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
+    }
+
+    func setTerminalFidelity(_ terminalFidelity: String) {
+        self.terminalFidelity = terminalFidelity
     }
 
     func setReplayFrames(_ frames: [(seq: UInt64, text: String)], surfaceID: String = "live-terminal") {
@@ -108,6 +114,13 @@ actor LivenessHostRouter {
         heldSubscribeRequestNumbers.insert(number)
     }
 
+    /// Delay the Nth `mobile.events.subscribe` request until release, then
+    /// continue with a normal ack. This keeps a refresh task in flight while a
+    /// test drives another event through the same single-flight guard.
+    func delaySubscribeRequest(number: Int) {
+        delayedSubscribeRequestNumbers.insert(number)
+    }
+
     /// Forget the host-side registration, modeling a lost subscription behind
     /// a live RPC channel: the next subscribe reports
     /// `already_subscribed: false`.
@@ -121,6 +134,7 @@ actor LivenessHostRouter {
         holdSubscribe = false
         heldHostStatusRequestNumbers = []
         heldSubscribeRequestNumbers = []
+        delayedSubscribeRequestNumbers = []
         let continuations = heldContinuations
         heldContinuations = []
         for continuation in continuations {
@@ -164,11 +178,14 @@ actor LivenessHostRouter {
                 return nil
             }
             return try? Self.resultFrame(id: id, result: [
-                "terminal_fidelity": "render_grid",
+                "terminal_fidelity": terminalFidelity,
                 "capabilities": capabilities,
             ])
         case "mobile.events.subscribe":
             subscribeRequestCount += 1
+            if delayedSubscribeRequestNumbers.contains(subscribeRequestCount) {
+                await park()
+            }
             if holdSubscribe || heldSubscribeRequestNumbers.contains(subscribeRequestCount) {
                 await park()
                 return nil
@@ -411,6 +428,19 @@ func renderGridEventFrame(surfaceID: String, seq: UInt64, text: String) throws -
         "kind": "event",
         "topic": "terminal.render_grid",
         "payload": try frame.jsonObject(),
+    ]
+    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+}
+
+func terminalBytesEventFrame(surfaceID: String, seq: UInt64, text: String) throws -> Data {
+    let envelope: [String: Any] = [
+        "kind": "event",
+        "topic": "terminal.bytes",
+        "payload": [
+            "surface_id": surfaceID,
+            "data_b64": Data(text.utf8).base64EncodedString(),
+            "seq": NSNumber(value: seq),
+        ],
     ]
     return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
 }
