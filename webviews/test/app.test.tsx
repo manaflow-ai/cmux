@@ -151,6 +151,19 @@ test("App copies a stage and commit command for repo-backed diffs", async () => 
   await waitFor(() => Boolean(stageCommitButton()));
   stageCommitButton()?.click();
   await waitFor(() => Boolean(stageCommitDialog()));
+  stageCommitDialog()
+    ?.querySelector<HTMLButtonElement>("button[type='submit']")
+    ?.dispatchEvent(new dom.window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Escape",
+    }));
+  await waitFor(() => stageCommitDialog() == null);
+
+  dom.window.document.getElementById("options-button")?.click();
+  await waitFor(() => Boolean(stageCommitButton()));
+  stageCommitButton()?.click();
+  await waitFor(() => Boolean(stageCommitDialog()));
 
   const input = stageCommitInput();
   expect(input).toBeTruthy();

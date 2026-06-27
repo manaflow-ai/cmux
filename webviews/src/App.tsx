@@ -439,17 +439,12 @@ function StageCommitDialog({
   onCancel: () => void;
   onSubmit: (message: string) => Promise<void>;
 }) {
-  const inputRef = useRef<HTMLTextAreaElement | null>(null);
-
-  useEffect(() => {
-    const focusInput = () => inputRef.current?.focus();
-    if (window.requestAnimationFrame) {
-      const frame = window.requestAnimationFrame(focusInput);
-      return () => window.cancelAnimationFrame?.(frame);
+  const handleEscapeKey: React.KeyboardEventHandler<HTMLElement> = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onCancel();
     }
-    focusInput();
-    return undefined;
-  }, []);
+  };
 
   return (
     <>
@@ -472,25 +467,20 @@ function StageCommitDialog({
             {label("commitMessage")}
           </label>
           <textarea
-            ref={inputRef}
+            ref={focusStageCommitInput}
             id="stage-commit-message"
             name="commitMessage"
             className="stage-commit-input"
             aria-labelledby="stage-commit-message-label"
             required
             rows={4}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                onCancel();
-              }
-            }}
+            onKeyDown={handleEscapeKey}
           />
           <div className="stage-commit-actions">
-            <button type="button" className="comment-button" onClick={onCancel}>
+            <button type="button" className="comment-button" onClick={onCancel} onKeyDown={handleEscapeKey}>
               {cancelLabel}
             </button>
-            <button type="submit" className="comment-button comment-button-primary">
+            <button type="submit" className="comment-button comment-button-primary" onKeyDown={handleEscapeKey}>
               {label("commit")}
             </button>
           </div>
@@ -498,6 +488,10 @@ function StageCommitDialog({
       </dialog>
     </>
   );
+}
+
+function focusStageCommitInput(input: HTMLTextAreaElement | null) {
+  input?.focus();
 }
 
 function resolveDiffViewerAssetURL(rawURL: string | undefined): URL {
