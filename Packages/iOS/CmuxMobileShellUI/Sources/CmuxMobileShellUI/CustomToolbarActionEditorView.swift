@@ -152,27 +152,8 @@ struct CustomToolbarActionEditorView: View {
     }
 
     @ViewBuilder private var macroSection: some View {
-        ForEach(macroSteps.indices, id: \.self) { index in
-            Section {
-                ToolbarMacroStepEditor(step: $macroSteps[index])
-
-                Button(role: .destructive) {
-                    macroSteps.remove(at: index)
-                } label: {
-                    Label(
-                        L10n.string("mobile.toolbar.editor.deleteStep", defaultValue: "Delete Step"),
-                        systemImage: "trash"
-                    )
-                }
-                .accessibilityIdentifier("CustomActionDeleteStepButton-\(index + 1)")
-            } header: {
-                VStack(alignment: .leading, spacing: 2) {
-                    if index == macroSteps.startIndex {
-                        Text(L10n.string("mobile.toolbar.editor.macroHeader", defaultValue: "Macro Steps"))
-                    }
-                    Text(macroStepTitle(index: index + 1))
-                }
-            }
+        ForEach(macroSteps) { step in
+            macroStepSection(for: step)
         }
 
         Section {
@@ -202,6 +183,31 @@ struct CustomToolbarActionEditorView: View {
                 "mobile.toolbar.editor.macroFooter",
                 defaultValue: "Runs each step in order. Text steps type exactly what you enter; key steps send one key combo."
             ))
+        }
+    }
+
+    @ViewBuilder private func macroStepSection(for step: ToolbarMacroStepDraft) -> some View {
+        if let index = macroSteps.firstIndex(where: { $0.id == step.id }) {
+            Section {
+                ToolbarMacroStepEditor(step: $macroSteps[index])
+
+                Button(role: .destructive) {
+                    macroSteps.removeAll { $0.id == step.id }
+                } label: {
+                    Label(
+                        L10n.string("mobile.toolbar.editor.deleteStep", defaultValue: "Delete Step"),
+                        systemImage: "trash"
+                    )
+                }
+                .accessibilityIdentifier("CustomActionDeleteStepButton-\(index + 1)")
+            } header: {
+                VStack(alignment: .leading, spacing: 2) {
+                    if index == macroSteps.startIndex {
+                        Text(L10n.string("mobile.toolbar.editor.macroHeader", defaultValue: "Macro Steps"))
+                    }
+                    Text(macroStepTitle(index: index + 1))
+                }
+            }
         }
     }
 
