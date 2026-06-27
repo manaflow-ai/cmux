@@ -633,7 +633,7 @@ struct FeedCoordinatorTests {
 }
 
 private final class IngestResultBox: @unchecked Sendable {
-    var value: FeedCoordinator.IngestBlockingResult?
+    var value: WorkstreamIngestBlockingResult?
 }
 
 private final class AttentionSurfaceRecorder: @unchecked Sendable {
