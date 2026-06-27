@@ -1326,15 +1326,12 @@ final class MobileHostService {
         guard case let .ok(payload) = result,
               let object = payload as? [String: Any] else { return }
 
-        let createdWorkspaceID: String?
-        let createdTerminalID: String?
+        let createdResource: (workspaceID: String?, terminalID: String?)
         switch request.method {
         case "workspace.create":
-            createdWorkspaceID = object["created_workspace_id"] as? String
-            createdTerminalID = nil
+            createdResource = (object["created_workspace_id"] as? String, nil)
         case "mobile.terminal.create", "terminal.create":
-            createdWorkspaceID = nil
-            createdTerminalID = object["created_terminal_id"] as? String
+            createdResource = (nil, object["created_terminal_id"] as? String)
         default:
             return
         }
@@ -1350,8 +1347,8 @@ final class MobileHostService {
         ) else { return }
         ticketStore.recordCreatedResources(
             authToken: attachToken,
-            workspaceID: createdWorkspaceID,
-            terminalID: createdTerminalID
+            workspaceID: createdResource.workspaceID,
+            terminalID: createdResource.terminalID
         )
     }
 
@@ -1430,6 +1427,9 @@ final class MobileHostService {
         authorization: MobileAttachTicketAuthorization,
         workspaceSelection: String?
     ) -> MobileHostRPCError? {
+        if authorization.ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            return scopedTicketError
+        }
         if let workspaceSelection,
            authorization.createdWorkspaceIDs.contains(workspaceSelection) {
             return nil
@@ -1438,9 +1438,7 @@ final class MobileHostService {
         let ticketWorkspaceID = authorization.ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
         // Empty workspaceID means the ticket is Mac-wide (general pairing).
         // Allow any workspace under it.
-        if ticketWorkspaceID.isEmpty {
-            return nil
-        }
+        if ticketWorkspaceID.isEmpty { return nil }
         guard workspaceSelection == ticketWorkspaceID else {
             return scopedTicketError
         }

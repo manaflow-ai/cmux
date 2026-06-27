@@ -50,6 +50,24 @@ struct MobileHostAttachTicketScopeTests {
         #expect(error?.code == "forbidden")
     }
 
+    @Test(arguments: ["workspace.action", "workspace.close"])
+    func testTerminalScopedAttachTicketRejectsWorkspaceMutation(method: String) throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "workspace-mutation",
+            method: method,
+            params: ["workspace_id": "workspace"],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error?.code == "forbidden")
+    }
+
     @Test func testWorkspaceScopedAttachTicketAcceptsScopedWorkspaceList() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
         let request = MobileHostRPCRequest(
