@@ -14,21 +14,29 @@ extension CMUXCLI {
     ) {
         guard let sessionId = parsedInput.sessionId else { return }
         let env = ProcessInfo.processInfo.environment
-        guard let probe = try? client.sendV2(
-            method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
-        ), probe["enabled"] as? Bool == true else {
-            telemetry.breadcrumb("claude-hook.auto-name.disabled")
+        let telemetryKey = "claude-hook.auto-name"
+        guard let probe = probeAutoNaming(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            agent: "claude",
+            client: client,
+            telemetryKey: telemetryKey,
+            telemetry: telemetry
+        ) else {
             return
         }
-        guard probe["workspace_user_owned"] as? Bool != true else {
-            telemetry.breadcrumb("claude-hook.auto-name.user-owned")
-            return
-        }
+        let promptLanguage = autoNamingPromptLanguage(
+            probe: probe,
+            env: env,
+            telemetryKey: telemetryKey,
+            telemetry: telemetry
+        )
+        let currentTitle = autoNamingCurrentTitle(probe: probe)
+        let panelTitleTarget = autoNamingTargetsPanel(probe: probe)
 
         let claudePid = mappedSession?.pid ?? claudeAgentPID(from: env)
         guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: claudePid, env: env) else {
-            telemetry.breadcrumb("claude-hook.auto-name.nested-suppressed")
+            telemetry.breadcrumb("\(telemetryKey).nested-suppressed")
             return
         }
         guard shouldApplyClaudeHookVisibleMutation(
@@ -38,12 +46,18 @@ extension CMUXCLI {
             surfaceId: surfaceId,
             telemetry: telemetry
         ) else {
-            telemetry.breadcrumb("claude-hook.auto-name.stale")
+            telemetry.breadcrumb("\(telemetryKey).stale")
             return
         }
 
-        guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath else { return }
+        guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath else {
+            telemetry.breadcrumb("\(telemetryKey).transcript-missing")
+            reportAutoNamingProblem("extraction_failed", agent: "claude", workspaceId: workspaceId, client: client)
+            return
+        }
         guard let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024), !lines.isEmpty else {
+            telemetry.breadcrumb("\(telemetryKey).transcript-unreadable")
+            reportAutoNamingProblem("extraction_failed", agent: "claude", workspaceId: workspaceId, client: client)
             return
         }
         let lineCount = textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
@@ -57,23 +71,37 @@ extension CMUXCLI {
             engine: engine
         ) else { return }
         guard case .proceed(let baseline) = outcome.decision else {
-            telemetry.breadcrumb("claude-hook.auto-name.throttled")
+            telemetry.breadcrumb("\(telemetryKey).throttled")
             return
         }
 
         var confirmedTitle: String?
+        var countFailure = true
         defer {
-            try? sessionStore.finishAutoNaming(
+            _ = try? sessionStore.finishAutoNaming(
                 sessionId: sessionId,
+                passId: outcome.passId,
                 appliedTitle: confirmedTitle,
                 baselineLineCount: confirmedTitle != nil ? baseline : nil,
-                now: Date()
+                now: Date(),
+                countFailure: countFailure
             )
         }
-
-        let messages = engine.extractMessages(fromTranscriptLines: lines)
-        guard let context = engine.buildContext(from: messages) else { return }
-        let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
+        let extraction = engine.extractClaudeTranscript(fromTranscriptLines: lines)
+        if let diagnostic = extraction.diagnosticSummary {
+            telemetry.breadcrumb("\(telemetryKey).extraction.\(diagnostic)")
+        }
+        guard let context = engine.buildContext(from: extraction.messages) else {
+            countFailure = false
+            telemetry.breadcrumb("\(telemetryKey).extraction-empty")
+            reportAutoNamingProblem("extraction_failed", agent: "claude", workspaceId: workspaceId, client: client)
+            return
+        }
+        let prompt = engine.buildPrompt(
+            currentTitle: currentTitle,
+            context: context,
+            language: promptLanguage
+        )
 
         let resolution = resolvedSummarizerAgent(
             probe: probe, sessionAgent: "claude", env: env, telemetry: telemetry
@@ -85,23 +113,47 @@ extension CMUXCLI {
             timeout: engine.config.llmTimeout,
             telemetry: telemetry
         ) else {
-            telemetry.breadcrumb("claude-hook.auto-name.llm-failed")
+            telemetry.breadcrumb("\(telemetryKey).llm-failed")
             reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
             return
         }
 
-        guard let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil) else { return }
-        confirmedTitle = applyAutoNamingTitle(
-            sanitized,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            previousTitle: outcome.lastTitle,
-            client: client,
-            telemetryKey: "claude-hook.auto-name",
+        guard let action = autoNamingSanitizedAction(
+            engine: engine,
+            rawResponse: rawResponse,
+            currentTitle: currentTitle,
+            telemetryKey: telemetryKey,
             telemetry: telemetry
-        )
-        // Re-report a missing override only after the fallback apply, so the
-        // app's clear-on-apply doesn't immediately wipe the Settings note.
+        ) else { return }
+        guard (try? sessionStore.isCurrentAutoNamingPass(sessionId: sessionId, passId: outcome.passId)) == true else {
+            telemetry.breadcrumb("\(telemetryKey).stale-pass")
+            countFailure = false
+            return
+        }
+        if action.shouldApply {
+            let applyResult = applyAutoNamingTitle(
+                action.title,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                agent: resolution.agent,
+                client: client,
+                panelTitleTarget: panelTitleTarget,
+                telemetryKey: telemetryKey,
+                telemetry: telemetry
+            )
+            confirmedTitle = applyResult.confirmedTitle
+            countFailure = applyResult.countsTowardBackoff
+        } else {
+            confirmedTitle = confirmAutoNamingSuccess(
+                workspaceId: workspaceId,
+                agent: resolution.agent,
+                client: client,
+                telemetryKey: telemetryKey,
+                telemetry: telemetry
+            ) ? action.title : nil
+        }
+        // Re-report a missing override only after the fallback pass succeeds,
+        // so clear-on-apply does not immediately wipe the Settings note.
         if confirmedTitle != nil, let missing = resolution.missingOverride {
             reportAutoNamingProblem("not_installed", agent: missing, workspaceId: workspaceId, client: client)
         }
@@ -176,21 +228,29 @@ extension CMUXCLI {
               let surfaceId = optionValue(commandArgs, name: "--surface") else {
             return
         }
-        guard let probe = try? client.sendV2(
-            method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
-        ), probe["enabled"] as? Bool == true else {
-            telemetry.breadcrumb("codex-hook.auto-name.disabled")
+        let telemetryKey = "codex-hook.auto-name"
+        guard let probe = probeAutoNaming(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            agent: "codex",
+            client: client,
+            telemetryKey: telemetryKey,
+            telemetry: telemetry
+        ) else {
             return
         }
-        guard probe["workspace_user_owned"] as? Bool != true else {
-            telemetry.breadcrumb("codex-hook.auto-name.user-owned")
-            return
-        }
+        let promptLanguage = autoNamingPromptLanguage(
+            probe: probe,
+            env: env,
+            telemetryKey: telemetryKey,
+            telemetry: telemetry
+        )
+        let currentTitle = autoNamingCurrentTitle(probe: probe)
+        let panelTitleTarget = autoNamingTargetsPanel(probe: probe)
 
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
         guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
-            telemetry.breadcrumb("codex-hook.auto-name.stale")
+            telemetry.breadcrumb("\(telemetryKey).stale")
             return
         }
         let transcriptPath = normalizedHookValue(optionValue(commandArgs, name: "--transcript"))
@@ -198,6 +258,8 @@ extension CMUXCLI {
         guard let transcriptPath,
               let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024),
               !lines.isEmpty else {
+            telemetry.breadcrumb("\(telemetryKey).transcript-unreadable")
+            reportAutoNamingProblem("extraction_failed", agent: "codex", workspaceId: workspaceId, client: client)
             return
         }
         let resolution = resolvedSummarizerAgent(
@@ -211,13 +273,27 @@ extension CMUXCLI {
             lineCount: textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count),
             sessionStore: sessionStore,
             client: client,
+            summarizerAgent: resolution.agent,
             missingOverride: resolution.missingOverride,
-            telemetryKey: "codex-hook.auto-name",
+            currentTitle: currentTitle,
+            panelTitleTarget: panelTitleTarget,
+            telemetryKey: telemetryKey,
             telemetry: telemetry
-        ) { engine, outcome in
-            let messages = engine.extractCodexMessages(fromRolloutLines: lines)
-            guard let context = engine.buildContext(from: messages) else { return nil }
-            let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
+        ) { engine, _ in
+            let extraction = engine.extractCodexRollout(fromRolloutLines: lines)
+            if let diagnostic = extraction.diagnosticSummary {
+                telemetry.breadcrumb("\(telemetryKey).extraction.\(diagnostic)")
+            }
+            guard let context = engine.buildContext(from: extraction.messages) else {
+                telemetry.breadcrumb("\(telemetryKey).extraction-empty")
+                reportAutoNamingProblem("extraction_failed", agent: "codex", workspaceId: workspaceId, client: client)
+                return (nil, false)
+            }
+            let prompt = engine.buildPrompt(
+                currentTitle: currentTitle,
+                context: context,
+                language: promptLanguage
+            )
             guard let raw = summarize(
                 summarizerAgent: resolution.agent,
                 prompt: prompt,
@@ -225,11 +301,11 @@ extension CMUXCLI {
                 timeout: engine.config.llmTimeout,
                 telemetry: telemetry
             ) else {
-                telemetry.breadcrumb("codex-hook.auto-name.llm-failed")
+                telemetry.breadcrumb("\(telemetryKey).llm-failed")
                 reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
-                return nil
+                return (nil, true)
             }
-            return raw
+            return (raw, true)
         }
     }
 }

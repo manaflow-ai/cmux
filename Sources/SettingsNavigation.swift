@@ -415,12 +415,14 @@ enum SettingsSearchIndex {
             "workspace-auto-naming",
             String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
             [
-                "automation.workspaceAutoNaming automation.autoNamingAgent workspace auto naming auto name ai naming names rename workspace rename tab title titles generated name agent summarizer summarize conversation",
+                "automation.workspaceAutoNaming automation.autoNamingAgent automation.autoNamingLanguage workspace auto naming auto name ai naming names rename workspace rename tab title titles generated name agent summarizer summarize conversation naming language locale language japanese english system",
                 String(localized: "settings.automation.workspaceAutoNaming.subtitleOn", defaultValue: "Workspaces and tabs are named from agent conversations."),
                 String(localized: "settings.automation.workspaceAutoNaming.subtitleOff", defaultValue: "Workspace and tab names are never generated."),
                 String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."),
                 String(localized: "settings.automation.autoNamingAgent", defaultValue: "Naming Agent"),
-                String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic")
+                String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic"),
+                String(localized: "settings.automation.autoNamingLanguage", defaultValue: "Naming Language"),
+                String(localized: "settings.automation.autoNamingLanguage.auto", defaultValue: "Follow System")
             ].joined(separator: " ")
         ),
         setting(.automation, "ripgrep-path", String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"), "custom ripgrep rg executable find search nix"),

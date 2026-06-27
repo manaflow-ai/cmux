@@ -1,7 +1,7 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-34643	CLI/cmux.swift
+34662	CLI/cmux.swift
 17854	Sources/AppDelegate.swift
 16476	Sources/ContentView.swift
 13913	Sources/TerminalController.swift
@@ -160,16 +160,18 @@
 642	cmuxTests/RemoteTmuxControlParserTests.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
 636	Sources/TerminalController+ControlPaneContext.swift
+633	CLI/CMUXCLI+AutoNaming.swift
 632	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 627	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 621	cmuxUITests/RightSidebarChromeHeightUITests.swift
 620	cmuxTests/FinderFileDropRegressionTests.swift
 620	cmuxTests/TerminalNotificationQueueTests.swift
-613	Sources/SettingsNavigation.swift
+615	Sources/SettingsNavigation.swift
 612	cmuxUITests/FeedSidebarUITests.swift
 607	Sources/SessionIndexModels.swift
 607	Sources/SleepyFaceView.swift
+606	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
 604	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteNucleoFFITests.swift
 602	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift
 601	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift
@@ -198,7 +200,6 @@
 552	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
 549	Sources/Panels/BrowserAutomation.swift
 547	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift
-546	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
 541	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift
 539	CLI/CMUXCLI+Themes.swift
 539	CLI/CodexTeamsApprovalBridge.swift
@@ -213,7 +214,6 @@
 527	cmuxTests/BrowserHTTPBasicAuthPromptTests.swift
 526	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Workstream/WorkstreamStore.swift
 525	Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/SocketControlSettings.swift
-524	CLI/CMUXCLI+AutoNaming.swift
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift
 519	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-two-column-cockpit-sidebar.swift

@@ -87,6 +87,14 @@ struct AutoNamingStatusStoreTests {
         #expect(AutoNamingStatusStore.current(in: defaults)?.category == .notInstalled)
     }
 
+    @Test func diagnosticCategoriesMapFromRawSocketFields() {
+        for raw in ["probe_failed", "extraction_failed", "apply_failed"] {
+            let defaults = makeDefaults()
+            AutoNamingStatusStore.record(rawCategory: raw, agent: "codex", at: 1, in: defaults)
+            #expect(AutoNamingStatusStore.current(in: defaults)?.category.rawValue == raw)
+        }
+    }
+
     @Test func unknownCategoryIsIgnored() {
         let defaults = makeDefaults()
         AutoNamingStatusStore.record(rawCategory: "bogus", agent: "x", at: 1, in: defaults)

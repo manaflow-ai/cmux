@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -111,8 +110,10 @@ extension CMUXCLI {
     }
 
     /// Runs the summarizer subprocess with the prompt on stdin and a hard
-    /// deadline, returning captured stdout (nil on failure, timeout, or
-    /// non-zero exit).
+    /// deadline, returning bounded stdout (nil on failure, timeout, oversized
+    /// output, or non-zero exit). stdout is captured through a pipe with a live
+    /// byte cap, then the read side is closed on return so inherited writer fds
+    /// cannot keep the hook blocked after the main summarizer exits.
     func runAutoNamingSummarizer(
         executable: String,
         arguments: [String],
@@ -120,50 +121,12 @@ extension CMUXCLI {
         environment: [String: String],
         timeout: TimeInterval
     ) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.environment = environment
-
-        let stdinPipe = Pipe()
-        let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-autoname-stdout-\(UUID().uuidString).txt")
-        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil),
-              let stdoutHandle = try? FileHandle(forWritingTo: outputURL) else {
-            return nil
-        }
-        defer {
-            try? stdoutHandle.close()
-            try? FileManager.default.removeItem(at: outputURL)
-        }
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutHandle
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try cliRunProcess(process)
-        } catch {
-            return nil
-        }
-        if let promptData = prompt.data(using: .utf8) {
-            _ = cliWrite(promptData, to: stdinPipe.fileHandleForWriting, onBrokenPipe: .ignore)
-        }
-        try? stdinPipe.fileHandleForWriting.close()
-
-        let exited = (try? waitForProcessExit(process, timeout: timeout)) ?? false
-        if !exited {
-            process.terminate()
-            if ((try? waitForProcessExit(process, timeout: 2)) ?? false) == false {
-                kill(process.processIdentifier, SIGKILL)
-                _ = try? waitForProcessExit(process, timeout: 1)
-            }
-            return nil
-        }
-        try? stdoutHandle.close()
-        guard process.terminationStatus == 0,
-              let output = try? Data(contentsOf: outputURL) else {
-            return nil
-        }
-        return String(data: output, encoding: .utf8)
+        AutoNamingSubprocessRunner().run(
+            executable: executable,
+            arguments: arguments,
+            prompt: prompt,
+            environment: environment,
+            timeout: timeout
+        )
     }
 }

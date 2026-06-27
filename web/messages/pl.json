@@ -803,7 +803,8 @@
           "ampIntegration": "Włącza haki integracji cmux dla Amp. Po wyłączeniu dołączona wtyczka pozostaje nieaktywna bez konieczności jej usuwania.",
           "suppressSubagentNotifications": "Ukrywa widoczne powiadomienia o zakończeniu i zmiany statusu zagnieżdżonych agentów podrzędnych Codex lub Claude, zachowując ich zdarzenia w telemetrii Feed.",
           "workspaceAutoNaming": "Opcjonalne automatyczne nazywanie przestrzeni roboczych i kart przez AI na podstawie treści rozmów agenta. Po włączeniu cmux podsumowuje obsługiwane sesje agentów w krótkie tytuły przy użyciu własnego pliku binarnego każdego agenta; ręczne zmiany nazw zawsze mają pierwszeństwo.",
-          "autoNamingAgent": "Który agent generuje automatyczne nazwy dla każdej sesji. „auto” (domyślnie) nazywa każdą sesję jej własnym agentem; dowolny identyfikator agenta (claude, codex, grok, opencode, pi, omp, …) zastępuje nazewnictwo dla wszystkich sesji, nawet innych agentów. Niedostępni lub niezainstalowani agenci wracają do agenta danej sesji, więc nazewnictwo nigdy się nie psuje."
+          "autoNamingAgent": "Który agent generuje automatyczne nazwy dla każdej sesji. „auto” (domyślnie) nazywa każdą sesję jej własnym agentem; dowolny identyfikator agenta (claude, codex, grok, opencode, pi, omp, …) zastępuje nazewnictwo dla wszystkich sesji, nawet innych agentów. Niedostępni lub niezainstalowani agenci wracają do agenta danej sesji, więc nazewnictwo nigdy się nie psuje.",
+          "autoNamingLanguage": "Język generowanych nazw obszarów roboczych i kart. \"auto\" używa pierwszego preferowanego języka systemu; użyj tagu BCP-47, takiego jak \"en\" lub \"ja\", aby wymusić język."
         },
         "app": {
           "confirmQuit": "Określa, kiedy cmux prosi o potwierdzenie przed zamknięciem. Buildy DEV zawsze zamykają się natychmiast niezależnie od tego ustawienia. Starsze app.warnBeforeQuit jest nadal akceptowane jako zapasowa wartość logiczna.",

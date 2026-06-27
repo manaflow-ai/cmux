@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 extension CMUXCLI {
     enum AgentAutoNamingSource: Equatable {
@@ -29,6 +30,7 @@ extension CMUXCLI {
         parsedInput: ClaudeHookParsedInput,
         client: SocketClient,
         workspaceId: String,
+        surfaceId: String,
         engine: AutoNamingEngine = AutoNamingEngine()
     ) -> [AutoNamingTranscriptMessage] {
         guard usesHookMessageCacheForAutoNaming(def),
@@ -37,12 +39,44 @@ extension CMUXCLI {
         }
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
-        ), probe["enabled"] as? Bool == true,
-           probe["workspace_user_owned"] as? Bool != true else {
+            params: autoNamingProbeParams(workspaceId: workspaceId, surfaceId: surfaceId)
+        ), autoNamingProbeHasWritableTarget(probe) else {
             return []
         }
         return engine.extractHookMessages(fromPayloadObjects: [object])
+    }
+
+    func autoNamingMessageBatchKey(for def: AgentHookDef, parsedInput: ClaudeHookParsedInput) -> String? {
+        guard usesHookMessageCacheForAutoNaming(def),
+              let object = parsedInput.rawObject ?? parsedInput.object else {
+            return nil
+        }
+        let messages = AutoNamingEngine().extractHookMessages(fromPayloadObjects: [object])
+        guard !messages.isEmpty else { return nil }
+        let sessionId = normalizedHookValue(parsedInput.sessionId) ?? ""
+        let turnId = normalizedHookValue(parsedInput.turnId) ?? ""
+        let eventIdentity = autoNamingBatchEventIdentity(in: object)
+        let messageIdentity = messages.prefix(8).map { message in
+            "\(message.role)\u{1E}\(String(message.text.prefix(1_000)))"
+        }.joined(separator: "\u{1F}")
+        let seed = "\(def.name)\u{1F}\(sessionId)\u{1F}\(turnId)\u{1F}\(eventIdentity)\u{1F}\(messageIdentity)"
+        return "\(def.name)\u{1F}\(sessionId)\u{1F}\(turnId)\u{1F}\(autoNamingBatchFingerprint(Data(seed.utf8)))"
+    }
+
+    private func autoNamingBatchEventIdentity(in object: [String: Any]) -> String {
+        [
+            "hook_event_name", "hookEventName", "event", "event_name", "type", "kind",
+            "message_id", "messageId", "event_id", "eventId", "request_id", "requestId", "id"
+        ].compactMap { key in
+            normalizedHookValue(firstString(in: object, keys: [key])).map { "\(key)=\($0)" }
+        }.joined(separator: "\u{1E}")
+    }
+
+    private func autoNamingBatchFingerprint(_ data: Data) -> String {
+        SHA256.hash(data: data).map { byte in
+            let hex = String(byte, radix: 16)
+            return hex.count == 1 ? "0\(hex)" : hex
+        }.joined()
     }
 
     /// Detached naming pass for non-Codex generic agents.
@@ -60,42 +94,55 @@ extension CMUXCLI {
               let surfaceId = optionValue(commandArgs, name: "--surface") else {
             return
         }
-        guard let probe = try? client.sendV2(
-            method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
-        ), probe["enabled"] as? Bool == true else {
-            telemetry.breadcrumb("\(def.name)-hook.auto-name.disabled")
+        let telemetryKey = "\(def.name)-hook.auto-name"
+        guard let probe = probeAutoNaming(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            agent: def.name,
+            client: client,
+            telemetryKey: telemetryKey,
+            telemetry: telemetry
+        ) else {
             return
         }
-        guard probe["workspace_user_owned"] as? Bool != true else {
-            telemetry.breadcrumb("\(def.name)-hook.auto-name.user-owned")
-            return
-        }
+        let promptLanguage = autoNamingPromptLanguage(
+            probe: probe,
+            env: env,
+            telemetryKey: telemetryKey,
+            telemetry: telemetry
+        )
+        let currentTitle = autoNamingCurrentTitle(probe: probe)
+        let panelTitleTarget = autoNamingTargetsPanel(probe: probe)
 
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
         let mapped = try? sessionStore.lookup(sessionId: sessionId)
         guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
-            telemetry.breadcrumb("\(def.name)-hook.auto-name.stale")
+            telemetry.breadcrumb("\(telemetryKey).stale")
             return
         }
 
         let engine = AutoNamingEngine()
-        let sourceResult: (messages: [AutoNamingTranscriptMessage], lineCount: Int)? = {
+        let sourceResult: (messages: [AutoNamingTranscriptMessage], lineCount: Int, diagnostic: String?)? = {
             switch source {
             case .codexRollout:
                 return nil
             case .grokHistory:
                 let cwd = normalizedHookValue(optionValue(commandArgs, name: "--cwd")) ?? mapped?.cwd
                 guard let sessionURL = grokSessionDirectory(cwd: cwd, sessionId: sessionId, env: env) else {
+                    telemetry.breadcrumb("\(telemetryKey).session-directory-missing")
+                    reportAutoNamingProblem("extraction_failed", agent: def.name, workspaceId: workspaceId, client: client)
                     return nil
                 }
                 let historyURL = sessionURL.appendingPathComponent("chat_history.jsonl", isDirectory: false)
                 guard let lines = readRecentTextFileLines(path: historyURL.path, maxBytes: 512 * 1024),
                       !lines.isEmpty else {
+                    telemetry.breadcrumb("\(telemetryKey).transcript-unreadable")
+                    reportAutoNamingProblem("extraction_failed", agent: def.name, workspaceId: workspaceId, client: client)
                     return nil
                 }
                 let lineCount = textFileGrowthMetric(path: historyURL.path, fallbackLineCount: lines.count)
-                return (engine.extractGrokMessages(fromChatHistoryLines: lines), lineCount)
+                let extraction = engine.extractGrokHistory(fromChatHistoryLines: lines)
+                return (extraction.messages, lineCount, extraction.diagnosticSummary)
             case .hookMessageCache:
                 guard let snapshot = try? sessionStore.autoNamingRecentMessagesSnapshot(sessionId: sessionId),
                       !snapshot.messages.isEmpty else {
@@ -106,11 +153,21 @@ extension CMUXCLI {
                     engine.hookMessageLineEquivalentCount(
                         snapshot.messages,
                         totalMessageCount: snapshot.totalMessageCount
-                    )
+                    ),
+                    nil
                 )
             }
         }()
-        guard let sourceResult, !sourceResult.messages.isEmpty else { return }
+        if let diagnostic = sourceResult?.diagnostic {
+            telemetry.breadcrumb("\(telemetryKey).extraction.\(diagnostic)")
+        }
+        guard let sourceResult else {
+            telemetry.breadcrumb("\(telemetryKey).extraction-empty")
+            if source != .hookMessageCache {
+                reportAutoNamingProblem("extraction_failed", agent: def.name, workspaceId: workspaceId, client: client)
+            }
+            return
+        }
 
         let resolution = resolvedSummarizerAgent(
             probe: probe, sessionAgent: def.name, env: env, telemetry: telemetry
@@ -123,12 +180,25 @@ extension CMUXCLI {
             lineCount: sourceResult.lineCount,
             sessionStore: sessionStore,
             client: client,
+            summarizerAgent: resolution.agent,
             missingOverride: resolution.missingOverride,
-            telemetryKey: "\(def.name)-hook.auto-name",
+            currentTitle: currentTitle,
+            panelTitleTarget: panelTitleTarget,
+            telemetryKey: telemetryKey,
             telemetry: telemetry
-        ) { engine, outcome in
-            guard let context = engine.buildContext(from: sourceResult.messages) else { return nil }
-            let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
+        ) { engine, _ in
+            guard let context = engine.buildContext(from: sourceResult.messages) else {
+                telemetry.breadcrumb("\(telemetryKey).extraction-empty")
+                if source != .hookMessageCache {
+                    reportAutoNamingProblem("extraction_failed", agent: def.name, workspaceId: workspaceId, client: client)
+                }
+                return (nil, false)
+            }
+            let prompt = engine.buildPrompt(
+                currentTitle: currentTitle,
+                context: context,
+                language: promptLanguage
+            )
             guard let raw = summarize(
                 summarizerAgent: resolution.agent,
                 prompt: prompt,
@@ -137,9 +207,9 @@ extension CMUXCLI {
                 telemetry: telemetry
             ) else {
                 reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
-                return nil
+                return (nil, true)
             }
-            return raw
+            return (raw, true)
         }
     }
 
@@ -151,10 +221,13 @@ extension CMUXCLI {
         lineCount: Int,
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
+        summarizerAgent: String,
         missingOverride: String?,
+        currentTitle: String?,
+        panelTitleTarget: Bool,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
-        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
+        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (raw: String?, countsTowardBackoff: Bool)
     ) {
         guard !lines.isEmpty else { return }
         runAutoNamingPass(
@@ -164,7 +237,10 @@ extension CMUXCLI {
             lineCount: lineCount,
             sessionStore: sessionStore,
             client: client,
+            summarizerAgent: summarizerAgent,
             missingOverride: missingOverride,
+            currentTitle: currentTitle,
+            panelTitleTarget: panelTitleTarget,
             telemetryKey: telemetryKey,
             telemetry: telemetry,
             rawResponse: rawResponse
@@ -179,12 +255,14 @@ extension CMUXCLI {
         lineCount: Int,
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
+        summarizerAgent: String,
         missingOverride: String?,
+        currentTitle: String?,
+        panelTitleTarget: Bool,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
-        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
+        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (raw: String?, countsTowardBackoff: Bool)
     ) {
-        guard !messages.isEmpty else { return }
         runAutoNamingPass(
             sessionId: sessionId,
             workspaceId: workspaceId,
@@ -192,7 +270,10 @@ extension CMUXCLI {
             lineCount: lineCount,
             sessionStore: sessionStore,
             client: client,
+            summarizerAgent: summarizerAgent,
             missingOverride: missingOverride,
+            currentTitle: currentTitle,
+            panelTitleTarget: panelTitleTarget,
             telemetryKey: telemetryKey,
             telemetry: telemetry,
             rawResponse: rawResponse
@@ -206,10 +287,13 @@ extension CMUXCLI {
         lineCount: Int,
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
+        summarizerAgent: String,
         missingOverride: String?,
+        currentTitle: String?,
+        panelTitleTarget: Bool,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
-        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
+        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (raw: String?, countsTowardBackoff: Bool)
     ) {
         let engine = AutoNamingEngine()
         guard let outcome = try? sessionStore.beginAutoNaming(
@@ -226,32 +310,112 @@ extension CMUXCLI {
         }
 
         var confirmedTitle: String?
+        var countFailure = true
         defer {
-            try? sessionStore.finishAutoNaming(
+            _ = try? sessionStore.finishAutoNaming(
                 sessionId: sessionId,
+                passId: outcome.passId,
                 appliedTitle: confirmedTitle,
                 baselineLineCount: confirmedTitle != nil ? baseline : nil,
-                now: Date()
+                now: Date(),
+                countFailure: countFailure
             )
         }
-        guard let rawResponse = rawResponse(engine, outcome) else {
-            telemetry.breadcrumb("\(telemetryKey).llm-failed")
+        let rawResponseResult = rawResponse(engine, outcome)
+        guard let rawResponse = rawResponseResult.raw else {
+            countFailure = rawResponseResult.countsTowardBackoff
+            if countFailure {
+                telemetry.breadcrumb("\(telemetryKey).llm-failed")
+            }
             return
         }
-        guard let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil) else { return }
-        confirmedTitle = applyAutoNamingTitle(
-            sanitized,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            previousTitle: outcome.lastTitle,
-            client: client,
+        guard let action = autoNamingSanitizedAction(
+            engine: engine,
+            rawResponse: rawResponse,
+            currentTitle: currentTitle,
             telemetryKey: telemetryKey,
             telemetry: telemetry
-        )
-        // Re-report a missing override only after the apply, so the app's
-        // clear-on-apply doesn't immediately wipe the Settings note.
+        ) else { return }
+        guard (try? sessionStore.isCurrentAutoNamingPass(sessionId: sessionId, passId: outcome.passId)) == true else {
+            telemetry.breadcrumb("\(telemetryKey).stale-pass")
+            countFailure = false
+            return
+        }
+        if action.shouldApply {
+            let applyResult = applyAutoNamingTitle(
+                action.title,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                agent: summarizerAgent,
+                client: client,
+                panelTitleTarget: panelTitleTarget,
+                telemetryKey: telemetryKey,
+                telemetry: telemetry
+            )
+            confirmedTitle = applyResult.confirmedTitle
+            countFailure = applyResult.countsTowardBackoff
+            if confirmedTitle == nil, action.confirmNoOpSuccess, !applyResult.countsTowardBackoff {
+                confirmedTitle = confirmAutoNamingSuccess(
+                    workspaceId: workspaceId,
+                    agent: summarizerAgent,
+                    client: client,
+                    telemetryKey: telemetryKey,
+                    telemetry: telemetry
+                ) ? action.title : nil
+                countFailure = confirmedTitle == nil
+            }
+        } else {
+            confirmedTitle = confirmAutoNamingSuccess(
+                workspaceId: workspaceId,
+                agent: summarizerAgent,
+                client: client,
+                telemetryKey: telemetryKey,
+                telemetry: telemetry
+            ) ? action.title : nil
+        }
+        // Re-report a missing override only after the fallback pass succeeds,
+        // so clear-on-apply does not immediately wipe the Settings note.
         if confirmedTitle != nil, let missing = missingOverride {
             reportAutoNamingProblem("not_installed", agent: missing, workspaceId: workspaceId, client: client)
+        }
+    }
+
+    func autoNamingSanitizedAction(
+        engine: AutoNamingEngine,
+        rawResponse: String,
+        currentTitle: String?,
+        telemetryKey: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> (title: String, shouldApply: Bool, confirmNoOpSuccess: Bool)? {
+        let outcome = engine.sanitizeResponseOutcome(rawResponse, currentTitle: currentTitle)
+        switch outcome {
+        case .title:
+            break
+        case .unchanged:
+            telemetry.breadcrumb("\(telemetryKey).unchanged")
+        case .unusable:
+            telemetry.breadcrumb("\(telemetryKey).unusable-response")
+        }
+        return outcome.sanitizedAction
+    }
+
+    func confirmAutoNamingSuccess(
+        workspaceId: String,
+        agent: String,
+        client: SocketClient,
+        telemetryKey: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> Bool {
+        do {
+            _ = try client.sendV2(method: "workspace.set_auto_title", params: [
+                "success": true,
+                "workspace_id": workspaceId
+            ])
+            return true
+        } catch {
+            telemetry.breadcrumb("\(telemetryKey).success-confirm-failed")
+            reportAutoNamingProblem("apply_failed", agent: agent, workspaceId: workspaceId, client: client)
+            return false
         }
     }
 
@@ -259,25 +423,31 @@ extension CMUXCLI {
         _ title: String,
         workspaceId: String,
         surfaceId: String,
-        previousTitle: String?,
+        agent: String,
         client: SocketClient,
+        panelTitleTarget: Bool,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
-    ) -> String? {
-        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
-            "workspace_id": workspaceId,
-            "panel_id": surfaceId,
-            "panel_only_if_multiple": true,
-            "title": title
-        ]) else {
+    ) -> (confirmedTitle: String?, countsTowardBackoff: Bool) {
+        let payload: [String: Any]
+        do {
+            payload = try client.sendV2(method: "workspace.set_auto_title", params: [
+                "workspace_id": workspaceId,
+                "panel_id": surfaceId,
+                "panel_only_if_multiple": true,
+                "panel_title_target": panelTitleTarget,
+                "title": title
+            ])
+        } catch {
             telemetry.breadcrumb("\(telemetryKey).socket-failed")
-            return nil
+            reportAutoNamingProblem("apply_failed", agent: agent, workspaceId: workspaceId, client: client)
+            return (nil, true)
         }
-        if payload["workspace_applied"] as? Bool == true {
+        if payload["workspace_applied"] as? Bool == true || payload["panel_applied"] as? Bool == true {
             telemetry.breadcrumb("\(telemetryKey).applied")
-            return title
+            return (title, false)
         }
         telemetry.breadcrumb("\(telemetryKey).rejected")
-        return previousTitle
+        return (nil, false)
     }
 }

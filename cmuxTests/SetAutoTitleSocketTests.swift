@@ -59,6 +59,22 @@ import Testing
         return try body()
     }
 
+    /// Runs `body` with the auto-naming language override set to `slug`,
+    /// restoring the user's previous value afterwards.
+    private func withAutoNamingLanguageSetting<T>(_ slug: String, _ body: () throws -> T) rethrows -> T {
+        let key = AutomationCatalogSection().autoNamingLanguage.userDefaultsKey
+        let previous = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(slug, forKey: key)
+        defer {
+            if let previous {
+                UserDefaults.standard.set(previous, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+        return try body()
+    }
+
     private func withManager<T>(_ body: (TabManager, Workspace) throws -> T) throws -> T {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.tabs.first)
@@ -80,6 +96,23 @@ import Testing
                 let envelope = try call(method: "workspace.set_auto_title", params: ["probe": true])
                 let result = try #require(envelope["result"] as? [String: Any])
                 #expect(result["summarizer_agent"] as? String == "codex")
+            }
+        }
+    }
+
+    @Test func probeReportsResolvedAutoNamingLanguage() throws {
+        try withAutoNamingSetting(true) {
+            try withAutoNamingLanguageSetting("ja") {
+                let envelope = try call(method: "workspace.set_auto_title", params: ["probe": true])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["auto_naming_language_name"] as? String == "Japanese")
+                #expect(result["auto_naming_language_tag"] as? String == "ja")
+            }
+            try withAutoNamingLanguageSetting("en") {
+                let envelope = try call(method: "workspace.set_auto_title", params: ["probe": true])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["auto_naming_language_name"] as? String == "English")
+                #expect(result["auto_naming_language_tag"] as? String == "en")
             }
         }
     }
@@ -118,6 +151,29 @@ import Testing
                 ])
                 let result = try #require(envelope["result"] as? [String: Any])
                 #expect(result["workspace_applied"] as? Bool == true)
+                #expect(AutoNamingStatusStore.current() == nil)
+                AutoNamingStatusStore.clear()
+            }
+        }
+    }
+
+    @Test func successfulNoOpClearsRecordedFailureWithoutApplyingTitle() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                AutoNamingStatusStore.record(rawCategory: "failed", agent: "codex", at: 1)
+                #expect(AutoNamingStatusStore.current() != nil)
+                let originalTitle = workspace.title
+                let originalSource = workspace.effectiveCustomTitleSource
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "success": true
+                ])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["confirmed"] as? Bool == true)
+                #expect(result["status_cleared"] as? Bool == true)
+                #expect(result["workspace_applied"] == nil)
+                #expect(workspace.title == originalTitle)
+                #expect(workspace.effectiveCustomTitleSource == originalSource)
                 #expect(AutoNamingStatusStore.current() == nil)
                 AutoNamingStatusStore.clear()
             }
@@ -167,12 +223,40 @@ import Testing
     @Test func probeWithWorkspaceIdReportsUserOwnership() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+                let params: [String: Any] = [
+                    "probe": true,
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "panel_only_if_multiple": true
+                ]
+                var envelope = try call(method: "workspace.set_auto_title", params: params)
+                var result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_user_owned"] as? Bool == false)
+                #expect(result["auto_naming_panel_writable"] as? Bool == true)
+
+                workspace.setCustomTitle("My Project")
+                envelope = try call(method: "workspace.set_auto_title", params: params)
+                result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_user_owned"] as? Bool == true)
+                #expect(result["auto_naming_panel_writable"] as? Bool == true)
+            }
+        }
+    }
+
+    @Test func probeReportsCurrentAutoTitleOnlyForAutoOwnedWorkspace() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                workspace.setCustomTitle("Fix auth bug", source: .auto)
                 var envelope = try call(method: "workspace.set_auto_title", params: [
                     "probe": true,
                     "workspace_id": workspace.id.uuidString
                 ])
                 var result = try #require(envelope["result"] as? [String: Any])
                 #expect(result["workspace_user_owned"] as? Bool == false)
+                #expect(result["auto_naming_current_title"] as? String == "Fix auth bug")
 
                 workspace.setCustomTitle("My Project")
                 envelope = try call(method: "workspace.set_auto_title", params: [
@@ -181,6 +265,7 @@ import Testing
                 ])
                 result = try #require(envelope["result"] as? [String: Any])
                 #expect(result["workspace_user_owned"] as? Bool == true)
+                #expect(result["auto_naming_current_title"] is NSNull)
             }
         }
     }
@@ -219,6 +304,31 @@ import Testing
         }
     }
 
+    @Test func repeatedWorkspaceTitleStillAppliesPanelTitleAfterSplit() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                _ = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "title": "Fix auth bug"
+                ])
+
+                _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "panel_only_if_multiple": true,
+                    "title": "Fix auth bug"
+                ])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == true)
+                #expect(result["panel_applied"] as? Bool == true)
+                #expect(workspace.panelCustomTitles[panelId] == "Fix auth bug")
+            }
+        }
+    }
+
     @Test func appliesAutoTitleToUntitledWorkspace() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in
@@ -235,18 +345,78 @@ import Testing
         }
     }
 
-    @Test func rejectedOverUserTitleWithDistinguishableResult() throws {
+    @Test func mockedAutoNamingPipelineUsesProbeLanguageAndApplySocket() throws {
+        try withAutoNamingSetting(true) {
+            try withAutoNamingLanguageSetting("ja") {
+                try withManager { _, workspace in
+                    let probeEnvelope = try call(method: "workspace.set_auto_title", params: [
+                        "probe": true,
+                        "workspace_id": workspace.id.uuidString
+                    ])
+                    let probe = try #require(probeEnvelope["result"] as? [String: Any])
+                    let language = AutoNamingPromptLanguage(
+                        name: try #require(probe["auto_naming_language_name"] as? String),
+                        tag: try #require(probe["auto_naming_language_tag"] as? String)
+                    )
+                    let engine = AutoNamingEngine()
+                    let lines = [
+                        #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"ログインの不具合を直して"}]}}"#,
+                        #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"認証フローを確認します。"}]}}"#,
+                    ]
+                    let extraction = engine.extractCodexRollout(fromRolloutLines: lines)
+                    let context = try #require(engine.buildContext(from: extraction.messages))
+                    let prompt = engine.buildPrompt(currentTitle: nil, context: context, language: language)
+                    #expect(prompt.contains("Write the title in Japanese (ja) only."))
+
+                    let sanitized = try #require({
+                        if case .title(let title) = engine.sanitizeResponseOutcome("ログイン修正", currentTitle: nil) {
+                            return title
+                        }
+                        return nil
+                    }())
+                    let applyEnvelope = try call(method: "workspace.set_auto_title", params: [
+                        "workspace_id": workspace.id.uuidString,
+                        "title": sanitized
+                    ])
+                    let result = try #require(applyEnvelope["result"] as? [String: Any])
+                    #expect(result["workspace_applied"] as? Bool == true)
+                    #expect(workspace.title == "ログイン修正")
+                    #expect(workspace.effectiveCustomTitleSource == .auto)
+
+                    workspace.setCustomTitle("My Project")
+                    let rejectedEnvelope = try call(method: "workspace.set_auto_title", params: [
+                        "workspace_id": workspace.id.uuidString,
+                        "title": "別名"
+                    ])
+                    let rejected = try #require(rejectedEnvelope["result"] as? [String: Any])
+                    #expect(rejected["workspace_applied"] as? Bool == false)
+                    #expect(workspace.title == "My Project")
+                    #expect(workspace.effectiveCustomTitleSource == .user)
+                }
+            }
+        }
+    }
+
+    @Test func userWorkspaceTitleStillAllowsPanelApplyWithDistinguishableResult() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+                AutoNamingStatusStore.record(rawCategory: "failed", agent: "codex", at: 1)
                 workspace.setCustomTitle("My Project")
                 let envelope = try call(method: "workspace.set_auto_title", params: [
                     "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
                     "title": "Fix auth bug"
                 ])
                 #expect(envelope["ok"] as? Bool == true)
                 let result = try #require(envelope["result"] as? [String: Any])
                 #expect(result["workspace_applied"] as? Bool == false)
+                #expect(result["panel_applied"] as? Bool == true)
                 #expect(workspace.title == "My Project")
+                #expect(workspace.panelCustomTitles[panelId] == "Fix auth bug")
+                #expect(AutoNamingStatusStore.current() == nil)
             }
         }
     }
