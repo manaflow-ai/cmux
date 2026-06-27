@@ -2565,75 +2565,27 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         commandPaletteQueryScopePolicy.forkPriorityBoost(commandId: commandId, query: query)
     }
 
-    private static func commandPaletteMaterializedSearchResults(
-        matches: [CommandPaletteResolvedSearchMatch],
-        commandsByID: [String: CommandPaletteCommand]
-    ) -> [CommandPaletteSearchResult] {
-        matches.compactMap { match in
-            guard let command = commandsByID[match.commandID] else { return nil }
-            return CommandPaletteSearchResult(
-                command: command,
-                score: match.score,
-                titleMatchIndices: match.titleMatchIndices
-            )
-        }
-    }
-
     private func setCommandPaletteVisibleResults(
         _ results: [CommandPaletteSearchResult],
         scope: CommandPaletteListScope,
         fingerprint: Int?
     ) {
-        commandPaletteCoordinator.visibleResults = results
-        commandPaletteCoordinator.visibleResultsScope = scope
-        commandPaletteCoordinator.visibleResultsFingerprint = fingerprint
-        commandPaletteCoordinator.visibleResultsVersion &+= 1
-        syncCommandPaletteOverlayCommandListState()
-    }
-
-    private func commandPaletteRenderTrailingLabel(for command: CommandPaletteCommand) -> CommandPaletteRenderTrailingLabel? {
-        if let shortcutHint = command.shortcutHint {
-            return CommandPaletteRenderTrailingLabel(text: shortcutHint, style: .shortcut)
-        }
-
-        if let kindLabel = command.kindLabel {
-            return CommandPaletteRenderTrailingLabel(text: kindLabel, style: .kind)
-        }
-        return nil
-    }
-
-    private func commandPaletteOverlayCommandListStateSnapshot() -> CommandPaletteCommandListRenderState {
-        let rows = commandPaletteCoordinator.visibleResults.map { result in
-            CommandPaletteRenderResultRow(
-                id: result.id,
-                title: result.command.title,
-                matchedIndices: result.titleMatchIndices,
-                trailingLabel: commandPaletteRenderTrailingLabel(for: result.command)
-            )
-        }
-        let selectedIndex = commandPaletteSelectedIndex(resultCount: rows.count)
-        return CommandPaletteCommandListRenderState(
-            resultsVersion: commandPaletteCoordinator.visibleResultsVersion,
+        commandPaletteCoordinator.setVisibleResults(
+            results,
+            scope: scope,
+            fingerprint: fingerprint,
+            presentation: commandPalettePresentation,
             emptyStateText: commandPaletteEmptyStateText,
-            listIdentity: Self.commandPaletteListIdentity(for: commandPalettePresentation.query),
-            rows: rows,
-            selectedIndex: selectedIndex,
-            shouldShowEmptyState: commandPaletteShouldShowEmptyState,
-            scrollTargetID: commandPaletteScrollTargetID(rows: rows),
-            scrollTargetAnchor: commandPalettePresentation.scrollTargetAnchor
+            shouldShowEmptyState: { commandPaletteShouldShowEmptyState }
         )
     }
 
-    private func commandPaletteScrollTargetID(rows: [CommandPaletteRenderResultRow]) -> String? {
-        guard let index = commandPalettePresentation.scrollTargetIndex,
-              rows.indices.contains(index) else {
-            return nil
-        }
-        return rows[index].id
-    }
-
     private func syncCommandPaletteOverlayCommandListState() {
-        commandPaletteCoordinator.scheduleCommandListUpdate(commandPaletteOverlayCommandListStateSnapshot())
+        commandPaletteCoordinator.syncOverlayCommandListState(
+            presentation: commandPalettePresentation,
+            emptyStateText: commandPaletteEmptyStateText,
+            shouldShowEmptyState: { commandPaletteShouldShowEmptyState }
+        )
     }
 
     private func scheduleCommandPaletteResultsRefresh(
@@ -2693,7 +2645,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 historyTimestamp: historyTimestamp,
                 additionalScoreBoost: additionalScoreBoost
             )
-            commandPaletteCoordinator.cachedResults = Self.commandPaletteMaterializedSearchResults(
+            commandPaletteCoordinator.cachedResults = CommandPaletteCoordinator.materializedSearchResults(
                 matches: matches,
                 commandsByID: commandsByID
             )
@@ -2774,7 +2726,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                     return
                 }
 
-                let previewResults = Self.commandPaletteMaterializedSearchResults(
+                let previewResults = CommandPaletteCoordinator.materializedSearchResults(
                     matches: previewMatches,
                     commandsByID: commandPaletteCoordinator.searchCommandsByID
                 )
@@ -2819,7 +2771,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                     return
                 }
 
-                commandPaletteCoordinator.cachedResults = Self.commandPaletteMaterializedSearchResults(
+                commandPaletteCoordinator.cachedResults = CommandPaletteCoordinator.materializedSearchResults(
                     matches: matches,
                     commandsByID: commandPaletteCoordinator.searchCommandsByID
                 )
@@ -4669,8 +4621,10 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func commandPaletteSelectedIndex(resultCount: Int) -> Int {
-        guard resultCount > 0 else { return 0 }
-        return min(max(commandPalettePresentation.selectedResultIndex, 0), resultCount - 1)
+        commandPaletteCoordinator.clampedSelectedIndex(
+            resultCount: resultCount,
+            presentation: commandPalettePresentation
+        )
     }
 
     private func updateCommandPaletteScrollTarget(resultCount: Int, animated: Bool) {
@@ -4699,18 +4653,22 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func syncCommandPaletteSelectionAnchor(resultIDs: [String]) {
-        commandPalettePresentation.selectionAnchorCommandID = CommandPaletteSelectionNavigation.selectionAnchorCommandID(
-            selectedIndex: commandPalettePresentation.selectedResultIndex,
-            resultIDs: resultIDs
+        commandPaletteCoordinator.syncSelectionAnchor(
+            resultIDs: resultIDs,
+            presentation: commandPalettePresentation
         )
     }
 
     private func syncCommandPaletteSelectionAnchorFromCurrentResults() {
-        syncCommandPaletteSelectionAnchor(resultIDs: commandPaletteCoordinator.cachedResults.map(\.id))
+        commandPaletteCoordinator.syncSelectionAnchorFromCurrentResults(
+            presentation: commandPalettePresentation
+        )
     }
 
     private func syncCommandPaletteSelectionAnchorFromVisibleResults() {
-        syncCommandPaletteSelectionAnchor(resultIDs: commandPaletteCoordinator.visibleResults.map(\.id))
+        commandPaletteCoordinator.syncSelectionAnchorFromVisibleResults(
+            presentation: commandPalettePresentation
+        )
     }
 
     private func moveCommandPaletteSelection(by delta: Int) {
@@ -4989,8 +4947,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func commandPaletteDebugSnapshot() -> CommandPaletteDebugSnapshot {
-        guard isCommandPalettePresented else { return .empty }
-
         let mode: String
         switch commandPalettePresentation.mode {
         case .commands:
@@ -5003,20 +4959,10 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             mode = "workspace_description_input"
         }
 
-        let rows = Array(commandPaletteCoordinator.visibleResults.prefix(20)).map { result in
-                CommandPaletteDebugResultRow(
-                    commandId: result.command.id,
-                    title: result.command.title,
-                    shortcutHint: result.command.shortcutHint,
-                    trailingLabel: commandPaletteRenderTrailingLabel(for: result.command)?.text,
-                    score: result.score
-                )
-        }
-
-        return CommandPaletteDebugSnapshot(
-            query: commandPaletteQueryForMatching,
+        return commandPaletteCoordinator.debugSnapshot(
+            isPresented: isCommandPalettePresented,
             mode: mode,
-            results: rows
+            queryForMatching: commandPaletteQueryForMatching
         )
     }
 

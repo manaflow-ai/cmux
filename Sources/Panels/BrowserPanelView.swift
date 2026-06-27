@@ -3960,8 +3960,8 @@ struct WebViewRepresentable: NSViewRepresentable {
 
             let nextFrames = (page: hit.pageView.frame, inspector: hit.inspectorView.frame)
             if let lastLoggedHostedInspectorFrames,
-               Self.rectApproximatelyEqual(lastLoggedHostedInspectorFrames.page, nextFrames.page),
-               Self.rectApproximatelyEqual(lastLoggedHostedInspectorFrames.inspector, nextFrames.inspector) {
+               lastLoggedHostedInspectorFrames.page.isApproximatelyEqual(to: nextFrames.page, epsilon: 0.5),
+               lastLoggedHostedInspectorFrames.inspector.isApproximatelyEqual(to: nextFrames.inspector, epsilon: 0.5) {
                 return
             }
 
@@ -3969,18 +3969,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             debugLogHostedInspectorFrames(stage: "\(reason).layout", hit: hit)
         }
 #endif
-
-        private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.5) -> Bool {
-            abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
-                abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
-                abs(lhs.width - rhs.width) <= epsilon &&
-                abs(lhs.height - rhs.height) <= epsilon
-        }
-
-        private static func sizeApproximatelyEqual(_ lhs: NSSize, _ rhs: NSSize, epsilon: CGFloat = 0.5) -> Bool {
-            abs(lhs.width - rhs.width) <= epsilon &&
-                abs(lhs.height - rhs.height) <= epsilon
-        }
 
         private func currentGeometryState() -> GeometryState {
             GeometryState(
@@ -4193,7 +4181,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             let needsPlainWebViewFrameReset =
                 webView.superview === container &&
                 !hasCompanionWKSubviews &&
-                Self.frameDiffersFromBounds(webView.frame, bounds: container.bounds)
+                webView.frame.differsFromBounds(container.bounds, epsilon: 0.5)
             let needsFrameHosting =
                 hostedWebView !== webView ||
                 !hostedWebViewConstraints.isEmpty ||
@@ -4220,13 +4208,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             needsLayout = true
             layoutSubtreeIfNeeded()
-        }
-
-        private static func frameDiffersFromBounds(_ frame: NSRect, bounds: NSRect, epsilon: CGFloat = 0.5) -> Bool {
-            abs(frame.minX - bounds.minX) > epsilon ||
-                abs(frame.minY - bounds.minY) > epsilon ||
-                abs(frame.width - bounds.width) > epsilon ||
-                abs(frame.height - bounds.height) > epsilon
         }
 
         private static func hasWebKitCompanionSubview(in host: NSView, primaryWebView: WKWebView) -> Bool {
@@ -4564,7 +4545,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             // Defer this hierarchy mutation out of `layout()` to avoid #6150.
             scheduleHostedInspectorSideDockPromotionIfNeeded()
             if let previousSize = lastHostedInspectorLayoutBoundsSize,
-               Self.sizeApproximatelyEqual(previousSize, bounds.size, epsilon: 0.5) {
+               previousSize.isApproximatelyEqual(to: bounds.size, epsilon: 0.5) {
                 // Origin-only frame churn is common while the surrounding split layout
                 // settles. Reapplying the side-docked inspector at the same size fights
                 // WebKit's own dock layout and shows up as visible flicker.
@@ -5131,8 +5112,8 @@ struct WebViewRepresentable: NSViewRepresentable {
 
             let oldPageFrame = hit.pageView.frame
             let oldInspectorFrame = hit.inspectorView.frame
-            let pageChanged = !Self.rectApproximatelyEqual(pageFrame, oldPageFrame, epsilon: 0.5)
-            let inspectorChanged = !Self.rectApproximatelyEqual(inspectorFrame, oldInspectorFrame, epsilon: 0.5)
+            let pageChanged = !pageFrame.isApproximatelyEqual(to: oldPageFrame, epsilon: 0.5)
+            let inspectorChanged = !inspectorFrame.isApproximatelyEqual(to: oldInspectorFrame, epsilon: 0.5)
             guard pageChanged || inspectorChanged else {
                 return (pageFrame, inspectorFrame)
             }
