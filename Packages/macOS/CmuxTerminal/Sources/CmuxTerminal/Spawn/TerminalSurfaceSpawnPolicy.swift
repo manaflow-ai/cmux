@@ -9,6 +9,10 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
     /// Whether Claude Code hooks are enabled (`CMUX_CLAUDE_HOOKS_DISABLED`).
     public var claudeHooksEnabled: Bool
 
+    /// Whether Codex hooks (the `codex` wrapper) are enabled
+    /// (`CMUX_CODEX_HOOKS_DISABLED`).
+    public var codexHooksEnabled: Bool
+
     /// The user's custom `claude` executable path
     /// (`CMUX_CUSTOM_CLAUDE_PATH`), if set.
     public var customClaudePath: String?
@@ -50,6 +54,7 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
     /// Creates a spawn policy snapshot.
     public init(
         claudeHooksEnabled: Bool,
+        codexHooksEnabled: Bool = true,
         customClaudePath: String?,
         subagentNotificationEnvironmentKey: String,
         suppressSubagentNotifications: Bool,
@@ -63,6 +68,7 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         showPullRequestsEnabled: Bool
     ) {
         self.claudeHooksEnabled = claudeHooksEnabled
+        self.codexHooksEnabled = codexHooksEnabled
         self.customClaudePath = customClaudePath
         self.subagentNotificationEnvironmentKey = subagentNotificationEnvironmentKey
         self.suppressSubagentNotifications = suppressSubagentNotifications
