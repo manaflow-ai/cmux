@@ -45,7 +45,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         try self.init(
             databaseURL: databaseURL,
             attachTokenSecrets: MobilePairedMacKeychainAttachTokenSecretStore(
-                service: Self.attachTokenKeychainService(bundleIdentifier: Bundle.main.bundleIdentifier)
+                bundleIdentifier: Bundle.main.bundleIdentifier
             )
         )
     }

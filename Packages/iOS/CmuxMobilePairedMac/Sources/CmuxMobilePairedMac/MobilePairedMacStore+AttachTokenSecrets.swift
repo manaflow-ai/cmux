@@ -1,13 +1,6 @@
 import Foundation
 
 extension MobilePairedMacStore {
-    static func attachTokenKeychainService(bundleIdentifier: String?) -> String {
-        guard let bundleIdentifier, !bundleIdentifier.isEmpty else {
-            return "com.cmuxterm.app.mobile-attach-token"
-        }
-        return "\(bundleIdentifier).mobile-attach-token"
-    }
-
     func attachTokenSecretAccount(macDeviceID: String, ownerKey: String) -> String {
         let payload = "\(ownerKey)\u{1E}\(macDeviceID)"
         let encoded = Data(payload.utf8)

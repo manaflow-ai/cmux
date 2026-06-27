@@ -6,6 +6,14 @@ import Security
 actor MobilePairedMacKeychainAttachTokenSecretStore: MobileAttachTokenSecretStoring {
     private let service: String
 
+    init(bundleIdentifier: String?) {
+        if let bundleIdentifier, !bundleIdentifier.isEmpty {
+            self.service = "\(bundleIdentifier).mobile-attach-token"
+        } else {
+            self.service = "com.cmuxterm.app.mobile-attach-token"
+        }
+    }
+
     init(service: String) {
         self.service = service
     }
