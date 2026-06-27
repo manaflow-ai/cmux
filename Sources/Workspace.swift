@@ -72,7 +72,7 @@ extension Workspace {
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
                 let indexedRestorableAgent = restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId)
-                sessionPanelSnapshot(
+                return sessionPanelSnapshot(
                     panelId: panelId,
                     includeScrollback: includeScrollback,
                     restorableAgent: indexedRestorableAgent,
