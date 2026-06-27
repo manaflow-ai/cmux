@@ -249,26 +249,16 @@ struct TerminalComposerView: View {
     /// On iOS 26 the glass controls float in a `GlassEffectContainer` over the
     /// terminal (no opaque bar — that would be glass-on-glass). Earlier OSes get
     /// a `.bar` material backing behind the material controls.
-    @MainActor
-    @ViewBuilder
-    private var composerSurface: some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer {
-                composerBar
-            }
-        } else {
+    @MainActor private var composerSurface: some View {
+        MobileGlassEffectContainer {
+            composerBar
+        } fallback: {
             composerBar
                 .background(.bar)
         }
-        #else
-        composerBar
-            .background(.bar)
-        #endif
     }
 
-    @MainActor
-    private var composerBar: some View {
+    @MainActor private var composerBar: some View {
         VStack(alignment: .leading, spacing: 6) {
             // iMessage-style chip row of staged image attachments, ABOVE the
             // field. Shown only when something is staged so the empty composer
@@ -372,8 +362,7 @@ struct TerminalComposerView: View {
     /// leading side. Tapping toggles dictation; while listening it shows a filled,
     /// tinted mic. Disabled when the recognizer is unavailable or permission was
     /// denied so the user is never left tapping a dead control.
-    @MainActor
-    private var micButton: some View {
+    @MainActor private var micButton: some View {
         let listening = dictation.state.isListening
         return MobileComposerIconButton(
             systemImage: "mic",
