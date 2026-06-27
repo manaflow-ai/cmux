@@ -262,4 +262,40 @@ struct AgentResumeArgvTests {
             ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'SID'"
         )
     }
+
+    @Test("Codex wrapper token resolves CMUX_CODEX_WRAPPER_SHIM, degrading to bare codex")
+    func codexWrapperShellExecutableToken() {
+        #expect(
+            AgentResumeArgv.codexWrapperShellExecutableToken
+                == "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
+        )
+    }
+
+    @Test("Portable codex resume command wraps the POSIX rendering for any login shell")
+    func portableCodexResumeShellCommand() {
+        #expect(
+            AgentResumeArgv.portableCodexResumeShellCommand(posixCommand: "codex resume SID")
+                == "/bin/sh -c 'codex resume SID'"
+        )
+    }
+
+    @Test("Rendered codex resume substitutes the wrapper token and wraps in /bin/sh -c")
+    func renderedPortableCodexResumeShellCommand() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        // Bare `codex` executable: token substituted, command wrapped for non-POSIX shells.
+        let substituted = "\(AgentResumeArgv.codexWrapperShellExecutableToken) 'resume' 'SID'"
+        let rendered = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+            parts: ["codex", "resume", "SID"],
+            quote: quote
+        )
+        #expect(rendered == "/bin/sh -c '" + substituted.replacingOccurrences(of: "'", with: "'\\''") + "'")
+        #expect(rendered.hasPrefix("/bin/sh -c "))
+        // No bare `codex` executable: already-portable words stay unwrapped.
+        #expect(
+            AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: ["/Applications/cmux.app/Contents/Resources/bin/cmux", "codex-teams", "resume", "SID"],
+                quote: quote
+            ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'codex-teams' 'resume' 'SID'"
+        )
+    }
 }

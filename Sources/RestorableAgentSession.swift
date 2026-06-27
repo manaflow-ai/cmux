@@ -389,19 +389,34 @@ enum AgentResumeCommandBuilder {
                 workingDirectory: cwd
             )
             : commandParts
-        // Render the claude executable as the wrapper shim token so the executed
-        // command routes through cmux's `claude` wrapper (re-injecting the hook
-        // --settings) even inside the `$SHELL -lic` restore launcher, where the
-        // shell integration's PATH shim / `claude()` function are not active and an
-        // `env`-prefixed invocation would otherwise hit the user's real binary.
+        // Render the claude/codex executable as the wrapper shim token so the
+        // executed command routes through cmux's `claude`/`codex` wrapper
+        // (re-injecting the agent hooks) even inside the `$SHELL -lic` restore
+        // launcher, where the shell integration's PATH shim / shell function are
+        // not active and an `env`-prefixed invocation would otherwise hit the
+        // user's real binary. Without this, an auto-resumed codex session runs the
+        // bare `codex` binary, fires no SessionStart hook, and the session registry
+        // never marks it live, so the iOS GUI stays read-only.
         // The token is POSIX-only, and the launcher dispatches through the user's
         // shell (fish/csh/tcsh included), so token-bearing commands are wrapped in
         // `/bin/sh -c '…'` to parse everywhere; the cwd guard stays outside so
         // cd-prefix rewriting keeps composing.
         // https://github.com/manaflow-ai/cmux/issues/5639
-        let shellCommand = kind == .claude
-            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: sanitizedCommandParts, quote: shellSingleQuoted)
-            : sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
+        let shellCommand: String
+        switch kind {
+        case .claude:
+            shellCommand = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
+                parts: sanitizedCommandParts,
+                quote: shellSingleQuoted
+            )
+        case .codex:
+            shellCommand = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: sanitizedCommandParts,
+                quote: shellSingleQuoted
+            )
+        default:
+            shellCommand = sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
+        }
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
     }
 
