@@ -41,6 +41,32 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         let fallback = selectedTeam == nil
             ? nil
             : try await scopedRows(stackUserID: stackUserID, teamID: nil).first { $0.macDeviceID == macDeviceID }
+        let hasFreshAttachToken = attachToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let fallbackAttachToken = hasFreshAttachToken
+            ? nil
+            : fallback?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? fallback?.attachToken
+                : nil
+        let forwardedAttachToken: String?
+        let forwardedAttachTokenExpiresAt: Date?
+        let forwardedAttachTokenWorkspaceID: String?
+        let forwardedAttachTokenTerminalID: String?
+        if hasFreshAttachToken {
+            forwardedAttachToken = attachToken
+            forwardedAttachTokenExpiresAt = attachTokenExpiresAt
+            forwardedAttachTokenWorkspaceID = attachTokenWorkspaceID
+            forwardedAttachTokenTerminalID = attachTokenTerminalID
+        } else if fallbackAttachToken != nil {
+            forwardedAttachToken = fallbackAttachToken
+            forwardedAttachTokenExpiresAt = fallback?.attachTokenExpiresAt
+            forwardedAttachTokenWorkspaceID = fallback?.attachTokenWorkspaceID
+            forwardedAttachTokenTerminalID = fallback?.attachTokenTerminalID
+        } else {
+            forwardedAttachToken = attachToken
+            forwardedAttachTokenExpiresAt = attachTokenExpiresAt
+            forwardedAttachTokenWorkspaceID = attachTokenWorkspaceID
+            forwardedAttachTokenTerminalID = attachTokenTerminalID
+        }
         if markActive, selectedTeam != nil {
             try await inner.clearActive(stackUserID: stackUserID, teamID: scopedTeamID(nil))
         }
@@ -48,10 +74,10 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
             macDeviceID: macDeviceID,
             displayName: displayName,
             routes: routes,
-            attachToken: attachToken,
-            attachTokenExpiresAt: attachTokenExpiresAt,
-            attachTokenWorkspaceID: attachTokenWorkspaceID,
-            attachTokenTerminalID: attachTokenTerminalID,
+            attachToken: forwardedAttachToken,
+            attachTokenExpiresAt: forwardedAttachTokenExpiresAt,
+            attachTokenWorkspaceID: forwardedAttachTokenWorkspaceID,
+            attachTokenTerminalID: forwardedAttachTokenTerminalID,
             markActive: markActive,
             stackUserID: stackUserID,
             teamID: scopedTeamID(teamID),
