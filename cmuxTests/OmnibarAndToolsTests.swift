@@ -720,6 +720,26 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertEqual(harness.inlineCompletion?.typedText, "gm")
         XCTAssertEqual(harness.inlineCompletion?.displayText, "gmail.com")
     }
+
+    @MainActor
+    func testPlainBackspaceCommandDeletesSingleCharacterAtInlineBoundary() throws {
+        let harness = OmnibarInlineDeletionHarness(
+            typedText: "gma",
+            displayText: "gmail.com",
+            suggestions: [
+                .history(url: "https://gmail.com/", title: "Gmail"),
+            ]
+        )
+
+        try harness.dispatchCommand(
+            #selector(NSResponder.deleteBackward(_:)),
+            selectionRange: NSRange(location: 3, length: 0)
+        )
+
+        XCTAssertEqual(harness.state.buffer, "gm")
+        XCTAssertEqual(harness.inlineCompletion?.typedText, "gm")
+        XCTAssertEqual(harness.inlineCompletion?.displayText, "gmail.com")
+    }
 }
 
 @MainActor
@@ -931,6 +951,21 @@ private final class OmnibarInlineDeletionHarness {
         if !handledInKeyDown {
             _ = coordinator.control(NSTextField(), textView: editor, doCommandBy: fallbackCommand)
         }
+    }
+
+    func dispatchCommand(
+        _ command: Selector,
+        selectionRange: NSRange,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let coordinator = makeCoordinator()
+        let editor = NSTextView()
+        editor.string = inlineCompletion?.displayText ?? state.buffer
+        editor.setSelectedRange(selectionRange)
+
+        let handled = coordinator.control(NSTextField(), textView: editor, doCommandBy: command)
+        XCTAssertTrue(handled, file: file, line: line)
     }
 
     private func makeCoordinator() -> OmnibarTextFieldRepresentable.Coordinator {

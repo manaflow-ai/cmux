@@ -4617,7 +4617,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 }
                 return false
             case #selector(NSResponder.deleteBackward(_:)):
-                if suffixSelectionMatchesInline(textView, inline: parent.inlineCompletion) {
+                if inlineCompletionSelectionIsActive(textView, inline: parent.inlineCompletion) {
                     parent.onDeleteBackwardWithInlineSelection()
 #if DEBUG
                     handled = true
