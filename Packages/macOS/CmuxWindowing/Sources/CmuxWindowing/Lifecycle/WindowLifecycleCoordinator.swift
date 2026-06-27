@@ -99,7 +99,7 @@ public final class WindowLifecycleCoordinator<Host: WindowLifecycleHosting> {
                 // (held across the one-turn defer), not a weak `window`, so
                 // teardown cannot be dropped by autorelease timing.
                 guard let window = self.windowCoordinator.window(for: closedId) else { continue }
-                self.host?.unregisterMainWindow(window)
+                self.unregisterMainWindow(window)
             }
         }
     }
@@ -304,7 +304,7 @@ public final class WindowLifecycleCoordinator<Host: WindowLifecycleHosting> {
         host?.ensureMobileWorkspaceListObserver(for: tabManager)
         host?.notifyMainWindowContextsDidChange()
         if window.isKeyWindow {
-            host?.setActiveMainWindow(window)
+            setActiveMainWindow(window)
         }
 
         let didApplyStartupSessionRestore = host?.attemptStartupSessionRestore(primaryWindow: window) ?? false
@@ -339,4 +339,284 @@ public final class WindowLifecycleCoordinator<Host: WindowLifecycleHosting> {
         return windowId
     }
     #endif
+
+    // MARK: - Window→context resolution
+
+    /// The `WindowID` encoded in `window`'s `cmux.main.<uuid>` identifier, or
+    /// `nil`. Pure identifier parse (no registry read); the identifier-only
+    /// fallback used by ``contextForMainTerminalWindow(_:reindex:)`` and the
+    /// app-side lifecycle/file-explorer call sites that forward here.
+    public func mainWindowId(from window: NSWindow) -> UUID? {
+        guard let raw = window.identifier?.rawValue else { return nil }
+        let prefix = "cmux.main."
+        guard raw.hasPrefix(prefix) else { return nil }
+        let suffix = String(raw.dropFirst(prefix.count))
+        return UUID(uuidString: suffix)
+    }
+
+    /// The `WindowID` for `window`, preferring ``WindowManaging``'s live
+    /// window↔id identity and falling back to the `cmux.main.<uuid>` identifier
+    /// parse. Backs the many app-side window-targeted command paths that forward
+    /// here.
+    public func mainWindowId(for window: NSWindow) -> UUID? {
+        if let id = windowCoordinator.id(for: window) {
+            return id.rawValue
+        }
+        guard let rawIdentifier = window.identifier?.rawValue,
+              rawIdentifier.hasPrefix("cmux.main.") else { return nil }
+        let idPart = String(rawIdentifier.dropFirst("cmux.main.".count))
+        return UUID(uuidString: idPart)
+    }
+
+    /// The resolved registered window for the main terminal `window`, by
+    /// window-object identity (``WindowManaging``), then the `cmux.main.<uuid>`
+    /// identifier, then a window-number match against the registered ids. When
+    /// `reindex` is true the identifier/number fallbacks late-bind `window`'s
+    /// handle into ``WindowManaging`` so subsequent object lookups resolve
+    /// directly. The `isMainTerminalWindow` gate stays an app-side witness.
+    public func contextForMainTerminalWindow(_ window: NSWindow, reindex: Bool = true) -> Host.RegisteredWindow? {
+        guard host?.isMainTerminalWindow(window) == true else { return nil }
+
+        if let id = windowCoordinator.id(for: window),
+           let context = registeredWindow(for: id) {
+            return context
+        }
+
+        if let windowId = mainWindowId(from: window),
+           let context = registeredWindow(for: WindowID(windowId)) {
+            if reindex {
+                windowCoordinator.register(window, id: WindowID(windowId))
+            }
+            return context
+        }
+
+        let windowNumber = window.windowNumber
+        if windowNumber >= 0,
+           let id = (host?.registeredWindowIds ?? []).first(where: { candidateId in
+               let candidateWindow = windowCoordinator.window(for: candidateId)
+                   ?? host?.windowForMainWindowId(candidateId.rawValue)
+               return candidateWindow?.windowNumber == windowNumber
+           }),
+           let context = registeredWindow(for: id) {
+            if reindex {
+                windowCoordinator.register(window, id: id)
+            }
+            return context
+        }
+
+        return nil
+    }
+
+    /// The live `NSWindow` for `context`: its resolved handle if present, else
+    /// the app-side identifier fallback for `context`'s window id. Funnels the
+    /// `context.window ?? windowForMainWindowId(context.windowId)` read through
+    /// the ``WindowLifecycleHosting`` leaf accessors.
+    public func resolvedWindow(for context: Host.RegisteredWindow) -> NSWindow? {
+        if let window = host?.window(of: context) {
+            return window
+        }
+        guard let host else { return nil }
+        return host.windowForMainWindowId(host.windowId(of: context))
+    }
+
+    // MARK: - Context teardown
+
+    /// Drops every per-window slice for `window`'s context across the domain
+    /// stores (this coordinator's ``removeWindowSlices(for:)``) and the
+    /// ``WindowManaging`` identity registry, then runs the app-side
+    /// recoverable-route remember, mobile-observer prune, and contexts-changed
+    /// notification through the seam. Returns the removed context, or `nil` if
+    /// `window` was not a registered main terminal window. The AppKit close path
+    /// (where the coordinator already dropped the id) and explicit-teardown
+    /// callers share this funnel.
+    @discardableResult
+    public func unregisterMainWindowContext(for window: NSWindow) -> Host.RegisteredWindow? {
+        guard let host else { return nil }
+        guard let removed = contextForMainTerminalWindow(window, reindex: false) else { return nil }
+        let removedWindowId = host.windowId(of: removed)
+        removeWindowSlices(for: WindowID(removedWindowId))
+        windowCoordinator.unregister(WindowID(removedWindowId))
+        host.rememberRecoverableMainWindowRoute(for: removed)
+        host.removeMobileWorkspaceListObserver(forClosing: removed)
+        host.notifyMainWindowContextsDidChange()
+        return removed
+    }
+
+    /// Discards an orphaned registered `context` that was never a live AppKit
+    /// close (so ``WindowManaging`` still holds its identity): drops its slices +
+    /// identity, runs the app-side route/observer/notification + palette removal,
+    /// re-points the active window to the next viable context when this context
+    /// owns the active tab manager, and clears the closing context's
+    /// notifications. With `allowWindowlessFallback` the active re-point may pick
+    /// a windowless context.
+    public func discardOrphanedMainWindowContext(
+        _ context: Host.RegisteredWindow,
+        allowWindowlessFallback: Bool = false
+    ) {
+        guard let host else { return }
+        let contextWindowId = host.windowId(of: context)
+        removeWindowSlices(for: WindowID(contextWindowId))
+        windowCoordinator.unregister(WindowID(contextWindowId))
+        host.rememberRecoverableMainWindowRoute(for: context)
+        host.removeMobileWorkspaceListObserver(forClosing: context)
+        host.notifyMainWindowContextsDidChange()
+
+        host.commandPaletteRemoveWindow(contextWindowId)
+
+        if host.activeTabManagerMatches(context) {
+            let next = registeredWindows.first { resolvedWindow(for: $0) != nil }
+                ?? (allowWindowlessFallback ? registeredWindows.first : nil)
+            host.repointActiveMainWindow(to: next)
+        }
+
+        host.clearNotifications(forClosing: context)
+    }
+
+    /// Discards every registered context whose window can no longer be resolved
+    /// (a windowless orphan), via ``discardOrphanedMainWindowContext(_:allowWindowlessFallback:)``.
+    public func pruneWindowlessMainWindowContexts() {
+        for context in registeredWindows where resolvedWindow(for: context) == nil {
+            discardOrphanedMainWindowContext(context)
+        }
+    }
+
+    #if DEBUG
+    /// DEBUG-only: discards every context registered under `windowId`, allowing
+    /// the windowless active-repoint fallback. Mirrors the app's
+    /// `unregisterMainWindowContextForTesting`.
+    public func unregisterMainWindowContextForTesting(windowId: UUID) {
+        registeredWindows
+            .filter { host?.windowId(of: $0) == windowId }
+            .forEach { discardOrphanedMainWindowContext($0, allowWindowlessFallback: true) }
+    }
+    #endif
+
+    // MARK: - Window teardown + active repoint
+
+    /// Resolves `window`'s context and makes it the active main window via the
+    /// app-side activate + debug-log witness. Called from the registration
+    /// ingest when a freshly registered window is already key, and from the
+    /// app-side `setActiveMainWindow` forwarder.
+    public func setActiveMainWindow(_ window: NSWindow) {
+        guard let context = contextForMainTerminalWindow(window) else { return }
+        host?.setActiveMainWindowContext(context, keyWindow: window)
+    }
+
+    /// The should-close gate for a main terminal window: always allows close
+    /// under XCTest, otherwise allows when terminating or when more than one main
+    /// window remains, and otherwise routes the quit-shortcut warning and blocks
+    /// the close. The terminating flag, the warning presentation, and the
+    /// snapshot save stay app-side witnesses.
+    public func handleMainTerminalWindowShouldClose() -> Bool {
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return true }
+        guard host?.isTerminatingApp == false, registeredWindows.count <= 1 else { return true }
+        host?.handleMainTerminalWindowQuitWarning()
+        return false
+    }
+
+    /// Runs the full teardown for a closing main `window`, sequencing the
+    /// app-side effects through the seam: cascade-point reset (coordinator-owned),
+    /// closed-window history, geometry persist, visibility-controller discard,
+    /// context unregistration (slice + identity drop), `window.closed` lifecycle
+    /// publish, palette + notification cleanup, active-window repoint to the next
+    /// viable context, and the post-unregister snapshot save. Driven once per
+    /// window from ``observeWindowCoordinatorClosures()``.
+    public func unregisterMainWindow(_ window: NSWindow) {
+        guard let host else { return }
+        // Reset cascade point so the next new window appears near the closing
+        // window's position, matching upstream Ghostty behavior.
+        let frame = window.frame
+        lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
+        let closingContext = contextForMainTerminalWindow(window, reindex: false)
+
+        if let closingContext {
+            host.recordClosedWindowHistoryIfNeeded(for: closingContext)
+        }
+
+        // Keep geometry available as a fallback for the next window placement
+        // (the app-side witness skips the persist while terminating).
+        host.persistWindowGeometryOnClose(from: window)
+        host.discardClosedWindow(window)
+
+        guard let removed = unregisterMainWindowContext(for: window) else { return }
+        let removedWindowId = host.windowId(of: removed)
+        host.publishMainWindowClosed(windowId: removedWindowId)
+        host.commandPaletteRemoveWindow(removedWindowId)
+
+        // Avoid stale notifications that can no longer be opened once the owning
+        // window is gone.
+        host.clearNotifications(forClosing: removed)
+
+        if host.activeTabManagerMatches(removed) {
+            // Repoint "active" pointers to any remaining main terminal window.
+            let nextContext: Host.RegisteredWindow? = {
+                if let keyWindow = host.shortcutRoutingKeyWindow,
+                   let ctx = contextForMainTerminalWindow(keyWindow, reindex: false) {
+                    return ctx
+                }
+                return registeredWindows.first
+            }()
+
+            host.repointActiveMainWindow(to: nextContext)
+        }
+
+        // During app termination we already persisted a full snapshot (with
+        // scrollback). Saving again here would overwrite it as windows tear down
+        // one-by-one, dropping closed windows and replay (policy in the witness).
+        host.saveSessionSnapshotOnWindowUnregisterIfNeeded()
+    }
+
+    // MARK: - Focus + close decisions
+
+    /// Focuses the main window registered under `windowId`, publishing the
+    /// `window.focused` lifecycle event when the focus actually took. Returns
+    /// whether a window was found and focused. The window resolve, the
+    /// visibility-controller focus, and the lifecycle publish stay app-side
+    /// witnesses behind the seam.
+    public func focusMainWindow(windowId: UUID) -> Bool {
+        guard let host, let window = host.windowForMainWindowId(windowId) else { return false }
+        let didFocus = host.focusMainWindowForFocusRequest(window)
+        if didFocus {
+            host.publishMainWindowFocused(windowId: windowId)
+        }
+        return didFocus
+    }
+
+    /// Closes the main window registered under `windowId`. When `recordHistory`
+    /// is false the window's closed-window undo history is suppressed for this
+    /// close via the coordinator-owned suppression set. Returns whether a window
+    /// was found to close. The `performClose` stays an app-side witness.
+    public func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
+        guard let host, let window = host.windowForMainWindowId(windowId) else { return false }
+        if !recordHistory {
+            insertSuppressedWindowId(windowId)
+        }
+        host.performMainWindowClose(window)
+        return true
+    }
+
+    /// Discards the main window registered under `windowId` without recording
+    /// closed-window history: suppresses its history, then closes immediately.
+    /// The `close` stays an app-side witness.
+    public func discardMainWindowWithoutClosedHistory(windowId: UUID) {
+        guard let host, let window = host.windowForMainWindowId(windowId) else { return }
+        insertSuppressedWindowId(windowId)
+        host.closeMainWindowImmediately(window)
+    }
+
+    /// Closes `window` after a confirmation prompt when it is a main terminal
+    /// window; non-main windows close directly. Always returns `true` (the bool
+    /// only signals the menu the command was handled). The confirmation alert and
+    /// the close stay app-side witnesses.
+    @discardableResult
+    public func closeWindowWithConfirmation(_ window: NSWindow) -> Bool {
+        guard let host else { return true }
+        guard host.isMainTerminalWindow(window) else {
+            host.performMainWindowClose(window)
+            return true
+        }
+        guard host.confirmCloseMainWindow(window) else { return true }
+        host.performMainWindowClose(window)
+        return true
+    }
 }
