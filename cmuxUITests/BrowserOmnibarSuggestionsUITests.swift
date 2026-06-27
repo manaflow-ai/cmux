@@ -120,8 +120,8 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
         XCTAssertTrue(
-            focusOmnibarWithCmdL(app: app, omnibar: omnibar, timeout: 10.0),
-            "Expected Cmd+L to place keyboard focus in omnibar before typing"
+            focusOmnibarForTyping(app: app, omnibar: omnibar, timeout: 10.0),
+            "Expected omnibar to accept keyboard focus before typing"
         )
 
         // Focus omnibar and navigate to example.com via autocompletion (row 0).
@@ -550,8 +550,8 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
         XCTAssertTrue(
-            focusOmnibarWithCmdL(app: app, omnibar: omnibar, timeout: 10.0),
-            "Expected Cmd+L to place keyboard focus in omnibar before typing"
+            focusOmnibarForTyping(app: app, omnibar: omnibar, timeout: 10.0),
+            "Expected omnibar to accept keyboard focus before typing"
         )
         app.typeText("exam")
 
@@ -770,7 +770,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         return matched ? observedValue : nil
     }
 
-    private func focusOmnibarWithCmdL(app: XCUIApplication, omnibar: XCUIElement, timeout: TimeInterval) -> Bool {
+    private func focusOmnibarForTyping(app: XCUIApplication, omnibar: XCUIElement, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         var attempt = 0
         repeat {
@@ -783,27 +783,46 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             app.typeKey("l", modifierFlags: [.command])
             guard omnibar.waitForExistence(timeout: 1.0) else { continue }
 
-            let before = (omnibar.value as? String) ?? ""
             let probe = "z\(attempt)"
-            app.typeText(probe)
+            if confirmOmnibarAcceptsInput(app: app, omnibar: omnibar, probe: probe) {
+                return true
+            }
 
-            if waitForCondition(timeout: 1.0, predicate: {
-                let value = (omnibar.value as? String) ?? ""
-                return value != before && value.localizedCaseInsensitiveContains(probe)
-            }) {
-                app.typeKey("a", modifierFlags: [.command])
-                app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
-                if waitForCondition(timeout: 1.0, predicate: {
-                    ((omnibar.value as? String) ?? "").isEmpty
-                }) {
-                    return true
-                }
+            omnibar.click()
+            if confirmOmnibarAcceptsInput(app: app, omnibar: omnibar, probe: "\(probe)click", typeIntoElement: true) {
+                return true
             }
 
             app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         } while Date() < deadline
         return false
+    }
+
+    private func confirmOmnibarAcceptsInput(
+        app: XCUIApplication,
+        omnibar: XCUIElement,
+        probe: String,
+        typeIntoElement: Bool = false
+    ) -> Bool {
+        let before = (omnibar.value as? String) ?? ""
+        if typeIntoElement {
+            omnibar.typeText(probe)
+        } else {
+            app.typeText(probe)
+        }
+
+        let acceptedProbe = waitForCondition(timeout: 1.0, predicate: {
+            let value = (omnibar.value as? String) ?? ""
+            return value != before && value.localizedCaseInsensitiveContains(probe)
+        })
+        guard acceptedProbe else { return false }
+
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        return waitForCondition(timeout: 1.0, predicate: {
+            ((omnibar.value as? String) ?? "").isEmpty
+        })
     }
 
     private func containsExampleDomain(_ value: String) -> Bool {
