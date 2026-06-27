@@ -1631,7 +1631,7 @@ struct BrowserPanelView: View {
             return true
         }
         let fieldWindow = panel.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-        if let field = browserOmnibarField(panelId: panel.id, in: fieldWindow),
+        if let field = BrowserOmnibarNativeFieldRegistry.shared.omnibarField(panelId: panel.id, in: fieldWindow),
            field.currentEditor() != nil {
             return true
         }
@@ -3601,66 +3601,6 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         coordinator.detachSelectionObserver()
         coordinator.parentField = nil
     }
-}
-
-@MainActor
-func browserOmnibarPanelId(for responder: NSResponder?) -> UUID? {
-    browserOmnibarField(for: responder)?.panelId
-}
-
-@MainActor
-func browserOmnibarField(panelId: UUID?, in window: NSWindow?) -> OmnibarNativeTextField? {
-    if let registeredField = BrowserOmnibarNativeFieldRegistry.shared.field(for: panelId, in: window) {
-        return registeredField
-    }
-    guard let panelId, let root = window?.contentView?.superview ?? window?.contentView else {
-        return nil
-    }
-
-    // Fallback for SwiftUI/AppKit reconnect windows where the live native field
-    // has been attached but registration has not yet observed it.
-    var stack: [NSView] = [root]
-    while let view = stack.popLast() {
-        if let field = view as? OmnibarNativeTextField, field.panelId == panelId {
-            return field
-        }
-        stack.append(contentsOf: view.subviews)
-    }
-    return nil
-}
-
-@discardableResult
-@MainActor
-func browserPrepareOmnibarForProgrammaticBlur(panelId: UUID, responder: NSResponder?) -> Bool {
-    guard let field = browserOmnibarField(for: responder),
-          field.panelId == panelId else {
-        return false
-    }
-    field.suppressNextFocusReacquireOnEndEditing = true
-    return true
-}
-
-@MainActor
-private func browserOmnibarField(for responder: NSResponder?) -> OmnibarNativeTextField? {
-    guard let responder else { return nil }
-
-    if let field = responder as? OmnibarNativeTextField {
-        return field
-    }
-
-    if let editor = responder as? NSTextView, editor.isFieldEditor {
-        if let field = BrowserOmnibarNativeFieldRegistry.shared.fieldOwningEditor(editor, in: editor.window) {
-            return field
-        }
-
-        if let field = cmuxFieldEditorOwnerView(editor) as? OmnibarNativeTextField,
-           field.currentEditor() === editor {
-            return field
-        }
-
-    }
-
-    return nil
 }
 
 /// NSViewRepresentable wrapper for WKWebView

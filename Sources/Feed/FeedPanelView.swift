@@ -887,12 +887,12 @@ struct FeedRowActions {
             },
             jump: { workstreamId in
                 Task { @MainActor in
-                    _ = FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
+                    _ = FeedCoordinator.shared.socketRouter.focusIfPossible(workstreamId: workstreamId)
                 }
             },
             sendText: { workstreamId, text in
                 Task { @MainActor in
-                    FeedCoordinator.shared.sendTextToWorkstream(
+                    FeedCoordinator.shared.socketRouter.sendTextToWorkstream(
                         workstreamId: workstreamId,
                         text: text
                     )

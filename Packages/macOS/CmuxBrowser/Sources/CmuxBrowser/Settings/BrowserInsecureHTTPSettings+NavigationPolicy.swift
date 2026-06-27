@@ -1,4 +1,5 @@
 public import Foundation
+public import AppKit
 
 /// Navigation-policy decisions derived from the insecure-HTTP allowlist:
 /// whether a plaintext `http://` URL should be blocked, and whether a one-shot
@@ -52,5 +53,21 @@ extension BrowserInsecureHTTPSettings {
         guard host == bypassHost else { return false }
         bypassHostOnce = nil
         return true
+    }
+
+    /// Whether the insecure-HTTP warning alert's suppression checkbox should
+    /// persist the host to the allowlist for the given dismissal.
+    ///
+    /// - Parameters:
+    ///   - response: The modal response the user chose.
+    ///   - suppressionEnabled: Whether the "always allow this host" checkbox is on.
+    /// - Returns: `true` only when suppression is enabled and the user chose to
+    ///   open in the default browser or proceed in cmux (not cancel).
+    public static func shouldPersistAllowlistSelection(
+        response: NSApplication.ModalResponse,
+        suppressionEnabled: Bool
+    ) -> Bool {
+        guard suppressionEnabled else { return false }
+        return response == .alertFirstButtonReturn || response == .alertSecondButtonReturn
     }
 }
