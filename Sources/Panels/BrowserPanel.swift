@@ -1854,18 +1854,7 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
-        let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !host.isEmpty,
-              endpoint.port > 0 && endpoint.port <= 65535,
-              let nwPort = NWEndpoint.Port(rawValue: UInt16(endpoint.port)) else {
-            store.proxyConfigurations = []
-            return
-        }
-
-        let nwEndpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: nwPort)
-        let socks = ProxyConfiguration(socksv5Proxy: nwEndpoint)
-        let connect = ProxyConfiguration(httpCONNECTProxy: nwEndpoint)
-        store.proxyConfigurations = [socks, connect]
+        store.proxyConfigurations = BrowserRemoteProxyConnectionFactory().proxyConfigurations(for: endpoint)
     }
 
     private func beginDownloadActivity() {
@@ -3220,19 +3209,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func remoteProxyURLSession() -> URLSession? {
         guard let endpoint = remoteProxyEndpoint else { return nil }
-        let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !host.isEmpty, endpoint.port > 0, endpoint.port <= 65535 else { return nil }
-
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.requestCachePolicy = .returnCacheDataElseLoad
-        configuration.timeoutIntervalForRequest = 2.0
-        configuration.timeoutIntervalForResource = 4.0
-        configuration.connectionProxyDictionary = [
-            kCFNetworkProxiesSOCKSEnable as String: 1,
-            kCFNetworkProxiesSOCKSProxy as String: host,
-            kCFNetworkProxiesSOCKSPort as String: endpoint.port,
-        ]
-        return URLSession(configuration: configuration)
+        return BrowserRemoteProxyConnectionFactory().urlSession(for: endpoint)
     }
 
     /// Navigate with smart URL/search detection
