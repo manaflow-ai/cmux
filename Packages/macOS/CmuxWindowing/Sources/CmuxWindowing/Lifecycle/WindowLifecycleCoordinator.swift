@@ -205,4 +205,138 @@ public final class WindowLifecycleCoordinator<Host: WindowLifecycleHosting> {
         tabManagerWindowIds.removeValue(forKey: ObjectIdentifier(removed.tabManager))
         return removed
     }
+
+    // MARK: - Registration ingest
+
+    /// Registers a terminal `window` under `windowId` so menu commands and socket
+    /// control can target whichever window is active. Owns the window-identity
+    /// decision (which ``WindowID`` the slices bind under, the duplicate-window
+    /// ignore, the `windowCoordinator` identity write) and sequences every
+    /// god-type effect through the ``WindowLifecycleHosting`` seam: the per-window
+    /// slice seed/rebind, command-palette registration, socket-listener +
+    /// mobile-observer ensure, the contexts-changed notification, the active-window
+    /// repoint, and the startup-restore / session-snapshot tail.
+    ///
+    /// The branch structure mirrors the app's prior `registerMainWindow`: (1) the
+    /// same `NSWindow` re-registered under its already-known id, (2) `windowId`'s
+    /// slice already exists (with the live-duplicate early-out), (3) a brand-new
+    /// window. The reverse-index rebind (``rebindTabManager(_:for:)``) and
+    /// `windowCoordinator.register` are the coordinator-owned identity writes; the
+    /// app-typed slice mutations, which write disjoint per-window stores, run
+    /// inside the host seed/rebind callback.
+    public func registerMainWindow(
+        _ window: NSWindow,
+        windowId: UUID,
+        tabManager: Host.WindowTabManagerModel,
+        slices: Host.RegistrationSlices
+    ) {
+        host?.forgetRecoverableMainWindowRoute(windowId: windowId)
+        #if DEBUG
+        let priorActiveTabManager = host?.activeTabManagerForRegistrationDebug
+        #endif
+
+        // Resolve the existing registration by WindowID (the canonical key now
+        // that the `ObjectIdentifier`-keyed aggregate is gone).
+        // `windowCoordinator.id(for:)` tells us if this exact NSWindow was already
+        // registered (under whatever id); `isMainWindowRegistered` tells us if
+        // `windowId` already has a slice. `windowCoordinator` owns window↔id
+        // identity, so the reindex dance the old class needed is gone.
+        let existingIdForWindow = windowCoordinator.id(for: window)
+        if let existingId = existingIdForWindow, host?.isMainWindowRegistered(existingId) == true {
+            // Same NSWindow re-registered: rebind under its already-known id
+            // (which may differ from the passed `windowId`, exactly as the old
+            // `existing.windowId` branch preserved).
+            host?.rebindRegisteredWindowSlices(
+                window: window,
+                resolvedId: existingId,
+                tabManager: tabManager,
+                slices: slices
+            )
+            rebindTabManager(tabManager, for: existingId)
+            windowCoordinator.register(window, id: existingId)
+        } else if host?.isMainWindowRegistered(WindowID(windowId)) == true {
+            let existingId = WindowID(windowId)
+            let existingWindow = windowCoordinator.window(for: existingId) ?? host?.windowForMainWindowId(windowId)
+            if let existingWindow,
+               existingWindow !== window,
+               existingWindow.isVisible || existingWindow.isMiniaturized {
+                host?.handleDuplicateMainWindowRegistration(
+                    windowId: windowId,
+                    existingId: existingId,
+                    existingWindow: existingWindow,
+                    duplicate: window
+                )
+                window.orderOut(nil)
+                window.close()
+                return
+            }
+            host?.rebindRegisteredWindowSlices(
+                window: window,
+                resolvedId: existingId,
+                tabManager: tabManager,
+                slices: slices
+            )
+            rebindTabManager(tabManager, for: existingId)
+            windowCoordinator.register(window, id: existingId)
+        } else {
+            let newId = WindowID(windowId)
+            host?.seedNewMainWindowSlices(
+                window: window,
+                windowId: windowId,
+                newId: newId,
+                tabManager: tabManager,
+                slices: slices
+            )
+            rebindTabManager(tabManager, for: newId)
+            windowCoordinator.register(window, id: newId)
+        }
+        host?.commandPaletteRegisterWindow(windowId)
+
+        #if DEBUG
+        host?.logMainWindowRegistered(
+            windowId: windowId,
+            window: window,
+            tabManager: tabManager,
+            priorActiveTabManager: priorActiveTabManager
+        )
+        #endif
+        host?.ensureSocketListener(for: tabManager, source: "mainWindow.register")
+        host?.ensureMobileWorkspaceListObserver(for: tabManager)
+        host?.notifyMainWindowContextsDidChange()
+        if window.isKeyWindow {
+            host?.setActiveMainWindow(window)
+        }
+
+        let didApplyStartupSessionRestore = host?.attemptStartupSessionRestore(primaryWindow: window) ?? false
+        if host?.shouldSaveSnapshotAfterMainWindowRegistration(
+            didApplyStartupSessionRestore: didApplyStartupSessionRestore
+        ) == true {
+            host?.saveSessionSnapshotAfterMainWindowRegistration()
+        }
+    }
+
+    #if DEBUG
+    /// DEBUG-only window-less registration for tests: seeds slices under
+    /// `WindowID(windowId)`, keeps the reverse index consistent, and ensures the
+    /// mobile observer + contexts-changed notification, returning `windowId`.
+    /// Mirrors the app's `registerMainWindowContextForTesting`.
+    @discardableResult
+    public func registerMainWindowContextForTesting(
+        windowId: UUID,
+        tabManager: Host.WindowTabManagerModel,
+        slices: Host.RegistrationSlices
+    ) -> UUID {
+        let testId = WindowID(windowId)
+        host?.seedTestingMainWindowSlices(
+            windowId: windowId,
+            testId: testId,
+            tabManager: tabManager,
+            slices: slices
+        )
+        rebindTabManager(tabManager, for: testId)
+        host?.ensureMobileWorkspaceListObserver(for: tabManager)
+        host?.notifyMainWindowContextsDidChange()
+        return windowId
+    }
+    #endif
 }
