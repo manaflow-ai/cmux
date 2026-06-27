@@ -239,4 +239,96 @@ extension AgentChatTranscriptService {
     func claimDetectedTranscriptSessionID(_ sessionID: String, surfaceID: String) {
         claimedDetectedTranscriptSessionIDsBySurfaceID[surfaceID, default: []].insert(sessionID)
     }
+
+    func scheduleCodexTranscriptResolution(for record: AgentChatSessionRecord) {
+        let key: CodexTranscriptResolutionKey = (
+            sessionID: record.sessionID,
+            transcriptPath: record.transcriptPath
+        )
+        if let currentKey = codexTranscriptResolutionKeys[record.sessionID],
+           currentKey.sessionID == key.sessionID,
+           currentKey.transcriptPath == key.transcriptPath {
+            return
+        }
+
+        clearCodexTranscriptResolution(sessionID: record.sessionID)
+        codexTranscriptResolutionKeys[record.sessionID] = key
+        let scanTask = detachedCodexTranscriptResolutionTask(for: record)
+        codexTranscriptResolutionTasks[record.sessionID] = Task { @MainActor [
+            weak self,
+            scanTask,
+            key
+        ] in
+            let resolved = await withTaskCancellationHandler {
+                await scanTask.value
+            } onCancel: {
+                scanTask.cancel()
+            }
+            guard !Task.isCancelled else { return }
+            self?.applyCodexTranscriptResolution(resolved, key: key)
+        }
+    }
+
+    func clearCodexTranscriptResolution(sessionID: String) {
+        codexTranscriptResolutionTasks[sessionID]?.cancel()
+        codexTranscriptResolutionTasks[sessionID] = nil
+        codexTranscriptResolutionKeys[sessionID] = nil
+    }
+
+    func codexTranscriptPathOffMain(for record: AgentChatSessionRecord) async -> String? {
+        let scanTask = detachedCodexTranscriptResolutionTask(for: record)
+        return await withTaskCancellationHandler {
+            await scanTask.value
+        } onCancel: {
+            scanTask.cancel()
+        }
+    }
+
+    func detachedCodexTranscriptResolutionTask(
+        for record: AgentChatSessionRecord
+    ) -> Task<String?, Never> {
+        let resolver = self.resolver
+        #if compiler(>=6.2)
+        let resolveOperation: @concurrent @Sendable () async -> String? = { [resolver, record] in
+            resolver.transcriptPath(for: record)
+        }
+        #else
+        let resolveOperation: @Sendable () async -> String? = { [resolver, record] in
+            resolver.transcriptPath(for: record)
+        }
+        #endif
+        return Task.detached(priority: .utility, operation: resolveOperation)
+    }
+
+    func applyCodexTranscriptResolution(
+        _ resolved: String?,
+        key: CodexTranscriptResolutionKey
+    ) {
+        guard let currentKey = codexTranscriptResolutionKeys[key.sessionID],
+              currentKey.sessionID == key.sessionID,
+              currentKey.transcriptPath == key.transcriptPath else {
+            return
+        }
+        codexTranscriptResolutionTasks[key.sessionID] = nil
+        codexTranscriptResolutionKeys[key.sessionID] = nil
+        applyDirectCodexTranscriptResolution(resolved, sessionID: key.sessionID)
+    }
+
+    func applyDirectCodexTranscriptResolution(_ resolved: String?, sessionID: String) {
+        guard let record = registry.record(sessionID: sessionID),
+              record.agentKind == .codex,
+              record.state != .ended else {
+            return
+        }
+        guard let resolved else {
+            if resolver.recordedTranscriptPath(for: record) == nil {
+                failedResolutions.insert(sessionID)
+            }
+            return
+        }
+        failedResolutions.remove(sessionID)
+        if record.transcriptPath != resolved {
+            registry.update(sessionID: sessionID) { $0.transcriptPath = resolved }
+        }
+    }
 }

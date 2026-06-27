@@ -30,6 +30,8 @@ final class AgentChatTranscriptService {
     var transcriptResolutionTasks: [String: Task<Void, Never>] = [:]
     var transcriptResolutionKeys: [String: ClaudeTranscriptResolutionKey] = [:]
     var transcriptResolutionForcedRetryCounts: [String: Int] = [:]
+    var codexTranscriptResolutionTasks: [String: Task<Void, Never>] = [:]
+    var codexTranscriptResolutionKeys: [String: CodexTranscriptResolutionKey] = [:]
     var claimedDetectedTranscriptSessionIDsBySurfaceID: [String: Set<String>] = [:]
     var titleAdoptionHandler: (@MainActor (GhosttyTitleChange) -> Bool)?
     let titleChangeCoalescer = NotificationBurstCoalescer(delay: 0.25)
@@ -220,6 +222,11 @@ final class AgentChatTranscriptService {
         // A user opening the chat is the right moment to retry a previously
         // failed transcript resolution.
         failedResolutions.remove(sessionID)
+        if record.agentKind == .codex,
+           resolver.recordedTranscriptPath(for: record) == nil {
+            let resolved = await codexTranscriptPathOffMain(for: record)
+            applyDirectCodexTranscriptResolution(resolved, sessionID: sessionID)
+        }
         if record.transcriptPath == nil,
            Self.isProvisionalClaudeSessionID(sessionID),
            let workingDirectory = record.workingDirectory,
@@ -279,6 +286,10 @@ final class AgentChatTranscriptService {
         titleKey: String?,
         forceScan: Bool
     )
+    typealias CodexTranscriptResolutionKey = (
+        sessionID: String,
+        transcriptPath: String?
+    )
 
     @discardableResult
     private func ensureTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
@@ -286,7 +297,17 @@ final class AgentChatTranscriptService {
             return existing
         }
         guard !failedResolutions.contains(record.sessionID) else { return nil }
-        guard let path = resolver.transcriptPath(for: record) else {
+        let resolvedPath: String?
+        if record.agentKind == .codex {
+            guard let recordedPath = resolver.recordedTranscriptPath(for: record) else {
+                scheduleCodexTranscriptResolution(for: record)
+                return nil
+            }
+            resolvedPath = recordedPath
+        } else {
+            resolvedPath = resolver.transcriptPath(for: record)
+        }
+        guard let path = resolvedPath else {
             if Self.isProvisionalClaudeSessionID(record.sessionID) {
                 return nil
             }
@@ -360,6 +381,7 @@ final class AgentChatTranscriptService {
                 // discovery while paging an ended session) from churning it.
                 Task { await tailer.stop() }
             }
+            clearCodexTranscriptResolution(sessionID: record.sessionID)
         }
         guard MobileHostService.hasEventSubscribers(topic: Self.eventTopic) else { return }
         if transcriptBecameAvailable, record.state != .ended {

@@ -30,12 +30,8 @@ struct AgentChatTranscriptResolver: Sendable {
     ///   - record: The session's registry record.
     /// - Returns: An existing transcript path, or `nil` when none is found.
     func transcriptPath(for record: AgentChatSessionRecord) -> String? {
-        let fileManager = FileManager.default
-        if let recorded = record.transcriptPath {
-            let expanded = (recorded as NSString).expandingTildeInPath
-            if fileManager.fileExists(atPath: expanded) {
-                return expanded
-            }
+        if let recorded = recordedTranscriptPath(for: record) {
+            return recorded
         }
         switch record.agentKind {
         case .claude:
@@ -45,6 +41,17 @@ struct AgentChatTranscriptResolver: Sendable {
         case .other:
             return nil
         }
+    }
+
+    /// Returns the hook-recorded transcript path when it still exists.
+    ///
+    /// This is intentionally cheap enough for main-actor call sites; it does not
+    /// run any agent-specific fallback scan.
+    func recordedTranscriptPath(for record: AgentChatSessionRecord) -> String? {
+        let fileManager = FileManager.default
+        guard let recorded = record.transcriptPath else { return nil }
+        let expanded = (recorded as NSString).expandingTildeInPath
+        return fileManager.fileExists(atPath: expanded) ? expanded : nil
     }
 
     /// The newest Claude transcript in a working directory's project dir,

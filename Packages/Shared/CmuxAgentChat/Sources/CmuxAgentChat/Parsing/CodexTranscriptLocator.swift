@@ -84,6 +84,7 @@ public struct CodexTranscriptLocator: Sendable {
             fileManager: fileManager,
             now: now
         ) {
+            guard !Task.isCancelled else { return nil }
             guard scannedFileCount < maxCandidateFiles else {
                 return nil
             }
@@ -93,6 +94,7 @@ public struct CodexTranscriptLocator: Sendable {
                 limit: maxCandidateFiles - scannedFileCount
             )
             for candidate in candidates {
+                guard !Task.isCancelled else { return nil }
                 scannedFileCount += 1
                 guard matcher.transcript(at: candidate, matchesSessionID: normalizedSessionID) else {
                     continue
@@ -163,6 +165,7 @@ public struct CodexTranscriptLocator: Sendable {
         }
         var candidates: [URL] = []
         for url in urls where url.pathExtension == "jsonl" {
+            guard !Task.isCancelled else { return [] }
             insertCandidate(url, into: &candidates, limit: limit)
         }
         return candidates
