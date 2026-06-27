@@ -274,7 +274,7 @@ import Testing
         #expect(model.revision == 2)
     }
 
-    @Test func lateLocalCommitAfterExternalObservationReconcilesCurrent() async {
+    @Test func lateLocalCommitAfterExternalObservationIsIgnored() async {
         let store = UserDefaultsSettingsStore(
             defaults: UserDefaults(suiteName: "defaults-value-model-late-local-commit")!
         )
@@ -309,13 +309,12 @@ import Testing
         #expect(model.revision == 3)
 
         continuation.yield(event(false, source: source))
-        spins = 0
-        while model.current != false, spins < 100_000 {
+        for _ in 0..<10 {
             await Task.yield()
-            spins += 1
         }
-        #expect(model.current == false)
-        #expect(model.revision == 4)
+
+        #expect(model.current == true)
+        #expect(model.revision == 3)
     }
 
     @Test func rapidLocalWriteEchoesDoNotRevertCurrentOrRevision() async {
