@@ -139,7 +139,16 @@ case "$*" in
     fi
     ;;
   *"surface resume set"*)
-    printf '{"resume_binding":{"kind":"pi","checkpoint_id":"pi-session-test","source":"agent-hook","command":"pi --session pi-session-test"}}\n' > "$CMUX_TEST_PI_BINDING_FILE"
+    checkpoint_id=""
+    previous=""
+    for token in "$@"; do
+      if [ "$previous" = "--checkpoint-id" ]; then
+        checkpoint_id="$token"
+        break
+      fi
+      previous="$token"
+    done
+    printf '{"resume_binding":{"kind":"pi","checkpoint_id":"%s","source":"agent-hook","command":"pi --session %s"}}\n' "$checkpoint_id" "$checkpoint_id" > "$CMUX_TEST_PI_BINDING_FILE"
     printf '{"ok":true}\n'
     ;;
   *"surface resume clear"*)
