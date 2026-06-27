@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Multicast observer registry for one remote-tmux control connection.
 ///

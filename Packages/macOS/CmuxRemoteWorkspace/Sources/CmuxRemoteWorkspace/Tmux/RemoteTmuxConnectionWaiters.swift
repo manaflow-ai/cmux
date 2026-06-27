@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// In-flight registry of one-shot connection-readiness waiters for a single
 /// tmux control connection.

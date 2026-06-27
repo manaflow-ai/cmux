@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Callback seam that ``RemoteTmuxControlTransport`` uses to hand the bytes and
 /// lifecycle edges of its `ssh tmux -CC` subprocess back to its owning

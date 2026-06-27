@@ -3,7 +3,7 @@ import Foundation
 /// Value model describing a known coding agent for the Task Manager surface, plus the
 /// process-detection API that maps a running process (name/path/arguments/environment)
 /// to its agent definition. Holds the built-in registry of supported agents.
-public struct CmuxTaskManagerCodingAgentDefinition: Equatable {
+public struct CmuxTaskManagerCodingAgentDefinition: Equatable, Sendable {
     /// Stable identifier for the agent (e.g. `"claude"`, `"codex"`).
     public let id: String
     /// Human-readable name shown in the Task Manager (e.g. `"Claude Code"`).

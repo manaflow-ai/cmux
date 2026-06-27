@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Subprocess + pipe-plumbing sub-model for one `tmux -CC` control connection.
 ///

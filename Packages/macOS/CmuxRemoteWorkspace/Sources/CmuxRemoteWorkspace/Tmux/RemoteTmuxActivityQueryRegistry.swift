@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// In-flight registry of close-time pane-activity queries for a single tmux
 /// control connection.

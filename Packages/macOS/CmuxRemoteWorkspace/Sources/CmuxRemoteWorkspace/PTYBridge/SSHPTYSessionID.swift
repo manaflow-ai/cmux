@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The identity of a workspace's default SSH PTY attach session.
 ///

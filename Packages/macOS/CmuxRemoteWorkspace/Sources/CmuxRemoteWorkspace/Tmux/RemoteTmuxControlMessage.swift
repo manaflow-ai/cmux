@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A single parsed message from a remote tmux control-mode (`tmux -CC`) stream.
 ///
