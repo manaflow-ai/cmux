@@ -10,7 +10,7 @@ public import SwiftUI
 /// through extensions that remain app-side because they reach into app-only
 /// chrome metrics and debug settings. Nothing here has live coupling, so the
 /// configuration can be passed freely across the views that render the controls.
-public struct TitlebarControlsStyleConfig {
+public struct TitlebarControlsStyleConfig: Sendable {
     /// Horizontal gap between adjacent control buttons.
     public let spacing: CGFloat
     /// Point size of the control glyphs.
