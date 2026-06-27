@@ -432,7 +432,7 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     @MainActor
-    @Test func crossKindAgentHookResumeBindingDoesNotRetainNewerClaudeSnapshot() throws {
+    @Test func missingKindAgentHookResumeBindingDoesNotRetainNewerClaudeSnapshot() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
@@ -462,7 +462,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
                 SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
                     name: "Codex",
-                    kind: "codex",
+                    kind: nil,
                     command: "{ cd -- '\(cwd)' 2>/dev/null || [ ! -d '\(cwd)' ]; } && 'codex' 'resume' '\(codexSessionId)'",
                     cwd: cwd,
                     checkpointId: codexSessionId,
@@ -484,7 +484,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let restoredBinding = try #require(restoredTerminal?.resumeBinding)
 
             #expect(restoredTerminal?.agent == nil)
-            #expect(restoredBinding.kind == "codex")
+            #expect(restoredBinding.kind == nil)
             #expect(restoredBinding.checkpointId == codexSessionId)
             try assertAgentAutoResumeUsesStartupCommand(
                 restoredPanel,

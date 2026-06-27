@@ -954,11 +954,10 @@ extension Workspace {
               let capturedAt = restorableAgent.launchCommand?.capturedAt else {
             return false
         }
-        if let bindingKindValue = normalizedResumeBindingValue(binding.kind) {
-            guard let bindingKind = RestorableAgentKind(rawValue: bindingKindValue),
-                  bindingKind == restorableAgent.kind else {
-                return false
-            }
+        guard let bindingKindValue = normalizedResumeBindingValue(binding.kind),
+              let bindingKind = RestorableAgentKind(rawValue: bindingKindValue),
+              bindingKind == restorableAgent.kind else {
+            return false
         }
         // Same-kind session id mismatches are intentional: poisoned fish-era
         // bindings can carry an invalid stale id that the fresh snapshot must replace.
