@@ -251,10 +251,10 @@ func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
 
 /// BrowserPanel provides a WKWebView-based browser panel.
 /// Each browser panel can recover from WebContent crashes by replacing its web view.
-private enum BrowserInsecureHTTPNavigationIntent {
-    case currentTab
-    case newTab
-}
+// The insecure-HTTP navigation intent + the navigation-intent coordinator/host
+// seam moved to CmuxBrowser (Navigation/). This typealias keeps the app-target
+// spelling resolving for the delegate closure types that do not import it.
+typealias BrowserInsecureHTTPNavigationIntent = CmuxBrowser.BrowserInsecureHTTPNavigationIntent
 
 nonisolated enum BrowserWebViewLifecycleState: String {
     case newTab = "new_tab"
@@ -287,7 +287,7 @@ final class BrowserPortalAnchorView: NSView {
 }
 
 @MainActor
-final class BrowserPanel: Panel, ObservableObject {
+final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
 
@@ -657,7 +657,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private let minPageZoom: CGFloat = 0.25
     private let maxPageZoom: CGFloat = 5.0
     private let pageZoomStep: CGFloat = 0.1
-    private var insecureHTTPBypassHostOnce: String?
+    private let navigationIntentCoordinator: BrowserNavigationIntentCoordinator
     private var insecureHTTPAlertFactory: () -> NSAlert
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
@@ -1508,7 +1508,9 @@ final class BrowserPanel: Panel, ObservableObject {
             : BrowserProfileStore.shared.builtInDefaultProfileID
         self.profileID = resolvedProfileID
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
-        self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
+        self.navigationIntentCoordinator = BrowserNavigationIntentCoordinator(
+            initialBypassHostOnce: BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
+        )
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
@@ -1528,6 +1530,7 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.delegate = self
         applyProxyConfigurationIfAvailable()
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
+        navigationIntentCoordinator.host = self
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
@@ -1535,7 +1538,7 @@ final class BrowserPanel: Panel, ObservableObject {
             self?.openLinkInNewTab(url: url)
         }
         navDelegate.requestNavigation = { [weak self] request, intent in
-            self?.requestNavigation(request, intent: intent)
+            self?.navigationIntentCoordinator.requestNavigation(request, intent: intent)
         }
         navDelegate.presentAlert = { [weak self] alert, webView, completion, cancel in
             guard let self else {
@@ -1545,7 +1548,7 @@ final class BrowserPanel: Panel, ObservableObject {
             self.presentBrowserAlert(alert, in: webView, completion: completion, cancel: cancel)
         }
         navDelegate.shouldBlockInsecureHTTPNavigation = { [weak self] url in
-            self?.shouldBlockInsecureHTTPNavigation(to: url) ?? false
+            self?.navigationIntentCoordinator.shouldBlockInsecureHTTPNavigation(to: url) ?? false
         }
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
             self?.presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
@@ -1615,7 +1618,7 @@ final class BrowserPanel: Panel, ObservableObject {
             self.openLinkInNewTab(url: url)
         }
         browserUIDelegate.requestNavigation = { [weak self] request, intent in
-            self?.requestNavigation(request, intent: intent)
+            self?.navigationIntentCoordinator.requestNavigation(request, intent: intent)
         }
         browserUIDelegate.presentAlert = { [weak self] alert, webView, completion, cancel in
             guard let self else {
@@ -1654,8 +1657,8 @@ final class BrowserPanel: Panel, ObservableObject {
             shouldRenderWebView = renderInitialNavigation
             guard renderInitialNavigation else { return }
             if let url = initialRequest.url,
-               insecureHTTPBypassHostOnce == nil,
-               shouldBlockInsecureHTTPNavigation(to: url) {
+               navigationIntentCoordinator.insecureHTTPBypassHostOnce == nil,
+               navigationIntentCoordinator.shouldBlockInsecureHTTPNavigation(to: url) {
                 presentInsecureHTTPAlert(
                     for: initialRequest,
                     intent: .currentTab,
@@ -3090,7 +3093,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Navigate to a URL
     func navigate(to url: URL, recordTypedNavigation: Bool = false) {
         let request = URLRequest(url: url)
-        if shouldBlockInsecureHTTPNavigation(to: url) {
+        if navigationIntentCoordinator.shouldBlockInsecureHTTPNavigation(to: url) {
             presentInsecureHTTPAlert(for: request, intent: .currentTab, recordTypedNavigation: recordTypedNavigation)
             return
         }
@@ -3233,33 +3236,25 @@ final class BrowserPanel: Panel, ObservableObject {
         input.omnibarNavigableURL
     }
 
-    private func shouldBlockInsecureHTTPNavigation(to url: URL) -> Bool {
-        if consumeOneTimeInsecureHTTPBypassIfNeeded(for: url) {
-            return false
-        }
-        return BrowserInsecureHTTPSettings.shouldBlock(url)
+    // The insecure-HTTP navigation decision (block/one-time-bypass policy,
+    // requestNavigation routing, and the alert-response decision) moved to
+    // CmuxBrowser.BrowserNavigationIntentCoordinator. The methods below are the
+    // app-side host primitives (BrowserNavigationHosting) the coordinator
+    // forwards effects through; the live NSAlert builder stays here as the
+    // witness so its String(localized:) strings bind to the app bundle.
+
+    /// Loads `request` in the current tab's web view without re-running the
+    /// insecure-HTTP prompt (host primitive for the navigation-intent coordinator).
+    func loadRequestInCurrentTab(_ request: URLRequest, recordTypedNavigation: Bool) {
+        navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
     }
 
-    @discardableResult
-    private func consumeOneTimeInsecureHTTPBypassIfNeeded(for url: URL) -> Bool {
-        BrowserInsecureHTTPSettings.shouldConsumeOneTimeBypass(url, bypassHostOnce: &insecureHTTPBypassHostOnce)
+    /// Opens `url` in the system default browser (host primitive).
+    func openURLInDefaultBrowser(_ url: URL) {
+        NSWorkspace.shared.open(url)
     }
 
-    private func requestNavigation(_ request: URLRequest, intent: BrowserInsecureHTTPNavigationIntent) {
-        guard let url = request.url else { return }
-        if shouldBlockInsecureHTTPNavigation(to: url) {
-            presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
-            return
-        }
-        switch intent {
-        case .currentTab:
-            navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: false)
-        case .newTab:
-            openLinkInNewTab(request: request)
-        }
-    }
-
-    private func presentInsecureHTTPAlert(
+    func presentInsecureHTTPAlert(
         for request: URLRequest,
         intent: BrowserInsecureHTTPNavigationIntent,
         recordTypedNavigation: Bool
@@ -3278,9 +3273,9 @@ final class BrowserPanel: Panel, ObservableObject {
         alert.suppressionButton?.title = String(localized: "browser.alwaysAllowHost", defaultValue: "Always allow this host in cmux")
 
         let handleResponse: (NSApplication.ModalResponse) -> Void = { [weak self, weak alert] response in
-            self?.handleInsecureHTTPAlertResponse(
+            self?.navigationIntentCoordinator.resolveAlertResponse(
                 response,
-                alert: alert,
+                suppressionEnabled: alert?.suppressionButton?.state == .on,
                 host: host,
                 request: request,
                 url: url,
@@ -3300,37 +3295,6 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         handleResponse(alert.runModal())
-    }
-
-    private func handleInsecureHTTPAlertResponse(
-        _ response: NSApplication.ModalResponse,
-        alert: NSAlert?,
-        host: String,
-        request: URLRequest,
-        url: URL,
-        intent: BrowserInsecureHTTPNavigationIntent,
-        recordTypedNavigation: Bool
-    ) {
-        if browserShouldPersistInsecureHTTPAllowlistSelection(
-            response: response,
-            suppressionEnabled: alert?.suppressionButton?.state == .on
-        ) {
-            BrowserInsecureHTTPSettings.addAllowedHost(host)
-        }
-        switch response {
-        case .alertFirstButtonReturn:
-            NSWorkspace.shared.open(url)
-        case .alertSecondButtonReturn:
-            switch intent {
-            case .currentTab:
-                insecureHTTPBypassHostOnce = host
-                navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
-            case .newTab:
-                openLinkInNewTab(request: request, bypassInsecureHTTPHostOnce: host)
-            }
-        default:
-            return
-        }
     }
 
     deinit {
