@@ -97,8 +97,10 @@ public struct ChatComposerView: View {
     }
 
     #if os(iOS)
+    @MainActor
     @ViewBuilder
     private var composerSurface: some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             GlassEffectContainer {
                 composerStack
@@ -106,9 +108,13 @@ public struct ChatComposerView: View {
         } else {
             composerStack
         }
+        #else
+        composerStack
+        #endif
     }
     #endif
 
+    @MainActor
     private var composerStack: some View {
         VStack(spacing: 8) {
             if isEnded {
@@ -166,6 +172,7 @@ public struct ChatComposerView: View {
 
     // MARK: - Field row
 
+    @MainActor
     private var fieldRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             #if os(iOS)
@@ -398,6 +405,7 @@ public struct ChatComposerView: View {
         }
     }
 
+    @MainActor
     private var micButton: some View {
         let listening = dictation.state.isListening
         return MobileComposerIconButton(

@@ -78,7 +78,9 @@ struct KeyboardDismissTap: UIViewRepresentable {
         }
 
         deinit {
-            installedWindow?.removeGestureRecognizer(recognizer)
+            MainActor.assumeIsolated {
+                installedWindow?.removeGestureRecognizer(recognizer)
+            }
         }
 
         @objc private func handleTap() {

@@ -48,6 +48,7 @@ struct SignInView: View {
     @ViewBuilder
     private var signInEntrySwitcher: some View {
         #if os(iOS)
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             GlassEffectContainer {
                 signInEntryContent
@@ -55,6 +56,9 @@ struct SignInView: View {
         } else {
             signInEntryContent
         }
+        #else
+        signInEntryContent
+        #endif
         #else
         signInEntryContent
         #endif
