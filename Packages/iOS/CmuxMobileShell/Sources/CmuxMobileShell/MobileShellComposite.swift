@@ -5766,13 +5766,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
             guard case .subscribed(let alreadySubscribed) = ack,
-                  alreadySubscribed == false,
-                  !replaySurfaceIDsIfRepaired.isEmpty else {
+                  alreadySubscribed == false else {
                 return
             }
-            MobileDebugLog.anchormux("sync.subscribe_repaired reason=\(reason) surfaces=\(replaySurfaceIDsIfRepaired.count)")
+            let replaySurfaceIDs = replaySurfaceIDsIfRepaired.isEmpty
+                ? Array(self.terminalByteContinuationsBySurfaceID.keys)
+                : replaySurfaceIDsIfRepaired
+            MobileDebugLog.anchormux("sync.subscribe_repaired reason=\(reason) surfaces=\(replaySurfaceIDs.count)")
             self.replayAfterRepairedTerminalEventSubscription(
-                surfaceIDs: replaySurfaceIDsIfRepaired
+                surfaceIDs: replaySurfaceIDs
             )
         }
     }
