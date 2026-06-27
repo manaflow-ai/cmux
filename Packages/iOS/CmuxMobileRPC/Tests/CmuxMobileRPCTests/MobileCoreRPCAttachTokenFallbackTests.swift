@@ -20,6 +20,22 @@ import Testing
         #expect(sent[1].stackAccessToken == "fresh-stack-token")
     }
 
+    @Test func attachTokenLegacyUnauthorizedVariantRetriesWithStackAuth() async throws {
+        let transport = AttachTokenFallbackTransport(
+            firstErrorMessage: "Mobile sync request unauthorized."
+        )
+        let (client, request) = try makeClientAndRequest(transport: transport)
+
+        _ = try await client.sendRequest(request)
+
+        let sent = try await transport.sentRequests()
+        #expect(sent.count == 2)
+        #expect(sent[0].attachToken == "ticket-secret")
+        #expect(sent[0].stackAccessToken == nil)
+        #expect(sent[1].attachToken == nil)
+        #expect(sent[1].stackAccessToken == "fresh-stack-token")
+    }
+
     @Test func attachTokenSpecificUnauthorizedDoesNotRetryWithStackAuth() async throws {
         let transport = AttachTokenFallbackTransport(
             firstErrorCode: "unauthorized",
