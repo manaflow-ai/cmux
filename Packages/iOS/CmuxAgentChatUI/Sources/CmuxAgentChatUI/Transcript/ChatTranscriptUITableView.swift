@@ -89,16 +89,27 @@ final class ChatTranscriptUITableView: UITableView {
         #endif
     }
 
-    func applyTranscriptViewportInsets(topChromeInset: CGFloat, composerBottomInset: CGFloat) {
+    func applyTranscriptViewportInsets(
+        topChromeInset: CGFloat,
+        adjustedBottomInset: CGFloat,
+        composerOverlayBottomInset: CGFloat
+    ) {
         let resolvedTopInset = max(0, ceil(topChromeInset))
-        let resolvedBottomInset = max(0, ceil(composerBottomInset))
+        let resolvedAdjustedBottomInset = max(0, ceil(adjustedBottomInset))
+        // Target the final adjusted inset. UIKit may or may not add a bottom
+        // safe-area contribution for this hosted table, so subtract the actual
+        // current contribution instead of branching by OS version.
+        let automaticBottomAdjustment = max(0, adjustedContentInset.bottom - contentInset.bottom)
+        let resolvedContentBottomInset = max(0, resolvedAdjustedBottomInset - automaticBottomAdjustment)
+        let resolvedOverlayBottomInset = max(0, ceil(composerOverlayBottomInset))
         let oldTopInset = adjustedContentInset.top
         let oldVisibleTopY = contentOffset.y + oldTopInset
         let topChanged = abs(topChromeOverlayInset - resolvedTopInset) > 0.5
             || abs(contentInset.top - resolvedTopInset) > 0.5
-        let bottomChanged = abs(composerOverlayBottomInset - resolvedBottomInset) > 0.5
-            || abs(contentInset.bottom - resolvedBottomInset) > 0.5
-        guard topChanged || bottomChanged
+        let bottomChanged = abs(adjustedContentInset.bottom - resolvedAdjustedBottomInset) > 0.5
+            || abs(contentInset.bottom - resolvedContentBottomInset) > 0.5
+        let overlayChanged = abs(self.composerOverlayBottomInset - resolvedOverlayBottomInset) > 0.5
+        guard topChanged || bottomChanged || overlayChanged
         else {
             return
         }
@@ -106,13 +117,13 @@ final class ChatTranscriptUITableView: UITableView {
         let snapshot = keyboardViewportSnapshot()
         let wasPinnedToTop = contentOffset.y <= -oldTopInset + 1
         topChromeOverlayInset = resolvedTopInset
-        composerOverlayBottomInset = resolvedBottomInset
+        self.composerOverlayBottomInset = resolvedOverlayBottomInset
         isViewportInsetsExternallyDriven = true
         contentInset.top = resolvedTopInset
-        contentInset.bottom = resolvedBottomInset
+        contentInset.bottom = resolvedContentBottomInset
         var indicatorInsets = verticalScrollIndicatorInsets
         indicatorInsets.top = resolvedTopInset
-        indicatorInsets.bottom = resolvedBottomInset
+        indicatorInsets.bottom = resolvedOverlayBottomInset
         verticalScrollIndicatorInsets = indicatorInsets
         if wasPinnedToTop {
             // Keep the transcript pinned to the top chrome reservation — the
@@ -188,7 +199,7 @@ final class ChatTranscriptUITableView: UITableView {
         let presentationGap = composerPresentationMinY - presentationFrameMaxY
         recordKeyboardAnimationGap(presentationGap)
         return String(
-            format: "frameMinY=%.2f;frameMaxY=%.2f;frameHeight=%.2f;presentationFrameMaxY=%.2f;boundsHeight=%.2f;offsetY=%.2f;adjustedTopInset=%.2f;visibleTopY=%.2f;visibleBottomY=%.2f;contentHeight=%.2f;distanceFromBottom=%.2f;keyboardEvents=%d;keyboardOverlap=%.2f;keyboardTargetOverlap=%.2f;keyboardGuideOverlap=%.2f;keyboardBottomConstraint=%.2f;composerMinY=%.2f;composerPresentationMinY=%.2f;presentationGap=%.2f;topChromeOverlayInset=%.2f;composerOverlayBottomInset=%.2f;keyboardAnimationActive=%d;keyboardAnimationProgress=%.2f;keyboardTransitionDuration=%.3f;maxAnimationPresentationGap=%.2f;keyboardAnimationSamples=%d",
+            format: "frameMinY=%.2f;frameMaxY=%.2f;frameHeight=%.2f;presentationFrameMaxY=%.2f;boundsHeight=%.2f;offsetY=%.2f;adjustedTopInset=%.2f;adjustedBottomInset=%.2f;visibleTopY=%.2f;visibleBottomY=%.2f;contentHeight=%.2f;distanceFromBottom=%.2f;keyboardEvents=%d;keyboardOverlap=%.2f;keyboardTargetOverlap=%.2f;keyboardGuideOverlap=%.2f;keyboardBottomConstraint=%.2f;composerMinY=%.2f;composerPresentationMinY=%.2f;presentationGap=%.2f;topChromeOverlayInset=%.2f;composerOverlayBottomInset=%.2f;keyboardAnimationActive=%d;keyboardAnimationProgress=%.2f;keyboardTransitionDuration=%.3f;maxAnimationPresentationGap=%.2f;keyboardAnimationSamples=%d",
             locale: Locale(identifier: "en_US_POSIX"),
             frameInWindow.minY,
             frameInWindow.maxY,
@@ -197,6 +208,7 @@ final class ChatTranscriptUITableView: UITableView {
             bounds.height,
             contentOffset.y,
             adjustedContentInset.top,
+            adjustedContentInset.bottom,
             visibleTopY,
             visibleBottomY,
             contentSize.height,

@@ -1133,6 +1133,12 @@ final class cmuxUITests: XCTestCase {
             accuracy: 8,
             "The transcript bottom inset must cover the whole obscured region from the underlapped table bottom to the floating composer's top. metrics=\(metrics) composer=\(composerBar.frame)"
         )
+        XCTAssertEqual(
+            metrics.adjustedBottomInset,
+            metrics.composerOverlayBottomInset,
+            accuracy: 4,
+            "The adjusted transcript inset must equal the physical composer clearance. A larger value double-counts the device bottom safe area. metrics=\(metrics) composer=\(composerBar.frame)"
+        )
     }
 
     @MainActor
@@ -1879,6 +1885,7 @@ final class cmuxUITests: XCTestCase {
         let boundsHeight: CGFloat
         let offsetY: CGFloat
         let adjustedTopInset: CGFloat
+        let adjustedBottomInset: CGFloat
         let visibleTopY: CGFloat
         let visibleBottomY: CGFloat
         let contentHeight: CGFloat
@@ -1898,7 +1905,7 @@ final class cmuxUITests: XCTestCase {
         let keyboardAnimationSamples: Int
 
         var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
         }
 
         var effectiveFrameMaxY: CGFloat {
@@ -1932,6 +1939,7 @@ final class cmuxUITests: XCTestCase {
             self.boundsHeight = boundsHeight
             self.offsetY = offsetY
             self.adjustedTopInset = values["adjustedTopInset"] ?? 0
+            self.adjustedBottomInset = values["adjustedBottomInset"] ?? 0
             self.visibleTopY = values["visibleTopY"] ?? offsetY
             self.visibleBottomY = visibleBottomY
             self.contentHeight = contentHeight
