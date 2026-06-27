@@ -63,6 +63,20 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
         XCTAssertFalse(binding.command.contains("{ cd --"), binding.command)
     }
 
+    func testShellWrappedLegacyCwdGuardPreservesNonliteralPayloadQuoting() {
+        let rawCommand = #"/bin/sh -lc "{ cd -- '/tmp/project' 2>/dev/null || [ ! -d '/tmp/project' ]; } && LOCAL_ONLY=$LOCAL_ONLY codex resume session""#
+        let binding = SurfaceResumeBindingSnapshot(
+            command: rawCommand,
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            updatedAt: 123
+        )
+
+        XCTAssertTrue(binding.command.hasPrefix("cd -- '/tmp/project'"), binding.command)
+        XCTAssertTrue(binding.command.contains(rawCommand), binding.command)
+        XCTAssertFalse(binding.command.contains("/bin/sh -lc '"), binding.command)
+    }
+
     func testLegacyCwdGuardKeepsShellSpecificCommandInParentShell() {
         let binding = SurfaceResumeBindingSnapshot(
             command: "{ cd -- '/tmp/project' 2>/dev/null || [ ! -d '/tmp/project' ]; } && my-agent --resume ${(%):-%~}",

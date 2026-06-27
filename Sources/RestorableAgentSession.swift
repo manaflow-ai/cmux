@@ -131,7 +131,7 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
 
     private static func portableShellCommandParts(from command: String) -> (option: String, payload: String)? {
         let words = shellWordRanges(command)
-        guard words.count == 3, words[0].value == "/bin/sh", words[1].value == "-c" || words[1].value == "-lc" else { return nil }
+        guard words.count == 3, words[0].value == "/bin/sh", words[1].value == "-c" || words[1].value == "-lc", String(command[words[2].range]).range(of: #"^'(?:[^']|'\\'')*'$"#, options: .regularExpression) != nil else { return nil }
         return (words[1].value, words[2].value)
     }
 
