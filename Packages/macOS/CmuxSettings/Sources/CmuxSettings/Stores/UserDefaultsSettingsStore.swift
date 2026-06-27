@@ -369,16 +369,18 @@ public actor UserDefaultsSettingsStore {
 
                 for await isBackingDefaultsNotification in signals {
                     if Task.isCancelled { break }
-                    if !isBackingDefaultsNotification {
-                        let current = await self.value(for: key)
-                        guard current != lastYieldedEvent.value else { continue }
-                    }
                     let snapshot = await self.valueEvent(
                         for: key,
                         consumedSourceSequence: consumedSourceSequence
                     )
                     consumedSourceSequence = snapshot.consumedSourceSequence
                     let currentEvent = snapshot.event
+                    if !isBackingDefaultsNotification {
+                        guard currentEvent.value != lastYieldedEvent.value
+                            || currentEvent.mutationSource != nil
+                            || currentEvent.supersededMutationSource != nil
+                        else { continue }
+                    }
                     if currentEvent.value != lastYieldedEvent.value
                         || currentEvent.mutationSource != nil
                         || currentEvent.supersededMutationSource != nil {
