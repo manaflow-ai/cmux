@@ -1,8 +1,8 @@
 import Foundation
 
 @_spi(CmuxHostTransport) @objc public protocol CMUXSidebarHostXPC: NSObjectProtocol {
-    func requestSidebarSnapshot(reply: @escaping (NSData?, NSString?) -> Void)
-    func performSidebarAction(_ payload: NSData, reply: @escaping (NSData?, NSString?) -> Void)
+    func requestSidebarSnapshot(reply: @escaping @Sendable (NSData?, NSString?) -> Void)
+    func performSidebarAction(_ payload: NSData, reply: @escaping @Sendable (NSData?, NSString?) -> Void)
 }
 
 @_spi(CmuxHostTransport) @objc public protocol CMUXSidebarExtensionXPC: NSObjectProtocol {

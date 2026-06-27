@@ -9,14 +9,14 @@ public import Foundation
 /// returns the injected `staleConnection` message in that case. The message is
 /// resolved app-side (see ``CMUXSidebarExtensionHostXPCStrings``) so the app
 /// bundle's localized catalog is used.
+@MainActor
 final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
-    @MainActor var snapshotProvider: () -> CmuxSidebarSnapshot
-    @MainActor var actionHandler: (CmuxSidebarAction) -> CmuxSidebarActionResult
-    @MainActor var onAcceptedAction: () -> Void
-    @MainActor var isCurrentGeneration: () -> Bool
+    var snapshotProvider: () -> CmuxSidebarSnapshot
+    var actionHandler: (CmuxSidebarAction) -> CmuxSidebarActionResult
+    var onAcceptedAction: () -> Void
+    var isCurrentGeneration: () -> Bool
     private let staleConnection: String
 
-    @MainActor
     init(
         snapshotProvider: @escaping @MainActor () -> CmuxSidebarSnapshot,
         actionHandler: @escaping @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult,
@@ -31,7 +31,7 @@ final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
         self.staleConnection = staleConnection
     }
 
-    func requestSidebarSnapshot(reply: @escaping (NSData?, NSString?) -> Void) {
+    nonisolated func requestSidebarSnapshot(reply: @escaping @Sendable (NSData?, NSString?) -> Void) {
         Task { @MainActor in
             guard isCurrentGeneration() else {
                 reply(nil, staleConnection as NSString)
@@ -45,14 +45,18 @@ final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
         }
     }
 
-    func performSidebarAction(_ payload: NSData, reply: @escaping (NSData?, NSString?) -> Void) {
+    nonisolated func performSidebarAction(_ payload: NSData, reply: @escaping @Sendable (NSData?, NSString?) -> Void) {
+        // Copy the payload to a Sendable `Data` value before hopping to the main
+        // actor so the non-Sendable `NSData` is not transferred across isolation
+        // domains; the decoder reads the same bytes.
+        let payloadData = payload as Data
         Task { @MainActor in
             guard isCurrentGeneration() else {
                 reply(nil, staleConnection as NSString)
                 return
             }
             do {
-                let action = try CmuxSidebarXPCCodec.decodeAction(payload)
+                let action = try CmuxSidebarXPCCodec.decodeAction(payloadData as NSData)
                 let result = actionHandler(action)
                 reply(try CmuxSidebarXPCCodec.encodeActionResult(result), nil)
                 if result.accepted {

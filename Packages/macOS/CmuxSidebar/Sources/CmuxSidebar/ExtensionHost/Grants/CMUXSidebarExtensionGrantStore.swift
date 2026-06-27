@@ -1,4 +1,4 @@
-public import CmuxExtensionKit
+@_spi(CmuxHostTransport) public import CmuxExtensionKit
 public import Foundation
 
 /// `UserDefaults`-backed repository of per-extension scope grants.
