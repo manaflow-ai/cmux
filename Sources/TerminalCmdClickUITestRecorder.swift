@@ -210,15 +210,7 @@ final class TerminalCmdClickUITestRecorder: UITestRecording {
         func resizeWindowIfNeeded(_ window: NSWindow) {
             let screenFrame = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
             guard let screenFrame else { return }
-            let targetSize = NSSize(
-                width: min(960, screenFrame.width - 80),
-                height: min(720, screenFrame.height - 80)
-            )
-            let targetOrigin = NSPoint(
-                x: screenFrame.minX + 40,
-                y: screenFrame.maxY - 40 - targetSize.height
-            )
-            let targetFrame = NSRect(origin: targetOrigin, size: targetSize)
+            let targetFrame = TerminalCmdClickWindowLayout(screenFrame: screenFrame).targetFrame
             if !window.frame.equalTo(targetFrame) {
                 window.setFrame(targetFrame, display: true)
             }

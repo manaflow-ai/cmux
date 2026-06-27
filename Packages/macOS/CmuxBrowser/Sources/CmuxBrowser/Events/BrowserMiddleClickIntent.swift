@@ -9,11 +9,10 @@ public import Foundation
 /// happened. The freshness window and the age/identity predicate live here so a
 /// recorded intent only counts when it is both recent and for the same web view.
 ///
-/// The process-wide storage (the single most-recent intent) plus the record and
-/// has-recent entry points stay app-side on `CmuxWebView` (the `static var
-/// lastMiddleClickIntent` and its `record`/`hasRecent` statics): they mutate a
-/// `WKWebView`-typed slot and clear it on expiry, which is app-target state. This
-/// type owns only the immutable freshness value and its predicate.
+/// The process-wide single-slot storage plus the record/has-recent lifecycle live
+/// in ``BrowserMiddleClickIntentTracker``; `CmuxWebView` holds one tracker and
+/// forwards `WKWebView` identities and uptime captures into it. This type owns
+/// only the immutable freshness value and its predicate.
 ///
 /// Faithfully lifted from the app target's private `CmuxWebView.MiddleClickIntent`
 /// struct, the `middleClickIntentMaxAge` constant (`0.8` seconds), and the
