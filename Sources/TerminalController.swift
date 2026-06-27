@@ -4919,11 +4919,11 @@ class TerminalController: MobileViewportSurfaceLimiting {
         // paths, so the advertised capabilities can never drift. Includes
         // workspace.actions.v1 (the mobile-gated pin/unpin/rename handler), which
         // the iOS client uses to show or hide rename/pin.
-        let capabilities = MobileHostService.mobileHostCapabilities
+        let capabilities = MobileHostCapabilities.advertised.identifiers
         guard includePrivateMetadata else {
-            return .ok(MobileHostService.publicStatusPayload(
+            return .ok(MobileHostPublicStatus(
                 routesPayload: status.routes.map(\.mobileHostJSONObject)
-            ))
+            ).jsonObject)
         }
 
         let tabManager = v2ResolveTabManager(params: params)
