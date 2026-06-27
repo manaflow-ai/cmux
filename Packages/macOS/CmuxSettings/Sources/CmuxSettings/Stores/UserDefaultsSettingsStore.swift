@@ -196,9 +196,12 @@ public actor UserDefaultsSettingsStore {
 
     private func recordAcceptedMutation(
         _ source: UserDefaultsSettingsMutationSource?,
+        logicalOrder sourceLessLogicalOrder: UInt64? = nil,
         for storageKey: String
     ) {
-        let logicalOrder = source?.logicalOrder ?? DispatchTime.now().uptimeNanoseconds
+        let logicalOrder = source?.logicalOrder
+            ?? sourceLessLogicalOrder
+            ?? DispatchTime.now().uptimeNanoseconds
         acceptedMutationLogicalOrders[storageKey] = max(
             acceptedMutationLogicalOrders[storageKey] ?? 0,
             logicalOrder
@@ -289,13 +292,19 @@ public actor UserDefaultsSettingsStore {
     public nonisolated func values<Value>(for key: DefaultsKey<Value>) -> AsyncStream<Value> {
         let storage = self.storage
         return AsyncStream<Value>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let (signals, signalContinuation) = AsyncStream<Bool>.makeStream(
+            let (signals, signalContinuation) = AsyncStream<(
+                isBackingDefaultsNotification: Bool,
+                logicalOrder: UInt64
+            )>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )
 
             let observer = storage.addDidChangeObserver { [weak self] isBackingDefaultsNotification in
                 guard self != nil else { return }
-                signalContinuation.yield(isBackingDefaultsNotification)
+                signalContinuation.yield((
+                    isBackingDefaultsNotification,
+                    DispatchTime.now().uptimeNanoseconds
+                ))
             }
 
             let drainTask = Task { [weak self] in
@@ -343,13 +352,19 @@ public actor UserDefaultsSettingsStore {
         let initialConsumedSourceSequence = mutationSourceSequences[key.userDefaultsKey] ?? 0
         let storage = self.storage
         return AsyncStream<UserDefaultsSettingsValueEvent<Value>>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let (signals, signalContinuation) = AsyncStream<Bool>.makeStream(
+            let (signals, signalContinuation) = AsyncStream<(
+                isBackingDefaultsNotification: Bool,
+                logicalOrder: UInt64
+            )>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )
 
             let observer = storage.addDidChangeObserver { [weak self] isBackingDefaultsNotification in
                 guard self != nil else { return }
-                signalContinuation.yield(isBackingDefaultsNotification)
+                signalContinuation.yield((
+                    isBackingDefaultsNotification,
+                    DispatchTime.now().uptimeNanoseconds
+                ))
             }
 
             let drainTask = Task { [weak self] in
@@ -368,7 +383,7 @@ public actor UserDefaultsSettingsStore {
                 var lastYieldedEvent = initialSnapshot.event
                 continuation.yield(initialSnapshot.event)
 
-                for await isBackingDefaultsNotification in signals {
+                for await signal in signals {
                     if Task.isCancelled { break }
                     let snapshot = await self.valueEvent(
                         for: key,
@@ -378,9 +393,13 @@ public actor UserDefaultsSettingsStore {
                     let currentEvent = snapshot.event
                     if currentEvent.value != lastYieldedEvent.value,
                        currentEvent.mutationSource == nil {
-                        await self.recordAcceptedMutation(nil, for: key.userDefaultsKey)
+                        await self.recordAcceptedMutation(
+                            nil,
+                            logicalOrder: signal.logicalOrder,
+                            for: key.userDefaultsKey
+                        )
                     }
-                    if !isBackingDefaultsNotification {
+                    if !signal.isBackingDefaultsNotification {
                         guard currentEvent.value != lastYieldedEvent.value
                             || currentEvent.mutationSource != nil
                             || currentEvent.supersededMutationSource != nil
