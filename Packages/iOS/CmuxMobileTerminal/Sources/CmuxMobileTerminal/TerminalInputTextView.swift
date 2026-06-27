@@ -63,6 +63,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// it is always reachable regardless of the button row's scroll position.
     private weak var composerButton: UIButton?
     let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
+    private let inputDebugLog = TerminalInputDebugLog()
     /// The armed/sticky modifier state machine, extracted into the testable
     /// ``TerminalInputModifierState`` reducer. This view is now a dumb
     /// first-responder that forwards taps into the reducer and reads its state
@@ -683,7 +684,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// terminal. Committing here also ends any IME composition.
     func insertText(_ text: String) {
         guard !text.isEmpty else { return }
-        TerminalInputDebugLog.log("proxy.insertText text=\(TerminalInputDebugLog.textSummary(text)) composing=\(self.markedText != nil)")
+        self.inputDebugLog.log("proxy.insertText text=\(self.inputDebugLog.textSummary(text)) composing=\(self.markedText != nil)")
         // A committed insert ends composition. The candidate the IME was showing
         // is exactly `text`, so clear the marked state and emit `text` once.
         if markedText != nil {
@@ -1213,7 +1214,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     private func emitCommittedText(_ committedText: String, source: String) {
-        TerminalInputDebugLog.log("proxy.emit source=\(source) text=\(TerminalInputDebugLog.textSummary(committedText))")
+        self.inputDebugLog.log("proxy.emit source=\(source) text=\(self.inputDebugLog.textSummary(committedText))")
         if controlAccessoryArmed {
             if !controlAccessorySticky {
                 setControlAccessoryArmed(false)
@@ -1463,7 +1464,7 @@ extension TerminalInputTextView {
     /// `textWillChange`/`textDidChange` (via ``withMarkedTextChange(_:)``) so the
     /// IME and dictation machinery keep their composition state synchronized.
     func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
-        TerminalInputDebugLog.log("proxy.setMarkedText text=\(TerminalInputDebugLog.textSummary(markedText ?? ""))")
+        self.inputDebugLog.log("proxy.setMarkedText text=\(self.inputDebugLog.textSummary(markedText ?? ""))")
         withMarkedTextChange {
             self.markedText = (markedText?.isEmpty == true) ? nil : markedText
         }
@@ -1511,7 +1512,7 @@ extension TerminalInputTextView {
     /// the in-progress IME composition, so clear it first. An empty replacement is
     /// a pure deletion of the marked composition (no committed text to send).
     func replace(_ range: UITextRange, withText text: String) {
-        TerminalInputDebugLog.log("proxy.replace text=\(TerminalInputDebugLog.textSummary(text))")
+        self.inputDebugLog.log("proxy.replace text=\(self.inputDebugLog.textSummary(text))")
         if markedText != nil {
             withMarkedTextChange { markedText = nil }
         }

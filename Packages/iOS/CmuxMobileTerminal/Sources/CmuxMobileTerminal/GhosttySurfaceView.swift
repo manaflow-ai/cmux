@@ -549,6 +549,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// rather than reached through a singleton, so it is injectable in tests.
     private let zoomPreference = MobileTerminalZoomPreference()
     private let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
+    private let inputDebugLog = TerminalInputDebugLog()
     private let bridge = GhosttySurfaceBridge()
     private let prefersSnapshotFallbackRendering = false
     var onFocusInputRequestedForTesting: (() -> Void)?
@@ -878,7 +879,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // Replace \n with \r (terminals expect CR for Return).
             let normalized = text.replacingOccurrences(of: "\n", with: "\r")
             let data = Data(normalized.utf8)
-            TerminalInputDebugLog.log("surface.onText text=\(TerminalInputDebugLog.textSummary(text)) data=\(TerminalInputDebugLog.dataSummary(data))")
+            self.inputDebugLog.log("surface.onText text=\(self.inputDebugLog.textSummary(text)) data=\(self.inputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
         inputProxy.onBackspace = { [weak self] in
@@ -886,18 +887,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             self.resetCursorBlink()
             // Send DEL (0x7F) directly to transport as raw byte.
             let data = Data([0x7F])
-            TerminalInputDebugLog.log("surface.onBackspace data=\(TerminalInputDebugLog.dataSummary(data))")
+            self.inputDebugLog.log("surface.onBackspace data=\(self.inputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
         inputProxy.onEscapeSequence = { [weak self] data in
             guard let self else { return }
             self.resetCursorBlink()
-            TerminalInputDebugLog.log("surface.onEscape data=\(TerminalInputDebugLog.dataSummary(data))")
+            self.inputDebugLog.log("surface.onEscape data=\(self.inputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
         inputProxy.onPasteImage = { [weak self] data, format in
             guard let self else { return }
-            TerminalInputDebugLog.log("surface.onPasteImage bytes=\(data.count) format=\(format)")
+            self.inputDebugLog.log("surface.onPasteImage bytes=\(data.count) format=\(format)")
             self.delegate?.ghosttySurfaceView(self, didPasteImage: data, format: format)
         }
         inputProxy.onZoom = { [weak self] direction in
@@ -3329,7 +3330,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // flows through `inputProxy` (`didProduceInput`), not here, so dropping
         // these is safe.
         #if DEBUG
-        TerminalInputDebugLog.log("surface.outboundDropped data=\(TerminalInputDebugLog.dataSummary(bytes))")
+        inputDebugLog.log("surface.outboundDropped data=\(inputDebugLog.dataSummary(bytes))")
         #endif
     }
 
