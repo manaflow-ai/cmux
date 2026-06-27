@@ -38,6 +38,12 @@ def run_wrapper(argv: list[str], env: dict[str, str]) -> subprocess.CompletedPro
     )
 
 
+def expected_path_after_shim_install(initial_path: str, shim_root: Path) -> str:
+    shim_root_text = str(shim_root)
+    entries = initial_path.split(":")
+    return ":".join([shim_root_text] + [entry for entry in entries if entry != shim_root_text])
+
+
 def test_wrapper_skips_cmux_shims_and_bundled_claude(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-resolution-") as td:
         root = Path(td)
@@ -185,7 +191,6 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
 
         surface_id = "surface-path-test"
         shim_root = tmpdir / "cmux-cli-shims" / surface_id
-        expected_path = f"{shim_root}::{first}::{last}:"
 
         input_path = f":{first}::{shim_root}:{last}:"
         base_env = minimal_env("/usr/bin:/bin", tmpdir)
@@ -199,17 +204,23 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                 "--noprofile",
                 "--norc",
                 "-c",
-                'PATH="$CMUX_TEST_INPUT_PATH"; '
-                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; '
-                'printf "%s\\n" "$PATH"',
+                (
+                    'PATH="$CMUX_TEST_INPUT_PATH"; '
+                    'printf "CMUX_TEST_BEFORE=%s\\n" "$PATH"; '
+                    'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; '
+                    'printf "CMUX_TEST_AFTER=%s\\n" "$PATH"'
+                ),
             ],
             [
                 "/bin/zsh",
                 "-f",
                 "-c",
-                'PATH="$CMUX_TEST_INPUT_PATH"; '
-                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; '
-                'printf "%s\\n" "$PATH"',
+                (
+                    'PATH="$CMUX_TEST_INPUT_PATH"; '
+                    'printf "CMUX_TEST_BEFORE=%s\\n" "$PATH"; '
+                    'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; '
+                    'printf "CMUX_TEST_AFTER=%s\\n" "$PATH"'
+                ),
             ],
         ]
         for argv in shell_commands:
@@ -221,8 +232,17 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                     f"{shell_name} path preservation exited {result.returncode}: "
                     f"{(result.stdout + result.stderr).strip()}"
                 )
-            if output != expected_path:
-                failures.append(f"{shell_name} expected PATH {expected_path!r}, got {output!r}")
+            lines = output.splitlines()
+            before_prefix = "CMUX_TEST_BEFORE="
+            after_prefix = "CMUX_TEST_AFTER="
+            before = next((line[len(before_prefix):] for line in lines if line.startswith(before_prefix)), None)
+            after = next((line[len(after_prefix):] for line in lines if line.startswith(after_prefix)), None)
+            if before is None or after is None:
+                failures.append(f"{shell_name} path preservation missing sentinel output: {output!r}")
+                continue
+            expected_path = expected_path_after_shim_install(before, shim_root)
+            if after != expected_path:
+                failures.append(f"{shell_name} expected PATH {expected_path!r}, got {after!r}")
 
 
 def main() -> int:

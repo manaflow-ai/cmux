@@ -1002,6 +1002,9 @@ struct BrowserPanelView: View {
     }
 
     private func handlePanelFocusChange(_ focused: Bool) {
+        panel.noteWorkspaceResourceLifecycleProtectionMayHaveChanged(
+            reason: focused ? "view.focused" : "view.unfocused"
+        )
 #if DEBUG
         logBrowserFocusState(
             event: "panelFocus.onChange",

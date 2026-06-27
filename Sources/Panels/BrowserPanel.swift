@@ -2865,6 +2865,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var isPresentingPendingInteractiveBrowserPrompt = false
     private var isWebViewVisibleInUI: Bool = false
     private var isClosingWebViewLifecycle: Bool = false
+    var isActiveInWorkspaceForResourceLifecycle: (() -> Bool)?
 
     /// True while a canvas pane hosts this browser's webview inline (in the
     /// pane's own hierarchy). Portal-side reconcilers must not rebind or
@@ -3236,6 +3237,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let discardBlockers = hiddenWebViewDiscardBlockers()
         return [
             "state": webViewLifecycleState.rawValue,
+            "active_in_workspace": isProtectedByWorkspaceResourceLifecycle,
             "visible_in_ui": isWebViewVisibleInUI,
             "should_render": shouldRenderWebView,
             "discard_eligible": discardBlockers.isEmpty,
@@ -3270,6 +3272,18 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         guard webViewLifecycleState != nextState else { return }
         webViewLifecycleState = nextState
+    }
+
+    private var isProtectedByWorkspaceResourceLifecycle: Bool {
+        isActiveInWorkspaceForResourceLifecycle?() ?? false
+    }
+
+    func noteWorkspaceResourceLifecycleProtectionMayHaveChanged(reason: String) {
+        if isProtectedByWorkspaceResourceLifecycle {
+            cancelHiddenWebViewDiscard()
+        } else if !isWebViewVisibleInUI {
+            scheduleHiddenWebViewDiscardIfNeeded(reason: reason)
+        }
     }
 
     private static let webViewLifecycleTimestampFormatter: ISO8601DateFormatter = {
@@ -5175,6 +5189,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate = nil
         uiDelegate = nil
         webViewDidRequestClose = nil
+        isActiveInWorkspaceForResourceLifecycle = nil
         detachWebViewObservers()
         faviconTask?.cancel()
         faviconTask = nil
@@ -5850,6 +5865,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
     var hiddenWebViewDiscardSnapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
         BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
             isClosing: isClosingWebViewLifecycle,
+            isActiveInWorkspace: isProtectedByWorkspaceResourceLifecycle,
             isVisibleInUI: isWebViewVisibleInUI,
             shouldRenderWebView: shouldRenderWebView,
             hasPendingRemoteNavigation: pendingRemoteNavigation != nil,
@@ -7071,7 +7087,9 @@ extension BrowserPanel {
             case .success(let image):
                 completion(image)
             case .failure(let error):
-                NSLog("BrowserPanel snapshot error: %@", error.localizedDescription)
+#if DEBUG
+                cmuxDebugLog("browser.snapshot.error \(error.localizedDescription)")
+#endif
                 completion(nil)
             }
         }
@@ -8372,7 +8390,6 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         #if DEBUG
         cmuxDebugLog("download.failed error=\(error.localizedDescription)")
         #endif
-        NSLog("BrowserPanel download failed: %@", error.localizedDescription)
     }
 }
 
