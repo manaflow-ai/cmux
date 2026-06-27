@@ -40,7 +40,10 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/tmp/gemini repo' 2>/dev/null || [ ! -d '/tmp/gemini repo' ]; } && 'env' 'GEMINI_CLI_HOME=/tmp/gemini home' '/Users/example/.bun/bin/gemini' '--resume' '5839bed1-0a60-4c05-b6d1-2410d7a3741e' '--model' 'gemini-2.5-pro' '--sandbox' 'danger-full-access' '--approval-mode' 'yolo'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'GEMINI_CLI_HOME=/tmp/gemini home' '/Users/example/.bun/bin/gemini' '--resume' '5839bed1-0a60-4c05-b6d1-2410d7a3741e' '--model' 'gemini-2.5-pro' '--sandbox' 'danger-full-access' '--approval-mode' 'yolo'",
+                workingDirectory: "/tmp/gemini repo"
+            )
         )
     }
 
@@ -74,7 +77,10 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/tmp/antigravity repo' 2>/dev/null || [ ! -d '/tmp/antigravity repo' ]; } && 'env' 'GEMINI_CLI_HOME=/tmp/gemini home' '/Users/example/.local/bin/agy' '--conversation' 'antigravity-conversation-123' '--sandbox' 'danger-full-access' '--add-dir' '/tmp/extra repo'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'GEMINI_CLI_HOME=/tmp/gemini home' '/Users/example/.local/bin/agy' '--conversation' 'antigravity-conversation-123' '--sandbox' 'danger-full-access' '--add-dir' '/tmp/extra repo'",
+                workingDirectory: "/tmp/antigravity repo"
+            )
         )
     }
 
@@ -107,7 +113,10 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/tmp/rovo repo' 2>/dev/null || [ ! -d '/tmp/rovo repo' ]; } && 'env' 'CMUX_ROVODEV_SESSIONS_DIR=/tmp/rovo sessions' '/opt/homebrew/bin/acli' 'rovodev' 'run' '--restore' 'session with space' '--yolo'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'CMUX_ROVODEV_SESSIONS_DIR=/tmp/rovo sessions' '/opt/homebrew/bin/acli' 'rovodev' 'run' '--restore' 'session with space' '--yolo'",
+                workingDirectory: "/tmp/rovo repo"
+            )
         )
     }
 
@@ -137,7 +146,10 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '~/.cursor' 2>/dev/null || [ ! -d '~/.cursor' ]; } && '/usr/local/bin/agent' '--resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'/usr/local/bin/agent' '--resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4'",
+                workingDirectory: "~/.cursor"
+            )
         )
     }
 
@@ -366,36 +378,66 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             cursor.resumeCommand,
-            "{ cd -- '/tmp/cursor repo' 2>/dev/null || [ ! -d '/tmp/cursor repo' ]; } && '/Users/example/.local/bin/cursor-agent' '--resume' 'cursor-chat-123' '--model' 'gpt-5.4' '--sandbox' 'enabled'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'/Users/example/.local/bin/cursor-agent' '--resume' 'cursor-chat-123' '--model' 'gpt-5.4' '--sandbox' 'enabled'",
+                workingDirectory: "/tmp/cursor repo"
+            )
         )
         XCTAssertEqual(
             copilot.resumeCommand,
-            "{ cd -- '/tmp/copilot repo' 2>/dev/null || [ ! -d '/tmp/copilot repo' ]; } && 'env' 'COPILOT_HOME=/tmp/copilot home' '/tmp/cmux-agent-upstreams/copilot-install/bin/copilot' '--resume' 'copilot-session-123' '--model' 'gpt-5.4' '--allow-all-tools'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'COPILOT_HOME=/tmp/copilot home' '/tmp/cmux-agent-upstreams/copilot-install/bin/copilot' '--resume' 'copilot-session-123' '--model' 'gpt-5.4' '--allow-all-tools'",
+                workingDirectory: "/tmp/copilot repo"
+            )
         )
         XCTAssertEqual(
             codeBuddy.resumeCommand,
-            "{ cd -- '/tmp/codebuddy repo' 2>/dev/null || [ ! -d '/tmp/codebuddy repo' ]; } && 'env' 'CODEBUDDY_CONFIG_DIR=/tmp/codebuddy config' '/Users/example/.npm/bin/codebuddy' '--resume' 'codebuddy-session-123' '--model' 'gpt-5.4' '--permission-mode' 'plan'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'CODEBUDDY_CONFIG_DIR=/tmp/codebuddy config' '/Users/example/.npm/bin/codebuddy' '--resume' 'codebuddy-session-123' '--model' 'gpt-5.4' '--permission-mode' 'plan'",
+                workingDirectory: "/tmp/codebuddy repo"
+            )
         )
         XCTAssertEqual(
             factory.resumeCommand,
-            "{ cd -- '/tmp/factory repo' 2>/dev/null || [ ! -d '/tmp/factory repo' ]; } && '/Users/example/.npm/bin/droid' '--resume' 'factory-session-123' '--append-system-prompt' 'be terse'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'/Users/example/.npm/bin/droid' '--resume' 'factory-session-123' '--append-system-prompt' 'be terse'",
+                workingDirectory: "/tmp/factory repo"
+            )
         )
         XCTAssertEqual(
             qoder.resumeCommand,
-            "{ cd -- '/tmp/qoder repo' 2>/dev/null || [ ! -d '/tmp/qoder repo' ]; } && 'env' 'QODER_CONFIG_DIR=/tmp/qoder config' '/Users/example/.npm/bin/qodercli' '--resume' 'qoder-session-123' '--model' 'gemini-2.5-pro' '--permission-mode' 'plan'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'QODER_CONFIG_DIR=/tmp/qoder config' '/Users/example/.npm/bin/qodercli' '--resume' 'qoder-session-123' '--model' 'gemini-2.5-pro' '--permission-mode' 'plan'",
+                workingDirectory: "/tmp/qoder repo"
+            )
         )
         XCTAssertEqual(
             kiro.resumeCommand,
-            "{ cd -- '/tmp/kiro repo' 2>/dev/null || [ ! -d '/tmp/kiro repo' ]; } && 'env' 'KIRO_HOME=/tmp/kiro home' '/Users/example/.cargo/bin/kiro-cli' 'chat' '--resume-id' 'kiro-session-123' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'KIRO_HOME=/tmp/kiro home' '/Users/example/.cargo/bin/kiro-cli' 'chat' '--resume-id' 'kiro-session-123' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'",
+                workingDirectory: "/tmp/kiro repo"
+            )
         )
         XCTAssertEqual(
             grok.resumeCommand,
-            "{ cd -- '/tmp/grok repo' 2>/dev/null || [ ! -d '/tmp/grok repo' ]; } && 'env' 'GROK_HOME=/tmp/grok home' '/Users/example/.grok/bin/grok' '-r' 'grok-session-123' '--model' 'grok-4' '--permission-mode' 'auto'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'GROK_HOME=/tmp/grok home' '/Users/example/.grok/bin/grok' '-r' 'grok-session-123' '--model' 'grok-4' '--permission-mode' 'auto'",
+                workingDirectory: "/tmp/grok repo"
+            )
         )
-        XCTAssertEqual(pi.resumeCommand, "{ cd -- '/tmp/pi repo' 2>/dev/null || [ ! -d '/tmp/pi repo' ]; } && 'env' 'PI_CODING_AGENT_DIR=/tmp/pi home' '/Users/example/.bun/bin/pi' '--session' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-5' '--thinking' 'high'")
+        XCTAssertEqual(
+            pi.resumeCommand,
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'PI_CODING_AGENT_DIR=/tmp/pi home' '/Users/example/.bun/bin/pi' '--session' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-5' '--thinking' 'high'",
+                workingDirectory: "/tmp/pi repo"
+            )
+        )
         XCTAssertEqual(
             amp.resumeCommand,
-            "{ cd -- '/tmp/amp repo' 2>/dev/null || [ ! -d '/tmp/amp repo' ]; } && 'env' 'AMP_SETTINGS_FILE=/tmp/amp-settings.json' '/Users/example/.local/bin/amp' 'threads' 'continue' '--mode' 'smart' '--effort' 'high' 'T-019e032c-c31a-77a9-ad87-8298ec47029f'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'AMP_SETTINGS_FILE=/tmp/amp-settings.json' '/Users/example/.local/bin/amp' 'threads' 'continue' '--mode' 'smart' '--effort' 'high' 'T-019e032c-c31a-77a9-ad87-8298ec47029f'",
+                workingDirectory: "/tmp/amp repo"
+            )
         )
     }
 

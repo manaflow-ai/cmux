@@ -795,7 +795,13 @@ final class AgentHibernationTests: XCTestCase {
         )
 
         XCTAssertEqual(snapshot.agentDisplayName, "Local Agent")
-        XCTAssertEqual(snapshot.resumeCommand, "{ cd -- '/tmp/custom-agent' 2>/dev/null || [ ! -d '/tmp/custom-agent' ]; } && '/usr/local/bin/local-agent' 'resume' 'custom-session'")
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'/usr/local/bin/local-agent' 'resume' 'custom-session'",
+                workingDirectory: "/tmp/custom-agent"
+            )
+        )
     }
 
     @MainActor

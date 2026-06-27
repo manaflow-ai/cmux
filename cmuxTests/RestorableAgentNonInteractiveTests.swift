@@ -16,6 +16,80 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
         XCTAssertEqual(url.path, "/tmp/cmux hook state/codex-hook-sessions.json")
     }
 
+    func testGrokResumeWithCwdRunsInParentShell() throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .grok,
+            sessionId: "grok-session-123",
+            workingDirectory: "/tmp/grok repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "grok",
+                executablePath: "grok",
+                arguments: ["grok"],
+                workingDirectory: "/tmp/grok repo",
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        let command = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(command.hasPrefix("cd -- '/tmp/grok repo'"), command)
+        XCTAssertFalse(command.contains("/bin/sh -c"), command)
+        XCTAssertTrue(command.contains("'grok' '-r' 'grok-session-123'"), command)
+    }
+
+    func testLegacyCwdGuardPreservesExplicitPortableShellWrapper() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "{ cd -- '/tmp/project' 2>/dev/null || [ ! -d '/tmp/project' ]; } && /bin/sh -c 'FOO=bar codex resume session'",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            updatedAt: 123
+        )
+
+        XCTAssertTrue(binding.command.hasPrefix("cd -- '/tmp/project'"), binding.command)
+        XCTAssertTrue(binding.command.contains("/bin/sh -c 'FOO=bar codex resume session'"), binding.command)
+        XCTAssertFalse(binding.command.hasPrefix("{ "), binding.command)
+    }
+
+    func testShellWrappedLegacyCwdGuardPreservesExplicitPortableShellWrapper() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: #"/bin/sh -lc '{ cd -- '\''/tmp/project'\'' 2>/dev/null || [ ! -d '\''/tmp/project'\'' ]; } && FOO=bar codex resume session'"#,
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            updatedAt: 123
+        )
+
+        XCTAssertTrue(binding.command.hasPrefix("cd -- '/tmp/project'"), binding.command)
+        XCTAssertTrue(binding.command.contains("/bin/sh -lc 'FOO=bar codex resume session'"), binding.command)
+        XCTAssertFalse(binding.command.contains("{ cd --"), binding.command)
+    }
+
+    func testShellWrappedLegacyCwdGuardPreservesNonliteralPayloadQuoting() {
+        let rawCommand = #"/bin/sh -lc "{ cd -- '/tmp/project' 2>/dev/null || [ ! -d '/tmp/project' ]; } && LOCAL_ONLY=$LOCAL_ONLY codex resume session""#
+        let binding = SurfaceResumeBindingSnapshot(
+            command: rawCommand,
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            updatedAt: 123
+        )
+
+        XCTAssertTrue(binding.command.hasPrefix("cd -- '/tmp/project'"), binding.command)
+        XCTAssertTrue(binding.command.contains(rawCommand), binding.command)
+        XCTAssertFalse(binding.command.contains("/bin/sh -lc '"), binding.command)
+    }
+
+    func testLegacyCwdGuardKeepsShellSpecificCommandInParentShell() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "{ cd -- '/tmp/project' 2>/dev/null || [ ! -d '/tmp/project' ]; } && my-agent --resume ${(%):-%~}",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            updatedAt: 123
+        )
+
+        XCTAssertTrue(binding.command.hasPrefix("cd -- '/tmp/project'"), binding.command)
+        XCTAssertTrue(binding.command.contains("my-agent --resume ${(%):-%~}"), binding.command)
+        XCTAssertFalse(binding.command.contains("/bin/sh -c"), binding.command)
+    }
+
     func testNonInteractiveAgentLaunchesAreNotAutoRestored() {
         let claudePrint = SessionRestorableAgentSnapshot(
             kind: .claude,

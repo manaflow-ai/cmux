@@ -24,9 +24,46 @@ struct WorkspaceHermesAgentCommandBootstrapper {
 
         var result = binding
         result.environment = environment.isEmpty ? nil : environment
-        result.command = commandByReplacingOpenAICodexProvider(result.command)
-        result.command = commandByRemovingBootstrapPrefix(result.command)
-        let agentCommandWords = wordsAfterCwdGuard(shellWords(in: result.command))
+        result.command = commandByPreparingHermesStartup(
+            result.command,
+            baseURL: baseURL,
+            environment: environment
+        )
+        return result
+    }
+
+    private func commandByPreparingHermesStartup(
+        _ command: String,
+        baseURL: String,
+        environment: [String: String]
+    ) -> String {
+        if let portableCommand = portableShellCommand(command) {
+            guard portableCommand.canRewritePayload else {
+                return command
+            }
+            let innerCommand = commandByPreparingPlainHermesStartup(
+                portableCommand.innerCommand,
+                baseURL: baseURL,
+                environment: environment
+            )
+            guard innerCommand != portableCommand.innerCommand else {
+                return command
+            }
+            var result = command
+            result.replaceSubrange(portableCommand.innerCommandRange, with: shellQuote(innerCommand))
+            return result
+        }
+        return commandByPreparingPlainHermesStartup(command, baseURL: baseURL, environment: environment)
+    }
+
+    private func commandByPreparingPlainHermesStartup(
+        _ command: String,
+        baseURL: String,
+        environment: [String: String]
+    ) -> String {
+        var result = commandByReplacingOpenAICodexProvider(command)
+        result = commandByRemovingBootstrapPrefix(result)
+        let agentCommandWords = wordsAfterCwdGuard(shellWords(in: result))
         guard !commandSetsModelAPIMode(agentCommandWords),
               commandAllowsCodexBootstrap(agentCommandWords) else {
             return result
@@ -43,7 +80,7 @@ struct WorkspaceHermesAgentCommandBootstrapper {
                 "\(shellQuote(hermesExecutable)) config set model.default \(shellQuote(model)) >/dev/null"
             )
         }
-        result.command = commandByInsertingBootstrap(bootstrap, into: result.command)
+        result = commandByInsertingBootstrap(bootstrap, into: result)
         return result
     }
 
@@ -224,6 +261,27 @@ struct WorkspaceHermesAgentCommandBootstrapper {
     private struct ShellWord {
         let value: String
         let range: Range<String.Index>
+    }
+
+    private func portableShellCommand(_ command: String) -> (innerCommand: String, innerCommandRange: Range<String.Index>, canRewritePayload: Bool)? {
+        let words = shellWords(in: command)
+        let commandStartIndex = commandStartIndexAfterCwdGuard(words)
+        guard commandStartIndex + 2 < words.count,
+              words.count == commandStartIndex + 3,
+              words[commandStartIndex].value == "/bin/sh",
+              words[commandStartIndex + 1].value == "-c" || words[commandStartIndex + 1].value == "-lc" else {
+            return nil
+        }
+        let payloadWord = words[commandStartIndex + 2]
+        return (
+            innerCommand: payloadWord.value,
+            innerCommandRange: payloadWord.range,
+            canRewritePayload: isLiteralSingleQuotedShellWord(String(command[payloadWord.range]))
+        )
+    }
+
+    private func isLiteralSingleQuotedShellWord(_ value: String) -> Bool {
+        value.range(of: #"^'(?:[^']|'\\'')*'$"#, options: .regularExpression) != nil
     }
 
     private func shellWords(in command: String) -> [ShellWord] {

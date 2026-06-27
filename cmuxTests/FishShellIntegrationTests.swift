@@ -214,6 +214,77 @@ struct FishShellIntegrationTests {
         )
     }
 
+    @Test(.enabled(if: fishExecutablePath != nil))
+    func testFishPRCacheVariableNameSanitizesBranchName() throws {
+        _ = try requireFishExecutable()
+
+        let result = try runInteractiveFish(
+            command: """
+            set -l cache_var (_cmux_pr_cache_variable_name 'react/patch/v4.16-feature')
+            set -U $cache_var cached
+            printf 'CACHE_VAR=%s\\n' "$cache_var"
+            set -eU $cache_var
+            """,
+            extraEnvironment: [
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        expectTrue(
+            result.stdout.contains("CACHE_VAR=__cmux_pr_cache_react_patch_v4_16_feature"),
+            result.stdout
+        )
+        expectFalse(result.stderr.contains("invalid variable name"), result.stderr)
+    }
+
+    @Test(.enabled(if: fishExecutablePath != nil))
+    func testGeneratedWorkingDirectoryPrefixCommandRunsUnderFish() throws {
+        let fishExecutable = try requireFishExecutable()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-fish-cwd-prefix-\(UUID().uuidString)", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo dir", isDirectory: true)
+        let missingCwd = root.appendingPathComponent("missing dir", isDirectory: true)
+        try fileManager.createDirectory(at: cwd, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let environment = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "SHELL": fishExecutable,
+            "TERM": "xterm-256color",
+            "USER": NSUserName(),
+        ]
+        let existingCommand = TerminalStartupWorkingDirectoryPrefix.prefix(
+            "/bin/pwd && /bin/echo CMUX_EXISTING_CWD_OK",
+            workingDirectory: cwd.path
+        )
+        let existing = runProcess(
+            executablePath: fishExecutable,
+            arguments: ["-c", existingCommand],
+            environment: environment,
+            timeout: 5
+        )
+        expectFalse(existing.timedOut, existing.stderr)
+        expectEqual(existing.status, 0, existing.stderr)
+        expectTrue(existing.stdout.contains(cwd.path), existing.stdout)
+        expectTrue(existing.stdout.contains("CMUX_EXISTING_CWD_OK"), existing.stdout)
+
+        let missingCommand = TerminalStartupWorkingDirectoryPrefix.prefix(
+            "/bin/echo CMUX_MISSING_CWD_OK",
+            workingDirectory: missingCwd.path
+        )
+        let missing = runProcess(
+            executablePath: fishExecutable,
+            arguments: ["-c", missingCommand],
+            environment: environment,
+            timeout: 5
+        )
+        expectFalse(missing.timedOut, missing.stderr)
+        expectEqual(missing.status, 0, missing.stderr)
+        expectTrue(missing.stdout.contains("CMUX_MISSING_CWD_OK"), missing.stdout)
+    }
+
     @Test
     func testGeneratedFishBootstrapStagesIntegrationAndPreservesUserConfigHome() throws {
         let fileManager = FileManager.default

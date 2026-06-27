@@ -1395,7 +1395,10 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(agent.sessionId, "antigravity-conversation-123")
         XCTAssertEqual(
             agent.resumeCommand,
-            "{ cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ]; } && '/usr/local/bin/agy' '--conversation' 'antigravity-conversation-123' '--sandbox' 'danger-full-access'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'/usr/local/bin/agy' '--conversation' 'antigravity-conversation-123' '--sandbox' 'danger-full-access'",
+                workingDirectory: "/tmp/repo"
+            )
         )
     }
 
@@ -1904,8 +1907,11 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/tmp/cmux project' 2>/dev/null || [ ! -d '/tmp/cmux project' ]; } && /bin/sh -c "
-                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-123' '--model' 'sonnet' '--permission-mode' 'auto'")
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "/bin/sh -c "
+                    + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-123' '--model' 'sonnet' '--permission-mode' 'auto'"),
+                workingDirectory: "/tmp/cmux project"
+            )
         )
         // The captured real-binary path must not survive: it would bypass the wrapper.
         XCTAssertFalse(snapshot.resumeCommand?.contains("/opt/Claude Code/bin/claude") ?? true)
@@ -2462,7 +2468,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "cd /Users/tiffanysun/fun && /bin/sh -c "
+            "cd -- '/Users/tiffanysun/fun' 2>/dev/null || [ ! -d '/Users/tiffanysun/fun' ] && /bin/sh -c "
                 + shellQuotedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume a22293b7-bcef-4707-8439-2f538c8517a4")
         )
     }
@@ -2504,6 +2510,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     }
 
     private func leadingCdCommand(from command: String) throws -> String {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command.trimmingCharacters(in: .whitespacesAndNewlines))
+        let command = words.count == 3 && words[0].value == "/bin/sh" && (words[1].value == "-c" || words[1].value == "-lc") ? words[2].value : command
         let separator = try XCTUnwrap(command.range(of: " && "), "no ' && ' separator in: \(command)")
         return String(command[..<separator.lowerBound])
     }
@@ -2668,8 +2676,11 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ]; } && /bin/sh -c "
-                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'")
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "/bin/sh -c "
+                    + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'"),
+                workingDirectory: "/Users/lawrence/fun"
+            )
         )
     }
 
@@ -2703,7 +2714,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'",
+                workingDirectory: "/Users/example/repo"
+            )
         )
     }
 
@@ -2734,7 +2748,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/Users/lawrence/fun/cmuxterm-hq' 2>/dev/null || [ ! -d '/Users/lawrence/fun/cmuxterm-hq' ]; } && '/Users/lawrence/.bun/bin/codex' 'resume' '019e2bb9-5544-7201-a517-d77bb00d724f' '--yolo' '--model' 'gpt-5.4'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'/Users/lawrence/.bun/bin/codex' 'resume' '019e2bb9-5544-7201-a517-d77bb00d724f' '--yolo' '--model' 'gpt-5.4'",
+                workingDirectory: "/Users/lawrence/fun/cmuxterm-hq"
+            )
         )
     }
 
@@ -2766,7 +2783,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'",
+                workingDirectory: "/Users/example/repo"
+            )
         )
     }
 
@@ -2798,7 +2818,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87952' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87952' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'",
+                workingDirectory: "/Users/example/repo"
+            )
         )
     }
 
@@ -3056,45 +3079,75 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             claude.forkCommand,
-            "{ cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ]; } && /bin/sh -c "
-                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--fork-session' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'")
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "/bin/sh -c "
+                    + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--fork-session' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'"),
+                workingDirectory: "/Users/lawrence/fun"
+            )
         )
         XCTAssertEqual(
             claudeFork.forkCommand,
-            "{ cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ]; } && /bin/sh -c "
-                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-fork-child' '--fork-session' '--model' 'sonnet' '--dangerously-skip-permissions'")
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "/bin/sh -c "
+                    + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-fork-child' '--fork-session' '--model' 'sonnet' '--dangerously-skip-permissions'"),
+                workingDirectory: "/Users/lawrence/fun"
+            )
         )
         XCTAssertEqual(
             codex.forkCommand,
-            "{ cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'",
+                workingDirectory: "/Users/example/repo"
+            )
         )
         XCTAssertEqual(
             codexWithImage.forkCommand,
-            "{ cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019image-session' '--model' 'gpt-5.4'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019image-session' '--model' 'gpt-5.4'",
+                workingDirectory: "/Users/example/repo"
+            )
         )
         XCTAssertEqual(
             codexFork.forkCommand,
-            "{ cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--search'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--search'",
+                workingDirectory: "/Users/example/repo"
+            )
         )
         XCTAssertEqual(
             codexTeams.forkCommand,
-            "{ cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' 'codex-teams-session' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' 'codex-teams-session' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'",
+                workingDirectory: "/Users/example/repo"
+            )
         )
         XCTAssertEqual(
             directOpenCode.forkCommand,
-            "{ cd -- '/tmp/direct opencode repo' 2>/dev/null || [ ! -d '/tmp/direct opencode repo' ]; } && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'",
+                workingDirectory: "/tmp/direct opencode repo"
+            )
         )
         XCTAssertEqual(
             directOpenCodeFork.forkCommand,
-            "{ cd -- '/tmp/direct opencode repo' 2>/dev/null || [ ! -d '/tmp/direct opencode repo' ]; } && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'",
+                workingDirectory: "/tmp/direct opencode repo"
+            )
         )
         XCTAssertEqual(
             omoOpenCode.forkCommand,
-            "{ cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ]; } && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'",
+                workingDirectory: "/tmp/opencode repo"
+            )
         )
         XCTAssertEqual(
             omoOpenCodeFork.forkCommand,
-            "{ cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ]; } && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'",
+                workingDirectory: "/tmp/opencode repo"
+            )
         )
         XCTAssertNil(unsupported.forkCommand)
     }
@@ -3562,7 +3615,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.forkCommand,
-            "{ cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ]; } && '\(executable.path)' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--agent' 'build' '--port' '4096' '/tmp/opencode repo'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'\(executable.path)' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--agent' 'build' '--port' '4096' '/tmp/opencode repo'",
+                workingDirectory: "/tmp/opencode repo"
+            )
         )
     }
 
@@ -3693,7 +3749,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/tmp/team repo' 2>/dev/null || [ ! -d '/tmp/team repo' ]; } && 'env' 'CMUX_CUSTOM_CLAUDE_PATH=/opt/Claude Code/bin/claude' '/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'claude-team-session' '--teammate-mode' 'auto' '--model' 'sonnet' '--remote-control-session-name-prefix' 'cmux-team' '--permission-mode' 'auto'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'CMUX_CUSTOM_CLAUDE_PATH=/opt/Claude Code/bin/claude' '/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'claude-team-session' '--teammate-mode' 'auto' '--model' 'sonnet' '--remote-control-session-name-prefix' 'cmux-team' '--permission-mode' 'auto'",
+                workingDirectory: "/tmp/team repo"
+            )
         )
     }
 
@@ -3905,15 +3964,24 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             direct.resumeCommand,
-            "{ cd -- '/tmp/direct opencode repo' 2>/dev/null || [ ! -d '/tmp/direct opencode repo' ]; } && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'",
+                workingDirectory: "/tmp/direct opencode repo"
+            )
         )
         XCTAssertEqual(
             omo.resumeCommand,
-            "{ cd -- '/tmp/opencode repo' 2>/dev/null || [ ! -d '/tmp/opencode repo' ]; } && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-session-123' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-session-123' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'",
+                workingDirectory: "/tmp/opencode repo"
+            )
         )
         XCTAssertEqual(
             staleBunWorker.resumeCommand,
-            "{ cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ]; } && '/Users/lawrence/.bun/bin/opencode' '--session' 'ses_24b0be92affeVRRBplLmUzbXQl'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'/Users/lawrence/.bun/bin/opencode' '--session' 'ses_24b0be92affeVRRBplLmUzbXQl'",
+                workingDirectory: "/Users/lawrence/fun"
+            )
         )
         XCTAssertNil(omx.resumeCommand)
         XCTAssertNil(omc.resumeCommand)
@@ -3968,7 +4036,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.launchCommand?.arguments.first, "/usr/local/bin/codex")
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ]; } && 'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' 'codex-session-123' '--model' 'gpt-5.4' '--search'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' 'codex-session-123' '--model' 'gpt-5.4' '--search'",
+                workingDirectory: "/tmp/repo"
+            )
         )
     }
 
@@ -4209,6 +4280,24 @@ final class SidebarDragFailsafePolicyTests: XCTestCase {
 }
 
 extension SessionPersistenceTests {
+    private func loginShellCommandPayload(from startupInput: String) throws -> String {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(
+            startupInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let shellIndex = try XCTUnwrap(words.firstIndex { $0.value == "/bin/zsh" }, startupInput)
+        XCTAssertGreaterThan(words.count, shellIndex + 2, startupInput)
+        XCTAssertEqual(words[shellIndex + 1].value, "-lc", startupInput)
+        return words[shellIndex + 2].value
+    }
+
+    private func portableShellCommandPayload(from command: String) throws -> String {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
+        guard let shellIndex = words.firstIndex(where: { $0.value == "/bin/sh" }) else { return command }
+        XCTAssertGreaterThan(words.count, shellIndex + 2, command)
+        XCTAssertEqual(words[shellIndex + 1].value, "-c", command)
+        return words[shellIndex + 2].value
+    }
+
     func testSurfaceResumeBindingStartupInputUsesExactCommand() {
         let binding = SurfaceResumeBindingSnapshot(
             name: "OpenCode",
@@ -4332,6 +4421,20 @@ extension SessionPersistenceTests {
             )
         )
         XCTAssertFalse(binding.command.contains(legacyQuotedCwd), binding.command)
+    }
+
+    func testAgentHookSurfaceResumeBindingNormalizesLegacyGuardToParentCdExternalCommand() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "{ cd -- '/tmp/project' 2>/dev/null || [ ! -d '/tmp/project' ]; } && codex resume session",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            updatedAt: 1
+        )
+
+        XCTAssertTrue(binding.command.hasPrefix("cd -- '/tmp/project'"), binding.command)
+        XCTAssertFalse(binding.command.contains("/bin/sh -c"), binding.command)
+        XCTAssertFalse(binding.command.hasPrefix("{ "), binding.command)
+        XCTAssertTrue(binding.command.contains("codex resume session"), binding.command)
     }
 
     func testAgentHookSurfaceResumeStartupInputRunsWhenSavedWorkingDirectoryWasDeleted() throws {
@@ -5333,13 +5436,16 @@ extension SessionPersistenceTests {
             promptForApproval: false
         ))
 
-        XCTAssertTrue(input.contains("config set model.provider"))
-        XCTAssertTrue(input.contains("config set model.base_url"))
-        XCTAssertTrue(input.contains("config set model.api_mode"))
-        XCTAssertTrue(input.contains("codex_responses"))
-        XCTAssertTrue(input.contains("gpt-5.5"))
-        XCTAssertTrue(input.contains("'--provider' '\\''custom'\\'''") || input.contains("'--provider' 'custom'"))
-        XCTAssertFalse(input.contains("openai-codex"))
+        let payload = try portableShellCommandPayload(
+            from: loginShellCommandPayload(from: input)
+        )
+        XCTAssertTrue(payload.contains("config set model.provider"), payload)
+        XCTAssertTrue(payload.contains("config set model.base_url"), payload)
+        XCTAssertTrue(payload.contains("config set model.api_mode"), payload)
+        XCTAssertTrue(payload.contains("codex_responses"), payload)
+        XCTAssertTrue(payload.contains("gpt-5.5"), payload)
+        XCTAssertTrue(payload.contains("'--provider' 'custom'"), payload)
+        XCTAssertFalse(payload.contains("openai-codex"), payload)
     }
 
     func testHermesAgentHookSurfaceResumeBootstrapUsesCapturedExecutable() throws {
@@ -5359,9 +5465,9 @@ extension SessionPersistenceTests {
             autoResumeAgentSessions: true,
             promptForApproval: false
         ))
-
-        XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.provider"))
-        XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.base_url"))
+        let payload = try portableShellCommandPayload(from: loginShellCommandPayload(from: input))
+        XCTAssertTrue(payload.contains("'/opt/homebrew/bin/hermes' config set model.provider"), payload)
+        XCTAssertTrue(payload.contains("'/opt/homebrew/bin/hermes' config set model.base_url"), payload)
     }
 
     func testHermesAgentHookSurfaceResumeBootstrapStaysInsideCwdGuard() throws {
@@ -5382,11 +5488,13 @@ extension SessionPersistenceTests {
             promptForApproval: false
         ))
 
-        let cdRange = try XCTUnwrap(input.range(of: "cd --"))
-        let bootstrapRange = try XCTUnwrap(input.range(of: "config set model.provider"))
+        let startupPayload = try loginShellCommandPayload(from: input)
+        let payload = try portableShellCommandPayload(from: startupPayload)
+        let cdRange = try XCTUnwrap(startupPayload.range(of: "cd --"))
+        let bootstrapRange = try XCTUnwrap(startupPayload.range(of: "config set model.provider"))
         XCTAssertLessThan(cdRange.lowerBound, bootstrapRange.lowerBound)
-        XCTAssertTrue(input.contains("'./hermes' config set model.provider"))
-        XCTAssertTrue(input.contains("'./hermes' '--provider' 'custom' '--resume'"))
+        XCTAssertTrue(payload.contains("'./hermes' config set model.provider"), payload)
+        XCTAssertTrue(payload.contains("'./hermes' '--provider' 'custom' '--resume'"), payload)
     }
 
     func testHermesAgentHookSurfaceResumeReplacesExistingBootstrap() throws {
@@ -5450,9 +5558,9 @@ extension SessionPersistenceTests {
             autoResumeAgentSessions: true,
             promptForApproval: false
         ))
-
-        XCTAssertFalse(input.contains("config set model.provider"))
-        XCTAssertTrue(input.contains("'--provider' '\\''anthropic'\\'''") || input.contains("'--provider' 'anthropic'"))
+        let payload = try portableShellCommandPayload(from: loginShellCommandPayload(from: input))
+        XCTAssertFalse(payload.contains("config set model.provider"), payload)
+        XCTAssertTrue(payload.contains("'--provider' 'anthropic'"), payload)
     }
 
     private func makeSurfaceResumeApprovalStoreURL() throws -> URL {
@@ -5554,9 +5662,9 @@ extension SessionPersistenceTests {
 
             XCTAssertNil(restoredPanel.requestedWorkingDirectory)
             XCTAssertTrue(startupPayload.contains("codex resume session-duplicate-turn --yolo"), startupPayload)
-            let guardStart = try XCTUnwrap(startupPayload.range(of: "{ cd -- "), startupPayload)
+            let guardStart = try XCTUnwrap(startupPayload.range(of: "cd -- "), startupPayload)
             let guardSuffix = String(startupPayload[guardStart.lowerBound...])
-            let guardEnd = try XCTUnwrap(guardSuffix.range(of: "]; } &&")?.upperBound, guardSuffix)
+            let guardEnd = try XCTUnwrap(guardSuffix.range(of: "] &&")?.upperBound, guardSuffix)
             let guardSnippet = String(guardSuffix[..<guardEnd])
             XCTAssertTrue(guardSnippet.contains(missingCwd.path), guardSnippet)
             XCTAssertTrue(guardSnippet.contains("2>/dev/null || [ ! -d"), guardSnippet)

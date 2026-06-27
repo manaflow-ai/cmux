@@ -33,17 +33,11 @@ fileprivate func shellSingleQuoted(_ value: String) -> String {
 }
 
 nonisolated enum TerminalStartupWorkingDirectoryPrefix {
-    static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
-        guard let workingDirectory = normalized(workingDirectory) else { return nil }
-        let quoted = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
-        return "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && "
-    }
-
     static func prefix(_ command: String, workingDirectory: String?) -> String {
-        guard let prefix = optionalChangeDirectoryPrefix(for: workingDirectory) else {
+        guard let workingDirectory = normalized(workingDirectory) else {
             return command
         }
-        return prefix + command
+        return portableChangeDirectoryCommand(command, workingDirectory: workingDirectory)
     }
 
     static func replacingRequiredChangeDirectoryPrefix(
@@ -85,13 +79,40 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         from command: String,
         workingDirectory: String
     ) -> String {
-        let quotedCandidates = [
-            TerminalStartupShellQuoting.singleQuoted(workingDirectory),
-            legacySingleQuoted(workingDirectory)
-        ]
+        if let stripped = strippedPortableChangeDirectoryCommand(
+            from: command,
+            workingDirectory: workingDirectory
+        ) {
+            return stripped
+        }
+        return strippedLegacyChangeDirectoryPrefix(from: command, workingDirectory: workingDirectory)
+    }
+
+    private static func portableChangeDirectoryCommand(
+        _ command: String,
+        workingDirectory: String
+    ) -> String {
+        portableParentChangeDirectoryPrefix(TerminalStartupShellQuoting.singleQuoted(workingDirectory)) + command
+    }
+
+    private static func strippedPortableChangeDirectoryCommand(from command: String, workingDirectory: String) -> String? {
+        guard let parts = portableShellCommandParts(from: command) else { return nil }
+        let stripped = strippedLegacyChangeDirectoryPrefix(from: parts.payload, workingDirectory: workingDirectory)
+        guard stripped != parts.payload else { return nil }
+        let sh = TerminalStartupShellQuoting.shellToken("/bin/sh", allowingBareASCII: true)
+        let option = TerminalStartupShellQuoting.shellToken(parts.option, allowingBareASCII: true)
+        return "\(sh) \(option) \(literalSingleQuoted(stripped))"
+    }
+
+    private static func strippedLegacyChangeDirectoryPrefix(
+        from command: String,
+        workingDirectory: String
+    ) -> String {
+        let quotedCandidates = [TerminalStartupShellQuoting.singleQuoted(workingDirectory), literalSingleQuoted(workingDirectory)]
         var seen = Set<String>()
         for quoted in quotedCandidates where seen.insert(quoted).inserted {
             let prefixes = [
+                portableParentChangeDirectoryPrefix(quoted),
                 "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && ",
                 "{ [ ! -d \(quoted) ] || cd -- \(quoted); } && ",
                 "cd -- \(quoted) && ",
@@ -102,6 +123,16 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
             }
         }
         return command
+    }
+
+    private static func portableParentChangeDirectoryPrefix(_ quoted: String) -> String {
+        "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && "
+    }
+
+    private static func portableShellCommandParts(from command: String) -> (option: String, payload: String)? {
+        let words = shellWordRanges(command)
+        guard words.count == 3, words[0].value == "/bin/sh", words[1].value == "-c" || words[1].value == "-lc", String(command[words[2].range]).range(of: #"^'(?:[^']|'\\'')*'$"#, options: .regularExpression) != nil else { return nil }
+        return (words[1].value, words[2].value)
     }
 
     private static func strippedSavedWorkingDirectoryOptions(
@@ -125,7 +156,7 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         return trimmed
     }
 
-    private static func legacySingleQuoted(_ value: String) -> String {
+    private static func literalSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 

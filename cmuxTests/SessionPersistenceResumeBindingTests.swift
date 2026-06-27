@@ -80,6 +80,83 @@ import Testing
         #expect(!startupInput.contains(executablePath), "\(startupInput)")
     }
 
+    @Test func agentHookBindingWithCwdRewritesStaleCodexExecutableInsidePortableShellWrapper() throws {
+        let staleExecutablePath = Self.homeManagedExecutablePath(
+            executableName: "codex",
+            ".nvm",
+            "versions",
+            "node",
+            "cmux-missing-\(UUID().uuidString)",
+            "bin"
+        )
+        let cwd = "/tmp/cmux portable codex repo"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "'\(staleExecutablePath)' 'resume' 'session-portable-codex'",
+            cwd: cwd,
+            checkpointId: "session-portable-codex",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+        let payload = try Self.portableShellCommandPayload(from: startupInput)
+
+        #expect(startupInput.contains("cd -- '\(cwd)'"), "\(startupInput)")
+        #expect(payload.contains("codex 'resume' 'session-portable-codex'"), "\(payload)")
+        #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
+    }
+
+    @Test func agentHookBindingSkipsStaleExecutableRepairInsideNonliteralPortableShellWrapper() throws {
+        let staleExecutablePath = "/tmp/cmux-cli-shims/\(UUID().uuidString)/codex"
+        let commands = [
+            "/bin/sh -c \"LOCAL_ONLY=$LOCAL_ONLY '\(staleExecutablePath)' resume session-double-quoted-codex\"",
+            "/bin/sh -c 'LOCAL_ONLY='$LOCAL_ONLY' \(staleExecutablePath) resume session-mixed-quoted-codex'",
+        ]
+
+        for command in commands {
+            let binding = SurfaceResumeBindingSnapshot(
+                kind: "codex",
+                command: command,
+                checkpointId: "session-quoted-codex",
+                source: "agent-hook",
+                autoResume: true
+            )
+            let startupInput = try #require(binding.startupInput)
+
+            #expect(startupInput == command + "\n")
+            #expect(startupInput.contains(staleExecutablePath), "\(startupInput)")
+        }
+    }
+
+    @Test func agentHookBindingWithCwdRewritesStaleClaudeExecutableInsidePortableShellWrapper() throws {
+        let staleExecutablePath = Self.homeManagedExecutablePath(
+            executableName: "claude",
+            ".nvm",
+            "versions",
+            "node",
+            "cmux-missing-\(UUID().uuidString)",
+            "bin"
+        )
+        let cwd = "/tmp/cmux portable claude repo"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "'\(staleExecutablePath)' '--resume' 'session-portable-claude'",
+            cwd: cwd,
+            checkpointId: "session-portable-claude",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+        let payload = try Self.portableShellCommandPayload(from: startupInput)
+
+        #expect(startupInput.contains("cd -- '\(cwd)'"), "\(startupInput)")
+        #expect(payload.contains("CMUX_CLAUDE_WRAPPER_SHIM"), "\(payload)")
+        #expect(payload.contains("session-portable-claude"), "\(payload)")
+        #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
+    }
+
     @Test func agentHookBindingRewritesSupportedLocalManagedExecutablePaths() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-surface-resume-stale-managed-\(UUID().uuidString)", isDirectory: true)
@@ -350,11 +427,12 @@ import Testing
         )
         let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredLocalPanel.id))
         let restoredInput = try #require(restoredPanel.surface.debugInitialInputForTesting())
+        let restoredPayload = try Self.portableShellCommandPayload(from: restoredInput)
         #expect(restoredPanel.surface.debugInitialCommand() == nil)
         #expect(restoredPanel.requestedWorkingDirectory == nil)
-        #expect(restoredInput.contains("codex 'resume' 'session-local-resume'"), "\(restoredInput)")
+        #expect(restoredPayload.contains("codex 'resume' 'session-local-resume'"), "\(restoredPayload)")
         #expect(restoredInput.contains(localDirectory), "\(restoredInput)")
-        #expect(!restoredInput.contains(staleExecutablePath), "\(restoredInput)")
+        #expect(!restoredPayload.contains(staleExecutablePath), "\(restoredPayload)")
     }
 
     @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {
@@ -491,5 +569,20 @@ import Testing
             directory.appendPathComponent(component, isDirectory: true)
         }
         return directory.appendingPathComponent(executableName, isDirectory: false).path
+    }
+
+    private static func portableShellCommandPayload(from startupInput: String) throws -> String {
+        let trimmedInput = startupInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(trimmedInput)
+        if words.count == 2, words[0].value == "/bin/zsh" {
+            let scriptContents = try String(contentsOfFile: words[1].value, encoding: .utf8)
+            let scriptLines = scriptContents.split(separator: "\n", omittingEmptySubsequences: false)
+            let inlineInput = scriptLines.dropFirst(2).joined(separator: "\n")
+            return try portableShellCommandPayload(from: inlineInput)
+        }
+        guard let shellIndex = words.firstIndex(where: { $0.value == "/bin/sh" }) else { return trimmedInput }
+        try #require(shellIndex + 2 < words.count, "\(startupInput)")
+        #expect(words[shellIndex + 1].value == "-c", "\(startupInput)")
+        return words[shellIndex + 2].value
     }
 }

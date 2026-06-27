@@ -211,6 +211,138 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(command.contains("hermes --provider 'codex' run"))
     }
 
+    @Test("Hermes agent bindings bootstrap inside portable shell cwd wrapper")
+    func hermesAgentBindingsBootstrapInsidePortableShellWrapper() throws {
+        let service = makeService(
+            applyingDefaultCodexBaseURL: { environment in
+                var copy = environment
+                copy["OPENAI_BASE_URL"] = "https://codex.example.test"
+                return copy
+            }
+        )
+        let binding = FakeBinding(
+            source: "agent-hook",
+            kind: "hermes-agent",
+            command: "cd -- '/repo with space' 2>/dev/null || [ ! -d '/repo with space' ] && /bin/sh -c 'hermes --provider openai-codex run'",
+            isAgentHookBinding: true,
+            allowsAutomaticResume: true
+        )
+
+        let launch = try #require(service.surfaceResumeStartupLaunch(
+            binding,
+            autoResumeAgentSessions: true,
+            approvalStoreURL: URL(fileURLWithPath: "/tmp/cmux-approvals.json", isDirectory: false)
+        ))
+        guard case .command(let command) = launch else {
+            Issue.record("expected command launch")
+            return
+        }
+
+        let cdRange = try #require(command.range(of: "cd --"))
+        let bootstrapRange = try #require(command.range(of: "config set model.provider"))
+        let resumeRange = try #require(command.range(of: "run"))
+        #expect(command.hasPrefix("command:cd -- '/repo with space'"))
+        #expect(command.contains("] && /bin/sh -c "))
+        #expect(cdRange.lowerBound < bootstrapRange.lowerBound)
+        #expect(bootstrapRange.lowerBound < resumeRange.lowerBound)
+        #expect(command.contains("config set model.base_url"))
+        #expect(command.contains("codex"))
+        #expect(!command.contains("openai-codex"))
+    }
+
+    @Test("Hermes agent portable shell wrappers preserve unchanged payload quoting")
+    func hermesAgentPortableShellWrapperPreservesUnchangedPayloadQuoting() throws {
+        let service = makeService(
+            applyingDefaultCodexBaseURL: { environment in
+                var copy = environment
+                copy["OPENAI_BASE_URL"] = "https://codex.example.test"
+                return copy
+            }
+        )
+        let rawCommand = "cd -- '/repo with space' 2>/dev/null || [ ! -d '/repo with space' ] && /bin/sh -c \"LOCAL_ONLY=$LOCAL_ONLY hermes --provider anthropic run\""
+        let binding = FakeBinding(
+            source: "agent-hook",
+            kind: "hermes-agent",
+            command: rawCommand,
+            isAgentHookBinding: true,
+            allowsAutomaticResume: true
+        )
+
+        let launch = try #require(service.surfaceResumeStartupLaunch(
+            binding,
+            autoResumeAgentSessions: true,
+            approvalStoreURL: URL(fileURLWithPath: "/tmp/cmux-approvals.json", isDirectory: false)
+        ))
+        guard case .command(let command) = launch else {
+            Issue.record("expected command launch")
+            return
+        }
+
+        #expect(command == "command:\(rawCommand)")
+    }
+
+    @Test("Hermes agent portable shell wrappers skip double quoted payload rewrites")
+    func hermesAgentPortableShellWrapperSkipsDoubleQuotedPayloadRewrites() throws {
+        let service = makeService(
+            applyingDefaultCodexBaseURL: { environment in
+                var copy = environment
+                copy["OPENAI_BASE_URL"] = "https://codex.example.test"
+                return copy
+            }
+        )
+        let rawCommand = "cd -- '/repo with space' 2>/dev/null || [ ! -d '/repo with space' ] && /bin/sh -c \"LOCAL_ONLY=$LOCAL_ONLY hermes --provider openai-codex run\""
+        let binding = FakeBinding(
+            source: "agent-hook",
+            kind: "hermes-agent",
+            command: rawCommand,
+            isAgentHookBinding: true,
+            allowsAutomaticResume: true
+        )
+
+        let launch = try #require(service.surfaceResumeStartupLaunch(
+            binding,
+            autoResumeAgentSessions: true,
+            approvalStoreURL: URL(fileURLWithPath: "/tmp/cmux-approvals.json", isDirectory: false)
+        ))
+        guard case .command(let command) = launch else {
+            Issue.record("expected command launch")
+            return
+        }
+
+        #expect(command == "command:\(rawCommand)")
+    }
+
+    @Test("Hermes agent portable shell wrappers skip mixed quoted payload rewrites")
+    func hermesAgentPortableShellWrapperSkipsMixedQuotedPayloadRewrites() throws {
+        let service = makeService(
+            applyingDefaultCodexBaseURL: { environment in
+                var copy = environment
+                copy["OPENAI_BASE_URL"] = "https://codex.example.test"
+                return copy
+            }
+        )
+        let rawCommand = "cd -- '/repo with space' 2>/dev/null || [ ! -d '/repo with space' ] && /bin/sh -c 'LOCAL_ONLY='$LOCAL_ONLY' hermes --provider openai-codex run'"
+        let binding = FakeBinding(
+            source: "agent-hook",
+            kind: "hermes-agent",
+            command: rawCommand,
+            isAgentHookBinding: true,
+            allowsAutomaticResume: true
+        )
+
+        let launch = try #require(service.surfaceResumeStartupLaunch(
+            binding,
+            autoResumeAgentSessions: true,
+            approvalStoreURL: URL(fileURLWithPath: "/tmp/cmux-approvals.json", isDirectory: false)
+        ))
+        guard case .command(let command) = launch else {
+            Issue.record("expected command launch")
+            return
+        }
+
+        #expect(command == "command:\(rawCommand)")
+    }
+
     @Test("remote reconnect waits when restored terminals can authenticate")
     func remoteReconnectWaitsWhenTerminalsAuthenticate() {
         let service = makeService()
