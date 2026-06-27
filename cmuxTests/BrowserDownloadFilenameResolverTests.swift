@@ -302,7 +302,7 @@ import WebKit
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        panel.webView.onSessionDownloadEvent?([
+        (try #require(panel.webView as? CmuxWebView)).onSessionDownloadEvent?([
             "type": "saved",
             "download_id": "session-download-1",
             "filename": "report.csv",
