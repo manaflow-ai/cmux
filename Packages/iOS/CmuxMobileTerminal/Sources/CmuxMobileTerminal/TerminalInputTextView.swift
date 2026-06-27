@@ -683,7 +683,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// terminal. Committing here also ends any IME composition.
     func insertText(_ text: String) {
         guard !text.isEmpty else { return }
-        TerminalInputDebugLog.log("proxy.insertText text=\(TerminalInputDebugLog.textSummary(text)) composing=\(markedText != nil)")
+        TerminalInputDebugLog.log("proxy.insertText text=\(TerminalInputDebugLog.textSummary(text)) composing=\(self.markedText != nil)")
         // A committed insert ends composition. The candidate the IME was showing
         // is exactly `text`, so clear the marked state and emit `text` once.
         if markedText != nil {
