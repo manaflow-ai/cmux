@@ -94,8 +94,7 @@ public struct ChatComposerView: View {
     }
 
     #if os(iOS)
-    @ViewBuilder
-    @MainActor
+    @MainActor @ViewBuilder
     private var composerSurface: some View {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
@@ -111,8 +110,7 @@ public struct ChatComposerView: View {
     }
     #endif
 
-    @MainActor
-    private var composerStack: some View {
+    @MainActor private var composerStack: some View {
         VStack(spacing: 8) {
             if isEnded {
                 endedRow
@@ -169,8 +167,7 @@ public struct ChatComposerView: View {
 
     // MARK: - Field row
 
-    @MainActor
-    private var fieldRow: some View {
+    @MainActor private var fieldRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             #if os(iOS)
             attachButton
@@ -229,8 +226,7 @@ public struct ChatComposerView: View {
         agentState == .ended
     }
 
-    @MainActor
-    private var endedRow: some View {
+    @MainActor private var endedRow: some View {
         HStack(spacing: 12) {
             Text(
                 String(
@@ -259,8 +255,7 @@ public struct ChatComposerView: View {
 
     // MARK: - Send / stop button
 
-    @ViewBuilder
-    @MainActor
+    @MainActor @ViewBuilder
     private var sendButton: some View {
         if hasContent {
             Button(action: performSend) {
@@ -381,8 +376,7 @@ public struct ChatComposerView: View {
         isDraftFocused = true
     }
 
-    @MainActor
-    private var attachButton: some View {
+    @MainActor private var attachButton: some View {
         PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
             MobileComposerIconLabel(
                 systemImage: "paperclip",
@@ -405,8 +399,7 @@ public struct ChatComposerView: View {
         }
     }
 
-    @MainActor
-    private var micButton: some View {
+    @MainActor private var micButton: some View {
         let listening = dictation.state.isListening
         return MobileComposerIconButton(
             systemImage: "mic",
@@ -431,8 +424,7 @@ public struct ChatComposerView: View {
         }
     }
 
-    @MainActor
-    private var attachmentStrip: some View {
+    @MainActor private var attachmentStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(Array(attachments.enumerated()), id: \.element.id) { index, attachment in
@@ -458,8 +450,7 @@ public struct ChatComposerView: View {
         }
     }
 
-    @MainActor
-    private func removeButton(id: String, index: Int) -> some View {
+    @MainActor private func removeButton(id: String, index: Int) -> some View {
         Button {
             removeAttachment(id: id)
         } label: {
