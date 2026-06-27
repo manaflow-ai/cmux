@@ -4772,8 +4772,8 @@ final class Workspace: Identifiable, ObservableObject {
         guard checkpointId == nil || checkpointId == restoredAgent.sessionId else {
             return
         }
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
         removeSurfaceResumeBindingFromHistory(panelId: panelId, binding: binding)
+        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
     }
 
     private static let maxSurfaceResumeBindingHistoryEntries = 8
