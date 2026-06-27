@@ -24,7 +24,8 @@ extension MobilePairedMacStore {
                 try migrateToV3()
                 try migrateToV4()
                 try migrateToV5()
-                try setUserVersion(5)
+                try migrateToV6()
+                try setUserVersion(6)
             }
         case 1:
             try transaction {
@@ -32,27 +33,36 @@ extension MobilePairedMacStore {
                 try migrateToV3()
                 try migrateToV4()
                 try migrateToV5()
-                try setUserVersion(5)
+                try migrateToV6()
+                try setUserVersion(6)
             }
         case 2:
             try transaction {
                 try migrateToV3()
                 try migrateToV4()
                 try migrateToV5()
-                try setUserVersion(5)
+                try migrateToV6()
+                try setUserVersion(6)
             }
         case 3:
             try transaction {
                 try migrateToV4()
                 try migrateToV5()
-                try setUserVersion(5)
+                try migrateToV6()
+                try setUserVersion(6)
             }
         case 4:
             try transaction {
                 try migrateToV5()
-                try setUserVersion(5)
+                try migrateToV6()
+                try setUserVersion(6)
             }
         case 5:
+            try transaction {
+                try migrateToV6()
+                try setUserVersion(6)
+            }
+        case 6:
             break
         default:
             // A newer build wrote a higher schema version. Schema migrations are
@@ -222,6 +232,19 @@ extension MobilePairedMacStore {
         }
         if !existing.contains("attach_token_expires_at") {
             try exec("ALTER TABLE paired_macs ADD COLUMN attach_token_expires_at REAL;")
+        }
+    }
+
+    /// v6: local-only scope for the durable attach token. Existing v5 tokens get
+    /// NULL scope and are deliberately ignored on reconnect instead of being
+    /// widened to Mac-wide.
+    private func migrateToV6() throws {
+        let existing = try tableColumns("paired_macs")
+        if !existing.contains("attach_token_workspace_id") {
+            try exec("ALTER TABLE paired_macs ADD COLUMN attach_token_workspace_id TEXT;")
+        }
+        if !existing.contains("attach_token_terminal_id") {
+            try exec("ALTER TABLE paired_macs ADD COLUMN attach_token_terminal_id TEXT;")
         }
     }
 

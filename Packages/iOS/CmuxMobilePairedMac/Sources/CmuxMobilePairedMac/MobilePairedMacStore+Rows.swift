@@ -6,7 +6,7 @@ extension MobilePairedMacStore {
     func fetchMacRow(macDeviceID: String, ownerKey: String) throws -> MobilePairedMacStoreMacRow? {
         let sql = """
             SELECT display_name, stack_user_id, created_at, last_seen_at, is_active, team_id,
-                   attach_token, attach_token_expires_at
+                   attach_token, attach_token_expires_at, attach_token_workspace_id, attach_token_terminal_id
             FROM paired_macs WHERE mac_device_id = ? AND owner_key = ?;
         """
         let statement = try prepareStatement(sql)
@@ -40,7 +40,9 @@ extension MobilePairedMacStore {
             lastSeenAt: lastSeenAt,
             isActive: isActive,
             attachToken: attachToken,
-            attachTokenExpiresAt: attachTokenExpiresAt
+            attachTokenExpiresAt: attachTokenExpiresAt,
+            attachTokenWorkspaceID: Self.readNullableText(statement, column: 8),
+            attachTokenTerminalID: Self.readNullableText(statement, column: 9)
         )
     }
 
@@ -52,6 +54,8 @@ extension MobilePairedMacStore {
         teamID: String?,
         attachToken: String?,
         attachTokenExpiresAt: Date?,
+        attachTokenWorkspaceID: String?,
+        attachTokenTerminalID: String?,
         createdAt: Date,
         lastSeenAt: Date,
         isActive: Bool
@@ -59,9 +63,10 @@ extension MobilePairedMacStore {
         try exec("""
             INSERT INTO paired_macs (
                 mac_device_id, owner_key, display_name, stack_user_id, team_id,
-                attach_token, attach_token_expires_at, created_at, last_seen_at, is_active
+                attach_token, attach_token_expires_at, attach_token_workspace_id, attach_token_terminal_id,
+                created_at, last_seen_at, is_active
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(mac_device_id, owner_key) DO UPDATE SET
                 display_name = excluded.display_name,
                 stack_user_id = excluded.stack_user_id,
@@ -70,6 +75,14 @@ extension MobilePairedMacStore {
                 attach_token_expires_at = CASE
                     WHEN excluded.attach_token IS NOT NULL THEN excluded.attach_token_expires_at
                     ELSE attach_token_expires_at
+                END,
+                attach_token_workspace_id = CASE
+                    WHEN excluded.attach_token IS NOT NULL THEN excluded.attach_token_workspace_id
+                    ELSE attach_token_workspace_id
+                END,
+                attach_token_terminal_id = CASE
+                    WHEN excluded.attach_token IS NOT NULL THEN excluded.attach_token_terminal_id
+                    ELSE attach_token_terminal_id
                 END,
                 last_seen_at = excluded.last_seen_at,
                 is_active = excluded.is_active;
@@ -81,6 +94,8 @@ extension MobilePairedMacStore {
             teamID.map(BindValue.text) ?? .null,
             attachToken.map(BindValue.text) ?? .null,
             attachTokenExpiresAt.map { .real($0.timeIntervalSince1970) } ?? .null,
+            attachTokenWorkspaceID.map(BindValue.text) ?? .null,
+            attachTokenTerminalID.map(BindValue.text) ?? .null,
             .real(createdAt.timeIntervalSince1970),
             .real(lastSeenAt.timeIntervalSince1970),
             .int(isActive ? 1 : 0),
@@ -115,12 +130,12 @@ extension MobilePairedMacStore {
             INSERT INTO paired_macs (
                 mac_device_id, owner_key, display_name, stack_user_id, team_id,
                 created_at, last_seen_at, is_active, custom_name, custom_color, custom_icon,
-                attach_token, attach_token_expires_at
+                attach_token, attach_token_expires_at, attach_token_workspace_id, attach_token_terminal_id
             )
             SELECT
                 mac_device_id, ?, display_name, stack_user_id, ?, created_at,
                 last_seen_at, is_active, custom_name, custom_color, custom_icon,
-                attach_token, attach_token_expires_at
+                attach_token, attach_token_expires_at, attach_token_workspace_id, attach_token_terminal_id
             FROM paired_macs
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
@@ -174,7 +189,8 @@ extension MobilePairedMacStore {
         let filter = macRowFilter(activeOnly: activeOnly, stackUserID: stackUserID, teamID: teamID)
         let sql = """
             SELECT mac_device_id, owner_key, display_name, stack_user_id, created_at, last_seen_at, is_active,
-                   custom_name, custom_color, custom_icon, team_id, attach_token, attach_token_expires_at
+                   custom_name, custom_color, custom_icon, team_id, attach_token, attach_token_expires_at,
+                   attach_token_workspace_id, attach_token_terminal_id
             FROM paired_macs
             \(filter.whereClause)
             ORDER BY last_seen_at DESC;
@@ -219,7 +235,9 @@ extension MobilePairedMacStore {
                 customColor: Self.readNullableText(statement, column: 8),
                 customIcon: Self.readNullableText(statement, column: 9),
                 attachToken: Self.readNullableText(statement, column: 11),
-                attachTokenExpiresAt: attachTokenExpiresAt
+                attachTokenExpiresAt: attachTokenExpiresAt,
+                attachTokenWorkspaceID: Self.readNullableText(statement, column: 13),
+                attachTokenTerminalID: Self.readNullableText(statement, column: 14)
             ))
             step = sqlite3_step(statement)
         }
@@ -241,6 +259,8 @@ extension MobilePairedMacStore {
                 routes: routesByKey[key] ?? [],
                 attachToken: row.attachToken,
                 attachTokenExpiresAt: row.attachTokenExpiresAt,
+                attachTokenWorkspaceID: row.attachTokenWorkspaceID,
+                attachTokenTerminalID: row.attachTokenTerminalID,
                 createdAt: row.createdAt,
                 lastSeenAt: row.lastSeenAt,
                 isActive: row.isActive,

@@ -11,7 +11,7 @@ import SQLite3
 /// inject it as `any MobilePairedMacStoring`.
 public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
-    public static let currentSchemaVersion: Int32 = 5
+    public static let currentSchemaVersion: Int32 = 6
 
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
     // the handle. Every other access goes through actor-isolated methods, and
@@ -105,6 +105,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         routes: [CmxAttachRoute],
         attachToken: String? = nil,
         attachTokenExpiresAt: Date? = nil,
+        attachTokenWorkspaceID: String? = nil,
+        attachTokenTerminalID: String? = nil,
         markActive: Bool,
         stackUserID: String?,
         teamID: String? = nil,
@@ -141,6 +143,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 teamID: teamID,
                 attachToken: attachToken,
                 attachTokenExpiresAt: attachTokenExpiresAt,
+                attachTokenWorkspaceID: attachTokenWorkspaceID,
+                attachTokenTerminalID: attachTokenTerminalID,
                 createdAt: createdAt,
                 lastSeenAt: now,
                 isActive: markActive
@@ -182,6 +186,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 teamID: teamID,
                 attachToken: nil,
                 attachTokenExpiresAt: nil,
+                attachTokenWorkspaceID: nil,
+                attachTokenTerminalID: nil,
                 createdAt: existing.createdAt,
                 lastSeenAt: now,
                 isActive: existing.isActive

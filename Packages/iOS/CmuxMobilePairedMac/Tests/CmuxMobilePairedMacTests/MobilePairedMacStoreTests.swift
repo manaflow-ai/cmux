@@ -158,8 +158,8 @@ import Testing
                 macDeviceID: "mac-a",
                 displayName: "Mac A",
                 routes: [firstRoute],
-                attachToken: "ticket-secret",
-                attachTokenExpiresAt: expiresAt,
+                attachToken: "ticket-secret", attachTokenExpiresAt: expiresAt,
+                attachTokenWorkspaceID: "workspace-a", attachTokenTerminalID: "terminal-a",
                 markActive: true,
                 stackUserID: "user-1",
                 teamID: nil,
@@ -169,8 +169,8 @@ import Testing
 
         let reopened = try MobilePairedMacStore(databaseURL: url)
         let saved = try #require(try await reopened.activeMac(stackUserID: "user-1"))
-        #expect(saved.attachToken == "ticket-secret")
-        #expect(saved.attachTokenExpiresAt == expiresAt)
+        #expect((saved.attachToken, saved.attachTokenExpiresAt) == ("ticket-secret", expiresAt))
+        #expect((saved.attachTokenWorkspaceID, saved.attachTokenTerminalID) == ("workspace-a", "terminal-a"))
 
         try await reopened.upsert(
             macDeviceID: "mac-a",
@@ -183,8 +183,8 @@ import Testing
         )
         let refreshed = try #require(try await reopened.activeMac(stackUserID: "user-1"))
         #expect(refreshed.routes.map(\.id) == ["tailscale-b"])
-        #expect(refreshed.attachToken == "ticket-secret")
-        #expect(refreshed.attachTokenExpiresAt == expiresAt)
+        #expect((refreshed.attachToken, refreshed.attachTokenExpiresAt) == ("ticket-secret", expiresAt))
+        #expect((refreshed.attachTokenWorkspaceID, refreshed.attachTokenTerminalID) == ("workspace-a", "terminal-a"))
     }
 
     /// A newer build can bump `PRAGMA user_version` above what this build knows.

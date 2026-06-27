@@ -16,6 +16,10 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     public var attachToken: String? = nil
     /// Expiration time for ``attachToken``.
     public var attachTokenExpiresAt: Date? = nil
+    /// Workspace scope for ``attachToken``. `nil` means the scope was not persisted.
+    public var attachTokenWorkspaceID: String? = nil
+    /// Terminal scope for ``attachToken``. `nil` means the token is not terminal-pinned.
+    public var attachTokenTerminalID: String? = nil
     /// When this pairing was first recorded.
     public var createdAt: Date
     /// When this pairing was last refreshed or used.
@@ -73,6 +77,8 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     ///   - routes: Attach routes advertised by the Mac.
     ///   - attachToken: Local-only attach ticket secret for fast reconnect.
     ///   - attachTokenExpiresAt: Expiration time for `attachToken`.
+    ///   - attachTokenWorkspaceID: Workspace scope for `attachToken`; `""` is Mac-wide.
+    ///   - attachTokenTerminalID: Optional terminal scope for `attachToken`.
     ///   - createdAt: When the pairing was first recorded.
     ///   - lastSeenAt: When the pairing was last refreshed.
     ///   - isActive: Whether this pairing is currently active for its scope.
@@ -83,6 +89,8 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         routes: [CmxAttachRoute],
         attachToken: String? = nil,
         attachTokenExpiresAt: Date? = nil,
+        attachTokenWorkspaceID: String? = nil,
+        attachTokenTerminalID: String? = nil,
         createdAt: Date,
         lastSeenAt: Date,
         isActive: Bool,
@@ -97,6 +105,8 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         self.routes = routes
         self.attachToken = attachToken
         self.attachTokenExpiresAt = attachTokenExpiresAt
+        self.attachTokenWorkspaceID = attachTokenWorkspaceID
+        self.attachTokenTerminalID = attachTokenTerminalID
         self.createdAt = createdAt
         self.lastSeenAt = lastSeenAt
         self.isActive = isActive

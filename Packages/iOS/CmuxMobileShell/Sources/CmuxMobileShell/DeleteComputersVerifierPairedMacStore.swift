@@ -42,6 +42,8 @@ actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
         routes: [CmxAttachRoute],
         attachToken: String?,
         attachTokenExpiresAt: Date?,
+        attachTokenWorkspaceID: String?,
+        attachTokenTerminalID: String?,
         markActive: Bool,
         stackUserID: String?,
         teamID: String?,
@@ -65,6 +67,10 @@ actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
             if let attachTokenExpiresAt {
                 records[index].attachTokenExpiresAt = attachTokenExpiresAt
             }
+            if attachToken != nil {
+                records[index].attachTokenWorkspaceID = attachTokenWorkspaceID
+                records[index].attachTokenTerminalID = attachTokenTerminalID
+            }
             records[index].lastSeenAt = now
             records[index].isActive = markActive
             records[index].stackUserID = stackUserID
@@ -76,6 +82,8 @@ actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
                 routes: routes,
                 attachToken: attachToken,
                 attachTokenExpiresAt: attachTokenExpiresAt,
+                attachTokenWorkspaceID: attachTokenWorkspaceID,
+                attachTokenTerminalID: attachTokenTerminalID,
                 createdAt: now,
                 lastSeenAt: now,
                 isActive: markActive,

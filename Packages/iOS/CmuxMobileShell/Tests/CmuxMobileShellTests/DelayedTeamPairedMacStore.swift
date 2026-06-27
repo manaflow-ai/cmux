@@ -31,6 +31,8 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         routes: [CmxAttachRoute],
         attachToken: String?,
         attachTokenExpiresAt: Date?,
+        attachTokenWorkspaceID: String?,
+        attachTokenTerminalID: String?,
         markActive: Bool,
         stackUserID: String?,
         teamID: String?,
@@ -59,6 +61,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
             if let attachTokenExpiresAt {
                 recordsByTeam[key]?[index].attachTokenExpiresAt = attachTokenExpiresAt
             }
+            if attachToken != nil {
+                recordsByTeam[key]?[index].attachTokenWorkspaceID = attachTokenWorkspaceID
+                recordsByTeam[key]?[index].attachTokenTerminalID = attachTokenTerminalID
+            }
             recordsByTeam[key]?[index].lastSeenAt = now
             recordsByTeam[key]?[index].isActive = markActive
         } else {
@@ -68,6 +74,8 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
                 routes: routes,
                 attachToken: attachToken,
                 attachTokenExpiresAt: attachTokenExpiresAt,
+                attachTokenWorkspaceID: attachTokenWorkspaceID,
+                attachTokenTerminalID: attachTokenTerminalID,
                 createdAt: now,
                 lastSeenAt: now,
                 isActive: markActive,

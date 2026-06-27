@@ -1573,12 +1573,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let attachToken = mac.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !attachToken.isEmpty,
               let expiresAt = mac.attachTokenExpiresAt,
-              expiresAt > (runtime?.now() ?? Date()) else {
+              expiresAt > (runtime?.now() ?? Date()),
+              let attachTokenWorkspaceID = mac.attachTokenWorkspaceID else {
             return nil
         }
         do {
             return try CmxAttachTicket(
-                workspaceID: "", terminalID: nil, macDeviceID: mac.macDeviceID,
+                workspaceID: attachTokenWorkspaceID, terminalID: mac.attachTokenTerminalID, macDeviceID: mac.macDeviceID,
                 macDisplayName: mac.displayName, routes: mac.routes, expiresAt: expiresAt,
                 authToken: attachToken)
         } catch {
@@ -2683,6 +2684,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     routes: ticket.routes,
                     attachToken: Self.normalizedAttachToken(ticket.authToken),
                     attachTokenExpiresAt: ticket.expiresAt,
+                    attachTokenWorkspaceID: ticket.workspaceID,
+                    attachTokenTerminalID: ticket.terminalID,
                     markActive: true,
                     stackUserID: stackUserID,
                     teamID: scope?.teamID,

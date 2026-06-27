@@ -29,6 +29,8 @@ import Testing
             routes: [route],
             attachToken: "stale-token",
             attachTokenExpiresAt: expiresAt,
+            attachTokenWorkspaceID: "",
+            attachTokenTerminalID: nil,
             markActive: true,
             stackUserID: "user-1",
             teamID: nil,
@@ -78,6 +80,43 @@ import Testing
         #expect(requests[3].attachToken == "fresh-token")
         #expect(requests[3].stackAccessToken == nil)
         #expect(requests[3].workspaceID == DurableTicketFallbackRouter.workspaceID)
+    }
+
+    @Test func durableAttachTicketPreservesPersistedScope() throws {
+        let route = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+        )
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let expiresAt = now.addingTimeInterval(3600)
+        let router = DurableTicketFallbackRouter(route: route, expiresAt: expiresAt)
+        let store = MobileShellComposite(
+            runtime: DurableTicketFallbackRuntime(
+                transportFactory: DurableTicketFallbackTransportFactory(router: router),
+                now: { now }
+            )
+        )
+        let scopedMac = MobilePairedMac(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [route],
+            attachToken: "scoped-token",
+            attachTokenExpiresAt: expiresAt,
+            attachTokenWorkspaceID: "workspace-a",
+            attachTokenTerminalID: "terminal-a",
+            createdAt: now,
+            lastSeenAt: now,
+            isActive: true,
+            stackUserID: "user-1"
+        )
+        let scopedTicket = try #require(store.durableAttachTicket(for: scopedMac))
+        #expect(scopedTicket.workspaceID == "workspace-a")
+        #expect(scopedTicket.terminalID == "terminal-a")
+
+        var unknownScopeMac = scopedMac
+        unknownScopeMac.attachTokenWorkspaceID = nil
+        #expect(store.durableAttachTicket(for: unknownScopeMac) == nil)
     }
 }
 
