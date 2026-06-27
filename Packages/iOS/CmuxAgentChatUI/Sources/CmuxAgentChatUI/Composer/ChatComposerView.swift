@@ -399,7 +399,7 @@ public struct ChatComposerView: View {
         }
     }
 
-    private var micButton: some View {
+    @MainActor private var micButton: some View {
         let listening = dictation.state.isListening
         return MobileComposerIconButton(
             systemImage: "mic",
