@@ -121,6 +121,47 @@ import Testing
         #expect(try await feature.loadAll(stackUserID: "user-1", teamID: nil).isEmpty)
     }
 
+    @Test func selectedTeamUpsertPreservesFallbackAttachToken() async throws {
+        let inner = DelayedTeamPairedMacStore(recordsByTeam: [:], blockedTeams: [])
+        let feature = IOSBuildScopedPairedMacStore(inner: inner, scope: try #require(MobileIOSBuildScope("feature")))
+        let expiresAt = Date(timeIntervalSince1970: 2_000_000_000)
+
+        try await feature.upsert(
+            macDeviceID: "mac-a",
+            displayName: "A",
+            routes: [try route("10.0.0.1")],
+            attachToken: "fallback-token",
+            attachTokenExpiresAt: expiresAt,
+            attachTokenWorkspaceID: "workspace-a",
+            attachTokenTerminalID: "terminal-a",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await feature.upsert(
+            macDeviceID: "mac-a",
+            displayName: "A",
+            routes: [try route("10.0.0.9")],
+            attachToken: nil,
+            attachTokenExpiresAt: nil,
+            attachTokenWorkspaceID: nil,
+            attachTokenTerminalID: nil,
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        let selected = try #require(try await feature.loadAll(stackUserID: "user-1", teamID: "team-a").first)
+        #expect(selected.teamID == "team-a")
+        #expect(selected.attachToken == "fallback-token")
+        #expect(selected.attachTokenExpiresAt == expiresAt)
+        #expect(selected.attachTokenWorkspaceID == "workspace-a")
+        #expect(selected.attachTokenTerminalID == "terminal-a")
+        #expect(try await feature.loadAll(stackUserID: "user-1", teamID: nil).isEmpty)
+    }
+
     @Test func selectedTeamActivationClearsTeamlessFallback() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
