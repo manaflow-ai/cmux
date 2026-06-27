@@ -154,6 +154,52 @@ import Testing
         #expect(await secretStore.snapshot().isEmpty)
     }
 
+    @Test func failedLegacyClaimDeletesCopiedAttachTokenSecret() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("paired-macs.sqlite3")
+        let secretStore = InMemoryAttachTokenSecretStore()
+        let route = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.5", port: 8443)
+        )
+        let store = try MobilePairedMacStore(databaseURL: url, attachTokenSecrets: secretStore)
+        try await store.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mac A",
+            routes: [route],
+            attachToken: "legacy-secret",
+            attachTokenExpiresAt: Date(timeIntervalSince1970: 2_000_000_000),
+            attachTokenWorkspaceID: "",
+            attachTokenTerminalID: nil,
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await store.exec("DROP TABLE mac_routes;")
+
+        await #expect(throws: (any Error).self) {
+            try await store.upsert(
+                macDeviceID: "mac-a",
+                displayName: "Mac A",
+                routes: [route],
+                attachToken: nil,
+                attachTokenExpiresAt: nil,
+                attachTokenWorkspaceID: nil,
+                attachTokenTerminalID: nil,
+                markActive: true,
+                stackUserID: "user-1",
+                teamID: "team-a",
+                now: Date(timeIntervalSince1970: 2)
+            )
+        }
+        #expect(await secretStore.snapshot().values.sorted() == ["legacy-secret"])
+    }
+
     private func sqliteAttachTokens(at url: URL) throws -> [String?] {
         var handle: OpaquePointer?
         #expect(sqlite3_open(url.path, &handle) == SQLITE_OK)

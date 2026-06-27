@@ -135,12 +135,15 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             ? try fetchMacRow(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
             : nil
         let shouldClaimLegacy = legacy != nil
+        let copiedLegacyAttachToken: Bool
         if attachToken == nil, shouldClaimLegacy {
-            await copyAttachTokenSecret(
+            copiedLegacyAttachToken = await copyAttachTokenSecret(
                 macDeviceID: macDeviceID,
                 fromOwnerKey: legacyOwnerKey,
                 toOwnerKey: ownerKey
             )
+        } else {
+            copiedLegacyAttachToken = false
         }
         let attachTokenChanged = attachToken != nil
         let shouldStoreAttachTokenMetadata: Bool
@@ -156,36 +159,43 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         } else {
             shouldStoreAttachTokenMetadata = false
         }
-        try transaction {
-            if markActive {
-                try clearActiveMacs(stackUserID: stackUserID, teamID: teamID)
-            }
-            var claimedLegacy: MobilePairedMacStoreMacRow?
-            if existing == nil, teamID != nil, let legacy {
-                try moveMacRowScope(
+        do {
+            try transaction {
+                if markActive {
+                    try clearActiveMacs(stackUserID: stackUserID, teamID: teamID)
+                }
+                var claimedLegacy: MobilePairedMacStoreMacRow?
+                if existing == nil, teamID != nil, let legacy {
+                    try moveMacRowScope(
+                        macDeviceID: macDeviceID,
+                        fromOwnerKey: legacy.ownerKey,
+                        toOwnerKey: ownerKey,
+                        teamID: teamID
+                    )
+                    claimedLegacy = legacy
+                }
+                let createdAt = existing?.createdAt ?? claimedLegacy?.createdAt ?? now
+                try upsertMacRow(
                     macDeviceID: macDeviceID,
-                    fromOwnerKey: legacy.ownerKey,
-                    toOwnerKey: ownerKey,
-                    teamID: teamID
+                    ownerKey: ownerKey,
+                    displayName: displayName,
+                    stackUserID: stackUserID,
+                    teamID: teamID,
+                    attachTokenChanged: attachTokenChanged,
+                    attachTokenExpiresAt: shouldStoreAttachTokenMetadata ? attachTokenExpiresAt : nil,
+                    attachTokenWorkspaceID: shouldStoreAttachTokenMetadata ? attachTokenWorkspaceID : nil,
+                    attachTokenTerminalID: shouldStoreAttachTokenMetadata ? attachTokenTerminalID : nil,
+                    createdAt: createdAt,
+                    lastSeenAt: now,
+                    isActive: markActive
                 )
-                claimedLegacy = legacy
+                try replaceRoutes(macDeviceID: macDeviceID, ownerKey: ownerKey, routes: routes)
             }
-            let createdAt = existing?.createdAt ?? claimedLegacy?.createdAt ?? now
-            try upsertMacRow(
-                macDeviceID: macDeviceID,
-                ownerKey: ownerKey,
-                displayName: displayName,
-                stackUserID: stackUserID,
-                teamID: teamID,
-                attachTokenChanged: attachTokenChanged,
-                attachTokenExpiresAt: shouldStoreAttachTokenMetadata ? attachTokenExpiresAt : nil,
-                attachTokenWorkspaceID: shouldStoreAttachTokenMetadata ? attachTokenWorkspaceID : nil,
-                attachTokenTerminalID: shouldStoreAttachTokenMetadata ? attachTokenTerminalID : nil,
-                createdAt: createdAt,
-                lastSeenAt: now,
-                isActive: markActive
-            )
-            try replaceRoutes(macDeviceID: macDeviceID, ownerKey: ownerKey, routes: routes)
+        } catch {
+            if shouldStoreAttachTokenMetadata || copiedLegacyAttachToken {
+                await deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: ownerKey)
+            }
+            throw error
         }
         if shouldClaimLegacy {
             await deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
@@ -209,42 +219,52 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             ? try fetchMacRow(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
             : nil
         let shouldDeleteLegacySecret = legacy != nil
+        let copiedLegacyAttachToken: Bool
         if shouldDeleteLegacySecret {
-            await copyAttachTokenSecret(
+            copiedLegacyAttachToken = await copyAttachTokenSecret(
                 macDeviceID: macDeviceID,
                 fromOwnerKey: legacyOwnerKey,
                 toOwnerKey: ownerKey
             )
+        } else {
+            copiedLegacyAttachToken = false
         }
-        try transaction {
-            if try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey) == nil,
-               teamID != nil,
-               try fetchMacRow(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey) != nil {
-                try moveMacRowScope(
+        do {
+            try transaction {
+                if try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey) == nil,
+                   teamID != nil,
+                   try fetchMacRow(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey) != nil {
+                    try moveMacRowScope(
+                        macDeviceID: macDeviceID,
+                        fromOwnerKey: legacyOwnerKey,
+                        toOwnerKey: ownerKey,
+                        teamID: teamID
+                    )
+                }
+                guard let existing = try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey) else {
+                    return
+                }
+                try upsertMacRow(
                     macDeviceID: macDeviceID,
-                    fromOwnerKey: legacyOwnerKey,
-                    toOwnerKey: ownerKey,
-                    teamID: teamID
+                    ownerKey: ownerKey,
+                    displayName: displayName,
+                    stackUserID: stackUserID,
+                    teamID: teamID,
+                    attachTokenChanged: false,
+                    attachTokenExpiresAt: nil,
+                    attachTokenWorkspaceID: nil,
+                    attachTokenTerminalID: nil,
+                    createdAt: existing.createdAt,
+                    lastSeenAt: now,
+                    isActive: existing.isActive
                 )
+                try replaceRoutes(macDeviceID: macDeviceID, ownerKey: ownerKey, routes: routes)
             }
-            guard let existing = try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey) else {
-                return
+        } catch {
+            if copiedLegacyAttachToken {
+                await deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: ownerKey)
             }
-            try upsertMacRow(
-                macDeviceID: macDeviceID,
-                ownerKey: ownerKey,
-                displayName: displayName,
-                stackUserID: stackUserID,
-                teamID: teamID,
-                attachTokenChanged: false,
-                attachTokenExpiresAt: nil,
-                attachTokenWorkspaceID: nil,
-                attachTokenTerminalID: nil,
-                createdAt: existing.createdAt,
-                lastSeenAt: now,
-                isActive: existing.isActive
-            )
-            try replaceRoutes(macDeviceID: macDeviceID, ownerKey: ownerKey, routes: routes)
+            throw error
         }
         if shouldDeleteLegacySecret {
             await deleteAttachTokenSecret(macDeviceID: macDeviceID, ownerKey: legacyOwnerKey)
