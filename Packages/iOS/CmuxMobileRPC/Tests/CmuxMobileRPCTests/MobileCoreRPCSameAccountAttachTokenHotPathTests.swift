@@ -10,7 +10,10 @@ import Testing
         let frame = try await sentFrame(
             ticketWorkspaceID: "workspace-main",
             ticketTerminalID: nil,
-            request: MobileCoreRPCClient.requestData(method: "workspace.list")
+            request: MobileCoreRPCClient.requestData(
+                method: "workspace.list",
+                params: ["workspace_id": "workspace-main"]
+            )
         )
 
         #expect(frame.method == "workspace.list")

@@ -24,6 +24,7 @@ import Testing
             terminalID: nil,
             macDeviceID: "test-mac",
             macDisplayName: "Test Mac",
+            macUserID: "mac-user-1",
             routes: [route],
             expiresAt: Self.fixedNow.addingTimeInterval(60),
             authToken: "ticket-secret"
@@ -65,6 +66,7 @@ import Testing
             terminalID: nil,
             macDeviceID: "test-mac",
             macDisplayName: "Test Mac",
+            macUserID: "mac-user-1",
             routes: [route],
             expiresAt: Self.fixedNow.addingTimeInterval(60),
             authToken: "ticket-secret"
@@ -105,6 +107,7 @@ import Testing
             terminalID: nil,
             macDeviceID: "test-mac",
             macDisplayName: "Test Mac",
+            macUserID: "mac-user-1",
             routes: [route],
             expiresAt: Self.fixedNow.addingTimeInterval(60),
             authToken: "ticket-secret"

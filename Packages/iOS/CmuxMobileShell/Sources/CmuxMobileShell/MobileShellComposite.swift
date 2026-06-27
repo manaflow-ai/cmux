@@ -589,8 +589,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
     /// it.
     public let diagnosticLog: DiagnosticLog?
+    #if !compiler(>=6.2)
+    // Swift 6.1 deinit is nonisolated. This mirror is written only from the
+    // main-actor `remoteClient` setter and read once by the legacy deinit path.
+    private nonisolated(unsafe) var remoteClientForDeinit: MobileCoreRPCClient?
+    #endif
     var remoteClient: MobileCoreRPCClient? {
         didSet {
+            #if !compiler(>=6.2)
+            remoteClientForDeinit = remoteClient
+            #endif
             if remoteClient == nil {
                 stopTerminalRefreshPolling()
                 cancelRemoteOperationTasks()
@@ -600,7 +608,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     /// `remoteClient` narrowed for `MobileShellComposite+AgentChat.swift`.
     var remoteClientForAgentChat: MobileCoreRPCClient? { remoteClient }
+    #if compiler(>=6.2)
     private var terminalEventListenerTask: Task<Void, Never>?
+    #else
+    // Swift 6.1 deinit snapshots this main-actor cleanup handle.
+    private nonisolated(unsafe) var terminalEventListenerTask: Task<Void, Never>?
+    #endif
     private var terminalEventListenerID: UUID?
     /// Recovers the Mac's identity post-handshake for tickets that arrived
     /// without one (the minimal v2 pairing QR). Owned separately from the
@@ -611,14 +624,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``performSerializedPairedMacWrite(ifStillCurrent:_:)``.
     private var pairedMacWriteChain: Task<Void, Never>?
     private var pushedRouteSyncTask: Task<Void, Never>?
+    #if compiler(>=6.2)
     private var registryRouteRefreshTasks: [String: (id: UUID, task: Task<Void, Never>)] = [:]
+    #else
+    // Swift 6.1 deinit snapshots these main-actor cleanup handles.
+    private nonisolated(unsafe) var registryRouteRefreshTasks: [String: (id: UUID, task: Task<Void, Never>)] = [:]
+    #endif
     /// The in-flight `mobile.events.subscribe` (reason `start`) ack for the
     /// current listener generation. It runs concurrently with the consumer
     /// loop (the ack is a server-side enable handshake, not a delivery
     /// precondition: a prior generation's server subscription keeps pushing
     /// across re-subscribes) so events arriving during the round-trip are
     /// consumed, not buffered invisibly behind the await.
+    #if compiler(>=6.2)
     private var terminalSubscriptionStartTask: Task<Void, Never>?
+    #else
+    // Swift 6.1 deinit snapshots this main-actor cleanup handle.
+    private nonisolated(unsafe) var terminalSubscriptionStartTask: Task<Void, Never>?
+    #endif
     // Liveness watchdog for the render-grid push subscription. The `for await`
     // listener loop blocks indefinitely if the underlying connection half-dies
     // (network blip, Mac stops pushing, background/foreground cycle): the
@@ -633,7 +656,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     // `mobile.events.subscribe` probe (same stream id, current topics) and
     // only tears down + re-subscribes + replays when the host fails to answer
     // it.
+    #if compiler(>=6.2)
     private var renderGridLivenessTimer: (any DispatchSourceTimer)?
+    #else
+    // Swift 6.1 deinit snapshots this main-actor cleanup handle.
+    private nonisolated(unsafe) var renderGridLivenessTimer: (any DispatchSourceTimer)?
+    #endif
     private var renderGridLivenessListenerID: UUID?
     /// The in-flight liveness probe spawned by a silence-threshold crossing.
     /// Single-flight: ticks while a probe is pending are no-ops. The paired
@@ -641,17 +669,36 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// probe holding it may clear the slot, so a cancelled probe from an older
     /// generation completing late cannot free or clobber a newer generation's
     /// in-flight slot.
+    #if compiler(>=6.2)
     private var renderGridLivenessProbeTask: Task<Void, Never>?
+    #else
+    // Swift 6.1 deinit snapshots this main-actor cleanup handle.
+    private nonisolated(unsafe) var renderGridLivenessProbeTask: Task<Void, Never>?
+    #endif
     private var renderGridLivenessProbeID: UUID?
     private var lastTerminalEventAt: Date?
+    #if compiler(>=6.2)
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
+    #else
+    // Swift 6.1 deinit snapshots these main-actor cleanup handles.
+    private nonisolated(unsafe) var terminalSubscriptionRefreshTask: Task<Void, Never>?
+    private nonisolated(unsafe) var createWorkspaceTask: Task<Void, Never>?
+    private nonisolated(unsafe) var createTerminalTask: Task<Void, Never>?
+    // Swift 6.1 deinit snapshots this main-actor cleanup handle.
+    private nonisolated(unsafe) var workspaceListRefreshTask: Task<Void, Never>?
+    #endif
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
+    #if compiler(>=6.2)
     private var pullToRefreshTask: Task<Void, Never>?
+    #else
+    // Swift 6.1 deinit snapshots this main-actor cleanup handle.
+    private nonisolated(unsafe) var pullToRefreshTask: Task<Void, Never>?
+    #endif
     private var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
@@ -672,11 +719,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// remains as the fallback. Keyed by `macDeviceID`. Today these are N direct
     /// phone->Mac connections; the same per-Mac entries would be fed by one
     /// phone->Durable Object stream in the planned end-state.
+    #if compiler(>=6.2)
     var secondaryMacSubscriptions: [String: SecondaryMacSubscription] = [:]
+    #else
+    // Swift 6.1 deinit snapshots these main-actor cleanup handles.
+    nonisolated(unsafe) var secondaryMacSubscriptions: [String: SecondaryMacSubscription] = [:]
+    #endif
     /// The in-flight multi-Mac aggregation pass, tracked so sign-out / account
     /// switch can cancel it; its scope guards then bail before any cross-account
     /// write. Replaced (cancelling the prior) on each scheduled pass.
+    #if compiler(>=6.2)
     private var secondaryAggregationTask: Task<Void, Never>?
+    #else
+    // Swift 6.1 deinit snapshots this main-actor cleanup handle.
+    private nonisolated(unsafe) var secondaryAggregationTask: Task<Void, Never>?
+    #endif
     /// Bumped on Stack team switches so every aggregation caller, including
     /// direct pull-to-refresh calls that are not owned by
     /// ``secondaryAggregationTask``, can reject old-team results after awaits.
@@ -908,66 +965,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             registryRouteRefreshTasks,
             secondaryAggregationTask,
             secondaryMacSubscriptions,
-            remoteClient
+            remoteClientForDeinit
         ] in
-            Self.cancelDeinitResources(
-                presenceTask: presenceTask,
-                networkPathObservationTask: networkPathObservationTask,
-                terminalEventListenerTask: terminalEventListenerTask,
-                terminalSubscriptionStartTask: terminalSubscriptionStartTask,
-                renderGridLivenessTimer: renderGridLivenessTimer,
-                renderGridLivenessProbeTask: renderGridLivenessProbeTask,
-                terminalSubscriptionRefreshTask: terminalSubscriptionRefreshTask,
-                createWorkspaceTask: createWorkspaceTask,
-                createTerminalTask: createTerminalTask,
-                workspaceListRefreshTask: workspaceListRefreshTask,
-                pullToRefreshTask: pullToRefreshTask,
-                registryRouteRefreshTasks: registryRouteRefreshTasks,
-                secondaryAggregationTask: secondaryAggregationTask,
-                secondaryMacSubscriptions: secondaryMacSubscriptions,
-                remoteClient: remoteClient
-            )
+            [
+                presenceTask,
+                networkPathObservationTask,
+                terminalEventListenerTask,
+                terminalSubscriptionStartTask,
+                renderGridLivenessProbeTask,
+                terminalSubscriptionRefreshTask,
+                createWorkspaceTask,
+                createTerminalTask,
+                workspaceListRefreshTask,
+                pullToRefreshTask,
+                secondaryAggregationTask
+            ].forEach { $0?.cancel() }
+            renderGridLivenessTimer?.cancel()
+            registryRouteRefreshTasks.values.forEach { $0.task.cancel() }
+            secondaryMacSubscriptions.values.forEach { $0.cancel() }
+            if let remoteClientForDeinit { Task { await remoteClientForDeinit.disconnect() } }
         }
     }
     #endif
 
     private func cancelDeinitResources() {
-        Self.cancelDeinitResources(
-            presenceTask: presenceTask,
-            networkPathObservationTask: networkPathObservationTask,
-            terminalEventListenerTask: terminalEventListenerTask,
-            terminalSubscriptionStartTask: terminalSubscriptionStartTask,
-            renderGridLivenessTimer: renderGridLivenessTimer,
-            renderGridLivenessProbeTask: renderGridLivenessProbeTask,
-            terminalSubscriptionRefreshTask: terminalSubscriptionRefreshTask,
-            createWorkspaceTask: createWorkspaceTask,
-            createTerminalTask: createTerminalTask,
-            workspaceListRefreshTask: workspaceListRefreshTask,
-            pullToRefreshTask: pullToRefreshTask,
-            registryRouteRefreshTasks: registryRouteRefreshTasks,
-            secondaryAggregationTask: secondaryAggregationTask,
-            secondaryMacSubscriptions: secondaryMacSubscriptions,
-            remoteClient: remoteClient
-        )
-    }
-
-    private static func cancelDeinitResources(
-        presenceTask: Task<Void, Never>?,
-        networkPathObservationTask: Task<Void, Never>?,
-        terminalEventListenerTask: Task<Void, Never>?,
-        terminalSubscriptionStartTask: Task<Void, Never>?,
-        renderGridLivenessTimer: (any DispatchSourceTimer)?,
-        renderGridLivenessProbeTask: Task<Void, Never>?,
-        terminalSubscriptionRefreshTask: Task<Void, Never>?,
-        createWorkspaceTask: Task<Void, Never>?,
-        createTerminalTask: Task<Void, Never>?,
-        workspaceListRefreshTask: Task<Void, Never>?,
-        pullToRefreshTask: Task<Void, Never>?,
-        registryRouteRefreshTasks: [String: (id: UUID, task: Task<Void, Never>)],
-        secondaryAggregationTask: Task<Void, Never>?,
-        secondaryMacSubscriptions: [String: SecondaryMacSubscription],
-        remoteClient: MobileCoreRPCClient?
-    ) {
         [
             presenceTask,
             networkPathObservationTask,
@@ -987,14 +1008,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let remoteClient { Task { await remoteClient.disconnect() } }
     }
 
-    public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
-        CMUXMobileShellStore(
-            runtime: runtime,
-            workspaces: PreviewMobileHost.workspaces,
-            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
-        )
-    }
+    /// Factory for in-memory preview and test stores.
+    public static let preview = MobileShellCompositePreviewFactory()
 
+    /// Marks the mobile shell session as signed in and records the sign-in edge.
     public func signIn() {
         let wasSignedIn = isSignedIn
         isSignedIn = true
@@ -1014,6 +1031,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ])
     }
 
+    /// Clears account-scoped shell state and returns the store to its signed-out placeholder state.
     public func signOut() {
         // Reset analytics identity to anonymous on the signed-in→signed-out edge
         // only (this is called on every unauthenticated auth-state sync).
@@ -1373,7 +1391,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var connectionRequiresReauth: Bool = false
 
     private var networkPathObservationStarted = false
+    #if compiler(>=6.2)
     private var networkPathObservationTask: Task<Void, Never>?
+    #else
+    // Swift 6.1 deinit snapshots this main-actor cleanup handle.
+    private nonisolated(unsafe) var networkPathObservationTask: Task<Void, Never>?
+    #endif
     private var recoveryInFlight = false
     private var recoveryTask: Task<Void, Never>?
     private var lastReconnectStackUserID: String?
@@ -2107,7 +2130,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// snapshot; the device tree then overlays live online/offline state on the
     /// registry rows instead of registry "last seen" staleness guesses.
     public private(set) var presenceMap = PresenceMap()
+    #if compiler(>=6.2)
     private var presenceTask: Task<Void, Never>?
+    #else
+    // Swift 6.1 deinit snapshots this main-actor cleanup handle.
+    private nonisolated(unsafe) var presenceTask: Task<Void, Never>?
+    #endif
 
     /// Start or stop the presence subscription to match the session: running
     /// while signed in (and a client is injected), torn down with a blanked map
@@ -4840,20 +4868,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let hasTerminalScope = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
 
         var requests: [WorkspaceListRequest] = []
-        if hasAttachToken && !hasTerminalScope {
-            requests.append(
-                WorkspaceListRequest(
-                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
-                    isScoped: false,
-                    preferActiveTicketTarget: true
-                )
-            )
-        }
         if !scopedParams.isEmpty {
             requests.append(
                 WorkspaceListRequest(
                     data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: scopedParams),
                     isScoped: true,
+                    preferActiveTicketTarget: true
+                )
+            )
+        }
+        if hasAttachToken && !hasTerminalScope && scopedParams.isEmpty {
+            requests.append(
+                WorkspaceListRequest(
+                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
+                    isScoped: false,
                     preferActiveTicketTarget: true
                 )
             )
@@ -4920,11 +4948,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return true
         } catch {
             mobileShellLog.info("full mobile workspace list unavailable after scoped attach: \(String(describing: error), privacy: .private)")
-            if isCurrentRemoteConnection(client: client, generation: generation) {
+            if isCurrentRemoteConnection(client: client, generation: generation),
+               !isExpectedScopedFullWorkspaceListRefreshFailure(error) {
                 _ = disconnectForAuthorizationFailureIfNeeded(error)
             }
             return false
         }
+    }
+
+    private func isExpectedScopedFullWorkspaceListRefreshFailure(_ error: any Error) -> Bool {
+        guard let activeTicket,
+              !activeTicket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let connectionError = error as? MobileShellConnectionError,
+              case let .rpcError(code, _) = connectionError else {
+            return false
+        }
+        return code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "forbidden"
     }
 
     private func clearActiveConnectionContext() {

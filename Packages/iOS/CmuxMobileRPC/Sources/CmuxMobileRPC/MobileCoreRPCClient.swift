@@ -380,6 +380,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let hasMacAccountBinding =
             ticket.macUserID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
             ticket.macUserEmail?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let hasWorkspaceScope = !ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let hasTerminalScope = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         let ticketCoverage = MobileCoreRPCAttachTicketCoverage()
         if workspaceSelection.hasConflict ||
@@ -391,7 +392,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         switch method {
         case "mobile.workspace.list", "workspace.list":
             if workspaceSelection.value == nil {
-                return terminalSelection.value != nil || !hasMacAccountBinding || hasTerminalScope
+                return terminalSelection.value != nil || !hasMacAccountBinding || hasWorkspaceScope || hasTerminalScope
             }
             return !ticketCoverage.ticketCoversTerminalRequest(
                 ticket: ticket,

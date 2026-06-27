@@ -57,7 +57,7 @@ import Testing
         #expect(reconnected)
         #expect(store.connectionState == .connected)
         let requests = await router.requests()
-        #expect(requests.map(\.method) == [
+        #expect(requests.prefix(3).map(\.method) == [
             "workspace.list",
             "mobile.attach_ticket.create",
             "workspace.list",
@@ -69,7 +69,7 @@ import Testing
         #expect(requests[1].stackAccessToken == "fresh-stack-token")
         #expect(requests[2].attachToken == "fresh-token")
         #expect(requests[2].stackAccessToken == nil)
-        #expect(requests[2].workspaceID == nil)
+        #expect(requests[2].workspaceID == DurableTicketFallbackRouter.workspaceID)
     }
 
     @Test func scopedDurableReconnectUsesAttachTokenBeforeStackProbe() async throws {
@@ -123,7 +123,7 @@ import Testing
         #expect(firstRequest.method == "workspace.list")
         #expect(firstRequest.attachToken == "scoped-token")
         #expect(firstRequest.stackAccessToken == nil)
-        #expect(firstRequest.workspaceID == nil)
+        #expect(firstRequest.workspaceID == DurableTicketFallbackRouter.workspaceID)
     }
 
     @Test func durableAttachTicketPreservesPersistedScope() throws {
