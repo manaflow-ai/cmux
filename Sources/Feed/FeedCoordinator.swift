@@ -3,6 +3,7 @@ import Bonsplit
 import CMUXAgentLaunch
 import Foundation
 @preconcurrency import UserNotifications
+import CmuxFoundation
 import CmuxNotifications
 import CmuxSettings
 import CmuxSidebar
@@ -637,7 +638,7 @@ private extension FeedCoordinator {
         let workspace = workspaceID.flatMap { id in
             context?.tabManager.tabs.first(where: { $0.id == id })
         }
-        let cwd = normalizedNotificationCWD(event.cwd)
+        let cwd = event.cwd?.whitespaceTrimmedNilIfEmpty
             ?? workspace?.surfaceTabBarDirectory
             ?? workspace?.currentDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser.path
@@ -671,11 +672,5 @@ private extension FeedCoordinator {
             hooks: configStore?.notificationHooks(startingFrom: cwd) ?? [],
             globalConfigPath: configStore?.globalConfigPath
         )
-    }
-
-    func normalizedNotificationCWD(_ cwd: String?) -> String? {
-        guard let cwd else { return nil }
-        let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 }
