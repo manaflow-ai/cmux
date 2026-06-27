@@ -35,7 +35,7 @@ cmux_claude_wrapper_is_self_or_shim() {
 
 cmux_claude_wrapper_reexec_guard_limit=16
 cmux_claude_wrapper_reexec_hops=0
-cmux_claude_wrapper_reexec_targets=""
+cmux_claude_wrapper_reexec_target_history=""
 
 cmux_claude_wrapper_is_nonnegative_integer() {
     case "$1" in
@@ -62,25 +62,21 @@ EOF
 }
 
 cmux_claude_wrapper_init_reexec_guard() {
-    local guard="${CMUX_CLAUDE_WRAPPER_REEXEC_GUARD:-}"
+    local guard="${cmux_claude_wrapper_reexec_guard:-}"
     local hops
 
     case "$guard" in
-        "$$:"*)
-            hops="${guard#*:}"
-            cmux_claude_wrapper_is_nonnegative_integer "$hops" || hops=0
-            cmux_claude_wrapper_reexec_hops="$hops"
-            cmux_claude_wrapper_reexec_targets="${CMUX_CLAUDE_WRAPPER_REEXEC_TARGETS:-}"
+        *[!0-9]*|'')
+            unset cmux_claude_wrapper_reexec_guard
+            unset cmux_claude_wrapper_reexec_targets
+            cmux_claude_wrapper_reexec_hops=0
+            cmux_claude_wrapper_reexec_target_history=""
             ;;
         *)
-            # The guard is active only inside one same-PID exec chain. A real
-            # Claude launch that later spawns `claude` again does so from a
-            # child process with a different PID, so inherited guard state is
-            # reset and nested cmux hook injection starts fresh.
-            unset CMUX_CLAUDE_WRAPPER_REEXEC_GUARD
-            unset CMUX_CLAUDE_WRAPPER_REEXEC_TARGETS
-            cmux_claude_wrapper_reexec_hops=0
-            cmux_claude_wrapper_reexec_targets=""
+            hops="$guard"
+            cmux_claude_wrapper_is_nonnegative_integer "$hops" || hops=0
+            cmux_claude_wrapper_reexec_hops="$hops"
+            cmux_claude_wrapper_reexec_target_history="${cmux_claude_wrapper_reexec_targets:-}"
             ;;
     esac
 }
@@ -89,58 +85,63 @@ cmux_claude_wrapper_reexec_target_seen() {
     local target="$1"
     local seen
     local IFS=:
-    for seen in $cmux_claude_wrapper_reexec_targets; do
+    for seen in $cmux_claude_wrapper_reexec_target_history; do
         [[ "$seen" == "$target" ]] && return 0
     done
     return 1
 }
 
-cmux_claude_wrapper_target_is_obvious_real_claude() {
+cmux_claude_wrapper_target_looks_like_reexec_shim() {
     local target="$1"
+    cmux_claude_wrapper_is_self_or_shim "$target" && return 0
     [[ -f "$target" && -r "$target" ]] || return 1
 
-    local first_line
-    first_line="$(head -n 1 "$target" 2>/dev/null || true)"
-    case "$first_line" in
-        *node*|*Node*)
+    local snippet
+    snippet="$(head -c 8192 "$target" 2>/dev/null || true)"
+    case "$snippet" in
+        *"exec claude"*|*"exec \"claude\""*|*"exec 'claude'"*|\
+        *"command claude"*|*"command \"claude\""*|*"command 'claude'"*|\
+        *"spawn(\"claude\""*|*"spawn('claude'"*|\
+        *"spawnSync(\"claude\""*|*"spawnSync('claude'"*|\
+        *"execFile(\"claude\""*|*"execFile('claude'"*|\
+        *"execFileSync(\"claude\""*|*"execFileSync('claude'"*|\
+        *"execSync(\"claude"*|*"execSync('claude"*)
             return 0
             ;;
-        '#!'*)
-            return 1
-            ;;
     esac
-
-    # Non-script executables are binaries; do not leak the shim-bounce guard
-    # into a genuine Claude process.
-    return 0
+    return 1
 }
 
 cmux_claude_wrapper_exec_resolved_claude() {
     local target="$1"
     shift
 
+    if ! cmux_claude_wrapper_target_looks_like_reexec_shim "$target"; then
+        # A non-shim target is the boundary where a real Claude process starts.
+        # Clear the shim-bounce guard so real Claude children that invoke
+        # `claude` later begin a fresh wrapper resolution.
+        unset cmux_claude_wrapper_reexec_guard
+        unset cmux_claude_wrapper_reexec_targets
+        exec "$target" "$@"
+    fi
     if cmux_claude_wrapper_reexec_target_seen "$target"; then
         cmux_claude_wrapper_fail_reexec_guard "$target"
     fi
     if (( cmux_claude_wrapper_reexec_hops >= cmux_claude_wrapper_reexec_guard_limit )); then
         cmux_claude_wrapper_fail_reexec_guard
     fi
-    if cmux_claude_wrapper_target_is_obvious_real_claude "$target"; then
-        unset CMUX_CLAUDE_WRAPPER_REEXEC_GUARD
-        unset CMUX_CLAUDE_WRAPPER_REEXEC_TARGETS
-        exec "$target" "$@"
-    fi
 
     local hops="${cmux_claude_wrapper_reexec_hops:-0}"
     cmux_claude_wrapper_is_nonnegative_integer "$hops" || hops=0
     hops=$((hops + 1))
-    export CMUX_CLAUDE_WRAPPER_REEXEC_GUARD="$$:$hops"
-    if [[ -n "$cmux_claude_wrapper_reexec_targets" ]]; then
-        cmux_claude_wrapper_reexec_targets="$cmux_claude_wrapper_reexec_targets:$target"
+    export cmux_claude_wrapper_reexec_guard="$hops"
+    if [[ -n "$cmux_claude_wrapper_reexec_target_history" ]]; then
+        cmux_claude_wrapper_reexec_target_history="$cmux_claude_wrapper_reexec_target_history:$target"
     else
-        cmux_claude_wrapper_reexec_targets="$target"
+        cmux_claude_wrapper_reexec_target_history="$target"
     fi
-    export CMUX_CLAUDE_WRAPPER_REEXEC_TARGETS="$cmux_claude_wrapper_reexec_targets"
+    cmux_claude_wrapper_reexec_targets="$cmux_claude_wrapper_reexec_target_history"
+    export cmux_claude_wrapper_reexec_targets
     exec "$target" "$@"
 }
 

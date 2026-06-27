@@ -97,6 +97,76 @@ def test_wrapper_stops_mutual_foreign_shim_loop(failures: list[str]) -> None:
             failures.append(f"expected CMUX_CUSTOM_CLAUDE_PATH remedy, got: {combined_output!r}")
 
 
+def test_wrapper_stops_node_based_foreign_shim_loop(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-node-mutual-shim-loop-") as td:
+        root = Path(td)
+        cmux_shim_dir = root / "tmp" / "cmux-cli-shims" / "surface-node-loop"
+        node_primary_dir = root / "home" / ".node-shim" / "primary"
+        node_secondary_dir = root / "home" / ".node-shim" / "secondary"
+        real_dir = root / "real-bin"
+        for directory in (cmux_shim_dir, node_primary_dir, node_secondary_dir, real_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        cmux_shim = cmux_shim_dir / "claude"
+        shutil.copy2(WRAPPER, cmux_shim)
+        cmux_shim.chmod(0o755)
+
+        node_shim_template = """#!/usr/bin/env node
+const { spawnSync } = require("node:child_process");
+process.stderr.write(`node shim hop: ${process.argv[1]}\\n`);
+const managedPath = process.env.NODE_SHIM_MANAGED_PATH || process.env.PATH || "";
+process.env.PATH = managedPath
+  .split(":")
+  .filter((entry) => entry !== "__SHIM_DIR__")
+  .join(":");
+const child = spawnSync("claude", process.argv.slice(2), {
+  env: process.env,
+  stdio: "inherit",
+});
+process.exit(child.status ?? 1);
+"""
+        for shim_dir in (node_primary_dir, node_secondary_dir):
+            write_executable(
+                shim_dir / "claude",
+                node_shim_template.replace("__SHIM_DIR__", str(shim_dir)),
+            )
+
+        write_executable(
+            real_dir / "claude",
+            """#!/usr/bin/env bash
+printf 'real claude %s\\n' "$*"
+""",
+        )
+
+        inherited_path = os.environ.get("PATH", "/usr/bin:/bin")
+        managed_path = f"{cmux_shim_dir}:{node_primary_dir}:{node_secondary_dir}:{real_dir}:{inherited_path}"
+        env = {
+            "HOME": str(root / "home"),
+            "PATH": managed_path,
+            "NODE_SHIM_MANAGED_PATH": managed_path,
+            "CMUX_CLAUDE_WRAPPER_SHIM": str(cmux_shim),
+            "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
+        }
+        try:
+            result = subprocess.run(
+                [str(cmux_shim), "--version"],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            failures.append("node mutual shim repro timed out instead of terminating")
+            return
+
+        combined_output = result.stdout + result.stderr
+        if result.returncode == 0:
+            failures.append(f"expected non-zero exit from node mutual shim guard, got output: {combined_output!r}")
+        if "conflicting `claude` shim" not in combined_output:
+            failures.append(f"expected actionable node conflicting-shim error, got: {combined_output!r}")
+
+
 def test_wrapper_guard_allows_child_claude_process(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-child-reentry-") as td:
         root = Path(td)
@@ -262,6 +332,7 @@ process.stdout.write(`guard=${guard}\\ntargets=${targets}\\nsurface=${surface}\\
 def main() -> int:
     failures: list[str] = []
     test_wrapper_stops_mutual_foreign_shim_loop(failures)
+    test_wrapper_stops_node_based_foreign_shim_loop(failures)
     test_wrapper_guard_allows_child_claude_process(failures)
     test_wrapper_allows_finite_layered_foreign_shims(failures)
     test_passthrough_real_node_claude_does_not_receive_guard_env(failures)
