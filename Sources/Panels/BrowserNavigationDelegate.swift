@@ -435,9 +435,13 @@ import WebKit
         subframeDownloadIntents.recordPDFPrintIntent(url)
     }
 
-    func recordPDFPrintIntentIfNeeded(_ request: URLRequest) {
-        guard browserNavigationHasSimpleUserActivation(), let url = request.url else { return }
-        recordPDFPrintIntent(url)
+    func recordPDFPrintIntentIfNeeded(_ request: URLRequest, sourceFrame: WKFrameInfo?) {
+        guard let url = request.url else { return }
+        subframeDownloadIntents.recordPDFPrintIntent(
+            url,
+            sourceFrameURL: sourceFrame?.request.url,
+            sourceIsMainFrame: sourceFrame?.isMainFrame ?? true
+        )
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {

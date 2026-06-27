@@ -103,6 +103,13 @@ final class BrowserSubframeDownloadIntentTracker {
         }
     }
 
+    func recordPDFPrintIntent(_ url: URL, sourceFrameURL: URL?, sourceIsMainFrame: Bool) {
+        guard !sourceIsMainFrame,
+              let sourceFrameURL,
+              renderedSubframePDFKeys.contains(Self.subframePDFIntentKey(for: sourceFrameURL)) else { return }
+        recordPDFPrintIntent(url)
+    }
+
     func consumePDFPrintIntent(responseURL: URL?, mimeType: String?, isForMainFrame: Bool) -> Bool {
         guard isForMainFrame,
               Self.isPDFMIMEType(mimeType),

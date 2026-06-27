@@ -4106,9 +4106,8 @@ final class BrowserPanel: Panel, ObservableObject {
             guard let self else { return }
             self.openLinkInNewTab(url: url)
         }
-        browserUIDelegate.requestNavigation = { [weak self, weak navDelegate] request, intent in
-            navDelegate?.recordPDFPrintIntentIfNeeded(request); self?.requestNavigation(request, intent: intent)
-        }
+        browserUIDelegate.requestNavigation = { [weak self] in self?.requestNavigation($0, intent: $1) }
+        browserUIDelegate.recordPDFPrintIntent = { [weak navDelegate] in navDelegate?.recordPDFPrintIntentIfNeeded($0, sourceFrame: $1) }
         browserUIDelegate.presentAlert = { [weak self] alert, webView, completion, cancel in
             guard let self else {
                 cancel()
@@ -8752,7 +8751,7 @@ func browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
 
 private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
-    var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?; var recordPDFPrintIntent: ((URLRequest, WKFrameInfo?) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var openPopup: ((WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?)?
     var closeRequested: ((WKWebView) -> Void)?
@@ -8850,6 +8849,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
                 )
 #endif
                 if let requestNavigation {
+                    recordPDFPrintIntent?(navigationAction.request, navigationAction.sourceFrame)
                     requestNavigation(navigationAction.request, .currentTab)
                 } else {
                     browserLoadRequest(navigationAction.request, in: webView)
@@ -8885,6 +8885,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
                     "url=\(browserNavigationDebugURL(url))"
                 )
 #endif
+                recordPDFPrintIntent?(navigationAction.request, navigationAction.sourceFrame)
                 requestNavigation(navigationAction.request, intent)
             } else {
 #if DEBUG

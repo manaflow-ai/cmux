@@ -104,9 +104,12 @@ import WebKit
         tracker.recordPDFPrintIntent(printURL)
         #expect(tracker.consumePDFPrintIntent(responseURL: redirectedPrintURL, mimeType: "application/pdf", isForMainFrame: true))
         #expect(!tracker.consumePDFPrintIntent(responseURL: redirectedPrintURL, mimeType: "application/pdf", isForMainFrame: true))
+        tracker.recordPDFPrintIntent(printURL, sourceFrameURL: toolbarPDFURL, sourceIsMainFrame: true); #expect(!tracker.consumePDFPrintIntent(responseURL: printURL, mimeType: "application/pdf", isForMainFrame: true))
+        tracker.recordPDFPrintIntent(printURL, sourceFrameURL: toolbarPDFURL, sourceIsMainFrame: false); #expect(!tracker.consumePDFPrintIntent(responseURL: printURL, mimeType: "application/pdf", isForMainFrame: true))
         tracker.recordUserActivatedSubframeNavigation(toolbarPDFURL)
         #expect(!tracker.consumeUserActivatedPreviouslyRenderedSubframePDF(responseURL: toolbarPDFURL, mimeType: "application/pdf", isForMainFrame: false))
         tracker.markRenderedSubframePDFIfNeeded(responseURL: renderedPDFURL, mimeType: "application/pdf", isForMainFrame: false)
+        tracker.recordPDFPrintIntent(printURL, sourceFrameURL: toolbarPDFURL, sourceIsMainFrame: false); #expect(tracker.consumePDFPrintIntent(responseURL: printURL, mimeType: "application/pdf", isForMainFrame: true))
         tracker.recordUserActivatedSubframeNavigation(toolbarPDFURL)
         #expect(tracker.consumeUserActivatedPreviouslyRenderedSubframePDF(responseURL: toolbarPDFURL, mimeType: "application/pdf", isForMainFrame: false))
     }
