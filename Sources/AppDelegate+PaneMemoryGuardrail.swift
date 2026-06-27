@@ -58,10 +58,4 @@ extension AppDelegate {
             )
         }
     }
-
-    @discardableResult
-    func closePaneForMemoryGuardrail(workspaceId: UUID, panelId: UUID) -> Bool {
-        guard let manager = tabManagerFor(tabId: workspaceId) ?? tabManager else { return false }
-        return manager.closeSurface(tabId: workspaceId, surfaceId: panelId)
-    }
 }

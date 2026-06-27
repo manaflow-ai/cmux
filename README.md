@@ -331,7 +331,7 @@ macOS only, for now. cmux is a native Swift + AppKit app.
 
 ### Is there an iOS app?
 
-Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. See the [iOS docs](https://cmux.com/docs/ios).
+Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition). See the [iOS docs](https://cmux.com/docs/ios).
 
 ### What coding agents does cmux work with?
 

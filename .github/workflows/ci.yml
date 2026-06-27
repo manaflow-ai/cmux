@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   changes:
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
@@ -82,7 +82,7 @@ jobs:
             --head-sha "$HEAD_SHA"
 
   workflow-guard-tests:
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -213,7 +213,7 @@ jobs:
   remote-daemon-tests:
     needs: changes
     if: ${{ needs.changes.outputs.go == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -234,7 +234,7 @@ jobs:
   web-typecheck:
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     defaults:
       run:
         working-directory: web
@@ -249,7 +249,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Typecheck
-        run: bun tsc --noEmit
+        run: bun run typecheck
 
       - name: Web tests
         run: bun test
@@ -259,7 +259,7 @@ jobs:
   react-apps-check:
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -292,7 +292,7 @@ jobs:
   web-db-migrations:
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     defaults:
       run:
         working-directory: web
@@ -344,9 +344,10 @@ jobs:
     if: ${{ needs.changes.outputs.macos == 'true' }}
     name: app-host unit tests (${{ matrix.shard }}/4)
     # App-host XCTest needs a runner that can broker testmanagerd control
-    # sessions. Keep this job on the hosted GUI-capable pool until the
-    # MACOS_RUNNER_15/Austin runner-infra issue is fixed separately.
-    runs-on: warp-macos-15-arm64-6x
+    # sessions. Validated head-to-head that blacksmith-6vcpu-macos-15 runs the
+    # full app-host suite with 0 unexpected failures, identical to warp-15, so
+    # route through the shared MACOS_RUNNER_15 var like the other macOS jobs.
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -663,7 +664,7 @@ jobs:
       - swift-package-tests
       - agent-session-web-resources
     if: ${{ always() }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check app-host unit test routing
@@ -711,7 +712,7 @@ jobs:
   swift-package-tests:
     needs: changes
     if: ${{ needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -868,7 +869,7 @@ jobs:
   agent-session-web-resources:
     needs: changes
     if: ${{ needs.changes.outputs.agent_session_web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -892,7 +893,7 @@ jobs:
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
-    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
     # A cold DerivedData cache (any project.pbxproj or Package.resolved change
     # mints a new cache key with no restore-keys fallback) forces a full
     # cmux build whose Swift codegen alone can run 20+ min. Project/package
@@ -902,7 +903,7 @@ jobs:
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -1206,7 +1207,7 @@ jobs:
   release-ghostty-cli-helper:
     needs: changes
     if: ${{ needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -1390,14 +1391,14 @@ jobs:
   ui-regressions:
     needs: changes
     if: ${{ needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
     # Cold builds after project/package changes can spend more than 25 minutes
     # in build-for-testing before the UI regression script starts.
     timeout-minutes: 45
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -1864,7 +1865,7 @@ jobs:
       - release-build
       - ui-regressions
     if: ${{ always() }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Check routed CI jobs
         env:

@@ -3842,6 +3842,49 @@ struct CMUXCLI {
         case "remotes", "remote":
             try runRemotesCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "mobile":
+            let sub = commandArgs.first?.lowercased()
+            let rest = Array(commandArgs.dropFirst())
+            let mobileUsage = String(
+                localized: "cli.mobile.setFont.usage",
+                defaultValue: "Usage: cmux mobile set-font <points> [--surface <id>] [--workspace <id>]"
+            )
+            switch sub {
+            case "set-font":
+                guard let sizeArg = rest.first(where: { !$0.hasPrefix("--") }),
+                      let size = Double(sizeArg), size.isFinite, size > 0 else {
+                    throw CLIError(message: mobileUsage)
+                }
+                var params: [String: Any] = ["font_size": size]
+                if let surface = optionValue(rest, name: "--surface") {
+                    params["surface_id"] = surface
+                }
+                if let workspace = optionValue(rest, name: "--workspace") {
+                    params["workspace_id"] = workspace
+                }
+                let response = try client.sendV2(method: "mobile.terminal.set_font", params: params)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let delivered = (response["delivered"] as? Bool) ?? false
+                if delivered {
+                    print(localizedFormat(
+                        "cli.mobile.setFont.applied",
+                        defaultValue: "Set mobile terminal font to %@pt on connected device(s).",
+                        sizeArg
+                    ))
+                } else {
+                    print(localizedFormat(
+                        "cli.mobile.setFont.appliedNoDevice",
+                        defaultValue: "Set mobile terminal font to %@pt (no iOS device is currently connected).",
+                        sizeArg
+                    ))
+                }
+            default:
+                throw CLIError(message: mobileUsage)
+            }
+
         case "rpc":
             guard let method = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !method.isEmpty else {
@@ -5278,6 +5321,7 @@ struct CMUXCLI {
         "markdown",
         "mark-notification-read",
         "memory",
+        "mobile",
         "move-surface",
         "move-tab-to-new-workspace",
         "move-workspace-to-window",
@@ -5911,6 +5955,12 @@ struct CMUXCLI {
     ) throws -> String? {
         guard let raw else {
             if !allowCurrent { return nil }
+            // Prefer the caller's own workspace before the focused one (see
+            // resolveWorkspaceId). After the !allowCurrent guard, so explicit-surface
+            // routing (allowCurrent: false, resolves globally) is unaffected.
+            if let callerWorkspaceId = callerWorkspaceIdFromEnvironment(windowHandle: windowHandle) {
+                return callerWorkspaceId
+            }
             let current: [String: Any]
             if let windowHandle {
                 current = try client.sendV2(method: "workspace.current", params: ["window_id": windowHandle])
@@ -7167,7 +7217,10 @@ struct CMUXCLI {
         let (layoutOpt, rem4) = parseOption(rem3, name: "--layout")
         let (windowOpt, rem5) = parseOption(rem4, name: "--window")
         let (focusOpt, rem6) = parseOption(rem5, name: "--focus")
-        let (envFiles, envPairs, remaining) = parseWorkspaceEnvOptions(rem6)
+        let (groupOpt, rem7) = parseOption(rem6, name: "--group")
+        let (groupPlacementOpt, rem8) = parseOption(rem7, name: "--group-placement")
+        let (groupReferenceOpt, rem9) = parseOption(rem8, name: "--group-reference")
+        let (envFiles, envPairs, remaining) = parseWorkspaceEnvOptions(rem9)
         if remaining.last == "--env" {
             throw CLIError(message: String(
                 format: String(
@@ -7192,7 +7245,7 @@ struct CMUXCLI {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.workspace.create.error.unknownFlag",
-                    defaultValue: "%@: unknown flag '%@'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --env KEY=VALUE, --env-file <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>"
+                    defaultValue: "%@: unknown flag '%@'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --env KEY=VALUE, --env-file <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>, --group <id|ref>, --group-placement <afterCurrent|top|end>, --group-reference <workspace>"
                 ),
                 locale: .current,
                 commandName,
@@ -7206,6 +7259,9 @@ struct CMUXCLI {
         }
         if let nameOpt { params["title"] = nameOpt }
         if let descriptionOpt { params["description"] = descriptionOpt }
+        if let groupOpt { params["group_id"] = groupOpt }
+        if let groupPlacementOpt { params["group_placement"] = groupPlacementOpt }
+        if let groupReferenceOpt { params["group_reference_workspace_id"] = groupReferenceOpt }
         let workspaceEnv = try buildWorkspaceEnvironment(envFiles: envFiles, envPairs: envPairs, commandName: commandName)
         if !workspaceEnv.isEmpty {
             params["workspace_env"] = workspaceEnv
@@ -13884,6 +13940,17 @@ struct CMUXCLI {
             .replacingOccurrences(of: "%25", with: "%")
     }
 
+    /// The caller's own workspace, from the `CMUX_WORKSPACE_ID` the app injects into every
+    /// terminal surface. Nil when unset/blank/non-UUID, or when an explicit window is
+    /// targeted (the caller's workspace may live in another window). Resolvers prefer this
+    /// over the focused workspace so a command defaults to where it was invoked from.
+    private func callerWorkspaceIdFromEnvironment(windowHandle: String?) -> String? {
+        guard windowHandle == nil else { return nil }
+        let value = (ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return isUUID(value) ? value : nil
+    }
+
     private func resolveWorkspaceId(_ raw: String?, client: SocketClient, windowHandle: String? = nil) throws -> String {
         if let raw, isUUID(raw) {
             return raw
@@ -13920,6 +13987,28 @@ struct CMUXCLI {
                 if let id = item["id"] as? String { return id }
             }
             throw CLIError(message: "Workspace index not found")
+        }
+
+        // Reached only when `raw` was nil, blank, or nonblank-but-unrecognized (valid
+        // UUID/ref/index selectors returned or threw above). An explicit, nonblank,
+        // unrecognized selector (e.g. a typo) fails closed regardless of caller/window, so a
+        // malformed name never silently resolves to — and mutates — a different workspace.
+        if let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: "Workspace not found: \(raw)")
+        }
+
+        // `raw` is nil (omitted) or blank. Prefer the caller's own workspace over the
+        // focused one, so a background agent that omits/empties --workspace never silently
+        // acts on whatever workspace is selected in the foreground.
+        if let callerWorkspaceId = callerWorkspaceIdFromEnvironment(windowHandle: windowHandle) {
+            return callerWorkspaceId
+        }
+
+        // No caller workspace. An explicit but blank selector (the dangerous
+        // `--workspace "${CMUX_WORKSPACE_ID:-}"`-expands-to-empty case) fails closed; only a
+        // truly omitted selector, or an explicit --window, uses the window's selection.
+        if windowHandle == nil, raw != nil {
+            throw CLIError(message: "No workspace selected: --workspace was blank and CMUX_WORKSPACE_ID is unset")
         }
 
         var currentParams: [String: Any] = [:]
@@ -14705,7 +14794,7 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--env KEY=VALUE]... [--env-file <path>]... [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
+            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--env KEY=VALUE]... [--env-file <path>]... [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
 
             Create a new workspace in the caller's window.
 
@@ -14714,18 +14803,16 @@ struct CMUXCLI {
               --description <text> Set a custom description for the new workspace
               --cwd <path>         Set the working directory for the new workspace
               --command <text>     Send text+Enter to the new workspace after creation
-              --env KEY=VALUE      Set an environment variable for every shell in the
-                                   workspace (initial shell plus every later pane/split,
-                                   and across session restore). Repeatable. Reserved
-                                   CMUX_* variables cannot be overridden.
-              --env-file <path>    Load KEY=VALUE lines from a file into the workspace
-                                   environment. Repeatable; --env overrides file values.
-              --layout <json>      Create workspace with a predefined split layout (inline JSON).
-                                   Uses the same schema as cmux.json layout definitions.
-                                   When provided, --command is ignored (layout surfaces define their own commands).
-              --window <id|ref|index>
-                                   Target window (default: caller's window from $CMUX_WORKSPACE_ID/$CMUX_SURFACE_ID)
+              --env KEY=VALUE      Set a workspace environment variable. Repeatable.
+                                   Reserved CMUX_* variables cannot be overridden.
+              --env-file <path>    Load KEY=VALUE lines from a file. Repeatable.
+              --layout <json>      Create workspace with a predefined split layout.
+                                   Layout surfaces define their own commands.
+              --window <id|ref|index> Target window (default: caller's window)
               --focus <true|false> Focus the new workspace (default: false)
+              --group <id|ref>     Add the new workspace to a workspace group
+              --group-placement afterCurrent|top|end Placement within --group (default: top)
+              --group-reference <workspace> Reference workspace for afterCurrent placement
 
             Example:
               cmux new-workspace
@@ -14733,8 +14820,6 @@ struct CMUXCLI {
               cmux new-workspace --name "Launch" --description "Ship checklist"
               cmux new-workspace --cwd ~/projects/myapp
               cmux new-workspace --cwd . --command "npm test"
-              cmux new-workspace --cwd . --env AWS_PROFILE=prod --env API_BASE=https://api.example.com
-              cmux new-workspace --cwd . --env-file ./.cmux.env
               cmux new-workspace --name "Dev" --layout '{"direction":"horizontal","split":0.5,"children":[{"pane":{"surfaces":[{"type":"terminal","command":"vim"}]}},{"pane":{"surfaces":[{"type":"terminal","command":"npm run start"}]}}]}'
             """
         case "list-workspaces":
@@ -14760,8 +14845,7 @@ struct CMUXCLI {
 
             Subcommands:
               list                    List workspaces in a window
-              create [flags]          Create a workspace (same flags as new-workspace,
-                                      including --env KEY=VALUE and --env-file <path>)
+              create [flags]          Create a workspace (same flags as new-workspace)
               env [workspace] [--mask]
                                       Print a workspace's configured environment
                                       variables (--mask redacts the values)
@@ -14781,7 +14865,6 @@ struct CMUXCLI {
             Examples:
               cmux workspace list --json
               cmux workspace create --name Build --cwd ~/projects/myapp
-              cmux workspace create --cwd . --env AWS_PROFILE=prod --env-file ./.cmux.env
               cmux workspace env workspace:3 --mask
               cmux workspace close workspace:3
               cmux workspace reconnect
@@ -27254,7 +27337,7 @@ function looksLikeOpenCodeScript(value) {
 function isOpenCodeInternalWorkerArg(value) {
   if (!value) return false;
   const normalized = String(value).replaceAll("\\", "/");
-  return normalized.includes("/$bunfs/") && normalized.includes("/src/cli/cmd/tui/worker.js");
+  return normalized.includes("/$bunfs/") && normalized.endsWith("/tui/worker.js");
 }
 
 function withoutOpenCodeInternalWorkerArgs(argv) {
@@ -28919,6 +29002,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         "PreCompact",
         "PostCompact",
         "SessionStart",
+        "SubagentStart",
+        "SubagentStop",
         "UserPromptSubmit",
         "Stop",
     ]
@@ -28931,6 +29016,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "PreCompact": return "pre_compact"
         case "PostCompact": return "post_compact"
         case "SessionStart": return "session_start"
+        case "SubagentStart": return "subagent_start"
+        case "SubagentStop": return "subagent_stop"
         case "UserPromptSubmit": return "user_prompt_submit"
         case "Stop": return "stop"
         default: return nil
@@ -28939,7 +29026,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     private static func codexHookEventUsesMatcher(_ eventName: String) -> Bool {
         switch eventName {
-        case "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact", "SessionStart":
+        case "PreToolUse",
+             "PermissionRequest",
+             "PostToolUse",
+             "PreCompact",
+             "PostCompact",
+             "SessionStart",
+             "SubagentStart",
+             "SubagentStop":
             return true
         default:
             return false
@@ -29587,7 +29681,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 client: client
             )
         }
-        func sendAgentFeedTelemetry(workspaceId: String? = nil) {
+        func sendAgentFeedTelemetry(workspaceId: String? = nil, surfaceId: String? = nil) {
             didSendFeedTelemetry = true
             sendFeedTelemetry(
                 client: client,
@@ -29595,6 +29689,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 subcommand: subcommand,
                 parsedInput: input,
                 workspaceId: workspaceId ?? workspaceArg(),
+                surfaceId: surfaceId,
                 socketPassword: socketPassword
             )
         }
@@ -29610,11 +29705,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             return def.feedHookEvents.contains(event)
         }
-        func sendAgentFeedTelemetryUnlessSuppressed(workspaceId: String? = nil) {
+        func sendAgentFeedTelemetryUnlessSuppressed(workspaceId: String? = nil, surfaceId: String? = nil) {
             if shouldSuppressGenericFeedTelemetry() {
                 didSendFeedTelemetry = true
             } else {
-                sendAgentFeedTelemetry(workspaceId: workspaceId)
+                sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             }
         }
         func notificationDedupeFingerprint(status: AgentHookNotificationStatus?) -> String? {
@@ -29820,7 +29915,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 print("{}")
                 return
             }
-            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
+            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
             if !suppressVisibleMutations {
                 if codexSessionStartWentStaleAfterAccept() {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
@@ -30083,7 +30178,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 stopStaleCodexPromptSubmit()
                 return
             }
-            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
+            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 let acceptedRunningUpdate: Bool
                 if def.name == "codex" {
@@ -30231,7 +30326,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            sendAgentFeedTelemetry(workspaceId: workspaceId)
+            sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             let pid = mapped?.pid ?? inferredPID
             let codexFailure: CodexHookFailureSummary?
             let codexSubagentSignals: CodexTranscriptSubagentSignals
@@ -30551,7 +30646,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
+            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
             let pid = mapped?.pid ?? inferredPID
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
@@ -30692,7 +30787,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     env: env
                 )
 #endif
-                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
+                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
                 print("{}")
                 return
             }
@@ -30707,7 +30802,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     env: env
                 )
 #endif
-                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
+                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
                 print("{}")
                 return
             }
@@ -30854,7 +30949,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             case nil:
                 break
             }
-            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
+            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
 
         case .sessionEnd:
             if def.name == "codex", !sessionId.isEmpty {
@@ -30862,7 +30957,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             if def.sessionEndIsTurnBoundary {
                 if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
-                    sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
+                    sendAgentFeedTelemetry(workspaceId: mapped.workspaceId, surfaceId: mapped.surfaceId)
                     _ = try? store.recordPromptStop(
                         sessionId: sessionId,
                         workspaceId: mapped.workspaceId,
@@ -30932,6 +31027,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         subcommand: String,
         parsedInput: ClaudeHookParsedInput,
         workspaceId: String? = nil,
+        surfaceId: String? = nil,
         socketPassword: String? = nil
     ) {
         let hookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
@@ -30954,6 +31050,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         ]
         if let workspaceId = feedWorkspaceId(rawObject: parsedInput.object, fallback: workspaceId) {
             event["workspace_id"] = workspaceId
+        }
+        if let surfaceId, !surfaceId.isEmpty {
+            event["surface_id"] = surfaceId
+        }
+        if let transcriptPath = parsedInput.transcriptPath, !transcriptPath.isEmpty {
+            event["transcript_path"] = transcriptPath
         }
         if let cwd = parsedInput.cwd { event["cwd"] = cwd }
         let toolName = parsedInput.object?["tool_name"] as? String
@@ -32908,9 +33010,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
 
+        let commandEvent = optionValue(commandArgs, name: "--event")
+
         // Read stdin. Claude, Codex, and the other agents all pipe hook
-        // JSON through stdin; unknown inputs fall through to `{}`.
-        let stdinData = FileHandle.standardInput.readDataToEndOfFile()
+        // JSON through stdin; unknown inputs fall through to `{}`. Codex feed
+        // events are telemetry, and native lifecycle hooks can carry arbitrary
+        // transcript fragments or tool output, so cap every Codex feed
+        // invocation before JSON decoding without changing other agents'
+        // actionable hook reads.
+        let stdinData: Data
+        let shouldBoundCodexFeedStdin = source == "codex"
+        if shouldBoundCodexFeedStdin {
+            guard let boundedData = Self.readBoundedFeedHookStdin() else {
+                print("{}")
+                return
+            }
+            stdinData = boundedData
+        } else {
+            stdinData = FileHandle.standardInput.readDataToEndOfFile()
+        }
         guard !stdinData.isEmpty,
               let stdinObj = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any]
         else {
@@ -32922,7 +33040,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // uses `hook_event_name`; Codex uses `event` or `hook_event_name`.
         let rawEvent = (stdinObj["hook_event_name"] as? String)
             ?? (stdinObj["event"] as? String)
-            ?? optionValue(commandArgs, name: "--event")
+            ?? commandEvent
             ?? ""
         let toolCall = stdinObj["toolCall"] as? [String: Any]
         let toolName = firstString(in: stdinObj, keys: ["tool_name", "toolName"])
@@ -32969,16 +33087,28 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
             eventDict["workspace_id"] = workspaceId
         }
-        let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        let postToolUseResponseInput = stdinObj["tool_response"]
+            ?? stdinObj["toolResponse"]
+            ?? stdinObj["tool_result"]
+            ?? stdinObj["toolResult"]
+        let shouldUseCodexPostToolUseResponse = source == "codex"
+            && hookEventName == "PostToolUse"
+            && postToolUseResponseInput != nil
+        let feedToolInput = shouldUseCodexPostToolUseResponse
+            ? postToolUseResponseInput
+            : toolRequestInput
         if let cwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])
             ?? firstWorkspacePath(in: stdinObj)
-            ?? (toolInput as? [String: Any]).flatMap({ firstString(in: $0, keys: ["Cwd", "cwd"]) }) {
+            ?? (toolRequestInput as? [String: Any]).flatMap({ firstString(in: $0, keys: ["Cwd", "cwd"]) }) {
             eventDict["cwd"] = cwd
         }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
-        if let toolInput {
-            eventDict["tool_input"] = toolInput
+        if let feedToolInput {
+            eventDict["tool_input"] = shouldUseCodexPostToolUseResponse
+                ? Self.sanitizedPostToolUseFeedValue(feedToolInput)
+                : feedToolInput
         }
         if let context = feedContextForEvent(
             source: source,
@@ -33103,6 +33233,159 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
         print("{}")
+    }
+
+    private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
+
+    private static func readBoundedFeedHookStdin(
+        handle: FileHandle = .standardInput
+    ) -> Data? {
+        var data = Data()
+        while data.count <= feedHookMaxStdinBytes {
+            let remainingBytes = feedHookMaxStdinBytes + 1 - data.count
+            let chunkSize = min(64 * 1024, remainingBytes)
+            let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
+            guard !chunk.isEmpty else { return data }
+            data.append(chunk)
+        }
+        guard data.count <= feedHookMaxStdinBytes else {
+            while !((try? handle.read(upToCount: 64 * 1024)) ?? Data()).isEmpty {}
+            return nil
+        }
+        return data
+    }
+
+    private static let feedPostToolUseScalarStringLimitBytes = 512
+    private static let feedPostToolUseMetadataKeys: Set<String> = [
+        "exitcode",
+        "status",
+        "signal",
+        "durationms",
+        "timedout",
+        "success",
+    ]
+    private static let feedPostToolUseOutputKeys: Set<String> = [
+        "stdout",
+        "stderr",
+        "output",
+        "text",
+        "result",
+        "message",
+        "error",
+    ]
+
+    private static func sanitizedPostToolUseFeedValue(_ value: Any) -> Any {
+        var summary: [String: Any] = [
+            "_cmux_sanitized": true,
+        ]
+
+        if let dictionary = value as? [String: Any] {
+            summary["_cmux_original_key_count"] = dictionary.count
+            var summarizedKeys = Set<String>()
+
+            for (key, rawValue) in dictionary {
+                let normalizedKey = normalizedPostToolUseSummaryKey(key)
+                if feedPostToolUseMetadataKeys.contains(normalizedKey),
+                   let scalarValue = boundedPostToolUseScalarValue(rawValue) {
+                    summary[key] = scalarValue.value
+                    if scalarValue.truncated {
+                        summary["\(key)_truncated"] = true
+                    }
+                    summarizedKeys.insert(key)
+                }
+                if feedPostToolUseOutputKeys.contains(normalizedKey) {
+                    summarizePostToolUseOmittedField(
+                        key: key,
+                        rawValue: rawValue,
+                        into: &summary
+                    )
+                    summarizedKeys.insert(key)
+                }
+            }
+
+            let omittedKeys = dictionary.keys.filter { !summarizedKeys.contains($0) }.count
+            if omittedKeys > 0 {
+                summary["_cmux_omitted_key_count"] = omittedKeys
+            }
+        } else if let array = value as? [Any] {
+            summary["_cmux_array_count"] = array.count
+        } else if value is String {
+            summary["_cmux_text_omitted"] = true
+        } else if let scalarValue = boundedPostToolUseScalarValue(value) {
+            summary["_cmux_value"] = scalarValue.value
+            if scalarValue.truncated {
+                summary["_cmux_value_truncated"] = true
+            }
+        }
+
+        return summary
+    }
+
+    private static func normalizedPostToolUseSummaryKey(_ key: String) -> String {
+        key
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+    }
+
+    private static func summarizePostToolUseOmittedField(
+        key: String,
+        rawValue: Any,
+        into summary: inout [String: Any]
+    ) {
+        if rawValue is String {
+            summary["\(key)_text_omitted"] = true
+            return
+        }
+        if let array = rawValue as? [Any] {
+            summary["\(key)_array_count"] = array.count
+            summary["\(key)_omitted"] = true
+            return
+        }
+        if let dictionary = rawValue as? [String: Any] {
+            summary["\(key)_object_key_count"] = dictionary.count
+            summary["\(key)_omitted"] = true
+            return
+        }
+        summary["\(key)_omitted"] = true
+    }
+
+    private static func boundedPostToolUseScalarValue(_ rawValue: Any) -> (value: Any, truncated: Bool)? {
+        if rawValue is NSNull {
+            return (NSNull(), false)
+        }
+        if let bool = rawValue as? Bool {
+            return (bool, false)
+        }
+        if let number = rawValue as? NSNumber {
+            return (number, false)
+        }
+        if let string = rawValue as? String {
+            let preview = feedUTF8Prefix(
+                string,
+                maxBytes: feedPostToolUseScalarStringLimitBytes
+            )
+            return (preview.value, preview.truncated)
+        }
+        return nil
+    }
+
+    private static func feedUTF8Prefix(
+        _ value: String,
+        maxBytes: Int
+    ) -> (value: String, truncated: Bool) {
+        var usedBytes = 0
+        var endIndex = value.startIndex
+        while endIndex < value.endIndex {
+            let nextIndex = value.index(after: endIndex)
+            let characterBytes = value[endIndex..<nextIndex].utf8.count
+            if usedBytes + characterBytes > maxBytes {
+                return (String(value[..<endIndex]), true)
+            }
+            usedBytes += characterBytes
+            endIndex = nextIndex
+        }
+        return (value, false)
     }
 
     private static func shouldSuppressKiroFeedEvent(
@@ -33538,6 +33821,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let actionArgs = Array(rest.dropFirst())
             switch action {
+            case "inject-args" where def.name == "codex":
+                // Hidden: emit the NUL-separated codex arg list the wrapper
+                // (Resources/bin/cmux-codex-wrapper) splices to inject cmux's
+                // fire-and-forget hooks for one invocation. No socket required.
+                try emitCodexWrapperInjectArgs()
+                return true
             case "install":
                 try installHooksForAgent(def, arguments: actionArgs)
                 return true
@@ -34184,7 +34473,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
-          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
+          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
           ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
@@ -34325,18 +34614,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         """
     }
 
-#if DEBUG
-    func debugUsageTextForTesting() -> String {
-        usage()
-    }
-
-    func debugFormatDebugTerminalsPayloadForTesting(
-        _ payload: [String: Any],
-        idFormat: CLIIDFormat = .refs
-    ) -> String {
-        formatDebugTerminalsPayload(payload, idFormat: idFormat)
-    }
-#endif
 }
 
 private enum CMUXCLIOutput {
