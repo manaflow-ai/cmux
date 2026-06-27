@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxSettings
 
-@Suite("UserDefaultsSettingsStore")
+@Suite("UserDefaultsSettingsStore", .serialized)
 struct UserDefaultsSettingsStoreTests {
     private func makeStore() -> (UserDefaultsSettingsStore, SettingCatalog) {
         let suiteName = "cmux.tests.\(UUID().uuidString)"

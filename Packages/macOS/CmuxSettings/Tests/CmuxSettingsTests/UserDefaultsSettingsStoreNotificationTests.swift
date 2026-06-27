@@ -153,21 +153,39 @@ struct UserDefaultsSettingsStoreNotificationTests {
         let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
         let externalDefaults = UserDefaults(suiteName: suiteName)!
         let key = SettingCatalog().workspaceColors.selectionColorHex
+        let recorder = UserDefaultsSettingsEventRecorder<String>()
         let source = UserDefaultsSettingsMutationSource(
             ownerID: UUID(),
             sequence: 1,
             logicalOrder: 1
         )
-        let stream = await store.valueEvents(for: key)
-        var iterator = stream.makeAsyncIterator()
+        let task = Task {
+            let stream = await store.valueEvents(for: key)
+            for await event in stream {
+                await recorder.append(event)
+                if await recorder.count() >= 3 {
+                    break
+                }
+            }
+        }
+        defer {
+            task.cancel()
+        }
 
-        let initial = await iterator.next()
-        #expect(initial?.value == key.defaultValue)
+        await waitForEventCount(1, in: recorder)
 
         await store.set("#SAME", for: key, source: source)
         externalDefaults.set("#SAME", forKey: key.userDefaultsKey)
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: externalDefaults
+        )
 
-        let externalEvent = await iterator.next()
+        let externalEvent = await waitForEvent(in: recorder) { event in
+            event.value == "#SAME"
+                && event.mutationSource == nil
+                && event.supersededMutationSource == source
+        }
         #expect(externalEvent?.value == "#SAME")
         #expect(externalEvent?.mutationSource == nil)
         #expect(externalEvent?.supersededMutationSource == source)

@@ -8,6 +8,10 @@ final class UserDefaultsSettingsObservedMutationWatermarks: @unchecked Sendable 
     private struct State {
         var logicalOrders: [String: UInt64] = [:]
         var activeMutationSources: [String: UserDefaultsSettingsMutationSource] = [:]
+        var backingNotifications: [String: (
+            logicalOrder: UInt64,
+            mutationSource: UserDefaultsSettingsMutationSource?
+        )] = [:]
     }
 
     // NotificationCenter observer callbacks are synchronous and non-async. This
@@ -29,9 +33,20 @@ final class UserDefaultsSettingsObservedMutationWatermarks: @unchecked Sendable 
         }
     }
 
-    func recordNotification(logicalOrder: UInt64, for storageKey: String) {
+    func recordNotification(
+        logicalOrder: UInt64,
+        isBackingDefaultsNotification: Bool,
+        for storageKey: String
+    ) -> UserDefaultsSettingsMutationSource? {
         state.withLock { state in
+            let mutationSource = isBackingDefaultsNotification
+                ? state.activeMutationSources[storageKey]
+                : nil
             state.logicalOrders[storageKey] = max(state.logicalOrders[storageKey] ?? 0, logicalOrder)
+            if isBackingDefaultsNotification {
+                state.backingNotifications[storageKey] = (logicalOrder, mutationSource)
+            }
+            return mutationSource
         }
     }
 
@@ -41,9 +56,15 @@ final class UserDefaultsSettingsObservedMutationWatermarks: @unchecked Sendable 
         }
     }
 
-    func activeMutationSource(for storageKey: String) -> UserDefaultsSettingsMutationSource? {
+    func latestBackingNotification(
+        after logicalOrder: UInt64,
+        for storageKey: String
+    ) -> (logicalOrder: UInt64, mutationSource: UserDefaultsSettingsMutationSource?)? {
         state.withLock { state in
-            state.activeMutationSources[storageKey]
+            guard let record = state.backingNotifications[storageKey],
+                  record.logicalOrder > logicalOrder
+            else { return nil }
+            return record
         }
     }
 }

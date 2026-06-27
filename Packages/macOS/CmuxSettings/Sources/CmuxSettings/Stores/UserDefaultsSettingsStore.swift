@@ -124,14 +124,9 @@ public actor UserDefaultsSettingsStore {
         return source
     }
 
-    /// Removes the stored overrides for every UserDefaults-backed entry in
-    /// ``keys``. Entries whose ``AnySettingKey/kind`` is
-    /// ``AnySettingKey/Kind/jsonConfig`` are ignored; reset them via the
-    /// ``JSONConfigStore``.
+    /// Removes stored overrides for every UserDefaults-backed entry in ``keys``.
     ///
-    /// The whole operation runs inside the actor's isolation domain so
-    /// the caller doesn't have to send the non-`Sendable` `UserDefaults`
-    /// instance across boundaries.
+    /// JSON-config entries are ignored; reset them via ``JSONConfigStore``.
     public func resetAll(_ keys: [AnySettingKey]) {
         for entry in keys {
             guard case let .userDefaults(storageKey, suite, _) = entry.kind else { continue }
@@ -288,6 +283,8 @@ public actor UserDefaultsSettingsStore {
         consumedSourceSequence: UInt64,
         includedMutationSources: Set<UserDefaultsSettingsMutationSource> = [],
         deliveredMutationSource: UserDefaultsSettingsMutationSource? = nil,
+        deliverPendingMutationSourceWhenUnobserved: Bool = false,
+        supersedesPendingMutationSource: Bool = false,
         isInitialSnapshot: Bool = false
     ) -> (
         event: UserDefaultsSettingsValueEvent<Value>,
@@ -302,7 +299,9 @@ public actor UserDefaultsSettingsStore {
             nextConsumedSourceSequence = max(record.sequence, consumedSourceSequence)
             if record.matches(value) {
                 if includedMutationSources.contains(record.source)
-                    || deliveredMutationSource == record.source {
+                    || deliveredMutationSource == record.source
+                    || (deliverPendingMutationSourceWhenUnobserved
+                        && !supersedesPendingMutationSource) {
                     source = record.source
                 } else {
                     supersededSource = record.source
@@ -335,19 +334,10 @@ public actor UserDefaultsSettingsStore {
         )
     }
 
-    /// Returns an `AsyncStream` that yields the current value and every later change.
+    /// Returns a coalescing stream of the current value and later changes.
     ///
-    /// - The first element is yielded as soon as the consumer starts iterating.
-    /// - Subsequent elements are yielded when `UserDefaults.didChangeNotification`
-    ///   fires and the typed value at this key differs from the previously
-    ///   yielded value, or when a store-owned mutation source needs delivery.
-    /// - Cancelling the consuming `Task` removes the underlying notification
-    ///   observer, cancels the drain task, and ends the stream.
-    /// - Buffering is `.bufferingNewest(1)`: a burst of writes (e.g. a
-    ///   `ColorPicker` drag spraying a value per frame) coalesces to the
-    ///   most recent value rather than replaying every intermediate
-    ///   through the consumer after the consumer catches up. Only the
-    ///   latest value matters; the stale ones are dropped.
+    /// Cancelling the consumer removes the observer and drain task. Bursts use
+    /// `.bufferingNewest(1)` because only the latest settings value matters.
     public nonisolated func values<Value>(for key: DefaultsKey<Value>) -> AsyncStream<Value> {
         let storage = self.storage
         return AsyncStream<Value>(bufferingPolicy: .bufferingNewest(1)) { continuation in
@@ -387,15 +377,9 @@ public actor UserDefaultsSettingsStore {
 
     /// Returns value changes tagged with one-shot store-owned mutation sources.
     ///
-    /// The source is present only on the observed value produced by a write
-    /// that explicitly passed one to ``set(_:for:source:)`` or
-    /// ``reset(_:source:)``. Callers use it to distinguish their own async
-    /// store echoes from external settings changes without relying on lossy
-    /// value equality.
-    ///
-    /// - Parameter includedMutationSources: Caller-owned pending sources to
-    ///   classify even if their writes reached the store before this stream was
-    ///   created.
+    /// Callers use sources to distinguish their async store echoes from
+    /// external changes. `includedMutationSources` classifies pending writes
+    /// that reached the store before stream creation.
     public func valueEvents<Value>(
         for key: DefaultsKey<Value>,
         includingSources includedMutationSources: Set<UserDefaultsSettingsMutationSource> = []
@@ -404,6 +388,7 @@ public actor UserDefaultsSettingsStore {
         let storage = self.storage
         let observedMutationWatermarks = self.observedMutationWatermarks
         let storageKey = key.userDefaultsKey
+        let streamStartLogicalOrder = DispatchTime.now().uptimeNanoseconds
         recordKnownValue(storage.value(for: key), for: storageKey)
         return AsyncStream<UserDefaultsSettingsValueEvent<Value>>(bufferingPolicy: .bufferingNewest(1)) { continuation in
             typealias Signal = (isBackingDefaultsNotification: Bool, logicalOrder: UInt64, deliveredMutationSource: UserDefaultsSettingsMutationSource?)
@@ -412,16 +397,15 @@ public actor UserDefaultsSettingsStore {
             let observer = storage.addDidChangeObserver { [weak self] isBackingDefaultsNotification in
                 guard self != nil else { return }
                 let logicalOrder = DispatchTime.now().uptimeNanoseconds
-                observedMutationWatermarks.recordNotification(
+                let deliveredMutationSource = observedMutationWatermarks.recordNotification(
                     logicalOrder: logicalOrder,
+                    isBackingDefaultsNotification: isBackingDefaultsNotification,
                     for: storageKey
                 )
                 signalContinuation.yield((
                     isBackingDefaultsNotification,
                     logicalOrder,
-                    isBackingDefaultsNotification
-                        ? observedMutationWatermarks.activeMutationSource(for: storageKey)
-                        : nil
+                    deliveredMutationSource
                 ))
             }
 
@@ -431,10 +415,18 @@ public actor UserDefaultsSettingsStore {
                     return
                 }
                 var consumedSourceSequence = initialConsumedSourceSequence
+                let initialBackingNotification = observedMutationWatermarks.latestBackingNotification(
+                    after: streamStartLogicalOrder,
+                    for: storageKey
+                )
                 let initialSnapshot = await self.valueEvent(
                     for: key,
                     consumedSourceSequence: consumedSourceSequence,
                     includedMutationSources: includedMutationSources,
+                    deliveredMutationSource: initialBackingNotification?.mutationSource,
+                    deliverPendingMutationSourceWhenUnobserved: initialBackingNotification == nil,
+                    supersedesPendingMutationSource: initialBackingNotification != nil
+                        && initialBackingNotification?.mutationSource == nil,
                     isInitialSnapshot: true
                 )
                 consumedSourceSequence = initialSnapshot.consumedSourceSequence
@@ -454,10 +446,21 @@ public actor UserDefaultsSettingsStore {
                     let snapshot = await self.valueEvent(
                         for: key,
                         consumedSourceSequence: consumedSourceSequence,
-                        deliveredMutationSource: signal.deliveredMutationSource
+                        deliveredMutationSource: signal.deliveredMutationSource,
+                        supersedesPendingMutationSource: signal.deliveredMutationSource == nil
                     )
                     consumedSourceSequence = snapshot.consumedSourceSequence
-                    let currentEvent = snapshot.event
+                    var currentEvent = snapshot.event
+                    if signal.deliveredMutationSource == nil,
+                       currentEvent.value == lastYieldedEvent.value,
+                       currentEvent.mutationSource == nil,
+                       currentEvent.supersededMutationSource == nil,
+                       let supersededSource = lastYieldedEvent.deliveryMutationSource {
+                        currentEvent = UserDefaultsSettingsValueEvent(
+                            value: currentEvent.value,
+                            supersededMutationSource: supersededSource
+                        )
+                    }
                     if currentEvent.mutationSource == nil,
                        (currentEvent.value != lastYieldedEvent.value
                         || currentEvent.supersededMutationSource != nil) {
