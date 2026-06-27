@@ -47,6 +47,12 @@ public protocol BrowserControlHosting: AnyObject {
     /// or `NSNull()` when `uuid` is `nil`.
     nonisolated func v2Ref(kind: ControlHandleKind, uuid: UUID?) -> Any
 
+    /// Runs the host's `browser snapshot` command for the given params and
+    /// returns its (in-package) result. The post-action snapshot builder reaches
+    /// the live WebKit DOM-walk + element-ref allocation through this seam; the
+    /// snapshot command itself stays app-side on the worker lane.
+    nonisolated func v2BrowserSnapshot(params: [String: Any]) -> BrowserCommandResult
+
     /// Mints (or returns the existing) stable handle ref for `uuid` of the given
     /// `kind`.
     @MainActor func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String
