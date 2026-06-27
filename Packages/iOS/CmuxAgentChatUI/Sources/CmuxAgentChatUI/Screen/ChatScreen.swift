@@ -58,38 +58,16 @@ public struct ChatScreen: View {
     }
 
     public var body: some View {
-        chatLayout
-        .overlay(alignment: .top) {
-            if let error = store.lastErrorDescription {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(.red.opacity(0.92), in: .capsule)
-                    .padding(.top, 4)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .accessibilityIdentifier("ChatErrorBanner")
-                    .onTapGesture { store.dismissError() }
-                    // Swipe the toast up to dismiss (it animates out via the
-                    // move(edge: .top) transition), in addition to tap and the
-                    // bounded auto-dismiss below.
-                    .gesture(
-                        DragGesture(minimumDistance: 8)
-                            .onEnded { value in
-                                if value.translation.height < -8 { store.dismissError() }
-                            }
-                    )
-                    // Bounded auto-dismiss: the task is keyed on the error
-                    // text, so a new error restarts the window, and SwiftUI
-                    // cancels the sleep when the banner leaves.
-                    .task(id: error) {
-                        try? await Task.sleep(for: .seconds(8))
-                        guard !Task.isCancelled else { return }
-                        store.dismissError()
-                    }
-            }
+        ZStack(alignment: .top) {
+            chatLayout
+            // On iOS 26 `chatLayout` underlaps the top chrome
+            // (`chatTopBarUnderlapContainer` ignores the top safe area so the
+            // native scroll-edge effect can blend transcript rows into the
+            // bar). The error toast must stay *below* the navigation bar, so it
+            // lives as a ZStack sibling that still respects the top safe area —
+            // an `.overlay` on the underlapped layout would inherit the
+            // underlap and render the banner under the bar.
+            errorBanner
         }
         .animation(.snappy(duration: 0.2), value: store.lastErrorDescription)
         .animation(.snappy(duration: 0.22), value: store.agentState == .ended)
@@ -106,6 +84,38 @@ public struct ChatScreen: View {
     }
 
     @ViewBuilder
+    private var errorBanner: some View {
+        if let error = store.lastErrorDescription {
+            Text(error)
+                .font(.caption)
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.red.opacity(0.92), in: .capsule)
+                .padding(.top, 4)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .accessibilityIdentifier("ChatErrorBanner")
+                .onTapGesture { store.dismissError() }
+                // Swipe the toast up to dismiss (it animates out via the
+                // move(edge: .top) transition), in addition to tap and the
+                // bounded auto-dismiss below.
+                .gesture(
+                    DragGesture(minimumDistance: 8)
+                        .onEnded { value in
+                            if value.translation.height < -8 { store.dismissError() }
+                        }
+                )
+                // Bounded auto-dismiss: the view is keyed on the error text,
+                // so a new error restarts the timer subscription.
+                .id(error)
+                .onReceive(Timer.publish(every: 8, on: .main, in: .common).autoconnect()) { _ in
+                    store.dismissError()
+                }
+        }
+    }
+
+    @ViewBuilder
     private var chatLayout: some View {
         #if os(iOS)
         ChatKeyboardTrackingContainer(
@@ -114,6 +124,7 @@ public struct ChatScreen: View {
             showsComposer: store.agentState != .ended
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .chatTopBarUnderlapContainer()
         .ignoresSafeArea(.keyboard, edges: .bottom)
         #else
         VStack(spacing: 0) {
@@ -213,6 +224,19 @@ public struct ChatScreen: View {
         )
     }
 }
+
+#if os(iOS)
+private extension View {
+    @ViewBuilder
+    func chatTopBarUnderlapContainer() -> some View {
+        if #available(iOS 26.0, *) {
+            ignoresSafeArea(.container, edges: .top)
+        } else {
+            self
+        }
+    }
+}
+#endif
 
 /// Standalone navigation chrome for ``ChatScreen``: title, session-state
 /// header, and the Open-Terminal button. Suppressed when the host supplies
