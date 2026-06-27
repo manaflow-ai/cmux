@@ -5,7 +5,7 @@ public extension View {
     /// Glass (iOS 26+) or bordered button styling for secondary sign-in actions.
     @ViewBuilder
     func mobileGlassButton() -> some View {
-        #if os(iOS)
+        #if os(iOS) && compiler(>=6.3)
         if #available(iOS 26.0, *) {
             self
                 .buttonStyle(.glass)
@@ -26,7 +26,7 @@ public extension View {
     /// Prominent glass (iOS 26+) or bordered-prominent primary button styling.
     @ViewBuilder
     func mobileGlassProminentButton() -> some View {
-        #if os(iOS)
+        #if os(iOS) && compiler(>=6.3)
         if #available(iOS 26.0, *) {
             self
                 .buttonStyle(.glassProminent)
@@ -54,7 +54,7 @@ public extension View {
     /// is a no-op.
     @ViewBuilder
     func mobileGlassNavigationTitle() -> some View {
-        #if os(iOS)
+        #if os(iOS) && compiler(>=6.3)
         if #available(iOS 26.0, *) {
             self
                 .padding(.horizontal, 14)
@@ -75,7 +75,7 @@ public extension View {
     /// Glass (iOS 26+) or thin-material capsule pill background for input fields.
     @ViewBuilder
     func mobileGlassPill() -> some View {
-        #if os(iOS)
+        #if os(iOS) && compiler(>=6.3)
         if #available(iOS 26.0, *) {
             self.glassEffect(.regular.interactive(), in: .capsule)
         } else {
@@ -96,7 +96,7 @@ public extension View {
     @ViewBuilder
     func mobileGlassField(cornerRadius: CGFloat = 20) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        #if os(iOS)
+        #if os(iOS) && compiler(>=6.3)
         if #available(iOS 26.0, *) {
             self.glassEffect(.regular.interactive(), in: shape)
         } else {
@@ -115,7 +115,7 @@ public extension View {
     /// button (send / dismiss). Pair with a fixed-size icon label.
     @ViewBuilder
     func mobileGlassCircle() -> some View {
-        #if os(iOS)
+        #if os(iOS) && compiler(>=6.3)
         if #available(iOS 26.0, *) {
             self.glassEffect(.regular.interactive(), in: .circle)
         } else {
