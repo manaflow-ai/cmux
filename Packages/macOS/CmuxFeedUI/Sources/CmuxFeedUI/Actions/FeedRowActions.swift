@@ -1,5 +1,5 @@
 public import CMUXAgentLaunch
-import Foundation
+public import Foundation
 
 /// Closure bundle that a Feed row invokes for its interactive actions. It holds
 /// only value snapshots and closures so it can live below the Feed list's
