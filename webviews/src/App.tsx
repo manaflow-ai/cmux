@@ -241,6 +241,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   });
   const appearance = resolveDiffViewerAppearance(payload.appearance);
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
+  const [stageCommitDialogOpen, setStageCommitDialogOpen] = useState(false);
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
@@ -334,6 +335,22 @@ export function App({ config, initialStatus }: ConfigProps) {
     persistDiffViewerLayout(layout);
     dispatch({ type: "set-option", key: "layout", value: layout });
   };
+  const openStageCommitDialog = () => {
+    dispatch({ type: "set-options-open", open: false });
+    setStageCommitDialogOpen(true);
+  };
+  const copyStageCommit = async (commitMessage: string) => {
+    if (repoRoot == null) {
+      return;
+    }
+    try {
+      const message = await copyStageCommitCommand(repoRoot, commitMessage, label, copyFallbackRef.current);
+      dispatch({ type: "set-copy-feedback", message });
+      setStageCommitDialogOpen(false);
+    } catch {
+      dispatch({ type: "set-copy-feedback", message: label("copyFailedStageCommitCommand") });
+    }
+  };
 
   return (
     <div id="app">
@@ -348,18 +365,7 @@ export function App({ config, initialStatus }: ConfigProps) {
             dispatch({ type: "set-copy-feedback", message: label("copyFailedGitApplyCommand") });
           }
         }}
-        onCopyStageCommit={repoRoot == null ? null : async () => {
-          const commitMessage = window.prompt(label("commitMessage"));
-          if (commitMessage == null) {
-            return;
-          }
-          try {
-            const message = await copyStageCommitCommand(repoRoot, commitMessage, label, copyFallbackRef.current);
-            dispatch({ type: "set-copy-feedback", message });
-          } catch {
-            dispatch({ type: "set-copy-feedback", message: label("copyFailedStageCommitCommand") });
-          }
-        }}
+        onCopyStageCommit={repoRoot == null ? null : openStageCommitDialog}
         onJump={scrollToItem}
         onNavigate={(url) => {
           setStatus(createDiffViewerStatus(label("loadingDiff"), { pending: true }));
@@ -410,7 +416,68 @@ export function App({ config, initialStatus }: ConfigProps) {
         tabIndex={-1}
         className="copy-fallback-textarea"
       />
+      {stageCommitDialogOpen ? (
+        <StageCommitDialog
+          cancelLabel={commentLabels.cancelComment}
+          label={label}
+          onCancel={() => setStageCommitDialogOpen(false)}
+          onSubmit={copyStageCommit}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function StageCommitDialog({
+  cancelLabel,
+  label,
+  onCancel,
+  onSubmit,
+}: {
+  cancelLabel: string;
+  label: DiffViewerLabelResolver;
+  onCancel: () => void;
+  onSubmit: (message: string) => Promise<void>;
+}) {
+  return (
+    <>
+      <div className="stage-commit-dialog-backdrop" aria-hidden="true" />
+      <dialog
+        open
+        className="stage-commit-dialog"
+        aria-labelledby="stage-commit-dialog-title"
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const form = event.currentTarget;
+            const commitMessage = new window.FormData(form).get("commitMessage");
+            void onSubmit(typeof commitMessage === "string" ? commitMessage : "");
+          }}
+        >
+          <h2 id="stage-commit-dialog-title">{label("copyStageCommitCommand")}</h2>
+          <label id="stage-commit-message-label" className="stage-commit-label" htmlFor="stage-commit-message">
+            {label("commitMessage")}
+          </label>
+          <textarea
+            id="stage-commit-message"
+            name="commitMessage"
+            className="stage-commit-input"
+            aria-labelledby="stage-commit-message-label"
+            required
+            rows={4}
+          />
+          <div className="stage-commit-actions">
+            <button type="button" className="comment-button" onClick={onCancel}>
+              {cancelLabel}
+            </button>
+            <button type="submit" className="comment-button comment-button-primary">
+              {label("commit")}
+            </button>
+          </div>
+        </form>
+      </dialog>
+    </>
   );
 }
 

@@ -116,7 +116,11 @@ test("App copies a stage and commit command for repo-backed diffs", async () => 
     throw new Error("unexpected fetch");
   });
   dom.window.document.execCommand = (command: string) => command === "copy";
-  (dom.window as any).prompt = () => "Review changes";
+  let promptCalled = false;
+  (dom.window as any).prompt = () => {
+    promptCalled = true;
+    return null;
+  };
 
   renderApp(
     <App
@@ -134,10 +138,18 @@ test("App copies a stage and commit command for repo-backed diffs", async () => 
   dom.window.document.getElementById("options-button")?.click();
   await waitFor(() => Boolean(stageCommitButton()));
   stageCommitButton()?.click();
+  await waitFor(() => Boolean(stageCommitDialog()));
+  expect(promptCalled).toBe(false);
+
+  const input = stageCommitInput();
+  expect(input).toBeTruthy();
+  changeTextareaValue(input!, "Review changes");
+  submitStageCommitDialog();
 
   await waitFor(() => dom?.window.document.getElementById("copy-feedback")?.textContent === "Copied stage & commit command");
   expect(copyFallbackValue()).toContain("git -C '/tmp/repo' add --all");
   expect(copyFallbackValue()).toContain("Review changes");
+  expect(stageCommitDialog()).toBeNull();
 });
 
 test("App hides the stage and commit command when no repository path is available", async () => {
@@ -283,6 +295,26 @@ function copyGitApplyButton(): HTMLButtonElement | undefined {
 function stageCommitButton(): HTMLButtonElement | undefined {
   return Array.from(dom?.window.document.querySelectorAll<HTMLButtonElement>(".menu-item") ?? [])
     .find((button) => button.textContent?.includes("Copy stage & commit command"));
+}
+
+function stageCommitDialog(): HTMLElement | null {
+  return dom?.window.document.querySelector<HTMLElement>(".stage-commit-dialog") ?? null;
+}
+
+function stageCommitInput(): HTMLTextAreaElement | null {
+  return dom?.window.document.querySelector<HTMLTextAreaElement>("#stage-commit-message") ?? null;
+}
+
+function submitStageCommitDialog(): void {
+  stageCommitDialog()
+    ?.querySelector<HTMLFormElement>("form")
+    ?.dispatchEvent(new dom!.window.Event("submit", { bubbles: true, cancelable: true }));
+}
+
+function changeTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
+  const valueSetter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")?.set;
+  valueSetter?.call(textarea, value);
+  textarea.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
 }
 
 function copyFallbackValue(): string | undefined {
