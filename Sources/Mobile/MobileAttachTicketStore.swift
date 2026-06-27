@@ -122,7 +122,7 @@ final class MobileAttachTicketStore {
         if let ticketEmail = normalizedEmail(ticket.macUserEmail) {
             return normalizedEmail(currentUserEmail) == ticketEmail
         }
-        return true
+        return false
     }
 
     func recordCreatedResources(
