@@ -199,7 +199,7 @@ public struct MobileDiagnosticsReportBuilder: Sendable {
         return max(count, 1)
     }
 
-    private func localized(_ key: String.LocalizationValue, defaultValue: String.LocalizationValue) -> String {
+    private func localized(_ key: StaticString, defaultValue: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: defaultValue)
     }
 
