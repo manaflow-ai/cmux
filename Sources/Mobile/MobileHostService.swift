@@ -1217,16 +1217,8 @@ final class MobileHostService {
         return trimmed?.isEmpty == false ? trimmed : nil
     }
 
-    func debugAuthorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
-        await authorizationError(for: request)
-    }
-
-    func debugRecordCreatedResourcesForTesting(
-        request: MobileHostRPCRequest,
-        result: MobileHostRPCResult
-    ) {
-        recordCreatedResourcesIfNeeded(request: request, result: result)
-    }
+    func debugAuthorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? { await authorizationError(for: request) }
+    func debugRecordCreatedResourcesForTesting(request: MobileHostRPCRequest, result: MobileHostRPCResult) { recordCreatedResourcesIfNeeded(request: request, result: result) }
 
     /// Whether `request`'s Stack token passes the DEBUG dev-token policy.
     /// Always `false` in release builds. Shared by the authorization gate and
@@ -1330,7 +1322,7 @@ final class MobileHostService {
         request: MobileHostRPCRequest,
         result: MobileHostRPCResult
     ) {
-        guard let attachToken = request.auth?.attachToken else { return }
+        guard let attachToken = request.auth?.attachToken, let ticketAuthorization = ticketStore.validAuthorization(authToken: attachToken), Self.ticketAuthorizationError(authorization: ticketAuthorization, request: request) == nil else { return }
         guard case let .ok(payload) = result,
               let object = payload as? [String: Any] else { return }
 
