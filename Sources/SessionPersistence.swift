@@ -2125,10 +2125,11 @@ enum SessionScrollbackReplayStore {
         return needle
     }
 
-    /// Index of the row to mark: the row whose text, after a known prompt sigil,
-    /// *begins* with `lastUserMessage`, or nil.
+    /// Index of the row to mark: the UNIQUE row whose text, after a known prompt
+    /// sigil, *begins* with `lastUserMessage`, or nil when there is no match or
+    /// the match is ambiguous.
     ///
-    /// Filters, in order:
+    /// Two requirements, both needed for correctness:
     ///  1. Require a known leading prompt sigil (`>`, `❯`, `│`, `$`, …) followed by
     ///     the message. Anchoring to a real sigil — not an unconstrained substring
     ///     scan, not arbitrary punctuation, and NOT a bare line — excludes agent
@@ -2137,14 +2138,14 @@ enum SessionScrollbackReplayStore {
     ///     and bare output lines that merely open with the same words ("refactor the
     ///     login flow is done…"). Real shell/agent prompts always lead with a sigil,
     ///     so requiring one keeps the workspace-scoped key off unrelated panels.
-    ///  2. Take the FIRST (top-most) match. The user's prompt always precedes the
-    ///     agent's response — and any echo or quote of it — for a turn, so the
-    ///     earliest sigil row is the real prompt while a later `> …` line is more
-    ///     likely a Markdown blockquote echo in agent output (`>` is both a prompt
-    ///     sigil and a blockquote marker, so it can't be told apart by shape once
-    ///     Ghostty's export has dropped the original OSC 133). The only residual —
-    ///     the same prompt text submitted in an earlier turn — still lands on a real
-    ///     prompt row with the identical text, never on agent output.
+    ///  2. Mark ONLY when exactly one sigil-prefixed row matches. If two or more
+    ///     match — because the user repeated the prompt, or because an agent
+    ///     rendered a Markdown blockquote echo of the request (`>` is both a prompt
+    ///     sigil and a blockquote marker, indistinguishable by shape once Ghostty's
+    ///     export has dropped the original OSC 133) — we cannot reliably tell the
+    ///     real prompt from the echo/duplicate, so we no-op rather than risk marking
+    ///     the wrong row (agent output or a stale turn). Best-effort and safe: when
+    ///     it acts there is a single unambiguous candidate.
     /// The match is whitespace-stripped (robust to soft and hard wraps) and may
     /// continue into following rows for wrapped prompts.
     private static func promptRowIndex(in lines: [String], lastUserMessage: String?) -> Int? {
@@ -2153,6 +2154,7 @@ enum SessionScrollbackReplayStore {
         guard needleChars.count >= 3 else { return nil }
 
         let compactRows: [[Character]] = lines.map { Array(visiblePlainText(of: $0).filter { !$0.isWhitespace }) }
+        var match: Int?
         for index in compactRows.indices where !compactRows[index].isEmpty {
             // Leading run of up to 4 known prompt-sigil characters.
             var sigil = 0
@@ -2162,16 +2164,14 @@ enum SessionScrollbackReplayStore {
             }
             // Require at least one prompt sigil; never match a bare line.
             guard sigil >= 1 else { continue }
-            for offset in 1...sigil where compactPrefixMatches(
-                needleChars,
-                rows: compactRows,
-                startRow: index,
-                startOffset: offset
-            ) {
-                return index // earliest (top-most) sigil match
+            let rowMatches = (1...sigil).contains { offset in
+                compactPrefixMatches(needleChars, rows: compactRows, startRow: index, startOffset: offset)
             }
+            guard rowMatches else { continue }
+            if match != nil { return nil } // ambiguous (repeat or echo) → don't guess
+            match = index
         }
-        return nil
+        return match
     }
 
     /// Whether `needle` matches the compacted row text starting at

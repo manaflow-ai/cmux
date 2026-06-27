@@ -703,18 +703,17 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
-    // An agent that quotes the user's request as a Markdown blockquote ("> …")
-    // BELOW the real prompt must not steal the mark: since the prompt always
-    // precedes its echo, the FIRST (top-most) sigil row — the real prompt — is
-    // marked, and the later `> …` quote is left alone. Matching also survives SGR
-    // color escapes interleaved through the prompt row's message text.
-    func testScrollbackReplayMarksPromptNotLaterBlockquoteEcho() {
+    // When two rows match — e.g. an agent renders a Markdown blockquote echo of
+    // the request below the real prompt — the matcher cannot tell the prompt from
+    // the echo (`>` is both a prompt sigil and a blockquote marker, and the
+    // authoritative OSC 133 was dropped by the export), so it safely NO-OPS rather
+    // than risk marking agent output or the wrong turn.
+    func testScrollbackReplayNoOpsOnAmbiguousBlockquoteEcho() {
         let esc = "\u{001B}"
         let reset = "\(esc)[0m"
         let message = "fix the flaky test"
         let lines = [
-            // the real prompt, SGR interleaved through the message
-            "> \(esc)[1mfix\(reset) the \(esc)[4mflaky\(reset) test",
+            "> \(esc)[1mfix\(reset) the \(esc)[4mflaky\(reset) test", // real prompt
             "\(esc)[33m⏺\(reset) Here's the plan:",
             "> fix the flaky test",  // agent Markdown blockquote echo, below the prompt
             "\(esc)[32m● done\(reset)",
@@ -725,18 +724,35 @@ final class SessionPersistenceTests: XCTestCase {
             into: scrollback,
             lastUserMessage: message
         )
+
+        XCTAssertFalse(marked.contains("\(esc)]133;A"), "ambiguous match must not inject any mark")
+        XCTAssertEqual(marked, scrollback, "ambiguous match must leave the scrollback unchanged")
+    }
+
+    // A single (unambiguous) prompt row is marked even when SGR color escapes are
+    // interleaved through its message text.
+    func testScrollbackReplayMarksSinglePromptThroughInterleavedSGR() {
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let message = "fix the flaky test"
+        let lines = [
+            "\(esc)[1mready\(reset)",
+            "> \(esc)[1mfix\(reset) the \(esc)[4mflaky\(reset) test", // unique SGR-interleaved prompt
+            "\(esc)[32m● done\(reset)",
+        ]
+        let scrollback = lines.joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
         let markedLines = marked.components(separatedBy: "\n")
 
-        XCTAssertEqual(markedLines.count, 4)
         XCTAssertTrue(
-            markedLines[0].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
-            "the real prompt (earliest sigil row) must be marked, got: \(markedLines[0])"
+            markedLines[1].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
+            "the unique SGR-interleaved prompt row must be marked, got: \(markedLines[1])"
         )
-        XCTAssertFalse(markedLines[2].contains("\(esc)]133;A"), "a later blockquote echo must not be marked")
-        // Exactly one marker is injected.
-        XCTAssertEqual(
-            marked.components(separatedBy: "\(esc)]133;A").count - 1, 1
-        )
+        XCTAssertEqual(marked.components(separatedBy: "\(esc)]133;A").count - 1, 1)
     }
 
     // A long prompt soft-wraps across several captured rows. The marker must
