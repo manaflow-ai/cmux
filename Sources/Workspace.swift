@@ -2708,7 +2708,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         titleModel.attach(host: self)
         appearanceModel.attach(host: self)
         contextMenuCoordinator.attach(host: self)
-        bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
+        bonsplitController.contextMenuShortcuts = TabContextAction.contextMenuShortcuts()
 
         // Remove the default "Welcome" tab that bonsplit creates
         let welcomeTabIds = bonsplitController.allTabIds
@@ -8047,24 +8047,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             includeGeometry: true
         )
         return true
-    }
-
-    // MARK: - Context Menu Shortcuts
-
-    static func buildContextMenuShortcuts() -> [TabContextAction: KeyboardShortcut] {
-        var shortcuts: [TabContextAction: KeyboardShortcut] = [:]
-        let mappings: [(TabContextAction, KeyboardShortcutSettings.Action)] = [
-            (.rename, .renameTab),
-            (.toggleZoom, .toggleSplitZoom),
-            (.newTerminalToRight, .newSurface),
-        ]
-        for (contextAction, settingsAction) in mappings {
-            let stored = KeyboardShortcutSettings.shortcut(for: settingsAction)
-            if let key = stored.keyEquivalent {
-                shortcuts[contextAction] = KeyboardShortcut(key, modifiers: stored.eventModifiers)
-            }
-        }
-        return shortcuts
     }
 
     // MARK: - Flash/Notification Support

@@ -9,6 +9,13 @@ import WebKit
 /// coordinator keeps in sync at bind time.
 @MainActor
 final class MarkdownImageSchemeHandler: NSObject, WKURLSchemeHandler {
+    /// Custom URL scheme for local-filesystem image requests, scoped to the
+    /// markdown file's own directory.
+    nonisolated static let localImageURLScheme = "cmux-local-image"
+    /// Custom URL scheme for remote (http/https) image requests proxied through
+    /// the renderer's remote-image fetcher.
+    nonisolated static let remoteImageURLScheme = "cmux-remote-image"
+
     /// Absolute path of the markdown file being rendered. Used to scope local
     /// image requests to the file's own directory. Mirrored from the renderer
     /// coordinator whenever it rebinds.
@@ -86,7 +93,7 @@ final class MarkdownImageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     private func imageLoadTask(for requestURL: URL) -> Task<ImageLoadResult, Never> {
         let scheme = requestURL.scheme?.lowercased()
-        if scheme == MarkdownWebRenderer.localImageURLScheme {
+        if scheme == Self.localImageURLScheme {
             let fileURL = localImageFileURL(from: requestURL)
             let mimeType = fileURL
                 .flatMap { self.localImageMimeType(for: $0.pathExtension) } ?? "image/png"
@@ -100,7 +107,7 @@ final class MarkdownImageSchemeHandler: NSObject, WKURLSchemeHandler {
             }
         }
 
-        if scheme == MarkdownWebRenderer.remoteImageURLScheme {
+        if scheme == Self.remoteImageURLScheme {
             let remoteURL = MarkdownRemoteImageSecurity.remoteImageURL(from: requestURL)
             return Task.detached(priority: .userInitiated) {
                 guard let remoteURL,
@@ -117,7 +124,7 @@ final class MarkdownImageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     private func localImageFileURL(from requestURL: URL) -> URL? {
-        guard requestURL.scheme?.lowercased() == MarkdownWebRenderer.localImageURLScheme,
+        guard requestURL.scheme?.lowercased() == Self.localImageURLScheme,
               let components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false),
               let rawFileURL = components.queryItems?.first(where: { $0.name == "url" })?.value,
               let fileURL = URL(string: rawFileURL),

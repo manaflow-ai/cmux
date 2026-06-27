@@ -691,7 +691,7 @@ final class MarkdownPanelTests: XCTestCase {
         let configuration = WKWebViewConfiguration()
         let coordinator = MarkdownWebRenderer.Coordinator()
         coordinator.filePath = markdownURL.path
-        configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
+        configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownImageSchemeHandler.localImageURLScheme)
         let webView = MarkdownWebView(frame: frame, configuration: configuration)
         coordinator.webView = webView
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -762,7 +762,7 @@ final class MarkdownPanelTests: XCTestCase {
         try Self.onePixelPNG.write(to: imageURL)
 
         var components = URLComponents()
-        components.scheme = MarkdownWebRenderer.localImageURLScheme
+        components.scheme = MarkdownImageSchemeHandler.localImageURLScheme
         components.host = "image"
         components.queryItems = [URLQueryItem(name: "url", value: imageURL.absoluteString)]
         let localImageURL = try XCTUnwrap(components.url)
@@ -831,8 +831,8 @@ final class MarkdownPanelTests: XCTestCase {
         let coordinator = MarkdownWebRenderer.Coordinator()
         let remoteImageHandler = MarkdownRemoteImageHoldingSchemeHandler()
         coordinator.filePath = markdownURL.path
-        configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
-        configuration.setURLSchemeHandler(remoteImageHandler, forURLScheme: MarkdownWebRenderer.remoteImageURLScheme)
+        configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownImageSchemeHandler.localImageURLScheme)
+        configuration.setURLSchemeHandler(remoteImageHandler, forURLScheme: MarkdownImageSchemeHandler.remoteImageURLScheme)
         let webView = MarkdownWebView(frame: frame, configuration: configuration)
         coordinator.webView = webView
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)

@@ -276,10 +276,7 @@ final class MobileHostService {
     #endif
 
     nonisolated static func isListeningEnabled(defaults: UserDefaults) -> Bool {
-        if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
-            return override
-        }
-        return SettingCatalog().mobile.iOSPairingHost.defaultValue
+        MobileHostListenerSettings(defaults: defaults).isListeningEnabled
     }
 
     /// User-default key for the preferred iOS pairing listener port.
@@ -293,11 +290,7 @@ final class MobileHostService {
     /// `1...65535` range. The listener still falls back to an OS-assigned
     /// ephemeral port if this port is unavailable at bind time.
     nonisolated static func configuredPort(defaults: UserDefaults = .standard) -> Int {
-        let fallback = SettingCatalog().mobile.iOSPairingPort.defaultValue
-        guard let raw = defaults.object(forKey: portDefaultsKey) as? Int else {
-            return fallback
-        }
-        return (1...65535).contains(raw) ? raw : fallback
+        MobileHostListenerSettings(defaults: defaults).configuredPort
     }
 
     /// The port a settings change should reconcile the *running* listener to, or
