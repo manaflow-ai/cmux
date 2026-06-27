@@ -353,6 +353,39 @@ struct MobileHostAuthorizationTests {
         }
         #expect(error.code == "unauthorized")
     }
+    @Test func testValidAttachTokenAuthorizesCoveredWorkspaceListWithoutStackAuth() async throws {
+        let service = MobileHostService.shared
+        service.debugResetMobileLifecycleStateForTesting()
+        let generation = UUID()
+        service.debugSetListenerStateForTesting(
+            generation: generation,
+            usesEphemeralFallback: true,
+            port: CmxMobileDefaults.defaultHostPort
+        )
+        defer { service.debugResetMobileLifecycleStateForTesting() }
+
+        let payload = try await service.createAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            ttl: 3600,
+            routeKind: CmxAttachTransportKind.debugLoopback.rawValue
+        )
+        let ticketObject = try #require(payload["ticket"] as? [String: Any])
+        let authToken = try #require(ticketObject["auth_token"] as? String)
+        let request = MobileHostRPCRequest(
+            id: "workspace-list",
+            method: "workspace.list",
+            params: [:],
+            auth: MobileHostRPCAuth(
+                attachToken: authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let result = await service.debugAuthorizationError(for: request)
+
+        #expect(result == nil)
+    }
     @Test func testScopedAttachTicketRejectsWorkspaceAliasIgnoredByHandlers() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
         let request = MobileHostRPCRequest(
