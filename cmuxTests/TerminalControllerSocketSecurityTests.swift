@@ -132,8 +132,8 @@ final class TerminalControllerSocketSecurityTests {
         recordDownloadEvent("ready_to_save", id: "download-1", surfaceId: surfaceId)
         XCTAssertNil(controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId))
         recordDownloadEvent("saved", id: "download-1", surfaceId: surfaceId, path: "/tmp/report.csv")
-        let saved = controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId)
-        XCTAssertEqual(saved?["type"] as? String, "saved")
+        for index in 0...140 { recordDownloadEvent("started", id: "started-\(index)", surfaceId: surfaceId) }
+        let saved = controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId); XCTAssertEqual(saved?["type"] as? String, "saved")
         XCTAssertEqual(saved?["path"] as? String, "/tmp/report.csv")
         XCTAssertNil(controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId))
     }

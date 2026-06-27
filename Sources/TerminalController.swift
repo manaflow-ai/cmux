@@ -8613,7 +8613,7 @@ class TerminalController {
     }
 
     func v2RecordBrowserDownloadEvent(surfaceId: UUID, event: [String: Any]) {
-        guard v2ShouldStoreBrowserDownloadEvent(event, surfaceId: surfaceId) else { return }
+        guard v2ShouldStoreBrowserDownloadEvent(event, surfaceId: surfaceId), (event["type"] as? String) != "started" else { return }
         var queue = v2BrowserDownloadEventsBySurface[surfaceId] ?? []
         if v2IsTerminalBrowserDownloadEvent(event),
            let downloadID = v2DownloadID(from: event) {
@@ -8629,8 +8629,7 @@ class TerminalController {
         while !remaining.isEmpty {
             let first = remaining.removeFirst()
             v2BrowserDownloadEventsBySurface[surfaceId] = remaining
-            guard v2ShouldStoreBrowserDownloadEvent(first, surfaceId: surfaceId) else { continue }
-            guard (first["type"] as? String) != "started" else { continue }
+            guard v2ShouldStoreBrowserDownloadEvent(first, surfaceId: surfaceId), (first["type"] as? String) != "started" else { continue }
             v2MarkBrowserDownloadEventConsumed(first, surfaceId: surfaceId)
             return first
         }

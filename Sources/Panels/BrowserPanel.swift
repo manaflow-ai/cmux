@@ -8427,7 +8427,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
                 } else {
                     try FileManager.default.moveItem(at: tempURL, to: destURL)
                 }
-                self?.onDownloadSaved?(suggestedFilename, destURL, false, downloadID)
+                try destURL.cmuxApplyWebDownloadQuarantine(sourceURL: sourceURL); self?.onDownloadSaved?(suggestedFilename, destURL, false, downloadID)
             } catch {
                 try? FileManager.default.removeItem(at: tempURL)
                 self?.onDownloadFailed?(error, false, downloadID)
