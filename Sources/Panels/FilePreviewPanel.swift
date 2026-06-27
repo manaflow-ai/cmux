@@ -1237,11 +1237,16 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             return
         case .loaded(let content, let encoding):
             if !replacingDirtyContent && isDirty {
+                let canApplyPendingNavigation = textContent == content
                 originalTextContent = content
                 textEncoding = encoding
                 isFileUnavailable = false
                 hasLoadedTextContent = true
-                applyPendingTextNavigationIfReady()
+                if canApplyPendingNavigation {
+                    applyPendingTextNavigationIfReady()
+                } else {
+                    pendingTextNavigation = nil
+                }
                 return
             }
             textContent = content

@@ -133,6 +133,38 @@ struct FilePreviewTextEditorTextKitTests {
 
         #expect(textView.selectedRange().location == 0)
     }
+
+    @Test("loaded dirty buffer clears pending search navigation when content differs")
+    func loadedDirtyBufferClearsPendingSearchNavigationWhenContentDiffers() async throws {
+        let onDiskContent = "first\nneedle\n"
+        let loader = PreviewTextLoaderStub(result: .loaded(onDiskContent, .utf8))
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-preview-dirty-loaded-navigation-\(UUID().uuidString)")
+            .appendingPathExtension("swift")
+        try onDiskContent.write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            textLoader: loader.load
+        )
+        defer { panel.close() }
+
+        await panel.loadTextContent().value
+        panel.updateTextContent("dirty\nfirst\nneedle\n")
+        #expect(panel.isDirty)
+
+        panel.navigateToTextPosition(lineNumber: 2, columnNumber: 1)
+        await panel.loadTextContent(replacingDirtyContent: false).value
+
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = panel.textContent
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        panel.attachTextView(textView)
+
+        #expect(textView.selectedRange().location == 0)
+    }
 }
 
 private final class PreviewTextLoaderStub: @unchecked Sendable {
