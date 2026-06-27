@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import WebKit
 
@@ -108,10 +109,11 @@ final class MarkdownImageSchemeHandler: NSObject, WKURLSchemeHandler {
         }
 
         if scheme == Self.remoteImageURLScheme {
-            let remoteURL = MarkdownRemoteImageSecurity.remoteImageURL(from: requestURL)
+            let security = MarkdownRemoteImageSecurity(remoteImageURLScheme: Self.remoteImageURLScheme)
+            let remoteURL = security.remoteImageURL(from: requestURL)
             return Task.detached(priority: .userInitiated) {
                 guard let remoteURL,
-                      let fetched = await MarkdownRemoteImageFetcher.fetch(remoteURL) else {
+                      let fetched = await MarkdownRemoteImageFetcher.fetch(remoteURL, security: security) else {
                     return ImageLoadResult(data: Data(), mimeType: "image/png")
                 }
                 return ImageLoadResult(data: fetched.data, mimeType: fetched.mimeType)

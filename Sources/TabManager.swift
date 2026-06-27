@@ -4579,10 +4579,6 @@ extension Notification.Name {
     static let commandPaletteRenameInputInteractionRequested = CommandPaletteSignal.renameInputInteraction.notificationName
     static let commandPaletteRenameInputDeleteBackwardRequested = CommandPaletteSignal.renameInputDeleteBackward.notificationName
     static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
-    static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
-    static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
-    static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
-    static let ghosttyDidBecomeFirstResponderSurface = Notification.Name("ghosttyDidBecomeFirstResponderSurface")
     static let browserDidBecomeFirstResponderWebView = BrowserFirstResponderEvent.notificationName
     static let browserFocusAddressBar = BrowserOmnibarFocusSignal.focusAddressBar.notificationName
     static let browserMoveOmnibarSelection = BrowserOmnibarFocusSignal.moveSelection.notificationName

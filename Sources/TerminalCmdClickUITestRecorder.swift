@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxSettings
+import CmuxTerminal
 import CmuxTestSupport
 import Foundation
 import GhosttyKit

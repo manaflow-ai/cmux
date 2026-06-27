@@ -341,7 +341,12 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     // MARK: - Insecure HTTP prompt (parity with main browser)
 
     /// Shows the same 3-button insecure HTTP alert as the main browser.
-    /// Reuses the global helpers from BrowserPanel.swift.
+    ///
+    /// The host is normalized here and the user-facing strings are resolved
+    /// app-side (so `String(localized:)` binds to the app bundle's `.xcstrings`,
+    /// preserving translations); the resolved strings and host are handed to
+    /// `BrowserInsecureHTTPAlertPresenter` in CmuxBrowser, which owns the AppKit
+    /// alert presentation and allowlist-persistence decision.
     fileprivate func presentInsecureHTTPAlert(
         for url: URL,
         in webView: WKWebView,
@@ -352,41 +357,14 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure")
-        alert.informativeText = String(localized: "browser.error.insecure.message", defaultValue: "\(host) uses plain HTTP, so traffic can be read or modified on the network.\n\nOpen this URL in your default browser, or proceed in cmux.")
-        alert.addButton(withTitle: String(localized: "browser.openInDefaultBrowser", defaultValue: "Open in Default Browser"))
-        alert.addButton(withTitle: String(localized: "browser.proceedInCmux", defaultValue: "Proceed in cmux"))
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = String(localized: "browser.alwaysAllowHost", defaultValue: "Always allow this host in cmux")
-
-        let handleResponse: (NSApplication.ModalResponse) -> Void = { [weak alert] response in
-            if browserShouldPersistInsecureHTTPAllowlistSelection(
-                response: response,
-                suppressionEnabled: alert?.suppressionButton?.state == .on
-            ) {
-                BrowserInsecureHTTPSettings.addAllowedHost(host)
-            }
-            switch response {
-            case .alertFirstButtonReturn:
-                // Open in default browser, cancel popup navigation
-                NSWorkspace.shared.open(url)
-                decisionHandler(.cancel)
-            case .alertSecondButtonReturn:
-                // Proceed in popup
-                decisionHandler(.allow)
-            default:
-                decisionHandler(.cancel)
-            }
-        }
-
-        if let window = webView.window {
-            alert.beginSheetModal(for: window, completionHandler: handleResponse)
-            return
-        }
-        handleResponse(alert.runModal())
+        BrowserInsecureHTTPAlertPresenter(
+            messageText: String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure"),
+            informativeText: String(localized: "browser.error.insecure.message", defaultValue: "\(host) uses plain HTTP, so traffic can be read or modified on the network.\n\nOpen this URL in your default browser, or proceed in cmux."),
+            openInDefaultBrowserButtonTitle: String(localized: "browser.openInDefaultBrowser", defaultValue: "Open in Default Browser"),
+            proceedInCmuxButtonTitle: String(localized: "browser.proceedInCmux", defaultValue: "Proceed in cmux"),
+            cancelButtonTitle: String(localized: "common.cancel", defaultValue: "Cancel"),
+            alwaysAllowHostButtonTitle: String(localized: "browser.alwaysAllowHost", defaultValue: "Always allow this host in cmux")
+        ).present(for: url, host: host, in: webView, decisionHandler: decisionHandler)
     }
 }
 
