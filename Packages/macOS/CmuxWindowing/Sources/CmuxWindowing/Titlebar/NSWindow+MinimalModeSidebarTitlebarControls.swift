@@ -85,7 +85,7 @@ extension NSWindow {
     // reachable from the `nonisolated` availability accessors below (their
     // app-target callers are non-isolated free functions).
     private nonisolated(unsafe) static let minimalModeSidebarTitlebarControlsAvailableToken = NSObject()
-    private nonisolated static let minimalModeSidebarTitlebarControlsAvailableKey =
+    private nonisolated(unsafe) static let minimalModeSidebarTitlebarControlsAvailableKey =
         UnsafeRawPointer(Unmanaged.passUnretained(minimalModeSidebarTitlebarControlsAvailableToken).toOpaque())
 
     /// Records whether the minimal-mode sidebar titlebar controls are currently
