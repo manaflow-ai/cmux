@@ -4213,31 +4213,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    /// Focuses the main window for `windowId`. Forwards to ``windowLifecycle``;
+    /// the window resolve, visibility-controller focus, and lifecycle publish
+    /// stay app-side witnesses behind the seam.
     func focusMainWindow(windowId: UUID) -> Bool {
-        guard let window = windowForMainWindowId(windowId) else { return false }
-        let didFocus = mainWindowVisibilityController.focus(window, reason: .focusMainWindow)
-        if didFocus {
-            publishCmuxWindowLifecycle(name: "window.focused", windowId: windowId, origin: "focus_request")
-        }
-        return didFocus
+        windowLifecycle.focusMainWindow(windowId: windowId)
     }
 
+    /// Closes the main window for `windowId`, suppressing closed-window history
+    /// when `recordHistory` is false. Forwards to ``windowLifecycle``, which owns
+    /// the suppression set; the `performClose` stays an app-side witness.
     func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
-        guard let window = windowForMainWindowId(windowId) else { return false }
-        if !recordHistory {
-            closedWindowHistorySuppressedWindowIds.insert(windowId)
-        }
-        window.performClose(nil)
-        return true
+        windowLifecycle.closeMainWindow(windowId: windowId, recordHistory: recordHistory)
     }
 
+    /// Discards the main window for `windowId` without recording closed-window
+    /// history. Forwards to ``windowLifecycle``; the `close` stays an app-side
+    /// witness.
     func discardMainWindowWithoutClosedHistory(windowId: UUID) {
-        guard let window = windowForMainWindowId(windowId) else { return }
-        closedWindowHistorySuppressedWindowIds.insert(windowId)
-        window.close()
+        windowLifecycle.discardMainWindowWithoutClosedHistory(windowId: windowId)
     }
 
-    private func confirmCloseMainWindow(_ window: NSWindow) -> Bool {
+    /// Presents the close-window confirmation alert for `window` and returns the
+    /// user's decision. The ``WindowLifecycleHosting`` witness for the app-side
+    /// `NSAlert` plus its localized strings (and the DEBUG confirmation hook).
+    func confirmCloseMainWindow(_ window: NSWindow) -> Bool {
 #if DEBUG
         if let debugCloseMainWindowConfirmationHandler {
             return debugCloseMainWindowConfirmationHandler(window)
@@ -4266,15 +4266,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return alert.runModal() == .alertFirstButtonReturn
     }
 
+    /// Closes `window` with a confirmation prompt for main terminal windows.
+    /// Forwards to ``windowLifecycle``; the confirmation alert and the close stay
+    /// app-side witnesses.
     @discardableResult
     func closeWindowWithConfirmation(_ window: NSWindow) -> Bool {
-        guard isMainTerminalWindow(window) else {
-            window.performClose(nil)
-            return true
-        }
-        guard confirmCloseMainWindow(window) else { return true }
-        window.performClose(nil)
-        return true
+        windowLifecycle.closeWindowWithConfirmation(window)
     }
 
     private func orderedMainWindowSummaries(referenceWindowId: UUID?) -> [MainWindowSummary] {
@@ -10885,6 +10882,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `appkit_close` origin. The ``WindowLifecycleHosting`` teardown witness.
     func publishMainWindowClosed(windowId: UUID) {
         publishCmuxWindowLifecycle(name: "window.closed", windowId: windowId, origin: "appkit_close")
+    }
+
+    /// Focuses `window` for an explicit focus request via the visibility
+    /// controller, returning whether it took. The ``WindowLifecycleHosting``
+    /// focus witness; the coordinator owns the publish decision.
+    func focusMainWindowForFocusRequest(_ window: NSWindow) -> Bool {
+        mainWindowVisibilityController.focus(window, reason: .focusMainWindow)
+    }
+
+    /// Publishes the `window.focused` cmux lifecycle event for `windowId` with the
+    /// `focus_request` origin. The ``WindowLifecycleHosting`` focus witness.
+    func publishMainWindowFocused(windowId: UUID) {
+        publishCmuxWindowLifecycle(name: "window.focused", windowId: windowId, origin: "focus_request")
+    }
+
+    /// Sends `window` the standard AppKit close (routes through the should-close
+    /// gate). The ``WindowLifecycleHosting`` close witness.
+    func performMainWindowClose(_ window: NSWindow) {
+        window.performClose(nil)
+    }
+
+    /// Closes `window` immediately, bypassing the should-close gate, for the
+    /// discard-without-history path. The ``WindowLifecycleHosting`` close witness.
+    func closeMainWindowImmediately(_ window: NSWindow) {
+        window.close()
     }
 
     /// Removes `windowId` from the command-palette presentation coordinator. The

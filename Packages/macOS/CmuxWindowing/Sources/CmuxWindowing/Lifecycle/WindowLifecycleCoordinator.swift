@@ -565,4 +565,58 @@ public final class WindowLifecycleCoordinator<Host: WindowLifecycleHosting> {
         // one-by-one, dropping closed windows and replay (policy in the witness).
         host.saveSessionSnapshotOnWindowUnregisterIfNeeded()
     }
+
+    // MARK: - Focus + close decisions
+
+    /// Focuses the main window registered under `windowId`, publishing the
+    /// `window.focused` lifecycle event when the focus actually took. Returns
+    /// whether a window was found and focused. The window resolve, the
+    /// visibility-controller focus, and the lifecycle publish stay app-side
+    /// witnesses behind the seam.
+    public func focusMainWindow(windowId: UUID) -> Bool {
+        guard let host, let window = host.windowForMainWindowId(windowId) else { return false }
+        let didFocus = host.focusMainWindowForFocusRequest(window)
+        if didFocus {
+            host.publishMainWindowFocused(windowId: windowId)
+        }
+        return didFocus
+    }
+
+    /// Closes the main window registered under `windowId`. When `recordHistory`
+    /// is false the window's closed-window undo history is suppressed for this
+    /// close via the coordinator-owned suppression set. Returns whether a window
+    /// was found to close. The `performClose` stays an app-side witness.
+    public func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
+        guard let host, let window = host.windowForMainWindowId(windowId) else { return false }
+        if !recordHistory {
+            insertSuppressedWindowId(windowId)
+        }
+        host.performMainWindowClose(window)
+        return true
+    }
+
+    /// Discards the main window registered under `windowId` without recording
+    /// closed-window history: suppresses its history, then closes immediately.
+    /// The `close` stays an app-side witness.
+    public func discardMainWindowWithoutClosedHistory(windowId: UUID) {
+        guard let host, let window = host.windowForMainWindowId(windowId) else { return }
+        insertSuppressedWindowId(windowId)
+        host.closeMainWindowImmediately(window)
+    }
+
+    /// Closes `window` after a confirmation prompt when it is a main terminal
+    /// window; non-main windows close directly. Always returns `true` (the bool
+    /// only signals the menu the command was handled). The confirmation alert and
+    /// the close stay app-side witnesses.
+    @discardableResult
+    public func closeWindowWithConfirmation(_ window: NSWindow) -> Bool {
+        guard let host else { return true }
+        guard host.isMainTerminalWindow(window) else {
+            host.performMainWindowClose(window)
+            return true
+        }
+        guard host.confirmCloseMainWindow(window) else { return true }
+        host.performMainWindowClose(window)
+        return true
+    }
 }

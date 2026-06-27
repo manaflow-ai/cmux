@@ -258,4 +258,28 @@ public protocol WindowLifecycleHosting: AnyObject {
     /// `nil` if nothing was registered under `id`. The coordinator drops the
     /// matching reverse-index entry around this call.
     func removeWindowModelSlices(for id: WindowID) -> (tabManager: WindowTabManagerModel, focusController: WindowFocusModel?)?
+
+    // MARK: - Focus + close decision seam
+
+    /// Focuses `window` for an explicit focus request, returning whether the
+    /// app-side visibility controller actually brought it forward (the
+    /// `.focusMainWindow` reason). The live `NSWindow` focus stays app-side.
+    func focusMainWindowForFocusRequest(_ window: NSWindow) -> Bool
+
+    /// Publishes the `window.focused` cmux lifecycle event for `windowId` with the
+    /// `focus_request` origin, after a focus request actually took.
+    func publishMainWindowFocused(windowId: UUID)
+
+    /// Sends `window` the standard AppKit close (`performClose`), which routes
+    /// through the should-close gate. The live `NSWindow` close stays app-side.
+    func performMainWindowClose(_ window: NSWindow)
+
+    /// Closes `window` immediately (`close`), bypassing the should-close gate, for
+    /// the discard-without-history path. The live `NSWindow` close stays app-side.
+    func closeMainWindowImmediately(_ window: NSWindow)
+
+    /// Presents the close-window confirmation alert for `window` and returns
+    /// whether the user confirmed the close. The live `NSAlert` plus its
+    /// localized strings stay app-side (with the DEBUG confirmation-handler hook).
+    func confirmCloseMainWindow(_ window: NSWindow) -> Bool
 }
