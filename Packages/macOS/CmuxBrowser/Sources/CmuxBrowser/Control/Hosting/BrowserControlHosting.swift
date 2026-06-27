@@ -77,6 +77,18 @@ public protocol BrowserControlHosting: AnyObject {
         timeoutMs: Int
     ) -> BrowserWaitOutcome
 
+    /// Resolves the app-side context for a `browser.download.wait` command (the
+    /// owning workspace id + ref, the target browser surface id + ref, and any
+    /// already-queued download event) on the main actor, returning the failure
+    /// result inline when resolution fails.
+    ///
+    /// Runs on the worker lane; the live `TabManager` / `Workspace` resolution, the
+    /// handle-ref minting, and the queued-event pop hop to the main actor inside the
+    /// witness. The package-side worker
+    /// (``BrowserAutomationController/downloadWaitOnSocketWorker(params:host:)``)
+    /// reads this snapshot.
+    nonisolated func resolveBrowserDownloadWaitSnapshot(params: [String: Any]) -> BrowserDownloadWaitSnapshot
+
     /// Mints (or returns the existing) stable handle ref for `uuid` of the given
     /// `kind`.
     @MainActor func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String

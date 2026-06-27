@@ -190,12 +190,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// listener lane. Assigned in `init` (before `self` is usable) so the same
     /// instance is threaded into the failure closure.
     private nonisolated let socketListenerFailureThrottle: SocketListenerFailureCaptureThrottle
-    // The download-wait timeout bounds moved to `BrowserAutomationController`
-    // (CmuxBrowser); these aliases keep the worker-lane call sites byte identical.
-    private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs =
-        BrowserAutomationController.downloadWaitDefaultTimeoutMs
-    private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs =
-        BrowserAutomationController.downloadWaitMaxTimeoutMs
     /// Reference to the shared mobile-terminal viewport state machine
     /// (per-surface, per-client reported grids + TTL cleanup), whose owning model
     /// type `HostMobileViewportReportModel` lives in `CMUXMobileCore`. Lazily
@@ -877,7 +871,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             // semaphore), so no worker-thread→async bridge is needed.
             return runFeedWorker(request.control)
         case "browser.download.wait":
-            return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
+            return v2Result(id: request.id, browserAutomation.downloadWaitOnSocketWorker(params: request.params, host: self))
         case "browser.find.role", "browser.find.text", "browser.find.label",
              "browser.find.placeholder", "browser.find.alt", "browser.find.title",
              "browser.find.testid", "browser.find.first", "browser.find.last", "browser.find.nth":
@@ -2739,7 +2733,13 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     /// The enum now lives in CmuxBrowser as `BrowserWaitOutcome`; this alias keeps
     /// every existing `V2BrowserWaitOutcome` reference resolving unchanged.
-    private typealias V2BrowserWaitOutcome = BrowserWaitOutcome
+    ///
+    /// `internal` (not `private`): it is the result type of the internal
+    /// `BrowserControlHosting.v2WaitForBrowserCondition` witness, so a `private`
+    /// alias makes that witness an `internal` method returning a `private` type,
+    /// which is rejected. Matches the sibling `V2CallResult` / `V2JavaScriptResult`
+    /// aliases, which are likewise internal for the same witness reason.
+    typealias V2BrowserWaitOutcome = BrowserWaitOutcome
 
     // `v2BrowserSelector`, `v2BrowserAllocateElementRef`,
     // `v2BrowserResolveSelector`, and `v2BrowserCurrentFrameSelector` moved to
@@ -3366,102 +3366,52 @@ class TerminalController: MobileViewportSurfaceLimiting {
         .preShaped(controlBridge(browserAutomation.selectorAction(params: params, actionName: actionName, host: self, scriptBuilder: scriptBuilder)))
     }
 
-    /// The byte-faithful `v2BrowserPress` / `v2BrowserKeyDown` / `v2BrowserKeyUp`
-    /// body (they differ only by the script). The panel-head and JS failures travel
-    /// as the returned `V2CallResult` (carried pre-shaped); the success is captured
-    /// out through a `var` as a `.panelAction` the worker shapes (the head's
-    /// sentinel `.ok` is ignored), matching the legacy branch structure exactly.
+    /// Forwards the `press` / `keydown` / `keyup` interaction core to
+    /// ``BrowserAutomationController/resolveKeyEvent(params:script:host:)`` (the
+    /// panel-context body, the worker-lane JS-eval, and the post-action snapshot
+    /// moved into CmuxBrowser) and keeps the `ControlBrowserInteractionResolution`
+    /// shaping app-side. The per-key `script` is still built at the dispatch site
+    /// where the key is bound.
     private nonisolated func controlResolveBrowserKeyEvent(
         _ params: [String: Any],
         script: String
     ) -> ControlBrowserInteractionResolution {
-        var success: ControlBrowserPanelActionSuccess?
-        let panelResult = v2BrowserWithPanelContext(params: params) { ctx in
-            let surfaceId = ctx.surfaceId
-            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success:
-                var postPayload: [String: Any] = [:]
-                v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &postPayload)
-                success = ControlBrowserPanelActionSuccess(
-                    workspaceID: ctx.workspaceId,
-                    workspaceRef: (v2Ref(kind: .workspace, uuid: ctx.workspaceId) as? String) ?? ctx.workspaceId.uuidString,
-                    surfaceID: surfaceId,
-                    surfaceRef: (v2Ref(kind: .surface, uuid: surfaceId) as? String) ?? surfaceId.uuidString,
-                    postSnapshot: postPayload.compactMapValues { JSONValue(foundationObject: $0) }
-                )
-                return .ok(NSNull())
-            }
-        }
-        if let success {
-            return .panelAction(success)
-        }
-        return .preShaped(controlBridge(panelResult))
+        shapeBrowserPanelActionOutcome(
+            browserAutomation.resolveKeyEvent(params: params, script: script, host: self)
+        )
     }
 
-    /// The byte-faithful `v2BrowserScroll` body. The panel-head/ref-not-found/JS/
-    /// not-found-diagnostics branches are carried pre-shaped (they reuse shared
-    /// app-side helpers); the window-vs-element success is a `.panelAction` the
-    /// worker shapes, captured out through a `var` like `controlResolveBrowserKeyEvent`.
+    /// Forwards the `scroll` interaction core to
+    /// ``BrowserAutomationController/resolveScroll(params:dx:dy:host:)`` (the
+    /// selector resolution, the window-vs-element script build, the worker-lane
+    /// JS-eval, the not-found diagnostics, and the post-action snapshot moved into
+    /// CmuxBrowser) and keeps the `ControlBrowserInteractionResolution` shaping
+    /// app-side.
     private nonisolated func controlResolveBrowserScroll(
         _ params: [String: Any],
         dx: Int,
         dy: Int
     ) -> ControlBrowserInteractionResolution {
-        let selectorRaw = browserAutomation.selector(in: params)
+        shapeBrowserPanelActionOutcome(
+            browserAutomation.resolveScroll(params: params, dx: dx, dy: dy, host: self)
+        )
+    }
 
-        var success: ControlBrowserPanelActionSuccess?
-        let panelResult = v2BrowserWithPanelContext(params: params) { ctx in
-            let surfaceId = ctx.surfaceId
-            let selector = selectorRaw.flatMap { browserAutomation.resolveSelector($0, surfaceId: surfaceId) }
-            if selectorRaw != nil && selector == nil {
-                return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw ?? ""])
-            }
-
-            let script: String
-            if let selector {
-                script = v2BrowserControl.scrollElementScript(selectorLiteral: v2JSONLiteral(selector), dx: dx, dy: dy)
-            } else {
-                script = v2BrowserControl.scrollWindowScript(dx: dx, dy: dy)
-            }
-
-            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success(let value):
-                if let dict = value as? [String: Any],
-                   let ok = dict["ok"] as? Bool,
-                   !ok,
-                   let errorText = dict["error"] as? String,
-                   errorText == "not_found" {
-                    if let selector {
-                        return v2BrowserElementNotFoundResult(
-                            actionName: "scroll",
-                            selector: selector,
-                            attempts: 1,
-                            surfaceId: surfaceId,
-                            browserPanel: ctx.browserPanel
-                        )
-                    }
-                    return .err(code: "not_found", message: "Element not found", data: ["selector": selector ?? ""])
-                }
-                var postPayload: [String: Any] = [:]
-                v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &postPayload)
-                success = ControlBrowserPanelActionSuccess(
-                    workspaceID: ctx.workspaceId,
-                    workspaceRef: (v2Ref(kind: .workspace, uuid: ctx.workspaceId) as? String) ?? ctx.workspaceId.uuidString,
-                    surfaceID: surfaceId,
-                    surfaceRef: (v2Ref(kind: .surface, uuid: surfaceId) as? String) ?? surfaceId.uuidString,
-                    postSnapshot: postPayload.compactMapValues { JSONValue(foundationObject: $0) }
-                )
-                return .ok(NSNull())
-            }
-        }
-        if let success {
+    /// Shapes a package-resolved ``BrowserPanelActionOutcome`` into the
+    /// `ControlBrowserInteractionResolution` the worker consumes: a success becomes
+    /// the `.panelAction` the worker shapes from the resolved identity + post-action
+    /// snapshot, and a failure is bridged verbatim into `.preShaped`. This is the
+    /// `press`/`keydown`/`keyup`/`scroll` half of the shaping the legacy bodies did
+    /// inline.
+    private nonisolated func shapeBrowserPanelActionOutcome(
+        _ outcome: BrowserPanelActionOutcome
+    ) -> ControlBrowserInteractionResolution {
+        switch outcome {
+        case .success(let success):
             return .panelAction(success)
+        case .failure(let result):
+            return .preShaped(controlBridge(result))
         }
-        return .preShaped(controlBridge(panelResult))
     }
 
     /// Bridges an app-side `V2CallResult` to the package's typed `ControlCallResult`,
@@ -3694,115 +3644,21 @@ class TerminalController: MobileViewportSurfaceLimiting {
         )
     }
 
-    private struct V2BrowserDownloadWaitSnapshot {
-        let workspaceId: UUID
-        let workspaceRef: Any
-        let surfaceId: UUID
-        let surfaceRef: Any
-        let queuedEvent: [String: Any]?
-        let error: V2CallResult?
-    }
-
-    private nonisolated func v2BrowserDownloadWaitOnSocketWorker(params: [String: Any]) -> V2CallResult {
-        let requestedTimeoutMs = max(
-            1,
-            Self.v2WorkerInt(params, "timeout_ms") ??
-                Self.v2WorkerInt(params, "timeout") ??
-                Self.v2BrowserDownloadWaitDefaultTimeoutMs
-        )
-        let timeoutMs = min(requestedTimeoutMs, Self.v2BrowserDownloadWaitMaxTimeoutMs)
-        let timeout = Double(timeoutMs) / 1000.0
-        let path = Self.v2WorkerString(params, "path")
-
-        let snapshot = v2BrowserDownloadWaitSnapshot(params: params)
-        if let error = snapshot.error {
-            return error
-        }
-
-        if let path {
-            switch BrowserDownloadFileWaiter().wait(forDownloadAt: path, timeout: timeout) {
-            case .ready:
-                break
-            case .timeout:
-                return .err(
-                    code: "timeout",
-                    message: "Timed out waiting for download file",
-                    data: [
-                        "path": path,
-                        "timeout_ms": timeoutMs,
-                        "requested_timeout_ms": requestedTimeoutMs
-                    ]
-                )
-            case .watcherSetupFailed(let errnoCode):
-                return .err(
-                    code: "internal_error",
-                    message: "Failed to watch download path",
-                    data: ["path": path, "errno": Int(errnoCode)]
-                )
-            }
-            return .ok([
-                "workspace_id": snapshot.workspaceId.uuidString,
-                "workspace_ref": snapshot.workspaceRef,
-                "surface_id": snapshot.surfaceId.uuidString,
-                "surface_ref": snapshot.surfaceRef,
-                "path": path,
-                "downloaded": true
-            ])
-        }
-
-        if let queuedEvent = snapshot.queuedEvent {
-            return .ok([
-                "workspace_id": snapshot.workspaceId.uuidString,
-                "workspace_ref": snapshot.workspaceRef,
-                "surface_id": snapshot.surfaceId.uuidString,
-                "surface_ref": snapshot.surfaceRef,
-                "download": queuedEvent
-            ])
-        }
-
-        guard let downloadEvent = browserAutomation.waitForDownloadEvent(surfaceId: snapshot.surfaceId, timeout: timeout) else {
-            return .err(
-                code: "timeout",
-                message: "No download event observed",
-                data: [
-                    "timeout_ms": timeoutMs,
-                    "requested_timeout_ms": requestedTimeoutMs
-                ]
-            )
-        }
-        return .ok([
-            "workspace_id": snapshot.workspaceId.uuidString,
-            "workspace_ref": snapshot.workspaceRef,
-            "surface_id": snapshot.surfaceId.uuidString,
-            "surface_ref": snapshot.surfaceRef,
-            "download": downloadEvent
-        ])
-    }
-
-    private nonisolated static func v2WorkerString(_ params: [String: Any], _ key: String) -> String? {
-        guard let raw = params[key] as? String else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private nonisolated static func v2WorkerInt(_ params: [String: Any], _ key: String) -> Int? {
-        if let intValue = params[key] as? Int {
-            return intValue
-        }
-        if let number = params[key] as? NSNumber {
-            return number.intValue
-        }
-        if let raw = v2WorkerString(params, key) {
-            return Int(raw)
-        }
-        return nil
-    }
-
-    private nonisolated func v2BrowserDownloadWaitSnapshot(params: [String: Any]) -> V2BrowserDownloadWaitSnapshot {
+    /// Witnesses ``BrowserControlHosting/resolveBrowserDownloadWaitSnapshot(params:)``
+    /// for the package-side `browser.download.wait` worker: resolves the owning
+    /// workspace + browser surface (and their handle refs), and pops any
+    /// already-queued download event, all on the main actor inside `v2MainSync`.
+    /// The byte-faithful body of the former app-side `v2BrowserDownloadWaitSnapshot`,
+    /// returning the package-side ``BrowserDownloadWaitSnapshot``; it reaches live
+    /// `TabManager` / `Workspace` state no package can name, so it stays app-side
+    /// behind the seam. The shared `path`-presence parser
+    /// (``BrowserAutomationController/downloadWaitString(_:_:)``) decides whether to
+    /// pop a queued event, matching the worker's own `path` read.
+    nonisolated func resolveBrowserDownloadWaitSnapshot(params: [String: Any]) -> BrowserDownloadWaitSnapshot {
         v2MainSync {
             v2RefreshKnownRefs()
             guard let tabManager = v2ResolveTabManager(params: params) else {
-                return V2BrowserDownloadWaitSnapshot(
+                return BrowserDownloadWaitSnapshot(
                     workspaceId: UUID(),
                     workspaceRef: NSNull(),
                     surfaceId: UUID(),
@@ -3812,7 +3668,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 )
             }
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                return V2BrowserDownloadWaitSnapshot(
+                return BrowserDownloadWaitSnapshot(
                     workspaceId: UUID(),
                     workspaceRef: NSNull(),
                     surfaceId: UUID(),
@@ -3823,7 +3679,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             }
             let resolvedSurface = v2ResolveBrowserSurfaceId(params: params, workspace: ws)
             if let error = resolvedSurface.error {
-                return V2BrowserDownloadWaitSnapshot(
+                return BrowserDownloadWaitSnapshot(
                     workspaceId: ws.id,
                     workspaceRef: v2Ref(kind: .workspace, uuid: ws.id),
                     surfaceId: UUID(),
@@ -3834,7 +3690,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             }
             let surfaceId = resolvedSurface.surfaceId
             guard let surfaceId else {
-                return V2BrowserDownloadWaitSnapshot(
+                return BrowserDownloadWaitSnapshot(
                     workspaceId: ws.id,
                     workspaceRef: v2Ref(kind: .workspace, uuid: ws.id),
                     surfaceId: UUID(),
@@ -3844,7 +3700,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 )
             }
             guard ws.browserPanel(for: surfaceId) != nil else {
-                return V2BrowserDownloadWaitSnapshot(
+                return BrowserDownloadWaitSnapshot(
                     workspaceId: ws.id,
                     workspaceRef: v2Ref(kind: .workspace, uuid: ws.id),
                     surfaceId: surfaceId,
@@ -3854,12 +3710,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 )
             }
 
-            return V2BrowserDownloadWaitSnapshot(
+            return BrowserDownloadWaitSnapshot(
                 workspaceId: ws.id,
                 workspaceRef: v2Ref(kind: .workspace, uuid: ws.id),
                 surfaceId: surfaceId,
                 surfaceRef: v2Ref(kind: .surface, uuid: surfaceId),
-                queuedEvent: Self.v2WorkerString(params, "path") == nil
+                queuedEvent: BrowserAutomationController.downloadWaitString(params, "path") == nil
                     ? browserAutomation.popDownloadEvent(surfaceId: surfaceId)
                     : nil,
                 error: nil
