@@ -10884,6 +10884,10 @@ class TerminalController {
             storedKey = "\r"
             keyCode = UInt16(kVK_Return)
             charactersIgnoringModifiers = storedKey
+        case "backspace", "delete":
+            storedKey = "\u{7F}"
+            keyCode = 51
+            charactersIgnoringModifiers = storedKey
         default:
             let key = keyToken.lowercased()
             guard let code = keyCodeForShortcutKey(key) else { return nil }

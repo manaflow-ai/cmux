@@ -3,14 +3,25 @@ import Foundation
 
 final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     private var dataPath = ""
+    private var socketPath = ""
+    private var launchTag = ""
     private var browserHistorySeedJSON: String?
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
         dataPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(UUID().uuidString).json"
+        socketPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(UUID().uuidString).sock"
+        launchTag = "ui-omnibar-\(UUID().uuidString.prefix(8))"
         browserHistorySeedJSON = nil
         try? FileManager.default.removeItem(atPath: dataPath)
+        try? FileManager.default.removeItem(atPath: socketPath)
+        try? FileManager.default.removeItem(atPath: "\(socketPath).lock")
+        addTeardownBlock { [dataPath, socketPath] in
+            try? FileManager.default.removeItem(atPath: dataPath)
+            try? FileManager.default.removeItem(atPath: socketPath)
+            try? FileManager.default.removeItem(atPath: "\(socketPath).lock")
+        }
 
         // Terminate any lingering app from a prior test so its debounced
         // history-save doesn't overwrite the seeded browser_history.json.
@@ -543,11 +554,12 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         seedBrowserHistoryForTest()
 
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
         launchAndEnsureForeground(app)
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), socketReadinessFailureMessage())
         XCTAssertTrue(
             waitForGotoSplitSetup(timeout: 10.0),
             "Expected goto_split setup data before typing. data=\(String(describing: loadGotoSplitData()))"
@@ -576,7 +588,11 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         )
 
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))
-        omnibar.typeText(XCUIKeyboardKey.delete.rawValue)
+        XCTAssertEqual(
+            socketCommand("simulate_shortcut backspace"),
+            "OK",
+            "Expected socket shortcut simulation to send Backspace through AppKit"
+        )
 
         var valueAfterDelete = ""
         let revertedToTypedPrefix = waitForCondition(timeout: 3.0) {
@@ -648,6 +664,29 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             return app.wait(for: .runningForeground, timeout: 6.0)
         }
         return false
+    }
+
+    private func configureSocketLaunch(_ app: XCUIApplication) {
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+    }
+
+    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
+        waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
+            self.socketCommand("ping") == "PONG"
+        }
+    }
+
+    private func socketReadinessFailureMessage() -> String {
+        "Expected control socket at \(socketPath)"
+    }
+
+    private func socketCommand(_ command: String) -> String? {
+        controlSocketCommandViaNetcat(command, socketPath: socketPath)
     }
 
     private struct SeedEntry {
