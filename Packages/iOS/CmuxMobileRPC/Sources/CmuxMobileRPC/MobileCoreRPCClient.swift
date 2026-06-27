@@ -225,6 +225,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
         let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
+        let routeAllowsStackAuthFallback = allowsStackAuthFallback
+            && MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
         var auth: [String: Any] = [:]
         let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachToken = attachToken?.isEmpty == false
@@ -236,19 +238,21 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // is actually used. QR-decoded tickets carry no token (and no
             // expiry), so they never reach this branch.
             if ticket.isExpired(at: runtime.now()) {
-                throw MobileShellConnectionError.attachTicketExpired
+                if !routeAllowsStackAuthFallback {
+                    throw MobileShellConnectionError.attachTicketExpired
+                }
+            } else {
+                auth["attach_token"] = attachToken
             }
-            auth["attach_token"] = attachToken
         }
         // A non-expired attach token is the local authorization credential for
         // ticket-covered attach/reconnect/session-restore requests. Stack auth is
-        // only the fallback for tokenless pairing flows and requests outside the
-        // ticket's scope, so reconnect does not wait on a network auth refresh.
+        // the fallback for tokenless pairing flows, requests outside the ticket's
+        // scope, and trusted routes whose attach token has expired locally.
         let requestHasAttachAuth = auth["attach_token"] != nil
         let shouldSendStackAuth = requestNeedsAuth && !requestHasAttachAuth
         if shouldSendStackAuth {
-            guard allowsStackAuthFallback,
-                  MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
+            guard routeAllowsStackAuthFallback else {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
@@ -276,8 +280,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
         if !requestNeedsAuth,
            isHostStatusRequest(request),
-           allowsStackAuthFallback,
-           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+           routeAllowsStackAuthFallback,
            let stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline) {
             auth["stack_access_token"] = stackAccessToken
         }
