@@ -363,7 +363,7 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     @MainActor
-    @Test func sessionSnapshotPersistsNewerClaudeAgentSnapshotOverOlderPoisonedBinding() throws {
+    @Test func sessionSnapshotPersistsNewerClaudeAgentSnapshotOverLegacyPoisonedBinding() throws {
         let source = Workspace()
         let sourcePanelId = try #require(source.focusedPanelId)
         let freshSessionId = "claude-fresh-live-snapshot-session"
@@ -396,7 +396,7 @@ struct AgentSessionAutoResumeSwiftTests {
                 checkpointId: staleSessionId,
                 source: "agent-hook",
                 autoResume: true,
-                updatedAt: 1_777_777_777
+                updatedAt: 0
             ),
         ])
 

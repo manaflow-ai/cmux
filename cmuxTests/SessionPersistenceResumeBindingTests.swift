@@ -39,13 +39,13 @@ import Testing
           "cwd": "/tmp/project",
           "checkpointId": "session-moved-cli",
           "source": "agent-hook",
-          "autoResume": true,
-          "updatedAt": 123
+          "autoResume": true
         }
         """
         let binding = try JSONDecoder().decode(SurfaceResumeBindingSnapshot.self, from: Data(json.utf8))
         let startupInput = try #require(binding.startupInput)
 
+        #expect(binding.updatedAt == 0)
         #expect(binding.command.contains(executablePath), "\(binding.command)")
         #expect(startupInput.contains("/bin/sh -c"), "\(startupInput)")
         #expect(startupInput.contains("CMUX_CLAUDE_WRAPPER_SHIM"), "\(startupInput)")

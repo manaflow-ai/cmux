@@ -1107,6 +1107,7 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         var hookCandidatesBySession: [SessionKey: Entry] = [:]
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
+        let launchCaptureTrust = AgentLaunchCaptureTrust()
 
         for (kind, registration) in hookKinds {
             let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
@@ -1129,7 +1130,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 // agent's launch cwd even though the launch command is stripped.
                 effectiveRecord.launchCommand = trustedLaunchCommand(
                     effectiveRecord.launchCommand,
-                    kind: kind
+                    kind: kind, launchCaptureTrust: launchCaptureTrust
                 )
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
@@ -1254,10 +1255,9 @@ struct RestorableAgentSessionIndex: Sendable {
     /// losing trusted cwd/environment, so resume/fork fall back to bare verbs.
     private static func trustedLaunchCommand(
         _ launchCommand: AgentLaunchCommandSnapshot?,
-        kind: RestorableAgentKind
+        kind: RestorableAgentKind, launchCaptureTrust: AgentLaunchCaptureTrust
     ) -> AgentLaunchCommandSnapshot? {
         guard let launchCommand else { return nil }
-        let launchCaptureTrust = AgentLaunchCaptureTrust()
         guard launchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue) else {
             return nil
         }
