@@ -2278,60 +2278,43 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     /// results-pipeline reset, refresh scheduling, debug-state sync) when the
     /// command-list search field's query changes.
     private func handleCommandPaletteQueryChange(oldQuery: String, newQuery: String) {
-        commandPalettePresentation.selectedResultIndex = 0
-        commandPalettePresentation.selectionAnchorCommandID = nil
-        commandPalettePresentation.scrollTargetIndex = nil
-        commandPalettePresentation.scrollTargetAnchor = nil
-        if Self.commandPaletteShouldResetVisibleResultsForQueryTransition(
+        commandPaletteCoordinator.handleQueryChange(
             oldQuery: oldQuery,
             newQuery: newQuery,
-            hasVisibleResults: commandPaletteCoordinator.visibleResultsScope != nil
-        ) {
-            commandPaletteCoordinator.resetResultsPipeline()
-        }
-        scheduleCommandPaletteResultsRefresh(query: newQuery)
-        updateCommandPaletteScrollTarget(resultCount: commandPaletteCoordinator.visibleResults.count, animated: false)
-        syncCommandPaletteDebugStateForObservedWindow()
+            presentation: commandPalettePresentation,
+            host: self
+        )
     }
 
     /// Forces a corpus refresh after the search fingerprint changes, yielding one
     /// turn first so the query-state transition settles (otherwise the forced
     /// refresh can rebuild the old command list after deleting the ">" prefix).
     private func handleCommandPaletteSearchFingerprintChange() {
-        Task { @MainActor in
-            await Task.yield()
-            scheduleCommandPaletteResultsRefresh(
-                query: commandPalettePresentation.query,
-                forceSearchCorpusRefresh: true
-            )
-            updateCommandPaletteScrollTarget(resultCount: commandPaletteCoordinator.visibleResults.count, animated: false)
-            syncCommandPaletteDebugStateForObservedWindow()
-        }
+        commandPaletteCoordinator.handleSearchFingerprintChange(
+            presentation: commandPalettePresentation,
+            host: self
+        )
     }
 
     /// Resolves the selected result index against the freshly materialized result
     /// IDs and re-syncs the selection anchor, scroll target, and debug state when
     /// the results revision advances.
     private func handleCommandPaletteResultsRevisionChange() {
-        let resultIDs = commandPaletteCoordinator.cachedResults.map(\.id)
-        commandPalettePresentation.selectedResultIndex = CommandPalettePendingActivation.resolvedSelectionIndex(
-            preferredCommandID: commandPalettePresentation.selectionAnchorCommandID,
-            fallbackSelectedIndex: commandPalettePresentation.selectedResultIndex,
-            resultIDs: resultIDs
+        commandPaletteCoordinator.handleResultsRevisionChange(
+            presentation: commandPalettePresentation,
+            emptyStateText: commandPaletteEmptyStateText,
+            host: self
         )
-        syncCommandPaletteSelectionAnchorFromCurrentResults()
-        let visibleResultCount = commandPaletteCoordinator.visibleResults.count
-        updateCommandPaletteScrollTarget(resultCount: visibleResultCount, animated: false)
-        syncCommandPaletteOverlayCommandListState()
-        syncCommandPaletteDebugStateForObservedWindow()
     }
 
     /// Retargets the scroll position and re-syncs the overlay command-list and
     /// debug state when the selected result index changes.
     private func handleCommandPaletteSelectedResultIndexChange() {
-        updateCommandPaletteScrollTarget(resultCount: commandPaletteCoordinator.visibleResults.count, animated: true)
-        syncCommandPaletteOverlayCommandListState()
-        syncCommandPaletteDebugStateForObservedWindow()
+        commandPaletteCoordinator.handleSelectedResultIndexChange(
+            presentation: commandPalettePresentation,
+            emptyStateText: commandPaletteEmptyStateText,
+            host: self
+        )
     }
 
     private var commandPaletteListScope: CommandPaletteListScope {
@@ -4628,28 +4611,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func updateCommandPaletteScrollTarget(resultCount: Int, animated: Bool) {
-        guard resultCount > 0 else {
-            commandPalettePresentation.scrollTargetIndex = nil
-            commandPalettePresentation.scrollTargetAnchor = nil
-            return
-        }
-
-        let selectedIndex = commandPaletteSelectedIndex(resultCount: resultCount)
-        commandPalettePresentation.scrollTargetAnchor = CommandPaletteSelectionNavigation.scrollPositionAnchor(
-            selectedIndex: selectedIndex,
-            resultCount: resultCount
+        commandPaletteCoordinator.updateScrollTarget(
+            resultCount: resultCount,
+            animated: animated,
+            presentation: commandPalettePresentation,
+            host: self
         )
-
-        let assignTarget = {
-            commandPalettePresentation.scrollTargetIndex = selectedIndex
-        }
-        if animated {
-            withAnimation(.easeOut(duration: 0.1)) {
-                assignTarget()
-            }
-        } else {
-            assignTarget()
-        }
     }
 
     private func syncCommandPaletteSelectionAnchor(resultIDs: [String]) {
@@ -4672,21 +4639,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func moveCommandPaletteSelection(by delta: Int) {
-        let count = commandPaletteCoordinator.visibleResults.count
-        guard count > 0 else {
-            NSSound.beep()
-            return
-        }
-        let current = commandPaletteSelectedIndex(resultCount: count)
-        commandPalettePresentation.selectedResultIndex = min(max(current + delta, 0), count - 1)
-        if commandPaletteHasCurrentResolvedResults {
-            syncCommandPaletteSelectionAnchorFromCurrentResults()
-        } else {
-            syncCommandPaletteSelectionAnchorFromVisibleResults()
-        }
-        updateCommandPaletteScrollTarget(resultCount: count, animated: true)
-        syncCommandPaletteOverlayCommandListState()
-        syncCommandPaletteDebugStateForObservedWindow()
+        commandPaletteCoordinator.moveSelection(
+            by: delta,
+            presentation: commandPalettePresentation,
+            emptyStateText: commandPaletteEmptyStateText,
+            host: self
+        )
     }
 
     private func forwardCommandPaletteUnhandledNavigationKeyToFocusedTerminal(_ event: NSEvent) -> Bool {
@@ -4728,22 +4686,11 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private var commandPaletteHasCurrentResolvedResults: Bool {
-        !commandPaletteCoordinator.isSearchPending && commandPaletteCoordinator.resolvedSearchRequestID == commandPaletteCoordinator.searchRequestID
+        commandPaletteCoordinator.hasCurrentResolvedResults
     }
 
     private var commandPaletteShouldShowEmptyState: Bool {
-        guard commandPaletteCoordinator.visibleResults.isEmpty else { return false }
-        if commandPaletteHasCurrentResolvedResults {
-            return true
-        }
-
-        return CommandPaletteSearchOrchestrator.shouldPreserveEmptyStateWhileSearchPending(
-            isSearchPending: commandPaletteCoordinator.isSearchPending,
-            visibleResultsScopeMatches: commandPaletteCoordinator.visibleResultsScope == commandPaletteListScope,
-            resolvedSearchScopeMatches: commandPaletteCoordinator.resolvedSearchScope == commandPaletteListScope,
-            resolvedSearchFingerprintMatches: commandPaletteCoordinator.resolvedSearchFingerprint == commandPaletteCoordinator.visibleResultsFingerprint,
-            resolvedResultsAreEmpty: commandPaletteCoordinator.cachedResults.isEmpty
-        )
+        commandPaletteCoordinator.shouldShowEmptyState(presentation: commandPalettePresentation)
     }
 
     private func runCommandPaletteResolvedActivation(_ activation: CommandPaletteResolvedActivation) {
@@ -9967,6 +9914,34 @@ struct SidebarTabDropDelegate: DropDelegate {
 /// Lifted to `CmuxCore.SidebarSelection`; this typealias keeps the unqualified
 /// `SidebarSelection` spelling resolving for app-target consumers.
 typealias SidebarSelection = CmuxCore.SidebarSelection
+
+extension ContentView: CommandPaletteListHost {
+    func commandPaletteListBeep() {
+        NSSound.beep()
+    }
+
+    func commandPaletteListAnimate(_ body: () -> Void) {
+        withAnimation(.easeOut(duration: 0.1)) {
+            body()
+        }
+    }
+
+    func commandPaletteListSyncDebugState() {
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    func commandPaletteListScheduleResultsRefresh(
+        query: String?,
+        force: Bool,
+        preservePendingActivation: Bool
+    ) {
+        scheduleCommandPaletteResultsRefresh(
+            query: query,
+            forceSearchCorpusRefresh: force,
+            preservePendingActivation: preservePendingActivation
+        )
+    }
+}
 
 extension ContentView: CommandPaletteEditFlowHost {
     var commandPaletteEditFlowIsPresented: Bool { isCommandPalettePresented }
