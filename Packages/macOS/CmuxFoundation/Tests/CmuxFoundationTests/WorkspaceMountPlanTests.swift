@@ -4,7 +4,7 @@ import Testing
 @testable import CmuxFoundation
 
 @Suite struct WorkspaceMountPlanTests {
-    @Test func keepsSelectedWorkspaceMountedWhenPublisherTemporarilyOmitsIt() {
+    @Test func keepsSelectedWorkspaceMountedWhenOrderTemporarilyOmitsIt() {
         let selected = UUID()
         let other = UUID()
 

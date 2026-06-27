@@ -3230,7 +3230,7 @@ struct ContentView: View {
         let pinnedIds = handoffPinnedIds
             .union(tabManager.mountedBackgroundWorkspaceLoadIds)
             .union(tabManager.debugPinnedWorkspaceLoadIds)
-        let activeWorkspaceIds = Set(tabManager.tabs.map(\.id))
+        let activeWorkspaceIds = Set(currentTabs.map(\.id))
             .union(pinnedIds)
         let isCycleHot = tabManager.isWorkspaceCycleHot
         let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
