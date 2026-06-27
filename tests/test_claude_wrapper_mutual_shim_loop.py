@@ -285,8 +285,9 @@ def test_passthrough_real_node_claude_does_not_receive_guard_env(failures: list[
     with tempfile.TemporaryDirectory(prefix="cmux-claude-passthrough-guard-env-") as td:
         root = Path(td)
         cmux_shim_dir = root / "tmp" / "cmux-cli-shims" / "surface-passthrough"
+        foreign_shim_dir = root / "foreign-shim"
         real_dir = root / "real-bin"
-        for directory in (cmux_shim_dir, real_dir):
+        for directory in (cmux_shim_dir, foreign_shim_dir, real_dir):
             directory.mkdir(parents=True, exist_ok=True)
 
         cmux_shim = cmux_shim_dir / "claude"
@@ -294,19 +295,49 @@ def test_passthrough_real_node_claude_does_not_receive_guard_env(failures: list[
         cmux_shim.chmod(0o755)
 
         write_executable(
+            foreign_shim_dir / "claude",
+            f"""#!/usr/bin/env bash
+next_path=""
+old_ifs="$IFS"
+IFS=:
+for entry in ${{PATH:-}}; do
+  if [[ "$entry" == "{foreign_shim_dir}" ]]; then
+    continue
+  fi
+  if [[ -z "$next_path" ]]; then
+    next_path="$entry"
+  else
+    next_path="$next_path:$entry"
+  fi
+done
+IFS="$old_ifs"
+export PATH="$next_path"
+exec claude "$@"
+""",
+        )
+
+        write_executable(
             real_dir / "claude",
             """#!/usr/bin/env node
-const guard = process.env.CMUX_CLAUDE_WRAPPER_REEXEC_GUARD ?? "__unset__";
-const targets = process.env.CMUX_CLAUDE_WRAPPER_REEXEC_TARGETS ?? "__unset__";
+const upperGuard = process.env.CMUX_CLAUDE_WRAPPER_REEXEC_GUARD ?? "__unset__";
+const upperTargets = process.env.CMUX_CLAUDE_WRAPPER_REEXEC_TARGETS ?? "__unset__";
+const lowerGuard = process.env.cmux_claude_wrapper_reexec_guard ?? "__unset__";
+const lowerTargets = process.env.cmux_claude_wrapper_reexec_targets ?? "__unset__";
 const surface = process.env.CMUX_SURFACE_ID ?? "__unset__";
-process.stdout.write(`guard=${guard}\\ntargets=${targets}\\nsurface=${surface}\\n`);
+process.stdout.write(
+  `upperGuard=${upperGuard}\\n` +
+  `upperTargets=${upperTargets}\\n` +
+  `lowerGuard=${lowerGuard}\\n` +
+  `lowerTargets=${lowerTargets}\\n` +
+  `surface=${surface}\\n`
+);
 """,
         )
 
         inherited_path = os.environ.get("PATH", "/usr/bin:/bin")
         env = {
             "HOME": str(root / "home"),
-            "PATH": f"{cmux_shim_dir}:{real_dir}:{inherited_path}",
+            "PATH": f"{cmux_shim_dir}:{foreign_shim_dir}:{real_dir}:{inherited_path}",
             "CMUX_CLAUDE_WRAPPER_SHIM": str(cmux_shim),
             "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
             "CMUX_SOCKET_PATH": str(root / "missing.sock"),
@@ -320,7 +351,15 @@ process.stdout.write(`guard=${guard}\\ntargets=${targets}\\nsurface=${surface}\\
             timeout=5,
             check=False,
         )
-        expected = "guard=__unset__\ntargets=__unset__\nsurface=__unset__"
+        expected = "\n".join(
+            [
+                "upperGuard=__unset__",
+                "upperTargets=__unset__",
+                "lowerGuard=__unset__",
+                "lowerTargets=__unset__",
+                "surface=__unset__",
+            ]
+        )
         output = result.stdout.strip()
         combined_output = result.stdout + result.stderr
         if result.returncode != 0:

@@ -100,13 +100,29 @@ cmux_claude_wrapper_target_looks_like_reexec_shim() {
     snippet="$(head -c 8192 "$target" 2>/dev/null || true)"
     case "$snippet" in
         *"exec claude"*|*"exec \"claude\""*|*"exec 'claude'"*|\
+        *"exec env claude"*|*"exec /usr/bin/env claude"*|\
+        *"env claude"*|*"env \"claude\""*|*"env 'claude'"*|\
         *"command claude"*|*"command \"claude\""*|*"command 'claude'"*|\
         *"spawn(\"claude\""*|*"spawn('claude'"*|\
         *"spawnSync(\"claude\""*|*"spawnSync('claude'"*|\
         *"execFile(\"claude\""*|*"execFile('claude'"*|\
         *"execFileSync(\"claude\""*|*"execFileSync('claude'"*|\
-        *"execSync(\"claude"*|*"execSync('claude"*)
+        *"execSync(\"claude"*|*"execSync('claude"*|\
+        *"os.execvp(\"claude\""*|*"os.execvp('claude'"*|\
+        *"os.execlp(\"claude\""*|*"os.execlp('claude'"*|\
+        *"subprocess.run([\"claude\""*|*"subprocess.run(['claude'"*|\
+        *"subprocess.call([\"claude\""*|*"subprocess.call(['claude'"*|\
+        *"subprocess.Popen([\"claude\""*|*"subprocess.Popen(['claude'"*)
             return 0
+            ;;
+    esac
+    case "$snippet" in
+        *'=claude'*|*'="claude"'*|*"='claude'"*)
+            case "$snippet" in
+                *'exec "$'*|*'exec ${'*)
+                    return 0
+                    ;;
+            esac
             ;;
     esac
     return 1
