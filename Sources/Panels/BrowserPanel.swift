@@ -6385,11 +6385,11 @@ extension BrowserImportPlanResolver {
 // cookie/history sink and the app-bundle-localized warning strings.
 
 extension BrowserProfileStore: @retroactive BrowserImportProfileDataWriting {
-    func httpCookieStore(forProfileID profileID: UUID) -> WKHTTPCookieStore {
+    public func httpCookieStore(forProfileID profileID: UUID) -> WKHTTPCookieStore {
         websiteDataStore(for: profileID).httpCookieStore
     }
 
-    func mergeImportedHistory(_ entries: [BrowserHistoryEntry], intoProfileID profileID: UUID) -> Int {
+    public func mergeImportedHistory(_ entries: [BrowserHistoryEntry], intoProfileID profileID: UUID) -> Int {
         historyStore(for: profileID).mergeImportedEntries(entries)
     }
 }
