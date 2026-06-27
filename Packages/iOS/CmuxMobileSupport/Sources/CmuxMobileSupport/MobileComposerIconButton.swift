@@ -15,7 +15,7 @@ public struct MobileComposerIconButton: View {
     private let action: () -> Void
 
     /// Creates a tappable circular icon control.
-    public init(
+    public nonisolated init(
         systemImage: String,
         activeSystemImage: String? = nil,
         isActive: Bool = false,
