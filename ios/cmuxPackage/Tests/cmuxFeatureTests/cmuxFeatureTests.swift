@@ -1822,6 +1822,7 @@ final class TerminalOutputCollector {
         routes: [route],
         attachToken: "stored-ticket-secret",
         attachTokenExpiresAt: Date().addingTimeInterval(60),
+        attachTokenWorkspaceID: "",
         markActive: true,
         stackUserID: "user-1",
         teamID: nil,
