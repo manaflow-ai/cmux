@@ -323,6 +323,8 @@ extension AgentChatTranscriptService {
         guard let resolved else {
             if resolver.recordedTranscriptPath(for: record) == nil {
                 failedResolutions.insert(sessionID)
+            } else {
+                failedResolutions.remove(sessionID)
             }
             return
         }
