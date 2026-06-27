@@ -78,14 +78,14 @@ extension MobilePairingFailureCategory {
     var pairingStep: MobilePairingStep? {
         switch self {
         case .offline, .hostUnreachable, .listenerNotRunning, .localNetworkBlocked,
-             .dnsFailed, .handshakeTimedOut, .connectionDropped, .unknown:
+             .dnsFailed, .handshakeTimedOut, .connectionDropped:
             return .network
         case .accountMismatch, .emailMismatch, .authFailed, .ticketExpired:
             return .authentication
         case .invalidCode, .unrecognizedVersion, .loopbackRejected,
              .unsupportedRoute, .noSupportedRoute:
             return .trust
-        case .cancelled:
+        case .unknown, .cancelled:
             return nil
         }
     }

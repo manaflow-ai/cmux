@@ -4886,7 +4886,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearPairingVersionWarning()
         return attemptID
     }
-
     private func beginPairingValidationAttempt(method: String? = nil) -> UUID {
         let attemptID = UUID()
         pairingAttemptID = attemptID
@@ -4903,6 +4902,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "attempt_id": .string(attemptID.uuidString),
             ])
         } else {
+            pairingChecklist = .idle
             pairingAttemptStartedAt = nil
             pairingAttemptMethod = nil
         }

@@ -254,7 +254,7 @@ struct PairingView: View {
         if let validationError {
             return MobilePairingChecklist.idle.applyingFailure(.network, message: validationError)
         }
-        if !isPairing, !pairingChecklist.hasFailure {
+        if !isPairing, pairingChecklist == .idle {
             return .idle
         }
         return pairingChecklist

@@ -188,6 +188,12 @@ import Testing
         }
     }
 
+    @Test func unknownFailureDoesNotGuessChecklistStep() {
+        let category = MobilePairingFailureCategory.unknown(host: "h", port: 1)
+
+        #expect(category.pairingStep == nil)
+    }
+
     @Test func rpcAccountMismatchCodeMapsToAccountMismatch() {
         let category = MobilePairingFailureCategory.classify(
             error: MobileShellConnectionError.rpcError("account_mismatch", "different"),

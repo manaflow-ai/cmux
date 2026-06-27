@@ -62,25 +62,23 @@ struct KeyboardDismissTap: UIViewRepresentable {
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("not used in storyboards") }
 
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
+        override func willMove(toWindow newWindow: UIWindow?) {
+            super.willMove(toWindow: newWindow)
             // Detaching (window == nil) or moving windows must REMOVE the
             // recognizer from the old window — otherwise it outlives the chat
             // and dismisses the keyboard on every tap across other screens
             // that share the window.
-            if window !== installedWindow {
+            if newWindow !== installedWindow {
                 installedWindow?.removeGestureRecognizer(recognizer)
                 installedWindow = nil
             }
-            guard let window else { return }
-            window.addGestureRecognizer(recognizer)
-            installedWindow = window
         }
 
-        deinit {
-            MainActor.assumeIsolated {
-                installedWindow?.removeGestureRecognizer(recognizer)
-            }
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard let window, window !== installedWindow else { return }
+            window.addGestureRecognizer(recognizer)
+            installedWindow = window
         }
 
         @objc private func handleTap() {

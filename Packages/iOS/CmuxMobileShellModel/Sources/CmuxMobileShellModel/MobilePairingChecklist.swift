@@ -3,11 +3,11 @@ import Foundation
 /// The render-ready network/authentication/trust checklist for pairing.
 public struct MobilePairingChecklist: Equatable, Sendable {
     /// The network reachability row.
-    public var network: MobilePairingStepSnapshot
+    public private(set) var network: MobilePairingStepSnapshot
     /// The account authentication row.
-    public var authentication: MobilePairingStepSnapshot
+    public private(set) var authentication: MobilePairingStepSnapshot
     /// The trust row.
-    public var trust: MobilePairingStepSnapshot
+    public private(set) var trust: MobilePairingStepSnapshot
 
     /// The rows in display order.
     public var steps: [MobilePairingStepSnapshot] {
@@ -30,6 +30,9 @@ public struct MobilePairingChecklist: Equatable, Sendable {
         authentication: MobilePairingStepSnapshot,
         trust: MobilePairingStepSnapshot
     ) {
+        precondition(network.step == .network)
+        precondition(authentication.step == .authentication)
+        precondition(trust.step == .trust)
         self.network = network
         self.authentication = authentication
         self.trust = trust

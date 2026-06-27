@@ -11,7 +11,7 @@ public struct MobileComposerIconLabel: View {
     private let pulsesWhenActive: Bool
 
     /// Creates a circular icon label with optional active-state artwork.
-    public init(
+    public nonisolated init(
         systemImage: String,
         activeSystemImage: String? = nil,
         isActive: Bool = false,
