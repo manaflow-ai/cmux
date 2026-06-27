@@ -28,6 +28,31 @@ def run_wrapper(argv: list[str], env: dict[str, str]) -> subprocess.CompletedPro
     )
 
 
+def prepend_unique_directory(directory: str, current_path: str, skipped_directory: str = "") -> str:
+    if not directory:
+        return current_path
+    if not current_path:
+        return directory
+
+    result = directory
+    rest = current_path
+    while True:
+        if ":" in rest:
+            entry, rest = rest.split(":", 1)
+            has_more = True
+        else:
+            entry = rest
+            rest = ""
+            has_more = False
+
+        if entry != directory and (not skipped_directory or entry != skipped_directory):
+            result = f"{result}:{entry}"
+        if not has_more:
+            break
+
+    return result
+
+
 def test_wrapper_skips_cmux_shims_and_bundled_claude(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-resolution-") as td:
         root = Path(td)
@@ -201,26 +226,36 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                 "--noprofile",
                 "--norc",
                 "-c",
-                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; printf "%s\\n" "$PATH"',
+                'before="$PATH"; source "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; '
+                'printf "%s\\n%s\\n" "$before" "$PATH"',
             ],
             [
                 "/bin/zsh",
                 "-f",
                 "-c",
-                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; printf "%s\\n" "$PATH"',
+                'before="$PATH"; source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; '
+                'printf "%s\\n%s\\n" "$before" "$PATH"',
             ],
         ]
         for argv in shell_commands:
             result = run_wrapper(argv, base_env)
             shell_name = Path(argv[0]).name
-            output = result.stdout.rstrip("\n")
+            output_lines = result.stdout.splitlines()
             if result.returncode != 0:
                 failures.append(
                     f"{shell_name} path preservation exited {result.returncode}: "
                     f"{(result.stdout + result.stderr).strip()}"
                 )
-            if output != expected_path:
-                failures.append(f"{shell_name} expected PATH {expected_path!r}, got {output!r}")
+                continue
+            if len(output_lines) != 2:
+                failures.append(f"{shell_name} expected before/after PATH output, got {result.stdout!r}")
+                continue
+            before_path, output = output_lines
+            expected_output = prepend_unique_directory(str(shim_root), before_path)
+            if output != expected_output:
+                failures.append(f"{shell_name} expected PATH {expected_output!r}, got {output!r}")
+            if shell_name == "bash" and output != expected_path:
+                failures.append(f"bash expected empty PATH components to be preserved, got {output!r}")
 
 
 def main() -> int:
