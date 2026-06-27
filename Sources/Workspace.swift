@@ -4773,6 +4773,7 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        removeSurfaceResumeBindingFromHistory(panelId: panelId, binding: binding)
     }
 
     private static let maxSurfaceResumeBindingHistoryEntries = 8

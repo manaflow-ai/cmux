@@ -1360,6 +1360,73 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoredAgentInvalidationPrunesInvalidResumeBindingHistory() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        XCTAssertTrue(
+            source.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume previous-session",
+                    cwd: "/tmp/repo",
+                    checkpointId: "previous-session",
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 10
+                ),
+                panelId: sourcePanelId
+            )
+        )
+        XCTAssertTrue(
+            source.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume codex-restored-session",
+                    cwd: "/tmp/repo",
+                    checkpointId: "codex-restored-session",
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 20
+                ),
+                panelId: sourcePanelId
+            )
+        )
+        let sourceIndex = try makeRestorableAgentIndex(
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: "codex-restored-session",
+            arguments: [
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: sourceIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        XCTAssertEqual(
+            restored.surfaceResumeBindingHistory(panelId: restoredPanelId).compactMap(\.checkpointId),
+            ["codex-restored-session", "previous-session"]
+        )
+
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
+
+        XCTAssertNil(restored.surfaceResumeBinding(panelId: restoredPanelId))
+        XCTAssertEqual(
+            restored.surfaceResumeBindingHistory(panelId: restoredPanelId).compactMap(\.checkpointId),
+            ["previous-session"]
+        )
+    }
+
+    @MainActor
     func testRestoredAntigravityAgentAutoResumeUsesConversationCommand() throws {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
