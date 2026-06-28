@@ -86,12 +86,33 @@ CMUX_ALLOW_SOCKET_OVERRIDE=1 \
 APP_PID=$!
 echo "$APP_PID" >"$APP_PID_FILE"
 
+# On failure the app aborts before it can log to stdout, so the only backtrace
+# is in the crash report. Dump the newest matching report so CI surfaces the
+# off-main CoreAnimation stack.
+dump_crash_reports() {
+  local dir count report
+  for dir in "$HOME/Library/Logs/DiagnosticReports" "/Library/Logs/DiagnosticReports"; do
+    [ -d "$dir" ] || continue
+    count=0
+    while IFS= read -r report; do
+      [ -n "$report" ] || continue
+      echo "--- crash report: $report ---" >&2
+      sed -n '1,140p' "$report" >&2 2>/dev/null || true
+      count=$((count + 1))
+      [ "$count" -ge 2 ] && break
+    done < <(ls -t "$dir"/cmux*.ips "$dir"/cmux*.crash 2>/dev/null)
+  done
+}
+
 wait_for_app_alive() {
   if ! kill -0 "$APP_PID" >/dev/null 2>&1; then
-    wait "$APP_PID" >/dev/null 2>&1 || true
-    echo "FAIL: cmux exited while CA_ASSERT_MAIN_THREAD_TRANSACTIONS=1 was active" >&2
+    local app_exit=0
+    wait "$APP_PID" >/dev/null 2>&1 || app_exit=$?
+    echo "FAIL: cmux exited (status $app_exit) while CA_ASSERT_MAIN_THREAD_TRANSACTIONS=1 was active" >&2
     echo "--- app log tail ($LOG_PATH) ---" >&2
     tail -80 "$LOG_PATH" >&2 2>/dev/null || true
+    sleep 1
+    dump_crash_reports
     exit 1
   fi
 }
