@@ -60,5 +60,22 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "remoteTmux.beta.enabled"
     )
 
+    /// Remote tmux linked-view mode: an experimental transport for hosts whose
+    /// `sshd` caps each connection to a single concurrent session
+    /// (`MaxSessions 1`, e.g. hosts with per-connection 2FA). Instead of one `tmux -CC` control
+    /// client per remote session — which needs one concurrent SSH session each
+    /// and so fails past the first — cmux drives ONE control client attached to a
+    /// hidden, cmux-owned aggregate "view" session and `link-window`s every
+    /// mirrored session's windows into it. All workspaces then stream live over
+    /// the single allowed connection (one auth), while the real tmux sessions are
+    /// preserved for `tmux ls` / `tmux attach` interop. Defaults off; requires
+    /// ``remoteTmux`` to be on. While off, remote tmux uses the per-session
+    /// control connections unchanged.
+    public let remoteTmuxLinkedView = DefaultsKey<Bool>(
+        id: "remoteTmux.linkedView.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.linkedView.beta.enabled"
+    )
+
     public init() {}
 }
