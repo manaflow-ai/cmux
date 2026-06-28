@@ -9841,16 +9841,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        guard !shortcut.isUnbound else { return false }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke == prefix else {
-                return false
-            }
-            return matchShortcutStroke(event: event, stroke: secondStroke)
-        }
-        guard !shortcut.hasChord else { return false }
-        return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+        // The chord-aware match decision lives on `StoredShortcut` in
+        // CmuxShortcuts; this witness only supplies the per-stroke matcher that
+        // reads the live `NSEvent` (which cannot leave the app target).
+        shortcut.matchesConfigured(
+            activeChordPrefix: activeConfiguredShortcutChordPrefixForCurrentEvent
+        ) { matchShortcutStroke(event: event, stroke: $0) }
     }
 
     private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
@@ -9909,27 +9905,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard shortcutWhenClauseAllows(action: action, event: event) else {
             return false
         }
-        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        guard !shortcut.isUnbound else { return false }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke == prefix else {
-                return false
-            }
-            return secondStroke.matchesDirectionalShortcut(
+        // Same chord-aware match decision as `matchConfiguredShortcut`; the
+        // per-stroke matcher here is the directional (arrow-glyph) comparison,
+        // which reads the live `NSEvent` and layout provider app-side.
+        return KeyboardShortcutSettings.shortcut(for: action).matchesConfigured(
+            activeChordPrefix: activeConfiguredShortcutChordPrefixForCurrentEvent
+        ) { stroke in
+            stroke.matchesDirectionalShortcut(
                 event: event,
                 arrowGlyph: arrowGlyph,
                 arrowKeyCode: arrowKeyCode,
                 layoutCharacterProvider: shortcutCoordinator.layoutCharacter(forKeyCode:modifierFlags:)
             )
         }
-        guard !shortcut.hasChord else { return false }
-        return shortcut.firstStroke.matchesDirectionalShortcut(
-            event: event,
-            arrowGlyph: arrowGlyph,
-            arrowKeyCode: arrowKeyCode,
-            layoutCharacterProvider: shortcutCoordinator.layoutCharacter(forKeyCode:modifierFlags:)
-        )
     }
 
     private func configuredShortcutChordWindowNumber(for event: NSEvent) -> Int? {
