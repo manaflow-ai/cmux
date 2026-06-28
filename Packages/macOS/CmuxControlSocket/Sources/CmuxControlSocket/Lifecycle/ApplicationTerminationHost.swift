@@ -37,8 +37,9 @@ public protocol ApplicationTerminationHost: AnyObject {
     /// Flushes any pending closed-item history saves.
     func flushPendingClosedItemSaves()
 
-    /// Closes all open Web Inspectors before app teardown.
-    func closeAllWebInspectorsBeforeAppTeardown()
+    /// Closes all open Web Inspectors before app teardown. Returns the count closed (callers may ignore).
+    @discardableResult
+    func closeAllWebInspectorsBeforeAppTeardown() -> Int
 
     /// Whether any registered or recoverable workspace has unsaved/dirty state.
     func hasQuitConfirmationDirtyWorkspaces() -> Bool

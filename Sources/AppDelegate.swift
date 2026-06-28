@@ -12701,9 +12701,5 @@ extension AppDelegate: StartupUITestScaffoldDriving {
             navigationTarget: .browser
         )
     }
-
-    func presentBrowserImportDialog() {
-        BrowserDataImportCoordinator.shared.presentImportDialog()
-    }
 }
 #endif
