@@ -114,6 +114,12 @@ if [ "${NODE_COUNT:-0}" -lt 3 ]; then
     --function 'document.readyState==="complete" && !document.querySelector("[aria-busy=true],[data-loading=true]") && document.body.innerText.length>30' \
     --timeout-ms 15000 || { echo "hydration retry timed out — supply an explicit selector and retry" >&2; exit 1; }
   cmux browser "$SURFACE" snapshot --interactive
+  # Re-validate after the retry — a still-shell page must NOT exit 0 as "hydrated".
+  NODE_COUNT=$(cmux browser "$SURFACE" eval 'document.querySelectorAll("a[href],h1,h2,h3,button,nav,article").length' | tr -d ' \n')
+  if [ "${NODE_COUNT:-0}" -lt 3 ]; then
+    echo "snapshot still a pre-hydration shell after retry ($NODE_COUNT elements) — supply an explicit selector and retry" >&2
+    exit 1
+  fi
 fi
 ```
 
