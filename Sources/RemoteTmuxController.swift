@@ -709,23 +709,27 @@ final class RemoteTmuxController {
     ) -> Bool {
         guard let mirror = actionMirror(forWorkspaceId: workspaceId),
               mirror.connection.connectionState == .connected else { return false }
-        let afterWindowId: Int?
-        switch placement {
-        case .end:
-            // A linked mirror shares the view connection, whose `{end}` resolves in
-            // the VIEW session; anchor on the home session's last window so the new
-            // tab lands in the right session. (Non-linked: nil → `{end}` is correct,
-            // since its connection is attached to that session.)
-            afterWindowId = isLinkedMirror(mirror) ? mirror.orderedWindowIds.last : nil
-        case .afterPanel(let panelId):
-            // nil (panel has no live window) falls back to end placement.
-            afterWindowId = mirror.windowId(forPanel: panelId)
-        }
         let commandWorkingDirectory = Self.liveMirrorWindowWorkingDirectory(
             workingDirectory,
             sourcePanelId: workingDirectorySourcePanelId,
             windowIdForPanel: mirror.windowId(forPanel:)
         )
+        // Linked-view: anchor on the home session by name — a window id is ambiguous
+        // when linked into both the home session and the hidden view, so it would
+        // create the tab in the view over the shared connection.
+        if isLinkedMirror(mirror) {
+            return mirror.connection.send(
+                Self.newWindowCommandInSession(mirror.sessionName, workingDirectory: commandWorkingDirectory)
+            )
+        }
+        let afterWindowId: Int?
+        switch placement {
+        case .end:
+            afterWindowId = nil
+        case .afterPanel(let panelId):
+            // nil (panel has no live window) falls back to end placement.
+            afterWindowId = mirror.windowId(forPanel: panelId)
+        }
         return mirror.connection.send(
             Self.newWindowCommand(afterWindowId: afterWindowId, workingDirectory: commandWorkingDirectory)
         )
@@ -769,12 +773,28 @@ final class RemoteTmuxController {
     /// terminate the command line is dropped, leaving the placement-only command.
     nonisolated static func newWindowCommand(afterWindowId: Int?, workingDirectory: String?) -> String {
         var command = afterWindowId.map { "new-window -a -t @\($0)" } ?? "new-window -a -t '{end}'"
+        appendWorkingDirectory(&command, workingDirectory)
+        return command
+    }
+
+    /// `new-window` for a linked-view mirror, anchored on the home session BY NAME.
+    /// A bare window id (`@id`) is ambiguous when the window is linked into both the
+    /// home session and the hidden view, so over the shared view connection
+    /// `new-window -t @id` creates the window in the VIEW. `'<session>:{end}'` forces
+    /// it into the home session, at the end. (Exact after-panel placement is not
+    /// preserved for linked tabs; correct session beats exact position.)
+    nonisolated static func newWindowCommandInSession(_ sessionName: String, workingDirectory: String?) -> String {
+        var command = "new-window -a -t \(RemoteTmuxHost.shellSingleQuoted("\(sessionName):{end}"))"
+        appendWorkingDirectory(&command, workingDirectory)
+        return command
+    }
+
+    private nonisolated static func appendWorkingDirectory(_ command: inout String, _ workingDirectory: String?) {
         if let directory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
            !directory.isEmpty,
            RemoteTmuxHost.controlModeLineSafeName(directory) != nil {
             command += " -c \(RemoteTmuxHost.shellSingleQuoted(directory))"
         }
-        return command
     }
 
     /// A mirrored workspace was renamed → `rename-session` on the remote so the
