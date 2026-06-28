@@ -23,9 +23,12 @@ permissions:
 
 jobs:
   validate:
-    # Blacksmith macOS-26 (Xcode 26 / iOS 26 sims), the same lane test-ios.yml
-    # uses, so it shares the fleet and does not burn paid GitHub-hosted minutes.
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    # Blacksmith macOS-26 (Xcode 26 / iOS 26 sims). Pinned directly rather than
+    # via vars.MACOS_RUNNER_IOS: that repo var currently routes the iOS lane to a
+    # Depot macOS image whose default Xcode is 16.4, under which cmux's iOS
+    # targets fail to compile (Swift 6 actor-isolation + interpolation errors)
+    # and the iPhone 17 sim does not exist. Blacksmith macos-26 ships Xcode 26.
+    runs-on: blacksmith-6vcpu-macos-26
     timeout-minutes: 120
     env:
       CMUX_PORT: "3000"
@@ -44,8 +47,14 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          [ -d "$XCODE_DIR" ] || XCODE_DIR="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' | sort | tail -n1)/Contents/Developer"
+          # cmux's iOS targets need Xcode 26's Swift toolchain. Prefer the newest
+          # Xcode 26 explicitly (the default /Applications/Xcode.app symlink can
+          # point at an older Xcode on some images), then any newest Xcode, then
+          # the default.
+          XCODE_APP="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n1 || true)"
+          [ -n "$XCODE_APP" ] || XCODE_APP="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -n1 || true)"
+          [ -n "$XCODE_APP" ] || XCODE_APP="/Applications/Xcode.app"
+          XCODE_DIR="$XCODE_APP/Contents/Developer"
           echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
           DEVELOPER_DIR="$XCODE_DIR" xcodebuild -version
 
