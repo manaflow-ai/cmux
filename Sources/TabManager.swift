@@ -229,6 +229,7 @@ class TabManager: ObservableObject {
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
+    let sidebarWorkspaceSelectionCoalescer = SidebarWorkspaceSelectionCoalescer(delayNanoseconds: 60_000_000)
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -2314,6 +2315,8 @@ class TabManager: ObservableObject {
     }
 
     func selectWorkspace(_ workspace: Workspace) {
+        // A direct selection supersedes any pending sidebar debounce.
+        cancelPendingSidebarWorkspaceSelection()
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
 #endif
