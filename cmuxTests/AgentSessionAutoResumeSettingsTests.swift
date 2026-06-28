@@ -802,8 +802,11 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         line: UInt = #line
     ) throws {
         let command = try XCTUnwrap(panel.surface.debugInitialCommand(), file: file, line: line)
-        XCTAssertTrue(command.hasPrefix("/bin/zsh '"), command, file: file, line: line)
-        let scriptPath = String(command.dropFirst("/bin/zsh '".count).dropLast())
+        let prefix = "/bin/zsh "
+        XCTAssertTrue(command.hasPrefix(prefix + "'"), command, file: file, line: line)
+        // `debugInitialCommand()` is `/bin/zsh '<single-quoted script path>'`; reverse the shell
+        // single-quoting rather than trimming raw characters so a path containing a `'` resolves.
+        let scriptPath = Self.singleUnquotedShellWord(String(command.dropFirst(prefix.count)))
         defer { try? FileManager.default.removeItem(atPath: scriptPath) }
         let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
 
@@ -826,6 +829,14 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 line: line
             )
         }
+    }
+
+    /// Reverses POSIX single-quoting (`'a'\''b'` -> `a'b`) to recover a script path from a
+    /// `/bin/zsh '<path>'` startup command, instead of blindly trimming the outer characters.
+    private static func singleUnquotedShellWord(_ value: String) -> String {
+        guard value.hasPrefix("'"), value.hasSuffix("'"), value.count >= 2 else { return value }
+        let inner = value.dropFirst().dropLast()
+        return inner.replacingOccurrences(of: "'\\''", with: "'")
     }
 
     private func withRestoredDefaults<T>(
@@ -852,8 +863,11 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         line: UInt = #line
     ) throws {
         let command = try XCTUnwrap(panel.surface.debugInitialCommand(), file: file, line: line)
-        XCTAssertTrue(command.hasPrefix("/bin/zsh '"), command, file: file, line: line)
-        let scriptPath = String(command.dropFirst("/bin/zsh '".count).dropLast())
+        let prefix = "/bin/zsh "
+        XCTAssertTrue(command.hasPrefix(prefix + "'"), command, file: file, line: line)
+        // `debugInitialCommand()` is `/bin/zsh '<single-quoted script path>'`; reverse the shell
+        // single-quoting rather than trimming raw characters so a path containing a `'` resolves.
+        let scriptPath = Self.singleUnquotedShellWord(String(command.dropFirst(prefix.count)))
         defer { try? FileManager.default.removeItem(atPath: scriptPath) }
         let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
         for needle in needles {

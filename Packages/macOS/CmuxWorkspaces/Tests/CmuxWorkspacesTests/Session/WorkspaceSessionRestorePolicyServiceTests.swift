@@ -61,7 +61,9 @@ struct WorkspaceSessionRestorePolicyServiceTests {
             temporaryDirectory: URL,
             returnWorkingDirectory: String?
         ) -> String? {
-            "\(startupCommandPrefix):\(command)"
+            // Echo the forwarded post-exit fallback cwd so tests can catch a regression where the
+            // policy stops threading `returnWorkingDirectory` into the launcher.
+            "\(startupCommandPrefix):\(command):returnWorkingDirectory=\(returnWorkingDirectory ?? "<nil>")"
         }
     }
 
@@ -210,6 +212,39 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(command.contains("'hermes' config set model.api_mode 'responses' >/dev/null"))
         #expect(command.contains("'hermes' config set model.default 'gpt-5' >/dev/null"))
         #expect(command.contains("hermes --provider 'codex' run"))
+    }
+
+    // The post-exit return cwd fallback (https://github.com/manaflow-ai/cmux/issues/7031) is only
+    // useful if the policy actually threads it into the launcher. FakeBinding echoes the value it
+    // receives, so this fails if `surfaceResumeStartupLaunch` ever drops `returnWorkingDirectory`.
+    @Test("surfaceResumeStartupLaunch forwards the post-exit return working directory")
+    func surfaceResumeStartupLaunchForwardsReturnWorkingDirectory() throws {
+        let service = makeService()
+        let binding = FakeBinding(
+            source: "agent-hook",
+            command: "claude --resume",
+            isAgentHookBinding: true,
+            allowsAutomaticResume: true
+        )
+
+        let launch = try #require(service.surfaceResumeStartupLaunch(
+            forApprovedBinding: binding,
+            returnWorkingDirectory: "/session/dir"
+        ))
+        guard case .command(let command) = launch else {
+            Issue.record("expected command launch")
+            return
+        }
+        #expect(command.contains("returnWorkingDirectory=/session/dir"))
+
+        let withoutFallback = try #require(service.surfaceResumeStartupLaunch(
+            forApprovedBinding: binding
+        ))
+        guard case .command(let bareCommand) = withoutFallback else {
+            Issue.record("expected command launch")
+            return
+        }
+        #expect(bareCommand.contains("returnWorkingDirectory=<nil>"))
     }
 
     @Test("remote reconnect waits when restored terminals can authenticate")
