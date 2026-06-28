@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import Observation
 import CmuxBrowser
 
 struct BrowserOpenTabSuggestionSnapshot: Equatable {
@@ -121,69 +120,6 @@ final class BrowserOpenTabSuggestionIndex {
             suggestionsByPanelId[snapshot.panelId] = snapshot
             suggestionOrder.append(snapshot.panelId)
         }
-    }
-}
-
-@MainActor
-@Observable
-final class OmnibarSuggestionRefreshScheduler {
-    let refreshStream: AsyncStream<UInt64>
-
-    @ObservationIgnored private var refreshContinuation: AsyncStream<UInt64>.Continuation
-    @ObservationIgnored private var debounceDelay: Duration
-    @ObservationIgnored private var clock: any OmnibarSuggestionRefreshClock
-    @ObservationIgnored private var refreshGeneration: UInt64 = 0
-    @ObservationIgnored private var pendingRefreshTask: Task<Void, Never>?
-
-    init(
-        debounceDelay: Duration = .milliseconds(80),
-        clock: any OmnibarSuggestionRefreshClock = ContinuousOmnibarSuggestionRefreshClock()
-    ) {
-        self.debounceDelay = debounceDelay
-        self.clock = clock
-        let refreshPipe = AsyncStream<UInt64>.makeStream()
-        refreshStream = refreshPipe.stream
-        refreshContinuation = refreshPipe.continuation
-    }
-
-    func scheduleRefresh() {
-        pendingRefreshTask?.cancel()
-        refreshGeneration &+= 1
-        let generation = refreshGeneration
-        let debounceDelay = debounceDelay
-        let clock = clock
-        pendingRefreshTask = Task { @MainActor [weak self, generation, debounceDelay, clock] in
-            guard !Task.isCancelled else { return }
-            do {
-                try await clock.sleep(for: debounceDelay)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled, let self else { return }
-            guard refreshGeneration == generation else { return }
-            pendingRefreshTask = nil
-            refreshContinuation.yield(generation)
-        }
-    }
-
-    func cancelPendingRefresh() {
-        refreshGeneration &+= 1
-        pendingRefreshTask?.cancel()
-        pendingRefreshTask = nil
-    }
-
-    func shouldProcessRefresh(_ generation: UInt64) -> Bool {
-        refreshGeneration == generation
-    }
-}
-
-protocol OmnibarSuggestionRefreshClock: Sendable {
-    func sleep(for duration: Duration) async throws
-}
-
-struct ContinuousOmnibarSuggestionRefreshClock: OmnibarSuggestionRefreshClock {
-    func sleep(for duration: Duration) async throws {
-        try await ContinuousClock().sleep(for: duration)
     }
 }
 
