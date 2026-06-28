@@ -9758,7 +9758,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func debugInjectWindowContextKeyMismatch(windowId: UUID) -> Bool {
         guard let context = registeredMainWindow(forWindowId: windowId),
-              let window = context.window ?? windowForMainWindowId(windowId) else {
+              (context.window ?? windowForMainWindowId(windowId)) != nil else {
             return false
         }
 
