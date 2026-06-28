@@ -169,4 +169,42 @@ public final class AppMenuCoordinator<Host: AppMenuHosting> {
             }
         }
     }
+
+    /// Decides whether a stale built-in `cmux` menu key-equivalent must be
+    /// suppressed before AppKit's menu machinery consumes the keystroke, given a
+    /// ``StaleMenuShortcutContext`` the witness assembled from the live `NSEvent`.
+    ///
+    /// The verdict reproduces the legacy inline decision exactly: a non-key event,
+    /// an armed recorder, a panel/modal/sheet target, or a non-command event never
+    /// suppresses; otherwise, when at least one action's *default* shortcut matches
+    /// the event, suppression is granted unless that action's *current* shortcut
+    /// already matches (a live binding), with the close-action family suppressed
+    /// even when no current shortcut matches, and any live current-shortcut match
+    /// across all actions vetoing suppression. The witness reads
+    /// `KeyboardShortcutSettings.Action`, the recorder activity, and the
+    /// key-window/modal/sheet state app-side and passes them through; this method
+    /// owns only the boolean branching.
+    public func shouldSuppressStaleMenuShortcut(context: StaleMenuShortcutContext) -> Bool {
+        guard context.isKeyDown else { return false }
+        if context.anyRecorderActive { return false }
+        if context.isPanelOrModalOrSheet { return false }
+        guard context.hasCommandFlag else { return false }
+
+        guard !context.staleDefaultActions.isEmpty else { return false }
+
+        for action in context.staleDefaultActions {
+            if action.currentShortcutMatchesEvent {
+                return false
+            }
+        }
+
+        if context.staleDefaultActions.contains(where: \.isCloseAction) {
+            return true
+        }
+
+        if context.anyCurrentShortcutMatchesEvent {
+            return false
+        }
+        return true
+    }
 }

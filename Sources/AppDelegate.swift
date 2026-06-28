@@ -10232,46 +10232,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func shouldSuppressStaleCmuxMenuShortcut(event: NSEvent) -> Bool {
-        guard event.type == .keyDown else { return false }
+        // Witness for AppMenuCoordinator.shouldSuppressStaleMenuShortcut: assemble
+        // the live-state projection here (the NSEvent, KeyboardShortcutSettings
+        // reads, recorder activity, and key-window/modal/sheet reads cannot leave
+        // the app target while KeyboardShortcutSettings lives in Sources/), then
+        // delegate the boolean branching policy across the seam.
+        let isKeyDown = event.type == .keyDown
         // While a Settings recorder is armed, every keystroke must reach it to be
         // captured — including a remapped-away default like the old ⌘1 the user is
         // trying to record. Suppressing the stale menu shortcut here would consume
         // that keystroke before `RecorderHostButton.performKeyEquivalent` sees it,
         // so stand down for both recorders (issue #5189).
-        if KeyboardShortcutRecorderActivity.isAnyRecorderActive || RecorderHostButton.isActivelyRecording {
-            return false
-        }
+        let anyRecorderActive = KeyboardShortcutRecorderActivity.isAnyRecorderActive
+            || RecorderHostButton.isActivelyRecording
         let keyWindow = shortcutRoutingKeyWindow
-        if event.window is NSPanel || keyWindow is NSPanel || NSApp.modalWindow != nil || keyWindow?.attachedSheet != nil {
-            return false
-        }
-        let flags = event.modifierFlags
+        let isPanelOrModalOrSheet = event.window is NSPanel
+            || keyWindow is NSPanel
+            || NSApp.modalWindow != nil
+            || keyWindow?.attachedSheet != nil
+        let hasCommandFlag = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
-        guard flags.contains(.command) else { return false }
+            .contains(.command)
 
-        let staleDefaultActions = KeyboardShortcutSettings.Action.allCases.filter { action in
-            action.isMenuBacked &&
-                matchesKeyboardShortcutEvent(event, action: action, shortcut: action.defaultShortcut)
-        }
-        guard !staleDefaultActions.isEmpty else { return false }
-
-        for action in staleDefaultActions {
-            if currentShortcutMatchesKeyboardShortcutEvent(event, action: action) {
-                return false
+        // The per-action allCases scans only change the verdict once the cheap
+        // gates above pass, so skip them otherwise to keep the legacy per-event
+        // fast path (no KeyboardShortcutSettings.Action scan on non-command
+        // keystrokes / non-key events). The coordinator re-derives the same
+        // verdict from the full context.
+        let staleDefaultActions: [StaleMenuShortcutContext.StaleDefaultAction]
+        let anyCurrentShortcutMatchesEvent: Bool
+        if isKeyDown, !anyRecorderActive, !isPanelOrModalOrSheet, hasCommandFlag {
+            staleDefaultActions = KeyboardShortcutSettings.Action.allCases.compactMap { action in
+                guard action.isMenuBacked,
+                      matchesKeyboardShortcutEvent(event, action: action, shortcut: action.defaultShortcut)
+                else { return nil }
+                return StaleMenuShortcutContext.StaleDefaultAction(
+                    isCloseAction: action.isCloseAction,
+                    currentShortcutMatchesEvent: currentShortcutMatchesKeyboardShortcutEvent(event, action: action)
+                )
             }
-        }
-
-        if staleDefaultActions.contains(where: \.isCloseAction) {
-            return true
-        }
-
-        for action in KeyboardShortcutSettings.Action.allCases {
-            if currentShortcutMatchesKeyboardShortcutEvent(event, action: action) {
-                return false
+            anyCurrentShortcutMatchesEvent = KeyboardShortcutSettings.Action.allCases.contains { action in
+                currentShortcutMatchesKeyboardShortcutEvent(event, action: action)
             }
+        } else {
+            staleDefaultActions = []
+            anyCurrentShortcutMatchesEvent = false
         }
-        return true
+
+        return appMenuCoordinator.shouldSuppressStaleMenuShortcut(
+            context: StaleMenuShortcutContext(
+                isKeyDown: isKeyDown,
+                anyRecorderActive: anyRecorderActive,
+                isPanelOrModalOrSheet: isPanelOrModalOrSheet,
+                hasCommandFlag: hasCommandFlag,
+                staleDefaultActions: staleDefaultActions,
+                anyCurrentShortcutMatchesEvent: anyCurrentShortcutMatchesEvent
+            )
+        )
     }
 
     private func currentShortcutMatchesKeyboardShortcutEvent(
