@@ -56,6 +56,39 @@ extension GhosttyApp {
     }
 }
 
+/// The app-side seam ``CmuxTerminal/TerminalAppearanceCoordinator`` calls back
+/// through for the cold appearance-sync effects that must stay on `GhosttyApp`:
+/// the live `ghostty_app_t` color-scheme write, the configuration reload, the
+/// background debug log, and the reload-reentrancy depth. The `ghostty_app_t`
+/// handle never crosses into the package; `appearanceHasGhosttyApp` reports its
+/// presence and `appearanceApplyGhosttyRuntimeColorScheme` performs the
+/// `ghostty_app_set_color_scheme` against the private handle here.
+extension GhosttyApp: TerminalAppearanceHosting {
+    var appearanceBackgroundLogEnabled: Bool { backgroundLogEnabled }
+
+    func appearanceLogBackground(_ message: String) {
+        logBackground(message)
+    }
+
+    var appearanceHasGhosttyApp: Bool { app != nil }
+
+    func appearanceApplyGhosttyRuntimeColorScheme(_ runtimeColorScheme: ghostty_color_scheme_e) {
+        guard let app else { return }
+        ghostty_app_set_color_scheme(app, runtimeColorScheme)
+    }
+
+    func appearanceReloadConfiguration(
+        source: String,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
+        reloadConfiguration(
+            source: source,
+            reloadSettingsFromFile: false,
+            preferredColorScheme: preferredColorScheme
+        )
+    }
+}
+
 enum GhosttyNotificationKey {
     static let scrollbar = "ghostty.scrollbar"
     static let cellSize = "ghostty.cellSize"
