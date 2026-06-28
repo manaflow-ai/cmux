@@ -12218,18 +12218,20 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
-        // In a remote tmux mirror, splitting a MIRROR window tab means tmux
-        // `split-window` — veto the local split so the mirror never gains an orphan
-        // pane. But the workspace may also hold a local tab (e.g. a browser the user
-        // opened); splitting that should behave locally. So only veto when the split
-        // actually routed to tmux (the selected tab is a mirror-owned window tab).
-        guard isRemoteTmuxMirror,
-              let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
-              let panelId = panelIdFromSurfaceId(tabId) else { return true }
-        let routedToTmux = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
-            workspaceId: id, panelId: panelId, vertical: orientation == .vertical
-        ) ?? false
-        return !routedToTmux
+        // A mirror workspace stays SINGLE-PANE: all its mirror tabs must share one
+        // bonsplit pane (the tmux-driven window reorder can't span a user split, and
+        // a second pane could capture a newly-mirrored tmux window). So always veto a
+        // local split here. A split of a MIRROR window tab is instead routed to tmux
+        // `split-window` (rendered inside that tab). A local browser tab simply can't
+        // be split in a mirror workspace (open it in another window for a split).
+        guard isRemoteTmuxMirror else { return true }
+        if let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
+           let panelId = panelIdFromSurfaceId(tabId) {
+            _ = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
+                workspaceId: id, panelId: panelId, vertical: orientation == .vertical
+            )
+        }
+        return false
     }
 
     func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {

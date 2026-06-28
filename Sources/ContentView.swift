@@ -12395,17 +12395,13 @@ struct VerticalTabsSidebar: View {
         }
         var colorByHash: [String: Color] = [:]
         var paletteIndex = 0
-        let palette = WorkspaceTabColorSettings.defaultPalette
+        let palette = originRailPalette
         for host in sortedHosts {
             var assigned: Color?
             while paletteIndex < palette.count {
-                let entry = palette[paletteIndex]
+                let hex = palette[paletteIndex]
                 paletteIndex += 1
-                guard let nsColor = WorkspaceTabColorSettings.displayNSColor(
-                    hex: entry.hex,
-                    colorScheme: colorScheme,
-                    forceBright: true
-                ) else { continue }
+                guard let nsColor = nsColorFromHex(hex) else { continue }
                 if let rgb = rgbKey(nsColor), reservedRGB.contains(rgb) { continue }
                 assigned = Color(nsColor: pastel(nsColor))
                 break
@@ -12431,10 +12427,33 @@ struct VerticalTabsSidebar: View {
         return result
     }
 
+    /// A calm, muted palette for the origin rails — distinguishable hues with the
+    /// quietest first, so a multi-origin window reads gently. Assigned to hosts in
+    /// lexicographic order. Deliberately not the vivid workspace-tag palette (whose
+    /// first entry pastelizes to a hot pink).
+    private static let originRailPalette: [String] = [
+        "#6E9BD2",  // soft blue
+        "#5FB3A1",  // teal
+        "#8FB36B",  // sage green
+        "#D2A96B",  // sand
+        "#A493D2",  // lavender
+        "#CC8FA6",  // dusty rose
+        "#6FB6C9",  // sky
+        "#C2A36E",  // tan
+        "#9DB36B",  // olive
+        "#B98FC0",  // mauve
+    ]
+
+    private static func nsColorFromHex(_ hex: String) -> NSColor? {
+        guard let color = Color(hex: hex) else { return nil }
+        return NSColor(color).usingColorSpace(.sRGB)
+    }
+
     /// Softens a palette color toward a pastel tone by blending it part-way to
     /// white, so the origin rails read as gentle accents rather than vivid bars.
+    /// Light blend — the palette is already muted.
     private static func pastel(_ color: NSColor) -> NSColor {
-        color.usingColorSpace(.sRGB)?.blended(withFraction: 0.4, of: .white) ?? color
+        color.usingColorSpace(.sRGB)?.blended(withFraction: 0.2, of: .white) ?? color
     }
 
     /// A coarse RGB identity (0-255 per channel) for comparing two `NSColor`s by
