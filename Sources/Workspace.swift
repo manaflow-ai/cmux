@@ -8240,13 +8240,11 @@ extension Workspace: BonsplitDelegate {
     @MainActor
     private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID) -> Bool {
         let manager = owningTabManager ?? hostEnvironment?.tabManagerFor(tabId: id) ?? hostEnvironment?.tabManager
-        guard panels.count <= 1,
-              panelIdFromSurfaceId(tabId) != nil,
-              let manager,
-              manager.tabs.contains(where: { $0.id == id }) else {
-            return false
-        }
-        return true
+        return LastSurfaceWorkspaceClosePolicy().shouldCloseWorkspace(
+            panelCount: panels.count,
+            closingTabHasPanel: panelIdFromSurfaceId(tabId) != nil,
+            managerOwnsWorkspace: manager?.tabs.contains(where: { $0.id == id }) ?? false
+        )
     }
 
     @MainActor
@@ -8731,10 +8729,11 @@ extension Workspace: BonsplitDelegate {
            let panelId = panelIdFromSurfaceId(tab.id),
            let remoteTmuxController = hostEnvironment?.remoteTmuxController,
            remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId) != nil {
-            let confirmationSource: CloseTabCloseSource =
-                tabCloseButtonClose ? .tabCloseButton : .shortcut
-            if !CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
-                requiresConfirmation: true, source: confirmationSource
+            let closeConfirmationPolicy = TabCloseConfirmationPolicy(
+                store: CloseTabWarningStore(defaults: .standard)
+            )
+            if !closeConfirmationPolicy.requiresConfirmation(
+                requiresConfirmation: true, isTabCloseButton: tabCloseButtonClose
             ) {
                 // Close warnings disabled → even an active command wouldn't
                 // confirm; kill with no added round trip. Veto unconditionally:
@@ -8792,8 +8791,8 @@ extension Workspace: BonsplitDelegate {
                 // live query couldn't change WHETHER we confirm, but it still
                 // supplies the fresh command name, so use the cached classification
                 // for the name (no round trip) and present immediately.
-                if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
-                    requiresConfirmation: false, source: confirmationSource
+                if closeConfirmationPolicy.requiresConfirmation(
+                    requiresConfirmation: false, isTabCloseButton: tabCloseButtonClose
                 ) {
                     let cached = remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId)
                     presentConfirmation(cached?.activeCommandName)
@@ -8874,10 +8873,9 @@ extension Workspace: BonsplitDelegate {
         // If confirmation is required, Bonsplit will call into this delegate and we must return false.
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
-        let confirmationSource: CloseTabCloseSource = tabCloseButtonClose ? .tabCloseButton : .shortcut
-        if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+        if TabCloseConfirmationPolicy(store: CloseTabWarningStore(defaults: .standard)).requiresConfirmation(
             requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
-            source: confirmationSource
+            isTabCloseButton: tabCloseButtonClose
         ) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if pendingCloseConfirmTabIds.contains(tab.id) {
@@ -9246,9 +9244,9 @@ extension Workspace: BonsplitDelegate {
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
-               CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+               TabCloseConfirmationPolicy(store: CloseTabWarningStore(defaults: .standard)).requiresConfirmation(
                    requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
-                   source: .shortcut
+                   isTabCloseButton: false
                ) {
                 splitLifecycle.clearPaneClosePanelIds(forPane: pane.id)
                 pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
