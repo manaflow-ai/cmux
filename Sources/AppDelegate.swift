@@ -1441,7 +1441,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// The deep-link/services shims forward the pure URL-shaping rules here,
     /// injecting `Bundle.main.bundleURL` and the app-target
     /// `FinderServicePathResolver` as the single source of directory ordering.
-    private let externalOpenURLClassifier: any ExternalOpenURLClassifying = ExternalOpenURLClassifier(
+    let externalOpenURLClassifier: any ExternalOpenURLClassifying = ExternalOpenURLClassifier(
         bundleURL: Bundle.main.bundleURL,
         orderedUniqueDirectories: { pathURLs, excludedRootURLs in
             FinderServicePathResolver().orderedUniqueDirectories(
@@ -1466,12 +1466,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// three app-only effects (window creation, preferred-window workspace add,
     /// startup open-intent latch) and the localized error string stay app-side
     /// while the decision/loop lives in the package.
-    private lazy var externalOpenIntentCoordinator = ExternalOpenIntentCoordinator(host: self)
-    /// Deep-link open planner (CmuxWindowing); composition-root owned. The
-    /// `application(_:open:)` entry forwards the classified file URLs and
-    /// directories here for the partitioned ``DeepLinkOpenPlan``, then executes
-    /// each plan step against the live window/workspace routing.
-    private let deepLinkRouter: any DeepLinkRouting = DeepLinkOpenPlanner()
+    lazy var externalOpenIntentCoordinator = ExternalOpenIntentCoordinator(host: self)
+    /// External-URL open router (CmuxWindowing); composition-root owned. The
+    /// `application(_:open:)` entry forwards the opened URLs here; the router
+    /// orchestrates the cmux-scheme routes, auth callbacks, and the partitioned
+    /// ``DeepLinkOpenPlan`` (built by the injected ``DeepLinkOpenPlanner``)
+    /// against the live window/workspace routing this delegate vends as its
+    /// ``ExternalURLOpenRouterHost``.
+    private lazy var externalURLOpenRouter = ExternalURLOpenRouter(
+        router: DeepLinkOpenPlanner(),
+        host: self
+    )
     /// Accessibility window-hierarchy cache (CmuxWindowing); composition-root
     /// owned. The `NSApplication` AX swizzle forwards to it behind
     /// ``AccessibilityWindowCaching``.
@@ -1621,73 +1626,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        #if DEBUG
-        AuthDebugLog().log("auth.openURLs.received count=\(urls.count) summaries=\(urls.map(Self.authURLDebugSummary).joined(separator: "|"))")
-        #endif
-        if handleCmuxExternalURLs(from: urls) {
-            #if DEBUG
-            AuthDebugLog().log("auth.openURLs.handledByExternalRoutes count=\(urls.count)")
-            #endif
-            return
-        }
-
-        // Before the auth graph is configured, fall back to a default router
-        // (built-in cmux schemes) so dropped callbacks are still detected.
-        let callbackRouter = auth?.callbackRouter ?? AuthCallbackRouter()
-        let authCallbacks = urls.filter(callbackRouter.isAuthCallbackURL)
-        #if DEBUG
-        AuthDebugLog().log("auth.openURLs.authCallbacks count=\(authCallbacks.count)")
-        #endif
-        if let browserSignIn = auth?.browserSignIn {
-            for url in authCallbacks {
-                Task { @MainActor in
-                    let signedIn = await browserSignIn.handleCallbackURL(url)
-                    if !signedIn {
-                        AuthDebugLog().log("auth.callback did not complete sign-in")
-                    }
-                }
-            }
-        } else if !authCallbacks.isEmpty {
-            AuthDebugLog().log("auth.callback dropped: auth graph not configured yet")
-        }
-
-        let plan = deepLinkRouter.openPlan(
-            externalFileURLs: externalOpenURLClassifier.fileURLs(from: urls),
-            directories: externalOpenURLClassifier.directories(
-                from: urls.filter { externalOpenURLClassifier.isDirectory($0) }
-            )
-        )
-        guard !plan.isEmpty else { return }
-
-        prepareForExplicitOpenIntentAtStartup()
-        for request in plan.terminalFileRequests {
-            openTerminalDefaultFileRequest(
-                request,
-                debugSource: "application.openURLs.defaultTerminal"
-            )
-        }
-        for filePath in plan.filePreviewPaths {
-            _ = openFilePreviewInPreferredMainWindow(
-                filePath: filePath,
-                debugSource: "application.openURLs"
-            )
-        }
-        for directory in plan.directories {
-            externalOpenIntentCoordinator.openWorkspace(
-                forExternalDirectory: directory,
-                debugSource: "application.openURLs"
-            )
-        }
+        externalURLOpenRouter.open(urls: urls)
     }
-
-    #if DEBUG
-    private static func authURLDebugSummary(_ url: URL) -> String {
-        let scheme = url.scheme ?? "nil"
-        let target = url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.map(\.name).joined(separator: ",") ?? ""
-        return "\(scheme):\(target.isEmpty ? "nil" : target):\(queryItems.isEmpty ? "none" : queryItems)"
-    }
-    #endif
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if hasVisibleMainTerminalWindow() {
@@ -5795,7 +5735,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func openTerminalDefaultFileRequest(
+    func openTerminalDefaultFileRequest(
         _ request: TerminalDefaultFileOpenRequest,
         debugSource: String
     ) {

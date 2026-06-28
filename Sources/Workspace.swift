@@ -2364,6 +2364,16 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// and the `.terminalSurfaceDidBecomeReady` observer. The custom-layout
     /// startup-command send reaches it through `layoutSendStartupCommand`.
     let pendingTerminalInput = PendingTerminalInputCoordinator()
+
+    /// Orchestrates pane/surface focus navigation (CmuxWorkspaces): Cmd-arrow
+    /// move-focus across split panes and next/previous/index/last surface
+    /// selection within the focused pane. The `BonsplitController` reads/ops, the
+    /// per-panel `unfocus()`, the `applyTabSelection` chain, and the canvas-model
+    /// gestures stay app-side: this `Workspace` is the coordinator's
+    /// ``PanelFocusNavigationHosting`` (see
+    /// `Workspace+PanelFocusNavigationHosting.swift`). `attach(host: self)`-ed in
+    /// `init`.
+    let panelFocusNav = PanelFocusNavigationCoordinator()
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
 
     typealias SurfaceResumeStartupLaunch = WorkspaceSurfaceResumeStartupLaunch
@@ -2752,6 +2762,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         surfaceLifecycle.attach(host: self)
         layoutCoordinator.attach(host: self)
         pendingTerminalInput.attach(host: self)
+        panelFocusNav.attach(host: self)
         layoutFollowUpCoordinator.attach(host: self)
         splitMoveReorder.attach(host: self)
         splitClose.attach(host: self)
@@ -7173,74 +7184,29 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     func moveFocus(direction: NavigationDirection) {
-        if layoutMode == .canvas {
-            moveCanvasFocus(direction: direction)
-            return
-        }
-        let previousFocusedPanelId = focusedPanelId
-
-        // Unfocus the currently-focused panel before navigating.
-        if let prevPanelId = previousFocusedPanelId, let prev = panels[prevPanelId] {
-            prev.unfocus()
-        }
-
-        bonsplitController.navigateFocus(direction: direction)
-
-        // Always reconcile selection/focus after navigation so AppKit first-responder and
-        // bonsplit's focused pane stay aligned, even through split tree mutations.
-        if let paneId = bonsplitController.focusedPaneId,
-           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
-            applyTabSelection(tabId: tabId, inPane: paneId)
-        }
-
+        panelFocusNav.moveFocus(direction: direction)
     }
 
     // MARK: - Surface Navigation
 
     /// Select the next surface in the currently focused pane
     func selectNextSurface() {
-        if layoutMode == .canvas, selectAdjacentCanvasTab(offset: 1) { return }
-        bonsplitController.selectNextTab()
-
-        if let paneId = bonsplitController.focusedPaneId,
-           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
-            applyTabSelection(tabId: tabId, inPane: paneId)
-        }
+        panelFocusNav.selectNextSurface()
     }
 
     /// Select the previous surface in the currently focused pane
     func selectPreviousSurface() {
-        if layoutMode == .canvas, selectAdjacentCanvasTab(offset: -1) { return }
-        bonsplitController.selectPreviousTab()
-
-        if let paneId = bonsplitController.focusedPaneId,
-           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
-            applyTabSelection(tabId: tabId, inPane: paneId)
-        }
+        panelFocusNav.selectPreviousSurface()
     }
 
     /// Select a surface by index in the currently focused pane
     func selectSurface(at index: Int) {
-        guard let focusedPaneId = bonsplitController.focusedPaneId else { return }
-        let tabs = bonsplitController.tabs(inPane: focusedPaneId)
-        guard index >= 0 && index < tabs.count else { return }
-        bonsplitController.selectTab(tabs[index].id)
-
-        if let tabId = bonsplitController.selectedTab(inPane: focusedPaneId)?.id {
-            applyTabSelection(tabId: tabId, inPane: focusedPaneId)
-        }
+        panelFocusNav.selectSurface(at: index)
     }
 
     /// Select the last surface in the currently focused pane
     func selectLastSurface() {
-        guard let focusedPaneId = bonsplitController.focusedPaneId else { return }
-        let tabs = bonsplitController.tabs(inPane: focusedPaneId)
-        guard let last = tabs.last else { return }
-        bonsplitController.selectTab(last.id)
-
-        if let tabId = bonsplitController.selectedTab(inPane: focusedPaneId)?.id {
-            applyTabSelection(tabId: tabId, inPane: focusedPaneId)
-        }
+        panelFocusNav.selectLastSurface()
     }
 
     /// Create a new terminal surface in the currently focused pane
