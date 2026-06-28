@@ -455,6 +455,13 @@ class GhosttyApp {
     private(set) lazy var appearanceCoordinator = TerminalAppearanceCoordinator(host: self)
     private var reloadConfigurationDepth = 0
 
+    /// The cold (non-per-frame) ghostty action dispatcher drained out of
+    /// `handleAction(target:action:)` into ``CmuxTerminal/GhosttyActionDispatchCoordinator``.
+    /// It owns the `action.tag` → host-call decision tree for the cold app-target
+    /// actions and the surface `SHOW_CHILD_EXITED` action; every side effect comes
+    /// back through the `GhosttyActionHosting` conformance below.
+    private let actionDispatchCoordinator = GhosttyActionDispatchCoordinator()
+
     /// Whether the terminal renders against a host-layer (window-owned)
     /// background; read-forwarded to ``appearanceCoordinator``.
     var usesHostLayerBackground: Bool { appearanceCoordinator.usesHostLayerBackground }
@@ -1545,125 +1552,18 @@ class GhosttyApp {
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
         if target.tag != GHOSTTY_TARGET_SURFACE {
-            if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
-                action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||
-                action.tag == GHOSTTY_ACTION_COLOR_CHANGE {
-                logAction(action, target: target, tabId: nil, surfaceId: nil)
-            }
-
-            if action.tag == GHOSTTY_ACTION_DESKTOP_NOTIFICATION {
-                let actionTitle = action.action.desktop_notification.title
-                    .flatMap { String(cString: $0) } ?? ""
-                let actionBody = action.action.desktop_notification.body
-                    .flatMap { String(cString: $0) } ?? ""
-                return performOnMain {
-                    guard let tabManager = AppDelegate.shared?.tabManager,
-                          let tabId = tabManager.selectedTabId else {
-                        return false
-                    }
-                    let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? tabManager
-                    let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-                    if let workspace = owningManager.tabs.first(where: { $0.id == tabId }),
-                       workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
-                        return true
-                    }
-                    let tabTitle = owningManager.titleForTab(tabId) ?? "Terminal"
-                    let command = actionTitle.isEmpty ? tabTitle : actionTitle
-                    let body = actionBody
-                    TerminalNotificationStore.shared.addNotification(
-                        tabId: tabId,
-                        surfaceId: surfaceId,
-                        title: command,
-                        subtitle: "",
-                        body: body
-                    )
-                    return true
-                }
-            }
-
-            if action.tag == GHOSTTY_ACTION_RING_BELL {
-                performOnMain {
-                    self.ringBell()
-                }
-                return true
-            }
-
-            if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG {
-                let soft = action.action.reload_config.soft
-                logThemeAction("reload request target=app soft=\(soft)")
-                performOnMain {
-                    guard self.shouldProcessGhosttyReloadAction(
-                        source: "action.reload_config.app",
-                        soft: soft
-                    ) else {
-                        return
-                    }
-                    self.reloadConfiguration(soft: soft, source: "action.reload_config.app")
-                }
-                return true
-            }
-
-            if action.tag == GHOSTTY_ACTION_COLOR_CHANGE {
-                performOnMain {
-                    applyAppColorChange(action.action.color_change, source: "action.color_change.app")
-                }
-                return true
-            }
-
-            if action.tag == GHOSTTY_ACTION_CONFIG_CHANGE {
-                // Theme picker preview reloads are resolved through reloadConfiguration.
-                // Ghostty's config-change payload can still contain stale app defaults,
-                // so it must not own the window chrome appearance.
-                synchronizeGhosttyRuntimeColorScheme(
-                    effectiveTerminalColorSchemePreference,
-                    source: "action.config_change.app:resolved"
-                )
-                DispatchQueue.main.async {
-                    self.applyBackgroundToKeyWindow()
-                }
-                return true
-            }
-
-            return false
+            return actionDispatchCoordinator.dispatchAppTargetAction(action, target: target, host: self)
         }
         let callbackContext = Self.callbackContext(from: ghostty_surface_userdata(target.target.surface))
         let callbackTabId = callbackContext?.tabId
         let callbackSurfaceId = callbackContext?.surfaceId
 
         if action.tag == GHOSTTY_ACTION_SHOW_CHILD_EXITED {
-            // The child (shell) exited. Ghostty will fall back to printing
-            // "Process exited. Press any key..." into the terminal unless the host
-            // handles this action. For cmux, the correct behavior is to close
-            // the panel immediately (no prompt).
-#if DEBUG
-            cmuxDebugLog(
-                "surface.action.showChildExited tab=\(callbackTabId?.uuidString.prefix(5) ?? "nil") " +
-                "surface=\(callbackSurfaceId?.uuidString.prefix(5) ?? "nil")"
+            return actionDispatchCoordinator.dispatchSurfaceChildExited(
+                tabId: callbackTabId,
+                surfaceId: callbackSurfaceId,
+                host: self
             )
-#endif
-#if DEBUG
-            TerminalChildExitProbe().write(
-                [
-                    "probeShowChildExitedTabId": callbackTabId?.uuidString ?? "",
-                    "probeShowChildExitedSurfaceId": callbackSurfaceId?.uuidString ?? "",
-                ],
-                increments: ["probeShowChildExitedCount": 1]
-            )
-#endif
-            // Keep host-close async to avoid re-entrant close/deinit while Ghostty is still
-            // dispatching this action callback.
-            DispatchQueue.main.async {
-                guard let app = AppDelegate.shared else { return }
-                if let callbackTabId,
-                   let callbackSurfaceId,
-                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager,
-                   let workspace = manager.tabs.first(where: { $0.id == callbackTabId }),
-                   workspace.panels[callbackSurfaceId] != nil {
-                    manager.closePanelAfterChildExited(tabId: callbackTabId, surfaceId: callbackSurfaceId)
-                }
-            }
-            // Always report handled so Ghostty doesn't print the fallback prompt.
-            return true
         }
 
         guard let surfaceView = callbackContext?.surfaceView else { return false }
@@ -2204,6 +2104,117 @@ class GhosttyApp {
 
     func logBackground(_ message: String) {
         backgroundDebugLog.log(message)
+    }
+}
+
+/// The app-side seam ``CmuxTerminal/GhosttyActionDispatchCoordinator`` calls back
+/// through for the cold (non-per-frame) ghostty action effects that stay on
+/// `GhosttyApp`: the background action log, the desktop-notification store write
+/// (with its localized "Terminal" fallback resolved here), the bell, the
+/// configuration reload, the app color change, the key-window backdrop apply,
+/// and the child-exit panel close. The coordinator owns only the `action.tag` →
+/// host-call decision tree; every mutation lands through these methods, keeping
+/// each legacy `handleAction` branch body byte-identical.
+extension GhosttyApp: GhosttyActionHosting {
+    func dispatchLogColdConfigAction(_ action: ghostty_action_s, target: ghostty_target_s) {
+        logAction(action, target: target, tabId: nil, surfaceId: nil)
+    }
+
+    func dispatchAppDesktopNotification(title: String, body: String) -> Bool {
+        performOnMain {
+            guard let tabManager = AppDelegate.shared?.tabManager,
+                  let tabId = tabManager.selectedTabId else {
+                return false
+            }
+            let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? tabManager
+            let surfaceId = tabManager.focusedSurfaceId(for: tabId)
+            if let workspace = owningManager.tabs.first(where: { $0.id == tabId }),
+               workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
+                return true
+            }
+            let tabTitle = owningManager.titleForTab(tabId) ?? "Terminal"
+            let command = title.isEmpty ? tabTitle : title
+            TerminalNotificationStore.shared.addNotification(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: command,
+                subtitle: "",
+                body: body
+            )
+            return true
+        }
+    }
+
+    func dispatchAppRingBell() {
+        performOnMain {
+            self.ringBell()
+        }
+    }
+
+    func dispatchAppReloadConfig(soft: Bool) {
+        logThemeAction("reload request target=app soft=\(soft)")
+        performOnMain {
+            guard self.shouldProcessGhosttyReloadAction(
+                source: "action.reload_config.app",
+                soft: soft
+            ) else {
+                return
+            }
+            self.reloadConfiguration(soft: soft, source: "action.reload_config.app")
+        }
+    }
+
+    func dispatchAppColorChange(_ change: ghostty_action_color_change_s) {
+        performOnMain {
+            applyAppColorChange(change, source: "action.color_change.app")
+        }
+    }
+
+    func dispatchAppConfigChange() {
+        // Theme picker preview reloads are resolved through reloadConfiguration.
+        // Ghostty's config-change payload can still contain stale app defaults,
+        // so it must not own the window chrome appearance.
+        synchronizeGhosttyRuntimeColorScheme(
+            effectiveTerminalColorSchemePreference,
+            source: "action.config_change.app:resolved"
+        )
+        DispatchQueue.main.async {
+            self.applyBackgroundToKeyWindow()
+        }
+    }
+
+    func dispatchShowChildExited(tabId: UUID?, surfaceId: UUID?) {
+        // The child (shell) exited. Ghostty will fall back to printing
+        // "Process exited. Press any key..." into the terminal unless the host
+        // handles this action. For cmux, the correct behavior is to close
+        // the panel immediately (no prompt).
+#if DEBUG
+        cmuxDebugLog(
+            "surface.action.showChildExited tab=\(tabId?.uuidString.prefix(5) ?? "nil") " +
+            "surface=\(surfaceId?.uuidString.prefix(5) ?? "nil")"
+        )
+#endif
+#if DEBUG
+        TerminalChildExitProbe().write(
+            [
+                "probeShowChildExitedTabId": tabId?.uuidString ?? "",
+                "probeShowChildExitedSurfaceId": surfaceId?.uuidString ?? "",
+            ],
+            increments: ["probeShowChildExitedCount": 1]
+        )
+#endif
+        // Keep host-close async to avoid re-entrant close/deinit while Ghostty is still
+        // dispatching this action callback.
+        DispatchQueue.main.async {
+            guard let app = AppDelegate.shared else { return }
+            if let tabId,
+               let surfaceId,
+               let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
+               let workspace = manager.tabs.first(where: { $0.id == tabId }),
+               workspace.panels[surfaceId] != nil {
+                manager.closePanelAfterChildExited(tabId: tabId, surfaceId: surfaceId)
+            }
+        }
     }
 }
 
@@ -9048,114 +9059,8 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
     }
 
-    /// External accessibility/dictation tools should commit plain text, but
-    /// some inject a leading escape sequence first. Strip those bytes on the
-    /// committed-text path so they can't leak into the PTY as literals.
-    static func sanitizeExternalCommittedText(_ text: String) -> String {
-        let bytes = Array(text.utf8)
-        guard !bytes.isEmpty else { return text }
-
-        var index = 0
-        while index < bytes.count {
-            let byte = bytes[index]
-            if byte == 0x1B {
-                index = consumeLeadingEscapeSequence(in: bytes, from: index)
-                continue
-            }
-
-            if byte == 0xC2 {
-                let next = index + 1
-                if next < bytes.count, bytes[next] == 0x9B {
-                    // U+009B (C1 CSI) is encoded as the UTF-8 byte pair C2 9B.
-                    index = consumeLeadingCSISequence(in: bytes, from: next + 1)
-                    continue
-                }
-            }
-
-            break
-        }
-
-        if index == 0 {
-            return text
-        }
-
-        guard index < bytes.count else { return "" }
-        return String(decoding: bytes[index...], as: UTF8.self)
-    }
-
-    private static func consumeLeadingEscapeSequence(
-        in bytes: [UInt8],
-        from start: Int
-    ) -> Int {
-        let next = start + 1
-        guard next < bytes.count else { return bytes.count }
-
-        switch bytes[next] {
-        case 0x5B:
-            // CSI: ESC [ ... final
-            return consumeLeadingCSISequence(in: bytes, from: next + 1)
-        case 0x4F:
-            // SS3: ESC O final
-            return min(bytes.count, next + 2)
-        case 0x50, 0x5D, 0x5E, 0x5F:
-            // DCS/OSC/PM/APC: consume until BEL/ST or EOF.
-            return consumeLeadingEscapedStringSequence(in: bytes, from: next + 1)
-        default:
-            // Single-character escape.
-            return min(bytes.count, next + 1)
-        }
-    }
-
-    private static func consumeLeadingCSISequence(
-        in bytes: [UInt8],
-        from start: Int
-    ) -> Int {
-        var index = start
-        while index < bytes.count {
-            let byte = bytes[index]
-            if (0x20...0x3F).contains(byte) {
-                index += 1
-                continue
-            }
-
-            if (0x40...0x7E).contains(byte) {
-                return index + 1
-            }
-
-            break
-        }
-
-        return index
-    }
-
-    private static func consumeLeadingEscapedStringSequence(
-        in bytes: [UInt8],
-        from start: Int
-    ) -> Int {
-        var index = start
-        while index < bytes.count {
-            let byte = bytes[index]
-            if byte == 0x07 {
-                return index + 1
-            }
-
-            if byte == 0x1B {
-                let next = index + 1
-                if next < bytes.count, bytes[next] == 0x5C {
-                    return next + 1
-                }
-                return index
-            }
-
-            if byte < 0x20 || byte == 0x7F {
-                return index + 1
-            }
-
-            index += 1
-        }
-
-        return bytes.count
-    }
+    // External committed-text sanitization moved to
+    // `String.sanitizedExternalCommittedTerminalText` in CmuxTerminal.
 
     func hasMarkedText() -> Bool {
         return markedText.length > 0
@@ -9411,7 +9316,7 @@ extension GhosttyNSView: NSTextInputClient {
             // Only sanitize explicit external committed-text paths used by
             // AX/dictation integrations. Programmatic NSTextInputClient callers
             // may intentionally start with ESC/CSI bytes.
-            Self.sanitizeExternalCommittedText(chars)
+            chars.sanitizedExternalCommittedTerminalText
         } else {
             chars
         }

@@ -945,39 +945,39 @@ final class CJKIMEKeyTextAccumulatorTests: XCTestCase {
 final class ExternalCommittedTextSanitizationTests: XCTestCase {
     func testStripsLeadingCSISequenceFromExternalCommittedText() {
         XCTAssertEqual(
-            GhosttyNSView.sanitizeExternalCommittedText("\u{1B}[Chello"),
+            "\u{1B}[Chello".sanitizedExternalCommittedTerminalText,
             "hello"
         )
     }
 
     func testStripsLeadingC1CSISequenceFromExternalCommittedText() {
         XCTAssertEqual(
-            GhosttyNSView.sanitizeExternalCommittedText("\u{009B}1;5Chello"),
+            "\u{009B}1;5Chello".sanitizedExternalCommittedTerminalText,
             "hello"
         )
     }
 
     func testStripsMultipleLeadingControlAndEscapeSequences() {
         XCTAssertEqual(
-            GhosttyNSView.sanitizeExternalCommittedText("\u{1B}[1;5C\u{1B}OChello"),
+            "\u{1B}[1;5C\u{1B}OChello".sanitizedExternalCommittedTerminalText,
             "hello"
         )
     }
 
     func testLeavesLiteralBracketPrefixedTextUntouched() {
         XCTAssertEqual(
-            GhosttyNSView.sanitizeExternalCommittedText("[Code] review"),
+            "[Code] review".sanitizedExternalCommittedTerminalText,
             "[Code] review"
         )
     }
 
     func testPreservesLeadingControlBytesUsedByAutomation() {
         XCTAssertEqual(
-            GhosttyNSView.sanitizeExternalCommittedText("\n"),
+            "\n".sanitizedExternalCommittedTerminalText,
             "\n"
         )
         XCTAssertEqual(
-            GhosttyNSView.sanitizeExternalCommittedText("\tfoo"),
+            "\tfoo".sanitizedExternalCommittedTerminalText,
             "\tfoo"
         )
     }
