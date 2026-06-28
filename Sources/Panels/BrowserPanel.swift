@@ -2112,32 +2112,28 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
     }
 
     func shouldRenderWebViewForSessionSnapshot() -> Bool {
-        // Diff viewer URLs are "temporary" so `preferredURLStringForSessionSnapshot()`
-        // is nil, but they are restorable via their token, so honor their render
-        // intent too (otherwise a restored diff surface never navigates).
-        guard preferredURLStringForSessionSnapshot() != nil || diffViewerSessionComponents() != nil else {
+        guard Self.sessionHistoryURLResolver.sessionSnapshotIsRenderable(
+            preferredURLString: preferredURLStringForSessionSnapshot(),
+            hasDiffViewerComponents: diffViewerSessionComponents() != nil
+        ) else {
             return false
         }
         return hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView ?? shouldRenderWebView
     }
 
     func shouldPersistSessionSnapshot() -> Bool {
-        // Diff viewer surfaces are otherwise treated as temporary. Persist them
-        // only when they can actually be restored via the custom scheme (a
-        // local-only, non-pending manifest); otherwise persisting would leave a
-        // blank panel on restart with no URL to fall back to.
-        if let components = diffViewerSessionComponents() {
-            return CmuxDiffViewerURLSchemeHandler.shared.diffViewerRestorable(
+        let diffViewerRestorable = diffViewerSessionComponents().map { components in
+            CmuxDiffViewerURLSchemeHandler.shared.diffViewerRestorable(
                 token: components.token,
                 requestPath: components.requestPath
             )
         }
-        guard !Self.isTemporarySessionHistoryURL(webView.url),
-              !Self.isTemporarySessionHistoryURL(currentURL),
-              !Self.isTemporarySessionHistoryURL(restoredHistoryCurrentURL) else {
-            return false
-        }
-        return true
+        return Self.sessionHistoryURLResolver.shouldPersistSessionSnapshot(
+            diffViewerRestorable: diffViewerRestorable,
+            webViewURL: webView.url,
+            currentURL: currentURL,
+            restoredCurrentURL: restoredHistoryCurrentURL
+        )
     }
 
     /// Whether this surface is transparent internal cmux UI, for the session
@@ -5178,10 +5174,6 @@ extension BrowserPanel {
 
     private static func sanitizedSessionHistoryURLs(_ values: [String]) -> [URL] {
         sessionHistoryURLResolver.sanitizedSessionHistoryURLs(values)
-    }
-
-    private static func isTemporarySessionHistoryURL(_ url: URL?) -> Bool {
-        sessionHistoryURLResolver.isTemporarySessionHistoryURL(url)
     }
 
 }

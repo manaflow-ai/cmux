@@ -2168,10 +2168,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     let remoteTmuxMirrorCoordinator = RemoteTmuxMirrorCoordinator<Workspace>()
     private var pendingRemoteForegroundAuthToken: String?
     var activeRemoteSessionControllerID: UUID?
-    private var remoteLastErrorFingerprint: String?
-    private var remoteLastDaemonErrorFingerprint: String?
-    private var remoteLastPortConflictFingerprint: String?
-    private var remoteDetectedSurfaceIds: Set<UUID> = []
+    // Internal (not private) so the `Workspace+RemoteStatusHosting.swift`
+    // witness can read/reset the remote-status error-dedup fingerprints and the
+    // tracked detected-surface id set for the `RemoteStatusCoordinator`.
+    var remoteLastErrorFingerprint: String?
+    var remoteLastDaemonErrorFingerprint: String?
+    var remoteLastPortConflictFingerprint: String?
+    var remoteDetectedSurfaceIds: Set<UUID> = []
     // Internal (not private) so the `Workspace+RemoteSurfaceHosting.swift`
     // witness can read these surface-tracking sets for the lifted predicates.
     var activeRemoteTerminalSurfaceIds: Set<UUID> = []
@@ -2182,6 +2185,12 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// host (`Workspace+RemoteRelaySessionHosting.swift`), and forwards every
     /// alias/session-id call here. Lives in `CmuxRemoteWorkspace`.
     let remoteRelaySession = RemoteRelaySessionCoordinator<Workspace>()
+    /// Owns the publish-side remote-status apply bodies (connection state,
+    /// daemon status, proxy endpoint, heartbeat, detected-port snapshot/clear).
+    /// `Workspace` witnesses the live state it reads/pushes via
+    /// `RemoteStatusHosting` (`Workspace+RemoteStatusHosting.swift`) and forwards
+    /// every apply call here. Lives in `CmuxRemoteWorkspace`.
+    let remoteStatus = RemoteStatusCoordinator<Workspace>()
     private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
 
@@ -2193,9 +2202,12 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     private var pendingRemoteDisconnectReplacement: PendingRemoteDisconnectReplacement?
     var remoteDisconnectPlaceholderPanelIds: Set<UUID> = []
 
-    private static let remoteErrorStatusKey = "remote.error"
-    private static let remotePortConflictStatusKey = "remote.port_conflicts"
-    private static let remoteNotificationCooldown: TimeInterval = 5 * 60
+    // Internal (not private) so the `Workspace+RemoteStatusHosting.swift`
+    // witness can supply the sidebar status-entry keys and notification cooldown
+    // to the `RemoteStatusCoordinator` as the single source of truth.
+    static let remoteErrorStatusKey = "remote.error"
+    static let remotePortConflictStatusKey = "remote.port_conflicts"
+    static let remoteNotificationCooldown: TimeInterval = 5 * 60
     /// Forwards to ``SSHControlMasterCleanupService/runCommandOverrideForTesting``.
     /// The cleanup spawn queue and `Process` lifecycle now live in that service
     /// (`CmuxRemoteWorkspace`); this computed shim preserves the process-wide
@@ -2349,7 +2361,9 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         return nil
     }
 
-    private var preservesProxyFailureWhileSSHTerminalIsAlive: Bool {
+    // Internal (not private) so the `Workspace+RemoteStatusHosting.swift`
+    // witness can pass these slice-1 decision reads to the `RemoteStatusCoordinator`.
+    var preservesProxyFailureWhileSSHTerminalIsAlive: Bool {
         RemoteProxyFailurePolicy().preservesProxyFailureWhileSSHTerminalIsAlive(
             transport: remoteConfiguration?.transport,
             activeSessionCount: activeRemoteTerminalSessionCount,
@@ -2357,13 +2371,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         )
     }
 
-    private var hasProxyOnlyRemoteSidebarError: Bool {
+    var hasProxyOnlyRemoteSidebarError: Bool {
         RemoteSidebarErrorClassifier().isProxyOnly(
             statusEntryValue: statusEntries[Self.remoteErrorStatusKey]?.value
         )
     }
 
-    private func remoteNotificationCooldownKey(target: String) -> String? {
+    func remoteNotificationCooldownKey(target: String) -> String? {
         RemoteNotificationCooldownKey().key(
             destination: remoteConfiguration?.destination,
             target: target
@@ -2680,6 +2694,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         remoteSurfaceCoordinator.attach(host: self)
         remoteTmuxMirrorCoordinator.attach(host: self)
         remoteRelaySession.attach(host: self)
+        remoteStatus.attach(host: self)
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         surfaceLifecycle.attach(host: self)
@@ -3432,7 +3447,9 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         )
     }
 
-    private func applyBrowserRemoteWorkspaceStatusToPanels() {
+    // Internal (not private) so the `Workspace+RemoteStatusHosting.swift`
+    // witness can drive the browser-panel fan-out for the `RemoteStatusCoordinator`.
+    func applyBrowserRemoteWorkspaceStatusToPanels() {
         let snapshot = browserRemoteWorkspaceStatusSnapshot()
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel else { continue }
@@ -5329,127 +5346,19 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         detail: String?,
         target: String
     ) {
-        let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let proxyOnlyError = trimmedDetail.map(\.indicatesProxyOnlyRemoteError) ?? false
-        let effectiveState = state.effectiveRemoteConnectionState(
-            isProxyOnlyError: proxyOnlyError,
-            preservesProxyFailureWhileSSHTerminalIsAlive: preservesProxyFailureWhileSSHTerminalIsAlive,
-            hasProxyOnlySidebarError: hasProxyOnlyRemoteSidebarError
-        )
-
-        remoteConnectionState = effectiveState
-        remoteConnectionDetail = detail
-        applyBrowserRemoteWorkspaceStatusToPanels()
-
-        if state == .suspended {
-            let entryDetail = trimmedDetail ?? ""
-            let entryValue = String(
-                format: String(
-                    localized: "remote.statusEntry.suspended",
-                    defaultValue: "SSH reconnect paused (%@): %@"
-                ),
-                locale: .current,
-                target,
-                entryDetail
-            )
-            statusEntries[Self.remoteErrorStatusKey] = SidebarStatusEntry(
-                key: Self.remoteErrorStatusKey,
-                value: entryValue,
-                icon: "pause.circle",
-                color: nil,
-                timestamp: Date()
-            )
-            let fingerprint = "suspended:\(entryDetail)"
-            if remoteLastErrorFingerprint != fingerprint {
-                remoteLastErrorFingerprint = fingerprint
-                appendSidebarLog(message: entryValue, level: .warning, source: "remote")
-                hostEnvironment?.notificationStore?.addNotification(
-                    tabId: id,
-                    surfaceId: nil,
-                    title: String(
-                        localized: "remote.notification.suspendedTitle",
-                        defaultValue: "SSH Reconnect Paused"
-                    ),
-                    subtitle: target,
-                    body: entryDetail,
-                    cooldownKey: remoteNotificationCooldownKey(target: target),
-                    cooldownInterval: Self.remoteNotificationCooldown
-                )
-            }
-            return
-        }
-
-        if let trimmedDetail, !trimmedDetail.isEmpty, (state == .error || proxyOnlyError) {
-            let statusPrefix = proxyOnlyError ? "Remote proxy unavailable" : "SSH error"
-            let statusIcon = proxyOnlyError ? "exclamationmark.triangle.fill" : "network.slash"
-            let notificationTitle = proxyOnlyError ? "Remote Proxy Unavailable" : "Remote SSH Error"
-            let logSource = proxyOnlyError ? "remote-proxy" : "remote"
-            statusEntries[Self.remoteErrorStatusKey] = SidebarStatusEntry(
-                key: Self.remoteErrorStatusKey,
-                value: "\(statusPrefix) (\(target)): \(trimmedDetail)",
-                icon: statusIcon,
-                color: nil,
-                timestamp: Date()
-            )
-
-            let fingerprint = "connection:\(trimmedDetail)"
-            if remoteLastErrorFingerprint != fingerprint {
-                remoteLastErrorFingerprint = fingerprint
-                appendSidebarLog(
-                    message: "\(statusPrefix) (\(target)): \(trimmedDetail)",
-                    level: .error,
-                    source: logSource
-                )
-                hostEnvironment?.notificationStore?.addNotification(
-                    tabId: id,
-                    surfaceId: nil,
-                    title: notificationTitle,
-                    subtitle: target,
-                    body: trimmedDetail,
-                    cooldownKey: remoteNotificationCooldownKey(target: target),
-                    cooldownInterval: Self.remoteNotificationCooldown
-                )
-            }
-            return
-        }
-
-        if state == .connected {
-            statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
-            remoteLastErrorFingerprint = nil
-        }
+        remoteStatus.applyRemoteConnectionStateUpdate(state, detail: detail, target: target)
     }
 
     func applyRemoteDaemonStatusUpdate(_ status: WorkspaceRemoteDaemonStatus, target: String) {
-        remoteDaemonStatus = status
-        applyBrowserRemoteWorkspaceStatusToPanels()
-        guard status.state == .error else {
-            remoteLastDaemonErrorFingerprint = nil
-            return
-        }
-        let trimmedDetail = status.detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "remote daemon error"
-        let fingerprint = "daemon:\(trimmedDetail)"
-        guard remoteLastDaemonErrorFingerprint != fingerprint else { return }
-        remoteLastDaemonErrorFingerprint = fingerprint
-        appendSidebarLog(
-            message: "Remote daemon error (\(target)): \(trimmedDetail)",
-            level: .error,
-            source: "remote-daemon"
-        )
+        remoteStatus.applyRemoteDaemonStatusUpdate(status, target: target)
     }
 
     func applyRemoteProxyEndpointUpdate(_ endpoint: BrowserProxyEndpoint?) {
-        remoteProxyEndpoint = endpoint
-        for panel in panels.values {
-            guard let browserPanel = panel as? BrowserPanel else { continue }
-            browserPanel.setRemoteProxyEndpoint(endpoint)
-        }
-        applyBrowserRemoteWorkspaceStatusToPanels()
+        remoteStatus.applyRemoteProxyEndpointUpdate(endpoint)
     }
 
     func applyRemoteHeartbeatUpdate(count: Int, lastSeenAt: Date?) {
-        remoteHeartbeatCount = max(0, count)
-        remoteLastHeartbeatAt = lastSeenAt
-        applyBrowserRemoteWorkspaceStatusToPanels()
+        remoteStatus.applyRemoteHeartbeatUpdate(count: count, lastSeenAt: lastSeenAt)
     }
 
     func applyRemoteDetectedSurfacePortsSnapshot(
@@ -5459,58 +5368,20 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         conflicts: [Int],
         target: String
     ) {
-        let trackedSurfaceIds = Set(detectedByPanel.keys)
-        for panelId in remoteDetectedSurfaceIds.subtracting(trackedSurfaceIds) {
-            surfaceListeningPorts.removeValue(forKey: panelId)
-        }
-        remoteDetectedSurfaceIds = trackedSurfaceIds
-
-        for (panelId, ports) in detectedByPanel {
-            if ports.isEmpty {
-                surfaceListeningPorts.removeValue(forKey: panelId)
-            } else {
-                surfaceListeningPorts[panelId] = ports
-            }
-        }
-
-        remoteDetectedPorts = detected
-        remoteForwardedPorts = forwarded
-        remotePortConflicts = conflicts
-        recomputeListeningPorts()
-
-        if conflicts.isEmpty {
-            statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
-            remoteLastPortConflictFingerprint = nil
-            return
-        }
-
-        let conflictsList = conflicts.map { ":\($0)" }.joined(separator: ", ")
-        statusEntries[Self.remotePortConflictStatusKey] = SidebarStatusEntry(
-            key: Self.remotePortConflictStatusKey,
-            value: "SSH port conflicts (\(target)): \(conflictsList)",
-            icon: "exclamationmark.triangle.fill",
-            color: nil,
-            timestamp: Date()
-        )
-
-        let fingerprint = conflicts.map(String.init).joined(separator: ",")
-        guard remoteLastPortConflictFingerprint != fingerprint else { return }
-        remoteLastPortConflictFingerprint = fingerprint
-        appendSidebarLog(
-            message: "Port conflicts while forwarding \(target): \(conflictsList)",
-            level: .warning,
-            source: "remote-forward"
+        remoteStatus.applyRemoteDetectedSurfacePortsSnapshot(
+            detectedByPanel: detectedByPanel,
+            detected: detected,
+            forwarded: forwarded,
+            conflicts: conflicts,
+            target: target
         )
     }
 
     private func clearRemoteDetectedSurfacePorts() {
-        for panelId in remoteDetectedSurfaceIds {
-            surfaceListeningPorts.removeValue(forKey: panelId)
-        }
-        remoteDetectedSurfaceIds.removeAll()
+        remoteStatus.clearRemoteDetectedSurfacePorts()
     }
 
-    private func appendSidebarLog(message: String, level: SidebarLogLevel, source: String?) {
+    func appendSidebarLog(message: String, level: SidebarLogLevel, source: String?) {
         sidebarMetadata.appendLogEntry(message: message, level: level, source: source)
     }
 

@@ -407,6 +407,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     lazy var notificationClickPerformer = NotificationClickPerformer(finder: SystemFinderRevealer())
 
+    /// Weak-owner adapter that satisfies the open-routing seams
+    /// (``NotificationOpenRoutingHosting`` + ``NotificationOpenRoutingTracing``)
+    /// by forwarding to `AppDelegate` helpers. Mirrors ``notificationNavSeams``:
+    /// the coordinator strong-refs this adapter; the adapter weak-refs
+    /// `AppDelegate`. See `AppDelegate+NotificationOpenRoutingSeams.swift`.
+    lazy var notificationOpenRoutingSeams = NotificationOpenRoutingSeamAdapter(owner: self)
+
+    /// The extracted notification-open routing decision skeleton. The window
+    /// mechanics and `#if DEBUG` UI-test recorders stay app-side behind the two
+    /// seams; this coordinator only decides which route to take.
+    lazy var notificationOpenRoutingCoordinator = NotificationOpenRoutingCoordinator(
+        host: notificationOpenRoutingSeams,
+        tracing: notificationOpenRoutingSeams
+    )
+
+    /// Weak-owner adapter that satisfies the activation-unread seams
+    /// (``NotificationActivationUnreadHosting`` +
+    /// ``NotificationActivationFlashing``) by forwarding to the live
+    /// `notificationStore` / `tabManager`. Mirrors ``notificationOpenRoutingSeams``:
+    /// the reconciler strong-refs this adapter; the adapter weak-refs
+    /// `AppDelegate`. See `AppDelegate+NotificationActivationSeams.swift`.
+    lazy var notificationActivationSeams = NotificationActivationSeamAdapter(owner: self)
+
+    /// The extracted activation-driven unread-reconciliation decision. The live
+    /// store/tab/workspace effects stay app-side behind the two seams; this
+    /// reconciler only decides whether to flash the focused pane and mark read.
+    lazy var notificationActivationUnreadReconciler = NotificationActivationUnreadReconciler(
+        store: notificationActivationSeams,
+        flashing: notificationActivationSeams
+    )
+
     lazy var notificationNavigation: NotificationNavigationCoordinator =
         NotificationNavigationCoordinator(
             store: notificationNavSeams,
@@ -495,19 +526,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         )
     }
-    // The open-routing trio (`openNotification` / `openNotificationInContext` /
-    // `openNotificationFallback`) intentionally stays in `AppDelegate`, reached
-    // through the open-routing seam (`openRouted` / `openInWindow` /
-    // `openInActiveWindowFallback`). Those three methods weave ~15 branch-specific
-    // `#if DEBUG` jump-unread UI-test recorder payloads through their control flow
-    // (per early-return and per success path); re-homing them as injected closures
-    // could not preserve byte-identical payloads/ordering without risking a
-    // changed or duplicated payload that the jump-unread XCUITest asserts on, so
-    // they are left app-side per the wave brief's escape hatch. The coordinator's
-    // `onDidFocusForJumpUnread` hook is therefore left unwired (wiring it would
-    // double-record). The recorder-FREE members of the open/click cluster did
-    // move into the package this wave: the reveal-in-Finder side effect now lives
-    // in `NotificationClickPerformer` (behind `FinderRevealing`), and the entire
+    // The open-routing trio's decision skeleton (`openNotification` /
+    // `openNotificationInContext` / `openNotificationFallback`) now lives in
+    // `NotificationOpenRoutingCoordinator`; the three `AppDelegate` methods are
+    // thin forwarders into it (reached through the open-routing seam `openRouted`
+    // / `openInWindow` / `openInActiveWindowFallback`). The ~15 branch-specific
+    // `#if DEBUG` jump-unread UI-test recorder payloads stay app-side behind
+    // `NotificationOpenRoutingTracing`, and the window mechanics behind
+    // `NotificationOpenRoutingHosting` (see
+    // `AppDelegate+NotificationOpenRoutingSeams.swift`): the coordinator calls one
+    // tracing hook per legacy recorder call site in the original order, and each
+    // app-side witness reproduces its `#if DEBUG` body verbatim, so payloads and
+    // ordering the jump-unread XCUITest asserts on are byte-identical. The
+    // navigation coordinator's `onDidFocusForJumpUnread` hook is left unwired
+    // (wiring it would double-record). The recorder-FREE members of the open/click
+    // cluster moved earlier: the reveal-in-Finder side effect lives in
+    // `NotificationClickPerformer` (behind `FinderRevealing`), and the entire
     // focused-mark state machine lives in `FocusedNotificationMarker` (behind
     // `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
@@ -2185,14 +2219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let tabManager else { return }
         guard let tabId = tabManager.selectedTabId else { return }
         let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-        guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }
-
-        if let surfaceId,
-           let tab = tabManager.tabs.first(where: { $0.id == tabId }),
-           notificationStore.hasUnreadNotificationRequiringPaneFlash(forTabId: tabId, surfaceId: surfaceId) {
-            tab.triggerNotificationFocusFlash(panelId: surfaceId, requiresSplit: false, shouldFocus: false)
-        }
-        notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+        notificationActivationUnreadReconciler.reconcile(activeTabId: tabId, surfaceId: surfaceId)
     }
 
     /// Sole caller of `NSApp.reply(toApplicationShouldTerminate:)`.
@@ -11040,77 +11067,208 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationClickPerformer.perform(action.navClickAction)
     }
 
+    /// Forwards to ``NotificationOpenRoutingCoordinator`` (the extracted routing
+    /// decision skeleton). The window mechanics and the `#if DEBUG` UI-test
+    /// recorders stay app-side behind the ``NotificationOpenRoutingHosting`` and
+    /// ``NotificationOpenRoutingTracing`` seams (see
+    /// `AppDelegate+NotificationOpenRoutingSeams.swift`), so behavior is
+    /// byte-identical to the previous in-`AppDelegate` body.
     @discardableResult
     func openNotification(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+        notificationOpenRoutingCoordinator.openRouted(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            notificationId: notificationId
+        )
+    }
+
+    /// Forwards to ``NotificationOpenRoutingCoordinator/openInContext(_:tabId:surfaceId:notificationId:)``,
+    /// wrapping the value-typed context in a ``RegisteredMainWindowToken`` for the
+    /// seam boundary.
+    func openNotificationInContext(_ context: RegisteredMainWindow, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+        notificationOpenRoutingCoordinator.openInContext(
+            RegisteredMainWindowToken(context),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            notificationId: notificationId
+        )
+    }
+
+    /// Forwards to ``NotificationOpenRoutingCoordinator/openFallback(tabId:surfaceId:notificationId:)``.
+    func openNotificationFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+        notificationOpenRoutingCoordinator.openFallback(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            notificationId: notificationId
+        )
+    }
+
+    // MARK: NotificationOpenRoutingHosting witnesses
+    //
+    // The window mechanics behind ``NotificationOpenRoutingHosting``, lifted off
+    // the old `openNotification*` bodies and kept on `AppDelegate` so they retain
+    // access to the late-bound window/tab/store state. The
+    // ``NotificationOpenRoutingSeamAdapter`` forwards each seam method here.
+    // Behavior is byte-identical to the previous inlined branches.
+
+    /// Resolves the registered window context that owns `tabId`, boxed for the
+    /// open-routing seam. Mirrors `contextContainingTabId(_:)`, resolving once.
+    func openRoutingContextToken(forTabId tabId: UUID) -> AnyObject? {
+        guard let context = contextContainingTabId(tabId) else { return nil }
+        return RegisteredMainWindowToken(context)
+    }
+
+    /// The live `NSWindow` for `contextToken`'s window, or `nil` when not realized.
+    /// Mirrors `context.window ?? NSApp.windows.first(where: identifier == expected)`.
+    func openRoutingContextWindowToken(forContextToken contextToken: AnyObject) -> AnyObject? {
+        guard let context = (contextToken as? RegisteredMainWindowToken)?.context else { return nil }
+        let expectedIdentifier = MainTerminalWindowIdentifier(forWindowId: context.windowId).expectedIdentifier
+        return context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
+    }
+
+    /// Selects the tabs pane on `contextToken`'s per-window sidebar selection.
+    func openRoutingSelectSidebarTabs(forContextToken contextToken: AnyObject) {
+        guard let context = (contextToken as? RegisteredMainWindowToken)?.context else { return }
+        sidebarSelectionState(for: context).selection = .tabs
+    }
+
+    /// Focuses `tabId`/`surfaceId` in `contextToken`'s tab manager.
+    func openRoutingFocusTab(forContextToken contextToken: AnyObject, tabId: UUID, surfaceId: UUID?) -> Bool {
+        guard let context = (contextToken as? RegisteredMainWindowToken)?.context else { return false }
+        return context.tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId)
+    }
+
+    /// Whether an active (global) tab manager exists for the fallback route.
+    var openRoutingHasActiveTabManager: Bool {
+        tabManager != nil
+    }
+
+    /// Whether the active tab manager owns `tabId`.
+    func openRoutingActiveTabManagerContains(tabId: UUID) -> Bool {
+        tabManager?.tabs.contains(where: { $0.id == tabId }) ?? false
+    }
+
+    /// The key window or first main terminal window for the fallback route.
+    func openRoutingKeyOrMainTerminalWindowToken() -> AnyObject? {
+        NSApp.keyWindow ?? NSApp.windows.first(where: { isMainTerminalWindow($0) })
+    }
+
+    /// Selects the tabs pane on the active (global) sidebar selection.
+    func openRoutingSelectActiveSidebarTabs() {
+        sidebarSelectionState?.selection = .tabs
+    }
+
+    /// Focuses `tabId`/`surfaceId` in the active tab manager.
+    func openRoutingFocusTabInActiveTabManager(tabId: UUID, surfaceId: UUID?) -> Bool {
+        tabManager?.focusTabFromNotification(tabId, surfaceId: surfaceId) ?? false
+    }
+
+    /// Brings `windowToken` to front. Mirrors `bringToFront(window)`.
+    func openRoutingBringWindowToFront(_ windowToken: AnyObject) {
+        guard let window = windowToken as? NSWindow else { return }
+        bringToFront(window)
+    }
+
+    /// Marks `notificationId` read when both it and the store are present.
+    func openRoutingMarkNotificationRead(notificationId: UUID?) {
+        if let notificationId, let store = notificationStore {
+            store.markRead(id: notificationId)
+        }
+    }
+
+    // MARK: NotificationOpenRoutingTracing witnesses
+    //
+    // The `#if DEBUG` UI-test recorders behind ``NotificationOpenRoutingTracing``.
+    // Each reproduces one legacy recorder call site verbatim and is an empty
+    // no-op in production. ``NotificationOpenRoutingSeamAdapter`` forwards here.
+
+    func openRoutingTraceOpenCalled(tabId: UUID, surfaceId: UUID?) {
 #if DEBUG
-        let isJumpUnreadUITest = ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1"
-        if isJumpUnreadUITest {
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
             writeJumpUnreadTestData(NotificationOpenRoutingTrace.openCalled(tabId: tabId, surfaceId: surfaceId).fields)
         }
 #endif
-        guard let context = contextContainingTabId(tabId) else {
+    }
+
+    func openRoutingRecordOpenFailureMissingContext(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) {
 #if DEBUG
-            recordMultiWindowNotificationOpenFailureIfNeeded(
-                tabId: tabId,
-                surfaceId: surfaceId,
-                notificationId: notificationId,
-                reason: NotificationOpenRoutingTrace.missingContextReason
-            )
+        recordMultiWindowNotificationOpenFailureIfNeeded(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            notificationId: notificationId,
+            reason: NotificationOpenRoutingTrace.missingContextReason
+        )
 #endif
+    }
+
+    func openRoutingTraceContextMissingUsedFallback() {
 #if DEBUG
-            if isJumpUnreadUITest {
-                writeJumpUnreadTestData(NotificationOpenRoutingTrace.contextMissingUsedFallback.fields)
-            }
-#endif
-            let ok = openNotificationFallback(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
-#if DEBUG
-            if isJumpUnreadUITest {
-                writeJumpUnreadTestData(NotificationOpenRoutingTrace.openResult(ok).fields)
-            }
-#endif
-            return ok
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+            writeJumpUnreadTestData(NotificationOpenRoutingTrace.contextMissingUsedFallback.fields)
         }
+#endif
+    }
+
+    func openRoutingTraceOpenResult(_ ok: Bool) {
 #if DEBUG
-        if isJumpUnreadUITest {
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+            writeJumpUnreadTestData(NotificationOpenRoutingTrace.openResult(ok).fields)
+        }
+#endif
+    }
+
+    func openRoutingTraceContextFoundNoFallback() {
+#if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
             writeJumpUnreadTestData(NotificationOpenRoutingTrace.contextFoundNoFallback.fields)
         }
 #endif
-        return openNotificationInContext(context, tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
     }
 
-    func openNotificationInContext(_ context: RegisteredMainWindow, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openRoutingRecordOpenFailureMissingWindow(
+        forContextToken contextToken: AnyObject,
+        tabId: UUID,
+        surfaceId: UUID?,
+        notificationId: UUID?
+    ) {
+#if DEBUG
+        guard let context = (contextToken as? RegisteredMainWindowToken)?.context else { return }
         let expectedIdentifier = MainTerminalWindowIdentifier(forWindowId: context.windowId).expectedIdentifier
-        let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
-        guard let window else {
-#if DEBUG
-            recordMultiWindowNotificationOpenFailureIfNeeded(
-                tabId: tabId,
-                surfaceId: surfaceId,
-                notificationId: notificationId,
-                reason: NotificationOpenRoutingTrace.missingWindowReason(expectedIdentifier: expectedIdentifier)
-            )
+        recordMultiWindowNotificationOpenFailureIfNeeded(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            notificationId: notificationId,
+            reason: NotificationOpenRoutingTrace.missingWindowReason(expectedIdentifier: expectedIdentifier)
+        )
 #endif
-            return false
-        }
+    }
 
-        sidebarSelectionState(for: context).selection = .tabs
-        bringToFront(window)
-        guard context.tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId) else {
+    func openRoutingTraceInContextFocusFailed(
+        forContextToken contextToken: AnyObject,
+        tabId: UUID,
+        surfaceId: UUID?,
+        notificationId: UUID?
+    ) {
 #if DEBUG
-            recordMultiWindowNotificationOpenFailureIfNeeded(
-                tabId: tabId,
-                surfaceId: surfaceId,
-                notificationId: notificationId,
-                reason: NotificationOpenRoutingTrace.focusFailedReason
-            )
-            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
-                writeJumpUnreadTestData(NotificationOpenRoutingTrace.openResult(false).fields)
-            }
+        recordMultiWindowNotificationOpenFailureIfNeeded(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            notificationId: notificationId,
+            reason: NotificationOpenRoutingTrace.focusFailedReason
+        )
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+            writeJumpUnreadTestData(NotificationOpenRoutingTrace.openResult(false).fields)
+        }
 #endif
-            return false
-        }
+    }
 
+    func openRoutingRecordJumpUnreadFocusFromModelInContext(
+        forContextToken contextToken: AnyObject,
+        tabId: UUID,
+        surfaceId: UUID?
+    ) {
 #if DEBUG
+        guard let context = (contextToken as? RegisteredMainWindowToken)?.context else { return }
         // UI test support: Jump-to-unread asserts that the correct workspace/panel is focused.
         // Recording via first-responder can be flaky on the VM, so verify focus via the model.
         recordJumpUnreadFocusFromModelIfNeeded(
@@ -11119,12 +11277,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             expectedSurfaceId: surfaceId
         )
 #endif
+    }
 
-        if let notificationId, let store = notificationStore {
-            store.markRead(id: notificationId)
-        }
-
+    func openRoutingTraceInContextOpened(
+        forContextToken contextToken: AnyObject,
+        tabId: UUID,
+        surfaceId: UUID?
+    ) {
 #if DEBUG
+        guard let context = (contextToken as? RegisteredMainWindowToken)?.context else { return }
         recordMultiWindowNotificationFocusIfNeeded(
             windowId: context.windowId,
             tabId: tabId,
@@ -11135,64 +11296,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             writeJumpUnreadTestData(NotificationOpenRoutingTrace.openedInContext.fields)
         }
 #endif
-        return true
     }
 
-    func openNotificationFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        // If the owning window context hasn't been registered yet, fall back to the "active" window.
-        guard let tabManager else {
+    func openRoutingTraceFallbackFailed(stage: String) {
 #if DEBUG
-            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
-                writeJumpUnreadTestData(NotificationOpenRoutingTrace.fallbackFailed("missing_tabManager").fields)
-            }
-#endif
-            return false
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+            writeJumpUnreadTestData(NotificationOpenRoutingTrace.fallbackFailed(stage).fields)
         }
-        guard tabManager.tabs.contains(where: { $0.id == tabId }) else {
-#if DEBUG
-            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
-                writeJumpUnreadTestData(NotificationOpenRoutingTrace.fallbackFailed("tab_not_in_active_manager").fields)
-            }
 #endif
-            return false
-        }
-        guard let window = (NSApp.keyWindow ?? NSApp.windows.first(where: { isMainTerminalWindow($0) })) else {
-#if DEBUG
-            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
-                writeJumpUnreadTestData(NotificationOpenRoutingTrace.fallbackFailed("missing_window").fields)
-            }
-#endif
-            return false
-        }
+    }
 
-        sidebarSelectionState?.selection = .tabs
-        bringToFront(window)
-        guard tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId) else {
+    func openRoutingRecordJumpUnreadFocusFromModelActive(tabId: UUID, surfaceId: UUID?) {
 #if DEBUG
-            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
-                writeJumpUnreadTestData(NotificationOpenRoutingTrace.fallbackFocusFailed.fields)
-            }
-#endif
-            return false
-        }
-
-#if DEBUG
+        guard let tabManager else { return }
         recordJumpUnreadFocusFromModelIfNeeded(
             tabManager: tabManager,
             tabId: tabId,
             expectedSurfaceId: surfaceId
         )
 #endif
+    }
 
-        if let notificationId, let store = notificationStore {
-            store.markRead(id: notificationId)
+    func openRoutingTraceFallbackFocusFailed() {
+#if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+            writeJumpUnreadTestData(NotificationOpenRoutingTrace.fallbackFocusFailed.fields)
         }
+#endif
+    }
+
+    func openRoutingTraceOpenedInFallback() {
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
             writeJumpUnreadTestData(NotificationOpenRoutingTrace.openedInFallback.fields)
         }
 #endif
-        return true
     }
 
 #if DEBUG

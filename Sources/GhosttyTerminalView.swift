@@ -331,6 +331,16 @@ class GhosttyApp {
     /// namespace enum).
     static let terminalPasteboard = TerminalPasteboardService()
 
+    /// The process-wide textbox draft-attachment copy-state store (was the
+    /// app-side `TextBoxDraftAttachmentStorage` namespace enum's private
+    /// `static let store`). The pasteboard-ownership oracle and submission-text
+    /// resolver are injected here at the composition root so the store's moved
+    /// snapshot/copy bodies name no app symbol.
+    static let textBoxDraftAttachmentStore = TextBoxDraftAttachmentStore(
+        pasteboard: terminalPasteboard,
+        submissionTextForLocalFileURL: { TextBoxAttachment.submissionText(forLocalFileURL: $0) }
+    )
+
     /// The process-wide serialized native-surface free queue (was the
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
