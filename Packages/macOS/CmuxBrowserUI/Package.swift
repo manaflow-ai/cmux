@@ -20,6 +20,8 @@ let package = Package(
         // CmuxFoundation owns CmuxGhosttyConfigSettingEditor, the source of the
         // default surface tab-bar font size BrowserChromeMetrics scales against.
         .package(path: "../CmuxFoundation"),
+        // CMUXDebugLog backs the omnibar suggestion-click DEBUG logging (#if DEBUG only).
+        .package(path: "../CMUXDebugLog"),
     ],
     targets: [
         .target(
@@ -27,6 +29,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxBrowser", package: "CmuxBrowser"),
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+                .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
