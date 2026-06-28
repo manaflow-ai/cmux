@@ -7,82 +7,98 @@ import Testing
 @testable import cmux
 #endif
 
-/// Tests view-session identity/ownership for the linked-view beta: naming,
-/// option stamping, row parsing, and the classification predicates that keep cmux
-/// from ever reusing/garbage-collecting a session it does not own.
+/// Tests view-session identity/ownership for the linked-view beta: collision-safe
+/// naming, option stamping, robust parsing, and the classification predicates that
+/// keep cmux from reusing/garbage-collecting a session it does not own.
 @Suite struct RemoteTmuxViewSessionTests {
-    private func v(_ owner: String = "owner-ABC") -> RemoteTmuxViewSession {
-        RemoteTmuxViewSession(ownerId: owner)
+    private typealias VS = RemoteTmuxViewSession
+    private typealias Row = RemoteTmuxViewSession.SessionRow
+    private func v(_ owner: String = "o1") -> VS { VS(ownerId: owner) }
+
+    // Build a list row string in the current format: view ⋮ owner ⋮ version ⋮ name
+    private func rowString(view: String, owner: String, version: String, name: String) -> String {
+        [view, owner, version, name].joined(separator: "\u{1f}")
     }
 
-    @Test func sessionNameIsPrefixedAndSanitized() {
-        let s = RemoteTmuxViewSession(ownerId: "ab.cd ef:gh")
-        #expect(s.sessionName == "cmux-view-ab-cd-ef-gh")  // . : space → -
-        #expect(s.sessionName.hasPrefix(RemoteTmuxViewSession.namePrefix))
+    @Test func sessionNameIsPrefixedSanitizedAndHashed() {
+        let s = VS(ownerId: "ab.cd ef:gh")
+        #expect(s.sessionName.hasPrefix("cmux-view-ab-cd-ef-gh-"))  // sanitized fragment
+        #expect(!s.sessionName.contains("."))
+        #expect(!s.sessionName.contains(":"))
+        #expect(!s.sessionName.contains(" "))
+    }
+
+    @Test func distinctOwnersNeverCollideEvenWhenSanitizedFragmentMatches() {
+        // "a.b" and "a:b" sanitize to the same fragment but must yield distinct
+        // session names (collision-resistant hash suffix).
+        #expect(VS(ownerId: "a.b").sessionName != VS(ownerId: "a:b").sessionName)
+        #expect(VS(ownerId: "a.b").sessionName == VS(ownerId: "a.b").sessionName) // stable
     }
 
     @Test func createCommandsUseExplicitSizeAndStampOwnership() {
-        let cmds = v("o1").createCommands(cols: 120, rows: 40)
-        #expect(cmds[0].contains("new-session -d -s 'cmux-view-o1' -x 120 -y 40"))
+        let s = v("o1")
+        let cmds = s.createCommands(cols: 120, rows: 40)
+        #expect(cmds[0].contains("new-session -d -s '\(s.sessionName)' -x 120 -y 40"))
         #expect(cmds.contains { $0.contains("@cmux_view 1") })
         #expect(cmds.contains { $0.contains("@cmux_view_owner 'o1'") })
         #expect(cmds.contains { $0.contains("@cmux_view_version 1") })
     }
 
-    @Test func parsesListRows() {
+    @Test func parsesListRowsWithFreeTextNameLast() {
         let out = [
-            "cmux-view-o1\u{1f}1\u{1f}o1\u{1f}1",
-            "work\u{1f}\u{1f}\u{1f}",          // a normal session: no view options
-            "cmux-view-other\u{1f}1\u{1f}o2\u{1f}1",
+            rowString(view: "1", owner: "o1", version: "1", name: "cmux-view-o1-ab"),
+            rowString(view: "", owner: "", version: "", name: "work"),
+            rowString(view: "1", owner: "o2", version: "1", name: "cmux-view-o2-cd"),
         ].joined(separator: "\n")
-        let rows = RemoteTmuxViewSession.parseRows(out)
+        let rows = VS.parseRows(out)
         #expect(rows.count == 3)
-        #expect(rows[0] == .init(name: "cmux-view-o1", isView: true, owner: "o1", version: 1))
-        #expect(rows[1] == .init(name: "work", isView: false, owner: "", version: nil))
+        #expect(rows[0] == Row(name: "cmux-view-o1-ab", isView: true, owner: "o1", version: 1))
+        #expect(rows[1] == Row(name: "work", isView: false, owner: "", version: nil))
         #expect(rows[2].owner == "o2")
     }
 
-    @Test func isOwnViewOnlyForExactOwnerNameAndVersion() {
-        let s = v("o1")
-        #expect(s.isOwnView(.init(name: "cmux-view-o1", isView: true, owner: "o1", version: 1)))
-        // wrong owner
-        #expect(!s.isOwnView(.init(name: "cmux-view-o1", isView: true, owner: "o2", version: 1)))
-        // not tagged a view
-        #expect(!s.isOwnView(.init(name: "cmux-view-o1", isView: false, owner: "o1", version: 1)))
-        // wrong version
-        #expect(!s.isOwnView(.init(name: "cmux-view-o1", isView: true, owner: "o1", version: 99)))
+    @Test func parsingKeepsSessionNameContainingSeparator() {
+        let out = rowString(view: "", owner: "", version: "", name: "we\u{1f}ird")
+        #expect(VS.parseRows(out) == [Row(name: "we\u{1f}ird", isView: false, owner: "", version: nil)])
     }
 
-    @Test func staleViewIsOnlyOurOwnNonCurrent() {
+    @Test func isAnyViewRequiresBothTagAndPrefix() {
+        // tagged + prefixed → a view
+        #expect(VS.isAnyView(Row(name: "cmux-view-x", isView: true, owner: "x", version: 1)))
+        // tagged but NOT prefixed (a real session that copied the option) → NOT a view
+        #expect(!VS.isAnyView(Row(name: "prod", isView: true, owner: "x", version: 1)))
+        // prefixed but not tagged → NOT a view
+        #expect(!VS.isAnyView(Row(name: "cmux-view-x", isView: false, owner: "x", version: 1)))
+    }
+
+    @Test func isOwnViewOnlyForExactOwnerNameVersionAndPrefix() {
         let s = v("o1")
-        // our owner, old version → stale (collectible)
-        #expect(s.isOwnStaleView(.init(name: "cmux-view-o1-old", isView: true, owner: "o1", version: 0)))
+        let n = s.sessionName
+        #expect(s.isOwnView(Row(name: n, isView: true, owner: "o1", version: 1)))
+        #expect(!s.isOwnView(Row(name: n, isView: true, owner: "o2", version: 1)))   // wrong owner
+        #expect(!s.isOwnView(Row(name: n, isView: false, owner: "o1", version: 1)))  // not tagged
+        #expect(!s.isOwnView(Row(name: n, isView: true, owner: "o1", version: 99)))  // wrong version
+        #expect(!s.isOwnView(Row(name: "other", isView: true, owner: "o1", version: 1))) // wrong name
+    }
+
+    @Test func staleViewIsOnlyOurOwnPrefixedNonCurrent() {
+        let s = v("o1")
+        // our owner, prefixed, old version → stale
+        #expect(s.isOwnStaleView(Row(name: "cmux-view-o1-old", isView: true, owner: "o1", version: 0)))
         // our current view → NOT stale
-        #expect(!s.isOwnStaleView(.init(name: "cmux-view-o1", isView: true, owner: "o1", version: 1)))
-        // another owner's view → NEVER stale-collectible by us
-        #expect(!s.isOwnStaleView(.init(name: "cmux-view-o2", isView: true, owner: "o2", version: 0)))
-        // a normal session → not a view, not collectible
-        #expect(!s.isOwnStaleView(.init(name: "work", isView: false, owner: "", version: nil)))
+        #expect(!s.isOwnStaleView(Row(name: s.sessionName, isView: true, owner: "o1", version: 1)))
+        // a NON-prefixed real session with our owner+option copied → NEVER collectible
+        #expect(!s.isOwnStaleView(Row(name: "prod", isView: true, owner: "o1", version: 0)))
+        // another owner's view → never ours to collect
+        #expect(!s.isOwnStaleView(Row(name: "cmux-view-o2", isView: true, owner: "o2", version: 0)))
     }
 
     @Test func foreignViewDetection() {
-        #expect(RemoteTmuxViewSession.isForeignView(
-            .init(name: "cmux-view-o2", isView: true, owner: "o2", version: 1), ownerId: "o1"))
-        #expect(!RemoteTmuxViewSession.isForeignView(
-            .init(name: "cmux-view-o1", isView: true, owner: "o1", version: 1), ownerId: "o1"))
-        // a view with no owner stamped is not attributed to anyone → not foreign
-        #expect(!RemoteTmuxViewSession.isForeignView(
-            .init(name: "cmux-view-x", isView: true, owner: "", version: 1), ownerId: "o1"))
+        #expect(VS.isForeignView(Row(name: "cmux-view-o2", isView: true, owner: "o2", version: 1), ownerId: "o1"))
+        #expect(!VS.isForeignView(Row(name: "cmux-view-o1", isView: true, owner: "o1", version: 1), ownerId: "o1"))
+        // a non-prefixed session is never a foreign view even if tagged
+        #expect(!VS.isForeignView(Row(name: "prod", isView: true, owner: "o2", version: 1), ownerId: "o1"))
         // a normal session is never foreign-view
-        #expect(!RemoteTmuxViewSession.isForeignView(
-            .init(name: "work", isView: false, owner: "", version: nil), ownerId: "o1"))
-    }
-
-    @Test func ownerAndForeignAreMutuallyExclusive() {
-        let s = v("o1")
-        let mine = RemoteTmuxViewSession.SessionRow(name: "cmux-view-o1", isView: true, owner: "o1", version: 1)
-        let theirs = RemoteTmuxViewSession.SessionRow(name: "cmux-view-o2", isView: true, owner: "o2", version: 1)
-        #expect(s.isOwnView(mine) && !RemoteTmuxViewSession.isForeignView(mine, ownerId: "o1"))
-        #expect(RemoteTmuxViewSession.isForeignView(theirs, ownerId: "o1") && !s.isOwnView(theirs))
+        #expect(!VS.isForeignView(Row(name: "work", isView: false, owner: "", version: nil), ownerId: "o1"))
     }
 }
