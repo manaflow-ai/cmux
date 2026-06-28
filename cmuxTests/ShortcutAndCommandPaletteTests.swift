@@ -1264,7 +1264,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(resolvedShortcut, customShortcut)
         XCTAssertEqual(
             KeyboardShortcutSettings.Action.focusRightSidebar.displayedShortcutString(for: resolvedShortcut),
-            customShortcut.displayString
+            ShortcutDisplayFormatter().displayString(customShortcut)
         )
     }
 

@@ -627,11 +627,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// The backing `StoredShortcut`s stay private to the live shortcut-routing
     /// path; this exposes only their display strings to the recorder.
     var ghosttyGotoSplitShortcutDisplayStrings: (left: String, right: String, up: String, down: String) {
-        (
-            ghosttyGotoSplitLeftShortcut?.displayString ?? "",
-            ghosttyGotoSplitRightShortcut?.displayString ?? "",
-            ghosttyGotoSplitUpShortcut?.displayString ?? "",
-            ghosttyGotoSplitDownShortcut?.displayString ?? ""
+        let formatter = ShortcutDisplayFormatter()
+        return (
+            ghosttyGotoSplitLeftShortcut.map { formatter.displayString($0) } ?? "",
+            ghosttyGotoSplitRightShortcut.map { formatter.displayString($0) } ?? "",
+            ghosttyGotoSplitUpShortcut.map { formatter.displayString($0) } ?? "",
+            ghosttyGotoSplitDownShortcut.map { formatter.displayString($0) } ?? ""
         )
     }
 #endif
@@ -8138,7 +8139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            armConfiguredShortcutChordIfNeeded(
                event: event,
                actions: [],
-               shortcuts: configuredCmuxShortcutActions.compactMap { $0.shortcut.map(StoredShortcut.init) }
+               shortcuts: configuredCmuxShortcutActions.compactMap { $0.shortcut }
            ) {
             return true
         }
@@ -9972,7 +9973,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         for action in actions {
             guard let shortcut = action.shortcut,
-                  matchConfiguredShortcut(event: event, shortcut: StoredShortcut(shortcut)) else {
+                  matchConfiguredShortcut(event: event, shortcut: shortcut) else {
                 continue
             }
             return executeConfiguredCmuxActionShortcut(

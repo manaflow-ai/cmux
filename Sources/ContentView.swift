@@ -3141,7 +3141,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             ) else {
                 return nil
             }
-            return shortcut.displayString
+            return ShortcutDisplayFormatter().displayString(shortcut)
         }
         if let staticShortcut = CommandPaletteStaticShortcutHint(commandId: contribution.commandId).value {
             return staticShortcut
@@ -7243,7 +7243,7 @@ private struct SidebarFooterHostView: View {
 
     private var sendFeedbackShortcutHint: String {
         let _ = keyboardShortcutSettingsObserver.revision
-        return KeyboardShortcutSettings.shortcut(for: .sendFeedback).displayString
+        return ShortcutDisplayFormatter().displayString(KeyboardShortcutSettings.shortcut(for: .sendFeedback))
     }
 
     /// Builds the ordered help-popover rows, resolving every localized title in

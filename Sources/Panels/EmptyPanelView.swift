@@ -1,3 +1,4 @@
+import CmuxSettings
 import SwiftUI
 import Foundation
 import AppKit
@@ -67,7 +68,7 @@ struct EmptyPanelView: View {
             Button(action: action) {
                 HStack(spacing: 10) {
                     Label(title, systemImage: systemImage)
-                    ShortcutHint(text: shortcut.displayString)
+                    ShortcutHint(text: ShortcutDisplayFormatter().displayString(shortcut))
                 }
             }
             .buttonStyle(.borderedProminent)
@@ -76,7 +77,7 @@ struct EmptyPanelView: View {
             Button(action: action) {
                 HStack(spacing: 10) {
                     Label(title, systemImage: systemImage)
-                    ShortcutHint(text: shortcut.displayString)
+                    ShortcutHint(text: ShortcutDisplayFormatter().displayString(shortcut))
                 }
             }
             .buttonStyle(.borderedProminent)

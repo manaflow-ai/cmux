@@ -156,7 +156,7 @@ final class SystemWideHotkeyController {
         guard status == noErr, let hotKeyRef else {
 #if DEBUG
             cmuxDebugLog(
-                "globalHotkey.register failed action=\(action.rawValue) shortcut=\(normalizedShortcut.displayString) " +
+                "globalHotkey.register failed action=\(action.rawValue) shortcut=\(ShortcutDisplayFormatter().displayString(normalizedShortcut)) " +
                 "keyCode=\(registration.keyCode) modifiers=\(registration.modifiers) status=\(status)"
             )
 #endif
@@ -169,7 +169,7 @@ final class SystemWideHotkeyController {
 
 #if DEBUG
         cmuxDebugLog(
-            "globalHotkey.register success action=\(action.rawValue) shortcut=\(normalizedShortcut.displayString) " +
+            "globalHotkey.register success action=\(action.rawValue) shortcut=\(ShortcutDisplayFormatter().displayString(normalizedShortcut)) " +
             "keyCode=\(registration.keyCode) modifiers=\(registration.modifiers)"
         )
 #endif
@@ -268,7 +268,7 @@ final class SystemWideHotkeyController {
         }
 
 #if DEBUG
-        let shortcut = registeredShortcuts[action]?.displayString ?? "unknown"
+        let shortcut = registeredShortcuts[action].map { ShortcutDisplayFormatter().displayString($0) } ?? "unknown"
         cmuxDebugLog("globalHotkey.fire action=\(action.rawValue) shortcut=\(shortcut) active=\(NSApp.isActive ? 1 : 0)")
 #endif
 

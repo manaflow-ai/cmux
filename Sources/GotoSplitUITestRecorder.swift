@@ -1,4 +1,5 @@
 #if DEBUG
+import CmuxSettings
 import AppKit
 import Bonsplit
 import CmuxFoundation

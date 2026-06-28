@@ -1,3 +1,5 @@
+import CmuxSettings
+
 /// Decides whether two recorded keyboard shortcuts collide, accounting for
 /// the numbered-digit-family matching used by the "Select Surface 1…9" and
 /// "Select Workspace 1…9" actions.

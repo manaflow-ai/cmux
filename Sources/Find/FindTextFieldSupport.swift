@@ -1,3 +1,4 @@
+import CmuxSettings
 import AppKit
 
 enum FindFocusNotificationKey {

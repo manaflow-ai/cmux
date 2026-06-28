@@ -1,3 +1,4 @@
+import CmuxSettings
 import CmuxFoundation
 import SwiftUI
 
@@ -37,7 +38,7 @@ struct ShortcutHintPill: View {
     var emphasis: Double = 1.0
 
     init(shortcut: StoredShortcut, fontSize: CGFloat = 9, emphasis: Double = 1.0) {
-        self.text = shortcut.displayString
+        self.text = ShortcutDisplayFormatter().displayString(shortcut)
         self.fontSize = fontSize
         self.emphasis = emphasis
     }

@@ -621,13 +621,14 @@ enum KeyboardShortcutSettings {
         }
 
         func displayedShortcutString(for shortcut: StoredShortcut) -> String {
+            let formatter = ShortcutDisplayFormatter()
             if shortcut.isUnbound {
-                return shortcut.displayString
+                return formatter.displayString(shortcut)
             }
             if usesNumberedDigitMatching {
-                return shortcut.numberedDisplayString
+                return formatter.displayString(shortcut, numbered: true)
             }
-            return shortcut.displayString
+            return formatter.displayString(shortcut)
         }
 
         func conflicts(
@@ -723,11 +724,32 @@ enum KeyboardShortcutSettings {
             guard let digit = Int(digitSource.key), (1...9).contains(digit) else {
                 return .rejected(.numberedShortcutRequiresDigit)
             }
-            var normalized = shortcut
-            if shortcut.hasChord {
-                normalized.chordKey = "1"
+            let normalized: StoredShortcut
+            if shortcut.hasChord, let second = shortcut.second {
+                normalized = StoredShortcut(
+                    first: shortcut.first,
+                    second: CmuxSettings.ShortcutStroke(
+                        key: "1",
+                        command: second.command,
+                        shift: second.shift,
+                        option: second.option,
+                        control: second.control,
+                        keyCode: second.keyCode
+                    )
+                )
             } else {
-                normalized.key = "1"
+                let first = shortcut.first
+                normalized = StoredShortcut(
+                    first: CmuxSettings.ShortcutStroke(
+                        key: "1",
+                        command: first.command,
+                        shift: first.shift,
+                        option: first.option,
+                        control: first.control,
+                        keyCode: first.keyCode
+                    ),
+                    second: shortcut.second
+                )
             }
             return .accepted(normalized)
         }
@@ -870,7 +892,7 @@ enum KeyboardShortcutSettings {
         for action: Action,
         defaults: UserDefaults = .standard
     ) {
-        guard let data = try? JSONEncoder().encode(shortcut) else { return }
+        guard let data = try? JSONEncoder().encode(FlatStoredShortcutPersistence(shortcut)) else { return }
         defaults.set(data, forKey: action.defaultsKey)
     }
 
@@ -1140,25 +1162,31 @@ enum SystemWideHotkeySettings {
 
         guard defaults.object(forKey: action.defaultsKey) == nil,
               let data = defaults.data(forKey: legacyShortcutKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+              let shortcut = try? JSONDecoder().decode(FlatStoredShortcutPersistence.self, from: data).storedShortcut else {
             return
         }
 
         let migratedShortcut = normalizedRecordedShortcut(shortcut) ?? shortcut
-        guard let migratedData = try? JSONEncoder().encode(migratedShortcut) else { return }
+        guard let migratedData = try? JSONEncoder().encode(FlatStoredShortcutPersistence(migratedShortcut)) else { return }
         defaults.set(migratedData, forKey: action.defaultsKey)
     }
 
     private static func storedShortcut(defaults: UserDefaults = .standard) -> StoredShortcut? {
         guard let data = defaults.data(forKey: action.defaultsKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+              let shortcut = try? JSONDecoder().decode(FlatStoredShortcutPersistence.self, from: data).storedShortcut else {
             return KeyboardShortcutSettings.settingsFileStore.override(for: action)
         }
         return shortcut
     }
 }
 
-struct ShortcutStroke: Equatable, Hashable {
+/// App-target behavior for the package stroke value (`CmuxSettings.ShortcutStroke`).
+///
+/// The stored fields (`key`, modifiers, `keyCode`) and the base init live on the
+/// package type; everything AppKit/Carbon/SwiftUI-coupled (NSEvent matching, key
+/// equivalents, Carbon hot-key registration, settings-file parsing) lives here in
+/// the app target where those frameworks are available.
+extension CmuxSettings.ShortcutStroke {
     enum RecordingResult: Equatable {
         case accepted(ShortcutStroke)
         case rejected(KeyboardShortcutSettings.ShortcutRecordingRejection)
@@ -1168,39 +1196,6 @@ struct ShortcutStroke: Equatable, Hashable {
     private struct RecordableKey {
         let key: String
         let keyCode: UInt16?
-    }
-
-    var key: String
-    var command: Bool
-    var shift: Bool
-    var option: Bool
-    var control: Bool
-    var keyCode: UInt16?
-
-    init(
-        key: String,
-        command: Bool,
-        shift: Bool,
-        option: Bool,
-        control: Bool,
-        keyCode: UInt16? = nil
-    ) {
-        self.key = key
-        self.command = command
-        self.shift = shift
-        self.option = option
-        self.control = control
-        self.keyCode = keyCode
-    }
-
-    var displayString: String {
-        ShortcutDisplayFormatter().strokeDisplayString(
-            key: key,
-            command: command,
-            shift: shift,
-            option: option,
-            control: control
-        )
     }
 
     var modifierDisplayString: String {
@@ -1681,79 +1676,18 @@ struct ShortcutStroke: Equatable, Hashable {
     ]
 }
 
+/// App-target behavior for the package shortcut value (`CmuxSettings.StoredShortcut`).
+///
+/// The stored shape (`first`/`second` strokes), `isUnbound`, `hasChord`,
+/// `unbound`, `titlebarHintShouldShow`, and Codable all live on the package type.
+/// This extension adds the app-target conveniences: a flat keyword init used by
+/// the built-in defaults table, AppKit/Carbon matching, key equivalents, and
+/// settings-file parsing. `firstStroke`/`secondStroke` remain as thin aliases for
+/// `first`/`second` to keep the many call sites stable.
 extension CmuxSettings.StoredShortcut {
-    /// Temporary bridge from the legacy flat in-app ``StoredShortcut`` to the
-    /// package stroke-based type. Used where config parsing still yields the flat
-    /// app type but a package consumer (e.g. `CmuxResolvedConfigAction.shortcut`)
-    /// needs the package type. Remove once the flat->stroke consolidation deletes
-    /// the duplicate app type.
-    init(_ appShortcut: StoredShortcut) {
-        self.init(
-            first: CmuxSettings.ShortcutStroke(
-                key: appShortcut.key,
-                command: appShortcut.command,
-                shift: appShortcut.shift,
-                option: appShortcut.option,
-                control: appShortcut.control,
-                keyCode: appShortcut.keyCode
-            ),
-            second: appShortcut.chordKey.map { chordKey in
-                CmuxSettings.ShortcutStroke(
-                    key: chordKey,
-                    command: appShortcut.chordCommand,
-                    shift: appShortcut.chordShift,
-                    option: appShortcut.chordOption,
-                    control: appShortcut.chordControl,
-                    keyCode: appShortcut.chordKeyCode
-                )
-            }
-        )
-    }
-}
-
-/// A keyboard shortcut that can be stored in UserDefaults
-struct StoredShortcut: Codable, Equatable, Hashable {
-    /// Temporary bridge from the package `CmuxSettings.StoredShortcut` (stroke-based)
-    /// to this legacy flat in-app type. `CmuxResolvedConfigAction` moved to
-    /// CmuxWorkspaces (wNb) and now exposes the package shortcut, while the app's
-    /// shortcut-matching helpers still consume this flat type. Remove once the
-    /// flat->stroke StoredShortcut consolidation deletes this duplicate app type.
-    init(_ packageShortcut: CmuxSettings.StoredShortcut) {
-        let first = packageShortcut.first
-        let second = packageShortcut.second
-        self.init(
-            key: first.key,
-            command: first.command,
-            shift: first.shift,
-            option: first.option,
-            control: first.control,
-            keyCode: first.keyCode,
-            chordKey: second?.key,
-            chordCommand: second?.command ?? false,
-            chordShift: second?.shift ?? false,
-            chordOption: second?.option ?? false,
-            chordControl: second?.control ?? false,
-            chordKeyCode: second?.keyCode
-        )
-    }
-
-    var key: String
-    var command: Bool
-    var shift: Bool
-    var option: Bool
-    var control: Bool
-    var keyCode: UInt16?
-    var chordKey: String?
-    var chordCommand: Bool
-    var chordShift: Bool
-    var chordOption: Bool
-    var chordControl: Bool
-    var chordKeyCode: UInt16?
-
-    static var unbound: StoredShortcut {
-        StoredShortcut(key: "", command: false, shift: false, option: false, control: false)
-    }
-
+    /// Flat keyword initializer kept for the built-in shortcut defaults table and
+    /// the recorder helpers. Mirrors the historical app-type init, including the
+    /// empty-`chordKey`-collapses-to-`nil` normalization.
     init(
         key: String,
         command: Bool,
@@ -1768,119 +1702,8 @@ struct StoredShortcut: Codable, Equatable, Hashable {
         chordControl: Bool = false,
         chordKeyCode: UInt16? = nil
     ) {
-        self.key = key
-        self.command = command
-        self.shift = shift
-        self.option = option
-        self.control = control
-        self.keyCode = keyCode
-        self.chordKey = chordKey?.isEmpty == true ? nil : chordKey
-        self.chordCommand = chordCommand
-        self.chordShift = chordShift
-        self.chordOption = chordOption
-        self.chordControl = chordControl
-        self.chordKeyCode = chordKeyCode
-    }
-
-    init(first: ShortcutStroke, second: ShortcutStroke? = nil) {
+        let normalizedChordKey = (chordKey?.isEmpty == true) ? nil : chordKey
         self.init(
-            key: first.key,
-            command: first.command,
-            shift: first.shift,
-            option: first.option,
-            control: first.control,
-            keyCode: first.keyCode,
-            chordKey: second?.key,
-            chordCommand: second?.command ?? false,
-            chordShift: second?.shift ?? false,
-            chordOption: second?.option ?? false,
-            chordControl: second?.control ?? false,
-            chordKeyCode: second?.keyCode
-        )
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case key
-        case command
-        case shift
-        case option
-        case control
-        case keyCode
-        case chordKey
-        case chordCommand
-        case chordShift
-        case chordOption
-        case chordControl
-        case chordKeyCode
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(
-            key: try container.decode(String.self, forKey: .key),
-            command: try container.decode(Bool.self, forKey: .command),
-            shift: try container.decode(Bool.self, forKey: .shift),
-            option: try container.decode(Bool.self, forKey: .option),
-            control: try container.decode(Bool.self, forKey: .control),
-            keyCode: try container.decodeIfPresent(UInt16.self, forKey: .keyCode),
-            chordKey: try container.decodeIfPresent(String.self, forKey: .chordKey),
-            chordCommand: try container.decodeIfPresent(Bool.self, forKey: .chordCommand) ?? false,
-            chordShift: try container.decodeIfPresent(Bool.self, forKey: .chordShift) ?? false,
-            chordOption: try container.decodeIfPresent(Bool.self, forKey: .chordOption) ?? false,
-            chordControl: try container.decodeIfPresent(Bool.self, forKey: .chordControl) ?? false,
-            chordKeyCode: try container.decodeIfPresent(UInt16.self, forKey: .chordKeyCode)
-        )
-    }
-
-    var isUnbound: Bool {
-        key.isEmpty
-    }
-
-    var firstStroke: ShortcutStroke {
-        ShortcutStroke(
-            key: key,
-            command: command,
-            shift: shift,
-            option: option,
-            control: control,
-            keyCode: keyCode
-        )
-    }
-
-    var secondStroke: ShortcutStroke? {
-        guard let chordKey else { return nil }
-        return ShortcutStroke(
-            key: chordKey,
-            command: chordCommand,
-            shift: chordShift,
-            option: chordOption,
-            control: chordControl,
-            keyCode: chordKeyCode
-        )
-    }
-
-    var hasChord: Bool {
-        secondStroke != nil
-    }
-
-    /// Whether the titlebar should surface this binding's shortcut hint.
-    ///
-    /// Forwards to ``CmuxSettings/StoredShortcut/titlebarHintShouldShow(alwaysShowShortcutHints:modifierPressed:)``,
-    /// the single source of truth for the rule, after bridging this app-target
-    /// binding into its persisted ``CmuxSettings/StoredShortcut`` form.
-    func titlebarHintShouldShow(
-        alwaysShowShortcutHints: Bool,
-        modifierPressed: Bool
-    ) -> Bool {
-        cmuxSettingsStoredShortcut.titlebarHintShouldShow(
-            alwaysShowShortcutHints: alwaysShowShortcutHints,
-            modifierPressed: modifierPressed
-        )
-    }
-
-    /// This binding as its persisted ``CmuxSettings/StoredShortcut`` value.
-    var cmuxSettingsStoredShortcut: CmuxSettings.StoredShortcut {
-        CmuxSettings.StoredShortcut(
             first: CmuxSettings.ShortcutStroke(
                 key: key,
                 command: command,
@@ -1889,7 +1712,7 @@ struct StoredShortcut: Codable, Equatable, Hashable {
                 control: control,
                 keyCode: keyCode
             ),
-            second: chordKey.map { chordKey in
+            second: normalizedChordKey.map { chordKey in
                 CmuxSettings.ShortcutStroke(
                     key: chordKey,
                     command: chordCommand,
@@ -1902,45 +1725,52 @@ struct StoredShortcut: Codable, Equatable, Hashable {
         )
     }
 
-    var displayString: String {
-        if isUnbound {
-            return String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
-        }
-        if let secondStroke {
-            return "\(firstStroke.displayString) \(secondStroke.displayString)"
-        }
-        return firstStroke.displayString
-    }
+    /// Alias for ``CmuxSettings/StoredShortcut/first``; kept to preserve the many
+    /// app-target call sites that read `.firstStroke`.
+    var firstStroke: CmuxSettings.ShortcutStroke { first }
 
-    var numberedDisplayString: String {
-        if isUnbound {
-            return displayString
-        }
-        if let secondStroke {
-            if ShortcutDisplayFormatter().isNumberedDigitKey(secondStroke.key) {
-                return numberedDigitHintPrefix + ShortcutDisplayFormatter().numberedDigitRangeHint
-            }
-            return displayString
-        }
-        if ShortcutDisplayFormatter().isNumberedDigitKey(firstStroke.key) {
-            return firstStroke.modifierDisplayString + ShortcutDisplayFormatter().numberedDigitRangeHint
-        }
-        return displayString
-    }
+    /// Alias for ``CmuxSettings/StoredShortcut/second``; kept to preserve the
+    /// app-target call sites that read `.secondStroke`.
+    var secondStroke: CmuxSettings.ShortcutStroke? { second }
 
+    // MARK: - Flat field projections
+    //
+    // Read-only projections of the primary stroke's fields, exposed directly on
+    // the shortcut to match the historical flat app type. Storage stays unified
+    // on `first`/`second`; these never duplicate state. Construction goes through
+    // the keyword init above or `init(first:second:)`.
+    var key: String { first.key }
+    var command: Bool { first.command }
+    var shift: Bool { first.shift }
+    var option: Bool { first.option }
+    var control: Bool { first.control }
+    var keyCode: UInt16? { first.keyCode }
+
+    /// Projection of the optional second (chord) stroke's key. `nil` when the
+    /// binding is single-stroke.
+    var chordKey: String? { second?.key }
+    var chordCommand: Bool { second?.command ?? false }
+    var chordShift: Bool { second?.shift ?? false }
+    var chordOption: Bool { second?.option ?? false }
+    var chordControl: Bool { second?.control ?? false }
+    var chordKeyCode: UInt16? { second?.keyCode }
+
+    /// The digit-range hint prefix for numbered workspace/surface families,
+    /// formatted through the shared ``ShortcutDisplayFormatter``.
     var numberedDigitHintPrefix: String {
-        if let secondStroke {
-            return "\(firstStroke.displayString) \(secondStroke.modifierDisplayString)"
+        let formatter = ShortcutDisplayFormatter()
+        if let second {
+            return "\(formatter.displayString(first)) \(formatter.modifierDisplayString(second))"
         }
-        return firstStroke.modifierDisplayString
+        return formatter.modifierDisplayString(first)
     }
 
     var modifierDisplayString: String {
-        firstStroke.modifierDisplayString
+        ShortcutDisplayFormatter().modifierDisplayString(first)
     }
 
     var keyDisplayString: String {
-        firstStroke.keyDisplayString
+        ShortcutDisplayFormatter().keyDisplayString(first.key)
     }
 
     var modifierFlags: NSEvent.ModifierFlags {
@@ -2024,7 +1854,7 @@ struct StoredShortcut: Codable, Equatable, Hashable {
     }
 }
 
-extension ShortcutStroke {
+extension CmuxSettings.ShortcutStroke {
     static func parseConfig(_ rawValue: String) -> ShortcutStroke? {
         guard !rawValue.isEmpty else { return nil }
 
@@ -2188,7 +2018,7 @@ extension ShortcutStroke {
     }
 }
 
-extension StoredShortcut {
+extension CmuxSettings.StoredShortcut {
     /// Decodes a raw settings-file binding value (string, string array, object
     /// form, or `NSNull`) into a ``StoredShortcut`` for `action`, then applies
     /// the action's settings-file normalization.
@@ -2360,4 +2190,99 @@ enum KeyboardShortcutRecorderActivity {
 struct ShortcutRecorderRejectedAttempt: Equatable {
     let reason: KeyboardShortcutSettings.ShortcutRecordingRejection
     let proposedShortcut: StoredShortcut?
+}
+
+/// Flat on-disk representation of a stored shortcut as persisted in per-action
+/// UserDefaults (`shortcut.<action>`), preserving the historical JSON shape
+/// (`{ "key", "command", …, "chordKey", … }`). The in-memory model is the
+/// package `CmuxSettings.StoredShortcut` (nested `first`/`second` strokes); this
+/// DTO only crosses the UserDefaults encode/decode boundary so bindings written
+/// by earlier builds keep decoding after the duplicate flat app type was removed.
+struct FlatStoredShortcutPersistence: Codable {
+    var key: String
+    var command: Bool
+    var shift: Bool
+    var option: Bool
+    var control: Bool
+    var keyCode: UInt16?
+    var chordKey: String?
+    var chordCommand: Bool
+    var chordShift: Bool
+    var chordOption: Bool
+    var chordControl: Bool
+    var chordKeyCode: UInt16?
+
+    private enum CodingKeys: String, CodingKey {
+        case key
+        case command
+        case shift
+        case option
+        case control
+        case keyCode
+        case chordKey
+        case chordCommand
+        case chordShift
+        case chordOption
+        case chordControl
+        case chordKeyCode
+    }
+
+    init(_ shortcut: CmuxSettings.StoredShortcut) {
+        let first = shortcut.first
+        let second = shortcut.second
+        key = first.key
+        command = first.command
+        shift = first.shift
+        option = first.option
+        control = first.control
+        keyCode = first.keyCode
+        chordKey = second?.key
+        chordCommand = second?.command ?? false
+        chordShift = second?.shift ?? false
+        chordOption = second?.option ?? false
+        chordControl = second?.control ?? false
+        chordKeyCode = second?.keyCode
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        key = try container.decode(String.self, forKey: .key)
+        command = try container.decode(Bool.self, forKey: .command)
+        shift = try container.decode(Bool.self, forKey: .shift)
+        option = try container.decode(Bool.self, forKey: .option)
+        control = try container.decode(Bool.self, forKey: .control)
+        keyCode = try container.decodeIfPresent(UInt16.self, forKey: .keyCode)
+        chordKey = try container.decodeIfPresent(String.self, forKey: .chordKey)
+        chordCommand = try container.decodeIfPresent(Bool.self, forKey: .chordCommand) ?? false
+        chordShift = try container.decodeIfPresent(Bool.self, forKey: .chordShift) ?? false
+        chordOption = try container.decodeIfPresent(Bool.self, forKey: .chordOption) ?? false
+        chordControl = try container.decodeIfPresent(Bool.self, forKey: .chordControl) ?? false
+        chordKeyCode = try container.decodeIfPresent(UInt16.self, forKey: .chordKeyCode)
+    }
+
+    /// Reconstitutes the package `StoredShortcut`, applying the same
+    /// empty-`chordKey`-collapses-to-`nil` normalization the flat app init used.
+    var storedShortcut: CmuxSettings.StoredShortcut {
+        let normalizedChordKey = (chordKey?.isEmpty == true) ? nil : chordKey
+        return CmuxSettings.StoredShortcut(
+            first: CmuxSettings.ShortcutStroke(
+                key: key,
+                command: command,
+                shift: shift,
+                option: option,
+                control: control,
+                keyCode: keyCode
+            ),
+            second: normalizedChordKey.map { chordKey in
+                CmuxSettings.ShortcutStroke(
+                    key: chordKey,
+                    command: chordCommand,
+                    shift: chordShift,
+                    option: chordOption,
+                    control: chordControl,
+                    keyCode: chordKeyCode
+                )
+            }
+        )
+    }
 }

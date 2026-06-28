@@ -320,7 +320,7 @@ struct BrowserPanelView: View {
     private var developerToolsButtonHelp: String {
         let base = String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools")
         let _ = keyboardShortcutSettingsObserver.revision
-        return "\(base) (\(KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools).displayString))"
+        return "\(base) (\(ShortcutDisplayFormatter().displayString(KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools))))"
     }
 
     private var browserImportHintSummary: String {
@@ -469,7 +469,7 @@ struct BrowserPanelView: View {
     private var browserFocusModeEnterShortcutHint: String? {
         let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleBrowserFocusMode)
         guard !shortcut.isUnbound else { return nil }
-        return shortcut.displayString
+        return ShortcutDisplayFormatter().displayString(shortcut)
     }
 
     private var shouldShowBrowserFocusModeShortcutHint: Bool {

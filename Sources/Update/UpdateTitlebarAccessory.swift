@@ -276,7 +276,7 @@ extension TitlebarControlsStyleConfig {
         let baseFont = NSFont.systemFont(ofSize: pillFontSize, weight: .semibold)
         let pillFont = baseFont.fontDescriptor.withDesign(.rounded)
             .flatMap { NSFont(descriptor: $0, size: pillFontSize) } ?? baseFont
-        let textWidth = (shortcut.displayString as NSString).size(withAttributes: [.font: pillFont]).width
+        let textWidth = (ShortcutDisplayFormatter().displayString(shortcut) as NSString).size(withAttributes: [.font: pillFont]).width
         return ceil(textWidth) + 12
     }
 
@@ -296,7 +296,7 @@ extension TitlebarControlsStyleConfig {
         var intervals: [ClosedRange<CGFloat>] = []
         for slot in TitlebarShortcutHintActionSlot.allCases {
             let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
-            guard !shortcut.isUnbound, shortcut.command else { continue }
+            guard !shortcut.isUnbound, shortcut.first.command else { continue }
             let width = hintPillWidth(for: shortcut)
             intervals.append(
                 hintInterval(
@@ -1859,8 +1859,8 @@ private struct NotificationsPopoverView: View {
                         .cmuxSymbolRasterSize(10, weight: .semibold)
                     Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
                         .font(.system(size: 11))
-                    if !jumpToUnreadShortcut.displayString.isEmpty {
-                        Text(jumpToUnreadShortcut.displayString)
+                    if !ShortcutDisplayFormatter().displayString(jumpToUnreadShortcut).isEmpty {
+                        Text(ShortcutDisplayFormatter().displayString(jumpToUnreadShortcut))
                             .font(.system(size: 10.5, weight: .medium))
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 4)
@@ -1884,7 +1884,7 @@ private struct NotificationsPopoverView: View {
             )
             .foregroundColor(hasUnreadNotifications ? .primary : .secondary)
             .accessibilityIdentifier("notificationsPopover.jumpToLatest")
-            .accessibilityValue(jumpToUnreadShortcut.displayString)
+            .accessibilityValue(ShortcutDisplayFormatter().displayString(jumpToUnreadShortcut))
             .safeHelp(
                 KeyboardShortcutSettings.Action.jumpToUnread.tooltip(
                     String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest")

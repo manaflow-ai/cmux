@@ -1,3 +1,4 @@
+import CmuxSettings
 import Bonsplit
 import SwiftUI
 
@@ -175,7 +176,7 @@ struct NotificationsPage: View {
             }) {
                 HStack(spacing: 6) {
                     Text(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread"))
-                    ShortcutAnnotation(text: jumpToUnreadShortcut.displayString)
+                    ShortcutAnnotation(text: ShortcutDisplayFormatter().displayString(jumpToUnreadShortcut))
                 }
             }
             .buttonStyle(.bordered)
@@ -188,7 +189,7 @@ struct NotificationsPage: View {
             }) {
                 HStack(spacing: 6) {
                     Text(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread"))
-                    ShortcutAnnotation(text: jumpToUnreadShortcut.displayString)
+                    ShortcutAnnotation(text: ShortcutDisplayFormatter().displayString(jumpToUnreadShortcut))
                 }
             }
             .buttonStyle(.bordered)

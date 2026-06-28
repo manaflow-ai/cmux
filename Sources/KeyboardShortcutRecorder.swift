@@ -1,3 +1,4 @@
+import CmuxSettings
 import AppKit
 import SwiftUI
 
@@ -6,7 +7,7 @@ struct KeyboardShortcutRecorder: View {
     let label: String
     var subtitle: String? = nil
     @Binding var shortcut: StoredShortcut
-    var displayString: (StoredShortcut) -> String = { $0.displayString }
+    var displayString: (StoredShortcut) -> String = { ShortcutDisplayFormatter().displayString($0) }
     var transformRecordedShortcut: (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution = {
         .accepted($0)
     }
@@ -183,7 +184,7 @@ final class ShortcutRecorderNSButton: NSButton {
             }
         }
     }
-    var displayString: (StoredShortcut) -> String = { $0.displayString }
+    var displayString: (StoredShortcut) -> String = { ShortcutDisplayFormatter().displayString($0) }
     var transformRecordedShortcut: (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution = {
         .accepted($0)
     }
@@ -245,7 +246,7 @@ final class ShortcutRecorderNSButton: NSButton {
         if isRecording {
             if let pendingChordStart {
                 let format = String(localized: "shortcut.recorder.pendingChord", defaultValue: "%@ …")
-                title = String.localizedStringWithFormat(format, pendingChordStart.displayString)
+                title = String.localizedStringWithFormat(format, ShortcutDisplayFormatter().displayString(pendingChordStart))
             } else {
                 title = String(localized: "shortcut.pressShortcut.prompt", defaultValue: "Press shortcut…")
             }

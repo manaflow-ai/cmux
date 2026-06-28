@@ -612,7 +612,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
             chordKey: "d"
         )
 
-        XCTAssertEqual(shortcut.displayString, "⌃B D")
+        XCTAssertEqual(ShortcutDisplayFormatter().displayString(shortcut), "⌃B D")
         XCTAssertNil(shortcut.keyEquivalent)
         XCTAssertNil(shortcut.menuItemKeyEquivalent)
     }
@@ -653,7 +653,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         {"key":"d","command":true,"shift":false,"option":false,"control":false}
         """.data(using: .utf8)!
 
-        let shortcut = try JSONDecoder().decode(StoredShortcut.self, from: data)
+        let shortcut = try JSONDecoder().decode(FlatStoredShortcutPersistence.self, from: data).storedShortcut
 
         XCTAssertEqual(shortcut.key, "d")
         XCTAssertFalse(shortcut.hasChord)
@@ -1796,7 +1796,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             control: true,
             chordKey: "c"
         )
-        let encodedShortcut = try XCTUnwrap(try? JSONEncoder().encode(invalidShortcut))
+        let encodedShortcut = try XCTUnwrap(try? JSONEncoder().encode(FlatStoredShortcutPersistence(invalidShortcut)))
         let defaults = UserDefaults.standard
         defaults.set(encodedShortcut, forKey: SystemWideHotkeySettings.legacyShortcutKey)
 
@@ -1808,7 +1808,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let migratedData = try XCTUnwrap(
             defaults.data(forKey: KeyboardShortcutSettings.Action.showHideAllWindows.defaultsKey)
         )
-        let storedShortcut = try XCTUnwrap(try? JSONDecoder().decode(StoredShortcut.self, from: migratedData))
+        let storedShortcut = try XCTUnwrap(try? JSONDecoder().decode(FlatStoredShortcutPersistence.self, from: migratedData).storedShortcut)
         XCTAssertEqual(storedShortcut, invalidShortcut)
         XCTAssertNil(storedShortcut.carbonHotKeyRegistration)
     }
