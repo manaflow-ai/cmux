@@ -32,6 +32,9 @@ jobs:
     timeout-minutes: 120
     env:
       CMUX_PORT: "3000"
+      # GhosttyKit comes prebuilt; skip the ghostty CLI helper zig build.
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
       # Web env required by web/app/env.ts but unused by sign-in/pairing.
       RESEND_API_KEY: "ci-dummy"
       CMUX_FEEDBACK_FROM_EMAIL: "ci@cmux.com"
@@ -45,18 +48,11 @@ jobs:
           submodules: recursive
 
       - name: Select Xcode
-        run: |
-          set -euo pipefail
-          # cmux's iOS targets need Xcode 26's Swift toolchain. Prefer the newest
-          # Xcode 26 explicitly (the default /Applications/Xcode.app symlink can
-          # point at an older Xcode on some images), then any newest Xcode, then
-          # the default.
-          XCODE_APP="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n1 || true)"
-          [ -n "$XCODE_APP" ] || XCODE_APP="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -n1 || true)"
-          [ -n "$XCODE_APP" ] || XCODE_APP="/Applications/Xcode.app"
-          XCODE_DIR="$XCODE_APP/Contents/Developer"
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          DEVELOPER_DIR="$XCODE_DIR" xcodebuild -version
+        # Canonical fleet selector: ranks by macOS SDK version (picks 26.x over
+        # the old /Applications/Xcode.app 16.x symlink) and aligns the
+        # xcode-select default. cmux's iOS + macOS targets need the Xcode 26
+        # toolchain.
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -65,7 +61,9 @@ jobs:
         run: xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
 
       - name: Provision GhosttyKit
-        run: ./scripts/ensure-ghosttykit.sh
+        # Prefer the SHA-pinned prebuilt xcframework (the path ci.yml/reload-build
+        # use); fall back to a local build only if the prebuilt is unavailable.
+        run: ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
       - name: Install tools (bun, idb, postgres)
         run: |
@@ -116,10 +114,16 @@ jobs:
           curl -fsS http://localhost:3000/handler/sign-in >/dev/null || { echo "=== webdev.log ==="; cat /tmp/webdev.log; exit 1; }
 
       - name: Build desktop Mac app (tag cistream)
-        run: ./scripts/reload.sh --tag cistream
+        # --swift-frontend-workaround disables AArch64 GlobalISel (the codegen
+        # path that produces the "undefined symbol: _abort/_free/..." link
+        # failure under Xcode 26); this is exactly how reload-build.yml builds the
+        # tagged dev app on the Blacksmith fleet.
+        run: ./scripts/reload.sh --tag cistream --swift-frontend-workaround
 
       - name: Build + install iOS sim app (tag cistream)
-        run: ./ios/scripts/reload.sh --tag cistream --simulator "iPhone 17 Pro Max" --no-attach
+        # Same GlobalISel workaround as the Mac build: the iOS sim build forces
+        # -O/wholemodule, which hits the Xcode 26 codegen bug without it.
+        run: ./ios/scripts/reload.sh --tag cistream --simulator "iPhone 17 Pro Max" --no-attach --swift-frontend-workaround
 
       - name: Pair simulator + capture one streamed terminal
         run: |

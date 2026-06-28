@@ -56,6 +56,11 @@ ALLOW_DEVICE_REGISTRATION=0
 NO_SIGN_IN=0
 NO_ATTACH=0
 NO_SETUP=0
+# Disable AArch64 GlobalISel codegen for this build. Xcode 26's Swift frontend
+# can miscompile under -O/wholemodule on the GlobalISel path, surfacing as bogus
+# "undefined symbol: _abort/_free/..." link failures. Mirrors scripts/reload.sh.
+# Also honored via CMUX_SWIFT_FRONTEND_WORKAROUND=1.
+SWIFT_FRONTEND_WORKAROUND="${CMUX_SWIFT_FRONTEND_WORKAROUND:-0}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -119,6 +124,10 @@ while [[ $# -gt 0 ]]; do
       NO_SETUP=1
       shift
       ;;
+    --swift-frontend-workaround|--swift-workaround)
+      SWIFT_FRONTEND_WORKAROUND=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -147,6 +156,20 @@ if [[ "$ALLOW_DEVICE_REGISTRATION" -eq 1 && "$ALLOW_PROVISIONING_UPDATES" -eq 0 
   echo "error: --allow-device-registration requires provisioning updates" >&2
   usage >&2
   exit 1
+fi
+
+# Extra xcodebuild settings to disable AArch64 GlobalISel when the workaround is
+# requested. Expanded into the build invocations via the empty-array-safe idiom
+# ${arr[@]+"${arr[@]}"} so it is a no-op (and set -u safe) when disabled.
+SWIFT_WORKAROUND_ARGS=()
+if [[ "$SWIFT_FRONTEND_WORKAROUND" == "1" ]]; then
+  echo "==> Swift frontend workaround enabled (AArch64 GlobalISel disabled)"
+  SWIFT_WORKAROUND_ARGS=(
+    SWIFT_ENABLE_BATCH_MODE=NO
+    DEBUG_INFORMATION_FORMAT=
+    GCC_GENERATE_DEBUGGING_SYMBOLS=NO
+    'OTHER_SWIFT_FLAGS=$(inherited) -Xllvm -aarch64-enable-global-isel-at-O=-1'
+  )
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -473,6 +496,7 @@ reload_simulator() {
     SWIFT_OPTIMIZATION_LEVEL=-O \
     SWIFT_COMPILATION_MODE=wholemodule \
     GCC_OPTIMIZATION_LEVEL=s \
+    ${SWIFT_WORKAROUND_ARGS[@]+"${SWIFT_WORKAROUND_ARGS[@]}"} \
     build
 
   APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/cmux.app"
@@ -584,6 +608,10 @@ reload_device() {
     SWIFT_COMPILATION_MODE=wholemodule
     GCC_OPTIMIZATION_LEVEL=s
   )
+
+  if [[ "${#SWIFT_WORKAROUND_ARGS[@]}" -gt 0 ]]; then
+    build_args+=("${SWIFT_WORKAROUND_ARGS[@]}")
+  fi
 
   if [[ -n "$DEVELOPMENT_TEAM" ]]; then
     build_args+=("DEVELOPMENT_TEAM=$DEVELOPMENT_TEAM")
