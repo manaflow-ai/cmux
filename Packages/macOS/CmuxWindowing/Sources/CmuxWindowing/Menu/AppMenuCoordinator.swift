@@ -75,4 +75,44 @@ public final class AppMenuCoordinator<Host: AppMenuHosting> {
         }
         return (keyEquivalent: "", modifierMask: [])
     }
+
+    /// Resolves the ordered new-workspace context-menu items from the configured
+    /// list: drops a leading separator and any separator that immediately
+    /// follows another separator, trims trailing separators, and returns `nil`
+    /// when no non-separator item remains (so the witness presents nothing). The
+    /// witness maps each `CmuxResolvedConfigContextMenuItem` to a
+    /// ``NewWorkspaceContextMenuItemInput`` first, then materializes each
+    /// returned ``NewWorkspaceContextMenuItemPlan`` into an `NSMenuItem` (icon
+    /// render, `representedObject`, `target`/`action`), recovering the resolved
+    /// action via `actionIndex`, and pops the live `NSMenu`.
+    public func planNewWorkspaceContextMenu(
+        items: [NewWorkspaceContextMenuItemInput]
+    ) -> [NewWorkspaceContextMenuItemPlan]? {
+        var ordered: [NewWorkspaceContextMenuItemPlan] = []
+        for item in items {
+            switch item {
+            case .separator:
+                if let last = ordered.last, case .action = last {
+                    ordered.append(.separator)
+                }
+            case let .action(title, tooltip, iconSourcePath, actionIndex):
+                ordered.append(.action(
+                    title: title,
+                    tooltip: tooltip,
+                    iconSourcePath: iconSourcePath,
+                    actionIndex: actionIndex
+                ))
+            }
+        }
+        while case .separator? = ordered.last {
+            ordered.removeLast()
+        }
+        guard ordered.contains(where: { plan in
+            if case .action = plan { return true }
+            return false
+        }) else {
+            return nil
+        }
+        return ordered
+    }
 }

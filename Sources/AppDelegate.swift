@@ -5362,14 +5362,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let configuredItems = cmuxConfigStore.newWorkspaceContextMenuItems
         guard !configuredItems.isEmpty else { return false }
 
-        let menu = NSMenu()
-        for configuredItem in configuredItems {
+        let inputs: [NewWorkspaceContextMenuItemInput] = configuredItems.enumerated().map { index, configuredItem in
             switch configuredItem {
             case .separator:
-                if !menu.items.isEmpty, menu.items.last?.isSeparatorItem == false {
-                    menu.addItem(.separator())
-                }
+                return .separator
             case .action(let menuAction):
+                return .action(
+                    title: menuAction.title,
+                    tooltip: menuAction.tooltip,
+                    iconSourcePath: menuAction.iconSourcePath,
+                    actionIndex: index
+                )
+            }
+        }
+        guard let plan = appMenuCoordinator.planNewWorkspaceContextMenu(items: inputs) else {
+            return false
+        }
+
+        let menu = NSMenu()
+        for planItem in plan {
+            switch planItem {
+            case .separator:
+                menu.addItem(.separator())
+            case .action(_, _, _, let actionIndex):
+                guard case .action(let menuAction) = configuredItems[actionIndex] else { continue }
                 let item = NSMenuItem(
                     title: menuAction.title,
                     action: #selector(performNewWorkspaceContextMenuItem(_:)),
@@ -5388,11 +5404,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 menu.addItem(item)
             }
         }
-
-        while menu.items.last?.isSeparatorItem == true {
-            menu.removeItem(at: menu.items.count - 1)
-        }
-        guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return false }
 
         NSMenu.popUpContextMenu(menu, with: event, for: anchorView)
         return true
