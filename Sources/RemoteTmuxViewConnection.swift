@@ -93,6 +93,28 @@ final class RemoteTmuxViewConnection {
         scheduleReconcile()
     }
 
+    /// Kills every mirrored home session over the live stream — used on the
+    /// quit-with-kill path, where a one-shot ssh would be refused under
+    /// MaxSessions=1. Awaits a round-trip so the kills land before the caller stops
+    /// the control connection. The hidden view session is left for `stop()` to drop.
+    func killAllWorkspaceSessions() async {
+        guard let conn = connection, conn.connectionState == .connected else { return }
+        for workspace in workspaces {
+            _ = conn.send("kill-session -t \(quoted(workspace.sessionName))")
+        }
+        // Barrier: the reply only arrives after the server has processed the kills.
+        _ = await conn.query("display-message -p ok")
+    }
+
+    /// Kills one mirrored home session over the live stream and reconciles, so the
+    /// coordinator drops its mirror + workspace (and tears down the window when it
+    /// was the last). Used by the user-initiated workspace-close path.
+    func killWorkspaceSession(named name: String) {
+        guard let conn = connection, conn.connectionState == .connected else { return }
+        _ = conn.send("kill-session -t \(quoted(name))")
+        scheduleReconcile()
+    }
+
     // MARK: - View creation (pre-attach one-shots)
 
     private func ensureViewSession() async throws {
@@ -109,7 +131,15 @@ final class RemoteTmuxViewConnection {
         }
         // Record the view's placeholder window so reconcile never unlinks it.
         let phOut = await runOneShot(["list-windows", "-t", view.sessionName, "-F", "#{window_id}"])
-        placeholderWindowId = phOut.split(separator: "\n").first.map(String.init)
+        let viewWindowIds = phOut
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        placeholderWindowId = viewWindowIds.first
+        // Adopt windows already linked into a reused view (from a prior cmux run) as
+        // owned, so reconcile can unlink any whose real session has since died —
+        // otherwise dead linked copies accumulate in the persistent view session.
+        ownedWindowIds = Set(viewWindowIds.dropFirst())
     }
 
     /// A pre-attach `tmux` one-shot over the shared master, returning stdout (or ""
