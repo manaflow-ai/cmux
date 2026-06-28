@@ -287,7 +287,7 @@ final class BrowserPortalAnchorView: NSView {
 }
 
 @MainActor
-final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, BrowserSessionHistoryHosting, BrowserFaviconHosting, BrowserZoomHosting {
+final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, BrowserSessionHistoryHosting, BrowserFaviconHosting, BrowserZoomHosting, BrowserDownloadActivityHosting {
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
 
@@ -645,7 +645,6 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
     private var uiDelegate: BrowserUIDelegate?
     private var downloadDelegate: BrowserDownloadDelegate?
     private var webViewObservers: [NSKeyValueObservation] = []
-    private var activeDownloadCount: Int = 0
 
     // Avoid flickering the loading indicator for very fast navigations.
     private let minLoadingIndicatorDuration: TimeInterval = 0.35
@@ -663,6 +662,13 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
     /// lives in `CmuxBrowser.BrowserZoomCoordinator`; this panel owns the only
     /// live witness, `webView.pageZoom`, exposed through `BrowserZoomHosting`.
     private let zoomCoordinator = BrowserZoomCoordinator()
+
+    /// Download-activity tally (count + `wasDownloading -> isDownloading` edge +
+    /// which discard hook to fire) lives in
+    /// `CmuxBrowser.BrowserDownloadActivityCoordinator`; this panel owns the only
+    /// live witnesses, the published `isDownloading` flag and the discard
+    /// scheduler, exposed through `BrowserDownloadActivityHosting`.
+    private let downloadActivityCoordinator = BrowserDownloadActivityCoordinator()
     private let navigationIntentCoordinator: BrowserNavigationIntentCoordinator
     private var insecureHTTPAlertFactory: () -> NSAlert
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
@@ -893,7 +899,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         hiddenWebViewDiscardManager.blockers(for: hiddenWebViewDiscardSnapshot)
     }
 
-    private func scheduleHiddenWebViewDiscardIfNeeded(reason: String) {
+    func scheduleHiddenWebViewDiscardIfNeeded(reason: String) {
         hiddenWebViewDiscardManager.scheduleIfNeeded(reason: reason)
     }
 
@@ -1541,6 +1547,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         sessionHistoryCoordinator.host = self
         faviconCoordinator.host = self
         zoomCoordinator.host = self
+        downloadActivityCoordinator.host = self
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
@@ -1872,12 +1879,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
 
     private func beginDownloadActivity() {
         let apply = {
-            let wasDownloading = self.isDownloading
-            self.activeDownloadCount += 1
-            self.isDownloading = self.activeDownloadCount > 0
-            if !wasDownloading && self.isDownloading {
-                self.reevaluateHiddenWebViewDiscardScheduling(reason: "download.started")
-            }
+            self.downloadActivityCoordinator.begin()
         }
         if Thread.isMainThread {
             apply()
@@ -1888,17 +1890,19 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
 
     private func endDownloadActivity() {
         let apply = {
-            self.activeDownloadCount = max(0, self.activeDownloadCount - 1)
-            self.isDownloading = self.activeDownloadCount > 0
-            if !self.isDownloading {
-                self.scheduleHiddenWebViewDiscardIfNeeded(reason: "download.finished")
-            }
+            self.downloadActivityCoordinator.end()
         }
         if Thread.isMainThread {
             apply()
         } else {
             DispatchQueue.main.async(execute: apply)
         }
+    }
+
+    /// Publishes the download-active flag for ``BrowserDownloadActivityCoordinator``
+    /// (writes the `@Published private(set) isDownloading`).
+    func setDownloadingActive(_ active: Bool) {
+        isDownloading = active
     }
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
@@ -3093,7 +3097,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             webViewIsLoading: webView.isLoading,
             hasActiveMainFrameProvisionalNavigation: isMainFrameProvisionalNavigationActive,
             isDownloading: isDownloading,
-            activeDownloadCount: activeDownloadCount,
+            activeDownloadCount: downloadActivityCoordinator.activeDownloadCount,
             preferredDeveloperToolsVisible: preferredDeveloperToolsVisible,
             isDeveloperToolsVisible: isDeveloperToolsVisible(),
             isElementFullscreenActive: isElementFullscreenActive,
@@ -3143,7 +3147,7 @@ extension BrowserPanel {
         estimatedProgress > 0 ||
         isLoading ||
         isDownloading ||
-        activeDownloadCount != 0 ||
+        downloadActivityCoordinator.activeDownloadCount != 0 ||
         preferredDeveloperToolsVisible ||
         hasRecoverableWebContentTermination ||
         pendingWebContentRecoveryURL != nil ||
@@ -3186,7 +3190,7 @@ extension BrowserPanel {
         loadingEndWorkItem = nil
         faviconCoordinator.cancelInFlightRefreshInvalidatingGeneration()
         loadingGeneration &+= 1
-        activeDownloadCount = 0
+        downloadActivityCoordinator.resetCount()
         isDownloading = false
         isLoading = false
         estimatedProgress = 0
