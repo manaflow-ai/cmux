@@ -1,5 +1,6 @@
 import AppKit
 import AVKit
+import CmuxAppKitSupportUI
 import Foundation
 
 @MainActor

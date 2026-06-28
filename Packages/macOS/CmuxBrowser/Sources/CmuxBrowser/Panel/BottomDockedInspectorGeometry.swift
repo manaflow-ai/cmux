@@ -11,16 +11,17 @@ public import WebKit
 /// frame that should sit above it. It is the bottom-docked companion to
 /// ``HostedInspectorDockSide``, which handles the left/right docked geometry.
 ///
-/// The walk needs to recognize web-inspector views, which is an app-owned
-/// concern (`cmuxIsWebInspectorObject`). That predicate is injected as a closure
-/// so this package stays free of the inspector-detection seam, exactly as the
+/// The walk needs to recognize web-inspector views (`NSObject`'s
+/// `isCmuxWebInspectorObject`). That predicate is injected as a closure so this
+/// type stays decoupled from the detection seam, exactly as the
 /// `WKWebView` rendering-state reattach lifecycle does. The methods read live
 /// `NSView`/`WKWebView` geometry synchronously and hold no state beyond the
 /// injected predicate, so callers construct one value at the call site and use
 /// it for the inference and repair in a single main-actor turn.
 public struct BottomDockedInspectorGeometry {
-    /// Recognizes a web-inspector view. Supplied by the app target so the
-    /// inspector-detection seam (`cmuxIsWebInspectorObject`) stays app-side.
+    /// Recognizes a web-inspector view. Supplied by the caller (typically
+    /// `NSObject.isCmuxWebInspectorObject`) so this type stays decoupled from the
+    /// inspector-detection seam.
     public let isWebInspectorObject: (NSView) -> Bool
 
     /// Creates an inference value over the supplied inspector predicate.

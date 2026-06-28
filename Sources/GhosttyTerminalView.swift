@@ -438,7 +438,7 @@ class GhosttyApp {
     private(set) lazy var appearanceState = TerminalDefaultAppearanceState(
         baselineAppearanceConfig: Self.fallbackAppearanceConfig,
         configDiscovery: Self.configDiscovery,
-        resolveColorSchemePreference: { Self.terminalRuntimeColorSchemePreference(forBackgroundColor: $0) },
+        resolveColorSchemePreference: { TerminalColorSchemePreference.runtimePreference(readableSchemeIsLight: cmuxReadableColorScheme(for: $0) == .light) },
         isBackgroundLogEnabled: { [weak self] in self?.backgroundLogEnabled ?? false },
         logBackground: { [weak self] message in self?.logBackground(message) }
     )
@@ -1179,27 +1179,6 @@ class GhosttyApp {
         Self.configLoader.loadCJKFontFallbackIfNeeded(config)
     }
 
-    static func terminalRuntimeColorSchemePreference(
-        forBackgroundColor backgroundColor: NSColor
-    ) -> GhosttyConfig.ColorSchemePreference {
-        cmuxReadableColorScheme(for: backgroundColor) == .light ? .light : .dark
-    }
-
-    static func runtimeColorSchemeForConfigLoad(
-        source: String,
-        requestedColorScheme: GhosttyConfig.ColorSchemePreference,
-        effectiveTerminalColorScheme: GhosttyConfig.ColorSchemePreference,
-        cmuxThemeValue: String?
-    ) -> GhosttyConfig.ColorSchemePreference {
-        guard GhosttySurfaceConfigurationRefresh.isCmuxThemeReloadSource(source),
-              let cmuxThemeValue,
-              GhosttyConfig.themeValueUsesSameResolvedThemeInBothColorSchemes(cmuxThemeValue) else {
-            return requestedColorScheme
-        }
-
-        return effectiveTerminalColorScheme
-    }
-
     private func loadCmuxAppSupportGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
         Self.configLoader.loadCmuxAppSupportGhosttyConfigIfNeeded(config)
     }
@@ -1278,8 +1257,8 @@ class GhosttyApp {
         // Use the appearance preference while loading conditional theme pairs. For cmux
         // single-theme reloads, keep the resolved terminal scheme stable until the new
         // background is known so same-scheme theme changes do not flash through app mode.
-        let loadColorScheme = Self.runtimeColorSchemeForConfigLoad(
-            source: source,
+        let loadColorScheme = TerminalColorSchemePreference.runtimeColorSchemeForConfigLoad(
+            isCmuxThemeReloadSource: GhosttySurfaceConfigurationRefresh.isCmuxThemeReloadSource(source),
             requestedColorScheme: reloadColorScheme,
             effectiveTerminalColorScheme: effectiveTerminalColorSchemePreference,
             cmuxThemeValue: currentCmuxAppSupportThemeValue()
@@ -2515,24 +2494,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private var hasUsableFocusGeometry: Bool { bounds.width > 1 && bounds.height > 1 }
 
-    static func shouldRequestFirstResponderForMouseFocus(
-        focusFollowsMouseEnabled: Bool,
-        pressedMouseButtons: Int,
-        appIsActive: Bool,
-        windowIsKey: Bool,
-        alreadyFirstResponder: Bool,
-        visibleInUI: Bool,
-        hasUsableGeometry: Bool,
-        hiddenInHierarchy: Bool
-    ) -> Bool {
-        guard focusFollowsMouseEnabled else { return false }
-        guard pressedMouseButtons == 0 else { return false }
-        guard appIsActive, windowIsKey else { return false }
-        guard !alreadyFirstResponder else { return false }
-        guard visibleInUI, hasUsableGeometry, !hiddenInHierarchy else { return false }
-        return true
-    }
-
     // Visibility is used for focus gating. Explicit portal visibility transitions
     // also drive Ghostty occlusion so hidden workspace/split surfaces pause and
     // queue a redraw when they become visible again.
@@ -2637,26 +2598,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    // Theme/background application is window-local. During cross-window workspace
-    // switches (e.g. jump-to-unread), the global active tab manager can lag behind.
-    // Prefer the owning window's selected workspace when available.
-    static func shouldApplyWindowBackground(
-        surfaceTabId: UUID?,
-        owningManagerExists: Bool,
-        owningSelectedTabId: UUID?,
-        activeSelectedTabId: UUID?
-    ) -> Bool {
-        guard let surfaceTabId else { return true }
-        if owningManagerExists {
-            guard let owningSelectedTabId else { return true }
-            return owningSelectedTabId == surfaceTabId
-        }
-        if let activeSelectedTabId {
-            return activeSelectedTabId == surfaceTabId
-        }
-        return true
-    }
-
     @MainActor
     func applyWindowBackgroundIfActive() {
         guard let window else { return }
@@ -2664,7 +2605,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let owningManager = tabId.flatMap { appDelegate?.tabManagerFor(tabId: $0) }
         let owningSelectedTabId = owningManager?.selectedTabId
         let activeSelectedTabId = owningManager == nil ? appDelegate?.tabManager?.selectedTabId : nil
-        guard Self.shouldApplyWindowBackground(
+        guard TerminalWindowBackgroundPolicy.shouldApplyWindowBackground(
             surfaceTabId: tabId,
             owningManagerExists: owningManager != nil,
             owningSelectedTabId: owningSelectedTabId,
@@ -2873,26 +2814,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return types.contains(tabTransferPasteboardType) || types.contains(sidebarTabReorderPasteboardType)
     }
 
-    private static func isDragResizeEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        switch eventType {
-        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            return true
-        default:
-            return false
-        }
-    }
-
     private static func shouldDeferSurfaceResizeForActiveDrag() -> Bool {
-        // The drag pasteboard can retain tab-transfer UTIs briefly after a split command
-        // or other layout churn. Only defer terminal resizes while an actual drag event
-        // is in flight; otherwise pre-existing panes can stay stuck at their old size.
-        // Interactive geometry resize already has an explicit fast path for sidebar and
-        // split-divider drags. Do not let stale drag-pasteboard state suppress those updates.
-        if TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive {
-            return false
-        }
-        guard hasTabDragPasteboardTypes() else { return false }
-        return isDragResizeEvent(NSApp.currentEvent?.type)
+        TerminalSurfaceResizeDeferralPolicy.shouldDefer(
+            interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive,
+            hasTabDragPasteboardTypes: hasTabDragPasteboardTypes(),
+            currentEventType: NSApp.currentEvent?.type
+        )
     }
 
     private func activeSurfaceResizeDeferralReason() -> String? {
@@ -5475,7 +5402,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func maybeRequestFirstResponderForMouseFocus() {
         guard let window else { return }
         let alreadyFirstResponder = window.firstResponder === self
-        let shouldRequest = Self.shouldRequestFirstResponderForMouseFocus(
+        let shouldRequest = TerminalWindowFocusPolicy.shouldRequestFirstResponderForMouseFocus(
             focusFollowsMouseEnabled: GhosttyApp.shared.focusFollowsMouseEnabled(),
             pressedMouseButtons: NSEvent.pressedMouseButtons,
             appIsActive: NSApp.isActive,
@@ -6825,15 +6752,6 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
 #if DEBUG
-    private static func isDragMouseEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        switch eventType {
-        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            return true
-        default:
-            return false
-        }
-    }
-
     private func hasActiveDragLoggingContext() -> Bool {
         let pasteboardTypes = NSPasteboard(name: .drag).types
         let hasTabDrag = pasteboardTypes?.contains(Self.tabTransferPasteboardType) == true
@@ -6841,7 +6759,7 @@ final class GhosttySurfaceScrollView: NSView {
         let eventType = NSApp.currentEvent?.type
         return activeDropZone != nil ||
             pendingDropZone != nil ||
-            ((hasTabDrag || hasSidebarDrag) && Self.isDragMouseEvent(eventType))
+            ((hasTabDrag || hasSidebarDrag) && TerminalSurfaceResizeDeferralPolicy.isDragMouseEvent(eventType))
     }
 
     private func logDragGeometryChange(event: String, old: CGPoint, new: CGPoint) {
@@ -6872,7 +6790,7 @@ final class GhosttySurfaceScrollView: NSView {
         let hasActiveDrag =
             activeDropZone != nil ||
             pendingDropZone != nil ||
-            ((hasTabDrag || hasSidebarDrag) && Self.isDragMouseEvent(eventType))
+            ((hasTabDrag || hasSidebarDrag) && TerminalSurfaceResizeDeferralPolicy.isDragMouseEvent(eventType))
         guard hasActiveDrag else { return }
 
         dragLayoutLogSequence &+= 1
