@@ -8240,13 +8240,11 @@ extension Workspace: BonsplitDelegate {
     @MainActor
     private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID) -> Bool {
         let manager = owningTabManager ?? hostEnvironment?.tabManagerFor(tabId: id) ?? hostEnvironment?.tabManager
-        guard panels.count <= 1,
-              panelIdFromSurfaceId(tabId) != nil,
-              let manager,
-              manager.tabs.contains(where: { $0.id == id }) else {
-            return false
-        }
-        return true
+        return LastSurfaceWorkspaceClosePolicy().shouldCloseWorkspace(
+            panelCount: panels.count,
+            closingTabHasPanel: panelIdFromSurfaceId(tabId) != nil,
+            managerOwnsWorkspace: manager?.tabs.contains(where: { $0.id == id }) ?? false
+        )
     }
 
     @MainActor
