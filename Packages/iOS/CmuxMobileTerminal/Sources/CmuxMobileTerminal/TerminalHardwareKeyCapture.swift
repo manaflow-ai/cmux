@@ -64,6 +64,8 @@ struct TerminalKeyRepeatDispatchTimerFactory: TerminalKeyRepeatTimerFactory {
 /// is scheduled on `.main`, so its handler already runs on the main actor.
 @MainActor
 final class TerminalKeyRepeatDispatchTimer: TerminalKeyRepeatTimer {
+    /// The backing dispatch source: created and resumed in ``init(initialDelay:interval:onTick:)``
+    /// and set back to `nil` by ``cancel()``, which is what makes cancellation idempotent.
     private var source: DispatchSourceTimer?
 
     /// Schedule and start the timer.

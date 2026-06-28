@@ -7,6 +7,7 @@ import GhosttyKit
 import OSLog
 import UIKit
 
+/// Subsystem logger for the terminal selection gesture/overlay path.
 nonisolated private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
 /// One-finger / trackpad text selection, the glyph-aligned highlight overlay, the
