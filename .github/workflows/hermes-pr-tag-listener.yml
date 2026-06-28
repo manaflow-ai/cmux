@@ -3,6 +3,10 @@
 #
 # Required repo secret:
 #   HERMES_SLACK_WEBHOOK_URL — incoming webhook for the target Slack channel
+#
+# Permissions note: pull-requests: write + issues: write are required for the
+# reusable workflow to add the 👀 ack reaction and post the ack comment.
+# See jleechanorg/.github PR #10 for the full design.
 
 name: hermes-pr-tag-listener
 
@@ -16,8 +20,8 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
-  issues: read
+  pull-requests: write   # required for ack reaction + ack comment
+  issues: write          # required for ack reaction + ack comment
 
 jobs:
   notify:
