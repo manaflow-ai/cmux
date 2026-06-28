@@ -335,6 +335,12 @@ class TabManager {
     // (CmuxWorkspaces): assemble persisted group snapshots at save and rebuild
     // groups at restore. The app shell gathers live state and applies results.
     let sessionSnapshotGroups = SessionSnapshotGroupCoordinator()
+    // Pure value-assembly of a window's tab-manager session snapshot
+    // (CmuxWorkspaces): the restorable filter+cap, selected-index lookup,
+    // per-group restorable-member map, and group-snapshot orchestration. The
+    // app shell flattens each workspace into a value input and supplies the
+    // per-workspace snapshot closure so the live `Workspace` read stays here.
+    let sessionSnapshotBuilder = SessionSnapshotBuilder()
     // Pure planner for the closed-panel-history workspace-id remaps a restore
     // requires (CmuxWorkspaces); the app shell applies each op to the closed-
     // item history store and flushes once.
@@ -4294,50 +4300,48 @@ extension TabManager {
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionTabManagerSnapshot {
-        let restorableTabs = tabs
-            .filter(\.isRestorableInSessionSnapshot)
-            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
-        let workspaceSnapshots = restorableTabs
-            .map {
-                $0.sessionSnapshot(
+        // Capture the ordered tabs once so the flattened inputs and the
+        // per-workspace snapshot closure index into the same array snapshot.
+        let orderedTabs = tabs
+        let inputs = orderedTabs.map { tab in
+            SessionWorkspaceSnapshotInput(
+                id: tab.id,
+                groupId: tab.groupId,
+                isRestorable: tab.isRestorableInSessionSnapshot
+            )
+        }
+        let plan = sessionSnapshotBuilder.assembleTabManagerSnapshot(
+            inputs: inputs,
+            selectedTabId: selectedTabId,
+            groups: workspaceGroups,
+            maxWorkspaces: SessionPersistencePolicy.maxWorkspacesPerWindow,
+            groupCoordinator: sessionSnapshotGroups,
+            workspaceSnapshot: { index in
+                orderedTabs[index].sessionSnapshot(
                     includeScrollback: includeScrollback,
                     restorableAgentIndex: restorableAgentIndex,
                     surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
             }
-        let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
-            restorableTabs.firstIndex(where: { $0.id == selectedTabId })
-        }
-        let occupiedGroupIds = Set(restorableTabs.compactMap(\.groupId))
-        // Build a per-group ordered list of restorable member IDs so we can
-        // record the anchor's index (restore-stable across UUID rotation).
-        let restorableMembersByGroupId: [UUID: [UUID]] = {
-            var map: [UUID: [UUID]] = [:]
-            for tab in restorableTabs {
-                if let gid = tab.groupId {
-                    map[gid, default: []].append(tab.id)
-                }
-            }
-            return map
-        }()
-        let groupSnapshots = sessionSnapshotGroups.assembleGroupSnapshots(
-            groups: workspaceGroups,
-            occupiedGroupIds: occupiedGroupIds,
-            restorableMemberIdsByGroupId: restorableMembersByGroupId
         )
         return SessionTabManagerSnapshot(
-            selectedWorkspaceIndex: selectedWorkspaceIndex,
-            workspaces: workspaceSnapshots,
-            workspaceGroups: groupSnapshots
+            selectedWorkspaceIndex: plan.selectedWorkspaceIndex,
+            workspaces: plan.workspaceSnapshots,
+            workspaceGroups: plan.groupSnapshots
         )
     }
 
     func sessionSnapshotWorkspaceIds() -> [UUID] {
-        Array(
-            tabs
-                .filter(\.isRestorableInSessionSnapshot)
-                .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
-                .map(\.id)
+        let inputs = tabs.map { tab in
+            SessionWorkspaceSnapshotInput(
+                id: tab.id,
+                groupId: tab.groupId,
+                isRestorable: tab.isRestorableInSessionSnapshot
+            )
+        }
+        return sessionSnapshotBuilder.restorableWorkspaceIds(
+            inputs: inputs,
+            maxWorkspaces: SessionPersistencePolicy.maxWorkspacesPerWindow
         )
     }
 
