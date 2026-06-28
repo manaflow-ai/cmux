@@ -287,7 +287,7 @@ final class BrowserPortalAnchorView: NSView {
 }
 
 @MainActor
-final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, BrowserSessionHistoryHosting, BrowserFaviconHosting, BrowserZoomHosting, BrowserDownloadActivityHosting {
+final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, BrowserSessionHistoryHosting, BrowserFaviconHosting, BrowserZoomHosting, BrowserDownloadActivityHosting, BrowserFindHosting {
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
 
@@ -568,8 +568,10 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
     /// Semantic in-panel focus target used by split switching and transient overlays.
     private(set) var preferredFocusIntent: BrowserPanelFocusIntent = .webView
 
-    /// Incremented whenever async browser find focus ownership changes.
-    @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
+    /// Incremented whenever async browser find focus ownership changes. Settable
+    /// so the find-focus lease in `CmuxBrowser.BrowserFindCoordinator` can bump it
+    /// through `BrowserFindHosting`; the find bar still observes the published value.
+    @Published var searchFocusRequestGeneration: UInt64 = 0
     private var lastSearchNeedle = ""
 
     /// Find-in-page state. Non-nil when the find bar is visible.
@@ -597,30 +599,38 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
 #if DEBUG
                         cmuxDebugLog("browser.find.needle.updated panel=\(self.id.uuidString.prefix(5)) bytes=\(needle.lengthOfBytes(using: .utf8))")
 #endif
-                        self.executeFindSearch(needle)
+                        self.findCoordinator.executeFindSearch(needle)
                     }
             } else if let oldValue {
                 lastSearchNeedle = oldValue.needle
                 searchNeedleCancellable = nil
                 if preferredFocusIntent == .findField { preferredFocusIntent = .webView }
-                invalidateSearchFocusRequests(reason: "searchStateCleared")
+                findCoordinator.invalidateSearchFocusRequests(reason: "searchStateCleared")
 #if DEBUG
                 cmuxDebugLog("browser.find.state.cleared panel=\(id.uuidString.prefix(5))")
 #endif
-                executeFindClear()
+                findCoordinator.executeFindClear()
             }
         }
     }
     @Published private(set) var isElementFullscreenActive: Bool = false
     private var searchNeedleCancellable: AnyCancellable?
 
-    /// Find-in-page search execution: generates the find scripts, evaluates them against the
-    /// panel's live `webView` through ``BrowserFindWebViewEvaluator``, and parses results into
-    /// `BrowserFindMatchCount`. The panel owns the find bar visibility, focus, and `searchState`;
-    /// this service owns only the script generation and result parsing.
-    private lazy var findService = BrowserFindService(
-        evaluator: BrowserFindWebViewEvaluator(panel: self)
-    )
+    /// Find-in-page orchestration (search/clear execution, match-count apply, the
+    /// focus-request lease, and navigation replay) lives in
+    /// `CmuxBrowser.BrowserFindCoordinator` over its `BrowserFindService`; this
+    /// panel owns the live witnesses, the `@Published` `searchState`, the published
+    /// focus generation, `preferredFocusIntent`, and the panel-id search-focus
+    /// notification posts, exposed through `BrowserFindHosting`. The service
+    /// evaluates find scripts against the panel's live `webView` through
+    /// ``BrowserFindWebViewEvaluator``.
+    private lazy var findCoordinator: BrowserFindCoordinator = {
+        let coordinator = BrowserFindCoordinator(
+            service: BrowserFindService(evaluator: BrowserFindWebViewEvaluator(panel: self))
+        )
+        coordinator.host = self
+        return coordinator
+    }()
     let portalAnchorView = BrowserPortalAnchorView(frame: .zero)
     private struct PortalHostLease {
         let hostId: ObjectIdentifier
@@ -4266,28 +4276,11 @@ extension BrowserPanel {
     // MARK: - Find in Page
 
     func startFind() {
-        clearBrowserFocusMode(reason: "startFind")
-        preferredFocusIntent = .findField
-        let created = searchState == nil
-        let recoveredNeedle = created ? lastSearchNeedle : ""
-        if created { searchState = BrowserSearchState(needle: recoveredNeedle) }
-        let shouldSelectAll = created && !recoveredNeedle.isEmpty
-        pendingAddressBarFocusRequestId = nil
-        pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
-        NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
-        let generation = beginSearchFocusRequest(reason: "startFind")
-        postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: shouldSelectAll)
-        // Re-post because portal overlay mount can race first responder focus.
-        DispatchQueue.main.async { [weak self] in
-            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation, selectAll: shouldSelectAll)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.postBrowserSearchFocusNotification(reason: "async50ms", generation: generation, selectAll: shouldSelectAll)
-        }
+        findCoordinator.startFind()
     }
 
-    private func postBrowserSearchFocusNotification(reason: String, generation: UInt64, selectAll: Bool) {
-        guard canApplySearchFocusRequest(generation) else {
+    func postBrowserSearchFocusNotification(reason: String, generation: UInt64, selectAll: Bool) {
+        guard findCoordinator.canApplySearchFocusRequest(generation) else {
 #if DEBUG
             cmuxDebugLog(
                 "browser.find.focusNotification.skip panel=\(id.uuidString.prefix(5)) " +
@@ -4309,24 +4302,76 @@ extension BrowserPanel {
     }
 
     func findNext() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.applyFindMatchCount(await self.findService.next())
-        }
+        findCoordinator.findNext()
     }
 
     func findPrevious() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.applyFindMatchCount(await self.findService.previous())
-        }
+        findCoordinator.findPrevious()
     }
 
     func hideFind() {
-        let shouldRestoreWebViewFocus = searchState != nil && preferredFocusIntent == .findField
-        invalidateSearchFocusRequests(reason: "hideFind")
+        findCoordinator.hideFind()
+    }
+
+    // MARK: - BrowserFindHosting
+
+    /// Whether the find bar is shown, the live witness for
+    /// `BrowserFindCoordinator`'s focus-lease and hide decisions.
+    var hasFindSearchState: Bool {
+        searchState != nil
+    }
+
+    /// Whether the panel's semantic focus target is the find field.
+    var prefersFindFieldFocus: Bool {
+        preferredFocusIntent == .findField
+    }
+
+    /// The current find needle, or `nil` when the find bar is hidden.
+    var findSearchNeedle: String? {
+        searchState?.needle
+    }
+
+    /// The 5-character panel-id prefix used in find debug log lines.
+    var findDebugPanelIDPrefix: String {
+        String(id.uuidString.prefix(5))
+    }
+
+    /// Writes the match total into the `@Published` find bar state.
+    func setFindMatchTotal(_ value: UInt?) {
+        searchState?.total = value
+    }
+
+    /// Writes the selected-match index into the `@Published` find bar state.
+    func setFindMatchSelected(_ value: UInt?) {
+        searchState?.selected = value
+    }
+
+    /// Points the panel's semantic focus target at the find field.
+    func setPreferredFocusToFindField() {
+        preferredFocusIntent = .findField
+    }
+
+    /// Ensures the find bar state exists for a `startFind`, recovering the last
+    /// needle when it had to be created, and reports whether the find field should
+    /// select its existing text on focus.
+    func prepareFindSearchStateForStart() -> Bool {
+        let created = searchState == nil
+        let recoveredNeedle = created ? lastSearchNeedle : ""
+        if created { searchState = BrowserSearchState(needle: recoveredNeedle) }
+        return created && !recoveredNeedle.isEmpty
+    }
+
+    /// Clears any pending address-bar focus request and posts the address-bar-blur
+    /// notification, matching `startFind`'s pre-focus cleanup.
+    func clearPendingAddressBarFocusForFind() {
+        pendingAddressBarFocusRequestId = nil
+        pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
+        NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
+    }
+
+    /// Hides the find bar, triggering the panel's `searchState` teardown.
+    func clearFindSearchState() {
         searchState = nil
-        if shouldRestoreWebViewFocus { focus() }
     }
 
     var canEnterBrowserFocusMode: Bool {
@@ -4491,39 +4536,7 @@ extension BrowserPanel {
     }
 
     private func restoreFindStateAfterNavigation(replaySearch: Bool) {
-        guard let state = searchState else { return }
-        state.total = nil
-        state.selected = nil
-        if replaySearch, !state.needle.isEmpty {
-            executeFindSearch(state.needle)
-        }
-        postBrowserSearchFocusNotification(reason: "restoreAfterNavigation", generation: searchFocusRequestGeneration, selectAll: false)
-    }
-
-    private func executeFindSearch(_ needle: String) {
-        guard !needle.isEmpty else {
-            executeFindClear()
-            searchState?.selected = nil
-            searchState?.total = nil
-            return
-        }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.applyFindMatchCount(await self.findService.search(needle: needle))
-        }
-    }
-
-    private func executeFindClear() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.findService.clear()
-        }
-    }
-
-    private func applyFindMatchCount(_ count: BrowserFindMatchCount?) {
-        guard let count else { return }
-        searchState?.total = count.total
-        searchState?.selected = count.selected
+        findCoordinator.restoreFindStateAfterNavigation(replaySearch: replaySearch)
     }
 
     func setBrowserThemeMode(_ mode: BrowserThemeMode) {
@@ -4697,10 +4710,7 @@ extension BrowserPanel {
     }
 
     func canApplySearchFocusRequest(_ generation: UInt64) -> Bool {
-        generation != 0 &&
-            generation == searchFocusRequestGeneration &&
-            searchState != nil &&
-            preferredFocusIntent == .findField
+        findCoordinator.canApplySearchFocusRequest(generation)
     }
 
     func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
@@ -4835,26 +4845,8 @@ extension BrowserPanel {
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
     }
 
-    @discardableResult
-    private func beginSearchFocusRequest(reason: String) -> UInt64 {
-        searchFocusRequestGeneration &+= 1
-#if DEBUG
-        cmuxDebugLog(
-            "browser.find.focusLease.begin panel=\(id.uuidString.prefix(5)) " +
-            "generation=\(searchFocusRequestGeneration) reason=\(reason)"
-        )
-#endif
-        return searchFocusRequestGeneration
-    }
-
     private func invalidateSearchFocusRequests(reason: String) {
-        searchFocusRequestGeneration &+= 1
-#if DEBUG
-        cmuxDebugLog(
-            "browser.find.focusLease.invalidate panel=\(id.uuidString.prefix(5)) " +
-            "generation=\(searchFocusRequestGeneration) reason=\(reason)"
-        )
-#endif
+        findCoordinator.invalidateSearchFocusRequests(reason: reason)
     }
 
     func acknowledgeAddressBarFocusRequest(_ requestId: UUID) {
