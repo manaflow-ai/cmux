@@ -8,68 +8,100 @@ import Testing
 #endif
 
 /// Tests regrouping the linked-view's flat window set back into per-session
-/// workspaces: view excluded, home-session attribution, stable tab order.
+/// workspaces: all view sessions excluded, deterministic single home, stable tab
+/// order, robust parsing.
 @Suite struct RemoteTmuxLinkedWorkspaceModelTests {
     private typealias M = RemoteTmuxLinkedWorkspaceModel
     private typealias Row = RemoteTmuxLinkedWorkspaceModel.WindowRow
 
-    // A realistic list-windows -a: sessions A (2 windows) and B (1), all also
-    // linked into the view session (so each appears under "view" too).
-    private let rows: [Row] = [
+    private let view = "cmux-view-o1"
+    private lazy var rows: [Row] = [
         Row(sessionName: "A", windowId: "@1", windowIndex: 0),
         Row(sessionName: "A", windowId: "@2", windowIndex: 1),
         Row(sessionName: "B", windowId: "@3", windowIndex: 0),
-        Row(sessionName: "cmux-view-o1", windowId: "@0", windowIndex: 0), // placeholder
-        Row(sessionName: "cmux-view-o1", windowId: "@1", windowIndex: 1),
-        Row(sessionName: "cmux-view-o1", windowId: "@2", windowIndex: 2),
-        Row(sessionName: "cmux-view-o1", windowId: "@3", windowIndex: 3),
+        Row(sessionName: view, windowId: "@0", windowIndex: 0), // placeholder
+        Row(sessionName: view, windowId: "@1", windowIndex: 1),
+        Row(sessionName: view, windowId: "@2", windowIndex: 2),
+        Row(sessionName: view, windowId: "@3", windowIndex: 3),
     ]
 
     @Test func parsesRows() {
-        let out = "A\u{1f}@1\u{1f}0\nB\u{1f}@3\u{1f}0"
+        // format is window_id ⋮ window_index ⋮ session_name
+        let out = "@1\u{1f}0\u{1f}A\n@3\u{1f}0\u{1f}B"
         #expect(M.parseRows(out) == [
             Row(sessionName: "A", windowId: "@1", windowIndex: 0),
             Row(sessionName: "B", windowId: "@3", windowIndex: 0),
         ])
     }
 
-    @Test func groupsByHomeSessionExcludingView() {
-        let ws = M.workspaces(rows: rows, viewSessionName: "cmux-view-o1")
+    @Test func parsingKeepsSessionNamesContainingSeparator() {
+        // A name containing the unit separator must not drop or corrupt the row
+        // (free-text field is last + maxSplits).
+        let weird = "we\u{1f}ird"
+        let out = "@5\u{1f}2\u{1f}\(weird)"
+        #expect(M.parseRows(out) == [Row(sessionName: weird, windowId: "@5", windowIndex: 2)])
+    }
+
+    @Test mutating func groupsByHomeSessionExcludingView() {
+        let ws = M.workspaces(rows: rows, excludedSessions: [view])
         #expect(ws == [
             .init(sessionName: "A", windowIds: ["@1", "@2"]),
             .init(sessionName: "B", windowIds: ["@3"]),
         ])
-        // the view session is never a workspace, and its placeholder @0 never appears
-        #expect(!ws.contains { $0.sessionName.hasPrefix("cmux-view") })
-        #expect(!ws.flatMap(\.windowIds).contains("@0"))
+        #expect(!ws.flatMap(\.windowIds).contains("@0"))   // placeholder excluded
+    }
+
+    @Test func excludesForeignViewSessionsToo() {
+        // A foreign cmux install's view must be excluded as well — never a workspace.
+        let r = [
+            Row(sessionName: "A", windowId: "@1", windowIndex: 0),
+            Row(sessionName: "cmux-view-bob", windowId: "@8", windowIndex: 0),
+        ]
+        let ws = M.workspaces(rows: r, excludedSessions: ["cmux-view-o1", "cmux-view-bob"])
+        #expect(ws == [.init(sessionName: "A", windowIds: ["@1"])])
+        #expect(!M.desiredLinkedWindowIds(rows: r, excludedSessions: ["cmux-view-o1", "cmux-view-bob"]).contains("@8"))
+    }
+
+    @Test func windowInMultipleSessionsHasDeterministicSingleHome() {
+        // @12 is linked into both B and A (a user cross-link). It must land in
+        // exactly one workspace, the lexicographically smallest home (A).
+        let r = [
+            Row(sessionName: "B", windowId: "@12", windowIndex: 0),
+            Row(sessionName: "A", windowId: "@12", windowIndex: 5),
+        ]
+        let ws = M.workspaces(rows: r, excludedSessions: [])
+        let appearances = ws.flatMap(\.windowIds).filter { $0 == "@12" }
+        #expect(appearances == ["@12"])                                   // exactly once
+        #expect(M.homeSession(forWindowId: "@12", rows: r, excludedSessions: []) == "A")
+        #expect(ws.first { $0.sessionName == "A" }?.windowIds == ["@12"])  // in A, not B
+        // B's only window is homed to A, so B has no exclusively-owned window and
+        // does not appear as a workspace (a tmux session always has >=1 window, so
+        // this only arises from a manual cross-link).
+        #expect(ws.first { $0.sessionName == "B" } == nil)
     }
 
     @Test func tabOrderFollowsWindowIndex() {
-        // Same session, windows given out of order → sorted by index.
         let r = [
             Row(sessionName: "A", windowId: "@7", windowIndex: 5),
             Row(sessionName: "A", windowId: "@4", windowIndex: 1),
             Row(sessionName: "A", windowId: "@9", windowIndex: 3),
         ]
-        let ws = M.workspaces(rows: r, viewSessionName: "view")
-        #expect(ws == [.init(sessionName: "A", windowIds: ["@4", "@9", "@7"])])
+        #expect(M.workspaces(rows: r, excludedSessions: []) == [.init(sessionName: "A", windowIds: ["@4", "@9", "@7"])])
     }
 
-    @Test func desiredLinkedWindowsAreAllNonViewWindows() {
-        #expect(M.desiredLinkedWindowIds(rows: rows, viewSessionName: "cmux-view-o1")
-                == ["@1", "@2", "@3"])
+    @Test mutating func desiredLinkedWindowsAreAllNonViewWindows() {
+        #expect(M.desiredLinkedWindowIds(rows: rows, excludedSessions: [view]) == ["@1", "@2", "@3"])
     }
 
-    @Test func homeSessionRoutesOutputToWorkspace() {
-        #expect(M.homeSession(forWindowId: "@2", rows: rows, viewSessionName: "cmux-view-o1") == "A")
-        #expect(M.homeSession(forWindowId: "@3", rows: rows, viewSessionName: "cmux-view-o1") == "B")
-        // a window that exists only in the view has no home → nil (not shown)
-        #expect(M.homeSession(forWindowId: "@0", rows: rows, viewSessionName: "cmux-view-o1") == nil)
+    @Test mutating func homeSessionRoutesOutputToWorkspace() {
+        #expect(M.homeSession(forWindowId: "@2", rows: rows, excludedSessions: [view]) == "A")
+        #expect(M.homeSession(forWindowId: "@3", rows: rows, excludedSessions: [view]) == "B")
+        #expect(M.homeSession(forWindowId: "@0", rows: rows, excludedSessions: [view]) == nil)
     }
 
     @Test func emptyWhenOnlyViewExists() {
         let r = [Row(sessionName: "cmux-view-o1", windowId: "@0", windowIndex: 0)]
-        #expect(M.workspaces(rows: r, viewSessionName: "cmux-view-o1").isEmpty)
-        #expect(M.desiredLinkedWindowIds(rows: r, viewSessionName: "cmux-view-o1").isEmpty)
+        #expect(M.workspaces(rows: r, excludedSessions: ["cmux-view-o1"]).isEmpty)
+        #expect(M.desiredLinkedWindowIds(rows: r, excludedSessions: ["cmux-view-o1"]).isEmpty)
     }
 }

@@ -73,6 +73,17 @@ enum RemoteTmuxViewReconciler {
             unlinkable.remove(placeholderWindowId)
         }
 
+        // Safety net: never empty the view. Unlinking the view's last window kills
+        // the view session (and churns the whole mirror). If nothing would link
+        // this pass and the unlinks would remove every remaining window, keep the
+        // last one linked until a placeholder/new window exists. The live layer
+        // also guarantees a placeholder, but the pure policy must not depend on
+        // that being accurate (a nil/stale placeholder must still be safe).
+        let survivors = actualWindowIds.subtracting(unlinkable)
+        if toLink.isEmpty, survivors.isEmpty, let keep = unlinkable.min() {
+            unlinkable.remove(keep)
+        }
+
         return toLink.sorted().map { Action.link(windowId: $0) }
             + unlinkable.sorted().map { Action.unlinkFromView(windowId: $0) }
     }
