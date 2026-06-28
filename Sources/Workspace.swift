@@ -1629,13 +1629,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// Durable canvas-layout state (pane frames, z-order). Lives on the
     /// workspace so it survives canvas view remounts and workspace switches.
     let canvasModel = CanvasModel(metricsProvider: { CanvasLayoutSettings.currentMetrics() })
-    private struct SurfaceTabBarExecutableButton {
-        let button: CmuxSurfaceTabBarButton
-        let builtInAction: CmuxSurfaceTabBarBuiltInAction?
-        let workspaceCommand: CmuxResolvedCommand?
-        let terminalCommandSourcePath: String?
-    }
-
     private var surfaceTabBarCommandButtons: [String: SurfaceTabBarExecutableButton] = [:]
     private var surfaceTabBarButtonSourcePath: String?
     private var surfaceTabBarButtonGlobalConfigPath: String?
@@ -3027,44 +3020,10 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
-        let executableButtons = Dictionary(
-            uniqueKeysWithValues: buttons.compactMap { button in
-                if button.terminalCommand != nil {
-                    return (
-                        button.id,
-                        SurfaceTabBarExecutableButton(
-                            button: button,
-                            builtInAction: nil,
-                            workspaceCommand: nil,
-                            terminalCommandSourcePath: button.actionSourcePath ?? terminalCommandSourcePaths[button.id]
-                        )
-                    )
-                }
-                if let workspaceCommand = workspaceCommands[button.id] {
-                    return (
-                        button.id,
-                        SurfaceTabBarExecutableButton(
-                            button: button,
-                            builtInAction: nil,
-                            workspaceCommand: workspaceCommand,
-                            terminalCommandSourcePath: nil
-                        )
-                    )
-                }
-                if case .builtIn(let builtInAction) = button.action,
-                   builtInAction.bonsplitAction == nil {
-                    return (
-                        button.id,
-                        SurfaceTabBarExecutableButton(
-                            button: button,
-                            builtInAction: builtInAction,
-                            workspaceCommand: nil,
-                            terminalCommandSourcePath: nil
-                        )
-                    )
-                }
-                return nil
-            }
+        let executableButtons = SurfaceTabBarExecutableButton.executableButtons(
+            for: buttons,
+            terminalCommandSourcePaths: terminalCommandSourcePaths,
+            workspaceCommands: workspaceCommands
         )
         surfaceTabBarCommandButtons = executableButtons
         surfaceTabBarButtonSourcePath = sourcePath
