@@ -4323,30 +4323,43 @@ class TerminalController: MobileViewportSurfaceLimiting {
         return MobileTerminalAliasUUID.classify(reads)
     }
 
-    // Relaxed to `internal` so it directly satisfies the same-named
-    // `MobileTerminalRPCHost` requirement from the separate conformance file
-    // (TerminalController+MobileTerminal.swift); still drives the v1 attach-ticket
-    // path here.
-    func mobileTerminalAliasValidationError(params: [String: Any]) -> V2CallResult? {
-        switch mobileTerminalAliasUUID(params: params) {
-        case .missing, .value:
-            return nil
-        case .invalid:
+    // Maps a `MobileHostParamPolicy` rejection back to the wire `V2CallResult`.
+    // `V2CallResult` is app-side, so the package only decides *which* rejection
+    // applies; the `invalid_params` code and literal messages stay here.
+    nonisolated func v2MobileResult(for error: MobileHostRequestError) -> V2CallResult {
+        switch error {
+        case .invalidWorkspaceID:
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        case .invalidTerminalID:
             return .err(code: "invalid_params", message: "Missing or invalid terminal_id", data: nil)
-        case .conflict:
+        case .conflictingTerminalIDs:
             return .err(code: "invalid_params", message: "Conflicting terminal identifiers", data: nil)
         }
     }
 
+    // Relaxed to `internal` so it directly satisfies the same-named
+    // `MobileTerminalRPCHost` requirement from the separate conformance file
+    // (TerminalController+MobileTerminal.swift); still drives the v1 attach-ticket
+    // path here. Thin forwarder: the pure classify->reject decision lives in
+    // `MobileHostParamPolicy`; this maps the result to the wire `V2CallResult`.
+    func mobileTerminalAliasValidationError(params: [String: Any]) -> V2CallResult? {
+        MobileHostParamPolicy()
+            .terminalAliasError(mobileTerminalAliasUUID(params: params))
+            .map(v2MobileResult(for:))
+    }
+
     // Relaxed to `internal` so the `MobileTerminalRPCHost` witness in the
     // separate conformance file can forward to it; still drives the workspace
-    // action / attach-ticket paths here.
+    // action / attach-ticket paths here. Thin forwarder: the present-but-malformed
+    // decision lives in `MobileHostParamPolicy`, which evaluates `parsesToUUID`
+    // lazily so the `v2UUID` main-actor hop only runs for a present param.
     func mobileWorkspaceIDValidationError(params: [String: Any]) -> V2CallResult? {
-        guard v2HasNonNullParam(params, "workspace_id"),
-              v2UUID(params, "workspace_id") == nil else {
-            return nil
-        }
-        return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        MobileHostParamPolicy()
+            .workspaceIDError(
+                present: v2HasNonNullParam(params, "workspace_id"),
+                parsesToUUID: { v2UUID(params, "workspace_id") != nil }
+            )
+            .map(v2MobileResult(for:))
     }
 
     // Still used by the v1 close-workspace witness (its v2 counterpart moved to
@@ -4513,8 +4526,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
     }
 
     func mobileNonEmpty(_ raw: String?) -> String? {
-        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
+        MobileHostParamPolicy().nonEmpty(raw)
     }
 
     deinit {
