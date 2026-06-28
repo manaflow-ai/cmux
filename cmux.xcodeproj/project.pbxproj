@@ -1101,6 +1101,7 @@
 		F62F663E1DE5BB85478EDC8F /* Workspace+TerminalAgentContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7F42D21104E0E25CA24F370 /* Workspace+TerminalAgentContext.swift */; };
 		5EA8A275682B6260C143DC1E /* Workspace+TerminalInputSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CD0C8784628E8438058C1C1 /* Workspace+TerminalInputSelection.swift */; };
 		E3B7A4000000000000000D40 /* Workspace+WorkspaceContextMenuHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000D41 /* Workspace+WorkspaceContextMenuHosting.swift */; };
+		E3B7A400000000000000F601 /* Workspace+WorkspaceCreationInheritanceReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000F602 /* Workspace+WorkspaceCreationInheritanceReading.swift */; };
 		E3D40D0000000000000000A0 /* Workspace+WorkspaceDropHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D40D0000000000000000A1 /* Workspace+WorkspaceDropHosting.swift */; };
 		E3B7A40000000000000009F1 /* Workspace+WorkspaceLayoutFollowUpHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000009F2 /* Workspace+WorkspaceLayoutFollowUpHosting.swift */; };
 		E3B7A40000000000000005D2 /* Workspace+WorkspaceLayoutHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000005D3 /* Workspace+WorkspaceLayoutHosting.swift */; };
@@ -2260,6 +2261,7 @@
 		D7F42D21104E0E25CA24F370 /* Workspace+TerminalAgentContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TerminalAgentContext.swift"; sourceTree = "<group>"; };
 		4CD0C8784628E8438058C1C1 /* Workspace+TerminalInputSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TerminalInputSelection.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000D41 /* Workspace+WorkspaceContextMenuHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceContextMenuHosting.swift"; sourceTree = "<group>"; };
+		E3B7A400000000000000F602 /* Workspace+WorkspaceCreationInheritanceReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceCreationInheritanceReading.swift"; sourceTree = "<group>"; };
 		E3D40D0000000000000000A1 /* Workspace+WorkspaceDropHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceDropHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000009F2 /* Workspace+WorkspaceLayoutFollowUpHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceLayoutFollowUpHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000005D3 /* Workspace+WorkspaceLayoutHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceLayoutHosting.swift"; sourceTree = "<group>"; };
@@ -2813,6 +2815,7 @@
 				E3B7A4000000000000000D11 /* Workspace+SplitDetachHosting.swift */,
 				E3B7A40000000000000005D1 /* Workspace+AgentHibernationHosting.swift */,
 				E3B7A40000000000000005E1 /* Workspace+AgentForkHosting.swift */,
+				E3B7A400000000000000F602 /* Workspace+WorkspaceCreationInheritanceReading.swift */,
 				E3CAB00000000000000000A1 /* TabContextAction+KeyboardShortcuts.swift */,
 				E3D40D0000000000000000A1 /* Workspace+WorkspaceDropHosting.swift */,
 				E3B7A40000000000000006A1 /* Workspace+RemoteSurfaceHosting.swift */,
@@ -4770,6 +4773,7 @@
 				F62F663E1DE5BB85478EDC8F /* Workspace+TerminalAgentContext.swift in Sources */,
 				5EA8A275682B6260C143DC1E /* Workspace+TerminalInputSelection.swift in Sources */,
 				E3B7A4000000000000000D40 /* Workspace+WorkspaceContextMenuHosting.swift in Sources */,
+				E3B7A400000000000000F601 /* Workspace+WorkspaceCreationInheritanceReading.swift in Sources */,
 				E3D40D0000000000000000A0 /* Workspace+WorkspaceDropHosting.swift in Sources */,
 				E3B7A40000000000000009F1 /* Workspace+WorkspaceLayoutFollowUpHosting.swift in Sources */,
 				E3B7A40000000000000005D2 /* Workspace+WorkspaceLayoutHosting.swift in Sources */,
