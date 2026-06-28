@@ -452,12 +452,16 @@ final class RemoteTmuxController {
                     host: host, windowId: windowId, manager: manager,
                     bootstrapWorkspaceId: bootstrapWorkspaceId)
             } catch {
-                // Unbind this host; discard the window only if we created it for this
-                // host (never an aggregated window that still holds other hosts).
-                windowRegistry.unbind(hostHash: host.connectionHash)
-                transportRegistry.remove(connectionHash: host.connectionHash)
-                RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
-                if createdNewWindow {
+                // `startLinkedView` stores the coordinator in `linkedViews` before its
+                // throwing `start()`, so stop it through `stopLinkedView` (which also
+                // unbinds the host, drops the transport, and exits the ControlMaster) —
+                // a bare unbind would leak the half-started coordinator. Discard the
+                // window only if we created it for this host (never an aggregated window
+                // that still holds other hosts).
+                stopLinkedView(host: host)
+                // Discard only a window we created for this host that no OTHER host has
+                // since aggregated into (a concurrent attach can join while we await).
+                if createdNewWindow, windowRegistry.hosts(forWindowId: windowId).isEmpty {
                     appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId)
                 }
                 throw error
@@ -667,28 +671,47 @@ final class RemoteTmuxController {
         linkedViews[host.connectionHash]?.stop()
         linkedViews[host.connectionHash] = nil
         windowRegistry.unbind(hostHash: host.connectionHash)
-        transportRegistry.remove(connectionHash: host.connectionHash)
-        RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+        // Drop the shared transport/ControlMaster only if no per-session mirror still
+        // needs it (a host can hold both modes if the beta flag is toggled mid-session).
+        if !hostStillInUse(host) {
+            transportRegistry.remove(connectionHash: host.connectionHash)
+            RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+        }
         return true
+    }
+
+    /// Whether `host`'s shared transport/ControlMaster is still needed by ANY live
+    /// mirror in either mode — guards transport teardown so tearing one mode down
+    /// doesn't pull the master out from under the other (possible when the beta flag
+    /// is toggled mid-session so a host has both a linked view and per-session mirrors).
+    private func hostStillInUse(_ host: RemoteTmuxHost) -> Bool {
+        linkedViews[host.connectionHash] != nil
+            || sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
+            || connectionsByHostSession.values.contains { $0.host.connectionHash == host.connectionHash }
     }
 
     /// Tears down a host's linked-view coordinator and all its mirrors (the view
     /// stream ended for good). Closes the host's workspaces and, when no other
     /// aggregated host remains in the window, discards the window.
     private func teardownLinkedView(host: RemoteTmuxHost, windowId: UUID) {
+        let manager = AppDelegate.shared?.tabManagerFor(windowId: windowId)
+        // Capture this host's workspace ids before stopLinkedView drops the mirrors,
+        // then stop FIRST so closing the workspaces below can't re-enter the kill path
+        // (handleWorkspaceClosed finds no mirror and no-ops).
+        let workspaceIds = linkedMirrors.values
+            .filter { $0.host.connectionHash == host.connectionHash }
+            .compactMap(\.mirroredWorkspaceId)
+        stopLinkedView(host: host)
         // Close this host's workspaces (when the window holds others, e.g. a second
         // server) so an ended host's tabs don't linger; the window's FINAL workspace
         // can't be closed, so a single-host window is discarded below instead.
-        if let manager = AppDelegate.shared?.tabManagerFor(windowId: windowId) {
-            for mirror in linkedMirrors.values
-            where mirror.host.connectionHash == host.connectionHash {
+        if let manager {
+            for workspaceId in workspaceIds {
                 guard manager.tabs.count > 1,
-                      let workspaceId = mirror.mirroredWorkspaceId,
                       let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { continue }
                 manager.closeWorkspace(workspace, recordHistory: false)
             }
         }
-        stopLinkedView(host: host)
         if windowRegistry.hosts(forWindowId: windowId).isEmpty,
            let appDelegate = AppDelegate.shared,
            appDelegate.windowForMainWindowId(windowId) != nil {
@@ -883,7 +906,13 @@ final class RemoteTmuxController {
                 ?? RemoteTmuxHost.controlModeLineSafeName(oldName).map(RemoteTmuxHost.shellSingleQuoted)
         }
         guard let target else { return }
-        _ = mirror.connection.send("rename-session -t \(target) \(RemoteTmuxHost.shellSingleQuoted(name))")
+        let sent = mirror.connection.send("rename-session -t \(target) \(RemoteTmuxHost.shellSingleQuoted(name))")
+        // Linked mirrors suppress %session-changed (the coordinator owns the view
+        // connection's identity), so nudge a reconcile to re-key this host's mirror to
+        // the new session name — otherwise later new-tab/close target the old name.
+        if sent, isLinkedMirror(mirror) {
+            linkedViews[mirror.host.connectionHash]?.requestReconcile()
+        }
         // Do not re-key local state here. tmux can reject a rename (for example
         // duplicate session name); `%session-changed` is the confirmation point.
     }
@@ -1160,10 +1189,12 @@ final class RemoteTmuxController {
     func handleRemoteWindowNewWorkspaceRequested(windowId: UUID) -> Bool {
         // Linked-view: a new workspace is a new tmux session created over the shared
         // view stream (no new SSH session); it links in and surfaces via the
-        // coordinator's republish. "New workspace rides the linking." Gate on the
-        // ACTIVE workspace being a remote mirror — a dragged-in local workspace that
-        // happens to be active must create a local workspace, not a remote session.
-        if Self.linkedViewEnabled, let coordinator = linkedViewCoordinator(forWindowId: windowId),
+        // coordinator's republish. "New workspace rides the linking." Gate on LIVE
+        // coordinator state (not the beta flag, so toggling it off mid-session still
+        // routes correctly) AND on the ACTIVE workspace being a remote mirror — a
+        // dragged-in local workspace that's active must create a local workspace. The
+        // coordinator is the SELECTED workspace's host, so it rides the right server.
+        if let coordinator = linkedViewCoordinator(forWindowId: windowId),
            AppDelegate.shared?.tabManagerFor(windowId: windowId)?.selectedTab?.isRemoteTmuxMirror == true {
             coordinator.newWorkspace()
             return true
@@ -1430,8 +1461,7 @@ final class RemoteTmuxController {
             sessionMirrors.removeValue(forKey: key)
             removeCachedConnection(forKey: key)?.stop()
         }
-        let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash } || connectionsByHostSession.values.contains { $0.host.connectionHash == host.connectionHash }
-        if !stillUsed {
+        if !hostStillInUse(host) {
             transportRegistry.remove(connectionHash: host.connectionHash)
             RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
         }

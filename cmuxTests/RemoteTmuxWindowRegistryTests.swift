@@ -108,6 +108,20 @@ import Testing
         #expect(!registry.isDedicatedWindow(windowId))
     }
 
+    /// Re-binding a host to a different window moves it (no stale entry left in the
+    /// old window), keeping the two maps consistent.
+    @Test func rebindingHostToAnotherWindowMovesIt() {
+        let registry = RemoteTmuxWindowRegistry()
+        let w1 = UUID(), w2 = UUID()
+        let a = host("user@a")
+        registry.bind(host: a, windowId: w1)
+        registry.bind(host: a, windowId: w2)
+        #expect(registry.windowId(forHostHash: a.connectionHash) == w2)
+        #expect(registry.hosts(forWindowId: w1).isEmpty)
+        #expect(!registry.isDedicatedWindow(w1))
+        #expect(registry.hosts(forWindowId: w2).map(\.connectionHash) == [a.connectionHash])
+    }
+
     /// Unbinding by window id removes ALL of the window's hosts in both directions.
     @Test func unbindWindowRemovesAllHosts() {
         let registry = RemoteTmuxWindowRegistry()

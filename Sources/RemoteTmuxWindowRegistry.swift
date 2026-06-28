@@ -43,8 +43,14 @@ final class RemoteTmuxWindowRegistry {
     }
 
     /// Binds `host` to `windowId` (both directions). A window can hold several
-    /// hosts; re-binding the same host is idempotent.
+    /// hosts; re-binding the same host to the same window is idempotent. Re-binding a
+    /// host that was bound to a DIFFERENT window first drops it from that window's
+    /// list, so the two maps never diverge.
     func bind(host: RemoteTmuxHost, windowId: UUID) {
+        if let previous = windowIdByHost[host.connectionHash], previous != windowId {
+            hostsByWindowId[previous]?.removeAll { $0.connectionHash == host.connectionHash }
+            if hostsByWindowId[previous]?.isEmpty == true { hostsByWindowId[previous] = nil }
+        }
         windowIdByHost[host.connectionHash] = windowId
         var hosts = hostsByWindowId[windowId] ?? []
         if !hosts.contains(where: { $0.connectionHash == host.connectionHash }) {
