@@ -64,11 +64,6 @@ private extension NSWindow {
 }
 
 final class WindowBrowserHostView: NSView {
-    private struct DividerHit {
-        let kind: DividerCursorKind
-        let isInHostedContent: Bool
-    }
-
     private struct HostedInspectorDividerHit {
         let slotView: WindowBrowserSlotView
         let containerView: NSView
@@ -88,18 +83,6 @@ final class WindowBrowserHostView: NSView {
         let initialInspectorFrame: NSRect
     }
 
-    private enum DividerCursorKind: Equatable {
-        case vertical
-        case horizontal
-
-        var cursor: NSCursor {
-            switch self {
-            case .vertical: return .resizeLeftRight
-            case .horizontal: return .resizeUpDown
-            }
-        }
-    }
-
     override var isOpaque: Bool { false }
     private static let sidebarLeadingEdgeEpsilon: CGFloat = 1
     private static let minimumVisibleLeadingContentWidth: CGFloat = 24
@@ -108,7 +91,7 @@ final class WindowBrowserHostView: NSView {
     private var cachedSidebarDividerX: CGFloat?
     private var sidebarDividerMissCount = 0
     private var trackingArea: NSTrackingArea?
-    private var activeDividerCursorKind: DividerCursorKind?
+    private var activeDividerCursorKind: SplitDividerHit.Kind?
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
@@ -134,7 +117,7 @@ final class WindowBrowserHostView: NSView {
         point: NSPoint,
         titlebarPassThrough: Bool,
         sidebarPassThrough: Bool,
-        dividerHit: DividerHit?,
+        dividerHit: SplitDividerHit?,
         hitView: NSView?
     ) {
         let event = NSApp.currentEvent
@@ -346,7 +329,7 @@ final class WindowBrowserHostView: NSView {
                     point: point,
                     titlebarPassThrough: false,
                     sidebarPassThrough: false,
-                    dividerHit: DividerHit(kind: .vertical, isInHostedContent: true),
+                    dividerHit: SplitDividerHit(kind: .vertical, isInHostedContent: true),
                     hitView: nativeHit
                 )
 #endif
@@ -358,7 +341,7 @@ final class WindowBrowserHostView: NSView {
                 point: point,
                 titlebarPassThrough: false,
                 sidebarPassThrough: false,
-                dividerHit: DividerHit(kind: .vertical, isInHostedContent: true),
+                dividerHit: SplitDividerHit(kind: .vertical, isInHostedContent: true),
                 hitView: hostedInspectorHit.inspectorView
             )
 #endif
@@ -524,7 +507,7 @@ final class WindowBrowserHostView: NSView {
 
     private func shouldPassThroughToSidebarResizer(
         at point: NSPoint,
-        dividerHit: DividerHit?,
+        dividerHit: SplitDividerHit?,
         hostedInspectorHit: HostedInspectorDividerHit? = nil
     ) -> Bool {
         // If WebKit has a hosted vertical inspector split collapsed to the pane edge,
@@ -602,7 +585,7 @@ final class WindowBrowserHostView: NSView {
 
     private func updateDividerCursor(
         at point: NSPoint,
-        dividerHit: DividerHit? = nil,
+        dividerHit: SplitDividerHit? = nil,
         hostedInspectorHit: HostedInspectorDividerHit? = nil
     ) {
         let resolvedDividerHit = dividerHit ?? splitDividerHit(at: point)
@@ -654,11 +637,11 @@ final class WindowBrowserHostView: NSView {
         }
     }
 
-    private func splitDividerHit(at point: NSPoint) -> DividerHit? {
+    private func splitDividerHit(at point: NSPoint) -> SplitDividerHit? {
         guard window != nil else { return nil }
         let windowPoint = convert(point, to: nil)
         guard let rootView = dividerSearchRootView() else { return nil }
-        return Self.dividerHit(at: windowPoint, in: rootView, hostView: self)
+        return SplitDividerHitTester(hostView: self).hit(at: windowPoint, in: rootView)
     }
 
     private func dividerSearchRootView() -> NSView? {
@@ -706,7 +689,7 @@ final class WindowBrowserHostView: NSView {
 
     private func hostedInspectorDividerCandidate(in slot: WindowBrowserSlotView) -> HostedInspectorDividerHit? {
         let inspectorCandidates = slot.visibleDescendants
-            .filter { $0.isVisibleHostedInspectorCandidate && Self.isInspectorView($0) }
+            .filter { $0.isVisibleHostedInspectorCandidate && $0.isCmuxWebInspectorObject }
             .sorted { lhs, rhs in
                 let lhsFrame = slot.convert(lhs.bounds, from: lhs)
                 let rhsFrame = slot.convert(rhs.bounds, from: rhs)
@@ -897,69 +880,6 @@ final class WindowBrowserHostView: NSView {
         )
 #endif
         return (pageFrame, inspectorFrame)
-    }
-    private static func dividerHit(
-        at windowPoint: NSPoint,
-        in view: NSView,
-        hostView: WindowBrowserHostView
-    ) -> DividerHit? {
-        guard !view.isHidden else { return nil }
-
-        if let splitView = view as? NSSplitView {
-            let pointInSplit = splitView.convert(windowPoint, from: nil)
-            if splitView.bounds.contains(pointInSplit) {
-                let expansion: CGFloat = 5
-                let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
-                for dividerIndex in 0..<dividerCount {
-                    let first = splitView.arrangedSubviews[dividerIndex].frame
-                    let second = splitView.arrangedSubviews[dividerIndex + 1].frame
-                    let thickness = splitView.dividerThickness
-                    let dividerRect: NSRect
-                    if splitView.isVertical {
-                        // Keep divider hit-testing active even when one side is nearly collapsed,
-                        // so users can drag the divider back out from the border.
-                        // But ignore transient states where both panes are effectively 0-width.
-                        guard first.width > 1 || second.width > 1 else { continue }
-                        let x = max(0, first.maxX)
-                        dividerRect = NSRect(
-                            x: x,
-                            y: 0,
-                            width: thickness,
-                            height: splitView.bounds.height
-                        )
-                    } else {
-                        // Same behavior for horizontal splits with a near-zero-height pane.
-                        guard first.height > 1 || second.height > 1 else { continue }
-                        let y = max(0, first.maxY)
-                        dividerRect = NSRect(
-                            x: 0,
-                            y: y,
-                            width: splitView.bounds.width,
-                            height: thickness
-                        )
-                    }
-                    let expanded = dividerRect.insetBy(dx: -expansion, dy: -expansion)
-                    if expanded.contains(pointInSplit) {
-                        return DividerHit(
-                            kind: splitView.isVertical ? .vertical : .horizontal,
-                            isInHostedContent: splitView.isDescendant(of: hostView)
-                        )
-                    }
-                }
-            }
-        }
-
-        for subview in view.subviews.reversed() {
-            if let hit = dividerHit(at: windowPoint, in: subview, hostView: hostView) {
-                return hit
-            }
-        }
-
-        return nil
-    }
-
-    private static func isInspectorView(_ view: NSView) -> Bool {
-        view.isCmuxWebInspectorObject
     }
 
 }
