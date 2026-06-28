@@ -3150,7 +3150,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         set { surfaceRegistry.pendingTabSelection = newValue }
     }
 #if DEBUG
-    private(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
+    internal(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
     private var debugLastDidMoveTabTimestamp: TimeInterval = 0
     private var debugDidMoveTabEventCount: UInt64 = 0
 #endif
