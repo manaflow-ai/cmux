@@ -90,7 +90,7 @@
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1002	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/PairedMacBackupTests.swift
-983	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
+997	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
 948	Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift
 948	Sources/App/ShortcutRoutingSupport.swift
