@@ -34,6 +34,23 @@ public final class SplitLifecycleCoordinator {
     /// zoomed pane (legacy `Workspace.postCloseClearSplitZoomTabIds`).
     public var postCloseClearSplitZoomTabIds: Set<TabID> = []
 
+    /// Tab ids allowed to close even when they would normally require
+    /// confirmation (legacy `Workspace.forceCloseTabIds`). App-level
+    /// confirmation prompts (for example, Close Tab) insert into this set so the
+    /// `Workspace` `BonsplitDelegate` close gate doesn't re-block the close after
+    /// the user already confirmed. Mutated through ``insertForceCloseTabId(_:)``,
+    /// ``removeForceCloseTabId(_:)``, and read through
+    /// ``containsForceCloseTabId(_:)``.
+    public var forceCloseTabIds: Set<TabID> = []
+
+    /// Tab ids currently showing (or about to show) a close-confirmation prompt
+    /// (legacy `Workspace.pendingCloseConfirmTabIds`). Prevents repeated close
+    /// gestures (e.g. middle-click spam) from stacking dialogs. Mutated through
+    /// ``insertPendingCloseConfirmTabId(_:)``,
+    /// ``removePendingCloseConfirmTabId(_:)``, and read through
+    /// ``containsPendingCloseConfirmTabId(_:)``.
+    public var pendingCloseConfirmTabIds: Set<TabID> = []
+
     /// The panel ids that were in a pane when a pane-close was approved, keyed
     /// by the closing pane's id (legacy `Workspace.pendingPaneClosePanelIds`).
     /// Bonsplit's pane-close does not emit a per-tab `didCloseTab` callback, so
@@ -106,6 +123,42 @@ public final class SplitLifecycleCoordinator {
     /// `Workspace.splitTabBar(_:didCloseTab:fromPane:)`).
     public func consumeShouldClearSplitZoom(forClosed tabId: TabID) -> Bool {
         postCloseClearSplitZoomTabIds.remove(tabId) != nil
+    }
+
+    /// Marks a tab id as force-closable so the `BonsplitDelegate` close gate
+    /// lets it through (legacy `Workspace.forceCloseTabIds.insert(_:)`).
+    public func insertForceCloseTabId(_ tabId: TabID) {
+        forceCloseTabIds.insert(tabId)
+    }
+
+    /// Clears a tab id's force-closable mark (legacy
+    /// `Workspace.forceCloseTabIds.remove(_:)`).
+    public func removeForceCloseTabId(_ tabId: TabID) {
+        forceCloseTabIds.remove(tabId)
+    }
+
+    /// Reports whether a tab id is marked force-closable (legacy
+    /// `Workspace.forceCloseTabIds.contains(_:)`).
+    public func containsForceCloseTabId(_ tabId: TabID) -> Bool {
+        forceCloseTabIds.contains(tabId)
+    }
+
+    /// Marks a tab id as having a close-confirmation prompt in flight (legacy
+    /// `Workspace.pendingCloseConfirmTabIds.insert(_:)`).
+    public func insertPendingCloseConfirmTabId(_ tabId: TabID) {
+        pendingCloseConfirmTabIds.insert(tabId)
+    }
+
+    /// Clears a tab id's in-flight close-confirmation mark (legacy
+    /// `Workspace.pendingCloseConfirmTabIds.remove(_:)`).
+    public func removePendingCloseConfirmTabId(_ tabId: TabID) {
+        pendingCloseConfirmTabIds.remove(tabId)
+    }
+
+    /// Reports whether a tab id already has a close-confirmation prompt in
+    /// flight (legacy `Workspace.pendingCloseConfirmTabIds.contains(_:)`).
+    public func containsPendingCloseConfirmTabId(_ tabId: TabID) -> Bool {
+        pendingCloseConfirmTabIds.contains(tabId)
     }
 
     /// Records the panel ids present in a pane that Bonsplit is about to close,

@@ -6021,46 +6021,59 @@ struct VerticalTabsSidebar: View {
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
-        return GeometryReader { geometryProxy in
-            let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
-                viewportHeight: geometryProxy.size.height,
-                insets: scrollInsets
-            )
-            ScrollViewReader { scrollProxy in
-                ScrollView(.vertical) {
+        return ScrollViewReader { scrollProxy in
+            SidebarScrollColumn(
+                topInset: scrollInsets.top,
+                bottomInset: scrollInsets.bottom,
+                topScrimHeight: sidebarTopScrimHeight,
+                bottomScrimHeight: sidebarBottomScrimHeight,
+                isMinimalMode: isMinimalMode,
+                minimalControlsLeadingInset: CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset),
+                minimalControlsTopPadding: minimalModeSidebarTitlebarControlsTopPadding,
+                configureScrollView: { scrollView in
+                    configureSidebarScrollView(scrollView)
+                    dragAutoScrollController.attach(scrollView: scrollView)
+                },
+                content: { geometryProxy in
                     workspaceScrollContent(
                         renderContext: renderContext,
-                        minHeight: contentMinHeight
+                        minHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
+                            viewportHeight: geometryProxy.size.height,
+                            insets: scrollInsets
+                        )
                     )
-                }
-                .background(
-                    SidebarScrollViewResolver { scrollView in
-                        configureSidebarScrollView(scrollView)
-                        dragAutoScrollController.attach(scrollView: scrollView)
-                    }
-                    .frame(width: 0, height: 0)
-                )
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    Color.clear.frame(height: scrollInsets.top)
-                        .allowsHitTesting(false)
-                }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    Color.clear.frame(height: scrollInsets.bottom)
-                        .allowsHitTesting(false)
-                }
-                .mask(
-                    SidebarWorkspaceScrollEdgeFadeMask(
-                        topHeight: sidebarTopScrimHeight,
-                        bottomHeight: sidebarBottomScrimHeight
-                    )
-                )
-                .overlay(alignment: .top) {
+                },
+                titlebarOverlay: {
                     // The sidebar top strip remains draggable and handles
                     // double-clicks with the standard titlebar action.
                     WindowDragHandleView()
                         .frame(height: sidebarTitlebarInteractionHeight)
                         .background(TitlebarDoubleClickMonitorView())
+                },
+                minimalControls: {
+                    HiddenTitlebarSidebarControlsView(
+                        notificationStore: notificationStore,
+                        onToggleSidebar: onToggleSidebar,
+                        onToggleNotifications: { anchorView in
+                            AppDelegate.shared?.toggleNotificationsPopover(
+                                animated: true,
+                                anchorView: anchorView
+                            )
+                        },
+                        onNewTab: onNewTab,
+                        onFocusHistoryBack: {
+                            if !tabManager.navigateBack() {
+                                NSSound.beep()
+                            }
+                        },
+                        onFocusHistoryForward: {
+                            if !tabManager.navigateForward() {
+                                NSSound.beep()
+                            }
+                        }
+                    )
                 }
+            )
                 .overlay(alignment: .top) {
                     if dragState.draggedTabId != nil, let firstWorkspaceId = renderContext.workspaceIds.first {
                         Color.clear
@@ -6078,41 +6091,6 @@ struct VerticalTabsSidebar: View {
                             ))
                     }
                 }
-                .overlay(alignment: .topLeading) {
-                    if isMinimalMode {
-                        HiddenTitlebarSidebarControlsView(
-                            notificationStore: notificationStore,
-                            onToggleSidebar: onToggleSidebar,
-                            onToggleNotifications: { anchorView in
-                                AppDelegate.shared?.toggleNotificationsPopover(
-                                    animated: true,
-                                    anchorView: anchorView
-                                )
-                            },
-                            onNewTab: onNewTab,
-                            onFocusHistoryBack: {
-                                if !tabManager.navigateBack() {
-                                    NSSound.beep()
-                                }
-                            },
-                            onFocusHistoryForward: {
-                                if !tabManager.navigateForward() {
-                                    NSSound.beep()
-                                }
-                            }
-                        )
-                            .padding(
-                                .leading,
-                                CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset)
-                            )
-                            .padding(
-                                .top,
-                                minimalModeSidebarTitlebarControlsTopPadding
-                            )
-                    }
-                }
-                .background(Color.clear)
-                .modifier(ClearScrollBackground())
                 .onAppear {
                     requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
                 }
@@ -6178,7 +6156,6 @@ struct VerticalTabsSidebar: View {
                         lastSidebarSelectionIndex = index
                     }
                 }
-            }
         }
     }
 
@@ -6278,8 +6255,19 @@ struct VerticalTabsSidebar: View {
         model: CmuxSidebarProviderRenderModel,
         now: Date
     ) -> some View {
-        GeometryReader { geometryProxy in
-            ScrollView {
+        SidebarScrollColumn(
+            topInset: SidebarWorkspaceScrollInsets.workspaceList.top,
+            bottomInset: SidebarWorkspaceScrollInsets.workspaceList.bottom,
+            topScrimHeight: sidebarTopScrimHeight,
+            bottomScrimHeight: sidebarBottomScrimHeight,
+            isMinimalMode: isMinimalMode,
+            minimalControlsLeadingInset: CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset),
+            minimalControlsTopPadding: minimalModeSidebarTitlebarControlsTopPadding,
+            configureScrollView: { scrollView in
+                configureSidebarScrollView(scrollView)
+                dragAutoScrollController.attach(scrollView: scrollView)
+            },
+            content: { geometryProxy in
                 if model.presentation == .browserStack {
                     extensionBrowserStackSidebar(model: model, now: now)
                         .frame(
@@ -6291,110 +6279,75 @@ struct VerticalTabsSidebar: View {
                             alignment: .topLeading
                         )
                 } else {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(model.sections) { section in
-                            extensionSidebarSection(section, providerId: model.providerId, now: now)
-                        }
-
-                        SidebarEmptyArea(
-                            rowSpacing: tabRowSpacing,
-                            selectedTabIds: $selectedTabIds,
-                            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                            dragAutoScrollController: dragAutoScrollController,
-                            actions: sidebarEmptyAreaActions(),
-                            topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
-                            tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
-                            bonsplitDropIndicator: dropIndicatorBinding,
-                            topDropIndicatorColor: { cmuxAccentColor() },
-                            bonsplitDropOverlay: sidebarBonsplitDropOverlay
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                    }
-                    .padding(.top, SidebarWorkspaceListMetrics.rowVerticalPadding)
-                    .padding(.bottom, SidebarWorkspaceListMetrics.rowVerticalPadding + 40)
-                    .frame(
-                        maxWidth: .infinity,
-                        minHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
+                    ExtensionSidebarSectionsColumn(
+                        sections: model.sections,
+                        rowVerticalPadding: SidebarWorkspaceListMetrics.rowVerticalPadding,
+                        bottomPadding: SidebarWorkspaceListMetrics.rowVerticalPadding + 40,
+                        contentMinHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
                             viewportHeight: geometryProxy.size.height,
                             insets: SidebarWorkspaceScrollInsets.workspaceList
                         ),
-                        alignment: .topLeading
+                        makeSection: { section in
+                            extensionSidebarSection(section, providerId: model.providerId, now: now)
+                        },
+                        emptyArea: {
+                            SidebarEmptyArea(
+                                rowSpacing: tabRowSpacing,
+                                selectedTabIds: $selectedTabIds,
+                                lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                                dragAutoScrollController: dragAutoScrollController,
+                                actions: sidebarEmptyAreaActions(),
+                                topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
+                                tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
+                                bonsplitDropIndicator: dropIndicatorBinding,
+                                topDropIndicatorColor: { cmuxAccentColor() },
+                                bonsplitDropOverlay: sidebarBonsplitDropOverlay
+                            )
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                        }
                     )
                 }
-            }
-            .background(
-                SidebarScrollViewResolver { scrollView in
-                    configureSidebarScrollView(scrollView)
-                    dragAutoScrollController.attach(scrollView: scrollView)
-                }
-                .frame(width: 0, height: 0)
-            )
-            .safeAreaInset(edge: .top, spacing: 0) {
-                Color.clear.frame(height: SidebarWorkspaceScrollInsets.workspaceList.top)
-                    .allowsHitTesting(false)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                Color.clear.frame(height: SidebarWorkspaceScrollInsets.workspaceList.bottom)
-                    .allowsHitTesting(false)
-            }
-            .mask(
-                SidebarWorkspaceScrollEdgeFadeMask(
-                    topHeight: sidebarTopScrimHeight,
-                    bottomHeight: sidebarBottomScrimHeight
-                )
-            )
-            .overlay(alignment: .top) {
+            },
+            titlebarOverlay: {
                 WindowDragHandleView()
                     .frame(height: sidebarTitlebarInteractionHeight)
                     .background(TitlebarDoubleClickMonitorView())
-            }
-            .overlay(alignment: .topLeading) {
-                if isMinimalMode {
-                    HiddenTitlebarSidebarControlsView(
-                        notificationStore: notificationStore,
-                        onToggleSidebar: onToggleSidebar,
-                        onToggleNotifications: { anchorView in
-                            AppDelegate.shared?.toggleNotificationsPopover(
-                                animated: true,
-                                anchorView: anchorView
-                            )
-                        },
-                        onNewTab: onNewTab,
-                        onFocusHistoryBack: {
-                            if !tabManager.navigateBack() {
-                                NSSound.beep()
-                            }
-                        },
-                        onFocusHistoryForward: {
-                            if !tabManager.navigateForward() {
-                                NSSound.beep()
-                            }
+            },
+            minimalControls: {
+                HiddenTitlebarSidebarControlsView(
+                    notificationStore: notificationStore,
+                    onToggleSidebar: onToggleSidebar,
+                    onToggleNotifications: { anchorView in
+                        AppDelegate.shared?.toggleNotificationsPopover(
+                            animated: true,
+                            anchorView: anchorView
+                        )
+                    },
+                    onNewTab: onNewTab,
+                    onFocusHistoryBack: {
+                        if !tabManager.navigateBack() {
+                            NSSound.beep()
                         }
-                    )
-                    .padding(
-                        .leading,
-                        CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset)
-                    )
-                    .padding(
-                        .top,
-                        minimalModeSidebarTitlebarControlsTopPadding
-                    )
-                }
+                    },
+                    onFocusHistoryForward: {
+                        if !tabManager.navigateForward() {
+                            NSSound.beep()
+                        }
+                    }
+                )
             }
-            .background(Color.clear)
-            .modifier(ClearScrollBackground())
-            .onReceive(extensionSidebarImmediateObservationPublisher) { _ in
-                refreshExtensionSidebarSnapshot()
-            }
-            .onReceive(extensionSidebarDebouncedObservationPublisher) { _ in
-                refreshExtensionSidebarSnapshot()
-            }
-            .onReceive(
-                NotificationCenter.default.publisher(for: BrowserStackSidebar.stateDidLoadNotification)
-                    .receive(on: RunLoop.main)
-            ) { _ in
-                refreshExtensionSidebarSnapshot()
-            }
+        )
+        .onReceive(extensionSidebarImmediateObservationPublisher) { _ in
+            refreshExtensionSidebarSnapshot()
+        }
+        .onReceive(extensionSidebarDebouncedObservationPublisher) { _ in
+            refreshExtensionSidebarSnapshot()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: BrowserStackSidebar.stateDidLoadNotification)
+                .receive(on: RunLoop.main)
+        ) { _ in
+            refreshExtensionSidebarSnapshot()
         }
     }
 
@@ -6837,56 +6790,34 @@ struct VerticalTabsSidebar: View {
         _ section: CmuxSidebarProviderSection,
         providerId: String,
         now: Date
-    ) -> some View {
+    ) -> ExtensionSidebarSectionView {
         let isCollapsed = collapsedExtensionSidebarSectionIds.contains(section.id)
-        let canCreateWorktree = section.treeSection.projectRootPath != nil
-        let selectedWorkspaceId = tabManager.selectedTabId
-        let workspaceSnapshotsById = extensionSidebarWorkspaceSnapshotsById(for: section.rows)
-
-        VStack(alignment: .leading, spacing: 1) {
-            ExtensionSidebarSectionHeaderRow(
-                title: extensionSidebarTreeSectionTitle(section.treeSection),
-                isCollapsed: isCollapsed,
-                canCreateWorktree: canCreateWorktree,
-                isWorktreeCreationInFlight: extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id),
-                sectionAccessibilityId: section.id,
-                toggleHelp: String(localized: "sidebar.extension.toggleSection", defaultValue: "Toggle section"),
-                createWorktreeHelp: String(localized: "sidebar.extension.createWorktree", defaultValue: "Create worktree"),
-                onToggle: {
-                    withAnimation(Self.extensionSidebarDisclosureAnimation) {
-                        if isCollapsed {
-                            collapsedExtensionSidebarSectionIds.remove(section.id)
-                        } else {
-                            collapsedExtensionSidebarSectionIds.insert(section.id)
-                        }
-                    }
-                },
-                onCreateWorktree: {
-                    createExtensionWorktreeWorkspace(for: section.treeSection)
+        ExtensionSidebarSectionView(
+            section: section,
+            providerId: providerId,
+            now: now,
+            isCollapsed: isCollapsed,
+            isWorktreeCreationInFlight: extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id),
+            canCreateWorktree: section.treeSection.projectRootPath != nil,
+            selectedWorkspaceId: tabManager.selectedTabId,
+            workspaceSnapshotsById: extensionSidebarWorkspaceSnapshotsById(for: section.rows),
+            treeSectionTitle: extensionSidebarTreeSectionTitle(section.treeSection),
+            toggleHelp: String(localized: "sidebar.extension.toggleSection", defaultValue: "Toggle section"),
+            createWorktreeHelp: String(localized: "sidebar.extension.createWorktree", defaultValue: "Create worktree"),
+            disclosureAnimation: Self.extensionSidebarDisclosureAnimation,
+            onToggle: {
+                if isCollapsed {
+                    collapsedExtensionSidebarSectionIds.remove(section.id)
+                } else {
+                    collapsedExtensionSidebarSectionIds.insert(section.id)
                 }
-            )
-
-            if !isCollapsed {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(section.rows) { row in
-                        CmuxExtensionSidebarWorkspaceRowView(
-                            row: row,
-                            workspace: workspaceSnapshotsById[row.workspaceId],
-                            providerId: providerId,
-                            relativeNow: now,
-                            isSelected: row.workspaceId == selectedWorkspaceId,
-                            onSelect: selectExtensionSidebarWorkspace,
-                            onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
-                        )
-                        .id(row.id)
-                        .accessibilityIdentifier("extensionSidebar.workspace.\(row.workspaceId.uuidString)")
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .clipped()
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
+            },
+            onCreateWorktree: {
+                createExtensionWorktreeWorkspace(for: section.treeSection)
+            },
+            onSelect: selectExtensionSidebarWorkspace,
+            onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
+        )
     }
 
     private func extensionWorkspaceSnapshot(for workspaceId: UUID) -> CmuxSidebarProviderWorkspace? {

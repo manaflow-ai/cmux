@@ -397,6 +397,12 @@ class TabManager {
     // welcome send) is irreducibly app-coupled and stays in this file, calling
     // these computations.
     let workspaceCreating: WorkspaceCreationCoordinator<Workspace>
+    // Pure config-inheritance decisions for a new workspace (candidate panel
+    // ordering + first-live selection, and the positive-guard font inheritance).
+    // The forwarders below flatten the live source `Workspace` into the
+    // resolver's `Sendable` value inputs through the
+    // `WorkspaceCreationInheritanceReading` seam.
+    private let workspaceCreationInheritanceResolver = WorkspaceCreationInheritanceResolver()
     // Selection-navigation flows over the workspaces model + background-load
     // model (CmuxWorkspaces): the next/prev wrap-around order math, select-by-
     // index, select-last, and the cycle-hot window state machine (generation +
@@ -854,14 +860,25 @@ class TabManager {
         // Sidebar-toggle relayout updates the live Bonsplit leading inset so minimal-mode
         // workspaces reserve traffic-light space. New workspaces need that same inset
         // copied immediately because creation itself does not trigger the resync path.
-        let inheritedLeadingInset = currentWindowTabBarLeadingInset
-            ?? sourceWorkspace?.bonsplitController.configuration.appearance.tabBarLeadingInset
+        //
+        // The pure inset resolution (window inset ?? source inset) lives in
+        // WorkspaceCreationCoordinator (CmuxWorkspaces); the currentWindowTabBarLeadingInset
+        // stored property and the source workspace's bonsplit-appearance read stay window-side
+        // and are threaded through. The source read is a closure so it stays lazy behind ??.
+        let inheritedLeadingInset = workspaceCreating.inheritedTabBarLeadingInset(
+            currentWindowTabBarLeadingInset: currentWindowTabBarLeadingInset,
+            sourceTabBarLeadingInset: {
+                sourceWorkspace?.bonsplitController.configuration.appearance.tabBarLeadingInset
+            }
+        )
         guard let inheritedLeadingInset else { return }
         applyTabBarLeadingInset(inheritedLeadingInset, to: newWorkspace)
     }
 
     func syncWorkspaceTabBarLeadingInset(_ inset: CGFloat) {
-        let normalizedInset = max(0, inset)
+        // The max(0,) normalization lives in WorkspaceCreationCoordinator (CmuxWorkspaces);
+        // the currentWindowTabBarLeadingInset stored property stays window-side.
+        let normalizedInset = workspaceCreating.normalizedTabBarLeadingInset(inset)
         currentWindowTabBarLeadingInset = normalizedInset
         for tab in tabs {
             applyTabBarLeadingInset(normalizedInset, to: tab)
@@ -869,7 +886,11 @@ class TabManager {
     }
 
     private func applyTabBarLeadingInset(_ inset: CGFloat, to workspace: Workspace) {
-        if workspace.bonsplitController.configuration.appearance.tabBarLeadingInset != inset {
+        // The change-gate (current != new) lives in WorkspaceCreationCoordinator
+        // (CmuxWorkspaces); the actual bonsplit-appearance write stays window-side as the
+        // witness effect.
+        let current = workspace.bonsplitController.configuration.appearance.tabBarLeadingInset
+        if workspaceCreating.tabBarLeadingInsetNeedsApply(current: current, new: inset) {
             workspace.bonsplitController.configuration.appearance.tabBarLeadingInset = inset
         }
     }
@@ -1116,26 +1137,15 @@ class TabManager {
         guard let workspace else { return nil }
         // Prefer cached/published panel state here instead of walking live Bonsplit focus
         // during Cmd+N; rapid workspace creation can observe transient pane/tab selection.
-        let panels = workspace.panels
-        var candidates: [TerminalPanel] = []
-        var seen: Set<UUID> = []
-
-        func appendCandidate(_ panel: TerminalPanel?) {
-            guard let panel, seen.insert(panel.id).inserted else { return }
-            candidates.append(panel)
+        // The candidate ordering + first-live selection lives in the package-pure
+        // WorkspaceCreationInheritanceResolver; the seam flattens the live panels into
+        // its Sendable input and we map the chosen id back to the live panel here.
+        guard let panelId = workspaceCreationInheritanceResolver.configInheritanceSourcePanelId(
+            from: workspace.configInheritancePanelSource
+        ) else {
+            return nil
         }
-
-        appendCandidate(workspace.lastRememberedTerminalPanelForConfigInheritance())
-        for terminalPanel in panels.values
-            .compactMap({ $0 as? TerminalPanel })
-            .sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
-            appendCandidate(terminalPanel)
-        }
-
-        if let livePanel = candidates.first(where: { $0.surface.hasLiveSurface && $0.surface.surface != nil }) {
-            return livePanel
-        }
-        return candidates.first
+        return workspace.terminalPanel(for: panelId)
     }
 
     private func inheritedTerminalConfigForNewWorkspace() -> CmuxSurfaceConfigTemplate? {
@@ -1150,12 +1160,12 @@ class TabManager {
         // Avoid reading live panel/surface state here; the arm64 Nightly Cmd+N crash path
         // was repeatedly dereferencing pointer-backed terminal objects while preparing the
         // new workspace. The workspace already caches the rooted font lineage we need.
+        // The positive-guard decision lives in WorkspaceCreationInheritanceResolver; the
+        // read stays under the same extended-lifetime ARC pin as the legacy body.
         return withExtendedLifetime(workspace) {
-            guard let fontPoints = workspace.lastRememberedTerminalFontPointsForConfigInheritance(),
-                  fontPoints > 0 else {
-                return nil
-            }
-            return fontPoints
+            workspaceCreationInheritanceResolver.inheritedTerminalFontPoints(
+                rememberedFontPoints: workspace.rememberedTerminalFontPointsForConfigInheritance
+            )
         }
     }
 
@@ -1217,28 +1227,34 @@ class TabManager {
         preferredWorkingDirectoryForNewTab(workspace: selectedWorkspace)
     }
 
+    // The working-directory inheritance decision (first non-empty normalized
+    // directory from [currentDirectory] + panelDirectories.values) lives in
+    // WorkspaceCreationCoordinator (CmuxWorkspaces); this forwarder flattens the
+    // live workspace through the WorkspaceCreationInheritanceReading seam and
+    // passes the app-side git-probe normalizer in as a closure.
     func preferredWorkingDirectoryForNewTab(
         workspace: Workspace?
     ) -> String? {
         guard let workspace else {
             return nil
         }
-        // Use cached directory state only; avoiding live focus traversal keeps workspace
-        // creation resilient when Bonsplit is in the middle of a rapid Cmd+N churn.
-        if let currentDirectory = normalizedWorkingDirectory(workspace.currentDirectory) {
-            return currentDirectory
-        }
-
-        return workspace.panelDirectories.values.lazy.compactMap { directory in
-            self.normalizedWorkingDirectory(directory)
-        }.first
+        return workspaceCreating.preferredWorkingDirectoryForNewTab(
+            currentDirectory: workspace.currentDirectory,
+            orderedPanelDirectories: workspace.orderedPanelDirectories,
+            normalize: { self.normalizedWorkingDirectory($0) }
+        )
     }
 
+    // The settings-gated wrapper decision lives in WorkspaceCreationCoordinator
+    // (CmuxWorkspaces); the inherit-working-directory setting read stays app-side
+    // and is threaded in as the bool.
     func implicitWorkingDirectoryForNewWorkspace(from sourceWorkspace: Workspace?) -> String? {
-        guard settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory) else {
-            return nil
-        }
-        return preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
+        workspaceCreating.implicitWorkingDirectoryForNewWorkspace(
+            inheritWorkingDirectory: settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory),
+            currentDirectory: sourceWorkspace?.currentDirectory,
+            orderedPanelDirectories: sourceWorkspace?.orderedPanelDirectories ?? [],
+            normalize: { self.normalizedWorkingDirectory($0) }
+        )
     }
 
     // MARK: - Reordering (WorkspaceReorderCoordinator, CmuxWorkspaces)
@@ -2057,16 +2073,15 @@ class TabManager {
         sentryBreadcrumb("workspace.create", data: ["tabCount": tabCount])
     }
 
-    func defaultWorkspaceTitle(initialSurface: NewWorkspaceInitialSurface, tabNumber: Int) -> String {
-        switch initialSurface {
-        case .terminal:
-            return "Terminal \(tabNumber)"
-        case .browser:
-            // Match the browser surface's blank new-tab title; the
-            // single-panel title sync keeps the workspace title following
-            // the page title once the user navigates.
-            return String(localized: "browser.newTab", defaultValue: "New tab")
-        }
+    func terminalDefaultWorkspaceTitle(tabNumber: Int) -> String {
+        "Terminal \(tabNumber)"
+    }
+
+    func browserDefaultWorkspaceTitle() -> String {
+        // Match the browser surface's blank new-tab title; the
+        // single-panel title sync keeps the workspace title following
+        // the page title once the user navigates.
+        String(localized: "browser.newTab", defaultValue: "New tab")
     }
 
     func makeWorkspaceForCreation(
