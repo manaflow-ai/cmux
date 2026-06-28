@@ -102,6 +102,12 @@ import Testing
         // raw without OpenSSH's `Could not resolve hostname` wrapper.
         "nc: getaddrinfo: nodename nor servname provided, or not known\nConnection closed by UNKNOWN port 65535",
         "channel 1: open failed: administratively prohibited: open failed\nConnection closed by UNKNOWN port 65535",
+        // Linux `nc` ProxyCommand TCP connect timeout — phrased "Connection timed
+        // out" (not BSD/macOS's "Operation timed out"), with no other marker.
+        "nc: connect to inner.invalid port 22 (tcp) failed: Connection timed out\nConnection closed by UNKNOWN port 65535",
+        // Banner-exchange closure standing alone (no co-present marker): the inner
+        // target dropped us pre-auth (fail2ban / tcpwrappers / not-SSH-on-port).
+        "ssh_exchange_identification: Connection closed by remote host\nConnection closed by UNKNOWN port 65535",
     ])
     func doesNotClassifyExplainedProxyClosures(_ stderr: String) {
         #expect(!RemoteTmuxSSHTransport.indicatesProxyCommandTransportClosed(stderr))
