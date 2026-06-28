@@ -1086,7 +1086,7 @@ struct HiddenTitlebarSidebarControlsView: View {
                     }
                 }
                 #if DEBUG
-                TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: window)
+                TitlebarChromeGeometryRecorder().recordTrafficLightFrames(window: window)
                 _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                     payload["minimalSidebarHostWindowNumber"] = String(nextWindowNumber)
                     payload["minimalSidebarHostPinned"] = String(
@@ -1575,7 +1575,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             view.convert(button.convert(button.bounds, to: nil), from: nil)
         }
 #if DEBUG
-        TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: view.window)
+        TitlebarChromeGeometryRecorder().recordTrafficLightFrames(window: view.window)
 #endif
         let titlebarHeight = (titlebarView?.frame.height ?? 0) > 0
             ? titlebarView?.frame.height ?? contentSize.height

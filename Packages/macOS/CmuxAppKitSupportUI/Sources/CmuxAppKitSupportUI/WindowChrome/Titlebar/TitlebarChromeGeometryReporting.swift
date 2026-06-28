@@ -1,8 +1,23 @@
-import AppKit
-import SwiftUI
+public import AppKit
+public import SwiftUI
 
-enum TitlebarChromeUITestRecorder {
-    static func record(keyPrefix: String, frame: CGRect) {
+/// Records titlebar-chrome geometry (control/hint frames and traffic-light frames) into the
+/// XCUITest JSON capture file when the bonsplit tab-drag UI-test harness is active.
+///
+/// Replaces the former app-target `TitlebarChromeUITestRecorder` caseless namespace-enum with a
+/// constructor-injected value type so the environment gating is testable and the package
+/// convention against static-only namespaces is satisfied. Every method is `#if DEBUG`-gated;
+/// in release builds they are no-ops.
+public struct TitlebarChromeGeometryRecorder: Sendable {
+    private let environment: [String: String]
+
+    /// Creates a recorder reading its UI-test gating from `environment`.
+    public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        self.environment = environment
+    }
+
+    /// Records `frame` under `keyPrefix` into the capture payload, skipping degenerate frames.
+    public func record(keyPrefix: String, frame: CGRect) {
 #if DEBUG
         guard let path = dataPath(),
               frame.width > 1,
@@ -26,7 +41,9 @@ enum TitlebarChromeUITestRecorder {
 #endif
     }
 
-    static func recordTrafficLightFrames(window: NSWindow?) {
+    /// Records the close/minimize/zoom traffic-light button frames for `window`.
+    @MainActor
+    public func recordTrafficLightFrames(window: NSWindow?) {
 #if DEBUG
         guard let window else { return }
         let buttons: [(String, NSWindow.ButtonType)] = [
@@ -48,17 +65,16 @@ enum TitlebarChromeUITestRecorder {
     }
 
 #if DEBUG
-    private static func dataPath() -> String? {
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1",
-              let path = env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"],
+    private func dataPath() -> String? {
+        guard environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1",
+              let path = environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"],
               !path.isEmpty else {
             return nil
         }
         return path
     }
 
-    private static func loadPayload(at path: String) -> [String: String] {
+    private func loadPayload(at path: String) -> [String: String] {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             return [:]
@@ -68,37 +84,49 @@ enum TitlebarChromeUITestRecorder {
 #endif
 }
 
-struct TitlebarChromeGeometryReporter: NSViewRepresentable {
-    let keyPrefix: String
+/// SwiftUI wrapper that reports its backing AppKit view's window-space frame under `keyPrefix`
+/// for XCUITest titlebar-chrome geometry assertions.
+public struct TitlebarChromeGeometryReporter: NSViewRepresentable {
+    private let keyPrefix: String
 
-    func makeNSView(context: Context) -> TitlebarChromeGeometryReportingView {
+    /// Creates a reporter that records geometry under `keyPrefix`.
+    public init(keyPrefix: String) {
+        self.keyPrefix = keyPrefix
+    }
+
+    /// Creates the backing geometry-reporting view.
+    public func makeNSView(context: Context) -> TitlebarChromeGeometryReportingView {
         let view = TitlebarChromeGeometryReportingView()
         view.keyPrefix = keyPrefix
         return view
     }
 
-    func updateNSView(_ nsView: TitlebarChromeGeometryReportingView, context: Context) {
+    /// Pushes the latest `keyPrefix` into the view and requests a report.
+    public func updateNSView(_ nsView: TitlebarChromeGeometryReportingView, context: Context) {
         nsView.keyPrefix = keyPrefix
         nsView.reportSoon()
     }
 }
 
-final class TitlebarChromeGeometryReportingView: NSView {
-    var keyPrefix = "" {
+/// AppKit view that records its own window-space frame whenever it moves window or relayouts.
+public final class TitlebarChromeGeometryReportingView: NSView {
+    /// Capture key prefix; reporting re-fires whenever it changes.
+    public var keyPrefix = "" {
         didSet { reportSoon() }
     }
 
-    override func viewDidMoveToWindow() {
+    public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         reportSoon()
     }
 
-    override func layout() {
+    public override func layout() {
         super.layout()
         reportSoon()
     }
 
-    func reportSoon() {
+    /// Schedules a deferred geometry report (DEBUG-only; no-op in release).
+    public func reportSoon() {
 #if DEBUG
         DispatchQueue.main.async { [weak self] in
             self?.reportIfNeeded()
@@ -114,7 +142,7 @@ final class TitlebarChromeGeometryReportingView: NSView {
               bounds.height > 1 else {
             return
         }
-        TitlebarChromeUITestRecorder.record(keyPrefix: keyPrefix, frame: convert(bounds, to: nil))
+        TitlebarChromeGeometryRecorder().record(keyPrefix: keyPrefix, frame: convert(bounds, to: nil))
 #endif
     }
 }
