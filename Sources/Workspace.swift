@@ -3103,14 +3103,11 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         set { paneTree.surfaceIdToPanelId = newValue }
     }
 
-    /// Tab IDs that are allowed to close even if they would normally require confirmation.
-    /// This is used by app-level confirmation prompts (for example, Close Tab) so the
-    /// Bonsplit delegate doesn't block the close after the user already confirmed.
-    private var forceCloseTabIds: Set<TabID> = []
-
-    /// Tab IDs that are currently showing (or about to show) a close confirmation prompt.
-    /// Prevents repeated close gestures (e.g., middle-click spam) from stacking dialogs.
-    private var pendingCloseConfirmTabIds: Set<TabID> = []
+    // The in-flight close-tracking sets (`forceCloseTabIds`,
+    // `pendingCloseConfirmTabIds`) now live on `splitLifecycle`
+    // (`SplitLifecycleCoordinator`), alongside its sibling close-state
+    // (`postCloseClearSplitZoomTabIds`). Every read/write below forwards through
+    // its `…ForceCloseTabId` / `…PendingCloseConfirmTabId` accessors.
 
     // `internal` (not `private`) so the `Workspace+ClosedBrowserRestoreStagingHosting`
     // sibling extension can read it as the `stagingSuppressClosedPanelHistory`
@@ -6653,18 +6650,19 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     // MARK: SplitDetachHosting witnesses touching private detach state
     //
     // Co-located with the `private` detach state they read/write
-    // (`forceCloseTabIds`, `activeRemoteTerminalSurfaceIds`,
+    // (`activeRemoteTerminalSurfaceIds`,
     // `skipControlMasterCleanupAfterDetachedRemoteTransfer`,
     // `detachSourceCapture`) so it stays `private` rather than widening to
-    // `internal` for the cross-file conformance. The remaining
+    // `internal` for the cross-file conformance. The force-close witnesses now
+    // forward to `splitLifecycle` (`SplitLifecycleCoordinator`). The remaining
     // ``SplitDetachHosting`` witnesses live in `Workspace+SplitDetachHosting.swift`.
 
     func insertForceCloseTabId(_ tabId: TabID) {
-        forceCloseTabIds.insert(tabId)
+        splitLifecycle.insertForceCloseTabId(tabId)
     }
 
     func removeForceCloseTabId(_ tabId: TabID) {
-        forceCloseTabIds.remove(tabId)
+        splitLifecycle.removeForceCloseTabId(tabId)
     }
 
     func isActiveRemoteTerminalSurface(_ panelId: UUID) -> Bool {
@@ -8725,7 +8723,7 @@ extension Workspace: BonsplitDelegate {
         // round trip on a path that already waits one. Batch closes never reach
         // this confirmation: they confirm once up front and route the kill
         // directly (see closeTabsFromContextMenu), bypassing this delegate.
-        if isRemoteTmuxMirror, !forceCloseTabIds.contains(tab.id),
+        if isRemoteTmuxMirror, !splitLifecycle.containsForceCloseTabId(tab.id),
            let panelId = panelIdFromSurfaceId(tab.id),
            let remoteTmuxController = hostEnvironment?.remoteTmuxController,
            remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId) != nil {
@@ -8743,7 +8741,7 @@ extension Workspace: BonsplitDelegate {
                 _ = remoteTmuxController.handleMirrorTabCloseRequested(workspaceId: id, panelId: panelId)
                 return false
             } else {
-                if pendingCloseConfirmTabIds.contains(tab.id) {
+                if splitLifecycle.containsPendingCloseConfirmTabId(tab.id) {
                     return false
                 }
                 let confirmationManager = owningTabManager
@@ -8752,7 +8750,7 @@ extension Workspace: BonsplitDelegate {
                 if let confirmationManager, confirmationManager.workspaceClosing.isCloseConfirmationInFlight {
                     return false
                 }
-                pendingCloseConfirmTabIds.insert(tab.id)
+                splitLifecycle.insertPendingCloseConfirmTabId(tab.id)
                 let tabId = tab.id
 
                 // Begins the confirmation session and runs the dialog → kill-window
@@ -8763,12 +8761,12 @@ extension Workspace: BonsplitDelegate {
                 let presentConfirmation: @MainActor (String?) -> Void = { [weak self] commandName in
                     guard let self else { return }
                     if let confirmationManager, !confirmationManager.workspaceClosing.beginCloseConfirmationSession() {
-                        self.pendingCloseConfirmTabIds.remove(tabId)
+                        self.splitLifecycle.removePendingCloseConfirmTabId(tabId)
                         return
                     }
                     Task { @MainActor in
                         defer {
-                            self.pendingCloseConfirmTabIds.remove(tabId)
+                            self.splitLifecycle.removePendingCloseConfirmTabId(tabId)
                             confirmationManager?.workspaceClosing.endCloseConfirmationSession()
                         }
 
@@ -8806,11 +8804,11 @@ extension Workspace: BonsplitDelegate {
                     // Tab vanished while the query was in flight (e.g. the window
                     // died remotely) — nothing left to close.
                     guard self.panelIdFromSurfaceId(tabId) != nil else {
-                        self.pendingCloseConfirmTabIds.remove(tabId)
+                        self.splitLifecycle.removePendingCloseConfirmTabId(tabId)
                         return
                     }
                     guard activity.hasActiveCommand else {
-                        self.pendingCloseConfirmTabIds.remove(tabId)
+                        self.splitLifecycle.removePendingCloseConfirmTabId(tabId)
                         _ = remoteTmuxController.handleMirrorTabCloseRequested(
                             workspaceId: self.id, panelId: panelId
                         )
@@ -8822,7 +8820,7 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
-        if forceCloseTabIds.contains(tab.id) {
+        if splitLifecycle.containsForceCloseTabId(tab.id) {
             if !pushClosedPanelHistoryIfEligible(for: tab, inPane: pane) {
                 stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             } else {
@@ -8837,7 +8835,7 @@ extension Workspace: BonsplitDelegate {
             ?? hostEnvironment?.tabManager
         if let closeConfirmationManager, closeConfirmationManager.workspaceClosing.isCloseConfirmationInFlight {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
-            if pendingCloseConfirmTabIds.contains(tab.id) {
+            if splitLifecycle.containsPendingCloseConfirmTabId(tab.id) {
                 return false
             }
             clearCloseHistoryEligibility(tabId: tab.id)
@@ -8878,7 +8876,7 @@ extension Workspace: BonsplitDelegate {
             isTabCloseButton: tabCloseButtonClose
         ) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
-            if pendingCloseConfirmTabIds.contains(tab.id) {
+            if splitLifecycle.containsPendingCloseConfirmTabId(tab.id) {
                 return false
             }
 
@@ -8887,7 +8885,7 @@ extension Workspace: BonsplitDelegate {
                 return false
             }
 
-            pendingCloseConfirmTabIds.insert(tab.id)
+            splitLifecycle.insertPendingCloseConfirmTabId(tab.id)
             let tabId = tab.id
             DispatchQueue.main.async { [weak self] in
                 guard let self else {
@@ -8896,7 +8894,7 @@ extension Workspace: BonsplitDelegate {
                 }
                 Task { @MainActor in
                     defer {
-                        self.pendingCloseConfirmTabIds.remove(tabId)
+                        self.splitLifecycle.removePendingCloseConfirmTabId(tabId)
                         confirmationManager?.workspaceClosing.endCloseConfirmationSession()
                     }
 
@@ -8909,7 +8907,7 @@ extension Workspace: BonsplitDelegate {
                         return
                     }
 
-                    self.forceCloseTabIds.insert(tabId)
+                    self.splitLifecycle.insertForceCloseTabId(tabId)
                     self.bonsplitController.closeTab(tabId)
                 }
             }
@@ -8927,7 +8925,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
-        forceCloseTabIds.remove(tabId)
+        splitLifecycle.removeForceCloseTabId(tabId)
         surfaceRegistry.removeTabCloseButtonClose(tabId)
         let selectTabId = splitLifecycle.consumePostCloseSelectTabId(forClosed: tabId)
         let shouldClearSplitZoom = splitLifecycle.consumeShouldClearSplitZoom(forClosed: tabId)
@@ -9242,7 +9240,7 @@ extension Workspace: BonsplitDelegate {
         // Check if any panel in this pane needs close confirmation
         let tabs = controller.tabs(inPane: pane)
         for tab in tabs {
-            if forceCloseTabIds.contains(tab.id) { continue }
+            if splitLifecycle.containsForceCloseTabId(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
                TabCloseConfirmationPolicy(store: CloseTabWarningStore(defaults: .standard)).requiresConfirmation(
                    requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
