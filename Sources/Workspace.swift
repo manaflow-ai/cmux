@@ -3114,9 +3114,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     // witness; every other access stays within this file.
     var suppressClosedPanelHistory = false
 
-    /// Pane-close panel ids now live on `splitLifecycle.pendingPaneClosePanelIds`;
-    /// this map stays here because it holds the app-target `ClosedPanelHistoryEntry`.
-    private var pendingPaneCloseHistoryEntries: [UUID: [ClosedPanelHistoryEntry]] = [:]
+    /// Pane-close panel ids live on `splitLifecycle.pendingPaneClosePanelIds`
+    /// (lower `CmuxPanes`). The recently-closed-panel history entries staged
+    /// between a pane-close approval and the close landing now live on this
+    /// `PaneCloseHistoryStaging` (CmuxWorkspaces), generic over the entry value
+    /// because the concrete `ClosedPanelHistoryEntry` is app-target (it holds a
+    /// `SessionPanelSnapshot`) and cannot cross the module boundary.
+    private let paneCloseHistoryStaging = PaneCloseHistoryStaging<ClosedPanelHistoryEntry>()
     /// Stages recently-closed browser restore snapshots for `Cmd+Shift+T`. Owns
     /// the per-tab pending map and the snapshot-build decision (lifted to
     /// `CmuxBrowser.ClosedBrowserRestoreStaging`); this workspace conforms to
@@ -9189,7 +9193,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
         let closedPanelIds = splitLifecycle.consumePaneClosePanelIds(forClosed: paneId.id)
-        let closedHistoryEntries = pendingPaneCloseHistoryEntries.removeValue(forKey: paneId.id) ?? []
+        let closedHistoryEntries = paneCloseHistoryStaging.consume(forClosed: paneId.id)
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
         publishCmuxPaneClosed(paneId, closedPanelIds: closedPanelIds, origin: "pane_close")
@@ -9247,23 +9251,23 @@ extension Workspace: BonsplitDelegate {
                    isTabCloseButton: false
                ) {
                 splitLifecycle.clearPaneClosePanelIds(forPane: pane.id)
-                pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+                paneCloseHistoryStaging.clear(forPane: pane.id)
                 return false
             }
         }
         let panelIds = tabs.compactMap { panelIdFromSurfaceId($0.id) }
         splitLifecycle.recordPaneClosePanelIds(panelIds, forPane: pane.id)
         if suppressClosedPanelHistory || isDetachingCloseTransaction {
-            pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+            paneCloseHistoryStaging.clear(forPane: pane.id)
         } else {
             let historyEntries = tabs.compactMap { tab -> ClosedPanelHistoryEntry? in
                 guard let panelId = panelIdFromSurfaceId(tab.id) else { return nil }
                 return closedPanelHistoryEntry(panelId: panelId, tabId: tab.id, pane: pane)
             }
             if historyEntries.isEmpty {
-                pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+                paneCloseHistoryStaging.clear(forPane: pane.id)
             } else {
-                pendingPaneCloseHistoryEntries[pane.id] = historyEntries
+                paneCloseHistoryStaging.record(historyEntries, forPane: pane.id)
             }
         }
         return true
