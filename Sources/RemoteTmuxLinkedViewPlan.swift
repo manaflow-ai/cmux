@@ -43,11 +43,20 @@ enum RemoteTmuxLinkedViewPlan {
         let needsCreate = !snapshot.sessions.contains { view.isOwnView($0) }
         let stale = snapshot.sessions.filter { view.isOwnStaleView($0) }.map(\.name)
 
+        // Exclude EVERY view session (ours, stale, and any foreign cmux install's)
+        // from workspace grouping and from the desired-link set — never surface or
+        // link another owner's hidden state.
+        let excluded = Set(snapshot.sessions
+            .filter { RemoteTmuxViewSession.isAnyView($0) }
+            .map(\.name))
+
         // Desired links = every non-view window with a real home session.
         let desired = RemoteTmuxLinkedWorkspaceModel.desiredLinkedWindowIds(
-            rows: snapshot.windows, viewSessionName: viewName)
+            rows: snapshot.windows, excludedSessions: excluded)
 
-        // Actual = window ids currently inside the view session.
+        // Actual = window ids currently inside OUR view session (by exact name; the
+        // owned-view check above guarantees this name is ours, not a foreign/real
+        // session that merely collides — names are collision-resistant).
         let actual = Set(snapshot.windows
             .filter { $0.sessionName == viewName }
             .map(\.windowId))
@@ -59,7 +68,7 @@ enum RemoteTmuxLinkedViewPlan {
             cmuxOwnedWindowIds: snapshot.cmuxOwnedWindowIds)
 
         let workspaces = RemoteTmuxLinkedWorkspaceModel.workspaces(
-            rows: snapshot.windows, viewSessionName: viewName)
+            rows: snapshot.windows, excludedSessions: excluded)
 
         return Plan(
             needsViewCreate: needsCreate,

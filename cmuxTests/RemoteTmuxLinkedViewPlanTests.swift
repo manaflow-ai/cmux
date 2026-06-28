@@ -13,10 +13,11 @@ import Testing
     private typealias P = RemoteTmuxLinkedViewPlan
     private typealias SRow = RemoteTmuxViewSession.SessionRow
     private typealias WRow = RemoteTmuxLinkedWorkspaceModel.WindowRow
-    private let view = RemoteTmuxViewSession(ownerId: "o1")  // name: cmux-view-o1
+    private let view = RemoteTmuxViewSession(ownerId: "o1")
+    private var vname: String { view.sessionName }
+    private func ownView() -> SRow { SRow(name: vname, isView: true, owner: "o1", version: 1) }
 
     @Test func firstRunCreatesViewLinksEverythingAndGroups() {
-        // No view yet; two real sessions A,B exist.
         let snap = P.Snapshot(
             sessions: [
                 SRow(name: "A", isView: false, owner: "", version: nil),
@@ -43,14 +44,11 @@ import Testing
 
     @Test func steadyStateNoActionsWhenAllLinked() {
         let snap = P.Snapshot(
-            sessions: [
-                SRow(name: "cmux-view-o1", isView: true, owner: "o1", version: 1),
-                SRow(name: "A", isView: false, owner: "", version: nil),
-            ],
+            sessions: [ownView(), SRow(name: "A", isView: false, owner: "", version: nil)],
             windows: [
                 WRow(sessionName: "A", windowId: "@1", windowIndex: 0),
-                WRow(sessionName: "cmux-view-o1", windowId: "@0", windowIndex: 0),
-                WRow(sessionName: "cmux-view-o1", windowId: "@1", windowIndex: 1),
+                WRow(sessionName: vname, windowId: "@0", windowIndex: 0),
+                WRow(sessionName: vname, windowId: "@1", windowIndex: 1),
             ],
             cmuxOwnedWindowIds: ["@1"],
             placeholderWindowId: "@0")
@@ -61,14 +59,13 @@ import Testing
     }
 
     @Test func newWorkspaceAddsLinkForNewSessionWindow() {
-        // A new-session W2 (@9) appeared; it should be linked, becoming a workspace.
         let snap = P.Snapshot(
-            sessions: [SRow(name: "cmux-view-o1", isView: true, owner: "o1", version: 1)],
+            sessions: [ownView()],
             windows: [
                 WRow(sessionName: "A", windowId: "@1", windowIndex: 0),
                 WRow(sessionName: "W2", windowId: "@9", windowIndex: 0),
-                WRow(sessionName: "cmux-view-o1", windowId: "@0", windowIndex: 0),
-                WRow(sessionName: "cmux-view-o1", windowId: "@1", windowIndex: 1),
+                WRow(sessionName: vname, windowId: "@0", windowIndex: 0),
+                WRow(sessionName: vname, windowId: "@1", windowIndex: 1),
             ],
             cmuxOwnedWindowIds: ["@1"],
             placeholderWindowId: "@0")
@@ -78,14 +75,13 @@ import Testing
     }
 
     @Test func closedSessionUnlinksOwnedWindow() {
-        // B's window @3 is in the view + owned, but B no longer has a home row → unlink.
         let snap = P.Snapshot(
-            sessions: [SRow(name: "cmux-view-o1", isView: true, owner: "o1", version: 1)],
+            sessions: [ownView()],
             windows: [
                 WRow(sessionName: "A", windowId: "@1", windowIndex: 0),
-                WRow(sessionName: "cmux-view-o1", windowId: "@0", windowIndex: 0),
-                WRow(sessionName: "cmux-view-o1", windowId: "@1", windowIndex: 1),
-                WRow(sessionName: "cmux-view-o1", windowId: "@3", windowIndex: 2), // orphan in view
+                WRow(sessionName: vname, windowId: "@0", windowIndex: 0),
+                WRow(sessionName: vname, windowId: "@1", windowIndex: 1),
+                WRow(sessionName: vname, windowId: "@3", windowIndex: 2), // orphan in view
             ],
             cmuxOwnedWindowIds: ["@1", "@3"],
             placeholderWindowId: "@0")
@@ -94,18 +90,24 @@ import Testing
         #expect(plan.workspaces == [.init(sessionName: "A", windowIds: ["@1"])])
     }
 
-    @Test func staleOwnViewIsCollectedButForeignViewUntouched() {
+    @Test func staleOwnViewCollectedForeignViewNeverTouchedNorSurfaced() {
         let snap = P.Snapshot(
             sessions: [
-                SRow(name: "cmux-view-o1", isView: true, owner: "o1", version: 1),     // current
+                ownView(),
                 SRow(name: "cmux-view-o1-old", isView: true, owner: "o1", version: 0), // our stale
-                SRow(name: "cmux-view-o2", isView: true, owner: "o2", version: 1),     // foreign
+                SRow(name: "cmux-view-bob", isView: true, owner: "bob", version: 1),    // foreign
             ],
-            windows: [WRow(sessionName: "cmux-view-o1", windowId: "@0", windowIndex: 0)],
+            windows: [
+                WRow(sessionName: vname, windowId: "@0", windowIndex: 0),
+                WRow(sessionName: "cmux-view-bob", windowId: "@8", windowIndex: 0),     // foreign window
+            ],
             cmuxOwnedWindowIds: [],
             placeholderWindowId: "@0")
         let plan = P.plan(view: view, snapshot: snap)
-        #expect(plan.staleViewsToKill == ["cmux-view-o1-old"])
+        #expect(plan.staleViewsToKill == ["cmux-view-o1-old"])  // never includes foreign
         #expect(!plan.needsViewCreate)
+        // foreign view's window @8 must NOT be linked, and the foreign view is not a workspace
+        #expect(!plan.reconcileActions.contains(.link(windowId: "@8")))
+        #expect(plan.workspaces.isEmpty)
     }
 }
