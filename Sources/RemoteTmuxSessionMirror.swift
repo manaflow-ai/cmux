@@ -1,4 +1,5 @@
 import Foundation
+import CmuxRemoteSession
 
 /// Mirrors one remote tmux session into a dedicated cmux sidebar workspace.
 ///
@@ -50,6 +51,9 @@ final class RemoteTmuxSessionMirror {
     /// Last-known working directory per tmux pane, so switching the active pane of
     /// a multi-pane window can re-project that pane's directory onto the tab.
     private var cwdByPane: [Int: String] = [:]
+    /// Per-pane filter that strips the screen/tmux `ESC k <title> ST` window-title
+    /// escape from `%output` (stateful across chunk boundaries).
+    private var titleFilters: [Int: RemoteTmuxScreenTitleFilter] = [:]
     /// Per-window multi-pane renderers (present once a window has >1 pane).
     private var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
     private var observerToken: RemoteTmuxControlConnection.ObserverToken?
@@ -136,6 +140,14 @@ final class RemoteTmuxSessionMirror {
             onExit: { [weak self] in
                 guard let self, self.managesOwnLifecycle else { return }
                 self.handleConnectionExited()
+            },
+            onConnectionStateChanged: { [weak self] state in
+                // Drop any mid-`ESC k` title-filter state when the stream isn't live:
+                // a reconnect's `reseedAfterReconnect` re-emits clear/capture bytes,
+                // and a filter stuck mid-title from before the drop would swallow them.
+                // Resetting on the disconnect edge is ordering-independent (no output
+                // arrives while not connected).
+                if state != .connected { self?.titleFilters.removeAll() }
             }
         )
         rebuild()
@@ -295,6 +307,7 @@ final class RemoteTmuxSessionMirror {
         // stays bounded across window/pane churn (tmux pane ids never recur).
         let livePanes = Set(connection.windowsByID.values.flatMap { $0.paneIDsInOrder })
         cwdByPane = cwdByPane.filter { livePanes.contains($0.key) }
+        titleFilters = titleFilters.filter { livePanes.contains($0.key) }
         closeDefaultTabsIfNeeded()
         // Follow out-of-band tmux window reorders (a second client, or a manual
         // move-window / a new-window inserted mid-list): the cmux tabs are created
@@ -464,17 +477,25 @@ final class RemoteTmuxSessionMirror {
     }
 
     private func routeOutput(paneId: Int, data: Data) {
+        // Strip the screen/tmux `ESC k <title> ST` window-title escape that a remote
+        // shell (TERM=screen*/tmux*) emits — the mirror's xterm-style surface would
+        // otherwise print the title text onto the screen (see
+        // ``RemoteTmuxScreenTitleFilter``). Per-pane state survives chunk splits.
+        var filter = titleFilters[paneId] ?? RemoteTmuxScreenTitleFilter()
+        let cleaned = filter.filter(data)
+        titleFilters[paneId] = filter
+
         // Multi-pane window: its in-tab renderer owns the pane's surface.
         if let windowId = windowIdContaining(pane: paneId),
            let mirror = windowMirrorByWindowId[windowId] {
-            mirror.routeOutput(paneId: paneId, data: data)
+            mirror.routeOutput(paneId: paneId, data: cleaned)
             return
         }
         // Single-pane window: route to the window-tab's panel surface.
         guard let workspace,
               let panelId = panelIdByPane[paneId],
               let panel = workspace.panels[panelId] as? TerminalPanel else { return }
-        panel.surface.processRemoteOutput(data)
+        panel.surface.processRemoteOutput(cleaned)
     }
 
     /// Applies a pane's reflow classification to its mirror surface (suppress
