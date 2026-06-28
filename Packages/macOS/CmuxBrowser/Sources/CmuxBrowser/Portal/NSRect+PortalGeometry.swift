@@ -32,6 +32,11 @@ extension NSRect {
     /// seams. Non-finite components are returned unchanged; width and height are
     /// clamped to be non-negative after snapping. Falls back to the main
     /// screen's scale, then `1.0`, when the view is not yet in a window.
+    ///
+    /// `@MainActor`: reads `NSView.window`/`backingScaleFactor` + `NSScreen.main`,
+    /// all main-actor under Swift 6.1 (CI Xcode 16.4). The sibling pure-geometry
+    /// methods stay nonisolated.
+    @MainActor
     public func portalPixelSnapped(in view: NSView) -> NSRect {
         guard origin.x.isFinite,
               origin.y.isFinite,
