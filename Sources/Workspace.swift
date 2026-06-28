@@ -8715,22 +8715,57 @@ extension Workspace: BonsplitDelegate {
         // used by the mirror's own rebuild) are excluded — they do the actual
         // removal. Falls through to the normal local close when there is no live
         // mirror connection.
-        //
-        // Kill-window is destructive (unlike detach), so it gets the same close
-        // confirmation as a local tab with a running process. The decision uses a
-        // LIVE activity query (tmux evaluates pane_current_command at query time)
-        // rather than the subscription cache, which tmux only refreshes about
-        // once a second — otherwise a command started right before ⌘W would
-        // slip through unconfirmed. The kill is only sent on Confirm (or when
-        // the fresh answer says idle); the %window-close round trip still does
-        // the actual tab removal, so the silent-close case costs one extra
-        // round trip on a path that already waits one. Batch closes never reach
-        // this confirmation: they confirm once up front and route the kill
-        // directly (see closeTabsFromContextMenu), bypassing this delegate.
-        if isRemoteTmuxMirror, !splitLifecycle.containsForceCloseTabId(tab.id),
-           let panelId = panelIdFromSurfaceId(tab.id),
-           let remoteTmuxController = hostEnvironment?.remoteTmuxController,
-           remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId) != nil {
+        let remoteTmuxRoute: (panelId: UUID, controller: RemoteTmuxController)? = {
+            guard isRemoteTmuxMirror, !splitLifecycle.containsForceCloseTabId(tab.id),
+                  let panelId = panelIdFromSurfaceId(tab.id),
+                  let remoteTmuxController = hostEnvironment?.remoteTmuxController,
+                  remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId) != nil
+            else { return nil }
+            return (panelId, remoteTmuxController)
+        }()
+
+        // Resolve the close-confirmation owner once: a nil tab manager means no
+        // confirmation can be in flight, matching the legacy `if let ...` guard.
+        let closeConfirmationManager = owningTabManager
+            ?? hostEnvironment?.tabManagerFor(tabId: id)
+            ?? hostEnvironment?.tabManager
+
+        let closingPanelId = panelIdFromSurfaceId(tab.id)
+        // `requiresConfirmation` is only consulted once the no-panel branch has
+        // been ruled out, so it stays nil-safe (and never queries
+        // `panelNeedsConfirmClose` without a panel), exactly as the legacy order
+        // ran the confirmation policy after the `guard let panelId` bind.
+        let panelRequiresConfirmation = closingPanelId.map { panelId in
+            TabCloseConfirmationPolicy(store: CloseTabWarningStore(defaults: .standard)).requiresConfirmation(
+                requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+                isTabCloseButton: tabCloseButtonClose
+            )
+        } ?? false
+
+        let decision = TabCloseDecisionCoordinator().decide(
+            isRemoteTmuxRoute: remoteTmuxRoute != nil,
+            isForceClose: splitLifecycle.containsForceCloseTabId(tab.id),
+            isConfirmationInFlight: closeConfirmationManager?.workspaceClosing.isCloseConfirmationInFlight ?? false,
+            isPinned: closingPanelId.map { pinnedPanelIds.contains($0) } ?? false,
+            closesWorkspaceOnLastSurface: explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id),
+            hasPanel: closingPanelId != nil,
+            requiresConfirmation: panelRequiresConfirmation
+        )
+
+        switch decision {
+        case .routeRemoteTmuxKill:
+            guard let (panelId, remoteTmuxController) = remoteTmuxRoute else { return false }
+            // Kill-window is destructive (unlike detach), so it gets the same close
+            // confirmation as a local tab with a running process. The decision uses a
+            // LIVE activity query (tmux evaluates pane_current_command at query time)
+            // rather than the subscription cache, which tmux only refreshes about
+            // once a second — otherwise a command started right before ⌘W would
+            // slip through unconfirmed. The kill is only sent on Confirm (or when
+            // the fresh answer says idle); the %window-close round trip still does
+            // the actual tab removal, so the silent-close case costs one extra
+            // round trip on a path that already waits one. Batch closes never reach
+            // this confirmation: they confirm once up front and route the kill
+            // directly (see closeTabsFromContextMenu), bypassing this delegate.
             let closeConfirmationPolicy = TabCloseConfirmationPolicy(
                 store: CloseTabWarningStore(defaults: .standard)
             )
@@ -8822,9 +8857,8 @@ extension Workspace: BonsplitDelegate {
                 }
                 return false
             }
-        }
 
-        if splitLifecycle.containsForceCloseTabId(tab.id) {
+        case .pushHistoryAndAllow:
             if !pushClosedPanelHistoryIfEligible(for: tab, inPane: pane) {
                 stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             } else {
@@ -8832,29 +8866,22 @@ extension Workspace: BonsplitDelegate {
             }
             recordPostCloseState()
             return true
-        }
 
-        let closeConfirmationManager = owningTabManager
-            ?? hostEnvironment?.tabManagerFor(tabId: id)
-            ?? hostEnvironment?.tabManager
-        if let closeConfirmationManager, closeConfirmationManager.workspaceClosing.isCloseConfirmationInFlight {
+        case .vetoInFlight:
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if splitLifecycle.containsPendingCloseConfirmTabId(tab.id) {
                 return false
             }
             clearCloseHistoryEligibility(tabId: tab.id)
             return false
-        }
 
-        if let panelId = panelIdFromSurfaceId(tab.id),
-           pinnedPanelIds.contains(panelId) {
+        case .beepAndVetoPinned:
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
-            clearCloseHistoryEligibility(tabId: tab.id, panelId: panelId)
+            clearCloseHistoryEligibility(tabId: tab.id, panelId: closingPanelId)
             NSSound.beep()
             return false
-        }
 
-        if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id) {
+        case .closeWorkspaceOnLastSurface:
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             clearCloseHistoryEligibility(tabId: tab.id)
             if tabCloseButtonClose {
@@ -8863,22 +8890,16 @@ extension Workspace: BonsplitDelegate {
                 owningTabManager?.closeWorkspaceFromCloseTabGesture(self)
             }
             return false
-        }
 
-        // Check if the panel needs close confirmation
-        guard let panelId = panelIdFromSurfaceId(tab.id) else {
+        case .allowImmediate:
             stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             recordPostCloseState()
             return true
-        }
 
-        // If confirmation is required, Bonsplit will call into this delegate and we must return false.
-        // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
-        // this gating on the second pass.
-        if TabCloseConfirmationPolicy(store: CloseTabWarningStore(defaults: .standard)).requiresConfirmation(
-            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
-            isTabCloseButton: tabCloseButtonClose
-        ) {
+        case .confirmThenForce:
+            // If confirmation is required, Bonsplit will call into this delegate and we must return false.
+            // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
+            // this gating on the second pass.
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if splitLifecycle.containsPendingCloseConfirmTabId(tab.id) {
                 return false
@@ -8918,14 +8939,6 @@ extension Workspace: BonsplitDelegate {
 
             return false
         }
-
-        if !pushClosedPanelHistoryIfEligible(for: tab, inPane: pane) {
-            stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
-        } else {
-            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
-        }
-        recordPostCloseState()
-        return true
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
