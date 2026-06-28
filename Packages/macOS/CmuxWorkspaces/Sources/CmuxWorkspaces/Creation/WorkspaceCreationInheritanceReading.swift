@@ -22,4 +22,15 @@ public protocol WorkspaceCreationInheritanceReading {
     /// (legacy `lastRememberedTerminalFontPointsForConfigInheritance()`). The
     /// resolver applies the positive guard.
     var rememberedTerminalFontPointsForConfigInheritance: Float? { get }
+
+    /// The source workspace's cached current working directory (legacy
+    /// `workspace.currentDirectory`), the highest-priority new-tab
+    /// working-directory inheritance candidate. The resolver normalizes it via
+    /// the app-supplied closure (the git-probe normalizer stays app-side).
+    var currentDirectory: String { get }
+
+    /// Every panel's cached working directory in `panelDirectories.values` order
+    /// (legacy `workspace.panelDirectories.values`), the fallback new-tab
+    /// working-directory inheritance candidates after `currentDirectory`.
+    var orderedPanelDirectories: [String] { get }
 }

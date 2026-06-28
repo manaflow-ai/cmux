@@ -132,6 +132,58 @@ public final class WorkspaceCreationCoordinator<Tab: WorkspaceTabRepresenting> {
         return config
     }
 
+    /// The working directory a new tab inherits from a source workspace: the
+    /// first non-empty normalized directory from `currentDirectory` followed by
+    /// `orderedPanelDirectories`, or `nil` when none normalizes non-empty. Lifts
+    /// the legacy `TabManager.preferredWorkingDirectoryForNewTab(workspace:)`
+    /// body one-for-one.
+    ///
+    /// Uses cached directory state only; avoiding live focus traversal keeps
+    /// workspace creation resilient when Bonsplit is in the middle of a rapid
+    /// Cmd+N churn. `normalize` is the app-side git-probe normalizer
+    /// (`String.nonEmptyNormalizedGitProbeDirectory` from CmuxSidebarGit), passed
+    /// in so the package never depends on the git subsystem; it returns the
+    /// normalized directory or `nil` when blank.
+    public func preferredWorkingDirectoryForNewTab(
+        currentDirectory: String?,
+        orderedPanelDirectories: [String],
+        normalize: (String?) -> String?
+    ) -> String? {
+        if let currentDirectory = normalize(currentDirectory) {
+            return currentDirectory
+        }
+        // Equivalent to the legacy `panelDirectories.values.lazy.compactMap(normalize).first`:
+        // return the first panel directory that normalizes non-empty. A manual loop keeps
+        // `normalize` non-escaping (a lazy chain would capture it into an escaping closure).
+        for directory in orderedPanelDirectories {
+            if let normalized = normalize(directory) {
+                return normalized
+            }
+        }
+        return nil
+    }
+
+    /// The implicit working directory a new workspace inherits from a source
+    /// workspace when `inheritWorkingDirectory` is set, or `nil`. Lifts the
+    /// legacy `TabManager.implicitWorkingDirectoryForNewWorkspace(from:)` body
+    /// one-for-one; the inherit-working-directory setting read stays app-side and
+    /// is threaded in as `inheritWorkingDirectory`.
+    public func implicitWorkingDirectoryForNewWorkspace(
+        inheritWorkingDirectory: Bool,
+        currentDirectory: String?,
+        orderedPanelDirectories: [String],
+        normalize: (String?) -> String?
+    ) -> String? {
+        guard inheritWorkingDirectory else {
+            return nil
+        }
+        return preferredWorkingDirectoryForNewTab(
+            currentDirectory: currentDirectory,
+            orderedPanelDirectories: orderedPanelDirectories,
+            normalize: normalize
+        )
+    }
+
     /// Re-maps the snapshot's tab order onto the model's current live order, or
     /// `nil` when the live tabs no longer match the snapshot (a re-entrant
     /// create/close/reorder happened mid-creation). Lifts the legacy

@@ -1212,28 +1212,34 @@ class TabManager {
         preferredWorkingDirectoryForNewTab(workspace: selectedWorkspace)
     }
 
+    // The working-directory inheritance decision (first non-empty normalized
+    // directory from [currentDirectory] + panelDirectories.values) lives in
+    // WorkspaceCreationCoordinator (CmuxWorkspaces); this forwarder flattens the
+    // live workspace through the WorkspaceCreationInheritanceReading seam and
+    // passes the app-side git-probe normalizer in as a closure.
     func preferredWorkingDirectoryForNewTab(
         workspace: Workspace?
     ) -> String? {
         guard let workspace else {
             return nil
         }
-        // Use cached directory state only; avoiding live focus traversal keeps workspace
-        // creation resilient when Bonsplit is in the middle of a rapid Cmd+N churn.
-        if let currentDirectory = normalizedWorkingDirectory(workspace.currentDirectory) {
-            return currentDirectory
-        }
-
-        return workspace.panelDirectories.values.lazy.compactMap { directory in
-            self.normalizedWorkingDirectory(directory)
-        }.first
+        return workspaceCreating.preferredWorkingDirectoryForNewTab(
+            currentDirectory: workspace.currentDirectory,
+            orderedPanelDirectories: workspace.orderedPanelDirectories,
+            normalize: { self.normalizedWorkingDirectory($0) }
+        )
     }
 
+    // The settings-gated wrapper decision lives in WorkspaceCreationCoordinator
+    // (CmuxWorkspaces); the inherit-working-directory setting read stays app-side
+    // and is threaded in as the bool.
     func implicitWorkingDirectoryForNewWorkspace(from sourceWorkspace: Workspace?) -> String? {
-        guard settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory) else {
-            return nil
-        }
-        return preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
+        workspaceCreating.implicitWorkingDirectoryForNewWorkspace(
+            inheritWorkingDirectory: settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory),
+            currentDirectory: sourceWorkspace?.currentDirectory,
+            orderedPanelDirectories: sourceWorkspace?.orderedPanelDirectories ?? [],
+            normalize: { self.normalizedWorkingDirectory($0) }
+        )
     }
 
     // MARK: - Reordering (WorkspaceReorderCoordinator, CmuxWorkspaces)
