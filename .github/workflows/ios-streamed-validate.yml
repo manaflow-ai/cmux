@@ -70,7 +70,17 @@ jobs:
           set -euo pipefail
           command -v bun >/dev/null 2>&1 || curl -fsSL https://bun.sh/install | bash
           command -v postgres >/dev/null 2>&1 || brew install postgresql@16 || true
-          command -v idb_companion >/dev/null 2>&1 || brew install idb-companion || true
+          # idb_companion lives in the facebook/fb tap, not core (bare
+          # "idb-companion" => "No available formula"). The python `idb` client
+          # auto-spawns it from the hardcoded /usr/local/bin/idb_companion, but
+          # arm64 brew installs to /opt/homebrew/bin, so symlink it there.
+          command -v idb_companion >/dev/null 2>&1 || brew install facebook/fb/idb-companion || true
+          COMP="$(command -v idb_companion || true)"
+          if [ -n "$COMP" ] && [ ! -e /usr/local/bin/idb_companion ]; then
+            sudo mkdir -p /usr/local/bin && sudo ln -sf "$COMP" /usr/local/bin/idb_companion || \
+              { mkdir -p /usr/local/bin && ln -sf "$COMP" /usr/local/bin/idb_companion; } || true
+          fi
+          echo "idb_companion: ${COMP:-<not found>} ; /usr/local/bin symlink: $(ls -l /usr/local/bin/idb_companion 2>/dev/null || echo none)"
           # fb-idb (the `idb` CLI) needs a Python it supports; the runner's default
           # python3 may be too new (3.14). Install it into a dedicated venv on a
           # pinned Python and put that venv's bin on PATH for later steps, so `idb`
@@ -151,7 +161,9 @@ jobs:
           export PATH="/tmp/idbvenv/bin:$HOME/.bun/bin:$PATH"
           # Prereqs: idb on PATH + the web backend still serving sign-in/pairing.
           command -v idb >/dev/null || { echo "::error::idb not on PATH"; exit 1; }
-          idb --version || true
+          command -v idb_companion >/dev/null || [ -x /usr/local/bin/idb_companion ] || { echo "::error::idb_companion not installed (facebook/fb tap)"; exit 1; }
+          # Smoke-test the companion path the python client uses.
+          idb list-targets >/dev/null 2>&1 || echo "warning: idb list-targets failed (will retry in capture)"
           curl -fsS http://localhost:3000/handler/sign-in >/dev/null || {
             echo "::error::web backend not reachable from capture step"; cat /tmp/webdev.log || true; exit 1; }
           SIM_ID="$(xcrun simctl list devices booted -j | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next(x["udid"] for r in d["devices"].values() for x in r if "Pro Max" in x["name"]))')"
