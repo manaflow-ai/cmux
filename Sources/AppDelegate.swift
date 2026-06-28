@@ -131,12 +131,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let window: NSWindow? = {
                     if let key = NSApp.keyWindow,
                        let raw = key.identifier?.rawValue,
-                       raw == "cmux.main" || raw.hasPrefix("cmux.main.") {
+                       MainTerminalWindowIdentifier.matches(rawIdentifier: raw) {
                         return key
                     }
                     return NSApp.windows.first(where: {
                         guard let raw = $0.identifier?.rawValue else { return false }
-                        return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+                        return MainTerminalWindowIdentifier.matches(rawIdentifier: raw)
                     })
                 }()
                 guard let window else { return }
@@ -10990,7 +10990,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         guard let raw = window.identifier?.rawValue else { return false }
-        return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+        return MainTerminalWindowIdentifier.matches(rawIdentifier: raw)
     }
 
     private func workspaceForMainActor(tabId: UUID) -> Workspace? {
@@ -11008,7 +11008,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         closeMainWindowContainingTabIdObserverForTesting?(tabId, recordHistory)
 #endif
         guard let context = contextContainingTabId(tabId) else { return }
-        let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
+        let expectedIdentifier = MainTerminalWindowIdentifier(forWindowId: context.windowId).expectedIdentifier
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         if !recordHistory {
             closedWindowHistorySuppressedWindowIds.insert(context.windowId)
@@ -11045,11 +11045,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let isJumpUnreadUITest = ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1"
         if isJumpUnreadUITest {
-            writeJumpUnreadTestData([
-                "jumpUnreadOpenCalled": "1",
-                "jumpUnreadOpenTabId": tabId.uuidString,
-                "jumpUnreadOpenSurfaceId": surfaceId?.uuidString ?? "",
-            ])
+            writeJumpUnreadTestData(NotificationOpenRoutingTrace.openCalled(tabId: tabId, surfaceId: surfaceId).fields)
         }
 #endif
         guard let context = contextContainingTabId(tabId) else {
@@ -11058,32 +11054,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabId: tabId,
                 surfaceId: surfaceId,
                 notificationId: notificationId,
-                reason: "missing_context"
+                reason: NotificationOpenRoutingTrace.missingContextReason
             )
 #endif
 #if DEBUG
             if isJumpUnreadUITest {
-                writeJumpUnreadTestData(["jumpUnreadOpenContextFound": "0", "jumpUnreadOpenUsedFallback": "1"])
+                writeJumpUnreadTestData(NotificationOpenRoutingTrace.contextMissingUsedFallback.fields)
             }
 #endif
             let ok = openNotificationFallback(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
 #if DEBUG
             if isJumpUnreadUITest {
-                writeJumpUnreadTestData(["jumpUnreadOpenResult": ok ? "1" : "0"])
+                writeJumpUnreadTestData(NotificationOpenRoutingTrace.openResult(ok).fields)
             }
 #endif
             return ok
         }
 #if DEBUG
         if isJumpUnreadUITest {
-            writeJumpUnreadTestData(["jumpUnreadOpenContextFound": "1", "jumpUnreadOpenUsedFallback": "0"])
+            writeJumpUnreadTestData(NotificationOpenRoutingTrace.contextFoundNoFallback.fields)
         }
 #endif
         return openNotificationInContext(context, tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
     }
 
     func openNotificationInContext(_ context: RegisteredMainWindow, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
+        let expectedIdentifier = MainTerminalWindowIdentifier(forWindowId: context.windowId).expectedIdentifier
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         guard let window else {
 #if DEBUG
@@ -11091,7 +11087,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabId: tabId,
                 surfaceId: surfaceId,
                 notificationId: notificationId,
-                reason: "missing_window expectedIdentifier=\(expectedIdentifier)"
+                reason: NotificationOpenRoutingTrace.missingWindowReason(expectedIdentifier: expectedIdentifier)
             )
 #endif
             return false
@@ -11105,10 +11101,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabId: tabId,
                 surfaceId: surfaceId,
                 notificationId: notificationId,
-                reason: "focus_failed"
+                reason: NotificationOpenRoutingTrace.focusFailedReason
             )
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
-                writeJumpUnreadTestData(["jumpUnreadOpenResult": "0"])
+                writeJumpUnreadTestData(NotificationOpenRoutingTrace.openResult(false).fields)
             }
 #endif
             return false
@@ -11136,7 +11132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarSelection: sidebarSelectionState(for: context).selection
         )
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
-            writeJumpUnreadTestData(["jumpUnreadOpenInContext": "1", "jumpUnreadOpenResult": "1"])
+            writeJumpUnreadTestData(NotificationOpenRoutingTrace.openedInContext.fields)
         }
 #endif
         return true
@@ -11147,7 +11143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let tabManager else {
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
-                writeJumpUnreadTestData(["jumpUnreadFallbackFail": "missing_tabManager"])
+                writeJumpUnreadTestData(NotificationOpenRoutingTrace.fallbackFailed("missing_tabManager").fields)
             }
 #endif
             return false
@@ -11155,7 +11151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard tabManager.tabs.contains(where: { $0.id == tabId }) else {
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
-                writeJumpUnreadTestData(["jumpUnreadFallbackFail": "tab_not_in_active_manager"])
+                writeJumpUnreadTestData(NotificationOpenRoutingTrace.fallbackFailed("tab_not_in_active_manager").fields)
             }
 #endif
             return false
@@ -11163,7 +11159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let window = (NSApp.keyWindow ?? NSApp.windows.first(where: { isMainTerminalWindow($0) })) else {
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
-                writeJumpUnreadTestData(["jumpUnreadFallbackFail": "missing_window"])
+                writeJumpUnreadTestData(NotificationOpenRoutingTrace.fallbackFailed("missing_window").fields)
             }
 #endif
             return false
@@ -11174,10 +11170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId) else {
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
-                writeJumpUnreadTestData([
-                    "jumpUnreadFallbackFail": "focus_failed",
-                    "jumpUnreadOpenResult": "0",
-                ])
+                writeJumpUnreadTestData(NotificationOpenRoutingTrace.fallbackFocusFailed.fields)
             }
 #endif
             return false
@@ -11196,7 +11189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
-            writeJumpUnreadTestData(["jumpUnreadOpenInFallback": "1", "jumpUnreadOpenResult": "1"])
+            writeJumpUnreadTestData(NotificationOpenRoutingTrace.openedInFallback.fields)
         }
 #endif
         return true

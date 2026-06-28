@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Pure window-assembly policy for the session snapshot and the session-autosave
 /// fingerprint.
@@ -101,5 +101,97 @@ public struct SessionSnapshotBuilder: Sendable {
         }
 
         return hasher.finalize()
+    }
+
+    /// Assembles the value-typed pieces of one window's tab-manager session
+    /// snapshot from the flattened per-workspace inputs.
+    ///
+    /// Byte-identical to the legacy `TabManager.sessionSnapshot` body: filters
+    /// the inputs to the restorable workspaces, caps them at `maxWorkspaces` in
+    /// tab order, builds each survivor's snapshot through `workspaceSnapshot`
+    /// (so the app-side per-`Workspace` read only runs for survivors), resolves
+    /// the selected-workspace index within the survivors, builds the per-group
+    /// ordered restorable-member map, and folds the group snapshots through
+    /// `groupCoordinator`.
+    ///
+    /// - Parameters:
+    ///   - inputs: the flattened per-workspace inputs, in tab order. Element `i`
+    ///     corresponds to the host's workspace `i`, the index passed back to
+    ///     `workspaceSnapshot`.
+    ///   - selectedTabId: the selected workspace's id, or nil (legacy
+    ///     `selectedTabId`).
+    ///   - groups: the window's workspace groups in sidebar/tab order (legacy
+    ///     `workspaceGroups`).
+    ///   - maxWorkspaces: the per-window workspace cap
+    ///     (`SessionPersistencePolicy.maxWorkspacesPerWindow`).
+    ///   - groupCoordinator: the shared group-snapshot coordinator the host
+    ///     already holds; reused rather than re-instantiated.
+    ///   - workspaceSnapshot: builds the app-side snapshot for the workspace at
+    ///     the given original input index. Called once per surviving workspace,
+    ///     in order, so the live per-`Workspace` snapshot read only runs for the
+    ///     restorable, capped workspaces.
+    /// - Returns: the value-typed plan the host folds into its
+    ///   `SessionTabManagerSnapshot`.
+    public func assembleTabManagerSnapshot<WorkspaceSnapshot>(
+        inputs: [SessionWorkspaceSnapshotInput],
+        selectedTabId: UUID?,
+        groups: [WorkspaceGroup],
+        maxWorkspaces: Int,
+        groupCoordinator: SessionSnapshotGroupCoordinator,
+        workspaceSnapshot: (Int) -> WorkspaceSnapshot
+    ) -> SessionTabManagerSnapshotPlan<WorkspaceSnapshot> {
+        let restorableTabs = Array(
+            inputs.enumerated()
+                .filter { $0.element.isRestorable }
+                .prefix(maxWorkspaces)
+        )
+        let workspaceSnapshots = restorableTabs
+            .map { workspaceSnapshot($0.offset) }
+        let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
+            restorableTabs.firstIndex(where: { $0.element.id == selectedTabId })
+        }
+        let occupiedGroupIds = Set(restorableTabs.compactMap { $0.element.groupId })
+        // Build a per-group ordered list of restorable member IDs so we can
+        // record the anchor's index (restore-stable across UUID rotation).
+        let restorableMembersByGroupId: [UUID: [UUID]] = {
+            var map: [UUID: [UUID]] = [:]
+            for tab in restorableTabs {
+                if let gid = tab.element.groupId {
+                    map[gid, default: []].append(tab.element.id)
+                }
+            }
+            return map
+        }()
+        let groupSnapshots = groupCoordinator.assembleGroupSnapshots(
+            groups: groups,
+            occupiedGroupIds: occupiedGroupIds,
+            restorableMemberIdsByGroupId: restorableMembersByGroupId
+        )
+        return SessionTabManagerSnapshotPlan(
+            selectedWorkspaceIndex: selectedWorkspaceIndex,
+            workspaceSnapshots: workspaceSnapshots,
+            groupSnapshots: groupSnapshots
+        )
+    }
+
+    /// The ordered restorable workspace ids that survive the session-snapshot
+    /// filter and cap, byte-identical to the legacy
+    /// `TabManager.sessionSnapshotWorkspaceIds`.
+    ///
+    /// - Parameters:
+    ///   - inputs: the flattened per-workspace inputs, in tab order.
+    ///   - maxWorkspaces: the per-window workspace cap
+    ///     (`SessionPersistencePolicy.maxWorkspacesPerWindow`).
+    /// - Returns: the restorable workspace ids, in tab order, capped.
+    public func restorableWorkspaceIds(
+        inputs: [SessionWorkspaceSnapshotInput],
+        maxWorkspaces: Int
+    ) -> [UUID] {
+        Array(
+            inputs
+                .filter { $0.isRestorable }
+                .prefix(maxWorkspaces)
+                .map { $0.id }
+        )
     }
 }
