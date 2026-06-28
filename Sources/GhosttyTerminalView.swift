@@ -2739,21 +2739,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
     override var isOpaque: Bool { false }
 
     private func resolvedSurfaceSize(preferred size: CGSize?) -> CGSize {
-        if let size,
-           size.width > 0,
-           size.height > 0 {
-            return size
-        }
-        let currentBounds = bounds.size
-        if currentBounds.width > 0, currentBounds.height > 0 {
-            return currentBounds
-        }
-        if let pending = pendingSurfaceSize,
-           pending.width > 0,
-           pending.height > 0 {
-            return pending
-        }
-        return currentBounds
+        TerminalSurfacePixelGeometry.resolvedSurfaceSize(
+            preferred: size,
+            currentBounds: bounds.size,
+            pending: pendingSurfaceSize
+        )
     }
 
     private static func hasTabDragPasteboardTypes() -> Bool {
@@ -2840,11 +2830,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         // render duplicated rows. Terminals keep their logical pixel density
         // and scale visually under magnification; in split mode the two
         // formulas are identical.
-        let backingSize = CGSize(
-            width: size.width * max(1.0, window.backingScaleFactor),
-            height: size.height * max(1.0, window.backingScaleFactor)
+        let geometry = TerminalSurfacePixelGeometry(
+            resolvedSize: size,
+            backingScale: window.backingScaleFactor
         )
-        guard backingSize.width > 0, backingSize.height > 0 else {
+        let backingSize = geometry.backingSize
+        guard geometry.isValid else {
 #if DEBUG
             let signature = "zeroBacking-\(Int(backingSize.width))x\(Int(backingSize.height))"
             if lastSizeSkipSignature != signature {
@@ -2868,13 +2859,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
             lastSizeSkipSignature = nil
         }
 #endif
-        let xScale = backingSize.width / size.width
-        let yScale = backingSize.height / size.height
-        let layerScale = max(1.0, window.backingScaleFactor)
-        let drawablePixelSize = CGSize(
-            width: floor(max(0, backingSize.width)),
-            height: floor(max(0, backingSize.height))
-        )
+        let xScale = geometry.xScale
+        let yScale = geometry.yScale
+        let layerScale = geometry.layerScale
+        let drawablePixelSize = geometry.drawablePixelSize
         var didChange = false
 
         CATransaction.begin()
