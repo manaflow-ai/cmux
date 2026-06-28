@@ -435,7 +435,8 @@ actor RemoteTmuxSSHTransport {
         "no route to host",
         "network is unreachable",
         "operation timed out",
-        "name or service not known",        // DNS NXDOMAIN
+        "could not resolve hostname",       // OpenSSH DNS-resolution wrapper (all OSes)
+        "name or service not known",        // Linux getaddrinfo NXDOMAIN
         "temporary failure in name resolution",
         "kex_exchange_identification:",     // target spoke no SSH / closed during banner
     ]
