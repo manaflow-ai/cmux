@@ -9,9 +9,15 @@ public struct BrowserWebAuthnSecurityOrigin {
     public let port: Int
 
     public init(origin: WKSecurityOrigin) {
-        scheme = origin.protocol.lowercased()
-        host = origin.host.lowercased()
-        port = Self.normalizedPort(scheme: scheme, port: origin.port)
+        // WKSecurityOrigin is @MainActor under Swift 6.1 (WebKit); these reads
+        // happen on WebKit's main-thread delegate callbacks, so assumeIsolated is
+        // behavior-preserving. (Local Swift 6.3 accepted the bare reads.)
+        let (originProtocol, originHost, originPort) = MainActor.assumeIsolated {
+            (origin.protocol, origin.host, origin.port)
+        }
+        scheme = originProtocol.lowercased()
+        host = originHost.lowercased()
+        port = Self.normalizedPort(scheme: scheme, port: originPort)
     }
 
     public init?(url: URL) {

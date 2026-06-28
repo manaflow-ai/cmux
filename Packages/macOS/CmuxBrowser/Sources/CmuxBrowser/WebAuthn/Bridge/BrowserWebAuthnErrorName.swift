@@ -2,7 +2,7 @@
 ///
 /// The raw values are the exact `DOMException`/`TypeError` names the browser
 /// shim reconstructs on the JavaScript side.
-public enum BrowserWebAuthnErrorName: String {
+public enum BrowserWebAuthnErrorName: String, Sendable {
     case invalidState = "InvalidStateError"
     case notAllowed = "NotAllowedError"
     case notSupported = "NotSupportedError"
