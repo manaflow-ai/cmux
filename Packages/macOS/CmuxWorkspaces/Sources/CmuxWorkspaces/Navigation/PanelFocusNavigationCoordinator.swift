@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 public import Bonsplit
 
 /// Orchestrates pane/surface focus navigation for a workspace: Cmd-arrow
@@ -266,5 +266,115 @@ public final class PanelFocusNavigationCoordinator {
             self.focusReconcileScheduled = false
             self.reconcileFocusState()
         }
+    }
+
+    // MARK: - Non-focus-split focus preservation
+
+    /// Preserves keyboard focus on `preferredPanelId` after a split that did not
+    /// take focus intent (legacy `Workspace.preserveFocusAfterNonFocusSplit`).
+    ///
+    /// Bonsplit's `splitPane` focuses the newly created pane and may emit one
+    /// delayed didSelect/didFocus callback, so this re-asserts focus over three
+    /// main-queue turns: once synchronously, then on the next two turns. The
+    /// generation token (held app-side in `SurfaceRegistryModel`) lets a
+    /// superseding split cancel the pending reasserts. When `preferredPanelId` is
+    /// nil or already gone, it clears any pending request and schedules a plain
+    /// focus reconcile instead.
+    ///
+    /// `previousHostedView` is the pre-split focused terminal's AppKit hosted
+    /// view, captured by the split-creation caller before bonsplit mutates
+    /// focus; it crosses the seam opaquely as `AnyObject?` and is forwarded only
+    /// on the first (synchronous) reassert (`allowPreviousHostedView: true`),
+    /// matching the legacy ordering.
+    public func preserveFocusAfterNonFocusSplit(
+        preferredPanelId: UUID?,
+        splitPanelId: UUID,
+        previousHostedView: AnyObject?
+    ) {
+        guard let host else { return }
+        guard let preferredPanelId, host.panelFocusNavPanelExists(panelId: preferredPanelId) else {
+            host.panelFocusNavClearNonFocusSplitFocusReassert(generation: nil)
+            scheduleFocusReconcile()
+            return
+        }
+
+        let generation = host.panelFocusNavBeginNonFocusSplitFocusReassert(
+            preferredPanelId: preferredPanelId,
+            splitPanelId: splitPanelId
+        )
+
+        // Bonsplit splitPane focuses the newly created pane and may emit one delayed
+        // didSelect/didFocus callback. Re-assert focus over multiple turns so model
+        // focus and AppKit first responder stay aligned with non-focus-intent splits.
+        reassertFocusAfterNonFocusSplit(
+            generation: generation,
+            preferredPanelId: preferredPanelId,
+            splitPanelId: splitPanelId,
+            previousHostedView: previousHostedView,
+            allowPreviousHostedView: true
+        )
+
+        host.panelFocusNavScheduleAfterCurrentTurn { [weak self] in
+            guard let self else { return }
+            self.reassertFocusAfterNonFocusSplit(
+                generation: generation,
+                preferredPanelId: preferredPanelId,
+                splitPanelId: splitPanelId,
+                previousHostedView: previousHostedView,
+                allowPreviousHostedView: false
+            )
+
+            guard let host = self.host else { return }
+            host.panelFocusNavScheduleAfterCurrentTurn { [weak self] in
+                guard let self else { return }
+                self.reassertFocusAfterNonFocusSplit(
+                    generation: generation,
+                    preferredPanelId: preferredPanelId,
+                    splitPanelId: splitPanelId,
+                    previousHostedView: previousHostedView,
+                    allowPreviousHostedView: false
+                )
+                self.scheduleFocusReconcile()
+                self.host?.panelFocusNavClearNonFocusSplitFocusReassert(generation: generation)
+            }
+        }
+    }
+
+    /// One reassert turn for ``preserveFocusAfterNonFocusSplit``: re-runs
+    /// `focusPanel` (or terminal first-responder convergence) only while the
+    /// pending request still matches `generation` and the preferred panel still
+    /// exists (legacy `Workspace.reassertFocusAfterNonFocusSplit`). A stale
+    /// generation no-ops; a vanished panel clears the request.
+    private func reassertFocusAfterNonFocusSplit(
+        generation: UInt64,
+        preferredPanelId: UUID,
+        splitPanelId: UUID,
+        previousHostedView: AnyObject?,
+        allowPreviousHostedView: Bool
+    ) {
+        guard let host else { return }
+        guard host.panelFocusNavMatchesPendingNonFocusSplitFocusReassert(
+            generation: generation,
+            preferredPanelId: preferredPanelId,
+            splitPanelId: splitPanelId
+        ) else {
+            return
+        }
+
+        guard host.panelFocusNavPanelExists(panelId: preferredPanelId) else {
+            host.panelFocusNavClearNonFocusSplitFocusReassert(generation: generation)
+            return
+        }
+
+        if host.panelFocusNavFocusedPanelId == splitPanelId {
+            host.panelFocusNavReassertFocusPanel(
+                panelId: preferredPanelId,
+                previousHostedView: allowPreviousHostedView ? previousHostedView : nil
+            )
+            return
+        }
+
+        guard host.panelFocusNavFocusedPanelId == preferredPanelId else { return }
+        host.panelFocusNavEnsureTerminalFocus(panelId: preferredPanelId)
     }
 }

@@ -174,4 +174,33 @@ public protocol PanelFocusNavigationHosting: AnyObject {
     /// `pullRequest = panelPullRequests[targetPanelId]`), including clearing it
     /// to `nil` when none is recorded.
     func panelFocusNavApplyFocusedPanelPullRequest(panelId: UUID)
+
+    // MARK: Non-focus-split focus-reassert state machine
+
+    /// Begins a non-focus-intent split focus-reassert and returns its generation
+    /// token (legacy `Workspace.beginNonFocusSplitFocusReassert`, a thin forward
+    /// into `SurfaceRegistryModel`'s generation counter + pending request). The
+    /// state machine stays app-side; the coordinator only reaches it through
+    /// these witnesses.
+    func panelFocusNavBeginNonFocusSplitFocusReassert(preferredPanelId: UUID, splitPanelId: UUID) -> UInt64
+
+    /// Whether the pending reassert request still matches `generation` and the
+    /// `preferredPanelId`/`splitPanelId` pair (legacy
+    /// `Workspace.matchesPendingNonFocusSplitFocusReassert`). A stale generation
+    /// (superseded by a newer split) returns false so the deferred turns no-op.
+    func panelFocusNavMatchesPendingNonFocusSplitFocusReassert(generation: UInt64, preferredPanelId: UUID, splitPanelId: UUID) -> Bool
+
+    /// Clears the pending reassert request (legacy
+    /// `Workspace.clearNonFocusSplitFocusReassert(generation:)`). A `nil`
+    /// generation clears unconditionally; a non-nil generation clears only when
+    /// it still matches, so a superseding split's request is preserved.
+    func panelFocusNavClearNonFocusSplitFocusReassert(generation: UInt64?)
+
+    /// Re-runs the full `Workspace.focusPanel(_:previousHostedView:)` effect for
+    /// `panelId`, forwarding the captured pre-split terminal hosted view so AppKit
+    /// first responder follows the model focus through the reparent (legacy
+    /// `focusPanel(preferredPanelId, previousHostedView:)`). The hosted view
+    /// crosses the seam opaquely as `AnyObject?`; the host casts it back to its
+    /// concrete AppKit type.
+    func panelFocusNavReassertFocusPanel(panelId: UUID, previousHostedView: AnyObject?)
 }
