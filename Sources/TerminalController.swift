@@ -1974,16 +1974,23 @@ class TerminalController: MobileViewportSurfaceLimiting {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
 
-        let requestedPaneUUID = v2UUID(params, "pane_id")
-        let requestedWorkspaceUUID = v2UUID(params, "workspace_id")
-        let requestedWindowUUID = v2UUID(params, "window_id")
-        let beforeSurfaceId = v2UUID(params, "before_surface_id")
-        let afterSurfaceId = v2UUID(params, "after_surface_id")
-        let explicitIndex = v2Int(params, "index")
+        // The pure param-decision layer (anchor-count validation, target-routing
+        // precedence, destination index, same/cross branch, success field set)
+        // lives in ``ControlSurfaceMovePlan`` / ``ControlSurfaceMoveResolution``
+        // (CmuxControlSocket); the live window/workspace/pane lookups and
+        // Bonsplit mutations stay here inside `v2MainSync`.
+        let plan = ControlSurfaceMovePlan(
+            surfaceID: surfaceId,
+            requestedPaneID: v2UUID(params, "pane_id"),
+            requestedWorkspaceID: v2UUID(params, "workspace_id"),
+            requestedWindowID: v2UUID(params, "window_id"),
+            beforeSurfaceID: v2UUID(params, "before_surface_id"),
+            afterSurfaceID: v2UUID(params, "after_surface_id"),
+            explicitIndex: v2Int(params, "index")
+        )
         let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
 
-        let anchorCount = (beforeSurfaceId != nil ? 1 : 0) + (afterSurfaceId != nil ? 1 : 0)
-        if anchorCount > 1 {
+        if plan.anchorCountExceeded {
             return .err(code: "invalid_params", message: "Specify at most one of before_surface_id or after_surface_id", data: nil)
         }
 
@@ -2007,9 +2014,10 @@ class TerminalController: MobileViewportSurfaceLimiting {
             var targetTabManager = source.tabManager
             var targetWorkspace = sourceWorkspace
             var targetPane = sourcePane ?? sourceWorkspace.bonsplitController.focusedPaneId ?? sourceWorkspace.bonsplitController.allPaneIds.first
-            var targetIndex = explicitIndex
+            var targetIndex = plan.explicitIndex
 
-            if let anchorSurfaceId = beforeSurfaceId ?? afterSurfaceId {
+            switch plan.routing {
+            case .anchor(let anchorSurfaceId):
                 guard let anchor = app.locateSurface(surfaceId: anchorSurfaceId),
                       let anchorWorkspace = anchor.tabManager.tabs.first(where: { $0.id == anchor.workspaceId }),
                       let anchorPane = anchorWorkspace.paneId(forPanelId: anchorSurfaceId),
@@ -2021,8 +2029,8 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 targetTabManager = anchor.tabManager
                 targetWorkspace = anchorWorkspace
                 targetPane = anchorPane
-                targetIndex = (beforeSurfaceId != nil) ? anchorIndex : (anchorIndex + 1)
-            } else if let paneUUID = requestedPaneUUID {
+                targetIndex = plan.anchorDestinationIndex(anchorIndex)
+            case .pane(let paneUUID):
                 guard let located = v2LocatePane(paneUUID) else {
                     result = .err(code: "not_found", message: "Pane not found", data: ["pane_id": paneUUID.uuidString])
                     return
@@ -2031,7 +2039,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 targetTabManager = located.tabManager
                 targetWorkspace = located.workspace
                 targetPane = located.paneId
-            } else if let workspaceUUID = requestedWorkspaceUUID {
+            case .workspace(let workspaceUUID):
                 guard let tm = app.tabManagerFor(tabId: workspaceUUID),
                       let ws = tm.tabs.first(where: { $0.id == workspaceUUID }) else {
                     result = .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": workspaceUUID.uuidString])
@@ -2041,7 +2049,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 targetWorkspace = ws
                 targetWindowId = app.windowId(for: tm) ?? targetWindowId
                 targetPane = ws.bonsplitController.focusedPaneId ?? ws.bonsplitController.allPaneIds.first
-            } else if let windowUUID = requestedWindowUUID {
+            case .window(let windowUUID):
                 guard let tm = app.tabManagerFor(windowId: windowUUID) else {
                     result = .err(code: "not_found", message: "Window not found", data: ["window_id": windowUUID.uuidString])
                     return
@@ -2055,6 +2063,8 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 }
                 targetWorkspace = ws
                 targetPane = ws.bonsplitController.focusedPaneId ?? ws.bonsplitController.allPaneIds.first
+            case .source:
+                break
             }
 
             guard let destinationPane = targetPane else {
@@ -2062,57 +2072,53 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 return
             }
 
-            if targetWorkspace.id == sourceWorkspace.id {
+            switch ControlSurfaceMoveResolution.decide(sourceWorkspaceID: sourceWorkspace.id, targetWorkspaceID: targetWorkspace.id) {
+            case .sameWorkspace:
                 guard sourceWorkspace.moveSurface(panelId: surfaceId, toPane: destinationPane, atIndex: targetIndex, focus: focus) else {
                     result = .err(code: "internal_error", message: "Failed to move surface", data: nil)
                     return
                 }
-                result = .ok([
-                    "window_id": targetWindowId.uuidString,
-                    "window_ref": v2Ref(kind: .window, uuid: targetWindowId),
-                    "workspace_id": targetWorkspace.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: targetWorkspace.id),
-                    "pane_id": destinationPane.id.uuidString,
-                    "pane_ref": v2Ref(kind: .pane, uuid: destinationPane.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
-                ])
+                result = .ok(ControlSurfaceMoveResolution.successFields(
+                    windowID: targetWindowId,
+                    workspaceID: targetWorkspace.id,
+                    paneID: destinationPane.id,
+                    surfaceID: surfaceId,
+                    makeRef: { self.v2Ref(kind: $0, uuid: $1) }
+                ))
                 return
-            }
-
-            guard let transfer = sourceWorkspace.detachSurface(panelId: surfaceId) else {
-                result = .err(code: "internal_error", message: "Failed to detach surface", data: nil)
-                return
-            }
-
-            if targetWorkspace.attachDetachedSurface(transfer, inPane: destinationPane, atIndex: targetIndex, focus: focus) == nil {
-                // Roll back to source workspace if attach fails.
-                let rollbackPane = sourcePane.flatMap { sp in sourceWorkspace.bonsplitController.allPaneIds.first(where: { $0 == sp }) }
-                    ?? sourceWorkspace.bonsplitController.focusedPaneId
-                    ?? sourceWorkspace.bonsplitController.allPaneIds.first
-                if let rollbackPane {
-                    _ = sourceWorkspace.attachDetachedSurface(transfer, inPane: rollbackPane, atIndex: sourceIndex, focus: focus)
+            case .crossWorkspace:
+                guard let transfer = sourceWorkspace.detachSurface(panelId: surfaceId) else {
+                    result = .err(code: "internal_error", message: "Failed to detach surface", data: nil)
+                    return
                 }
-                result = .err(code: "internal_error", message: "Failed to attach surface to destination", data: nil)
+
+                if targetWorkspace.attachDetachedSurface(transfer, inPane: destinationPane, atIndex: targetIndex, focus: focus) == nil {
+                    // Roll back to source workspace if attach fails.
+                    let rollbackPane = sourcePane.flatMap { sp in sourceWorkspace.bonsplitController.allPaneIds.first(where: { $0 == sp }) }
+                        ?? sourceWorkspace.bonsplitController.focusedPaneId
+                        ?? sourceWorkspace.bonsplitController.allPaneIds.first
+                    if let rollbackPane {
+                        _ = sourceWorkspace.attachDetachedSurface(transfer, inPane: rollbackPane, atIndex: sourceIndex, focus: focus)
+                    }
+                    result = .err(code: "internal_error", message: "Failed to attach surface to destination", data: nil)
+                    return
+                }
+
+                if focus {
+                    _ = app.focusMainWindow(windowId: targetWindowId)
+                    setActiveTabManager(targetTabManager)
+                    targetTabManager.selectWorkspace(targetWorkspace)
+                }
+
+                result = .ok(ControlSurfaceMoveResolution.successFields(
+                    windowID: targetWindowId,
+                    workspaceID: targetWorkspace.id,
+                    paneID: destinationPane.id,
+                    surfaceID: surfaceId,
+                    makeRef: { self.v2Ref(kind: $0, uuid: $1) }
+                ))
                 return
             }
-
-            if focus {
-                _ = app.focusMainWindow(windowId: targetWindowId)
-                setActiveTabManager(targetTabManager)
-                targetTabManager.selectWorkspace(targetWorkspace)
-            }
-
-            result = .ok([
-                "window_id": targetWindowId.uuidString,
-                "window_ref": v2Ref(kind: .window, uuid: targetWindowId),
-                "workspace_id": targetWorkspace.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: targetWorkspace.id),
-                "pane_id": destinationPane.id.uuidString,
-                "pane_ref": v2Ref(kind: .pane, uuid: destinationPane.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
-            ])
         }
 
         return result
