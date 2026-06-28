@@ -593,6 +593,10 @@ extension TerminalSurface {
         return String(decoding: rawData, as: UTF8.self)
     }
 
+    /// The `kVK_ANSI_*` virtual keycode for a US-layout letter (`a`…`z`,
+    /// case-insensitive), or `nil` for any non-letter. Lets an `ESC <letter>`
+    /// meta sequence be replayed as a real key event; the inverse of
+    /// ``metaKey(forFollowingByte:)``'s letter handling.
     private static func keycodeForLetter(_ letter: Character) -> UInt32? {
         switch String(letter).lowercased() {
         case "a": return UInt32(kVK_ANSI_A)
