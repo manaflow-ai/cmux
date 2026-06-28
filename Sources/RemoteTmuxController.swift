@@ -968,30 +968,96 @@ final class RemoteTmuxController {
         return nil
     }
 
-    /// Uploads `localURLs` to the remote host in band over the mirror's control
-    /// connection (no second SSH channel), returning the remote paths to insert, or
-    /// nil on failure. The image-paste path uses this for connected mirrors.
-    func uploadFilesInBand(surfaceId: UUID, localURLs: [URL]) async -> [String]? {
-        guard let target = pasteTarget(forSurfaceId: surfaceId) else { return nil }
+    /// Uploads `localURLs` to the remote host and returns the remote paths to
+    /// insert. The image-paste/drop paths use this for connected mirrors.
+    ///
+    /// When every file fits within ``RemoteTmuxInBandUpload/maxFileBytes`` the
+    /// upload streams in band over the mirror's control connection (no second SSH
+    /// channel, so it works on `MaxSessions 1` hosts). If *any* file is larger, the
+    /// whole batch falls back to scp over a second SSH connection — which a
+    /// single-connection host refuses, yielding
+    /// ``RemoteTmuxUploadError/tooLargeForSingleConnectionHost(maxBytes:)`` so the
+    /// caller can tell the user why the large drop didn't go through.
+    func uploadFilesInBand(surfaceId: UUID, localURLs: [URL]) async -> Result<[String], Error> {
+        guard let target = pasteTarget(forSurfaceId: surfaceId) else {
+            return .failure(NSError(domain: "cmux.inBandUpload", code: 1))
+        }
+
+        // Stat first (cheap, no read into memory): if anything is oversized the
+        // whole batch must take the scp fallback.
+        let hasOversizedFile = localURLs.contains { url in
+            guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int else {
+                return false
+            }
+            return size > RemoteTmuxInBandUpload.maxFileBytes
+        }
+
+        if hasOversizedFile {
+            return await uploadFilesViaSCPFallback(surfaceId: surfaceId, localURLs: localURLs)
+        }
+
         var remotePaths: [String] = []
         for url in localURLs {
-            // Reject oversized files by stat before reading them into memory, and
-            // read off the main actor so a large file can't freeze the UI.
-            if let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int,
-               size > RemoteTmuxInBandUpload.maxFileBytes {
-                return nil
-            }
+            // Read off the main actor so a large file can't freeze the UI.
             let fileURL = url
             guard let data = await Task.detached(priority: .userInitiated, operation: {
                 try? Data(contentsOf: fileURL)
-            }).value else { return nil }
+            }).value else {
+                return .failure(NSError(domain: "cmux.inBandUpload", code: 2))
+            }
             let ext = url.pathExtension.isEmpty ? nil : url.pathExtension
             guard let remotePath = await target.connection.uploadFileInBand(
                 data: data, remoteExtension: ext
-            ) else { return nil }
+            ) else {
+                return .failure(NSError(domain: "cmux.inBandUpload", code: 2))
+            }
             remotePaths.append(remotePath)
         }
-        return remotePaths
+        return .success(remotePaths)
+    }
+
+    /// scp fallback for `uploadFilesInBand` when a file is too large to stream in
+    /// band. Resolves the mirror host's ``DetectedSSHSession`` (same way
+    /// `remoteUploadTarget` does) and uploads the whole batch over a second SSH
+    /// connection. A single-connection host refuses that channel, which we map to a
+    /// user-facing too-large error.
+    private func uploadFilesViaSCPFallback(surfaceId: UUID, localURLs: [URL]) async -> Result<[String], Error> {
+        guard let session = scpFallbackSession(forSurfaceId: surfaceId) else {
+            return .failure(RemoteTmuxUploadError.tooLargeForSingleConnectionHost(
+                maxBytes: RemoteTmuxInBandUpload.maxFileBytes
+            ))
+        }
+        let result: Result<[String], Error> = await withCheckedContinuation { continuation in
+            session.uploadDroppedFiles(
+                localURLs,
+                operation: TerminalImageTransferOperation()
+            ) { result in
+                continuation.resume(returning: result)
+            }
+        }
+        switch result {
+        case .success(let paths):
+            return .success(paths)
+        case .failure(let error):
+            // scp ran but failed. We can't tell whether the host simply refused
+            // the 2nd channel (MaxSessions=1) or scp failed for an unrelated
+            // reason (unreachable, timed out, auth, a non-file URL). Surface
+            // scp's own error alongside the size context, rather than always
+            // blaming the connection cap, which would mislead the user.
+            return .failure(RemoteTmuxUploadError.tooLargeFallbackFailed(
+                maxBytes: RemoteTmuxInBandUpload.maxFileBytes,
+                underlying: error
+            ))
+        }
+    }
+
+    /// The mirror host's scp session for a session-mirror surface, or `nil`.
+    private func scpFallbackSession(forSurfaceId surfaceId: UUID) -> DetectedSSHSession? {
+        for sessionMirror in actionMirrors
+        where !sessionMirror.connection.exited && sessionMirror.ownsSurface(surfaceId) {
+            return sessionMirror.host.detectedSSHSession()
+        }
+        return nil
     }
 
     /// A split was requested on a mirror window-tab (the split button / any

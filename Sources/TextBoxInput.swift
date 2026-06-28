@@ -3261,10 +3261,10 @@ struct TextBoxInputContainer: View {
                     }
                     attachments = textView.inlineAttachments()
                     text = textView.plainText()
-                case .failure:
+                case .failure(let error):
                     removePendingPlaceholder()
                     GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                    NSSound.beep()
+                    presentRemoteTmuxUploadFailure(error)
                 }
             }
         }
@@ -3290,15 +3290,13 @@ struct TextBoxInputContainer: View {
             )
         case .inBandTmux(let surfaceID):
             // Upload over the mirror's existing -CC control connection (no second
-            // SSH channel) so it works on MaxSessions=1 hosts.
+            // SSH channel) so it works on MaxSessions=1 hosts. Files too large to
+            // stream in band fall back to scp (see uploadFilesInBand).
             Task { @MainActor in
-                if let paths = await AppDelegate.shared?.remoteTmuxController.uploadFilesInBand(
+                let result = await AppDelegate.shared?.remoteTmuxController.uploadFilesInBand(
                     surfaceId: surfaceID, localURLs: fileURLs
-                ) {
-                    finish(.success(paths))
-                } else {
-                    finish(.failure(NSError(domain: "cmux.textbox.attachment", code: 4)))
-                }
+                ) ?? .failure(NSError(domain: "cmux.textbox.attachment", code: 4))
+                finish(result)
             }
         }
     }

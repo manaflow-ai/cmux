@@ -600,16 +600,14 @@ class GhosttyApp {
                     },
                     uploadInBand: { surfaceID, fileURLs, _, finish in
                         // Upload over the mirror's existing -CC control connection (no
-                        // second SSH channel) so it works on MaxSessions=1 hosts.
+                        // second SSH channel) so it works on MaxSessions=1 hosts. Files
+                        // too large to stream in band fall back to scp (see
+                        // uploadFilesInBand).
                         Task { @MainActor in
-                            let paths = await AppDelegate.shared?.remoteTmuxController.uploadFilesInBand(
+                            let result = await AppDelegate.shared?.remoteTmuxController.uploadFilesInBand(
                                 surfaceId: surfaceID, localURLs: fileURLs
-                            )
-                            if let paths {
-                                finish(.success(paths))
-                            } else {
-                                finish(.failure(NSError(domain: "cmux.inBandUpload", code: 2)))
-                            }
+                            ) ?? .failure(NSError(domain: "cmux.inBandUpload", code: 2))
+                            finish(result)
                             GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         }
                     },
@@ -621,13 +619,13 @@ class GhosttyApp {
                         }
                         completeClipboardRequest(with: text)
                     },
-                    onFailure: { _ in
+                    onFailure: { error in
                         MainActor.assumeIsolated {
                             callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
                                 for: operation
                             )
+                            presentRemoteTmuxUploadFailure(error)
                         }
-                        NSSound.beep()
 #if DEBUG
                         cmuxDebugLog("terminal.remotePasteUpload.failed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
 #endif
@@ -7624,16 +7622,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             },
             uploadInBand: { surfaceID, fileURLs, _, finish in
                 // Upload over the mirror's existing -CC control connection (no second
-                // SSH channel) so it works on MaxSessions=1 hosts.
+                // SSH channel) so it works on MaxSessions=1 hosts. Files too large to
+                // stream in band fall back to scp (see uploadFilesInBand).
                 Task { @MainActor in
-                    let paths = await AppDelegate.shared?.remoteTmuxController.uploadFilesInBand(
+                    let result = await AppDelegate.shared?.remoteTmuxController.uploadFilesInBand(
                         surfaceId: surfaceID, localURLs: fileURLs
-                    )
-                    if let paths {
-                        finish(.success(paths))
-                    } else {
-                        finish(.failure(NSError(domain: "cmux.inBandUpload", code: 2)))
-                    }
+                    ) ?? .failure(NSError(domain: "cmux.inBandUpload", code: 2))
+                    finish(result)
                     GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                 }
             },
@@ -7663,12 +7658,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     DispatchQueue.main.async(execute: send)
                 }
             },
-            onFailure: { [weak self] _ in
+            onFailure: { [weak self] error in
                 if let operation {
                     self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
                 }
                 DispatchQueue.main.async {
-                    NSSound.beep()
+                    presentRemoteTmuxUploadFailure(error)
 #if DEBUG
                     cmuxDebugLog("terminal.remoteDropUpload.failed surface=\(self?.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
 #endif

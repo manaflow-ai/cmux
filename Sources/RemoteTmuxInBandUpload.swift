@@ -1,4 +1,63 @@
+import AppKit
 import Foundation
+
+/// Presents `error` to the user when it carries a user-facing message (a
+/// `LocalizedError` with a non-empty `errorDescription`); otherwise just beeps.
+/// Shared by the remote-tmux upload failure paths so a too-large file doesn't fail
+/// silently. Main-actor only (drives an `NSAlert`).
+@MainActor
+func presentRemoteTmuxUploadFailure(_ error: Error) {
+    if let localized = error as? LocalizedError,
+       let message = localized.errorDescription, !message.isEmpty {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "remoteTmux.upload.failed.title",
+            defaultValue: "Upload failed"
+        )
+        alert.informativeText = message
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        alert.runModal()
+    } else {
+        NSSound.beep()
+    }
+}
+
+/// User-facing errors for remote-tmux uploads. Surfaced to the user (e.g. via an
+/// alert) when an upload to a mirror host can't complete.
+enum RemoteTmuxUploadError: LocalizedError {
+    /// A file exceeds ``RemoteTmuxInBandUpload/maxFileBytes`` (so it can't be
+    /// streamed in band) and no second SSH connection is available for the scp
+    /// fallback — typically because the host caps SSH at a single
+    /// connection/channel (`MaxSessions 1`), so the extra channel scp needs
+    /// isn't allowed.
+    case tooLargeForSingleConnectionHost(maxBytes: Int)
+
+    /// A file exceeds ``RemoteTmuxInBandUpload/maxFileBytes`` and the scp
+    /// fallback was attempted but failed for some other reason (host
+    /// unreachable, timed out, auth, a non-file URL, etc.). We surface scp's
+    /// own error rather than blaming the connection cap, which would mislead
+    /// the user about the actual cause.
+    case tooLargeFallbackFailed(maxBytes: Int, underlying: Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .tooLargeForSingleConnectionHost(let maxBytes):
+            let maxMB = maxBytes / (1024 * 1024)
+            return String(
+                localized: "remoteTmux.upload.tooLarge",
+                defaultValue: "This file is too large to upload to this host. Files over \(maxMB) MB need a second SSH connection, which this host doesn't allow."
+            )
+        case .tooLargeFallbackFailed(let maxBytes, let underlying):
+            let maxMB = maxBytes / (1024 * 1024)
+            let detail = underlying.localizedDescription
+            return String(
+                localized: "remoteTmux.upload.fallbackFailed",
+                defaultValue: "This file is too large to send over the tmux connection (over \(maxMB) MB), and the scp fallback failed: \(detail)"
+            )
+        }
+    }
+}
 
 /// Builds and parses the commands for uploading a file to a remote tmux host
 /// *in band* — over the existing `tmux -CC` control connection, with no second
