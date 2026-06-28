@@ -31,4 +31,11 @@ extension Workspace: WorkspaceCreationInheritanceReading {
     var rememberedTerminalFontPointsForConfigInheritance: Float? {
         lastRememberedTerminalFontPointsForConfigInheritance()
     }
+
+    // `currentDirectory` already satisfies the seam's same-named requirement via
+    // the workspace's own cached current-directory property; only the panel
+    // directories need flattening into the seam's value shape.
+    var orderedPanelDirectories: [String] {
+        Array(panelDirectories.values)
+    }
 }
