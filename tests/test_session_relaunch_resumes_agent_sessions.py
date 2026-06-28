@@ -351,51 +351,59 @@ def main() -> int:
                 if len(workspaces) < 4:
                     failures.append(f"expected >=4 restored workspaces after relaunch, got {len(workspaces)}")
 
-                def workspace_contains(index: int, expected: str) -> bool:
-                    if len(client.list_workspaces()) <= index:
-                        return False
-                    client.select_workspace(index)
-                    return expected in _read_scrollback(client)
+                def find_workspace_with(expected: str) -> bool:
+                    # Restored workspaces are not guaranteed to keep their
+                    # seeding order, so scan every workspace for the expected
+                    # resume output instead of trusting a fixed index.
+                    for index in range(len(client.list_workspaces())):
+                        client.select_workspace(index)
+                        if expected in _read_scrollback(client):
+                            return True
+                    return False
 
-                def workspace_line_contains(index: int, tokens: tuple[str, ...]) -> bool:
-                    if len(client.list_workspaces()) <= index:
-                        return False
-                    client.select_workspace(index)
-                    return any(
-                        all(token in line for token in tokens)
-                        for line in _read_scrollback(client).splitlines()
-                    )
+                def find_workspace_with_tokens(tokens: tuple[str, ...]) -> bool:
+                    for index in range(len(client.list_workspaces())):
+                        client.select_workspace(index)
+                        if any(
+                            all(token in line for token in tokens)
+                            for line in _read_scrollback(client).splitlines()
+                        ):
+                            return True
+                    return False
 
-                if not _wait_for_condition(12.0, lambda: workspace_contains(0, codex_expected)):
-                    client.select_workspace(0)
-                    scrollback_tail = "\n".join(_read_scrollback(client).splitlines()[-20:])
+                def best_scrollback_tail() -> str:
+                    # Pick the longest scrollback across all workspaces so the
+                    # failure report shows the most informative pane.
+                    best = ""
+                    for index in range(len(client.list_workspaces())):
+                        client.select_workspace(index)
+                        lines = _read_scrollback(client).splitlines()
+                        if len(lines) >= len(best.splitlines()):
+                            best = "\n".join(lines[-20:])
+                    return best
+
+                if not _wait_for_condition(12.0, lambda: find_workspace_with(codex_expected)):
                     failures.append(
                         "normal relaunch did not resume the saved Codex session; "
-                        f"tail:\n{scrollback_tail}"
+                        f"tail:\n{best_scrollback_tail()}"
                     )
 
-                if not _wait_for_condition(12.0, lambda: workspace_line_contains(1, claude_expected_tokens)):
-                    client.select_workspace(1)
-                    scrollback_tail = "\n".join(_read_scrollback(client).splitlines()[-20:])
+                if not _wait_for_condition(12.0, lambda: find_workspace_with_tokens(claude_expected_tokens)):
                     failures.append(
                         "normal relaunch did not resume the saved Claude session; "
-                        f"tail:\n{scrollback_tail}"
+                        f"tail:\n{best_scrollback_tail()}"
                     )
 
-                if not _wait_for_condition(12.0, lambda: workspace_contains(2, opencode_expected)):
-                    client.select_workspace(2)
-                    scrollback_tail = "\n".join(_read_scrollback(client).splitlines()[-20:])
+                if not _wait_for_condition(12.0, lambda: find_workspace_with(opencode_expected)):
                     failures.append(
                         "normal relaunch did not resume the saved OpenCode session; "
-                        f"tail:\n{scrollback_tail}"
+                        f"tail:\n{best_scrollback_tail()}"
                     )
 
-                if not _wait_for_condition(12.0, lambda: workspace_contains(3, pi_expected)):
-                    client.select_workspace(3)
-                    scrollback_tail = "\n".join(_read_scrollback(client).splitlines()[-20:])
+                if not _wait_for_condition(12.0, lambda: find_workspace_with(pi_expected)):
                     failures.append(
                         "normal relaunch did not resume the saved Pi session; "
-                        f"tail:\n{scrollback_tail}"
+                        f"tail:\n{best_scrollback_tail()}"
                     )
             finally:
                 client.close()

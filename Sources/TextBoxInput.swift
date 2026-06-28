@@ -1,13 +1,12 @@
+import CmuxFoundation
 import AppKit
-import CmuxTerminalEngine
-import CmuxTerminalServices
+import CmuxTerminal
 import Carbon.HIToolbox
 import CmuxSettingsUI
 import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 import os
-import CmuxTerminal
 
 private enum TextBoxLayout {
     static let minLines = 1
@@ -29,10 +28,19 @@ private enum TextBoxLayout {
     static let leadingButtonHorizontalOffset: CGFloat = -1
     static let trailingButtonHorizontalOffset: CGFloat = 1
     static let attachmentControlSpacing: CGFloat = 2
-    static let attachmentImageSize: CGFloat = 16
-    static let attachmentChipHeight: CGFloat = 18
-    static let inlineAttachmentMaxTextWidth: CGFloat = 118
-    static let inlineAttachmentTrailingControlWidth: CGFloat = 14
+    static var attachmentImageSize: CGFloat {
+        GlobalFontMagnification.scaledSize(16)
+    }
+    static var attachmentChipHeight: CGFloat {
+        let font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .semibold)
+        return max(18, ceil(font.ascender - font.descender + font.leading) + 6)
+    }
+    static var inlineAttachmentMaxTextWidth: CGFloat {
+        GlobalFontMagnification.scaledSize(118)
+    }
+    static var inlineAttachmentTrailingControlWidth: CGFloat {
+        GlobalFontMagnification.scaledSize(14)
+    }
 
     static func textInset(forLineCount lineCount: Int) -> NSSize {
         lineCount <= minLines ? textInset : multilineTextInset
@@ -867,7 +875,7 @@ private enum TextBoxInlineAttachmentRenderer {
         foregroundColor: NSColor,
         isFocused: Bool
     ) -> NSImage {
-        let textFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        let textFont = GlobalFontMagnification.systemFont(ofSize: 11, weight: .semibold)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingMiddle
         let textAttributes: [NSAttributedString.Key: Any] = [
@@ -935,7 +943,7 @@ private enum TextBoxInlineAttachmentRenderer {
         (attachment.displayName as NSString).draw(in: textRect, withAttributes: textAttributes)
 
         let closeAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 9, weight: .bold),
+            .font: GlobalFontMagnification.systemFont(ofSize: 9, weight: .bold),
             .foregroundColor: foregroundColor.withAlphaComponent(0.48)
         ]
         let closeString = "×" as NSString
@@ -1027,7 +1035,7 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
             if attachment.localURL != nil {
                 Button(action: openInPreview) {
                     Text(String(localized: "textbox.openWithPreview.button", defaultValue: "Open with Preview"))
-                        .font(.system(size: 12, weight: .semibold))
+                        .cmuxFont(size: 12, weight: .semibold)
                         .lineLimit(1)
                 }
                 .buttonStyle(TextBoxAttachmentPreviewOpenButtonStyle())
@@ -1067,10 +1075,9 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
                 .background(Color.black.opacity(0.82))
         } else {
             VStack(spacing: 10) {
-                Image(systemName: "doc")
-                    .font(.system(size: 42, weight: .regular))
+                CmuxSystemSymbolImage(magnified: "doc", pointSize: 42, weight: .regular)
                 Text(attachment.displayName)
-                    .font(.system(size: 13, weight: .medium))
+                    .cmuxFont(size: 13, weight: .medium)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .truncationMode(.middle)
@@ -1149,8 +1156,7 @@ private struct TextBoxAttachmentChip: View {
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             } else {
-                Image(systemName: "doc")
-                    .font(.system(size: 12, weight: .medium))
+                CmuxSystemSymbolImage(magnified: "doc", pointSize: 12, weight: .medium)
                     .frame(
                         width: TextBoxLayout.attachmentImageSize,
                         height: TextBoxLayout.attachmentImageSize
@@ -1158,14 +1164,13 @@ private struct TextBoxAttachmentChip: View {
             }
 
             Text(attachment.displayName)
-                .font(.system(size: 11, weight: .medium))
+                .cmuxFont(size: 11, weight: .medium)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: 118, alignment: .leading)
 
             Button(action: onRemove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
+                CmuxSystemSymbolImage(magnified: "xmark", pointSize: 8, weight: .bold)
                     .frame(width: 14, height: 14)
             }
             .buttonStyle(.plain)
@@ -1526,7 +1531,7 @@ private struct TextBoxMentionCompletionPopoverView: View {
                                 onSelect(suggestion)
                             } label: {
                                 Text(Self.highlightedTitle(suggestion.title, query: searchTerm))
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .cmuxFont(size: 12, weight: .semibold)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                                     .padding(.horizontal, 8)
@@ -2687,8 +2692,10 @@ struct TextBoxInputContainer: View {
         commentPool.pendingCount(workspaceId: surface.owningWorkspace()?.id)
     }
 
+    private var textBasePointSize: CGFloat { max(14, terminalFont.pointSize / max(GlobalFontMagnification.scale, 0.01) + 2) }
+
     private var textFont: NSFont {
-        NSFont.systemFont(ofSize: max(14, terminalFont.pointSize + 2), weight: .regular)
+        GlobalFontMagnification.systemFont(ofSize: textBasePointSize, weight: .regular)
     }
 
     private func heightForLines(_ lines: Int) -> CGFloat {
@@ -2771,7 +2778,7 @@ struct TextBoxInputContainer: View {
                     hasMarkedText: hasMarkedText
                 ) {
                     Text(String(localized: "textbox.placeholder", defaultValue: "Prompt or command"))
-                        .font(.system(size: textFont.pointSize))
+                        .cmuxFont(size: textBasePointSize)
                         .foregroundStyle(Color(nsColor: terminalForegroundColor).opacity(0.36))
                         .padding(.leading, TextBoxLayout.textInset.width)
                         .frame(height: clampedHeight, alignment: .center)
@@ -2801,8 +2808,7 @@ struct TextBoxInputContainer: View {
 
     private func addFilesButton(foreground: Color) -> some View {
         Button(action: chooseFiles) {
-            Image(systemName: "plus")
-                .font(.system(size: TextBoxLayout.iconSymbolSize, weight: .semibold))
+            CmuxSystemSymbolImage(magnified: "plus", pointSize: TextBoxLayout.iconSymbolSize, weight: .semibold)
                 .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
                 .background(
                     Circle()
@@ -2840,8 +2846,7 @@ struct TextBoxInputContainer: View {
 
     private func sendButton(canSend: Bool, foreground: Color) -> some View {
         Button(action: submit) {
-            Image(systemName: "arrow.up")
-                .font(.system(size: TextBoxLayout.sendSymbolSize, weight: .bold))
+            CmuxSystemSymbolImage(magnified: "arrow.up", pointSize: TextBoxLayout.sendSymbolSize, weight: .bold)
                 .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
         }
         .buttonStyle(TextBoxSendButtonStyle(canSend: canSend))
@@ -2860,10 +2865,9 @@ struct TextBoxInputContainer: View {
                 showPendingCommentsPreview.toggle()
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "text.bubble")
-                        .font(.system(size: 11, weight: .medium))
+                    CmuxSystemSymbolImage(magnified: "text.bubble", pointSize: 11, weight: .medium)
                     Text(pendingCommentsLabel(count))
-                        .font(.system(size: 12, weight: .medium))
+                        .cmuxFont(size: 12, weight: .medium)
                         .lineLimit(1)
                 }
             }
@@ -2875,8 +2879,7 @@ struct TextBoxInputContainer: View {
             Button {
                 dismissPendingComments()
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
+                CmuxSystemSymbolImage(magnified: "xmark", pointSize: 9, weight: .bold)
                     .frame(width: 16, height: 16)
                     .background(Circle().fill(foreground.opacity(0.12)))
             }
@@ -2910,7 +2913,7 @@ struct TextBoxInputContainer: View {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
                     Text(entry.submissionText.trimmingCharacters(in: .whitespacesAndNewlines))
-                        .font(.system(size: 11, design: .monospaced))
+                        .cmuxFont(size: 11, design: .monospaced)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -3880,7 +3883,7 @@ final class TextBoxInputTextView: NSTextView {
         clearAttachmentFocus(dismissPreview: true)
         textStorage?.setAttributedString(content)
         refreshInlineAttachmentCells(
-            font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
             foregroundColor: textColor ?? .labelColor
         )
         typingAttributes = currentTextAttributes()
@@ -4127,7 +4130,7 @@ final class TextBoxInputTextView: NSTextView {
             clearAttachmentFocus(dismissPreview: isAttachmentPreviewShown)
         }
         refreshInlineAttachmentCells(
-            font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
             foregroundColor: textColor ?? .labelColor
         )
     }
@@ -4142,7 +4145,7 @@ final class TextBoxInputTextView: NSTextView {
         let targetHeight = bounds.height > 0 ? bounds.height : TextBoxLayout.minimumTextHeight
         var targetVerticalInset: CGFloat
         if lineFragmentCount <= TextBoxLayout.minLines {
-            let currentFont = font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+            let currentFont = font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
             let lineHeight = ceil(currentFont.ascender - currentFont.descender + currentFont.leading)
             let singleLineHeight = max(
                 TextBoxLayout.minimumTextHeight,
@@ -5618,7 +5621,7 @@ final class TextBoxInputTextView: NSTextView {
         foregroundColor explicitForegroundColor: NSColor? = nil
     ) -> [NSAttributedString.Key: Any] {
         [
-            .font: explicitFont ?? font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            .font: explicitFont ?? font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
             .foregroundColor: explicitForegroundColor ?? textColor ?? .labelColor,
             .baselineOffset: textBaselineOffsetForCurrentContent()
         ]
@@ -5628,7 +5631,7 @@ final class TextBoxInputTextView: NSTextView {
         let attributed = NSMutableAttributedString(
             attachment: TextBoxInlineTextAttachment(
                 attachment: attachment,
-                font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+                font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
                 foregroundColor: textColor ?? .labelColor
             )
         )

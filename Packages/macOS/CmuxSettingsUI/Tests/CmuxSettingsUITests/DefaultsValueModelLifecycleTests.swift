@@ -131,4 +131,27 @@ import Testing
         #expect(model.current == true)
         #expect(UserDefaults(suiteName: suiteName)?.object(forKey: key.userDefaultsKey) == nil)
     }
+
+    @Test func setAfterCommitRunsAfterStoreWrite() async {
+        let suiteName = "defaults-value-model-after-commit"
+        UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: suiteName)!
+        )
+        let key = SettingCatalog().betaFeatures.extensions
+        let (stream, _) = AsyncStream<Bool>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            makeStream: { stream }
+        )
+
+        let valueObservedAfterCommit = await withCheckedContinuation { continuation in
+            model.set(true) {
+                continuation.resume(returning: store.initialValue(for: key))
+            }
+        }
+
+        #expect(valueObservedAfterCommit == true)
+    }
 }

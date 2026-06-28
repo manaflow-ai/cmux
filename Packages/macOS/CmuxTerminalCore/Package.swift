@@ -12,10 +12,10 @@ let package = Package(
             name: "CmuxTerminalCore",
             targets: ["CmuxTerminalCore"]
         ),
-        // Re-vends the GhosttyKit binaryTarget so sibling terminal packages
-        // (CmuxTerminalEngine, CmuxTerminalServices) can implement seam
-        // protocols whose signatures use ghostty C types, without declaring a
-        // duplicate binary target for the one xcframework.
+        // Re-vends the GhosttyKit binaryTarget so the CmuxTerminal runtime
+        // package can implement seam protocols whose signatures use ghostty C
+        // types, without declaring a duplicate binary target for the one
+        // xcframework.
         .library(
             name: "CmuxGhosttyKit",
             targets: ["GhosttyKit"]
@@ -23,7 +23,6 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxFoundation"),
-        .package(path: "../CmuxTerminalCopyMode"),
         .package(path: "../CMUXDebugLog"),
     ],
     targets: [
@@ -39,7 +38,6 @@ let package = Package(
             dependencies: [
                 "GhosttyKit",
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
-                .product(name: "CmuxTerminalCopyMode", package: "CmuxTerminalCopyMode"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
             ],
             swiftSettings: [
@@ -62,7 +60,6 @@ let package = Package(
                 "CmuxTerminalCore",
                 "GhosttyRuntimeTestStubs",
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
-                .product(name: "CmuxTerminalCopyMode", package: "CmuxTerminalCopyMode"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

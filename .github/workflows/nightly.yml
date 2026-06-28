@@ -26,7 +26,7 @@ env:
 
 jobs:
   decide:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -108,9 +108,21 @@ jobs:
     # injected before signing, preferring a pre-26 SDK when the runner image has
     # one but falling back to the selected app Xcode when the image only ships
     # Xcode 26. The helper build remains required and lipo-verified below.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 30
     steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -173,18 +185,6 @@ jobs:
           chmod +x "$wrapper_dir/create-dmg"
           echo "$wrapper_dir" >> "$GITHUB_PATH"
 
-      - name: Build universal Ghostty CLI helper
-        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
-        env:
-          DEVELOPER_DIR: ${{ env.HELPER_DEVELOPER_DIR }}
-        run: |
-          set -euo pipefail
-          ./scripts/build-ghostty-cli-helper.sh --universal --output /tmp/cmux-ghostty-helper-universal
-          ARCHS_OUT="$(lipo -archs /tmp/cmux-ghostty-helper-universal)"
-          echo "Universal Ghostty CLI helper architectures: $ARCHS_OUT"
-          case " $ARCHS_OUT " in *" arm64 "*) ;; *) echo "helper missing arm64 slice" >&2; exit 1 ;; esac
-          case " $ARCHS_OUT " in *" x86_64 "*) ;; *) echo "helper missing x86_64 slice" >&2; exit 1 ;; esac
-
       - name: Download pre-built GhosttyKit.xcframework
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         run: |
@@ -221,20 +221,45 @@ jobs:
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
-      - name: Build universal nightly app (Release)
+      - name: Build universal nightly app and Ghostty CLI helper (Release)
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
-        env:
-          # Skip the in-Xcode zig helper build; it would fail to cross-link
-          # x86_64 against the macOS 26 SDK. The real universal helper is built
-          # by the "Build universal Ghostty CLI helper" step and injected below.
-          CMUX_SKIP_ZIG_BUILD: "1"
         run: |
-          xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+          set -euo pipefail
+          HELPER_LOG="$RUNNER_TEMP/cmux-nightly-ghostty-helper.log"
+          (
+            set -euo pipefail
+            export DEVELOPER_DIR="$HELPER_DEVELOPER_DIR"
+            ./scripts/build-ghostty-cli-helper.sh --universal --output /tmp/cmux-ghostty-helper-universal
+            ARCHS_OUT="$(lipo -archs /tmp/cmux-ghostty-helper-universal)"
+            echo "Universal Ghostty CLI helper architectures: $ARCHS_OUT"
+            case " $ARCHS_OUT " in *" arm64 "*) ;; *) echo "helper missing arm64 slice" >&2; exit 1 ;; esac
+            case " $ARCHS_OUT " in *" x86_64 "*) ;; *) echo "helper missing x86_64 slice" >&2; exit 1 ;; esac
+          ) >"$HELPER_LOG" 2>&1 &
+          HELPER_PID=$!
+
+          APP_STATUS=0
+          set +e
+          # Skip only the in-Xcode helper build; the background helper process
+          # above must build the real universal Zig helper, not the CI stub.
+          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
+          APP_STATUS=$?
+          set -e
+          HELPER_STATUS=0
+          wait "$HELPER_PID" || HELPER_STATUS=$?
+          cat "$HELPER_LOG"
+          if [ "$APP_STATUS" -ne 0 ]; then
+            echo "Universal nightly app build failed" >&2
+            exit "$APP_STATUS"
+          fi
+          if [ "$HELPER_STATUS" -ne 0 ]; then
+            echo "Universal Ghostty CLI helper build failed" >&2
+            exit "$HELPER_STATUS"
+          fi
 
       - name: Inject universal Ghostty CLI helper
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'

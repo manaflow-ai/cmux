@@ -70,6 +70,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case attachTextBoxFile
     /// Sends a Ctrl-F keystroke through to the focused terminal.
     case sendCtrlFToTerminal
+    /// Clears the focused terminal's visible screen while preserving scrollback.
+    case clearScreenKeepScrollback
 
     // MARK: Panes
     case focusLeft
@@ -83,6 +85,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case splitBrowserRight
     case splitBrowserDown
     case toggleRightSidebar = "toggleFileExplorer"
+    /// Opens the selected File Explorer item from File Explorer focus.
+    case fileExplorerOpenSelection
+    /// Mirrors Finder's Command-Down open-selection shortcut from File Explorer focus.
+    case fileExplorerOpenSelectionFinderAlias
 
     // MARK: Canvas
     case toggleCanvasLayout
@@ -178,11 +184,12 @@ extension ShortcutAction {
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
-             .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal:
+             .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal,
+             .clearScreenKeepScrollback:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
              .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
-             .toggleRightSidebar,
+             .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
              .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
              .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
@@ -223,20 +230,26 @@ extension ShortcutAction {
     ///
     /// Most cmux-owned shortcuts require a modifier on the first stroke to avoid
     /// accidentally stealing plain typing from terminals, editors, and browser
-    /// content. Diff-viewer navigation is intentionally modeled after vim-style
-    /// content shortcuts, so those actions can be rebound to bare first strokes
-    /// such as `j`, `k`, `g`, and `/`.
+    /// content. Focus-scoped content shortcuts, such as diff-viewer navigation and
+    /// file-explorer open, can be rebound to bare first strokes.
     public var allowsBareFirstStroke: Bool {
         switch self {
         case .diffViewerScrollDown,
              .diffViewerScrollUp,
              .diffViewerScrollToBottom,
              .diffViewerScrollToTop,
-             .diffViewerOpenFileSearch:
+             .diffViewerOpenFileSearch,
+             .fileExplorerOpenSelection,
+             .fileExplorerOpenSelectionFinderAlias:
             return true
         default:
             return false
         }
+    }
+
+    /// Whether this action supports a two-stroke shortcut chord.
+    public var allowsChordShortcut: Bool {
+        self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias
     }
 
     /// The action's built-in focus context expressed as a ``ShortcutWhenClause``,
@@ -251,9 +264,11 @@ extension ShortcutAction {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .atom(.sidebarFocus)
+        case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
+            return .atom(.sidebarFocus)
         case .renameTab, .renameWorkspace:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-        case .sendCtrlFToTerminal:
+        case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
@@ -263,6 +278,17 @@ extension ShortcutAction {
             return .atom(.browserFocus)
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .atom(.markdownFocus)
+        case .canvasZoomReset:
+            return .and(
+                .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue),
+                .and(.not(.atom(.browserFocus)), .not(.atom(.markdownFocus)))
+            )
+        case .canvasRevealFocusedPane, .canvasOverview,
+             .canvasZoomIn, .canvasZoomOut, .canvasTidy,
+             .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
+             .canvasEqualizeWidths, .canvasEqualizeHeights,
+             .canvasDistributeHorizontally, .canvasDistributeVertically:
+            return .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
         default:
             return .always
         }
@@ -347,6 +373,8 @@ extension ShortcutAction {
         case .attachTextBoxFile: return "Attach File to TextBox Input"
         case .sendCtrlFToTerminal:
             return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
+        case .clearScreenKeepScrollback:
+            return String(localized: "shortcut.clearScreenKeepScrollback.label", defaultValue: "Clear Screen (Keep Scrollback)")
         case .focusLeft: return "Focus Pane Left"
         case .focusRight: return "Focus Pane Right"
         case .focusUp: return "Focus Pane Up"
@@ -358,6 +386,10 @@ extension ShortcutAction {
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"
         case .toggleRightSidebar: return "Toggle Right Sidebar"
+        case .fileExplorerOpenSelection:
+            return String(localized: "shortcut.fileExplorerOpenSelection.label", defaultValue: "File Explorer: Open Selection")
+        case .fileExplorerOpenSelectionFinderAlias:
+            return String(localized: "shortcut.fileExplorerOpenSelectionFinderAlias.label", defaultValue: "File Explorer: Open Selection (Finder Alias)")
         case .toggleCanvasLayout:
             return String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
         case .canvasRevealFocusedPane:

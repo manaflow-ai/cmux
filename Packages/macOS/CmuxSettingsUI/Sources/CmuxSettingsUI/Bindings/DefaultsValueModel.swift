@@ -18,7 +18,9 @@ import Observation
 ///    replaying every intermediate back through ``current``.
 /// 2. SwiftUI views read ``current`` synchronously and write via ``set(_:)``.
 /// 3. ``set(_:)`` updates ``current`` optimistically (immediate UI) and
-///    persists the write in a fire-and-forget `Task`.
+///    persists the write in a fire-and-forget `Task`. ``set(_:afterCommit:)``
+///    uses the same store path, then runs a main-actor side effect after the
+///    async write has committed.
 ///
 /// Lifecycle: the observation is owned by a ``SettingReadDriver`` held by the
 /// model. When the model deallocates, the driver's `deinit` cancels the
@@ -101,6 +103,24 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         current = value
         Task { [store, key] in
             await store.set(value, for: key)
+        }
+    }
+
+    /// Persists the value, then runs `afterCommit` after storage accepts it.
+    ///
+    /// Use this when a setting has host-side live-update work that must observe
+    /// the committed defaults value. The write still goes through the injected
+    /// ``UserDefaultsSettingsStore`` instead of assuming `UserDefaults.standard`.
+    ///
+    /// - Parameters:
+    ///   - value: The new value to persist.
+    ///   - afterCommit: Main-actor work to run after ``UserDefaultsSettingsStore``
+    ///     has completed the write.
+    public func set(_ value: Value, afterCommit: @escaping @MainActor @Sendable () -> Void) {
+        current = value
+        Task { [store, key, afterCommit] in
+            await store.set(value, for: key)
+            await afterCommit()
         }
     }
 

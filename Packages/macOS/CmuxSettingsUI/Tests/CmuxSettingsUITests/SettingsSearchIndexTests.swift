@@ -1,4 +1,5 @@
 import CmuxSettings
+import Foundation
 import Testing
 @testable import CmuxSettingsUI
 
@@ -9,6 +10,51 @@ import Testing
 /// it can be tested without touching SwiftUI or AppKit.
 @Suite("SettingsSearchIndex")
 struct SettingsSearchIndexTests {
+    @MainActor
+    @Test func settingsWindowRootsReuseRuntimeCachedIndex() throws {
+        let catalog = SettingCatalog()
+        let suiteName = "SettingsSearchIndexTests.\(UUID().uuidString)"
+        defer { UserDefaults.standard.removePersistentDomain(forName: suiteName) }
+        let expectedID = "setting:app:issue-3384-cache-sentinel"
+        let searchIndex = SettingsSearchIndex(
+            catalog: catalog,
+            curatedEntries: [
+                .init(
+                    section: .app,
+                    id: "issue-3384-cache-sentinel",
+                    title: "Issue 3384 Cache Sentinel",
+                    synonyms: "issue3384-cache-sentinel"
+                ),
+            ]
+        )
+        let runtime = SettingsRuntime(
+            catalog: catalog,
+            userDefaultsStore: Self.makeDefaultsStore(suiteName: suiteName),
+            jsonStore: JSONConfigStore(
+                fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).json")
+            ),
+            secretStore: SecretFileStore(
+                baseDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            ),
+            errorLog: SettingsErrorLog(),
+            searchIndex: searchIndex
+        )
+
+        let firstRoot = SettingsWindowRoot(runtime: runtime)
+        let secondRoot = SettingsWindowRoot(runtime: runtime)
+
+        #expect(firstRoot.sidebarEntries(matching: "issue3384-cache-sentinel").contains {
+            $0.id == expectedID
+        })
+        #expect(secondRoot.sidebarEntries(matching: "issue3384-cache-sentinel").contains {
+            $0.id == expectedID
+        })
+    }
+
+    private static func makeDefaultsStore(suiteName: String) -> UserDefaultsSettingsStore {
+        UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+    }
+
     @Test func emptyQueryReturnsAllSectionEntries() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let result = index.match("")
@@ -25,6 +71,17 @@ struct SettingsSearchIndexTests {
         #expect(result.contains(where: { $0.title == "Automation" }))
     }
 
+    /// Typing an exact section name navigates to that section first.
+    /// Child settings' dotted-path synonyms (e.g. "automation.*") also
+    /// match the query and carry a +20 bonus, so without an exact-title
+    /// boost they floated above the section. Guards that ranking regression.
+    @Test func exactSectionNameRanksSectionFirst() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let first = try #require(index.match("automation").first)
+        #expect(first.kind == .section)
+        #expect(first.title == "Automation")
+    }
+
     @Test func modifierHoldHintSynonymsFindKeyboardShortcutSetting() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let result = index.match("hotkey hint chips")
@@ -36,6 +93,9 @@ struct SettingsSearchIndexTests {
         ("nmaing", "setting:automation:workspace-auto-naming"),
         ("auto name", "setting:automation:workspace-auto-naming"),
         ("rename workspace", "setting:automation:workspace-auto-naming"),
+        ("naming agent", "setting:automation:workspace-auto-naming"),
+        ("automation.autoNamingAgent", "setting:automation:workspace-auto-naming"),
+        ("autoNamingAgent", "setting:automation:workspace-auto-naming"),
         ("option as alt", "setting:app:terminal-config"),
         ("option", "setting:app:terminal-config"),
         ("environment variables", "setting:app:notification-command"),
@@ -144,6 +204,38 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let anchor = try #require(index.anchorID(forSettingsPath: "terminal.copyOnSelect"))
         #expect(index.entries.contains { $0.id == anchor })
+    }
+
+    /// The auto-naming card renders two rows: the toggle and, when
+    /// enabled, the Naming Agent picker. Only the toggle's path may anchor
+    /// the workspace-auto-naming entry; the picker's `automation.autoNamingAgent`
+    /// path must NOT resolve to it, or both rendered rows would carry the
+    /// same scroll `.id` and `scrollTo` would be ambiguous (the collision
+    /// guarded by ``SettingsRowAnchorResolutionTests/rowAnchorsAreUniqueAcrossRows``).
+    /// "naming agent" stays searchable via the entry's text synonyms.
+    @Test func autoNamingTogglePathAnchorsCardWithoutAgentPickerCollision() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        #expect(index.anchorID(forSettingsPath: "automation.workspaceAutoNaming") == "setting:automation:workspace-auto-naming")
+        #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
+    }
+
+    @Test func localizedAutoNamingAliasesRemainSearchableWithoutAgentPickerCollision() {
+        let index = SettingsSearchIndex(
+            catalog: SettingCatalog(),
+            curatedEntries: [
+                .init(
+                    section: .automation,
+                    id: "workspace-auto-naming",
+                    title: "Workspace Auto-Naming",
+                    synonyms: "automation.workspaceAutoNaming automation.autoNamingAgent 命名 エージェント",
+                    anchorPath: "automation.workspaceAutoNaming"
+                ),
+            ]
+        )
+
+        #expect(index.match("命名 エージェント").contains { $0.id == "setting:automation:workspace-auto-naming" })
+        #expect(index.anchorID(forSettingsPath: "automation.workspaceAutoNaming") == "setting:automation:workspace-auto-naming")
+        #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
     }
 
     @Test func unknownPathHasNoAnchor() {

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -42,5 +43,6 @@ public struct ResetSection: View {
         for key in catalog.all {
             await key.resetInJSON(jsonStore)
         }
+        NotificationCenter.default.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
     }
 }

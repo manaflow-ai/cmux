@@ -2,7 +2,7 @@ import XCTest
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
-import CmuxWorkspaceWindow
+import CmuxWorkspaces
 import SwiftUI
 
 #if canImport(cmux_DEV)

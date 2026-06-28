@@ -13,9 +13,17 @@ let package = Package(
             targets: ["CmuxCommandPalette"]
         ),
     ],
+    dependencies: [
+        // CmuxFoundation backs the FocusGuards/ command-palette focus-stealing
+        // NSResponder/NSView guards.
+        .package(path: "../CmuxFoundation"),
+    ],
     targets: [
         .target(
             name: "CmuxCommandPalette",
+            dependencies: [
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
@@ -24,7 +32,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxCommandPaletteTests",
-            dependencies: ["CmuxCommandPalette"],
+            dependencies: [
+                "CmuxCommandPalette",
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

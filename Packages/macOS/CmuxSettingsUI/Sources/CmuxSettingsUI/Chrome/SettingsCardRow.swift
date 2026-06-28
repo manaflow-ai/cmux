@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// One row inside a ``SettingsCard``: a left-aligned title (and
@@ -61,10 +62,10 @@ public struct SettingsCardRow<Trailing: View>: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 3) {
                 Text(title)
-                    .font(.system(size: 13, weight: .medium))
+                    .cmuxFont(size: 13, weight: .medium)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundColor(.secondary)
                         .lineLimit(2)
                 }

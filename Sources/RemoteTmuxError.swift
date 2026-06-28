@@ -11,9 +11,19 @@ enum RemoteTmuxError: Error, Sendable, Equatable {
 
     /// The remote host is not reachable / the SSH master could not be opened.
     case unreachable(String)
+
+    /// The remote tmux is older than ``RemoteTmuxVersion/minimumSupported``, so the
+    /// control-mode mirror would attach into a broken/degraded state (no live pane
+    /// subscriptions, or no `%begin`/`%end` framing). Carries the detected version
+    /// string for the message.
+    case unsupportedTmux(detected: String)
 }
 
 extension RemoteTmuxError {
+    static var unknownVersionDisplayName: String {
+        String(localized: "remoteTmux.version.unknown", defaultValue: "unknown")
+    }
+
     /// A short, user-presentable description.
     ///
     /// Raw remote ssh/tmux stderr (and launch/unreachable detail) is sanitized before
@@ -27,13 +37,40 @@ extension RemoteTmuxError {
         switch self {
         case let .commandFailed(exitCode, stderr):
             let detail = Self.sanitizedDetail(stderr)
-            return detail.isEmpty
-                ? "remote command failed (exit \(exitCode))"
-                : "remote command failed (exit \(exitCode)): \(detail)"
+            if detail.isEmpty {
+                let format = String(
+                    localized: "remoteTmux.error.commandFailed",
+                    defaultValue: "remote command failed (exit %d)"
+                )
+                return String(format: format, Int(exitCode))
+            }
+            let format = String(
+                localized: "remoteTmux.error.commandFailedWithDetail",
+                defaultValue: "remote command failed (exit %d): %@"
+            )
+            return String(format: format, Int(exitCode), detail)
         case let .launchFailed(detail):
-            return "failed to launch ssh: \(Self.sanitizedDetail(detail))"
+            let format = String(
+                localized: "remoteTmux.error.launchFailed",
+                defaultValue: "failed to launch SSH: %@"
+            )
+            return String(format: format, Self.sanitizedDetail(detail))
         case let .unreachable(detail):
-            return "host unreachable: \(Self.sanitizedDetail(detail))"
+            let format = String(
+                localized: "remoteTmux.error.unreachable",
+                defaultValue: "host unreachable: %@"
+            )
+            return String(format: format, Self.sanitizedDetail(detail))
+        case let .unsupportedTmux(detected):
+            let format = String(
+                localized: "remoteTmux.error.unsupportedVersion",
+                defaultValue: "remote session server is too old (found %@; cmux needs version %@ or newer)"
+            )
+            return String(
+                format: format,
+                Self.sanitizedDetail(detected),
+                RemoteTmuxVersion.minimumSupported.displayString
+            )
         }
     }
 

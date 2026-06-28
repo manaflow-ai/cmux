@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import Bonsplit
 import Foundation
@@ -156,10 +157,10 @@ struct TabBarBackdropLabVariant: Identifiable {
 }
 
 #if DEBUG
-final class BonsplitTabBarDebugWindowController: NSWindowController, NSWindowDelegate {
+final class BonsplitTabBarDebugWindowController: ReleasingWindowController {
     static let shared = BonsplitTabBarDebugWindowController()
 
-    private init() {
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
             styleMask: [.titled, .closable, .utilityWindow],
@@ -173,21 +174,15 @@ final class BonsplitTabBarDebugWindowController: NSWindowController, NSWindowDel
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.bonsplitTabBarDebug")
         window.center()
         window.contentView = NSHostingView(rootView: BonsplitTabBarDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
     }
 }
 
@@ -235,7 +230,7 @@ private struct BonsplitTabBarDebugView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(String(localized: "debug.bonsplitTabBarDebug.heading", defaultValue: "Bonsplit Tab Bar"))
-                .font(.headline)
+                .cmuxFont(.headline)
 
             GroupBox(String(localized: "debug.bonsplitTabBarDebug.actionLaneGeometry", defaultValue: "Action Lane Geometry")) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -286,7 +281,7 @@ private struct BonsplitTabBarDebugView: View {
             }
 
             Text(verbatim: BonsplitTabBarDebugSettings.currentTuningDescription())
-                .font(.system(.caption, design: .monospaced))
+                .cmuxFont(.caption, design: .monospaced)
                 .textSelection(.enabled)
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -362,7 +357,7 @@ private struct BonsplitTabBarDebugSliderRow: View {
                     step: setting.step
                 )
                 Text(pixelValueText)
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .monospacedDigit()
                     .frame(width: 76, alignment: .trailing)
             }

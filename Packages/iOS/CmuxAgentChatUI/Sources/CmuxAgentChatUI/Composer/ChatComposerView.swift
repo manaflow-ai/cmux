@@ -1,4 +1,6 @@
 import CmuxAgentChat
+import CmuxMobileSupport
+import Foundation
 import SwiftUI
 
 #if os(iOS)
@@ -6,55 +8,45 @@ import PhotosUI
 import UIKit
 #endif
 
-/// The keyboard-attached bottom bar: accessory chips, the staged-attachment
-/// strip (iOS), the multiline draft field, and the context-aware send/stop
-/// button.
 public struct ChatComposerView: View {
     private let agentState: ChatAgentState
     private let agentKind: ChatAgentKind
     private let isTerminal: Bool
     private let isConnected: Bool
+    private let accessoryLeadingShortcuts: [ChatAccessoryShortcut]
+    private let accessoryShortcuts: [ChatAccessoryShortcut]
     private let onSend: (String, [ChatOutboundAttachment]) -> Void
     private let onInterrupt: (Bool) -> Void
     private let onOpenTerminal: () -> Void
 
     @Binding private var draft: String
     @State private var lastStopTap: Date?
-    /// True while picked photos are still loading from the library; a
-    /// send in that window would silently drop them. Declared outside the
-    /// iOS block so shared send logic can read it (always false on macOS).
+    #if os(iOS)
+    @FocusState private var isDraftFocused: Bool
+    #endif
     @State private var isStagingAttachments = false
     #if os(iOS)
     @State private var pickedItems: [PhotosPickerItem] = []
     @State private var attachments: [ChatComposerAttachment] = []
+    @State private var dictation = ComposerDictationController()
     #endif
 
     @Environment(\.chatTheme) private var theme
 
-    @ScaledMetric(relativeTo: .title) private var sendGlyphSize: CGFloat = 30
     @ScaledMetric(relativeTo: .title) private var sendButtonSize: CGFloat = 36
-    @ScaledMetric(relativeTo: .body) private var attachGlyphSize: CGFloat = 17
+    private let controlHeight: CGFloat = 40
 
     private static let maxAttachmentDimension: CGFloat = 2048
     private static let jpegQuality: CGFloat = 0.85
     private static let hardStopWindow: TimeInterval = 2
 
-    /// Creates the composer.
-    ///
-    /// - Parameters:
-    ///   - agentState: Live agent presence; working turns the empty-draft
-    ///     send button into a stop button.
-    ///   - agentKind: The session's agent, for the field placeholder.
-    ///   - isConnected: Whether the live event stream is up.
-    ///   - onSend: Sends the draft and staged attachments.
-    ///   - onInterrupt: Interrupts the agent (`false` = Esc, `true` =
-    ///     Ctrl-C).
-    ///   - onOpenTerminal: Opens the session's raw terminal.
     public init(
         agentState: ChatAgentState,
         agentKind: ChatAgentKind,
         isTerminal: Bool = false,
         isConnected: Bool,
+        accessoryLeadingShortcuts: [ChatAccessoryShortcut] = [],
+        accessoryShortcuts: [ChatAccessoryShortcut] = [],
         draft: Binding<String>,
         onSend: @escaping (String, [ChatOutboundAttachment]) -> Void,
         onInterrupt: @escaping (Bool) -> Void,
@@ -64,6 +56,8 @@ public struct ChatComposerView: View {
         self.agentKind = agentKind
         self.isTerminal = isTerminal
         self.isConnected = isConnected
+        self.accessoryLeadingShortcuts = accessoryLeadingShortcuts
+        self.accessoryShortcuts = accessoryShortcuts
         _draft = draft
         self.onSend = onSend
         self.onInterrupt = onInterrupt
@@ -71,12 +65,59 @@ public struct ChatComposerView: View {
     }
 
     public var body: some View {
+        #if os(iOS)
+        composerSurface
+            .padding(.horizontal, theme.horizontalMargin)
+            .padding(.top, 2)
+            .padding(.bottom, 8)
+            .modifier(ChatComposerMaterialBackground())
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("ChatComposerBar")
+            #if DEBUG
+            .background(ChatComposerDebugAutofocusBridge())
+            #endif
+            .onDisappear { dictation.cancel() }
+            .onChange(of: isDraftFocused) { _, focused in
+                if !focused, !dictation.locksComposerField {
+                    dictation.stop()
+                }
+            }
+        #else
+        composerStack
+            .padding(.horizontal, theme.horizontalMargin)
+            .padding(.vertical, 8)
+            .modifier(ChatComposerMaterialBackground())
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(theme.hairline)
+                    .frame(height: 0.5)
+            }
+        #endif
+    }
+
+    #if os(iOS)
+    @ViewBuilder
+    private var composerSurface: some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer {
+                composerStack
+            }
+        } else {
+            composerStack
+        }
+    }
+    #endif
+
+    private var composerStack: some View {
         VStack(spacing: 8) {
             if isEnded {
                 endedRow
             } else {
                 ChatAccessoryChipRow(
                     agentState: agentState,
+                    leadingShortcuts: composerAccessoryLeadingShortcuts,
+                    shortcuts: composerAccessoryShortcuts,
                     onInterrupt: onInterrupt,
                     onOpenTerminal: onOpenTerminal
                 )
@@ -88,25 +129,40 @@ public struct ChatComposerView: View {
                 fieldRow
             }
         }
-        .padding(.horizontal, theme.horizontalMargin)
-        .padding(.vertical, 8)
-        // Extend the material past the bar's own bounds: `ignoresSafeArea`
-        // bleeds it through the bottom safe area to the physical screen edge
-        // (fills the home-indicator strip when the keyboard is down), and the
-        // negative bottom padding pushes it behind the keyboard's rounded top
-        // corners when the keyboard is up. WhatsApp-style continuity.
-        .background {
-            Rectangle()
-                .fill(.thinMaterial)
-                .padding(.bottom, -28)
-                .ignoresSafeArea(.container, edges: .bottom)
-        }
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(theme.hairline)
-                .frame(height: 0.5)
+    }
+
+    private var composerAccessoryLeadingShortcuts: [ChatAccessoryShortcut] {
+        #if os(iOS)
+        remapComposerOwnedShortcuts(accessoryLeadingShortcuts)
+        #else
+        accessoryLeadingShortcuts
+        #endif
+    }
+
+    private var composerAccessoryShortcuts: [ChatAccessoryShortcut] {
+        #if os(iOS)
+        remapComposerOwnedShortcuts(accessoryShortcuts)
+        #else
+        accessoryShortcuts
+        #endif
+    }
+
+    #if os(iOS)
+    private func remapComposerOwnedShortcuts(
+        _ shortcuts: [ChatAccessoryShortcut]
+    ) -> [ChatAccessoryShortcut] {
+        shortcuts.map { shortcut in
+            switch shortcut.semanticAction {
+            case .dismissKeyboard:
+                shortcut.replacingAction(dismissKeyboard)
+            case .paste:
+                shortcut.replacingAction(performPaste)
+            case nil:
+                shortcut
+            }
         }
     }
+    #endif
 
     // MARK: - Field row
 
@@ -114,19 +170,22 @@ public struct ChatComposerView: View {
         HStack(alignment: .bottom, spacing: 8) {
             #if os(iOS)
             attachButton
+            micButton
             #endif
-            TextField(placeholder, text: $draft, axis: .vertical)
-                .lineLimit(1...6)
-                .font(isTerminal ? .system(.body, design: .monospaced) : .body)
-                .textFieldStyle(.plain)
-                .accessibilityIdentifier("ChatComposerField")
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    Color.secondary.opacity(0.15),
-                    in: .rect(cornerRadius: 18)
-                )
-            sendButton
+            MobileComposerFieldContainer {
+                TextField(placeholder, text: $draft, axis: .vertical)
+                    .lineLimit(1...6)
+                    .font(isTerminal ? .system(.body, design: .monospaced) : .body)
+                    .textFieldStyle(.plain)
+                    .accessibilityIdentifier("ChatComposerField")
+                    .padding(.vertical, 3)
+                    #if os(iOS)
+                    .focused($isDraftFocused)
+                    .disabled(dictation.locksComposerField)
+                    #endif
+            } trailing: {
+                sendButton
+            }
         }
     }
 
@@ -166,8 +225,6 @@ public struct ChatComposerView: View {
         agentState == .ended
     }
 
-    /// Replaces the input row when the session can no longer accept input;
-    /// the terminal escape hatch stays reachable.
     private var endedRow: some View {
         HStack(spacing: 12) {
             Text(
@@ -201,11 +258,17 @@ public struct ChatComposerView: View {
     private var sendButton: some View {
         if hasContent {
             Button(action: performSend) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: sendGlyphSize))
-                    .foregroundStyle(isConnected ? theme.accent : Color.secondary)
-                    .frame(width: sendButtonSize, height: sendButtonSize)
-                    .contentShape(Circle().inset(by: -4))
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(isConnected ? Color.white : Color.secondary.opacity(0.35))
+                    .frame(width: sendButtonSize - 8, height: sendButtonSize - 8)
+                    .background(
+                        Circle().fill(
+                            isConnected
+                                ? AnyShapeStyle(theme.accent)
+                                : AnyShapeStyle(Color.secondary.opacity(0.12))
+                        )
+                    )
             }
             .buttonStyle(.plain)
             .disabled(!isConnected || isStagingAttachments)
@@ -226,9 +289,7 @@ public struct ChatComposerView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.white)
                 }
-                .frame(width: sendButtonSize - 4, height: sendButtonSize - 4)
-                .frame(width: sendButtonSize, height: sendButtonSize)
-                .contentShape(Circle().inset(by: -4))
+                .frame(width: sendButtonSize - 8, height: sendButtonSize - 8)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(
@@ -240,11 +301,11 @@ public struct ChatComposerView: View {
             )
         } else {
             Button(action: performSend) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: sendGlyphSize))
-                    .foregroundStyle(.secondary)
-                    .opacity(0.4)
-                    .frame(width: sendButtonSize, height: sendButtonSize)
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color.secondary.opacity(0.35))
+                    .frame(width: sendButtonSize - 8, height: sendButtonSize - 8)
+                    .background(Circle().fill(Color.secondary.opacity(0.12)))
             }
             .buttonStyle(.plain)
             .disabled(true)
@@ -259,10 +320,9 @@ public struct ChatComposerView: View {
     }
 
     private func performSend() {
-        // A send mid-staging would silently drop the images still loading
-        // from the photo library.
         guard hasContent, !isStagingAttachments else { return }
         #if os(iOS)
+        dictation.cancel()
         let outbound = attachments.map(\.outbound)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #else
@@ -276,8 +336,6 @@ public struct ChatComposerView: View {
         #endif
     }
 
-    /// First tap interrupts politely; a second tap within the window
-    /// escalates to a hard interrupt (Ctrl-C).
     private func performStop() {
         #if os(iOS)
         UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
@@ -294,16 +352,39 @@ public struct ChatComposerView: View {
     // MARK: - Attachments (iOS)
 
     #if os(iOS)
+    private func dismissKeyboard() {
+        isDraftFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
+    private func performPaste() {
+        let pasteboard = UIPasteboard.general
+        if attachments.count < 4,
+           let attachment = pasteboard.chatComposerAttachment(
+               maxDimension: Self.maxAttachmentDimension,
+               jpegQuality: Self.jpegQuality
+           ) {
+            attachments.append(attachment)
+            isDraftFocused = true
+            return
+        }
+        guard let string = pasteboard.chatComposerText() else {
+            return
+        }
+        draft += string
+        isDraftFocused = true
+    }
+
     private var attachButton: some View {
         PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
-            Image(systemName: "plus")
-                .font(.system(size: attachGlyphSize, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 36, height: 36)
-                .background(Color.secondary.opacity(0.15), in: .circle)
-                .contentShape(Circle().inset(by: -4))
+            MobileComposerIconLabel(
+                systemImage: "paperclip",
+                foregroundStyle: AnyShapeStyle(Color.secondary.opacity(0.8)),
+                size: controlHeight
+            )
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("ChatComposerAttach")
         .accessibilityLabel(
             String(
                 localized: "chat.composer.attach.accessibility",
@@ -314,6 +395,31 @@ public struct ChatComposerView: View {
         .onChange(of: pickedItems) {
             let items = pickedItems
             Task { await loadPickedItems(items) }
+        }
+    }
+
+    private var micButton: some View {
+        let listening = dictation.state.isListening
+        return MobileComposerIconButton(
+            systemImage: "mic",
+            activeSystemImage: "mic.fill",
+            isActive: listening,
+            foregroundStyle: listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(Color.secondary.opacity(0.8)),
+            size: controlHeight,
+            pulsesWhenActive: true,
+            isDisabled: !dictation.isAvailable,
+            accessibilityIdentifier: "ChatComposerMic",
+            accessibilityLabel: listening
+                ? L10n.string("mobile.composer.mic.stop", defaultValue: "Stop dictation")
+                : L10n.string("mobile.composer.mic.start", defaultValue: "Start dictation")
+        ) {
+            toggleDictation()
+        }
+    }
+
+    private func toggleDictation() {
+        dictation.toggle(existingText: draft) { merged in
+            draft = merged
         }
     }
 
@@ -367,59 +473,26 @@ public struct ChatComposerView: View {
     private func removeAttachment(id: String) {
         guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
         attachments.remove(at: index)
-        // Remove the matching picker item by IDENTITY, not by the attachments
-        // index: `loadPickedItems` skips items that fail to decode, so the two
-        // arrays can be misaligned and an index-coupled removal drops the wrong
-        // photo. A staged attachment's id is the item's `itemIdentifier`, so
-        // match on that. Items with no identifier (rare) simply stay selected
-        // in the picker rather than risk removing a different one.
         if let pickedIndex = pickedItems.firstIndex(where: { $0.itemIdentifier == id }) {
             pickedItems.remove(at: pickedIndex)
         }
     }
 
-    /// Loads the picker selection into staged attachments: each item is
-    /// decoded, downscaled to the size cap, and re-encoded as JPEG.
     private func loadPickedItems(_ items: [PhotosPickerItem]) async {
         isStagingAttachments = true
         defer { isStagingAttachments = false }
         var staged: [ChatComposerAttachment] = []
         for (index, item) in items.enumerated() {
             guard let data = try? await item.loadTransferable(type: Data.self),
-                  let jpeg = Self.downscaledJPEG(from: data),
-                  let thumbnailImage = UIImage(data: jpeg)
+                  let attachment = data.chatComposerImageAttachment(
+                      id: item.itemIdentifier ?? "picked-\(index)",
+                      maxDimension: Self.maxAttachmentDimension,
+                      jpegQuality: Self.jpegQuality
+                  )
             else { continue }
-            staged.append(
-                ChatComposerAttachment(
-                    id: item.itemIdentifier ?? "picked-\(index)",
-                    data: jpeg,
-                    format: .jpeg,
-                    thumbnail: Image(uiImage: thumbnailImage)
-                )
-            )
+            staged.append(attachment)
         }
         attachments = staged
-    }
-
-    /// Re-encodes image data as JPEG, downscaling so the longest side is at
-    /// most ``maxAttachmentDimension`` points.
-    private static func downscaledJPEG(from data: Data) -> Data? {
-        guard let image = UIImage(data: data) else { return nil }
-        let pixelWidth = image.size.width * image.scale
-        let pixelHeight = image.size.height * image.scale
-        let longest = max(pixelWidth, pixelHeight)
-        guard longest > maxAttachmentDimension else {
-            return image.jpegData(compressionQuality: jpegQuality)
-        }
-        let scale = maxAttachmentDimension / longest
-        let targetSize = CGSize(width: pixelWidth * scale, height: pixelHeight * scale)
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 1
-        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
-        let resized = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: targetSize))
-        }
-        return resized.jpegData(compressionQuality: jpegQuality)
     }
     #endif
 }

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CmuxSettings
 import SwiftUI
@@ -163,7 +164,7 @@ public struct WorkspaceColorsSection: View {
                 .labelsHidden()
                 .frame(width: 38)
                 Text(isCustom ? model.current : String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
                     .foregroundStyle(.secondary)
                     .frame(width: 76, alignment: .trailing)
             }
@@ -203,7 +204,7 @@ public struct WorkspaceColorsSection: View {
                 .labelsHidden()
                 .frame(width: 38)
                 Text(entry.hex)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
                     .foregroundStyle(.secondary)
                     .frame(width: 76, alignment: .trailing)
                 if baseHex == nil {

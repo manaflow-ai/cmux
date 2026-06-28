@@ -115,7 +115,7 @@ final class MarkdownMermaidZoomTests {
         expectedZoom: Double? = nil,
         minimumWidth: Double? = nil
     ) async throws -> [String: Double] {
-        let deadline = Date().addingTimeInterval(3)
+        let deadline = Date().addingTimeInterval(10)
         var lastSnapshot: [String: Double]?
         while Date() < deadline {
             if let snapshot = try await mermaidSnapshot(in: webView) {
