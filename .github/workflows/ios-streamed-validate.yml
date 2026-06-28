@@ -23,10 +23,9 @@ permissions:
 
 jobs:
   validate:
-    # GitHub-hosted macOS (separate pool): the Blacksmith fleet was saturated and
-    # this run sat queued 24h before auto-cancel. macos-26 has Xcode 26 / iOS 26
-    # sims. NOTE: GitHub-hosted macOS burns paid minutes.
-    runs-on: macos-26
+    # Blacksmith macOS-26 (Xcode 26 / iOS 26 sims), the same lane test-ios.yml
+    # uses, so it shares the fleet and does not burn paid GitHub-hosted minutes.
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 120
     env:
       CMUX_PORT: "3000"
