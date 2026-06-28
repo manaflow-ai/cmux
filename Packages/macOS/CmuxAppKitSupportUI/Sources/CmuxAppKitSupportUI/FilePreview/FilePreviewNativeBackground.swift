@@ -1,11 +1,15 @@
-import AppKit
+public import AppKit
 
-enum FilePreviewNativeBackground {
-    static func resolvedColor(backgroundColor: NSColor, drawsBackground: Bool) -> NSColor {
+/// Pure AppKit helpers that paint the file-preview native host's background layer and
+/// scroll/clip view backgrounds. Stateless; operates on the views it is handed.
+public enum FilePreviewNativeBackground {
+    /// The effective background color, or `.clear` when the host does not draw a background.
+    public static func resolvedColor(backgroundColor: NSColor, drawsBackground: Bool) -> NSColor {
         drawsBackground ? backgroundColor : .clear
     }
 
-    static func applyRootLayer(
+    /// Sets the view's backing layer color and opacity from the resolved background.
+    public static func applyRootLayer(
         to view: NSView,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -19,7 +23,8 @@ enum FilePreviewNativeBackground {
         view.layer?.isOpaque = drawsBackground && resolvedBackgroundColor.alphaComponent >= 0.999
     }
 
-    static func applyScrollBackgrounds(
+    /// Recursively applies the resolved background to every scroll/clip view in the hierarchy.
+    public static func applyScrollBackgrounds(
         in view: NSView,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -45,7 +50,8 @@ enum FilePreviewNativeBackground {
         }
     }
 
-    static func scrollBackgroundHostIdentifiers(in view: NSView) -> Set<ObjectIdentifier> {
+    /// Identifiers of every scroll/clip view in the hierarchy, used to detect background hosts.
+    public static func scrollBackgroundHostIdentifiers(in view: NSView) -> Set<ObjectIdentifier> {
         var identifiers = Set<ObjectIdentifier>()
         collectScrollBackgroundHostIdentifiers(in: view, into: &identifiers)
         return identifiers
