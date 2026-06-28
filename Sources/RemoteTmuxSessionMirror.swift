@@ -552,13 +552,30 @@ final class RemoteTmuxSessionMirror {
     /// - Parameters:
     ///   - current: the workspace's current mirror-tab order (panel ids).
     ///   - requested: the tmux window order mapped to panel ids.
-    /// - Returns: the new order to apply, or `nil` when the tabs already match
-    ///   `requested` or when `requested` (restricted to currently-present tabs) is
-    ///   not a permutation of `current` (sets diverge — leave the tabs untouched).
+    /// - Returns: the new order to apply, or `nil` when no reorder is needed.
+    ///   Reorders ONLY the mirror tabs named in `requested` (in that order); any
+    ///   other tab in `current` — a local browser tab the user opened, or a mirror
+    ///   tab not yet reconciled — keeps its slot. This way a coexisting local tab
+    ///   doesn't defeat tmux-driven reordering of the mirror tabs around it.
     nonisolated static func mirrorTabReorder(current: [UUID], requested: [UUID]) -> [UUID]? {
         let present = Set(current)
-        let desired = requested.filter { present.contains($0) }
-        guard desired.count == current.count, Set(desired) == present else { return nil }
-        return desired == current ? nil : desired
+        let mirrorOrder = requested.filter { present.contains($0) }
+        guard !mirrorOrder.isEmpty else { return nil }
+        let mirrorSet = Set(mirrorOrder)
+        var queue = mirrorOrder[...]
+        var result: [UUID] = []
+        result.reserveCapacity(current.count)
+        for id in current {
+            if mirrorSet.contains(id) {
+                // Mirror slot: fill with the next tmux-ordered mirror tab.
+                if let next = queue.first {
+                    result.append(next)
+                    queue = queue.dropFirst()
+                }
+            } else {
+                result.append(id)  // non-mirror (e.g. local browser) tab stays put
+            }
+        }
+        return result == current ? nil : result
     }
 }
