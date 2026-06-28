@@ -1,4 +1,5 @@
 import CmuxSidebar
+import CmuxSidebarUI
 import Foundation
 
 /// App-side adapter conforming the hovered window's `TabManager` plus the
@@ -14,6 +15,7 @@ import Foundation
 @MainActor
 final class SidebarTabReorderHost: SidebarTabReorderHosting {
     private let tabManager: TabManager
+    private let tabTransferPasteboard = BonsplitTabTransferPasteboard()
 
     init(tabManager: TabManager) {
         self.tabManager = tabManager
@@ -149,6 +151,38 @@ final class SidebarTabReorderHost: SidebarTabReorderHosting {
             windowId: windowId,
             atIndex: atIndex,
             focus: focus
+        ) ?? false
+    }
+}
+
+/// Bonsplit-tab drop seam: forwards the package
+/// ``SidebarBonsplitTabDropHosting`` reads/mutations to the bonsplit
+/// tab-transfer pasteboard plus `AppDelegate.shared` surface lookup and
+/// bonsplit-tab move, matching the legacy `SidebarBonsplitTabDropDelegate`'s
+/// direct `AppDelegate.shared`/`BonsplitTabTransferPasteboard` use.
+extension SidebarTabReorderHost: SidebarBonsplitTabDropHosting {
+    var bonsplitTabTransferTypeIdentifier: String { BonsplitTabTransferPasteboard.typeIdentifier }
+
+    func currentBonsplitTransferTabId() -> UUID? {
+        tabTransferPasteboard.currentTransfer()?.tab.id
+    }
+
+    func bonsplitSurfaceWorkspaceId(forTab tabId: UUID) -> UUID? {
+        AppDelegate.shared?.locateBonsplitSurface(tabId: tabId)?.workspaceId
+    }
+
+    @discardableResult
+    func moveBonsplitTab(
+        tabId: UUID,
+        toWorkspace workspaceId: UUID,
+        focus: Bool,
+        focusWindow: Bool
+    ) -> Bool {
+        AppDelegate.shared?.moveBonsplitTab(
+            tabId: tabId,
+            toWorkspace: workspaceId,
+            focus: focus,
+            focusWindow: focusWindow
         ) ?? false
     }
 }
