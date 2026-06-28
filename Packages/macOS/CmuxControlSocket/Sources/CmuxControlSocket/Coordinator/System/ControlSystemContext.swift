@@ -1,7 +1,7 @@
 public import Foundation
 
 /// The system/misc-domain slice of the control-command seam (a constituent of
-/// the ``ControlCommandContext`` umbrella): `system.identify`, `system.tree`,
+/// the ``ControlCommandContext`` umbrella): `system.tree`,
 /// `auth.login`, `session.restore_previous`, `settings.open`, `feedback.open`,
 /// `extension.sidebar.snapshot`, `workspace.action`, `surface.action` /
 /// `tab.action`, `surface.drag_to_split` / `surface.split_off`, and the
@@ -12,14 +12,6 @@ public import Foundation
 /// in-isolation calls.
 @MainActor
 public protocol ControlSystemContext: AnyObject {
-    /// The fully-shaped `system.identify` payload (the still-shared app-side
-    /// `v2Identify`, which also feeds `system.top` / `system.memory` and the
-    /// task-manager snapshot), bridged to a JSON value.
-    ///
-    /// - Parameter params: The identify params (`caller`, `window_id`, …).
-    /// - Returns: The identify payload object.
-    func controlSystemIdentify(params: [String: JSONValue]) -> JSONValue
-
     /// Walks the main windows for `system.tree`, mirroring the legacy
     /// default-window / all-windows / workspace-filter selection.
     ///

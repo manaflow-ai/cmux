@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 /// The `system.top` / `system.memory` / task-manager command bodies: the
@@ -12,16 +13,18 @@ import Foundation
 /// socket-dispatch witnesses (``TerminalController`` `system.top` /
 /// `system.memory`). All node minting flows through the still-shared
 /// `systemTopWorkspaceNode` / `v2TopWindowNode` builders in
-/// `TerminalController+ControlSystemTopContext.swift` and the window-routing
-/// helpers (`parseV2WindowRouting` / `v2WindowNotFoundResult`) that stay in
-/// `TerminalController.swift`; only this orchestration layer moved here to drain
-/// the god file.
+/// `TerminalController+ControlSystemTopContext.swift`; the identify and
+/// window-routing parse now live in the coordinator
+/// (``ControlCommandCoordinator/identify(params:)`` /
+/// ``ControlCommandCoordinator/systemWindowRouting(_:)`` /
+/// ``ControlCommandCoordinator/systemWindowNotFound(_:windowID:)``), which this
+/// worker-lane orchestration drives across the Foundation boundary.
 extension TerminalController {
 
     func taskManagerTopPayload(includeProcesses: Bool) async throws -> [String: Any] {
         v2RefreshKnownRefs()
 
-        let identifyPayload = v2Identify(params: [:])
+        let identifyPayload = controlCommandCoordinator.identify(params: [:]).foundationObject as? [String: Any] ?? [:]
         let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
         var windowNodes: [[String: Any]] = []
 
@@ -189,22 +192,32 @@ extension TerminalController {
         }
         if params["include_processes"] != nil, v2Bool(params, "include_processes") == nil { return .err(code: "invalid_params", message: "Missing or invalid include_processes", data: nil) }
         let includeProcesses = v2Bool(params, "include_processes") ?? false
-        let routingResult = parseV2WindowRouting(params: params)
-        if let error = routingResult.error { return error }
-        guard let routing = routingResult.routing else {
-            return .err(code: "internal_error", message: "Invalid window routing payload", data: nil)
+
+        // The window-routing parse (selector validation + identify) lives in the
+        // coordinator's `systemWindowRouting`, the single typed twin shared with
+        // `system.tree`. Convert the Foundation params, drive it, and bridge the
+        // `focused` / `caller` JSON objects back to Foundation for this payload.
+        let jsonParams = v2JSONObjectParams(params)
+        let routing: ControlCommandCoordinator.SystemWindowRouting
+        switch controlCommandCoordinator.systemWindowRouting(jsonParams) {
+        case .invalid(let error):
+            return v2BridgeControlCallResult(error)
+        case .routed(let routed):
+            routing = routed
         }
+        let focusedFoundation = routing.focused.mapValues(\.foundationObject)
+        let callerFoundation = routing.caller.mapValues(\.foundationObject)
 
         var windowNodes: [[String: Any]] = []
         var workspaceFound = (workspaceFilter == nil)
-        var windowFound = (routing.requestedWindowId == nil)
+        var windowFound = (routing.requestedWindowID == nil)
 
         if let app = AppDelegate.shared {
             let summaries = app.listMainWindowSummaries()
-            let defaultWindowId = routing.requestedWindowId ?? routing.focusedWindowId ?? summaries.first?.windowId
+            let defaultWindowId = routing.requestedWindowID ?? routing.focusedWindowID ?? summaries.first?.windowId
 
             for (windowIndex, summary) in summaries.enumerated() {
-                if let requestedWindowId = routing.requestedWindowId, summary.windowId != requestedWindowId {
+                if let requestedWindowId = routing.requestedWindowID, summary.windowId != requestedWindowId {
                     continue
                 }
                 windowFound = true
@@ -255,8 +268,10 @@ extension TerminalController {
 
         v2AttachTopApplicationProcess(to: &windowNodes, workspaceFilter: workspaceFilter)
 
-        if let requestedWindowId = routing.requestedWindowId, !windowFound {
-            return v2WindowNotFoundResult(params: params, windowId: requestedWindowId)
+        if let requestedWindowId = routing.requestedWindowID, !windowFound {
+            return v2BridgeControlCallResult(
+                controlCommandCoordinator.systemWindowNotFound(jsonParams, windowID: requestedWindowId)
+            )
         }
         if let workspaceFilter, !workspaceFound {
             return .err(
@@ -270,10 +285,32 @@ extension TerminalController {
         }
 
         return .ok([
-            "active": routing.focused.isEmpty ? (NSNull() as Any) : routing.focused,
-            "caller": routing.caller.isEmpty ? (NSNull() as Any) : routing.caller,
+            "active": focusedFoundation.isEmpty ? (NSNull() as Any) : focusedFoundation,
+            "caller": callerFoundation.isEmpty ? (NSNull() as Any) : callerFoundation,
             "include_processes": includeProcesses,
             "windows": windowNodes
         ])
+    }
+
+    /// Converts Foundation socket params to the coordinator's `JSONValue`
+    /// params. The wire params are always a valid JSON object, so the whole-dict
+    /// bridge succeeds; an unexpected non-JSON value degrades to an empty object
+    /// (the routing reads only `all_windows` / `window_id` / `caller`, which are
+    /// always JSON-convertible).
+    private nonisolated func v2JSONObjectParams(_ params: [String: Any]) -> [String: JSONValue] {
+        guard case .object(let object)? = JSONValue(foundationObject: params) else { return [:] }
+        return object
+    }
+
+    /// Bridges a coordinator `ControlCallResult` back to the worker lane's
+    /// Foundation-shaped `V2CallResult` (the inverse of the conformance bridges),
+    /// folding the typed `JSONValue` payload/data into Foundation objects.
+    private nonisolated func v2BridgeControlCallResult(_ result: ControlCallResult) -> V2CallResult {
+        switch result {
+        case .ok(let payload):
+            return .ok(payload.foundationObject)
+        case .err(let code, let message, let data):
+            return .err(code: code, message: message, data: data?.foundationObject)
+        }
     }
 }

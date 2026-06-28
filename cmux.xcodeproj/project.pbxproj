@@ -945,6 +945,7 @@
 		C0DE00000000000000000C6E /* TerminalController+ControlDebugContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C6D /* TerminalController+ControlDebugContext.swift */; };
 		C0DE00000000000000000C44 /* TerminalController+ControlFeedContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C43 /* TerminalController+ControlFeedContext.swift */; };
 		C0DE00000000000000001FE1 /* TerminalController+ControlFeedWorkerReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000001FE2 /* TerminalController+ControlFeedWorkerReading.swift */; };
+		C0DE00000000000000001D02 /* TerminalController+ControlIdentifyContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000001D01 /* TerminalController+ControlIdentifyContext.swift */; };
 		C0DE00000000000000000C52 /* TerminalController+ControlMobileHostContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C51 /* TerminalController+ControlMobileHostContext.swift */; };
 		C0DE00000000000000000C46 /* TerminalController+ControlNotificationContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C45 /* TerminalController+ControlNotificationContext.swift */; };
 		C0DE00000000000000000C56 /* TerminalController+ControlPaneContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C55 /* TerminalController+ControlPaneContext.swift */; };
@@ -2104,6 +2105,7 @@
 		C0DE00000000000000000C6D /* TerminalController+ControlDebugContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlDebugContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C43 /* TerminalController+ControlFeedContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlFeedContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000001FE2 /* TerminalController+ControlFeedWorkerReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlFeedWorkerReading.swift"; sourceTree = "<group>"; };
+		C0DE00000000000000001D01 /* TerminalController+ControlIdentifyContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlIdentifyContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C51 /* TerminalController+ControlMobileHostContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlMobileHostContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C45 /* TerminalController+ControlNotificationContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlNotificationContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C55 /* TerminalController+ControlPaneContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlPaneContext.swift"; sourceTree = "<group>"; };
@@ -2926,6 +2928,7 @@
 				C0DE00000000000000000C75 /* TerminalController+ControlSidebarContext3.swift */,
 				C0DE00000000000000000C77 /* TerminalController+ControlSidebarContextSupport.swift */,
 				C0DE00000000000000000C79 /* TerminalController+ControlSystemContext.swift */,
+				C0DE00000000000000001D01 /* TerminalController+ControlIdentifyContext.swift */,
 				B42A000000000000000B4202 /* TerminalController+ControlClientCommandDispatching.swift */,
 				C0DE00000000000000000C7B /* TerminalController+ControlSystemContext2.swift */,
 				C0DEFF200000000000000004 /* TerminalController+ControlSystemTopContext.swift */,
@@ -4636,6 +4639,7 @@
 				C0DE00000000000000000C6E /* TerminalController+ControlDebugContext.swift in Sources */,
 				C0DE00000000000000000C44 /* TerminalController+ControlFeedContext.swift in Sources */,
 				C0DE00000000000000001FE1 /* TerminalController+ControlFeedWorkerReading.swift in Sources */,
+				C0DE00000000000000001D02 /* TerminalController+ControlIdentifyContext.swift in Sources */,
 				C0DE00000000000000000C52 /* TerminalController+ControlMobileHostContext.swift in Sources */,
 				C0DE00000000000000000C46 /* TerminalController+ControlNotificationContext.swift in Sources */,
 				C0DE00000000000000000C56 /* TerminalController+ControlPaneContext.swift in Sources */,

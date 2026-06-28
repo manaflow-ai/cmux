@@ -10,18 +10,13 @@ import Foundation
 /// `v2SettingsOpen`, `v2FeedbackOpen`, and the DEBUG-only
 /// `v2MobileDevStackAuthConfigure`, minus the per-read `v2MainSync` hops (the
 /// coordinator already runs on the main actor inside the socket-command policy
-/// scope). `system.identify` and `surface.split_off` stay shared app-side
-/// bodies (`v2Identify` feeds `system.top` / `system.memory` and the
-/// task-manager snapshot; `v2SurfaceSplitOff` is also driven by the v1
-/// `drag_surface_to_split`), so their witnesses bridge.
+/// scope). `surface.split_off` stays a shared app-side body (`v2SurfaceSplitOff`
+/// is also driven by the v1 `drag_surface_to_split`), so its witness bridges.
+/// `system.identify` is owned by the coordinator
+/// (``ControlCommandCoordinator/identify(params:)``) over the
+/// ``ControlIdentifyContext`` witness in
+/// `TerminalController+ControlIdentifyContext.swift`.
 extension TerminalController: ControlSystemContext {
-
-    // MARK: - identify (bridge to the still-shared v2Identify)
-
-    func controlSystemIdentify(params: [String: JSONValue]) -> JSONValue {
-        let foundationParams = params.mapValues(\.foundationObject)
-        return JSONValue(foundationObject: v2Identify(params: foundationParams)) ?? .object([:])
-    }
 
     // MARK: - system.tree window walk
 

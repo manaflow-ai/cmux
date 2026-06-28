@@ -1,28 +1,32 @@
-internal import Foundation
+public import Foundation
 
-/// The `system.tree` window-routing parse: the typed twin of the legacy
-/// `parseV2WindowRouting` (which stays app-side for the worker-lane
-/// `system.top` / `system.memory`), resolving the focused/caller identity
-/// through the shared `system.identify` seam.
+/// The window-routing parse for `system.tree` and the app-side worker-lane
+/// `system.top` / `system.memory` base payload: the single typed twin of the
+/// legacy `parseV2WindowRouting`, resolving the focused/caller identity through
+/// the coordinator-owned `identify(params:)`.
+///
+/// The types and the parse entry are `public` because the app-side worker lane
+/// (Foundation-shaped, kept app-side because it blocks on a process snapshot)
+/// drives them after converting its `[String: Any]` params, then bridges the
+/// `focused` / `caller` JSON objects back to Foundation.
 extension ControlCommandCoordinator {
-    /// The parsed window routing for `system.tree` (the legacy
-    /// `V2WindowRouting`).
-    struct SystemWindowRouting {
+    /// The parsed window routing (the legacy `V2WindowRouting`).
+    public struct SystemWindowRouting {
         /// Whether `all_windows` was set.
-        let includeAllWindows: Bool
+        public let includeAllWindows: Bool
         /// The explicit `window_id`, if any.
-        let requestedWindowID: UUID?
+        public let requestedWindowID: UUID?
         /// The identify payload's `focused` object (empty when null/absent).
-        let focused: [String: JSONValue]
+        public let focused: [String: JSONValue]
         /// The identify payload's `caller` object (empty when null/absent).
-        let caller: [String: JSONValue]
+        public let caller: [String: JSONValue]
         /// The focused window resolved from the identify payload.
-        let focusedWindowID: UUID?
+        public let focusedWindowID: UUID?
     }
 
     /// The routing parse outcome: the parsed routing, or the exact legacy
     /// `invalid_params` error to return.
-    enum SystemWindowRoutingOutcome {
+    public enum SystemWindowRoutingOutcome {
         /// The routing parsed.
         case routed(SystemWindowRouting)
         /// A param was invalid; return this error.
@@ -32,7 +36,7 @@ extension ControlCommandCoordinator {
     /// Parses the `all_windows` / `window_id` / `caller` routing exactly as
     /// the legacy `parseV2WindowRouting` did, including its three
     /// `invalid_params` shapes.
-    func systemWindowRouting(
+    public func systemWindowRouting(
         _ params: [String: JSONValue]
     ) -> SystemWindowRoutingOutcome {
         if params["all_windows"] != nil, bool(params, "all_windows") == nil {
@@ -67,7 +71,7 @@ extension ControlCommandCoordinator {
         if let requestedWindowID {
             identifyParams["window_id"] = .string(requestedWindowID.uuidString)
         }
-        let identifyPayload = systemContext?.controlSystemIdentify(params: identifyParams) ?? .object([:])
+        let identifyPayload = identify(params: identifyParams)
         var focused: [String: JSONValue] = [:]
         var caller: [String: JSONValue] = [:]
         if case .object(let payload) = identifyPayload {
@@ -99,9 +103,9 @@ extension ControlCommandCoordinator {
         return .object(["window_id": .string(String(describing: rawWindowID.foundationObject))])
     }
 
-    /// The `system.tree` window-not-found error (the legacy
-    /// `v2WindowNotFoundResult`).
-    func systemWindowNotFound(_ params: [String: JSONValue], windowID: UUID) -> ControlCallResult {
+    /// The window-not-found error (the legacy `v2WindowNotFoundResult`), shared
+    /// by `system.tree` and the worker-lane `system.top` / `system.memory`.
+    public func systemWindowNotFound(_ params: [String: JSONValue], windowID: UUID) -> ControlCallResult {
         .err(
             code: "not_found",
             message: "Window not found. Run `cmux list-windows` to see available windows, then retry with --window <id|ref|index>.",

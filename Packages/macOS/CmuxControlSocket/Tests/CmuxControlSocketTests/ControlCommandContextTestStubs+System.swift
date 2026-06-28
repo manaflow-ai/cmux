@@ -8,7 +8,6 @@ import Foundation
 // agent).
 
 extension ControlSystemContext {
-    func controlSystemIdentify(params: [String: JSONValue]) -> JSONValue { .object([:]) }
     func controlSystemTreeWindows(
         requestedWindowID: UUID?,
         includeAllWindows: Bool,

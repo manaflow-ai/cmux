@@ -69,9 +69,10 @@ extension ControlCommandCoordinator {
         )
     }
 
-    /// `system.identify` — the shared identify payload (always ok).
+    /// `system.identify` — the shared identify payload (always ok), shaped by
+    /// the coordinator-owned ``identify(params:)``.
     func systemIdentify(_ params: [String: JSONValue]) -> ControlCallResult {
-        .ok(systemContext?.controlSystemIdentify(params: params) ?? .object([:]))
+        .ok(identify(params: params))
     }
 
     /// `system.tree` — the window/workspace/pane/surface tree snapshot.

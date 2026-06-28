@@ -25,6 +25,7 @@ public protocol ControlCommandContext:
     ControlWorkspaceContext,
     ControlSurfaceContext,
     ControlSystemContext,
+    ControlIdentifyContext,
     ControlProjectContext,
     ControlDebugContext,
     ControlSidebarContext,
