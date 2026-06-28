@@ -7390,10 +7390,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
-        // In a dedicated remote-tmux window, a new workspace means "create a new
-        // tmux session on that host" — route it to the remote and mirror it into
-        // this window instead of creating a local workspace.
-        if let context,
+        // In a dedicated remote-tmux window, a new TERMINAL workspace means "create a
+        // new tmux session on that host" — route it to the remote and mirror it into
+        // this window. A new BROWSER workspace has no remote analogue (the browser is
+        // a local WebKit surface), so it skips the remote route and is created locally
+        // in the same window.
+        if initialSurface == .terminal,
+           let context,
            remoteTmuxController.handleRemoteWindowNewWorkspaceRequested(windowId: context.windowId) {
             return true
         }
@@ -15283,6 +15286,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 onExecuted?()
                 return true
             case .newBrowser:
+                // A mirror workspace is a 1:1 tmux view and refuses a local browser
+                // surface, so opening a browser tab there would no-op. Fall back to a
+                // NEW LOCAL browser workspace in the same window instead.
+                if context.tabManager.selectedTab?.isRemoteTmuxMirror == true {
+                    guard performNewBrowserWorkspaceAction(
+                        tabManager: context.tabManager, debugSource: "tabBar.newBrowser.mirrorFallback"
+                    ) else { return false }
+                    onExecuted?()
+                    return true
+                }
                 let previousTabManager = tabManager
                 tabManager = context.tabManager
                 defer { tabManager = previousTabManager }
