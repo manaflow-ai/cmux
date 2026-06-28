@@ -287,7 +287,7 @@ final class BrowserPortalAnchorView: NSView {
 }
 
 @MainActor
-final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, BrowserSessionHistoryHosting, BrowserFaviconHosting {
+final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, BrowserSessionHistoryHosting, BrowserFaviconHosting, BrowserZoomHosting {
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
 
@@ -659,6 +659,10 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
     /// `faviconPNGData` behind the `BrowserFaviconHosting` seam.
     private let faviconCoordinator: BrowserFaviconCoordinator
     private let zoomPolicy = BrowserZoomPolicy()
+    /// Page-zoom affordance (in/out/reset/set + clamp-and-fire-on-change apply)
+    /// lives in `CmuxBrowser.BrowserZoomCoordinator`; this panel owns the only
+    /// live witness, `webView.pageZoom`, exposed through `BrowserZoomHosting`.
+    private let zoomCoordinator = BrowserZoomCoordinator()
     private let navigationIntentCoordinator: BrowserNavigationIntentCoordinator
     private var insecureHTTPAlertFactory: () -> NSAlert
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
@@ -1536,6 +1540,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         navigationIntentCoordinator.host = self
         sessionHistoryCoordinator.host = self
         faviconCoordinator.host = self
+        zoomCoordinator.host = self
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
@@ -4076,27 +4081,33 @@ extension BrowserPanel {
 
     @discardableResult
     func zoomIn() -> Bool {
-        applyPageZoom(zoomPolicy.zoomedIn(from: webView.pageZoom))
+        zoomCoordinator.zoomIn()
     }
 
     @discardableResult
     func zoomOut() -> Bool {
-        applyPageZoom(zoomPolicy.zoomedOut(from: webView.pageZoom))
+        zoomCoordinator.zoomOut()
     }
 
     @discardableResult
     func resetZoom() -> Bool {
-        applyPageZoom(1.0)
+        zoomCoordinator.resetZoom()
     }
 
     func currentPageZoomFactor() -> CGFloat {
-        webView.pageZoom
+        zoomCoordinator.currentPageZoomFactor()
     }
 
     @discardableResult
     func setPageZoomFactor(_ pageZoom: CGFloat) -> Bool {
-        let clamped = zoomPolicy.clamp(pageZoom)
-        return applyPageZoom(clamped)
+        zoomCoordinator.setPageZoomFactor(pageZoom)
+    }
+
+    /// The live page-zoom factor of this panel's web view, the only live witness
+    /// the `BrowserZoomCoordinator` reads and writes through `BrowserZoomHosting`.
+    var livePageZoom: CGFloat {
+        get { webView.pageZoom }
+        set { webView.pageZoom = newValue }
     }
 
     /// Take a snapshot of the web view
@@ -5103,16 +5114,6 @@ extension BrowserPanel {
 #endif
 
 private extension BrowserPanel {
-    @discardableResult
-    func applyPageZoom(_ candidate: CGFloat) -> Bool {
-        let clamped = zoomPolicy.clamp(candidate)
-        if abs(webView.pageZoom - clamped) < 0.0001 {
-            return false
-        }
-        webView.pageZoom = clamped
-        return true
-    }
-
     static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
         var r = start
         var hops = 0
