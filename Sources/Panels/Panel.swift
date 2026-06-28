@@ -3,6 +3,7 @@ import Combine
 import AppKit
 import SwiftUI
 import CmuxCore
+import CmuxFoundation
 import CmuxTerminalCore
 import CmuxWorkspaces
 
@@ -148,16 +149,6 @@ public enum BrowserPanelFocusIntent: Equatable {
     case webView
     case addressBar
     case findField
-}
-
-public enum FilePreviewPanelFocusIntent: Hashable {
-    case textEditor
-    case pdfCanvas
-    case pdfThumbnails
-    case pdfOutline
-    case imageCanvas
-    case mediaPlayer
-    case quickLook
 }
 
 public enum ProjectPanelFocusIntent: Hashable {

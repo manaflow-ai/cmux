@@ -15,9 +15,9 @@ internal import CMUXDebugLog
 /// pending via an objc associated object stored on the webview itself.
 ///
 /// Web inspector frontends are exempt: their own window lifecycle must not be
-/// poked. The caller supplies that predicate as `isInspectorFrontend`, so the
-/// app target keeps ownership of the inspector-detection seam
-/// (`cmuxIsWebInspectorObject`).
+/// poked. The caller supplies that predicate as `isInspectorFrontend` (typically
+/// `NSObject.isCmuxWebInspectorObject`), so this lifecycle stays decoupled from
+/// the inspector-detection seam.
 extension WKWebView {
     private static let cmuxBrowserPanelRenderingStateReattachAssociationKey = malloc(1)!
 

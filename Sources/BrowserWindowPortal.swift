@@ -959,7 +959,7 @@ final class WindowBrowserHostView: NSView {
     }
 
     private static func isInspectorView(_ view: NSView) -> Bool {
-        cmuxIsWebInspectorObject(view)
+        view.isCmuxWebInspectorObject
     }
 
 }
@@ -1380,10 +1380,10 @@ final class WindowBrowserSlotView: NSView {
     func pinHostedWebView(_ webView: WKWebView) {
         guard webView.superview === self else { return }
 
-        let hasCompanionWKSubviews = Self.hasWebKitCompanionSubview(in: self, primaryWebView: webView)
+        let hasCompanionWKSubviews = self.hasWebKitCompanionSubview(primaryWebView: webView)
         let needsPlainWebViewFrameReset =
             !hasCompanionWKSubviews &&
-            Self.frameDiffersFromBounds(webView.frame, bounds: bounds)
+            webView.frame.portalFrameDiffers(fromBounds: bounds)
         let needsFrameHosting =
             hostedWebView !== webView ||
             !hostedWebViewConstraints.isEmpty ||
@@ -1409,35 +1409,6 @@ final class WindowBrowserSlotView: NSView {
         }
         needsLayout = true
         layoutSubtreeIfNeeded()
-    }
-
-    private static func frameDiffersFromBounds(_ frame: NSRect, bounds: NSRect, epsilon: CGFloat = 0.5) -> Bool {
-        abs(frame.minX - bounds.minX) > epsilon ||
-            abs(frame.minY - bounds.minY) > epsilon ||
-            abs(frame.width - bounds.width) > epsilon ||
-            abs(frame.height - bounds.height) > epsilon
-    }
-
-    private static func hasWebKitCompanionSubview(in host: NSView, primaryWebView: WKWebView) -> Bool {
-        var stack = host.subviews.filter { $0 !== primaryWebView }
-        while let current = stack.popLast() {
-            if current.isDescendant(of: primaryWebView) {
-                continue
-            }
-            if current.isHidden || current.alphaValue <= 0 {
-                continue
-            }
-            if String(describing: type(of: current)).contains("WK") {
-                let width = max(current.frame.width, current.bounds.width)
-                let height = max(current.frame.height, current.bounds.height)
-                if width > 1, height > 1 {
-                    return true
-                }
-                continue
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
     }
 
     func effectivePaneTopChromeHeight() -> CGFloat {
@@ -1596,13 +1567,6 @@ final class WindowBrowserSlotView: NSView {
 final class WindowBrowserPortal: NSObject {
     private static let transientRecoveryRetryBudget: Int = 12
 
-    private static func dividerHitRectContains(_ point: NSPoint, rect: NSRect) -> Bool {
-        point.x >= rect.minX &&
-            point.x <= rect.maxX &&
-            point.y >= rect.minY &&
-            point.y <= rect.maxY
-    }
-
     private weak var window: NSWindow?
     private let hostView = WindowBrowserHostView(frame: .zero)
     private let chromeComposition = AppWindowChromeComposition()
@@ -1725,7 +1689,7 @@ final class WindowBrowserPortal: NSObject {
         }
 
         let hitRect = dividerRect.insetBy(dx: -5, dy: -5)
-        if dividerHitRectContains(location, rect: hitRect) {
+        if hitRect.portalDividerHitContains(location) {
             window.browserPortalHasInteractiveSplitDividerDrag = true
         }
     }
@@ -1856,9 +1820,9 @@ final class WindowBrowserPortal: NSObject {
             installedContainerView = container
             installedReferenceView = reference
         } else {
-            let aboveReference = Self.isView(hostView, above: reference, in: container)
+            let aboveReference = hostView.isOrdered(above: reference, in: container)
             let abovePlacementReference = placementReference === reference
-                || Self.isView(hostView, above: placementReference, in: container)
+                || hostView.isOrdered(above: placementReference, in: container)
             if !aboveReference || !abovePlacementReference {
                 container.addSubview(hostView, positioned: .above, relativeTo: placementReference)
             }
@@ -1902,35 +1866,6 @@ final class WindowBrowserPortal: NSObject {
             .contentOverlayTargetResolver
             .installationTarget(for: window) else { return nil }
         return (target.container, target.reference)
-    }
-
-    private static func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
-        if view.isHidden { return true }
-        var current = view.superview
-        while let v = current {
-            if v.isHidden { return true }
-            current = v.superview
-        }
-        return false
-    }
-
-    private static func pixelSnappedRect(_ rect: NSRect, in view: NSView) -> NSRect {
-        guard rect.origin.x.isFinite,
-              rect.origin.y.isFinite,
-              rect.size.width.isFinite,
-              rect.size.height.isFinite else {
-            return rect
-        }
-        let scale = max(1.0, view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0)
-        func snap(_ value: CGFloat) -> CGFloat {
-            (value * scale).rounded(.toNearestOrAwayFromZero) / scale
-        }
-        return NSRect(
-            x: snap(rect.origin.x),
-            y: snap(rect.origin.y),
-            width: max(0, snap(rect.size.width)),
-            height: max(0, snap(rect.size.height))
-        )
     }
 
     private static func searchOverlayConfigurationsEquivalent(
@@ -2000,7 +1935,7 @@ final class WindowBrowserPortal: NSObject {
         var count = 0
         while let current = stack.popLast() {
             for subview in current.subviews {
-                if cmuxIsWebInspectorObject(subview) {
+                if subview.isCmuxWebInspectorObject {
                     count += 1
                 }
                 stack.append(subview)
@@ -2009,14 +1944,6 @@ final class WindowBrowserPortal: NSObject {
         return count
     }
 #endif
-
-    private static func isView(_ view: NSView, above reference: NSView, in container: NSView) -> Bool {
-        guard let viewIndex = container.subviews.firstIndex(of: view),
-              let referenceIndex = container.subviews.firstIndex(of: reference) else {
-            return false
-        }
-        return viewIndex > referenceIndex
-    }
 
     private func preferredHostPlacementReference(in container: NSView, fallback reference: NSView) -> NSView {
         container.subviews.last(where: {
@@ -2062,7 +1989,7 @@ final class WindowBrowserPortal: NSObject {
         for view in sourceSuperview.subviews {
             if view === primaryWebView { continue }
             let className = String(describing: type(of: view))
-            if cmuxIsWebInspectorClassName(className) || Self.containsInspectorView(in: view) {
+            if className.isCmuxWebInspectorClassName || Self.containsInspectorView(in: view) {
                 continue
             }
             guard className.contains("WK") else { continue }
@@ -2075,7 +2002,7 @@ final class WindowBrowserPortal: NSObject {
     private static func containsInspectorView(in root: NSView) -> Bool {
         var stack: [NSView] = [root]
         while let current = stack.popLast() {
-            if cmuxIsWebInspectorObject(current) {
+            if current.isCmuxWebInspectorObject {
                 return true
             }
             stack.append(contentsOf: current.subviews)
@@ -2125,7 +2052,7 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private static func isInspectorFrontendWebView(_ webView: WKWebView) -> Bool {
-        cmuxIsWebInspectorObject(webView)
+        webView.isCmuxWebInspectorObject
     }
 
     private func notifyHostedWebKitHidden(
@@ -2980,7 +2907,7 @@ final class WindowBrowserPortal: NSObject {
         _ = synchronizeHostFrameToReference()
         let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
-        let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
+        let frameInHost = frameInHostRaw.portalPixelSnapped(in: hostView)
         let hostBounds = hostView.bounds
         let hasFiniteHostBounds =
             hostBounds.origin.x.isFinite &&
@@ -3046,7 +2973,7 @@ final class WindowBrowserPortal: NSObject {
             clampedFrame.width > 1 &&
             clampedFrame.height > 1
         let targetFrame = hasVisibleIntersection ? clampedFrame : frameInHost
-        let anchorHidden = Self.isHiddenOrAncestorHidden(anchorView)
+        let anchorHidden = anchorView.isHiddenOrAncestorHidden
         let tinyFrame = targetFrame.width <= 1 || targetFrame.height <= 1
         let outsideHostBounds = !hasVisibleIntersection
         let shouldHide =
@@ -3161,7 +3088,7 @@ final class WindowBrowserPortal: NSObject {
 #if DEBUG
         let inspectorSubviews = Self.inspectorSubviewCount(in: containerView)
 #endif
-        let bottomDockedInspectorGeometry = BottomDockedInspectorGeometry { cmuxIsWebInspectorObject($0) }
+        let bottomDockedInspectorGeometry = BottomDockedInspectorGeometry { $0.isCmuxWebInspectorObject }
         if containerOwnsWebView,
            let repairedBottomDockFrame = bottomDockedInspectorGeometry.repairedBottomDockedPageFrame(
                in: containerView,
