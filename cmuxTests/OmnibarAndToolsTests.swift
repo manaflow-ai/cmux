@@ -8,6 +8,7 @@ import Bonsplit
 import UserNotifications
 import CmuxWorkspaces
 import CmuxBrowser
+import CmuxBrowserUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

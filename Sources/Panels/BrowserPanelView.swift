@@ -748,35 +748,46 @@ struct BrowserPanelView: View {
     }
 
     private var focusFlashOverlayView: some View {
-        RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
-            .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
-            .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
-            .padding(FocusFlashPattern.ringInset)
-            .allowsHitTesting(false)
+        BrowserFocusFlashOverlay(
+            snapshot: BrowserFocusFlashSnapshot(
+                accentColor: cmuxAccentColor(),
+                opacity: focusFlashOpacity,
+                cornerRadius: FocusFlashPattern.ringCornerRadius,
+                inset: FocusFlashPattern.ringInset
+            )
+        )
     }
 
     @ViewBuilder
     private var omnibarSuggestionsOverlayView: some View {
         if shouldRenderOmnibarSuggestionsInSwiftUI {
-            OmnibarSuggestionsView(
-                engineName: searchConfiguration.displayName,
-                items: omnibarState.suggestions,
-                selectedIndex: omnibarState.selectedSuggestionIndex,
-                isLoadingRemoteSuggestions: isLoadingRemoteSuggestions,
-                searchSuggestionsEnabled: remoteSuggestionsEnabled,
-                onCommit: { item in
-                    commitSuggestion(item)
-                },
-                onHighlight: { idx in
-                    let effects = omnibarState.reduce(.highlightIndex(idx))
-                    applyOmnibarEffects(effects)
-                }
+            BrowserOmnibarSuggestionsOverlay(
+                snapshot: BrowserOmnibarSuggestionsSnapshot(
+                    engineName: searchConfiguration.displayName,
+                    items: omnibarState.suggestions,
+                    badges: omnibarState.suggestions.map { $0.trailingBadgeText },
+                    selectedIndex: omnibarState.selectedSuggestionIndex,
+                    isLoadingRemoteSuggestions: isLoadingRemoteSuggestions,
+                    searchSuggestionsEnabled: remoteSuggestionsEnabled,
+                    pillFrame: omnibarPillFrame,
+                    colorScheme: browserChromeColorScheme,
+                    accessibilityLabel: browserOmnibarSuggestionsAccessibilityLabel
+                ),
+                actions: BrowserOmnibarSuggestionsActions(
+                    onCommit: { item in
+                        commitSuggestion(item)
+                    },
+                    onHighlight: { idx in
+                        let effects = omnibarState.reduce(.highlightIndex(idx))
+                        applyOmnibarEffects(effects)
+                    }
+                )
             )
-            .frame(width: omnibarPillFrame.width)
-            .offset(x: omnibarPillFrame.minX, y: omnibarPillFrame.maxY + 3)
-            .zIndex(1000)
-            .environment(\.colorScheme, browserChromeColorScheme)
         }
+    }
+
+    private var browserOmnibarSuggestionsAccessibilityLabel: String {
+        String(localized: "browser.addressBarSuggestions", defaultValue: "Address bar suggestions")
     }
 
     @ViewBuilder

@@ -1,16 +1,58 @@
+public import CmuxBrowser
+public import SwiftUI
 import AppKit
-import CmuxBrowser
-import SwiftUI
+#if DEBUG
+import CMUXDebugLog
+#endif
 
-struct OmnibarSuggestionsView: View {
+/// The omnibar suggestions popup list: a squircle popover of search/navigate/
+/// history/tab/remote suggestion rows with a selected-row highlight, an optional
+/// trailing badge, and a loading spinner for remote suggestions.
+///
+/// Renders from already-resolved values (the engine name, the suggestion list,
+/// the selected index, the loading/enabled flags) and routes commit/highlight
+/// through plain closures. The accessibility label is resolved app-side and
+/// passed in because `String(localized:)` must bind to the app bundle, not this
+/// package's bundle. The omnibar text-field host and suggestion commit/delete
+/// logic stay app-side; this view only draws the list.
+public struct OmnibarSuggestionsView: View {
     let engineName: String
     let items: [OmnibarSuggestion]
+    let badges: [String?]
     let selectedIndex: Int
     let isLoadingRemoteSuggestions: Bool
     let searchSuggestionsEnabled: Bool
+    let accessibilityLabel: String
     let onCommit: (OmnibarSuggestion) -> Void
     let onHighlight: (Int) -> Void
     @Environment(\.colorScheme) private var colorScheme
+
+    /// Creates the suggestions popup from values resolved app-side.
+    ///
+    /// `badges` is index-aligned with `items`; each entry is the pre-localized
+    /// trailing badge for that row (resolved app-side because the badge text
+    /// binds to the app bundle's string catalog) or `nil` for no badge.
+    public init(
+        engineName: String,
+        items: [OmnibarSuggestion],
+        badges: [String?],
+        selectedIndex: Int,
+        isLoadingRemoteSuggestions: Bool,
+        searchSuggestionsEnabled: Bool,
+        accessibilityLabel: String,
+        onCommit: @escaping (OmnibarSuggestion) -> Void,
+        onHighlight: @escaping (Int) -> Void
+    ) {
+        self.engineName = engineName
+        self.items = items
+        self.badges = badges
+        self.selectedIndex = selectedIndex
+        self.isLoadingRemoteSuggestions = isLoadingRemoteSuggestions
+        self.searchSuggestionsEnabled = searchSuggestionsEnabled
+        self.accessibilityLabel = accessibilityLabel
+        self.onCommit = onCommit
+        self.onHighlight = onHighlight
+    }
 
     // Keep radii below half of the smallest rendered heights so this keeps a
     // squircle silhouette instead of auto-clamping into a capsule.
@@ -60,7 +102,9 @@ struct OmnibarSuggestionsView: View {
         Self.popupHeight(for: items)
     }
 
-    static func popupHeight(for items: [OmnibarSuggestion]) -> CGFloat {
+    /// Computes the device-pixel-snapped popup height for a suggestion list, used
+    /// both for the SwiftUI overlay frame and the AppKit portal-hosted placement.
+    public static func popupHeight(for items: [OmnibarSuggestion]) -> CGFloat {
         let totalRowCount = max(1, items.count)
         let rowsHeight = items.isEmpty ? singleLineRowHeight : CGFloat(items.count) * singleLineRowHeight
         let gaps = CGFloat(max(0, totalRowCount - 1))
@@ -182,80 +226,101 @@ struct OmnibarSuggestionsView: View {
         }
     }
 
+    private func suggestionBadge(_ badge: String) -> some View {
+        Text(badge)
+            .font(.system(size: 9.5, weight: .medium))
+            .foregroundStyle(badgeTextColor)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(badgeBackgroundColor)
+            )
+    }
+
+    @ViewBuilder
+    private func suggestionRowLabel(for item: OmnibarSuggestion, badge: String?, isSelected: Bool) -> some View {
+        HStack(spacing: 6) {
+            Text(item.listText)
+                .font(.system(size: 11))
+                .foregroundStyle(listTextColor)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if let badge {
+                suggestionBadge(badge)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: rowHeight(for: item),
+            maxHeight: rowHeight(for: item),
+            alignment: .leading
+        )
+        .background(
+            RoundedRectangle(cornerRadius: rowHighlightCornerRadius, style: .continuous)
+                .fill(
+                    isSelected
+                        ? rowHighlightColor
+                        : Color.clear
+                )
+        )
+    }
+
+    private func handleSuggestionCommit(_ item: OmnibarSuggestion, idx: Int) {
+        #if DEBUG
+        let suggestionKind: String = {
+            switch item.kind {
+            case .search:
+                return "search"
+            case .navigate:
+                return "navigate"
+            case .history:
+                return "history"
+            case .switchToTab:
+                return "switchToTab"
+            case .remote:
+                return "remote"
+            }
+        }()
+        logDebugEvent("browser.suggestionClick index=\(idx) kind=\(suggestionKind) textBytes=\(item.listText.utf8.count)")
+        #endif
+        onCommit(item)
+    }
+
+    @ViewBuilder
+    private func suggestionRow(idx: Int, item: OmnibarSuggestion) -> some View {
+        Button {
+            handleSuggestionCommit(item, idx: idx)
+        } label: {
+            suggestionRowLabel(
+                for: item,
+                badge: idx < badges.count ? badges[idx] : nil,
+                isSelected: idx == selectedIndex
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("BrowserOmnibarSuggestions.Row.\(idx)")
+        .accessibilityValue(
+            idx == selectedIndex
+                ? "selected \(item.listText)"
+                : item.listText
+        )
+        .onHover { hovering in
+            if hovering, idx != selectedIndex, isPointerDrivenSelectionEvent {
+                onHighlight(idx)
+            }
+        }
+        .animation(.none, value: selectedIndex)
+    }
+
     @ViewBuilder
     private var rowsView: some View {
         VStack(spacing: rowSpacing) {
             ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
-            Button {
-                #if DEBUG
-                let suggestionKind: String = {
-                    switch item.kind {
-                    case .search:
-                        return "search"
-                    case .navigate:
-                        return "navigate"
-                    case .history:
-                        return "history"
-                    case .switchToTab:
-                        return "switchToTab"
-                    case .remote:
-                        return "remote"
-                    }
-                }()
-                cmuxDebugLog("browser.suggestionClick index=\(idx) kind=\(suggestionKind) textBytes=\(item.listText.utf8.count)")
-                #endif
-                onCommit(item)
-            } label: {
-                HStack(spacing: 6) {
-                        Text(item.listText)
-                            .font(.system(size: 11))
-                            .foregroundStyle(listTextColor)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        if let badge = item.trailingBadgeText {
-                            Text(badge)
-                                .font(.system(size: 9.5, weight: .medium))
-                                .foregroundStyle(badgeTextColor)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                        .fill(badgeBackgroundColor)
-                                )
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 8)
-                    .frame(
-                        maxWidth: .infinity,
-                        minHeight: rowHeight(for: item),
-                        maxHeight: rowHeight(for: item),
-                        alignment: .leading
-                    )
-                    .background(
-                        RoundedRectangle(cornerRadius: rowHighlightCornerRadius, style: .continuous)
-                            .fill(
-                                idx == selectedIndex
-                                    ? rowHighlightColor
-                                    : Color.clear
-                            )
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("BrowserOmnibarSuggestions.Row.\(idx)")
-                .accessibilityValue(
-                    idx == selectedIndex
-                        ? "selected \(item.listText)"
-                        : item.listText
-                )
-                .onHover { hovering in
-                    if hovering, idx != selectedIndex, isPointerDrivenSelectionEvent {
-                        onHighlight(idx)
-                    }
-                }
-                .animation(.none, value: selectedIndex)
+                suggestionRow(idx: idx, item: item)
             }
-
         }
         .padding(.horizontal, horizontalInset)
         .padding(.top, topInset)
@@ -263,7 +328,7 @@ struct OmnibarSuggestionsView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
-    var body: some View {
+    public var body: some View {
         Group {
             if shouldScroll {
                 ScrollView {
@@ -315,6 +380,6 @@ struct OmnibarSuggestionsView: View {
         .accessibilityElement(children: .contain)
         .accessibilityRespondsToUserInteraction(true)
         .accessibilityIdentifier("BrowserOmnibarSuggestions")
-        .accessibilityLabel(String(localized: "browser.addressBarSuggestions", defaultValue: "Address bar suggestions"))
+        .accessibilityLabel(accessibilityLabel)
     }
 }

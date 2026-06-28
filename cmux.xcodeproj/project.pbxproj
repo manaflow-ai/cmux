@@ -657,7 +657,6 @@
 		4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */; };
 		9637C6D3170F4BE1A7EF6243 /* OmnibarSubmitDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */; };
 		8ABF422A675EF09045AD8DCD /* OmnibarSuggestion+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8366BD38105398873AD532 /* OmnibarSuggestion+App.swift */; };
-		A50014A1 /* OmnibarSuggestionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014A0 /* OmnibarSuggestionsView.swift */; };
 		0A0F00550000000000000001 /* OmpSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0F00550000000000000002 /* OmpSupportTests.swift */; };
 		D1BEF00002A1B2C3D4E5F719 /* open in Copy CLI */ = {isa = PBXBuildFile; fileRef = D1BEF00001A1B2C3D4E5F719 /* open */; };
 		FEED0000000000000000F007 /* opencode-plugin.js in Resources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F006 /* opencode-plugin.js */; };
@@ -1829,7 +1828,6 @@
 		B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarAndToolsTests.swift; sourceTree = "<group>"; };
 		48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarSubmitDecisionTests.swift; sourceTree = "<group>"; };
 		AC8366BD38105398873AD532 /* OmnibarSuggestion+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/OmnibarSuggestion+App.swift"; sourceTree = "<group>"; };
-		A50014A0 /* OmnibarSuggestionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OmnibarSuggestionsView.swift; sourceTree = "<group>"; };
 		0A0F00550000000000000002 /* OmpSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmpSupportTests.swift; sourceTree = "<group>"; };
 		D1BEF00001A1B2C3D4E5F719 /* open */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Resources/bin/open; sourceTree = SOURCE_ROOT; };
 		FEED0000000000000000F006 /* opencode-plugin.js */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.javascript; path = "opencode-plugin.js"; sourceTree = "<group>"; };
@@ -3070,7 +3068,6 @@
 				109D0E38E29A8779FA0BAE82 /* BrowserRemoteWorkspaceStatus.swift */,
 				326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */,
 				A5001414 /* BrowserPanelView.swift */,
-				A50014A0 /* OmnibarSuggestionsView.swift */,
 				0A1B0AB50000000000000002 /* OmnibarAddressButtonStyle.swift */,
 				0A1B0AB50000000000000012 /* Image+CmuxFlatSymbolColorRendering.swift */,
 				0A1B0AB50000000000000022 /* BrowserOmnibarPreferenceKeys.swift */,
@@ -4454,7 +4451,6 @@
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
 				0A1B0AB50000000000000001 /* OmnibarAddressButtonStyle.swift in Sources */,
 				8ABF422A675EF09045AD8DCD /* OmnibarSuggestion+App.swift in Sources */,
-				A50014A1 /* OmnibarSuggestionsView.swift in Sources */,
 				A9F200000000000000000017 /* OpenCodeEventStreamParser.swift in Sources */,
 				A9F200000000000000000018 /* OpenCodeEventTextAccumulator.swift in Sources */,
 				A9F200000000000000000019 /* OpenCodeProcessOutputDisposition.swift in Sources */,
