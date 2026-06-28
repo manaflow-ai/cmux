@@ -8818,14 +8818,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func documentHeight() -> CGFloat {
-        let contentHeight = scrollView.contentSize.height
-        let cellHeight = surfaceView.cellSize.height
-        if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
-            let documentGridHeight = CGFloat(scrollbar.total) * cellHeight
-            let padding = contentHeight - (CGFloat(scrollbar.len) * cellHeight)
-            return documentGridHeight + padding
-        }
-        return contentHeight
+        TerminalScrollbackViewportSync.documentHeight(
+            contentHeight: scrollView.contentSize.height,
+            cellHeight: surfaceView.cellSize.height,
+            scrollbar: surfaceView.scrollbar
+        )
     }
 
     private func terminalScrollBarAllowedBySettings() -> Bool {
