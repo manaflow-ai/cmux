@@ -226,6 +226,11 @@ final class RemoteTmuxSessionMirror {
         return connection.windowOrder.filter { windowIdFilter.contains($0) }
     }
 
+    /// This mirror's window ids in display order. Lets the controller anchor a
+    /// linked-view new-tab on the home session's last window (the shared view
+    /// connection's `{end}` would otherwise resolve in the view session).
+    var orderedWindowIds: [Int] { mirroredWindowOrder }
+
     func rebuild() {
         guard let workspace else { return }
         var createdNewPanel = false
