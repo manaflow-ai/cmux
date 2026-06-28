@@ -57,11 +57,11 @@ public final class WindowMouseMovedEventsCoordinator: @unchecked Sendable {
         } else {
             records[windowKey] = Record(
                 window: window,
-                previousValue: window.acceptsMouseMovedEvents,
+                previousValue: MainActor.assumeIsolated { window.acceptsMouseMovedEvents },
                 owners: [ownerKey]
             )
         }
-        window.acceptsMouseMovedEvents = true
+        MainActor.assumeIsolated { window.acceptsMouseMovedEvents = true }
     }
 
     /// Releases `owner`'s interest in mouse-moved events for `window`, restoring
@@ -74,7 +74,7 @@ public final class WindowMouseMovedEventsCoordinator: @unchecked Sendable {
         guard var record = records[windowKey] else { return }
         record.owners.remove(ObjectIdentifier(owner))
         if record.owners.isEmpty {
-            record.window?.acceptsMouseMovedEvents = record.previousValue
+            MainActor.assumeIsolated { record.window?.acceptsMouseMovedEvents = record.previousValue }
             records.removeValue(forKey: windowKey)
         } else {
             records[windowKey] = record
@@ -92,7 +92,7 @@ public final class WindowMouseMovedEventsCoordinator: @unchecked Sendable {
             guard var record = records[windowKey] else { continue }
             record.owners.remove(ownerKey)
             if record.owners.isEmpty {
-                record.window?.acceptsMouseMovedEvents = record.previousValue
+                MainActor.assumeIsolated { record.window?.acceptsMouseMovedEvents = record.previousValue }
                 records.removeValue(forKey: windowKey)
             } else {
                 records[windowKey] = record
