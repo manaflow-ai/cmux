@@ -57,6 +57,13 @@ final class NotificationBurstCoalescer {
         flush()
     }
 
+    /// Drops the pending action and any scheduled flush without running it.
+    func cancel() {
+        cancelScheduledFlush?()
+        cancelScheduledFlush = nil
+        pendingAction = nil
+    }
+
     private func scheduleFlushIfNeeded() {
         guard cancelScheduledFlush == nil else { return }
         let scheduledDelay = delay
