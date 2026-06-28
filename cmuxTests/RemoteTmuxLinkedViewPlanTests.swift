@@ -90,6 +90,33 @@ import Testing
         #expect(plan.workspaces == [.init(sessionName: "A", windowIds: ["@1"])])
     }
 
+    @Test func formatBumpKeepsRelinkingAllWindowsIntoFreshView() {
+        // A view with OUR name but an old format version: needsViewCreate is true and
+        // the stale same-name view is scheduled for kill+recreate. Its windows must
+        // be re-linked into the fresh view — i.e. `actual` is treated as empty so
+        // they all appear in reconcileActions (regression: previously they were seen
+        // as already-present and never re-linked → empty view after upgrade).
+        let staleSameName = SRow(name: vname, isView: true, owner: "o1", version: 0)
+        let snap = P.Snapshot(
+            sessions: [staleSameName, SRow(name: "A", isView: false, owner: "", version: nil)],
+            windows: [
+                WRow(sessionName: "A", windowId: "@1", windowIndex: 0),
+                WRow(sessionName: "A", windowId: "@2", windowIndex: 1),
+                // the old view still lists these linked windows under our name:
+                WRow(sessionName: vname, windowId: "@0", windowIndex: 0),
+                WRow(sessionName: vname, windowId: "@1", windowIndex: 1),
+                WRow(sessionName: vname, windowId: "@2", windowIndex: 2),
+            ],
+            cmuxOwnedWindowIds: ["@1", "@2"],
+            placeholderWindowId: "@0")
+        let plan = P.plan(view: view, snapshot: snap)
+        #expect(plan.needsViewCreate)
+        #expect(plan.staleViewsToKill == [vname])
+        // BOTH real windows re-link despite being listed in the (doomed) old view.
+        #expect(plan.reconcileActions == [.link(windowId: "@1"), .link(windowId: "@2")])
+        #expect(plan.workspaces == [.init(sessionName: "A", windowIds: ["@1", "@2"])])
+    }
+
     @Test func staleOwnViewCollectedForeignViewNeverTouchedNorSurfaced() {
         let snap = P.Snapshot(
             sessions: [
