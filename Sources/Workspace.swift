@@ -2196,11 +2196,15 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
     private static let remoteNotificationCooldown: TimeInterval = 5 * 60
-    private static let sshControlMasterCleanupQueue = DispatchQueue(
-        label: "com.cmux.remote-ssh.control-master-cleanup",
-        qos: .utility
-    )
-    nonisolated(unsafe) static var runSSHControlMasterCommandOverrideForTesting: (([String]) -> Void)?
+    /// Forwards to ``SSHControlMasterCleanupService/runCommandOverrideForTesting``.
+    /// The cleanup spawn queue and `Process` lifecycle now live in that service
+    /// (`CmuxRemoteWorkspace`); this computed shim preserves the process-wide
+    /// `Workspace.runSSHControlMasterCommandOverrideForTesting` test seam used by
+    /// `WorkspaceRemoteConnectionTests`.
+    nonisolated static var runSSHControlMasterCommandOverrideForTesting: (([String]) -> Void)? {
+        get { SSHControlMasterCleanupService.runCommandOverrideForTesting }
+        set { SSHControlMasterCleanupService.runCommandOverrideForTesting = newValue }
+    }
 #if DEBUG
     /// XCTest seam: assign before `configureRemoteConnection` to script the
     /// session coordinator's subprocess results. Instance-scoped injection of
@@ -2346,28 +2350,24 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     private var preservesProxyFailureWhileSSHTerminalIsAlive: Bool {
-        remoteConfiguration?.transport == .ssh
-            && activeRemoteTerminalSessionCount > 0
-            && remoteConfiguration?.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        RemoteProxyFailurePolicy().preservesProxyFailureWhileSSHTerminalIsAlive(
+            transport: remoteConfiguration?.transport,
+            activeSessionCount: activeRemoteTerminalSessionCount,
+            startupCommand: remoteConfiguration?.terminalStartupCommand
+        )
     }
 
     private var hasProxyOnlyRemoteSidebarError: Bool {
-        guard let entry = statusEntries[Self.remoteErrorStatusKey]?.value else { return false }
-        return entry.lowercased().contains("remote proxy unavailable")
+        RemoteSidebarErrorClassifier().isProxyOnly(
+            statusEntryValue: statusEntries[Self.remoteErrorStatusKey]?.value
+        )
     }
 
     private func remoteNotificationCooldownKey(target: String) -> String? {
-        let rawTarget = (remoteConfiguration?.destination ?? target)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !rawTarget.isEmpty else { return nil }
-        let normalizedHost = rawTarget
-            .split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
-            .last
-            .map(String.init)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard let normalizedHost, !normalizedHost.isEmpty else { return nil }
-        return "remote-host:\(normalizedHost)"
+        RemoteNotificationCooldownKey().key(
+            destination: remoteConfiguration?.destination,
+            target: target
+        )
     }
 
     var focusedSurfaceId: UUID? { focusedPanelId }
@@ -4809,9 +4809,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     private static func normalizedForegroundAuthToken(_ token: String?) -> String? {
-        guard let token else { return nil }
-        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        RemoteForegroundAuthToken().normalized(token)
     }
 
     func notifyRemoteForegroundAuthenticationReady(token: String? = nil) {
@@ -5319,36 +5317,10 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
 
     static func requestSSHControlMasterCleanupIfNeeded(configuration: WorkspaceRemoteConfiguration) {
         guard let arguments = RemoteControlMasterCleanup().cleanupArguments(configuration: configuration) else { return }
-        if let override = runSSHControlMasterCommandOverrideForTesting {
-            override(arguments)
-            return
-        }
-
-        sshControlMasterCleanupQueue.async {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-            process.arguments = arguments
-            process.environment = configuration.sshProcessEnvironment
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            let exitSemaphore = DispatchSemaphore(value: 0)
-            process.terminationHandler = { _ in
-                exitSemaphore.signal()
-            }
-
-            do {
-                try process.run()
-                if exitSemaphore.wait(timeout: .now() + 5) == .timedOut {
-                    if process.isRunning {
-                        process.terminate()
-                    }
-                    _ = exitSemaphore.wait(timeout: .now() + 1)
-                }
-            } catch {
-                return
-            }
-        }
+        SSHControlMasterCleanupService().requestCleanup(
+            arguments: arguments,
+            environment: configuration.sshProcessEnvironment
+        )
     }
 
 

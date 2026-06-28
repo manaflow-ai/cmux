@@ -287,7 +287,7 @@ final class BrowserPortalAnchorView: NSView {
 }
 
 @MainActor
-final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
+final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, BrowserSessionHistoryHosting {
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
 
@@ -517,24 +517,26 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
     /// Published can go forward state
     @Published private(set) var canGoForward: Bool = false
 
-    private var nativeCanGoBack: Bool = false
-    private var nativeCanGoForward: Bool = false
+    var nativeCanGoBack: Bool = false
+    var nativeCanGoForward: Bool = false
 
     /// The replayable back/forward session history this surface restores from a
-    /// prior launch. The pure stack state machine lives in `CmuxBrowser`;
-    /// this surface owns the instance, feeds it the resolved live current URL,
-    /// and performs the `WKWebView` calls its decisions return. The temporary-URL
-    /// classification (diff viewer + remote loopback proxy alias) is inverted into
-    /// the injected sanitizer seam.
-    private var restoredSessionHistory = RestoredSessionHistory(
-        sanitizer: SessionHistoryURLSanitizer { $0?.isTemporaryBrowserHistory ?? false }
-    )
+    /// prior launch. The pure stack state machine and its reconciliation flows
+    /// live in `CmuxBrowser.BrowserSessionHistoryCoordinator`; this surface owns
+    /// the coordinator, feeds it live WebKit state through the
+    /// `BrowserSessionHistoryHosting` seam, and performs the `WKWebView` calls its
+    /// decisions return. The temporary-URL classification (diff viewer + remote
+    /// loopback proxy alias) is inverted into the injected sanitizer seam.
+    private let sessionHistoryCoordinator: BrowserSessionHistoryCoordinator
 
     private var usesRestoredSessionHistory: Bool {
-        restoredSessionHistory.usesRestoredSessionHistory
+        sessionHistoryCoordinator.usesRestoredSessionHistory
     }
     private var restoredHistoryCurrentURL: URL? {
-        restoredSessionHistory.current
+        sessionHistoryCoordinator.restoredHistoryCurrentURL
+    }
+    private var restoredSessionHistoryHasState: Bool {
+        sessionHistoryCoordinator.hasRestoredState
     }
     private var isMainFrameProvisionalNavigationActive: Bool = false
 
@@ -1510,6 +1512,9 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
         self.navigationIntentCoordinator = BrowserNavigationIntentCoordinator(
             initialBypassHostOnce: BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         )
+        self.sessionHistoryCoordinator = BrowserSessionHistoryCoordinator(
+            sanitizer: SessionHistoryURLSanitizer { $0?.isTemporaryBrowserHistory ?? false }
+        )
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
@@ -1530,6 +1535,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
         applyProxyConfigurationIfAvailable()
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
         navigationIntentCoordinator.host = self
+        sessionHistoryCoordinator.host = self
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
@@ -2024,42 +2030,20 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
         backHistoryURLStrings: [String],
         forwardHistoryURLStrings: [String]
     ) {
-        realignRestoredSessionHistoryToLiveCurrentIfPossible()
-
-        let snapshot = restoredSessionHistory.snapshot(
-            nativeBackURLs: webView.backForwardList.backList.map { $0.url },
-            nativeForwardURLs: webView.backForwardList.forwardList.map { $0.url },
-            isLiveAligned: isLiveSessionHistoryAlignedWithRestoredCurrent
-        )
+        let snapshot = sessionHistoryCoordinator.sessionNavigationHistorySnapshot()
         return (snapshot.backHistoryURLStrings, snapshot.forwardHistoryURLStrings)
     }
 
-    private func resolvedLiveSessionHistoryURL() -> URL? {
+    /// Host primitive: the resolved live session-history URL (slice-1 resolver).
+    func resolvedLiveSessionHistoryURL() -> URL? {
         Self.sessionHistoryURLResolver.resolvedLiveURL(
             webViewDisplayURL: BrowserRemoteProxyURLRewriter.displayURL(for: webView.url),
             currentURL: currentURL
         )
     }
 
-    private var isLiveSessionHistoryAlignedWithRestoredCurrent: Bool {
-        restoredSessionHistory.isLiveAligned(withLiveCurrentURL: resolvedLiveSessionHistoryURL())
-    }
-
     private func realignRestoredSessionHistoryToLiveCurrentIfPossible() {
-        switch restoredSessionHistory.realign(toLiveCurrentURL: resolvedLiveSessionHistoryURL()) {
-        case .noChange:
-            return
-        case .rebalanced:
-            refreshNavigationAvailability()
-        case .clearedForward(let liveCurrentString):
-#if DEBUG
-            cmuxDebugLog(
-                "browser.history.restore.forward.clear panel=\(id.uuidString.prefix(5)) " +
-                "current=\(liveCurrentString)"
-            )
-#endif
-            refreshNavigationAvailability()
-        }
+        sessionHistoryCoordinator.realignToLiveCurrentIfPossible()
     }
 
     func restoreSessionNavigationHistory(
@@ -2067,13 +2051,11 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
         forwardHistoryURLStrings: [String],
         currentURLString: String?
     ) {
-        let activated = restoredSessionHistory.restore(
+        sessionHistoryCoordinator.restoreSessionNavigationHistory(
             backHistoryURLStrings: backHistoryURLStrings,
             forwardHistoryURLStrings: forwardHistoryURLStrings,
             currentURLString: currentURLString
         )
-        guard activated else { return }
-        refreshNavigationAvailability()
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
@@ -2130,32 +2112,28 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting {
     }
 
     func shouldRenderWebViewForSessionSnapshot() -> Bool {
-        // Diff viewer URLs are "temporary" so `preferredURLStringForSessionSnapshot()`
-        // is nil, but they are restorable via their token, so honor their render
-        // intent too (otherwise a restored diff surface never navigates).
-        guard preferredURLStringForSessionSnapshot() != nil || diffViewerSessionComponents() != nil else {
+        guard Self.sessionHistoryURLResolver.sessionSnapshotIsRenderable(
+            preferredURLString: preferredURLStringForSessionSnapshot(),
+            hasDiffViewerComponents: diffViewerSessionComponents() != nil
+        ) else {
             return false
         }
         return hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView ?? shouldRenderWebView
     }
 
     func shouldPersistSessionSnapshot() -> Bool {
-        // Diff viewer surfaces are otherwise treated as temporary. Persist them
-        // only when they can actually be restored via the custom scheme (a
-        // local-only, non-pending manifest); otherwise persisting would leave a
-        // blank panel on restart with no URL to fall back to.
-        if let components = diffViewerSessionComponents() {
-            return CmuxDiffViewerURLSchemeHandler.shared.diffViewerRestorable(
+        let diffViewerRestorable = diffViewerSessionComponents().map { components in
+            CmuxDiffViewerURLSchemeHandler.shared.diffViewerRestorable(
                 token: components.token,
                 requestPath: components.requestPath
             )
         }
-        guard !Self.isTemporarySessionHistoryURL(webView.url),
-              !Self.isTemporarySessionHistoryURL(currentURL),
-              !Self.isTemporarySessionHistoryURL(restoredHistoryCurrentURL) else {
-            return false
-        }
-        return true
+        return Self.sessionHistoryURLResolver.shouldPersistSessionSnapshot(
+            diffViewerRestorable: diffViewerRestorable,
+            webViewURL: webView.url,
+            currentURL: currentURL,
+            restoredCurrentURL: restoredHistoryCurrentURL
+        )
     }
 
     /// Whether this surface is transparent internal cmux UI, for the session
@@ -3344,7 +3322,7 @@ extension BrowserPanel {
         isBrowserFocusModeExitArmed ||
         nativeCanGoBack ||
         nativeCanGoForward ||
-        restoredSessionHistory.hasRestoredState ||
+        restoredSessionHistoryHasState ||
         estimatedProgress > 0 ||
         isLoading ||
         isDownloading ||
@@ -3483,27 +3461,7 @@ extension BrowserPanel {
         guard canGoBack else { return }
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
         cancelInFlightNavigationBeforeHistoryTraversal()
-        if usesRestoredSessionHistory {
-            realignRestoredSessionHistoryToLiveCurrentIfPossible()
-
-            let decision = restoredSessionHistory.decideGoBack(
-                isLiveAligned: isLiveSessionHistoryAlignedWithRestoredCurrent,
-                nativeCanGoBack: nativeCanGoBack,
-                resolvedCurrentURL: resolvedCurrentSessionHistoryURL()
-            )
-            switch decision {
-            case .navigate(let targetURL):
-                refreshNavigationAvailability()
-                navigateWithoutInsecureHTTPPrompt(
-                    to: targetURL,
-                    recordTypedNavigation: false,
-                    preserveRestoredSessionHistory: true
-                )
-            case .nativeGoBack:
-                webView.goBack()
-            case .nativeGoForward, .refreshOnly:
-                refreshNavigationAvailability()
-            }
+        if sessionHistoryCoordinator.goBack() {
             return
         }
 
@@ -3515,26 +3473,7 @@ extension BrowserPanel {
         guard canGoForward else { return }
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
         cancelInFlightNavigationBeforeHistoryTraversal()
-        if usesRestoredSessionHistory {
-            realignRestoredSessionHistoryToLiveCurrentIfPossible()
-
-            let decision = restoredSessionHistory.decideGoForward(
-                nativeCanGoForward: nativeCanGoForward,
-                resolvedCurrentURL: resolvedCurrentSessionHistoryURL()
-            )
-            switch decision {
-            case .nativeGoForward:
-                webView.goForward()
-            case .navigate(let targetURL):
-                refreshNavigationAvailability()
-                navigateWithoutInsecureHTTPPrompt(
-                    to: targetURL,
-                    recordTypedNavigation: false,
-                    preserveRestoredSessionHistory: true
-                )
-            case .nativeGoBack, .refreshOnly:
-                refreshNavigationAvailability()
-            }
+        if sessionHistoryCoordinator.goForward() {
             return
         }
 
@@ -5149,7 +5088,9 @@ extension BrowserPanel {
         return nil
     }
 
-    private func resolvedCurrentSessionHistoryURL() -> URL? {
+    /// Host primitive: the resolved current session-history URL (slice-1
+    /// resolver), falling back to the restored current URL.
+    func resolvedCurrentSessionHistoryURL() -> URL? {
         Self.sessionHistoryURLResolver.resolvedCurrentURL(
             webViewDisplayURL: BrowserRemoteProxyURLRewriter.displayURL(for: webView.url),
             currentURL: currentURL,
@@ -5158,22 +5099,60 @@ extension BrowserPanel {
     }
 
     private func refreshNavigationAvailability() {
-        let availability = restoredSessionHistory.availability(
-            nativeCanGoBack: nativeCanGoBack,
-            nativeCanGoForward: nativeCanGoForward
-        )
-
-        if canGoBack != availability.canGoBack {
-            canGoBack = availability.canGoBack
-        }
-        if canGoForward != availability.canGoForward {
-            canGoForward = availability.canGoForward
-        }
+        sessionHistoryCoordinator.refreshNavigationAvailability()
     }
 
     private func abandonRestoredSessionHistoryIfNeeded() {
-        guard restoredSessionHistory.abandon() else { return }
-        refreshNavigationAvailability()
+        sessionHistoryCoordinator.abandonIfNeeded()
+    }
+
+    // MARK: - BrowserSessionHistoryHosting
+
+    // The restored back/forward session-history state machine and its
+    // reconciliation/snapshot/restore/traversal flows moved to
+    // CmuxBrowser.BrowserSessionHistoryCoordinator. The host primitives below
+    // feed it live WebKit state and perform the resolved effects; the live
+    // WKWebView back-forward list, the @Published availability, the restored
+    // navigation replay, and the #if DEBUG forward-clear log (which names the
+    // panel id) stay here as the witness.
+
+    /// Host primitive: the live `backForwardList.backList` URLs, oldest first.
+    var nativeBackForwardBackURLs: [URL] {
+        webView.backForwardList.backList.map { $0.url }
+    }
+
+    /// Host primitive: the live `backForwardList.forwardList` URLs.
+    var nativeBackForwardForwardURLs: [URL] {
+        webView.backForwardList.forwardList.map { $0.url }
+    }
+
+    /// Host primitive: publishes the resolved availability, assigning only on change.
+    func setNavigationAvailability(canGoBack: Bool, canGoForward: Bool) {
+        if self.canGoBack != canGoBack {
+            self.canGoBack = canGoBack
+        }
+        if self.canGoForward != canGoForward {
+            self.canGoForward = canGoForward
+        }
+    }
+
+    /// Host primitive: replays a restored-history navigation to `url`.
+    func navigate(toRestoredSessionHistoryURL url: URL) {
+        navigateWithoutInsecureHTTPPrompt(
+            to: url,
+            recordTypedNavigation: false,
+            preserveRestoredSessionHistory: true
+        )
+    }
+
+    /// Host primitive: emits the restored-history forward-clear debug log.
+    func logRestoredSessionHistoryForwardClear(liveCurrentString: String) {
+#if DEBUG
+        cmuxDebugLog(
+            "browser.history.restore.forward.clear panel=\(id.uuidString.prefix(5)) " +
+            "current=\(liveCurrentString)"
+        )
+#endif
     }
 
     /// Shared resolver mirroring the restored-session-history URL rules, used by
@@ -5195,10 +5174,6 @@ extension BrowserPanel {
 
     private static func sanitizedSessionHistoryURLs(_ values: [String]) -> [URL] {
         sessionHistoryURLResolver.sanitizedSessionHistoryURLs(values)
-    }
-
-    private static func isTemporarySessionHistoryURL(_ url: URL?) -> Bool {
-        sessionHistoryURLResolver.isTemporarySessionHistoryURL(url)
     }
 
 }
