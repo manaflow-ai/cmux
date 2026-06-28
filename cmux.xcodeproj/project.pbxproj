@@ -64,6 +64,7 @@
 		D7AB00000000000000000001 /* AppDelegate+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */; };
 		4EDE10010000000000000001 /* AppDelegate+NotificationDeliverySeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EDE10010000000000000002 /* AppDelegate+NotificationDeliverySeams.swift */; };
 		2907B0012907B0012907B001 /* AppDelegate+NotificationNavSeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907B0022907B0022907B002 /* AppDelegate+NotificationNavSeams.swift */; };
+		2907C0012907C0012907C001 /* AppDelegate+NotificationOpenRoutingSeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907C0022907C0022907C002 /* AppDelegate+NotificationOpenRoutingSeams.swift */; };
 		6313C7A00000000000000001 /* AppDelegate+PaneMemoryGuardrail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313C7A00000000000000002 /* AppDelegate+PaneMemoryGuardrail.swift */; };
 		D7CD00000000000000000001 /* AppDelegate+PaneSurfaceMoveHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7CD00000000000000000002 /* AppDelegate+PaneSurfaceMoveHosting.swift */; };
 		2907A0012907A0012907A001 /* AppDelegate+RecoverableMainWindowRoutes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */; };
@@ -1290,6 +1291,7 @@
 		D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		4EDE10010000000000000002 /* AppDelegate+NotificationDeliverySeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationDeliverySeams.swift"; sourceTree = "<group>"; };
 		2907B0022907B0022907B002 /* AppDelegate+NotificationNavSeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationNavSeams.swift"; sourceTree = "<group>"; };
+		2907C0022907C0022907C002 /* AppDelegate+NotificationOpenRoutingSeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationOpenRoutingSeams.swift"; sourceTree = "<group>"; };
 		6313C7A00000000000000002 /* AppDelegate+PaneMemoryGuardrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+PaneMemoryGuardrail.swift"; sourceTree = "<group>"; };
 		D7CD00000000000000000002 /* AppDelegate+PaneSurfaceMoveHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+PaneSurfaceMoveHosting.swift"; sourceTree = "<group>"; };
 		2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+RecoverableMainWindowRoutes.swift"; sourceTree = "<group>"; };
@@ -2990,6 +2992,7 @@
 				E7B3A0010000000000000002 /* AppDelegate+WorkspaceResolving.swift */,
 				4EDE10010000000000000002 /* AppDelegate+NotificationDeliverySeams.swift */,
 				2907B0022907B0022907B002 /* AppDelegate+NotificationNavSeams.swift */,
+				2907C0022907C0022907C002 /* AppDelegate+NotificationOpenRoutingSeams.swift */,
 				2907B0042907B0042907B004 /* AppDelegate+FeedRequestSeams.swift */,
 				2907B1022907B1022907B102 /* AppDelegate+TerminalTextSendSeams.swift */,
 				2907B1042907B1042907B104 /* AppDelegate+TerminalTextSendTracing.swift */,
@@ -4106,6 +4109,7 @@
 				D7AB00000000000000000001 /* AppDelegate+MoveTabToNewWorkspace.swift in Sources */,
 				4EDE10010000000000000001 /* AppDelegate+NotificationDeliverySeams.swift in Sources */,
 				2907B0012907B0012907B001 /* AppDelegate+NotificationNavSeams.swift in Sources */,
+				2907C0012907C0012907C001 /* AppDelegate+NotificationOpenRoutingSeams.swift in Sources */,
 				6313C7A00000000000000001 /* AppDelegate+PaneMemoryGuardrail.swift in Sources */,
 				D7CD00000000000000000001 /* AppDelegate+PaneSurfaceMoveHosting.swift in Sources */,
 				2907A0012907A0012907A001 /* AppDelegate+RecoverableMainWindowRoutes.swift in Sources */,
