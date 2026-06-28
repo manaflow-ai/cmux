@@ -98,15 +98,6 @@ public protocol ControlSystemContext: AnyObject {
     /// - Returns: The snapshot, or `nil` when no TabManager resolved.
     func controlExtensionSidebarSnapshot(routing: ControlRoutingSelectors) -> ControlExtensionSidebarSnapshot?
 
-    /// Runs one `workspace.action` mutation, delegating to the shared
-    /// app-side `v2WorkspaceAction` (also driven by the mobile host's gated
-    /// `workspace.action` RPC, so the body stays app-side) and bridging its
-    /// fully-shaped result.
-    ///
-    /// - Parameter params: The raw command params.
-    /// - Returns: The fully shaped call result.
-    func controlWorkspaceAction(params: [String: JSONValue]) -> ControlCallResult
-
     /// Runs one `surface.action` / `tab.action` mutation in the legacy order.
     ///
     /// - Parameters:

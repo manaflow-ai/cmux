@@ -1306,7 +1306,8 @@ class TerminalController: MobileViewportSurfaceLimiting {
         // Workspaces
         // workspace.* (list/create/select/current/close/move_to_window/reorder[_many]/
         // prompt_submit/rename) + workspace.group.* handled by ControlCommandCoordinator.
-        // workspace.action (forwards to the still-shared v2WorkspaceAction) and
+        // workspace.action (ControlCommandCoordinator+WorkspaceAction, driving
+        // granular ControlWorkspaceContext mutation witnesses) and
         // extension.sidebar.snapshot handled by ControlCommandCoordinator.
         // workspace.next/previous/last/equalize_splits/set_auto_title + workspace.remote.*
         // (configure/foreground_auth_ready/reconnect/disconnect/status/pty_attach_end/
@@ -1930,212 +1931,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     private func v2ResolveWorkspaceOwner(_ workspaceId: UUID) -> TabManager? {
         v2MainSync { AppDelegate.shared?.tabManagerFor(tabId: workspaceId) }
-    }
-
-    // MARK: - V2 Workspace Methods
-
-
-
-
-
-
-
-    @MainActor
-
-    func v2WorkspaceAction(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
-        guard let action = v2ActionKey(params) else {
-            return .err(code: "invalid_params", message: "Missing action", data: nil)
-        }
-        let supportedActions = ControlWorkspaceActionResolution.supportedActions
-
-        var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
-            "action": action,
-            "supported_actions": supportedActions
-        ])
-
-        v2MainSync {
-            let requestedWorkspaceId = v2UUID(params, "workspace_id") ?? tabManager.selectedTabId
-            guard let workspaceId = requestedWorkspaceId,
-                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
-                result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                return
-            }
-
-            let windowId = v2ResolveWindowId(tabManager: tabManager)
-
-            @MainActor
-            func closeWorkspaces(_ workspaces: [Workspace]) -> Int {
-                var closed = 0
-                for candidate in workspaces where candidate.id != workspace.id {
-                    let existedBefore = tabManager.tabs.contains(where: { $0.id == candidate.id })
-                    guard existedBefore else { continue }
-                    tabManager.closeWorkspace(candidate)
-                    if !tabManager.tabs.contains(where: { $0.id == candidate.id }) {
-                        closed += 1
-                    }
-                }
-                return closed
-            }
-
-            @MainActor
-            func finish(_ extras: [String: Any] = [:]) {
-                var payload: [String: Any] = [
-                    "action": action,
-                    "workspace_id": workspace.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
-                    "window_id": v2OrNull(windowId?.uuidString),
-                    "window_ref": v2Ref(kind: .window, uuid: windowId)
-                ]
-                for (key, value) in extras {
-                    payload[key] = value
-                }
-                result = .ok(payload)
-            }
-
-            // The pure resolution owns the supported-action canon, the
-            // title/description trimming rules, and the named-color→hex
-            // resolution. The palette snapshot is read app-side only for the
-            // `set_color` path (matching the legacy body, which read it after
-            // the non-blank color check). Live `tabManager` mutation stays here.
-            let colorRaw = v2String(params, "color")
-            let paletteSnapshot: [ControlWorkspaceColorPaletteEntry]
-            if action == "set_color",
-               let trimmedColor = colorRaw?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !trimmedColor.isEmpty {
-                paletteSnapshot = WorkspaceTabColorSettings.palette().map {
-                    ControlWorkspaceColorPaletteEntry(name: $0.name, hex: $0.hex)
-                }
-            } else {
-                paletteSnapshot = []
-            }
-
-            let plan: ControlWorkspaceActionPlan
-            switch ControlWorkspaceActionResolution.resolve(
-                action: action,
-                title: v2String(params, "title"),
-                description: v2String(params, "description"),
-                color: colorRaw,
-                palette: paletteSnapshot
-            ) {
-            case .unknownAction:
-                result = .err(code: "invalid_params", message: "Unknown workspace action", data: [
-                    "action": action,
-                    "supported_actions": supportedActions
-                ])
-                return
-            case .missingTitle:
-                result = .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
-                return
-            case .missingDescription:
-                result = .err(code: "invalid_params", message: "Missing or invalid description", data: nil)
-                return
-            case .missingColor:
-                result = .err(code: "invalid_params", message: "Missing or invalid color", data: nil)
-                return
-            case .invalidColor(let namedColors):
-                result = .err(code: "invalid_params", message: "Invalid color. Use a hex value (#RRGGBB) or a named color.", data: [
-                    "named_colors": namedColors
-                ])
-                return
-            case .planned(let resolvedPlan):
-                plan = resolvedPlan
-            }
-
-            switch plan {
-            case .pin:
-                tabManager.setPinned(workspace, pinned: true)
-                finish(["pinned": true])
-
-            case .unpin:
-                tabManager.setPinned(workspace, pinned: false)
-                finish(["pinned": false])
-
-            case .rename(let title):
-                tabManager.setCustomTitle(tabId: workspace.id, title: title)
-                finish(["title": title])
-
-            case .clearName:
-                tabManager.clearCustomTitle(tabId: workspace.id)
-                finish(["title": workspace.title])
-
-            case .setDescription(let description):
-                tabManager.setCustomDescription(tabId: workspace.id, description: description)
-                finish(["description": v2OrNull(workspace.customDescription)])
-
-            case .clearDescription:
-                tabManager.clearCustomDescription(tabId: workspace.id)
-                finish(["description": NSNull()])
-
-            case .moveUp:
-                guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
-                }
-                _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: max(currentIndex - 1, 0))
-                finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
-
-            case .moveDown:
-                guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
-                }
-                _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: min(currentIndex + 1, tabManager.tabs.count - 1))
-                finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
-
-            case .moveTop:
-                tabManager.moveTabToTop(workspace.id)
-                finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
-
-            case .closeOthers:
-                let candidates = tabManager.tabs.filter { $0.id != workspace.id && !$0.isPinned }
-                let closed = closeWorkspaces(candidates)
-                finish(["closed": closed])
-
-            case .closeAbove:
-                guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
-                }
-                let candidates = Array(tabManager.tabs.prefix(index)).filter { !$0.isPinned }
-                let closed = closeWorkspaces(candidates)
-                finish(["closed": closed])
-
-            case .closeBelow:
-                guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
-                }
-                let candidates: [Workspace]
-                if index + 1 < tabManager.tabs.count {
-                    candidates = Array(tabManager.tabs.suffix(from: index + 1)).filter { !$0.isPinned }
-                } else {
-                    candidates = []
-                }
-                let closed = closeWorkspaces(candidates)
-                finish(["closed": closed])
-
-            case .markRead:
-                AppDelegate.shared?.notificationStore?.markRead(forTabId: workspace.id)
-                finish()
-
-            case .markUnread:
-                AppDelegate.shared?.notificationStore?.markUnread(forTabId: workspace.id)
-                finish()
-
-            case .setColor(let hex):
-                tabManager.setTabColor(tabId: workspace.id, color: hex)
-                finish(["color": hex])
-
-            case .clearColor:
-                tabManager.setTabColor(tabId: workspace.id, color: nil)
-                finish(["color": NSNull()])
-            }
-        }
-
-        return result
     }
 
     // MARK: - V2 Surface Methods
@@ -4171,7 +3966,8 @@ class TerminalController: MobileViewportSurfaceLimiting {
         }
     }
 
-    /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``.
+    /// Mobile-gated wrapper over the shared `workspace.action` dispatcher
+    /// (`ControlCommandCoordinator.workspaceAction`, reached through `handle`).
     func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
         let rawAction = v2RawString(params, "action")
         guard Self.mobileAllowsWorkspaceAction(rawAction) else {
@@ -4184,15 +3980,29 @@ class TerminalController: MobileViewportSurfaceLimiting {
         // Reject a present-but-malformed workspace_id like the other mobile
         // handlers, then require it to actually be present and resolvable: this
         // is a mutating action, so it must target an explicit workspace and never
-        // fall back to the Mac's currently selected workspace (which
-        // v2WorkspaceAction would otherwise do for a missing workspace_id).
+        // fall back to the Mac's currently selected workspace (which the shared
+        // dispatcher would otherwise do for a missing workspace_id).
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
         guard v2UUID(params, "workspace_id") != nil else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
-        return v2WorkspaceAction(params: params)
+        // Forward to the shared `workspace.action` dispatcher and bridge its
+        // typed `ControlCallResult` back to the mobile data plane's
+        // `V2CallResult` (the reverse of the `controlBridge` impedance adapter
+        // the control witnesses use; the wire params are already valid JSON, so
+        // the conversion is total).
+        let jsonParams = params.compactMapValues { JSONValue(foundationObject: $0) }
+        let request = ControlRequest(id: nil, method: "workspace.action", params: jsonParams)
+        let result = controlCommandCoordinator.handle(request)
+            ?? .err(code: "unavailable", message: "TabManager not available", data: nil)
+        switch result {
+        case let .ok(payload):
+            return .ok((payload.foundationObject as? [String: Any]) ?? [:])
+        case let .err(code, message, data):
+            return .err(code: code, message: message, data: data?.foundationObject as? [String: Any])
+        }
     }
 
     func v2MobileHostStatus(

@@ -119,14 +119,6 @@ extension ControlCommandCoordinator {
             ?? .err(code: "unavailable", message: "AppDelegate not available", data: nil)
     }
 
-    /// `workspace.action` — delegate to the shared app-side workspace-action
-    /// logic (also driven by the mobile host's gated `workspace.action` RPC,
-    /// so the body stays app-side; the app bridges the result byte-faithfully).
-    func workspaceAction(_ params: [String: JSONValue]) -> ControlCallResult {
-        systemContext?.controlWorkspaceAction(params: params)
-            ?? .err(code: "unavailable", message: "TabManager not available", data: nil)
-    }
-
 #if DEBUG
     /// `mobile.dev_stack_auth.configure` — DEBUG-only dev Stack auth token
     /// configuration for the mobile host.

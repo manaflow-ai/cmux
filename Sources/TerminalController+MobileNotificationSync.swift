@@ -70,9 +70,9 @@ extension TerminalController {
 
     /// The `workspace.action` sub-actions the mobile data plane may invoke.
     ///
-    /// Mobile gets pin/unpin/rename/read-state only. The other sub-actions of
-    /// ``v2WorkspaceAction(params:)`` reorder the global sidebar or destroy
-    /// sibling workspaces, so they stay on the Mac/automation socket. The
+    /// Mobile gets pin/unpin/rename/read-state only. The other `workspace.action`
+    /// sub-actions reorder the global sidebar or destroy sibling workspaces, so
+    /// they stay on the Mac/automation socket. The
     /// allow-list and its normalization (trim, lowercase, map `-` to `_`, exactly
     /// as ``v2ActionKey(_:_:)``) live in ``MobileWorkspaceAction`` in the shared
     /// `CMUXMobileCore` package so this gate and the handler can never disagree on
