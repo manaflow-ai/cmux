@@ -5911,7 +5911,7 @@ struct VerticalTabsSidebar: View {
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
             }
-            SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+            SidebarFooterHostView(updateViewModel: updateViewModel, onSendFeedback: onSendFeedback)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("Sidebar")
@@ -7294,64 +7294,40 @@ struct VerticalTabsSidebar: View {
     }
 }
 
-private struct SidebarFooter: View {
+/// App-target host for the lifted `CmuxSidebarUI.SidebarFooter`.
+///
+/// Owns the two reactive reads that drive the footer (the experimental
+/// extensions `@LiveSetting` and the keyboard-shortcut revision observer) and
+/// resolves every localized string and `AppDelegate`/`BrowserDataImportCoordinator`
+/// effect in the app bundle, threading them into the package footer as plain
+/// values and `@MainActor` closures. Keeping this thin host between
+/// `VerticalTabsSidebar` and the package view preserves the original footer's
+/// reactivity scope (only the footer re-renders when the extensions flag or a
+/// shortcut binding changes). The former dead-threaded `FileExplorerState`
+/// parameter is dropped (it was never read by any footer view).
+private struct SidebarFooterHostView: View {
     var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
-
-    var body: some View {
-#if DEBUG
-        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-#else
-        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-            .padding(.leading, 6)
-            .padding(.trailing, 10)
-            .padding(.bottom, 6)
-#endif
-    }
-}
-
-private struct SidebarFooterButtons: View {
-    var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
-    let onSendFeedback: () -> Void
-    @State private var extensionBrowserAnchorView: NSView?
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     var body: some View {
-        HStack(spacing: 4) {
-            SidebarHelpMenuButton(
-                helpTitle: String(localized: "sidebar.help.button", defaultValue: "Help"),
-                options: helpMenuOptions
-            )
-            // The puzzle button opens the extensions browser; it only shows
-            // while the experimental Extensions feature is enabled.
-            if extensionsExperimentalEnabled {
-                Button {
-                    _ = AppDelegate.shared?.openSidebarExtensionBrowser(
-                        from: extensionBrowserAnchorView,
-                        title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
-                    )
-                } label: {
-                    Image(systemName: "puzzlepiece.extension")
-                        .symbolRenderingMode(.monochrome)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                        .frame(width: 22, height: 22, alignment: .center)
-                }
-                .buttonStyle(SidebarFooterIconButtonStyle())
-                .frame(width: 22, height: 22, alignment: .center)
-                .safeHelp(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
-                .accessibilityLabel(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
-                .accessibilityIdentifier("SidebarExtensionMenuButton")
-                .background(TitlebarControlAnchorView { extensionBrowserAnchorView = $0 })
-            }
-            if let updateActionsHost = AppDelegate.shared {
-                UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        SidebarFooter(
+            updateViewModel: updateViewModel,
+            helpTitle: String(localized: "sidebar.help.button", defaultValue: "Help"),
+            helpMenuOptions: helpMenuOptions,
+            extensionsEnabled: extensionsExperimentalEnabled,
+            extensionsBrowserTitle: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"),
+            onOpenExtensionBrowser: { anchorView in
+                _ = AppDelegate.shared?.openSidebarExtensionBrowser(
+                    from: anchorView,
+                    title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+                )
+            },
+            accentColor: cmuxAccentColor(),
+            updateActionsHost: AppDelegate.shared,
+            devBuildBannerText: String(localized: "debug.devBuildBanner.title", defaultValue: "THIS IS A DEV BUILD")
+        )
     }
 
     private static let docsURL = URL(string: "https://cmux.com/docs")
@@ -7475,30 +7451,6 @@ private struct SidebarFooterButtons: View {
         return options
     }
 }
-
-#if DEBUG
-private struct SidebarDevFooter: View {
-    var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
-    let onSendFeedback: () -> Void
-    @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
-    private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-            if showSidebarDevBuildBanner {
-                SidebarDevBuildBanner(
-                    text: String(localized: "debug.devBuildBanner.title", defaultValue: "THIS IS A DEV BUILD")
-                )
-            }
-        }
-        .padding(.leading, 6)
-        .padding(.trailing, 10)
-        .padding(.bottom, 6)
-    }
-}
-#endif
 
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
 // the parent rebuilds with unchanged values. Without this, every TabManager
