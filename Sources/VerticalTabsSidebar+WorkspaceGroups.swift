@@ -61,7 +61,7 @@ extension VerticalTabsSidebar {
         ] rowHeight in
             let reorderDelegate = SidebarTabDropDelegate(
                 targetTabId: anchorId,
-                tabManager: tabManager,
+                host: SidebarTabReorderHost(tabManager: tabManager),
                 workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
                 dragState: dragState,
                 selectedTabIds: selectedTabIds,
