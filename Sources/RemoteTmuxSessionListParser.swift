@@ -32,6 +32,32 @@ enum RemoteTmuxSessionListParser {
     /// any leading field value.
     static let fieldDelimiter = ":"
 
+    /// Splits raw `tmux …list… -F` output (delimited with ``fieldDelimiter``) into
+    /// rows of exactly `fieldCount` fields, where the LAST field is the free-text
+    /// remainder (rejoined so an embedded delimiter is preserved). Strips a
+    /// trailing `\r`, skips blank/short lines. Shared by every tmux `-F` row parser
+    /// so the line-split / CR-strip / last-field-rejoin invariant lives in one place
+    /// (the cross-host reason for the printable delimiter is documented above).
+    static func splitRows(_ output: String, fieldCount: Int) -> [[String]] {
+        precondition(fieldCount >= 1)
+        // Split on any newline via `Character.isNewline`, which matches `\n`, `\r`,
+        // AND the `\r\n` grapheme cluster. A plain `split(separator: "\n")` misses
+        // `\r\n` (Swift clusters it as one Character, so it isn't equal to `\n`),
+        // which previously left a stray `\r` on the last field of CRLF output.
+        return output.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline)
+            .compactMap { rawLine in
+                let line = String(rawLine)
+                if line.isEmpty { return nil }
+                let fields = line.components(separatedBy: fieldDelimiter)
+                guard fields.count >= fieldCount else { return nil }
+                // Keep the first fieldCount-1 fields verbatim; rejoin the rest as the
+                // trailing free-text field.
+                var row = Array(fields[0..<(fieldCount - 1)])
+                row.append(fields[(fieldCount - 1)...].joined(separator: fieldDelimiter))
+                return row
+            }
+    }
+
     /// The `-F` format string this parser expects, ordered to match ``parse(_:)``
     /// with the free-text `session_name` last.
     static let formatString =
@@ -42,38 +68,18 @@ enum RemoteTmuxSessionListParser {
     /// - Parameter output: the raw stdout from the remote `tmux list-sessions`.
     /// - Returns: one ``RemoteTmuxSession`` per well-formed line, in input order.
     static func parse(_ output: String) -> [RemoteTmuxSession] {
-        var sessions: [RemoteTmuxSession] = []
-        for rawLine in output.split(separator: "\n", omittingEmptySubsequences: true) {
-            var line = String(rawLine)
-            if line.last == "\r" {
-                line.removeLast()
-            }
-            if line.isEmpty { continue }
-            // Unbounded split: the first four fields are id/windows/attached/
-            // created, and the name (which may itself contain `:`) is reassembled
-            // from the remainder below via `fields[4...].joined`, so a name with
-            // embedded delimiters is preserved rather than truncated here.
-            let fields = line.components(separatedBy: fieldDelimiter)
-            // Need at least id + windows + attached + created + name.
-            guard fields.count >= 5 else { continue }
-            let id = fields[0].trimmingCharacters(in: .whitespaces)
-            guard !id.isEmpty else { continue }
-            let windowCount = Int(fields[1].trimmingCharacters(in: .whitespaces)) ?? 0
-            let attached = (Int(fields[2].trimmingCharacters(in: .whitespaces)) ?? 0) > 0
-            let createdUnix = Int(fields[3].trimmingCharacters(in: .whitespaces))
-            // The name is the remainder, rejoined so an embedded delimiter (should
-            // one ever survive) is preserved rather than truncating the name.
-            let name = fields[4...].joined(separator: fieldDelimiter)
-            sessions.append(
-                RemoteTmuxSession(
-                    id: id,
-                    name: name,
-                    windowCount: windowCount,
-                    attached: attached,
-                    createdUnix: createdUnix
-                )
+        // Shared row split (id, windows, attached, created, name-remainder); the
+        // name is the rejoined remainder so an embedded `:` survives.
+        return splitRows(output, fieldCount: 5).compactMap { f in
+            let id = f[0].trimmingCharacters(in: .whitespaces)
+            guard !id.isEmpty else { return nil }
+            return RemoteTmuxSession(
+                id: id,
+                name: f[4],
+                windowCount: Int(f[1].trimmingCharacters(in: .whitespaces)) ?? 0,
+                attached: (Int(f[2].trimmingCharacters(in: .whitespaces)) ?? 0) > 0,
+                createdUnix: Int(f[3].trimmingCharacters(in: .whitespaces))
             )
         }
-        return sessions
     }
 }
