@@ -1511,14 +1511,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
 #endif
-    // Set to true when the user has already confirmed quit via the warning dialog,
-    // so applicationShouldTerminate does not show a second alert.
-    private var isQuitWarningConfirmed = false
-    // One-shot guard for deferred terminate replies.
-    private var didReplyToTerminate = false
-    // True while remote tmux kill-before-quit owns the terminate reply.
-    private var isAwaitingTerminateKills = false
-    private var terminateKillWatchdogTask: Task<Void, Never>?
+    /// Owns the quit / terminate reply state machine (the one-shot reply latch,
+    /// the kill-before-quit deferral, the watchdog Clock task, and the
+    /// quit-warning-confirmed flag), draining it out of this delegate. The live
+    /// reply, remote-tmux, teardown, breadcrumb, and confirmation-alert work
+    /// stays here behind the ``ApplicationTerminationHost`` seam this delegate
+    /// conforms to.
+    private lazy var terminateReply = ApplicationTerminateReplyCoordinator(host: self)
     /// Owns the three `NSWorkspace` session-lifecycle observers
     /// (willPowerOff / sessionDidResignActive / didWake) and surfaces them as a
     /// typed ``SessionLifecycleEvent`` `AsyncStream` (CmuxWorkspaces);
@@ -2162,132 +2161,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationActivationUnreadReconciler.reconcile(activeTabId: tabId, surfaceId: surfaceId)
     }
 
-    /// Sole caller of `NSApp.reply(toApplicationShouldTerminate:)`.
-    private func replyToTerminateOnce(_ shouldTerminate: Bool) {
-        guard !didReplyToTerminate else { return }
-        didReplyToTerminate = true
-        NSApp.reply(toApplicationShouldTerminate: shouldTerminate)
-        terminateKillWatchdogTask?.cancel()
-        terminateKillWatchdogTask = nil
-        // A cancelled quit ends this terminate request; the next quit must reply again.
-        if !shouldTerminate {
-            didReplyToTerminate = false
-            isAwaitingTerminateKills = false
-        }
-    }
-
-    private func deferTerminateForMarkedRemoteTmuxKills(reason: String) -> Bool {
-        let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
-        guard !markedForKill.isEmpty else { return false }
-        if !isAwaitingTerminateKills {
-            isAwaitingTerminateKills = true
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.killLater", fields: ["windows": String(markedForKill.count), "reason": reason])
-            Task { @MainActor in
-                await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
-                self.replyToTerminateOnce(true)
-            }
-            // Watchdog: release quit if the deferred Task is starved inside a nested run loop.
-            terminateKillWatchdogTask?.cancel()
-            terminateKillWatchdogTask = Task { @MainActor [weak self] in
-                try? await ContinuousClock().sleep(for: .milliseconds(3_500))
-                guard !Task.isCancelled else { return }
-                self?.replyToTerminateOnce(true)
-            }
-        }
-        return true
-    }
-
-    private func clearMarkedRemoteTmuxKills() {
-        for windowId in remoteTmuxController.windowsMarkedForKillOnClose() {
-            remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId)
-        }
-    }
-
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // A re-entrant terminate must wait for the in-flight kill-before-quit reply.
-        if isAwaitingTerminateKills { return .terminateLater }
         let buildFlavor = BuildFlavor.current
-        let quitConfirmationStore = QuitConfirmationStore(defaults: .standard)
-        let hasDirtyWorkspaces = hasQuitConfirmationDirtyWorkspaces()
-        let confirmQuitMode = quitConfirmationStore.confirmQuitMode
-
-        StartupBreadcrumbLog.append(
-            "appDelegate.shouldTerminate.begin",
-            fields: [
-                "buildFlavor": buildFlavor.rawValue,
-                "confirmQuitMode": confirmQuitMode.rawValue,
-                "hasDirtyWorkspaces": hasDirtyWorkspaces ? "1" : "0",
-                "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
-                "quitWarningEnabled": quitConfirmationStore.isEnabled ? "1" : "0"
-            ]
+        return terminateReply.applicationShouldTerminate(
+            isDevBuild: buildFlavor == .dev,
+            buildFlavorRawValue: buildFlavor.rawValue
         )
-        isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-        closedItemHistory.flushPendingSaves()
-
-        // If the user already confirmed via the Cmd+Q shortcut warning dialog,
-        // or policy skips the warning, avoid a second alert.
-        if !quitConfirmationStore.shouldShowConfirmation(
-            isQuitWarningConfirmed: isQuitWarningConfirmed,
-            hasDirtyWorkspaces: hasDirtyWorkspaces,
-            isDevBuild: buildFlavor == .dev
-        ) {
-            closeAllWebInspectorsBeforeAppTeardown()
-            let reason: String
-            if isQuitWarningConfirmed {
-                reason = "confirmed"
-            } else if buildFlavor == .dev {
-                reason = "devBuild"
-            } else {
-                reason = "policy"
-            }
-            // Explicit last-tab closes kill marked remote sessions before quit.
-            // Plain app/window quits have no marker and only detach.
-            if deferTerminateForMarkedRemoteTmuxKills(reason: reason) {
-                return .terminateLater
-            }
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
-            return .terminateNow
-        }
-
-        // Show the same confirmation dialog used by the Cmd+Q shortcut path,
-        // then reply asynchronously so we can return .terminateLater now.
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
-            alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
-            alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
-            alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-            alert.showsSuppressionButton = true
-            alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
-
-            let response = alert.runModal()
-            if alert.suppressionButton?.state == .on {
-                QuitConfirmationStore(defaults: .standard).setEnabled(false)
-            }
-
-            let shouldQuit = response == .alertFirstButtonReturn
-            if shouldQuit {
-                self.isQuitWarningConfirmed = true
-                self.closeAllWebInspectorsBeforeAppTeardown()
-                StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
-                if self.deferTerminateForMarkedRemoteTmuxKills(reason: "confirmedDialog") {
-                    return
-                }
-            } else {
-                // Reset so that the next quit attempt can show the dialog again.
-                self.isTerminatingApp = false
-                self.clearMarkedRemoteTmuxKills()
-                StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
-            }
-            self.replyToTerminateOnce(shouldQuit)
-        }
-        StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
-        return .terminateLater
     }
 
-    private func hasQuitConfirmationDirtyWorkspaces() -> Bool {
+    func hasQuitConfirmationDirtyWorkspaces() -> Bool {
         var visitedManagers = Set<ObjectIdentifier>()
 
         func managerHasDirtyWorkspace(_ manager: TabManager?) -> Bool {
@@ -2315,8 +2197,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
+    // Internal (not private) so the `ApplicationTerminationHost` conformance in
+    // `AppDelegate+ApplicationTerminationHost.swift` can witness it.
     @discardableResult
-    private func closeAllWebInspectorsBeforeAppTeardown() -> Int {
+    func closeAllWebInspectorsBeforeAppTeardown() -> Int {
         WebViewInspectorTeardown.closeAllInspectors(in: NSApp.windows)
     }
 
@@ -3195,8 +3079,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    // Internal (not private) so the `ApplicationTerminationHost` conformance in
+    // `AppDelegate+ApplicationTerminationHost.swift` can witness it.
     @discardableResult
-    private func saveSessionSnapshotIncludingProcessDetectedIndexes(
+    func saveSessionSnapshotIncludingProcessDetectedIndexes(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) -> Bool {
@@ -7740,7 +7626,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if response == .alertFirstButtonReturn {
             // Mark as confirmed so applicationShouldTerminate does not show a
             // second alert when NSApp.terminate re-enters the delegate callback.
-            isQuitWarningConfirmed = true
+            terminateReply.markQuitWarningConfirmed()
             NSApp.terminate(nil)
         }
         return true

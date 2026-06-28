@@ -7631,26 +7631,17 @@ struct TabItemView: View, Equatable {
         settings.activeTabIndicatorStyle
     }
 
-    private var sidebarSelectionColorHex: String? {
-        settings.selectionColorHex
-    }
-
-    private var sidebarNotificationBadgeColorHex: String? {
-        settings.notificationBadgeColorHex
-    }
-
-    private var selectedWorkspaceBackgroundNSColor: NSColor {
-        sidebarSelectedWorkspaceBackgroundNSColor(
-            for: colorScheme,
-            sidebarSelectionColorHex: sidebarSelectionColorHex
+    private var colorPalette: SidebarTabItemColorPalette {
+        SidebarTabItemColorPalette(
+            settings: settings,
+            isActive: isActive,
+            colorScheme: colorScheme,
+            explicitRailColorHex: explicitRailColorHex
         )
     }
 
-    private func selectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
-        sidebarSelectedWorkspaceForegroundNSColor(
-            on: selectedWorkspaceBackgroundNSColor,
-            opacity: opacity
-        )
+    private var explicitRailColorHex: String? {
+        explicitRailColor != nil ? workspaceSnapshot.customColorHex : nil
     }
 
     private var openSidebarPullRequestLinksInCmuxBrowser: Bool {
@@ -7659,80 +7650,6 @@ struct TabItemView: View, Equatable {
 
     private var openSidebarPortLinksInCmuxBrowser: Bool {
         settings.openPortLinksInCmuxBrowser
-    }
-
-    private var titleFontWeight: Font.Weight {
-        .semibold
-    }
-
-    private var fontScale: CGFloat {
-        settings.sidebarFontScale
-    }
-
-    private func scaledFontSize(_ baseSize: CGFloat) -> CGFloat {
-        baseSize * fontScale
-    }
-
-    private var showsLeadingRail: Bool {
-        explicitRailColor != nil
-    }
-
-    private var activeBorderLineWidth: CGFloat {
-        switch activeTabIndicatorStyle {
-        case .leftRail:
-            return 0
-        case .solidFill:
-            return isActive ? 1.5 : 0
-        }
-    }
-
-    private var activeBorderColor: Color {
-        guard isActive else { return .clear }
-        switch activeTabIndicatorStyle {
-        case .leftRail:
-            return .clear
-        case .solidFill:
-            return Color.primary.opacity(0.5)
-        }
-    }
-
-    private var usesInvertedActiveForeground: Bool {
-        isActive
-    }
-
-    private var activePrimaryTextColor: Color {
-        usesInvertedActiveForeground
-            ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0))
-            : .primary
-    }
-
-    private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
-        usesInvertedActiveForeground
-            ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
-            : .secondary
-    }
-
-    private var activeUnreadBadgeFillColor: Color {
-        if let hex = sidebarNotificationBadgeColorHex, let nsColor = NSColor(hex: hex) {
-            return Color(nsColor: nsColor)
-        }
-        return usesInvertedActiveForeground ? activePrimaryTextColor.opacity(0.25) : cmuxAccentColor()
-    }
-
-    private var activeUnreadBadgeTextColor: Color {
-        usesInvertedActiveForeground ? activePrimaryTextColor : .white
-    }
-
-    private var activeProgressTrackColor: Color {
-        usesInvertedActiveForeground ? activeSecondaryColor(0.15) : Color.secondary.opacity(0.2)
-    }
-
-    private var activeProgressFillColor: Color {
-        usesInvertedActiveForeground ? activeSecondaryColor(0.8) : cmuxAccentColor()
-    }
-
-    private var shortcutHintEmphasis: Double {
-        usesInvertedActiveForeground ? 1.0 : 0.9
     }
 
     private var showCloseButton: Bool {
@@ -7846,6 +7763,7 @@ struct TabItemView: View, Equatable {
 
     var body: some View {
         let workspaceSnapshot = self.workspaceSnapshot
+        let palette = colorPalette
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
         let protectedWorkspaceTooltip = String(
             localized: "sidebar.pinnedWorkspaceProtected.tooltip",
@@ -7870,8 +7788,8 @@ struct TabItemView: View, Equatable {
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
         )
-        let scaledUnreadBadgeSize = 16 * fontScale
-        let scaledCloseButtonHitSize = max(16, 16 * fontScale)
+        let scaledUnreadBadgeSize = 16 * palette.fontScale
+        let scaledCloseButtonHitSize = max(16, 16 * palette.fontScale)
         let scaledCloseButtonWidth = max(
             SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,
             scaledCloseButtonHitSize
@@ -7880,10 +7798,10 @@ struct TabItemView: View, Equatable {
         SidebarWorkspaceRowContent(
             snapshot: workspaceSnapshot,
             detailVisibility: detailVisibility,
-            isActive: usesInvertedActiveForeground,
+            isActive: palette.usesInvertedActiveForeground,
             unreadCount: unreadCount,
-            unreadBadgeFillColor: activeUnreadBadgeFillColor,
-            unreadBadgeTextColor: activeUnreadBadgeTextColor,
+            unreadBadgeFillColor: palette.activeUnreadBadgeFillColor,
+            unreadBadgeTextColor: palette.activeUnreadBadgeTextColor,
             unreadBadgeDiameter: scaledUnreadBadgeSize,
             hasMemoryWarning: hasMemoryWarning,
             memoryWarningTooltip: String(
@@ -7896,11 +7814,11 @@ struct TabItemView: View, Equatable {
             ),
             pinnedTooltip: protectedWorkspaceTooltip,
             displayedTitle: displayedTitle,
-            titleColor: activePrimaryTextColor,
-            titleFontWeight: titleFontWeight,
+            titleColor: palette.activePrimaryTextColor,
+            titleFontWeight: palette.titleFontWeight,
             titleLineLimit: titleLineLimit,
-            pinIconColor: activeSecondaryColor(0.8),
-            closeButtonColor: activeSecondaryColor(0.7),
+            pinIconColor: palette.activeSecondaryColor(0.8),
+            closeButtonColor: palette.activeSecondaryColor(0.7),
             showsCloseButton: canCloseWorkspace,
             closeButtonVisible: showCloseButton,
             closeButtonWidth: scaledCloseButtonWidth,
@@ -7912,29 +7830,29 @@ struct TabItemView: View, Equatable {
                 #endif
                 tabManager.closeWorkspaceWithConfirmation(tab)
             },
-            descriptionActiveForegroundColor: activeSecondaryColor(0.84),
+            descriptionActiveForegroundColor: palette.activeSecondaryColor(0.84),
             descriptionDebugLog: Self.sidebarDescriptionDebugLog,
             subtitle: effectiveSubtitle,
-            subtitleColor: activeSecondaryColor(0.8),
+            subtitleColor: palette.activeSecondaryColor(0.8),
             showsRemoteSection: !settings.hidesAllDetails && sidebarShowSSH,
-            remoteHostColor: activeSecondaryColor(0.8),
-            remoteStatusColor: activeSecondaryColor(0.58),
-            remoteReconnectColor: activeSecondaryColor(0.9),
+            remoteHostColor: palette.activeSecondaryColor(0.8),
+            remoteStatusColor: palette.activeSecondaryColor(0.58),
+            remoteReconnectColor: palette.activeSecondaryColor(0.9),
             remoteTopPadding: latestNotificationText == nil ? 1 : 2,
             onReconnect: {
                 tab.reconnectRemoteConnection()
             },
-            activeSecondaryColor: { activeSecondaryColor($0) },
-            progressTrackColor: activeProgressTrackColor,
-            progressFillColor: activeProgressFillColor,
-            branchSecondaryColor: activeSecondaryColor(0.75),
-            branchIconColor: activeSecondaryColor(0.6),
+            activeSecondaryColor: { palette.activeSecondaryColor($0) },
+            progressTrackColor: palette.activeProgressTrackColor,
+            progressFillColor: palette.activeProgressFillColor,
+            branchSecondaryColor: palette.activeSecondaryColor(0.75),
+            branchIconColor: palette.activeSecondaryColor(0.6),
             usesVerticalBranchLayout: sidebarBranchVerticalLayout,
             stacksBranchAndDirectory: sidebarStacksBranchAndDirectory,
             showsGitBranchIcon: sidebarShowGitBranchIcon,
             pullRequestForegroundColor: pullRequestForegroundColor,
             makesPullRequestsClickable: settings.makesPullRequestsClickable,
-            fontScale: fontScale,
+            fontScale: palette.fontScale,
             onFocus: { updateSelection() },
             pullRequestStatusLabel: { pullRequestStatusLabel($0) },
             pullRequestOpenTooltip: { title in
@@ -7956,18 +7874,18 @@ struct TabItemView: View, Equatable {
         .background(
             SidebarWorkspaceRowBackground(
                 fillColor: backgroundColor,
-                borderColor: activeBorderColor,
-                borderLineWidth: activeBorderLineWidth,
-                showsLeadingRail: showsLeadingRail,
+                borderColor: palette.activeBorderColor,
+                borderLineWidth: palette.activeBorderLineWidth,
+                showsLeadingRail: palette.showsLeadingRail,
                 railColor: railColor
             )
         )
         .sidebarShortcutHintOverlay(
             text: showsWorkspaceShortcutHint ? workspaceShortcutLabel : nil,
-            emphasis: shortcutHintEmphasis,
+            emphasis: palette.shortcutHintEmphasis,
             offsetX: sidebarShortcutHintXOffset,
             offsetY: sidebarShortcutHintYOffset,
-            fontSize: scaledFontSize(10)
+            fontSize: palette.scaledFontSize(10)
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, 6)
@@ -8338,7 +8256,7 @@ struct TabItemView: View, Equatable {
             isMultiSelected: isMultiSelected,
             customColorHex: workspaceSnapshot.customColorHex,
             colorScheme: colorScheme,
-            sidebarSelectionColorHex: sidebarSelectionColorHex
+            sidebarSelectionColorHex: colorPalette.sidebarSelectionColorHex
         )
         guard let color = style.color else { return .clear }
         return Color(nsColor: color).opacity(style.opacity)
@@ -8693,7 +8611,7 @@ struct TabItemView: View, Equatable {
     }
 
     private var pullRequestForegroundColor: Color {
-        isActive ? activeSecondaryColor(0.75) : .secondary
+        isActive ? colorPalette.activeSecondaryColor(0.75) : .secondary
     }
 
     private func openPullRequestLink(_ url: URL) {
