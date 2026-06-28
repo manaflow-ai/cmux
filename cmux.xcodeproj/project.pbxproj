@@ -908,6 +908,7 @@
 		E3B7A400000000000000AD01 /* TabManager+AgentPIDLivenessSweepHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000AD02 /* TabManager+AgentPIDLivenessSweepHosting.swift */; };
 		E3CC00000000000000000001 /* TabManager+BrowserOpenHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CC00000000000000000002 /* TabManager+BrowserOpenHosting.swift */; };
 		5BDE8E1F68A3D497FCA40578 /* TabManager+ClosedBrowserPanelReopenHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78D731E3A981DCEF0C3F4D8 /* TabManager+ClosedBrowserPanelReopenHosting.swift */; };
+		E3B7A400000000000000CE01 /* TabManager+ClosedItemReopenRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000CE02 /* TabManager+ClosedItemReopenRouting.swift */; };
 		D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */; };
 		E3309A03 /* TabManager+EqualizeSplits.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A04 /* TabManager+EqualizeSplits.swift */; };
 		E3B7A40000000000000000F0 /* TabManager+FocusedSurfaceHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000000F1 /* TabManager+FocusedSurfaceHosting.swift */; };
@@ -2070,6 +2071,7 @@
 		E3B7A400000000000000AD02 /* TabManager+AgentPIDLivenessSweepHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+AgentPIDLivenessSweepHosting.swift"; sourceTree = "<group>"; };
 		E3CC00000000000000000002 /* TabManager+BrowserOpenHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserOpenHosting.swift"; sourceTree = "<group>"; };
 		D78D731E3A981DCEF0C3F4D8 /* TabManager+ClosedBrowserPanelReopenHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+ClosedBrowserPanelReopenHosting.swift"; sourceTree = "<group>"; };
+		E3B7A400000000000000CE02 /* TabManager+ClosedItemReopenRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+ClosedItemReopenRouting.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+DetachedWorkspace.swift"; sourceTree = "<group>"; };
 		E3309A04 /* TabManager+EqualizeSplits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+EqualizeSplits.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000000F1 /* TabManager+FocusedSurfaceHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+FocusedSurfaceHosting.swift"; sourceTree = "<group>"; };
@@ -2793,6 +2795,7 @@
 				E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */,
 				E3B7A400000000000000AD02 /* TabManager+AgentPIDLivenessSweepHosting.swift */,
 				E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */,
+				E3B7A400000000000000CE02 /* TabManager+ClosedItemReopenRouting.swift */,
 				5E5510000000000000000002 /* TabManager+SessionEntryResume.swift */,
 				E3CA00000000000000000002 /* TabManager+WorkspaceCommandHosting.swift */,
 				E3CC00000000000000000002 /* TabManager+BrowserOpenHosting.swift */,
@@ -4612,6 +4615,7 @@
 				E3B7A400000000000000AD01 /* TabManager+AgentPIDLivenessSweepHosting.swift in Sources */,
 				E3CC00000000000000000001 /* TabManager+BrowserOpenHosting.swift in Sources */,
 				5BDE8E1F68A3D497FCA40578 /* TabManager+ClosedBrowserPanelReopenHosting.swift in Sources */,
+				E3B7A400000000000000CE01 /* TabManager+ClosedItemReopenRouting.swift in Sources */,
 				D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */,
 				E3309A03 /* TabManager+EqualizeSplits.swift in Sources */,
 				E3B7A40000000000000000F0 /* TabManager+FocusedSurfaceHosting.swift in Sources */,
