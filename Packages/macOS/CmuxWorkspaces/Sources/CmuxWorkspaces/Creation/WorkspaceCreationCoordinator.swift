@@ -365,10 +365,16 @@ public final class WorkspaceCreationCoordinator<Tab: WorkspaceTabRepresenting> {
             // reading @Published placement state from existing workspaces mid-creation.
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
             let ordinal = host.nextPortOrdinal()
-            let defaultTitle = host.defaultWorkspaceTitle(
-                initialSurface: initialSurface,
-                tabNumber: nextTabCount
-            )
+            let defaultTitle: String
+            switch initialSurface {
+            case .terminal:
+                defaultTitle = host.terminalDefaultWorkspaceTitle(tabNumber: nextTabCount)
+            case .browser:
+                // Match the browser surface's blank new-tab title; the
+                // single-panel title sync keeps the workspace title following
+                // the page title once the user navigates.
+                defaultTitle = host.browserDefaultWorkspaceTitle()
+            }
             let newWorkspace = host.makeWorkspaceForCreation(
                 title: title ?? defaultTitle,
                 explicitTitle: title,

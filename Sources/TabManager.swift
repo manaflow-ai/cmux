@@ -2073,16 +2073,15 @@ class TabManager {
         sentryBreadcrumb("workspace.create", data: ["tabCount": tabCount])
     }
 
-    func defaultWorkspaceTitle(initialSurface: NewWorkspaceInitialSurface, tabNumber: Int) -> String {
-        switch initialSurface {
-        case .terminal:
-            return "Terminal \(tabNumber)"
-        case .browser:
-            // Match the browser surface's blank new-tab title; the
-            // single-panel title sync keeps the workspace title following
-            // the page title once the user navigates.
-            return String(localized: "browser.newTab", defaultValue: "New tab")
-        }
+    func terminalDefaultWorkspaceTitle(tabNumber: Int) -> String {
+        "Terminal \(tabNumber)"
+    }
+
+    func browserDefaultWorkspaceTitle() -> String {
+        // Match the browser surface's blank new-tab title; the
+        // single-panel title sync keeps the workspace title following
+        // the page title once the user navigates.
+        String(localized: "browser.newTab", defaultValue: "New tab")
     }
 
     func makeWorkspaceForCreation(

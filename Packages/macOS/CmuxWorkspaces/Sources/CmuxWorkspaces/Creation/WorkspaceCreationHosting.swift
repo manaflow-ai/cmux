@@ -92,12 +92,18 @@ public protocol WorkspaceCreationHosting<Tab>: AnyObject {
 
     // MARK: Default title
 
-    /// The default title for a new workspace whose creation index is
-    /// `tabNumber`, when the caller passes no explicit title (legacy
-    /// `"Terminal \(nextTabCount)"` / the localized `browser.newTab` string).
-    /// Lives host-side because the browser variant resolves a `String(localized:)`
-    /// against the app bundle.
-    func defaultWorkspaceTitle(initialSurface: NewWorkspaceInitialSurface, tabNumber: Int) -> String
+    /// The default title for a new **terminal** workspace whose creation index
+    /// is `tabNumber`, when the caller passes no explicit title (legacy
+    /// `"Terminal \(nextTabCount)"`). The `.terminal`/`.browser` branch
+    /// selection lives in the coordinator; this resolves only the terminal
+    /// string host-side so the `"Terminal N"` formatting stays app-side.
+    func terminalDefaultWorkspaceTitle(tabNumber: Int) -> String
+
+    /// The default title for a new **browser** workspace when the caller passes
+    /// no explicit title (legacy localized `browser.newTab` string). Lives
+    /// host-side because it resolves a `String(localized:)` against the app
+    /// bundle; the coordinator selects this only on the `.browser` branch.
+    func browserDefaultWorkspaceTitle() -> String
 
     // MARK: Workspace construction + chrome (over the new `Tab`)
 

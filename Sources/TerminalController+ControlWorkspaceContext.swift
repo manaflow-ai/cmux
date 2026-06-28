@@ -876,4 +876,157 @@ extension TerminalController: ControlWorkspaceContext {
         }
         return result.isEmpty ? "ERROR: No tab selected" : result
     }
+
+    // MARK: - workspace.action
+
+    func controlWorkspaceColorPalette() -> [ControlWorkspaceColorPaletteEntry] {
+        WorkspaceTabColorSettings.palette().map {
+            ControlWorkspaceColorPaletteEntry(name: $0.name, hex: $0.hex)
+        }
+    }
+
+    func controlWorkspaceActionResolveTarget(
+        routing: ControlRoutingSelectors,
+        requestedWorkspaceID: UUID?
+    ) -> ControlWorkspaceActionTarget? {
+        guard let tabManager = resolveTabManager(routing: routing) else { return nil }
+        guard let workspaceId = requestedWorkspaceID ?? tabManager.selectedTabId,
+              tabManager.tabs.contains(where: { $0.id == workspaceId }) else {
+            return nil
+        }
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return ControlWorkspaceActionTarget(workspaceID: workspaceId, windowID: windowId)
+    }
+
+    func controlWorkspaceActionSetPinned(workspaceID: UUID, pinned: Bool) {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return }
+        resolved.tabManager.setPinned(resolved.workspace, pinned: pinned)
+    }
+
+    func controlWorkspaceActionSetCustomTitle(workspaceID: UUID, title: String) {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return }
+        _ = resolved.tabManager.setCustomTitle(tabId: workspaceID, title: title)
+    }
+
+    func controlWorkspaceActionClearCustomTitle(workspaceID: UUID) -> String {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return "" }
+        resolved.tabManager.clearCustomTitle(tabId: workspaceID)
+        return resolved.workspace.title
+    }
+
+    func controlWorkspaceActionSetCustomDescription(workspaceID: UUID, description: String) -> String? {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return nil }
+        resolved.tabManager.setCustomDescription(tabId: workspaceID, description: description)
+        return resolved.workspace.customDescription
+    }
+
+    func controlWorkspaceActionClearCustomDescription(workspaceID: UUID) {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return }
+        resolved.tabManager.clearCustomDescription(tabId: workspaceID)
+    }
+
+    func controlWorkspaceActionReorder(
+        workspaceID: UUID,
+        direction: ControlWorkspaceActionReorderDirection
+    ) -> ControlWorkspaceActionReorderOutcome {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return .notFound }
+        let tabManager = resolved.tabManager
+        guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspaceID }) else {
+            return .notFound
+        }
+        let targetIndex: Int
+        switch direction {
+        case .up:
+            targetIndex = max(currentIndex - 1, 0)
+        case .down:
+            targetIndex = min(currentIndex + 1, tabManager.tabs.count - 1)
+        }
+        _ = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: targetIndex)
+        return .reordered(index: tabManager.tabs.firstIndex(where: { $0.id == workspaceID }))
+    }
+
+    func controlWorkspaceActionMoveTop(workspaceID: UUID) -> Int? {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return nil }
+        resolved.tabManager.moveTabToTop(workspaceID)
+        return resolved.tabManager.tabs.firstIndex(where: { $0.id == workspaceID })
+    }
+
+    func controlWorkspaceActionClose(
+        workspaceID: UUID,
+        scope: ControlWorkspaceActionCloseScope
+    ) -> ControlWorkspaceActionCloseOutcome {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return .notFound }
+        let tabManager = resolved.tabManager
+        let workspace = resolved.workspace
+        let candidates: [Workspace]
+        switch scope {
+        case .others:
+            candidates = tabManager.tabs.filter { $0.id != workspace.id && !$0.isPinned }
+        case .above:
+            guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
+                return .notFound
+            }
+            candidates = Array(tabManager.tabs.prefix(index)).filter { !$0.isPinned }
+        case .below:
+            guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
+                return .notFound
+            }
+            if index + 1 < tabManager.tabs.count {
+                candidates = Array(tabManager.tabs.suffix(from: index + 1)).filter { !$0.isPinned }
+            } else {
+                candidates = []
+            }
+        }
+        let closed = controlWorkspaceActionCloseWorkspaces(candidates, keeping: workspace, in: tabManager)
+        return .closed(closed)
+    }
+
+    func controlWorkspaceActionMarkRead(workspaceID: UUID) {
+        AppDelegate.shared?.notificationStore?.markRead(forTabId: workspaceID)
+    }
+
+    func controlWorkspaceActionMarkUnread(workspaceID: UUID) {
+        AppDelegate.shared?.notificationStore?.markUnread(forTabId: workspaceID)
+    }
+
+    func controlWorkspaceActionSetTabColor(workspaceID: UUID, hex: String?) {
+        guard let resolved = controlWorkspaceActionResolveWorkspace(workspaceID) else { return }
+        resolved.tabManager.setTabColor(tabId: workspaceID, color: hex)
+    }
+
+    // MARK: - workspace.action resolution helpers (private)
+
+    /// Re-resolves the owning `TabManager` and `Workspace` for a
+    /// `workspace.action` mutation witness. The action target was already
+    /// validated to exist in this same synchronous call, so the owner lookup
+    /// returns the identical TabManager the routing resolved.
+    private func controlWorkspaceActionResolveWorkspace(
+        _ workspaceID: UUID
+    ) -> (tabManager: TabManager, workspace: Workspace)? {
+        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            return nil
+        }
+        return (tabManager, workspace)
+    }
+
+    /// The byte-faithful twin of the legacy `closeWorkspaces(_:)` nested helper:
+    /// closes each candidate that still exists and is not the target workspace,
+    /// counting only the ones actually removed.
+    private func controlWorkspaceActionCloseWorkspaces(
+        _ workspaces: [Workspace],
+        keeping workspace: Workspace,
+        in tabManager: TabManager
+    ) -> Int {
+        var closed = 0
+        for candidate in workspaces where candidate.id != workspace.id {
+            let existedBefore = tabManager.tabs.contains(where: { $0.id == candidate.id })
+            guard existedBefore else { continue }
+            tabManager.closeWorkspace(candidate)
+            if !tabManager.tabs.contains(where: { $0.id == candidate.id }) {
+                closed += 1
+            }
+        }
+        return closed
+    }
 }

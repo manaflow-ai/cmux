@@ -397,6 +397,29 @@ extension ControlWorkspaceContext {
     func controlNewSplitV1(args: String) -> String { "" }
     func controlCloseWorkspaceV1(arg: String) -> String { "" }
     func controlSelectWorkspaceV1(arg: String) -> String { "" }
+
+    func controlWorkspaceColorPalette() -> [ControlWorkspaceColorPaletteEntry] { [] }
+    func controlWorkspaceActionResolveTarget(
+        routing: ControlRoutingSelectors,
+        requestedWorkspaceID: UUID?
+    ) -> ControlWorkspaceActionTarget? { nil }
+    func controlWorkspaceActionSetPinned(workspaceID: UUID, pinned: Bool) {}
+    func controlWorkspaceActionSetCustomTitle(workspaceID: UUID, title: String) {}
+    func controlWorkspaceActionClearCustomTitle(workspaceID: UUID) -> String { "" }
+    func controlWorkspaceActionSetCustomDescription(workspaceID: UUID, description: String) -> String? { nil }
+    func controlWorkspaceActionClearCustomDescription(workspaceID: UUID) {}
+    func controlWorkspaceActionReorder(
+        workspaceID: UUID,
+        direction: ControlWorkspaceActionReorderDirection
+    ) -> ControlWorkspaceActionReorderOutcome { .notFound }
+    func controlWorkspaceActionMoveTop(workspaceID: UUID) -> Int? { nil }
+    func controlWorkspaceActionClose(
+        workspaceID: UUID,
+        scope: ControlWorkspaceActionCloseScope
+    ) -> ControlWorkspaceActionCloseOutcome { .notFound }
+    func controlWorkspaceActionMarkRead(workspaceID: UUID) {}
+    func controlWorkspaceActionMarkUnread(workspaceID: UUID) {}
+    func controlWorkspaceActionSetTabColor(workspaceID: UUID, hex: String?) {}
 }
 
 extension ControlSurfaceContext {

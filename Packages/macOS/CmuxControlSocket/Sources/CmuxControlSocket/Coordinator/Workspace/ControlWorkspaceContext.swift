@@ -399,4 +399,114 @@ public protocol ControlWorkspaceContext: AnyObject {
     /// - Parameter arg: The raw UUID-or-index argument.
     /// - Returns: The flat v1 reply line.
     func controlSelectWorkspaceV1(arg: String) -> String
+
+    // MARK: - workspace.action
+
+    /// The effective workspace tab-color palette snapshot, read for the
+    /// non-blank `set_color` path of `workspace.action` so
+    /// ``ControlWorkspaceActionResolution`` can match a requested color name and
+    /// echo the available names on failure (the legacy
+    /// `WorkspaceTabColorSettings.palette()` read).
+    ///
+    /// - Returns: The palette entries, in `palette()` order.
+    func controlWorkspaceColorPalette() -> [ControlWorkspaceColorPaletteEntry]
+
+    /// Resolves the `workspace.action` target: applies the routing precedence to
+    /// find the TabManager, the `workspace_id ?? selectedTabId` fallback, and the
+    /// owning window (`v2ResolveWindowId`). Returns `nil` when the workspace
+    /// cannot be located (legacy `not_found`).
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for TabManager resolution.
+    ///   - requestedWorkspaceID: The explicit `workspace_id` param, if any.
+    /// - Returns: The resolved target, or `nil`.
+    func controlWorkspaceActionResolveTarget(
+        routing: ControlRoutingSelectors,
+        requestedWorkspaceID: UUID?
+    ) -> ControlWorkspaceActionTarget?
+
+    /// Pins or unpins the workspace (`pin` / `unpin`).
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The resolved workspace id.
+    ///   - pinned: The new pinned state.
+    func controlWorkspaceActionSetPinned(workspaceID: UUID, pinned: Bool)
+
+    /// Sets the workspace's custom title to the trimmed value (`rename`).
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The resolved workspace id.
+    ///   - title: The trimmed, non-empty title.
+    func controlWorkspaceActionSetCustomTitle(workspaceID: UUID, title: String)
+
+    /// Clears the workspace's custom title (`clear_name`).
+    ///
+    /// - Parameter workspaceID: The resolved workspace id.
+    /// - Returns: The workspace's resulting (post-clear) title, for the `title`
+    ///   payload.
+    func controlWorkspaceActionClearCustomTitle(workspaceID: UUID) -> String
+
+    /// Sets the workspace's custom description to the raw value
+    /// (`set_description`).
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The resolved workspace id.
+    ///   - description: The validated description value.
+    /// - Returns: The workspace's resulting (post-set) custom description, for
+    ///   the `description` payload.
+    func controlWorkspaceActionSetCustomDescription(workspaceID: UUID, description: String) -> String?
+
+    /// Clears the workspace's custom description (`clear_description`).
+    ///
+    /// - Parameter workspaceID: The resolved workspace id.
+    func controlWorkspaceActionClearCustomDescription(workspaceID: UUID)
+
+    /// Reorders the workspace one slot (`move_up` / `move_down`), applying the
+    /// legacy index clamp and re-reading the resulting index.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The resolved workspace id.
+    ///   - direction: The reorder direction.
+    /// - Returns: The reorder outcome.
+    func controlWorkspaceActionReorder(
+        workspaceID: UUID,
+        direction: ControlWorkspaceActionReorderDirection
+    ) -> ControlWorkspaceActionReorderOutcome
+
+    /// Moves the workspace to the top (`move_top`).
+    ///
+    /// - Parameter workspaceID: The resolved workspace id.
+    /// - Returns: The workspace's resulting index, or `nil` when it could not be
+    ///   located after the move, for the `index` payload.
+    func controlWorkspaceActionMoveTop(workspaceID: UUID) -> Int?
+
+    /// Closes the scoped sibling workspaces (`close_others` / `close_above` /
+    /// `close_below`), honoring the pinned-protection guard.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The resolved workspace id.
+    ///   - scope: Which siblings to close.
+    /// - Returns: The close outcome.
+    func controlWorkspaceActionClose(
+        workspaceID: UUID,
+        scope: ControlWorkspaceActionCloseScope
+    ) -> ControlWorkspaceActionCloseOutcome
+
+    /// Marks the workspace read (`mark_read`).
+    ///
+    /// - Parameter workspaceID: The resolved workspace id.
+    func controlWorkspaceActionMarkRead(workspaceID: UUID)
+
+    /// Marks the workspace unread (`mark_unread`).
+    ///
+    /// - Parameter workspaceID: The resolved workspace id.
+    func controlWorkspaceActionMarkUnread(workspaceID: UUID)
+
+    /// Sets the workspace's tab color to the resolved hex, or clears it when
+    /// `nil` (`set_color` / `clear_color`).
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The resolved workspace id.
+    ///   - hex: The resolved hex color, or `nil` to clear.
+    func controlWorkspaceActionSetTabColor(workspaceID: UUID, hex: String?)
 }
