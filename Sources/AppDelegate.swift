@@ -598,7 +598,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }()
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
-    private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
+    // Internal (not private) so the `ApplicationTerminationHost` teardown witness
+    // `cancelGhosttyCrashBreadcrumbTask()` in the conformance file can clear it.
+    var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
     /// Owns the configured-shortcut chord (two-stroke) state machine. The
     /// per-keystroke dispatch (`handleCustomShortcut` et al.) stays app-side and
     /// reaches the chord state through this one held reference, so the hot path
@@ -2205,31 +2207,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
-        sentryStopMemoryContextRefresh()
-        isTerminatingApp = true
-        // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
-        remoteTmuxController.detachAll()
-        // Best-effort presence goodbye; unclean exits are covered by the
-        // service's missed-heartbeat timeout.
-        PresenceHeartbeatClient.shared.appWillTerminate()
-        closeAllWebInspectorsBeforeAppTeardown()
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-        closedItemHistory.flushPendingSaves()
-        stopSessionAutosaveTimer()
-        CloudVMActionLauncher.shared.terminateAll()
-        sshURLLaunchService.terminateAll()
-        MobileHostService.shared.stop()
-        terminalControl.stop()
-        GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
-        vscodeServeWebController.stop()
-        BrowserProfileStore.shared.flushPendingSaves()
-        ghosttyCrashBreadcrumbTask?.cancel()
-        ghosttyCrashBreadcrumbTask = nil
-        notificationStore?.clearAll()
-        GhosttyCrashBreadcrumb.markCleanExit()
-        StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
-        enableSuddenTerminationIfNeeded()
+        // `applicationWillTerminate(_:)` stays the `NSApplicationDelegate`
+        // requirement; the ordered teardown sequence is owned by
+        // `ApplicationTerminateReplyCoordinator` and reached through the
+        // `ApplicationTerminationHost` seam this delegate conforms to.
+        terminateReply.performTeardown()
     }
 
     func applicationWillResignActive(_ notification: Notification) {
@@ -2241,9 +2223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func persistSessionForUpdateRelaunch() {
-        isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-        closedItemHistory.flushPendingSaves()
+        terminateReply.persistForRelaunch()
     }
 
     func configure(
@@ -2744,7 +2724,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionAutosaveScheduler.start()
     }
 
-    private func stopSessionAutosaveTimer() {
+    // Internal (not private) so it witnesses the `ApplicationTerminationHost`
+    // `stopSessionAutosaveTimer()` teardown requirement directly.
+    func stopSessionAutosaveTimer() {
         sessionAutosaveScheduler.stop()
     }
 
@@ -2812,7 +2794,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         socketListenerLifecycle.disableSuddenTerminationIfNeeded()
     }
 
-    private func enableSuddenTerminationIfNeeded() {
+    // Internal (not private) so it witnesses the `ApplicationTerminationHost`
+    // `enableSuddenTerminationIfNeeded()` teardown requirement directly.
+    func enableSuddenTerminationIfNeeded() {
         socketListenerLifecycle.enableSuddenTerminationIfNeeded()
     }
 

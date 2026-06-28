@@ -50,6 +50,50 @@ public final class ApplicationTerminateReplyCoordinator {
         isQuitWarningConfirmed = true
     }
 
+    /// Runs the ordered `applicationWillTerminate(_:)` teardown sequence.
+    ///
+    /// This coordinator owns the ORDER; every step forwards to the still-app-owned
+    /// subsystem through ``ApplicationTerminationHost``. The begin/complete
+    /// breadcrumbs bracket the per-subsystem stop/detach/flush operations exactly
+    /// as the delegate's legacy body did.
+    public func performTeardown() {
+        host.recordTerminateBreadcrumb("appDelegate.willTerminate.begin", fields: [:])
+        host.stopSentryMemoryContextRefresh()
+        host.setTerminatingApp(true)
+        // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
+        host.detachAllRemoteTmuxClients()
+        // Best-effort presence goodbye; unclean exits are covered by the
+        // service's missed-heartbeat timeout.
+        host.notifyPresenceAppWillTerminate()
+        host.closeAllWebInspectorsBeforeAppTeardown()
+        host.saveSessionSnapshotBeforeTerminate()
+        host.flushPendingClosedItemSaves()
+        host.stopSessionAutosaveTimer()
+        host.terminateAllCloudVMActions()
+        host.terminateAllSSHURLLaunches()
+        host.stopMobileHostService()
+        host.stopTerminalControl()
+        host.cleanupOwnedTemporaryImageFiles()
+        host.stopVSCodeServeWebController()
+        host.flushBrowserProfilePendingSaves()
+        host.cancelGhosttyCrashBreadcrumbTask()
+        host.clearNotificationStore()
+        host.markGhosttyCleanExit()
+        host.recordTerminateBreadcrumb("appDelegate.willTerminate.complete", fields: [:])
+        host.enableSuddenTerminationIfNeeded()
+    }
+
+    /// Persists the full session snapshot before an updater-driven relaunch.
+    ///
+    /// Mirrors the subset of ``performTeardown()`` that an in-place relaunch
+    /// needs: mark terminating, snapshot the session (with scrollback), and flush
+    /// pending closed-item history.
+    public func persistForRelaunch() {
+        host.setTerminatingApp(true)
+        host.saveSessionSnapshotBeforeTerminate()
+        host.flushPendingClosedItemSaves()
+    }
+
     /// Drives the `applicationShouldTerminate(_:)` decision.
     ///
     /// - Parameters:
