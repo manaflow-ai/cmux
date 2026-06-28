@@ -1783,117 +1783,12 @@ final class WindowBrowserPortal: NSObject {
         }) ?? reference
     }
 
-    private func directTransferChild(of container: NSView, containing descendant: NSView) -> NSView? {
-        var current: NSView? = descendant
-        var directChild: NSView?
-        while let view = current, view !== container {
-            directChild = view
-            current = view.superview
-        }
-        guard current === container else { return nil }
-        return directChild
-    }
-
-    private func relatedWebKitTransferSubviews(
-        from sourceSuperview: NSView,
-        primaryWebView: WKWebView
-    ) -> [NSView] {
-        var relatedSubviews: [NSView] = []
-        var seen = Set<ObjectIdentifier>()
-
-        func append(_ candidate: NSView?) {
-            guard let candidate, candidate !== sourceSuperview else { return }
-            let id = ObjectIdentifier(candidate)
-            guard seen.insert(id).inserted else { return }
-            relatedSubviews.append(candidate)
-        }
-
-        // The Web Inspector frontend is owned by WebKit's inspector window/controller.
-        // Moving it into the portal can leave WebKit window observers pointing at a
-        // stale host during user-initiated inspector-window close.
-        let primaryTransferView = directTransferChild(of: sourceSuperview, containing: primaryWebView) ?? primaryWebView
-        if Self.containsInspectorView(in: primaryTransferView) {
-            append(primaryWebView)
-        } else {
-            append(primaryTransferView)
-        }
-
-        for view in sourceSuperview.subviews {
-            if view === primaryWebView { continue }
-            let className = String(describing: type(of: view))
-            if className.isCmuxWebInspectorClassName || Self.containsInspectorView(in: view) {
-                continue
-            }
-            guard className.contains("WK") else { continue }
-            append(view)
-        }
-
-        return relatedSubviews
-    }
-
-    private static func containsInspectorView(in root: NSView) -> Bool {
-        var stack: [NSView] = [root]
-        while let current = stack.popLast() {
-            if current.isCmuxWebInspectorObject {
-                return true
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
-    }
-
-    private func appendHostedWebKitSubviews(
-        in root: NSView,
-        to result: inout [WKWebView],
-        seen: inout Set<ObjectIdentifier>
-    ) {
-        if let webView = root as? WKWebView {
-            guard !Self.isInspectorFrontendWebView(webView) else { return }
-            let id = ObjectIdentifier(webView)
-            if seen.insert(id).inserted {
-                result.append(webView)
-            }
-        }
-        for subview in root.subviews {
-            appendHostedWebKitSubviews(in: subview, to: &result, seen: &seen)
-        }
-    }
-
-    private func hostedWebKitSubviews(
-        in containerView: NSView,
-        primaryWebView: WKWebView
-    ) -> [WKWebView] {
-        var result: [WKWebView] = []
-        var seen = Set<ObjectIdentifier>()
-
-        func append(_ webView: WKWebView?) {
-            guard let webView else { return }
-            guard !Self.isInspectorFrontendWebView(webView) else { return }
-            let id = ObjectIdentifier(webView)
-            guard seen.insert(id).inserted else { return }
-            result.append(webView)
-        }
-
-        if primaryWebView === containerView ||
-            primaryWebView.superview === containerView ||
-            primaryWebView.isDescendant(of: containerView) {
-            append(primaryWebView)
-        }
-        appendHostedWebKitSubviews(in: containerView, to: &result, seen: &seen)
-        return result
-    }
-
-    private static func isInspectorFrontendWebView(_ webView: WKWebView) -> Bool {
-        webView.isCmuxWebInspectorObject
-    }
-
     private func notifyHostedWebKitHidden(
         in containerView: NSView,
         primaryWebView: WKWebView,
         reason: String
     ) {
-        for webKitSubview in hostedWebKitSubviews(
-            in: containerView,
+        for webKitSubview in containerView.hostedWebKitSubviews(
             primaryWebView: primaryWebView
         ) {
             webKitSubview.browserPortalNotifyHidden(reason: reason)
@@ -1941,8 +1836,7 @@ final class WindowBrowserPortal: NSObject {
             return
         }
 
-        let hostedWebKitSubviews = hostedWebKitSubviews(
-            in: containerView,
+        let hostedWebKitSubviews = containerView.hostedWebKitSubviews(
             primaryWebView: webView
         )
         guard !hostedWebKitSubviews.isEmpty else { return }
@@ -2095,8 +1989,7 @@ final class WindowBrowserPortal: NSObject {
         // When Web Inspector is docked, WebKit can inject companion WK* subviews
         // next to the primary WKWebView. Move those with the web view so inspector
         // UI state does not get orphaned in the old host during split churn.
-        let relatedSubviews = relatedWebKitTransferSubviews(
-            from: sourceSuperview,
+        let relatedSubviews = sourceSuperview.relatedWebKitTransferSubviews(
             primaryWebView: primaryWebView
         )
         guard !relatedSubviews.isEmpty else { return }
