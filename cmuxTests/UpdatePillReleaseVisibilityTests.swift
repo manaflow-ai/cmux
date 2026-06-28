@@ -118,19 +118,19 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
     }
 
     func testAllowlistSelectionPersistsForProceedAndOpenExternal() {
-        XCTAssertTrue(browserShouldPersistInsecureHTTPAllowlistSelection(
+        XCTAssertTrue(BrowserInsecureHTTPSettings.shouldPersistAllowlistSelection(
             response: .alertFirstButtonReturn,
             suppressionEnabled: true
         ))
-        XCTAssertTrue(browserShouldPersistInsecureHTTPAllowlistSelection(
+        XCTAssertTrue(BrowserInsecureHTTPSettings.shouldPersistAllowlistSelection(
             response: .alertSecondButtonReturn,
             suppressionEnabled: true
         ))
-        XCTAssertFalse(browserShouldPersistInsecureHTTPAllowlistSelection(
+        XCTAssertFalse(BrowserInsecureHTTPSettings.shouldPersistAllowlistSelection(
             response: .alertThirdButtonReturn,
             suppressionEnabled: true
         ))
-        XCTAssertFalse(browserShouldPersistInsecureHTTPAllowlistSelection(
+        XCTAssertFalse(BrowserInsecureHTTPSettings.shouldPersistAllowlistSelection(
             response: .alertSecondButtonReturn,
             suppressionEnabled: false
         ))

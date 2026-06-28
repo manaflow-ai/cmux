@@ -129,13 +129,10 @@ typealias BrowserInsecureHTTPSettings = CmuxBrowser.BrowserInsecureHTTPSettings
 // bypass) moved to CmuxBrowser as static methods on BrowserInsecureHTTPSettings
 // (Settings/BrowserInsecureHTTPSettings+NavigationPolicy.swift).
 
-func browserShouldPersistInsecureHTTPAllowlistSelection(
-    response: NSApplication.ModalResponse,
-    suppressionEnabled: Bool
-) -> Bool {
-    guard suppressionEnabled else { return false }
-    return response == .alertFirstButtonReturn || response == .alertSecondButtonReturn
-}
+// `browserShouldPersistInsecureHTTPAllowlistSelection` (the allowlist-persist
+// modal-response decision) now lives in the `CmuxBrowser` package as the static
+// `BrowserInsecureHTTPSettings.shouldPersistAllowlistSelection(response:suppressionEnabled:)`
+// (Settings/BrowserInsecureHTTPSettings+NavigationPolicy.swift).
 
 /// Mirrors the opener's WebKit browsing context for popup windows.
 struct BrowserPopupBrowserContext {
@@ -256,14 +253,9 @@ func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
 // spelling resolving for the delegate closure types that do not import it.
 typealias BrowserInsecureHTTPNavigationIntent = CmuxBrowser.BrowserInsecureHTTPNavigationIntent
 
-nonisolated enum BrowserWebViewLifecycleState: String {
-    case newTab = "new_tab"
-    case deferredURL = "deferred_url"
-    case liveVisible = "live_visible"
-    case liveHidden = "live_hidden"
-    case discarded
-    case closing
-}
+// `BrowserWebViewLifecycleState` (the pure web-view lifecycle-phase enum) now
+// lives in the `CmuxBrowser` package (imported above); the call sites reference
+// it unqualified through that import.
 
 /// Observable state for browser find-in-page. Mirrors `TerminalSurface.SearchState`.
 @MainActor
