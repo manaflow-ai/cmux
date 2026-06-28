@@ -76,8 +76,8 @@ struct BrowserPanelView: View {
     @State private var screenshotPageCopied: Bool = false
     @State private var screenshotPageCaptureInProgress: Bool = false
     @State private var screenshotPageCopiedTimer: Timer?
-    @State private var omnibarSelectionRange: NSRange = NSRange(location: NSNotFound, length: 0)
-    @State private var omnibarHasMarkedText: Bool = false
+    @State var omnibarSelectionRange: NSRange = NSRange(location: NSNotFound, length: 0)
+    @State var omnibarHasMarkedText: Bool = false
     @State private var suppressNextFocusLostRevert: Bool = false
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashAnimationGeneration: Int = 0
