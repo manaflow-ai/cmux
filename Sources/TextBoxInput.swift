@@ -186,57 +186,9 @@ private struct TextBoxSendButtonStyle: ButtonStyle {
     }
 }
 
-struct TextBoxAttachment: Identifiable, TextBoxSubmissionAttachment {
-    let id = UUID()
-    let displayName: String
-    let submissionText: String
-    let submissionPath: String
-    let localURL: URL?
-    let thumbnail: NSImage?
-    let cleanupLocalURLWhenDisposed: Bool
+typealias TextBoxAttachment = CmuxWorkspaces.TextBoxAttachment
 
-    init(
-        displayName: String,
-        submissionText: String,
-        submissionPath: String,
-        localURL: URL?,
-        cleanupLocalURLWhenDisposed: Bool = false
-    ) {
-        let standardizedURL = localURL?.standardizedFileURL
-        let fallbackName = standardizedURL?.lastPathComponent ?? URL(fileURLWithPath: submissionPath).lastPathComponent
-        self.displayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? (fallbackName.isEmpty ? submissionPath : fallbackName)
-            : displayName
-        self.submissionText = submissionText
-        self.submissionPath = submissionPath
-        self.localURL = standardizedURL
-        self.thumbnail = standardizedURL.flatMap { TextBoxAttachment.makeThumbnail(for: $0) }
-        self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
-    }
-
-    init(
-        localURL: URL,
-        submissionText: String,
-        submissionPath: String? = nil,
-        cleanupLocalURLWhenDisposed: Bool = false
-    ) {
-        let standardizedURL = localURL.standardizedFileURL
-        self.displayName = standardizedURL.lastPathComponent.isEmpty
-            ? standardizedURL.path
-            : standardizedURL.lastPathComponent
-        self.submissionText = submissionText
-        self.submissionPath = submissionPath ?? standardizedURL.path
-        self.localURL = standardizedURL
-        self.thumbnail = TextBoxAttachment.makeThumbnail(for: standardizedURL)
-        self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
-    }
-
-    var isImage: Bool {
-        if thumbnail != nil { return true }
-        guard let localURL else { return false }
-        return TextBoxAttachment.isImageFileURL(localURL)
-    }
-
+extension TextBoxAttachment {
     var escapedSubmissionPath: String {
         TerminalImageTransferPlanner.escapeForShell(submissionPath)
     }
@@ -259,23 +211,6 @@ struct TextBoxAttachment: Identifiable, TextBoxSubmissionAttachment {
     static func shouldCleanupLocalURLWhenDisposed(_ fileURL: URL) -> Bool {
         GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(fileURL)
             || GhosttyApp.textBoxDraftAttachmentStore.isOwnedDraftCopy(fileURL)
-    }
-
-    private static func makeThumbnail(for url: URL) -> NSImage? {
-        guard TextBoxAttachment.isImageFileURL(url),
-              let image = NSImage(contentsOf: url) else {
-            return nil
-        }
-        return image
-    }
-
-    private static func isImageFileURL(_ url: URL) -> Bool {
-        let pathExtension = url.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !pathExtension.isEmpty,
-              let type = UTType(filenameExtension: pathExtension) else {
-            return false
-        }
-        return type.conforms(to: .image)
     }
 }
 
@@ -318,51 +253,6 @@ extension SessionTextBoxInputAttachmentSnapshot {
             fallback: fallback,
             localURL: attachment.localURL
         )
-    }
-
-    func textBoxAttachment() -> TextBoxAttachment {
-        let restoredLocalURL: URL?
-        if let localPath {
-            let url = URL(fileURLWithPath: localPath).standardizedFileURL
-            restoredLocalURL = FileManager.default.fileExists(atPath: url.path) ? url : nil
-        } else {
-            restoredLocalURL = nil
-        }
-        return TextBoxAttachment(
-            displayName: displayName,
-            submissionText: submissionText,
-            submissionPath: submissionPath,
-            localURL: restoredLocalURL,
-            cleanupLocalURLWhenDisposed: cleanupLocalPathWhenDisposed
-        )
-    }
-}
-
-extension NSAttributedString {
-    /// The submission parts (text runs and inline attachments) carried by this
-    /// attributed string, in document order.
-    var textBoxSubmissionParts: [TextBoxSubmissionPart] {
-        let raw = string as NSString
-        let fullRange = NSRange(location: 0, length: length)
-        var parts: [TextBoxSubmissionPart] = []
-
-        enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
-            if let inlineAttachment = value as? TextBoxInlineTextAttachment {
-                parts.append(.attachment(inlineAttachment.textBoxAttachment))
-            } else {
-                let text = raw.substring(with: range)
-                let strippedText = TextBoxInputTextMarkers().stringByStrippingNonTextMarkers(from: text)
-                guard !strippedText.isEmpty else { return }
-                parts.append(.text(strippedText))
-            }
-        }
-
-        return parts
-    }
-
-    /// The flattened, boundary-spaced submission text for this attributed string.
-    var textBoxFormattedSubmissionText: String {
-        textBoxSubmissionParts.textBoxFormattedSubmissionText
     }
 }
 
@@ -409,6 +299,12 @@ private final class TextBoxInlineTextAttachment: NSTextAttachment {
         return NSRect(x: 0, y: 0, width: width, height: 1)
     }
 }
+
+/// Exposes the carried ``TextBoxAttachment`` to the package's submission-parts
+/// reader. The stored `textBoxAttachment` satisfies the protocol requirement, so
+/// `NSAttributedString.textBoxSubmissionParts` matches this class identically to
+/// the legacy concrete `as? TextBoxInlineTextAttachment` cast.
+extension TextBoxInlineTextAttachment: TextBoxInlineAttachmentCarrying {}
 
 private final class TextBoxInlineAttachmentCell: NSTextAttachmentCell {
     private let textBoxAttachment: TextBoxAttachment
@@ -2721,7 +2617,7 @@ final class TextBoxInputTextView: NSTextView {
     var onMarkedTextStateChanged: (Bool) -> Void = { _ in }
     private var isReportingLayoutCompletion = false
 
-    private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
+    private static let controlKeyDecoder = TextBoxControlKeyDecoder()
     private var attachmentPreviewPopover: NSPopover?
     private var attachmentPreviewCharacterIndex: Int?
     private var focusedAttachmentCharacterIndex: Int?
@@ -2971,9 +2867,10 @@ final class TextBoxInputTextView: NSTextView {
         from attributed: NSAttributedString,
         isActive: Bool
     ) -> SessionTextBoxInputDraftSnapshot? {
-        sessionDraftSnapshot(
-            parts: attributed.textBoxSubmissionParts,
-            isActive: isActive
+        SessionTextBoxInputDraftSnapshot.make(
+            fromAttributed: attributed,
+            isActive: isActive,
+            attachmentSnapshot: { SessionTextBoxInputAttachmentSnapshot($0) }
         )
     }
 
@@ -2982,53 +2879,20 @@ final class TextBoxInputTextView: NSTextView {
         attachments: [TextBoxAttachment],
         isActive: Bool
     ) -> SessionTextBoxInputDraftSnapshot? {
-        var parts: [TextBoxSubmissionPart] = []
-        if !text.isEmpty {
-            parts.append(.text(text))
-        }
-        parts.append(contentsOf: attachments.map { .attachment($0) })
-        return sessionDraftSnapshot(parts: parts, isActive: isActive)
+        SessionTextBoxInputDraftSnapshot.make(
+            text: text,
+            attachments: attachments,
+            isActive: isActive,
+            attachmentSnapshot: { SessionTextBoxInputAttachmentSnapshot($0) }
+        )
     }
 
     static func plainText(from draft: SessionTextBoxInputDraftSnapshot) -> String {
-        draft.parts.compactMap { part -> String? in
-            guard part.kind == .text else { return nil }
-            return part.text
-        }.joined()
+        SessionTextBoxInputDraftSnapshot.plainText(from: draft)
     }
 
     static func attachments(from draft: SessionTextBoxInputDraftSnapshot) -> [TextBoxAttachment] {
-        draft.parts.compactMap { part -> TextBoxAttachment? in
-            guard part.kind == .attachment,
-                  let attachment = part.attachment else { return nil }
-            return attachment.textBoxAttachment()
-        }
-    }
-
-    private static func sessionDraftSnapshot(
-        parts: [TextBoxSubmissionPart],
-        isActive: Bool
-    ) -> SessionTextBoxInputDraftSnapshot? {
-        let draftParts = parts.compactMap { part -> SessionTextBoxInputDraftPart? in
-            switch part {
-            case .text(let text):
-                guard !text.isEmpty else { return nil }
-                return .text(text)
-            case .attachment(let attachment):
-                guard let attachment = attachment as? TextBoxAttachment else { return nil }
-                return .attachment(SessionTextBoxInputAttachmentSnapshot(attachment))
-            }
-        }
-        let hasMeaningfulContent = draftParts.contains { part in
-            switch part.kind {
-            case .text:
-                return part.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            case .attachment:
-                return part.attachment != nil
-            }
-        }
-        guard hasMeaningfulContent else { return nil }
-        return SessionTextBoxInputDraftSnapshot(isActive: isActive, parts: draftParts)
+        SessionTextBoxInputDraftSnapshot.attachments(from: draft)
     }
 
     private func attributedContent(from draft: SessionTextBoxInputDraftSnapshot) -> NSAttributedString {
@@ -3529,7 +3393,7 @@ final class TextBoxInputTextView: NSTextView {
            !flags.contains(.command),
            !flags.contains(.option),
            let key = controlKey(for: event) {
-            if Self.localControlKeys.contains(key) {
+            if Self.controlKeyDecoder.isLocalControlKey(key) {
                 super.keyDown(with: event)
             } else {
                 onForwardControl(key)
@@ -5001,48 +4865,17 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func controlKey(for event: NSEvent) -> String? {
-        physicalControlKey(for: event) ?? event.charactersIgnoringModifiers?.lowercased()
+        Self.controlKeyDecoder.controlKey(
+            keyCode: Int(event.keyCode),
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers
+        )
     }
 
     private func mentionCompletionControlNavigationKey(for event: NSEvent) -> String? {
-        let normalizedKey = KeyboardLayout.normalizedCharacters(for: event).lowercased()
-        if normalizedKey.count == 1, normalizedKey.allSatisfy(\.isASCII) {
-            return normalizedKey
-        }
-        return controlKey(for: event)
-    }
-
-    private func physicalControlKey(for event: NSEvent) -> String? {
-        switch Int(event.keyCode) {
-        case kVK_ANSI_A: return "a"
-        case kVK_ANSI_B: return "b"
-        case kVK_ANSI_C: return "c"
-        case kVK_ANSI_D: return "d"
-        case kVK_ANSI_E: return "e"
-        case kVK_ANSI_F: return "f"
-        case kVK_ANSI_G: return "g"
-        case kVK_ANSI_H: return "h"
-        case kVK_ANSI_I: return "i"
-        case kVK_ANSI_J: return "j"
-        case kVK_ANSI_K: return "k"
-        case kVK_ANSI_L: return "l"
-        case kVK_ANSI_M: return "m"
-        case kVK_ANSI_N: return "n"
-        case kVK_ANSI_O: return "o"
-        case kVK_ANSI_P: return "p"
-        case kVK_ANSI_Q: return "q"
-        case kVK_ANSI_R: return "r"
-        case kVK_ANSI_S: return "s"
-        case kVK_ANSI_T: return "t"
-        case kVK_ANSI_U: return "u"
-        case kVK_ANSI_V: return "v"
-        case kVK_ANSI_W: return "w"
-        case kVK_ANSI_X: return "x"
-        case kVK_ANSI_Y: return "y"
-        case kVK_ANSI_Z: return "z"
-        case kVK_ANSI_Backslash: return "\\"
-        default:
-            return nil
-        }
+        Self.controlKeyDecoder.mentionCompletionControlNavigationKey(
+            keyCode: Int(event.keyCode),
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+            normalizedCharacters: KeyboardLayout.normalizedCharacters(for: event)
+        )
     }
 }

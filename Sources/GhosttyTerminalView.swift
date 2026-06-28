@@ -442,10 +442,27 @@ class GhosttyApp {
         isBackgroundLogEnabled: { [weak self] in self?.backgroundLogEnabled ?? false },
         logBackground: { [weak self] message in self?.logBackground(message) }
     )
-    private var appliedGhosttyRuntimeColorScheme: ghostty_color_scheme_e?
-    private var runtimeColorSchemeSynchronizationDepth = 0
+
+    /// The cold color-scheme / theme synchronization orchestrator drained off
+    /// this god type into `CmuxTerminal`. Owns the moved sync state
+    /// (`lastAppearanceColorScheme`, the applied runtime color scheme, the sync
+    /// reentrancy depth, `usesHostLayerBackground`); the legacy
+    /// `synchronizeThemeWithAppearance` / `synchronizeGhosttyRuntimeColorScheme` /
+    /// `shouldProcessGhosttyReloadAction` / `setUsesHostLayerBackground` entry
+    /// points forward here, and the live ghostty / reload / log effects come back
+    /// through the `TerminalAppearanceHosting` conformance (see
+    /// `GhosttyTerminalAppearance.swift`).
+    private(set) lazy var appearanceCoordinator = TerminalAppearanceCoordinator(host: self)
     private var reloadConfigurationDepth = 0
-    private(set) var usesHostLayerBackground = false
+
+    /// Whether the terminal renders against a host-layer (window-owned)
+    /// background; read-forwarded to ``appearanceCoordinator``.
+    var usesHostLayerBackground: Bool { appearanceCoordinator.usesHostLayerBackground }
+
+    /// Narrow internal accessor for the private `reloadConfigurationDepth`, read
+    /// by the `TerminalAppearanceHosting` conformance (in a separate file) so the
+    /// reentrancy-depth field stays private to this type.
+    var appearanceReloadConfigurationDepth: Int { reloadConfigurationDepth }
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
 
     static func retainTickNotifications() -> () -> Void {
@@ -625,7 +642,6 @@ class GhosttyApp {
     /// composition root and `GhosttyApp` retires.
     let ghosttyAppService = GhosttyAppService()
     private var appObservers: [NSObjectProtocol] = []
-    private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
 
     /// Scroll-lag telemetry probe (was the `scrollLag*` accumulator state +
     /// `markScrollActivity`/`endScrollSession`/`shouldCaptureScrollLagEvent`).
@@ -966,7 +982,7 @@ class GhosttyApp {
 
         // Notify observers that a usable config is available (initial load).
         synchronizeGhosttyRuntimeColorScheme(effectiveTerminalColorSchemePreference, source: "initialize")
-        lastAppearanceColorScheme = initialColorScheme
+        appearanceCoordinator.lastAppearanceColorScheme = initialColorScheme
         GhosttyConfig.invalidateLoadCache()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
 
@@ -1270,7 +1286,7 @@ class GhosttyApp {
             let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
             ghostty_app_update_config(app, config)
-            lastAppearanceColorScheme = reloadColorScheme
+            appearanceCoordinator.lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
             scheduleSurfaceRefreshAfterConfigurationReload(
@@ -1313,7 +1329,7 @@ class GhosttyApp {
             ghostty_config_free(oldConfig)
         }
         config = newConfig
-        lastAppearanceColorScheme = reloadColorScheme
+        appearanceCoordinator.lastAppearanceColorScheme = reloadColorScheme
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
         scheduleSurfaceRefreshAfterConfigurationReload(
             source: source,
@@ -1335,107 +1351,23 @@ class GhosttyApp {
     }
 
     func synchronizeThemeWithAppearance(_: NSAppearance?, source: String) {
-        let currentColorScheme = GhosttyConfig.currentColorSchemePreference()
-        let plan = GhosttyConfig.appearanceSynchronizationPlan(
-            previousColorScheme: lastAppearanceColorScheme,
-            currentColorScheme: currentColorScheme
-        )
-        if backgroundLogEnabled {
-            let previousLabel: String
-            switch lastAppearanceColorScheme {
-            case .light:
-                previousLabel = "light"
-            case .dark:
-                previousLabel = "dark"
-            case nil:
-                previousLabel = "nil"
-            }
-            let currentLabel: String = currentColorScheme == .dark ? "dark" : "light"
-            logBackground(
-                "appearance sync source=\(source) previous=\(previousLabel) current=\(currentLabel) reload=\(plan.shouldReloadConfiguration)"
-            )
-        }
-        guard case let .reload(colorScheme, runtimeColorScheme) = plan else { return }
-        synchronizeGhosttyRuntimeColorScheme(
-            runtimeColorScheme,
-            colorScheme: colorScheme,
-            source: source
-        )
-        lastAppearanceColorScheme = colorScheme
-        reloadConfiguration(
-            source: "appearanceSync:\(source)",
-            reloadSettingsFromFile: false,
-            preferredColorScheme: colorScheme
-        )
+        appearanceCoordinator.synchronizeThemeWithAppearance(source: source)
     }
 
     private func synchronizeGhosttyRuntimeColorScheme(
         _ colorScheme: GhosttyConfig.ColorSchemePreference,
         source: String
     ) {
-        synchronizeGhosttyRuntimeColorScheme(
-            GhosttyConfig.ghosttyRuntimeColorScheme(for: colorScheme),
-            colorScheme: colorScheme,
-            source: source
-        )
-    }
-
-    private func synchronizeGhosttyRuntimeColorScheme(
-        _ runtimeColorScheme: ghostty_color_scheme_e,
-        colorScheme: GhosttyConfig.ColorSchemePreference,
-        source: String
-    ) {
-        guard let app else { return }
-        let decision = GhosttyConfig.runtimeColorSchemeSynchronizationDecision(
-            applied: appliedGhosttyRuntimeColorScheme,
-            requested: runtimeColorScheme,
-            isSynchronizing: runtimeColorSchemeSynchronizationDepth > 0
-        )
-        guard decision == .apply else {
-            if backgroundLogEnabled {
-                let schemeLabel = colorScheme == .dark ? "dark" : "light"
-                let reason: String
-                switch decision {
-                case .apply:
-                    reason = "apply"
-                case .skipReentrant:
-                    reason = "reentrant"
-                }
-                logBackground("app color scheme skipped source=\(source) scheme=\(schemeLabel) reason=\(reason)")
-            }
-            return
-        }
-
-        appliedGhosttyRuntimeColorScheme = runtimeColorScheme
-        runtimeColorSchemeSynchronizationDepth += 1
-        defer { runtimeColorSchemeSynchronizationDepth -= 1 }
-        ghostty_app_set_color_scheme(app, runtimeColorScheme)
-        if backgroundLogEnabled {
-            let schemeLabel = colorScheme == .dark ? "dark" : "light"
-            logBackground("app color scheme source=\(source) scheme=\(schemeLabel)")
-        }
+        appearanceCoordinator.synchronizeGhosttyRuntimeColorScheme(colorScheme, source: source)
     }
 
     private func shouldProcessGhosttyReloadAction(source: String, soft: Bool) -> Bool {
-        guard reloadConfigurationDepth == 0,
-              runtimeColorSchemeSynchronizationDepth == 0 else {
-            logThemeAction("reload request skipped source=\(source) soft=\(soft) reason=reentrant")
-            return false
-        }
-        return true
+        appearanceCoordinator.shouldProcessGhosttyReloadAction(source: source, soft: soft)
     }
 
     @discardableResult
     private func setUsesHostLayerBackground(_ newValue: Bool, source: String) -> Bool {
-        let previous = usesHostLayerBackground
-        usesHostLayerBackground = newValue
-        let hasChanged = previous != newValue
-        if hasChanged, backgroundLogEnabled {
-            logBackground(
-                "terminal rendering mode changed source=\(source) usesHostLayerBackground=\(newValue) previous=\(previous)"
-            )
-        }
-        return hasChanged
+        appearanceCoordinator.setUsesHostLayerBackground(newValue, source: source)
     }
 
     func focusFollowsMouseEnabled() -> Bool {
@@ -2312,7 +2244,7 @@ extension TerminalSurface {
 
 // MARK: - Ghostty Surface View
 
-class GhosttyNSView: NSView, NSUserInterfaceValidations {
+class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting {
     private static let focusDebugEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_FOCUS_DEBUG"] == "1" {
             return true
@@ -2458,6 +2390,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // viewport-jump tracking, and the key-sequence/key-table stacks.
     let keyboardCopyModeController = TerminalKeyboardCopyModeController()
     private var wordPathHoverActive = false
+    /// Owns the cmd-click word-path resolution precedence (CmuxTerminal); this
+    /// view conforms to ``TerminalWordPathHosting`` and vends the app-coupled
+    /// reads through it. Lazy so `self` is fully initialized before the host wire.
+    private lazy var wordPathRouter = TerminalWordPathRoutingCoordinator(host: self)
     private var imeConsumedKeyUps: Set<UInt16> = []
     private let keyboardCopyModeCursorOverlayView = GhosttyFlashOverlayView(frame: .zero)
     // internal (not fileprivate): witnesses for TerminalSurfaceNativeViewing
@@ -4581,18 +4517,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func resolveWordUnderCursorPath(at point: NSPoint? = nil) -> WordPathResolution? {
-        guard let surface = surface else { return nil }
+        wordPathRouter.resolveWordUnderCursorPath(at: point)
+    }
 
+    // MARK: - TerminalWordPathHosting
+
+    /// The working directory cmd-click paths resolve against, gated by the live
+    /// surface / owning-workspace / non-remote guards. Vended to the router.
+    func wordPathWorkingDirectory() -> String? {
+        guard surface != nil else { return nil }
         guard let termSurface = terminalSurface,
               let workspace = termSurface.owningWorkspace(),
               !workspace.isRemoteTerminalSurface(termSurface.id) else { return nil }
+        return resolvedWordPathWorkingDirectory(workspace: workspace, terminalSurface: termSurface)
+    }
 
-        guard let cwd = resolvedWordPathWorkingDirectory(workspace: workspace, terminalSurface: termSurface) else {
-            return nil
-        }
-
-        let snapshotPoint = preferredPointerPoint(from: point)
-        let pointSnapshotResolution = snapshotPoint.flatMap {
+    /// The pointer-anchored visible-grid resolution for the requested point. Maps
+    /// the point to a cell and reads the visible terminal text app-side.
+    func pointSnapshotWordPath(at requestedPoint: CGPoint?, cwd: String) -> WordPathResolution? {
+        guard let termSurface = terminalSurface,
+              let workspace = termSurface.owningWorkspace() else { return nil }
+        let snapshotPoint = preferredPointerPoint(from: requestedPoint)
+        return snapshotPoint.flatMap {
             resolveVisibleWordPath(
                 at: $0,
                 cwd: cwd,
@@ -4600,87 +4546,40 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 terminalSurface: termSurface
             )
         }
+    }
 
+    /// The live Ghostty QuickLook-word snapshot for the current surface, decoded
+    /// app-side because it dereferences the `ghostty_surface_t` and the runtime's
+    /// text buffer. Vended to the router.
+    func quicklookWordSnapshot() -> TerminalQuicklookWordSnapshot? {
+        guard let surface else { return nil }
         var text = ghostty_text_s()
-        if ghostty_surface_quicklook_word(surface, &text) {
-            defer { ghostty_surface_free_text(surface, &text) }
-            var quicklookResolution: WordPathResolution?
-            if text.text_len > 0, let ptr = text.text {
-                let wordData = Data(bytes: ptr, count: Int(text.text_len))
-                if let decodedWord = String(bytes: wordData, encoding: .utf8) {
-#if DEBUG
-                    let resolvedQuicklookWord = cmuxTerminalCmdClickQuicklookOverride(decodedWord)
-#else
-                    let resolvedQuicklookWord = decodedWord
-#endif
-                    if let resolvedPath = TerminalPathResolver().resolveQuicklookPath(resolvedQuicklookWord, cwd: cwd) {
-                        quicklookResolution = WordPathResolution(
-                            path: resolvedPath,
-                            source: .quicklook,
-                            rawToken: resolvedQuicklookWord
-                        )
-                    }
-                }
-            }
-
-            var viewportResolution: WordPathResolution?
-            if text.offset_len > 0 {
-#if DEBUG
-                let viewportOffsetStart = cmuxTerminalCmdClickViewportOffsetDelta(Int(text.offset_start))
-#else
-                let viewportOffsetStart = Int(text.offset_start)
-#endif
-                viewportResolution = resolveVisibleWordPathFromViewportOffset(
-                    viewportOffsetStart,
-                    cwd: cwd,
-                    workspace: workspace,
-                    terminalSurface: termSurface
-                )
-            }
-
-            if let viewportResolution {
-                // The pointer-anchored snapshot is the only source tied directly to the
-                // actual click location. Prefer it over quicklook and viewport offsets,
-                // which can lag or target a sibling entry in multi-column `ls` output.
-                if let pointSnapshotResolution {
-                    return pointSnapshotResolution
-                }
-                return viewportResolution
-            }
-
-            if let pointSnapshotResolution {
-                return pointSnapshotResolution
-            }
-
-            if let quicklookResolution {
-                return quicklookResolution
-            }
+        guard ghostty_surface_quicklook_word(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        var decodedWord: String?
+        if text.text_len > 0, let ptr = text.text {
+            let wordData = Data(bytes: ptr, count: Int(text.text_len))
+            decodedWord = String(bytes: wordData, encoding: .utf8)
         }
-
-        return pointSnapshotResolution
+        let viewportOffsetStart: Int? = text.offset_len > 0 ? Int(text.offset_start) : nil
+        return TerminalQuicklookWordSnapshot(
+            decodedWord: decodedWord,
+            viewportOffsetStart: viewportOffsetStart
+        )
     }
 
-    #if DEBUG
-    private func cmuxTerminalCmdClickQuicklookOverride(_ decodedWord: String) -> String {
-        let env = ProcessInfo.processInfo.environment
-        guard let override = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_QUICKLOOK_OVERRIDE"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-              !override.isEmpty else {
-            return decodedWord
-        }
-        return override
+    /// The viewport-offset visible-grid resolution for the given offset. Reads the
+    /// visible terminal text app-side.
+    func viewportWordPath(viewportOffsetStart: Int, cwd: String) -> WordPathResolution? {
+        guard let termSurface = terminalSurface,
+              let workspace = termSurface.owningWorkspace() else { return nil }
+        return resolveVisibleWordPathFromViewportOffset(
+            viewportOffsetStart,
+            cwd: cwd,
+            workspace: workspace,
+            terminalSurface: termSurface
+        )
     }
-
-    private func cmuxTerminalCmdClickViewportOffsetDelta(_ viewportOffsetStart: Int) -> Int {
-        let env = ProcessInfo.processInfo.environment
-        guard let delta = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_VIEWPORT_OFFSET_DELTA"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-              let parsedDelta = Int(delta) else {
-            return viewportOffsetStart
-        }
-        return max(0, viewportOffsetStart + parsedDelta)
-    }
-    #endif
 
     /// Update the pointing-hand cursor when Cmd-hovering over a bare filename
     /// that exists in the terminal's CWD.
