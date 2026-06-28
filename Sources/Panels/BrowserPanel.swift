@@ -656,9 +656,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
     private var faviconTask: Task<Void, Never>?
     private var faviconRefreshGeneration: Int = 0
     private var lastFaviconURLString: String?
-    private let minPageZoom: CGFloat = 0.25
-    private let maxPageZoom: CGFloat = 5.0
-    private let pageZoomStep: CGFloat = 0.1
+    private let zoomPolicy = BrowserZoomPolicy()
     private let navigationIntentCoordinator: BrowserNavigationIntentCoordinator
     private var insecureHTTPAlertFactory: () -> NSAlert
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
@@ -921,7 +919,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         let restoreURL = BrowserRemoteProxyURLRewriter.displayURL(for: oldWebView.url) ?? currentURL
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar() ?? restoreURL?.absoluteString
-        let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
+        let desiredZoom = zoomPolicy.clamp(oldWebView.pageZoom)
 
         clearBrowserFocusMode(reason: "webViewDiscard")
         invalidateSearchFocusRequests(reason: "webViewDiscard")
@@ -1944,7 +1942,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         let shouldRestoreURL = wasRenderable && restoreURLString != nil && restoreURLString != blankURLString
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar()
-        let desiredZoom = max(minPageZoom, min(maxPageZoom, previousWebView.pageZoom))
+        let desiredZoom = zoomPolicy.clamp(previousWebView.pageZoom)
         let restoreDeveloperTools = preferredDeveloperToolsVisible || isDeveloperToolsVisible()
 
         invalidateSearchFocusRequests(reason: "profileSwitch")
@@ -2467,7 +2465,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         let shouldShowManualRecovery = waitForManualRecovery && wasRenderable && hasRecoveryTarget
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar()
-        let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
+        let desiredZoom = zoomPolicy.clamp(oldWebView.pageZoom)
         let restoreDevTools = preferredDeveloperToolsVisible
 
 #if DEBUG
@@ -2744,29 +2742,8 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
 #endif
 
             // Try to discover the best icon URL from the document.
-            let js = """
-            (() => {
-              const links = Array.from(document.querySelectorAll(
-                'link[rel~=\"icon\"], link[rel=\"shortcut icon\"], link[rel=\"apple-touch-icon\"], link[rel=\"apple-touch-icon-precomposed\"]'
-              ));
-              function score(link) {
-                const v = (link.sizes && link.sizes.value) ? link.sizes.value : '';
-                if (v === 'any') return 1000;
-                let max = 0;
-                for (const part of v.split(/\\s+/)) {
-                  const m = part.match(/(\\d+)x(\\d+)/);
-                  if (!m) continue;
-                  const a = parseInt(m[1], 10);
-                  const b = parseInt(m[2], 10);
-                  if (Number.isFinite(a)) max = Math.max(max, a);
-                  if (Number.isFinite(b)) max = Math.max(max, b);
-                }
-                return max;
-              }
-              links.sort((a, b) => score(b) - score(a));
-              return links[0]?.href || '';
-            })();
-            """
+            let discoveryScript = BrowserFaviconDiscoveryScript()
+            let js = BrowserFaviconDiscoveryScript.source
 
             var discoveredURL: URL?
             if let href = await self.evaluateJavaScriptString(
@@ -2774,10 +2751,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
                 in: webView,
                 timeoutNanoseconds: 400_000_000
             ) {
-                let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty, let u = URL(string: trimmed) {
-                    discoveredURL = u
-                }
+                discoveredURL = discoveryScript.parse(href: href)
             }
             guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
             guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
@@ -2794,10 +2768,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
                     in: webView,
                     timeoutNanoseconds: 400_000_000
                 ) {
-                    let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty, let u = URL(string: trimmed) {
-                        discoveredURL = u
-                    }
+                    discoveredURL = discoveryScript.parse(href: href)
                 }
                 guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
                 guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
@@ -2897,7 +2868,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
 #endif
 
             // Use >= 2x the rendered point size so we don't upscale (blurry) on Retina.
-            guard let png = Self.makeFaviconPNGData(from: data, targetPx: 32) else {
+            guard let png = BrowserFaviconImageRenderer().pngData(from: data, targetPx: 32) else {
 #if DEBUG
                 cmuxDebugLog(
                     "browser.favicon.decodeFailed " +
@@ -2951,62 +2922,6 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
                 resume(nil)
             }
         }
-    }
-
-    @MainActor
-    private static func makeFaviconPNGData(from raw: Data, targetPx: Int) -> Data? {
-        guard let image = NSImage(data: raw) else { return nil }
-
-        let px = max(16, min(128, targetPx))
-        let size = NSSize(width: px, height: px)
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: px,
-            pixelsHigh: px,
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ) else {
-            return nil
-        }
-
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        let ctx = NSGraphicsContext(bitmapImageRep: rep)
-        ctx?.imageInterpolation = .high
-        ctx?.shouldAntialias = true
-        NSGraphicsContext.current = ctx
-
-        NSColor.clear.setFill()
-        NSRect(origin: .zero, size: size).fill()
-
-        // Aspect-fit into the target square.
-        let srcSize = image.size
-        let scale = min(size.width / max(1, srcSize.width), size.height / max(1, srcSize.height))
-        let drawSize = NSSize(width: srcSize.width * scale, height: srcSize.height * scale)
-        let drawOrigin = NSPoint(x: (size.width - drawSize.width) / 2.0, y: (size.height - drawSize.height) / 2.0)
-        // Align to integral pixels to avoid soft edges at small sizes.
-        let drawRect = NSRect(
-            x: round(drawOrigin.x),
-            y: round(drawOrigin.y),
-            width: round(drawSize.width),
-            height: round(drawSize.height)
-        )
-
-        image.draw(
-            in: drawRect,
-            from: NSRect(origin: .zero, size: srcSize),
-            operation: .sourceOver,
-            fraction: 1.0,
-            respectFlipped: true,
-            hints: [.interpolation: NSImageInterpolation.high]
-        )
-
-        return rep.representation(using: .png, properties: [:])
     }
 
     private func handleWebViewLoadingChanged(_ newValue: Bool) {
@@ -4266,12 +4181,12 @@ extension BrowserPanel {
 
     @discardableResult
     func zoomIn() -> Bool {
-        applyPageZoom(webView.pageZoom + pageZoomStep)
+        applyPageZoom(zoomPolicy.zoomedIn(from: webView.pageZoom))
     }
 
     @discardableResult
     func zoomOut() -> Bool {
-        applyPageZoom(webView.pageZoom - pageZoomStep)
+        applyPageZoom(zoomPolicy.zoomedOut(from: webView.pageZoom))
     }
 
     @discardableResult
@@ -4285,7 +4200,7 @@ extension BrowserPanel {
 
     @discardableResult
     func setPageZoomFactor(_ pageZoom: CGFloat) -> Bool {
-        let clamped = max(minPageZoom, min(maxPageZoom, pageZoom))
+        let clamped = zoomPolicy.clamp(pageZoom)
         return applyPageZoom(clamped)
     }
 
@@ -5295,7 +5210,7 @@ extension BrowserPanel {
 private extension BrowserPanel {
     @discardableResult
     func applyPageZoom(_ candidate: CGFloat) -> Bool {
-        let clamped = max(minPageZoom, min(maxPageZoom, candidate))
+        let clamped = zoomPolicy.clamp(candidate)
         if abs(webView.pageZoom - clamped) < 0.0001 {
             return false
         }
