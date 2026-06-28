@@ -2721,7 +2721,7 @@ final class TextBoxInputTextView: NSTextView {
     var onMarkedTextStateChanged: (Bool) -> Void = { _ in }
     private var isReportingLayoutCompletion = false
 
-    private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
+    private static let controlKeyDecoder = TextBoxControlKeyDecoder()
     private var attachmentPreviewPopover: NSPopover?
     private var attachmentPreviewCharacterIndex: Int?
     private var focusedAttachmentCharacterIndex: Int?
@@ -3529,7 +3529,7 @@ final class TextBoxInputTextView: NSTextView {
            !flags.contains(.command),
            !flags.contains(.option),
            let key = controlKey(for: event) {
-            if Self.localControlKeys.contains(key) {
+            if Self.controlKeyDecoder.isLocalControlKey(key) {
                 super.keyDown(with: event)
             } else {
                 onForwardControl(key)
@@ -5001,48 +5001,17 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func controlKey(for event: NSEvent) -> String? {
-        physicalControlKey(for: event) ?? event.charactersIgnoringModifiers?.lowercased()
+        Self.controlKeyDecoder.controlKey(
+            keyCode: Int(event.keyCode),
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers
+        )
     }
 
     private func mentionCompletionControlNavigationKey(for event: NSEvent) -> String? {
-        let normalizedKey = KeyboardLayout.normalizedCharacters(for: event).lowercased()
-        if normalizedKey.count == 1, normalizedKey.allSatisfy(\.isASCII) {
-            return normalizedKey
-        }
-        return controlKey(for: event)
-    }
-
-    private func physicalControlKey(for event: NSEvent) -> String? {
-        switch Int(event.keyCode) {
-        case kVK_ANSI_A: return "a"
-        case kVK_ANSI_B: return "b"
-        case kVK_ANSI_C: return "c"
-        case kVK_ANSI_D: return "d"
-        case kVK_ANSI_E: return "e"
-        case kVK_ANSI_F: return "f"
-        case kVK_ANSI_G: return "g"
-        case kVK_ANSI_H: return "h"
-        case kVK_ANSI_I: return "i"
-        case kVK_ANSI_J: return "j"
-        case kVK_ANSI_K: return "k"
-        case kVK_ANSI_L: return "l"
-        case kVK_ANSI_M: return "m"
-        case kVK_ANSI_N: return "n"
-        case kVK_ANSI_O: return "o"
-        case kVK_ANSI_P: return "p"
-        case kVK_ANSI_Q: return "q"
-        case kVK_ANSI_R: return "r"
-        case kVK_ANSI_S: return "s"
-        case kVK_ANSI_T: return "t"
-        case kVK_ANSI_U: return "u"
-        case kVK_ANSI_V: return "v"
-        case kVK_ANSI_W: return "w"
-        case kVK_ANSI_X: return "x"
-        case kVK_ANSI_Y: return "y"
-        case kVK_ANSI_Z: return "z"
-        case kVK_ANSI_Backslash: return "\\"
-        default:
-            return nil
-        }
+        Self.controlKeyDecoder.mentionCompletionControlNavigationKey(
+            keyCode: Int(event.keyCode),
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+            normalizedCharacters: KeyboardLayout.normalizedCharacters(for: event)
+        )
     }
 }
