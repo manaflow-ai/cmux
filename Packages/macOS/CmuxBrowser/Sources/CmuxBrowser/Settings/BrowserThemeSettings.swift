@@ -69,13 +69,17 @@ public struct BrowserThemeSettings {
     ///   - mode: The theme mode to apply.
     ///   - webView: The web view whose appearance should match `mode`.
     public static func apply(_ mode: BrowserThemeMode, to webView: WKWebView) {
-        switch mode {
-        case .system:
-            webView.appearance = nil
-        case .light:
-            webView.appearance = NSAppearance(named: .aqua)
-        case .dark:
-            webView.appearance = NSAppearance(named: .darkAqua)
+        // Swift 6.1: WKWebView.appearance is @MainActor; this applies theme on the
+        // main-thread browser settings path, so assumeIsolated is behavior-preserving.
+        MainActor.assumeIsolated {
+            switch mode {
+            case .system:
+                webView.appearance = nil
+            case .light:
+                webView.appearance = NSAppearance(named: .aqua)
+            case .dark:
+                webView.appearance = NSAppearance(named: .darkAqua)
+            }
         }
     }
 }
