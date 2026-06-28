@@ -388,6 +388,44 @@ actor RemoteTmuxSSHTransport {
             || lowered.contains("too many authentication failures")
     }
 
+    /// Whether a failed `BatchMode=yes` connect failed because the local
+    /// `ProxyCommand` closed the transport before SSH could surface an explicit
+    /// auth error string — a separate signal from ``indicatesAuthRequired``.
+    /// A `ProxyCommand` with its own pre-handshake authentication or 2FA leg
+    /// (jumphost wrappers, Cloudflare/Teleport-style brokers, corporate SSH
+    /// wrappers) can silently abort that leg under BatchMode because it has no
+    /// tty to prompt on, then drop the proxy pipe; an interactive retry where
+    /// the wrapper inherits the user's tty lets that prompt surface and the
+    /// connect then succeeds.
+    ///
+    /// Anchored to OpenSSH's canonical pipe-transport placeholders
+    /// (`to UNKNOWN port 65535`, `by UNKNOWN port 65535`) — those are the
+    /// exact phrasings OpenSSH emits when `getpeername(2)` returns no socket
+    /// address (the `ProxyCommand` case). A direct TCP failure surfaces a
+    /// real host:port instead and is treated as a genuine unreachable error,
+    /// and the anchored phrases are unlikely to appear verbatim in remote
+    /// stderr forwarded through the connection (`pam_motd`, `~/.ssh/rc`).
+    static func indicatesProxyCommandTransportClosed(_ stderr: String) -> Bool {
+        let lowered = stderr.lowercased()
+        return lowered.contains("to unknown port 65535")
+            || lowered.contains("by unknown port 65535")
+    }
+
+    /// Convenience predicate composing the recovery rule the controller's
+    /// BatchMode-discovery catch sites share: a failure where re-running ssh
+    /// interactively (a real tty for password / host-key TOFU / MFA / FIDO
+    /// touch, *or* for a `ProxyCommand`'s own pre-handshake auth leg) will
+    /// open the shared master and let the next batch probe succeed.
+    ///
+    /// Lives next to its two constituent predicates so all routing sites in
+    /// ``RemoteTmuxController`` go through one name — without this composition
+    /// a future signal added to either constituent would silently regress any
+    /// catch site that still spelled out only one of the two.
+    static func indicatesInteractiveRetryWillHelp(_ stderr: String) -> Bool {
+        indicatesAuthRequired(stderr)
+            || indicatesProxyCommandTransportClosed(stderr)
+    }
+
     // MARK: - Process plumbing
 
     /// Launches a process and captures bounded stdout/stderr without blocking the actor.
