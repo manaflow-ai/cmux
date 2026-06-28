@@ -69,21 +69,39 @@ import Testing
 
     // MARK: - Proxy-closed transport classification
 
-    /// Failures where the local `ProxyCommand` closes the transport before SSH
-    /// can emit an explicit auth-failure string. OpenSSH stamps these with the
-    /// `UNKNOWN port 65535` placeholder (no real socket address is known when
-    /// the transport is a pipe), and an interactive retry — where the wrapper
-    /// inherits the user's tty — recovers them. One mixed-case fixture guards
-    /// the predicate's `lowercased()` path against a future literal-only
-    /// refactor; OpenSSH itself emits the placeholder in caps.
+    /// SILENT proxy closures — the placeholder is the only diagnostic in
+    /// stderr — fire the predicate. These are the cases an interactive retry
+    /// recovers because the proxy's own auth/2FA prompt was suppressed under
+    /// BatchMode and a tty lets it surface. One mixed-case fixture guards the
+    /// `lowercased()` path against a future literal-only refactor; OpenSSH
+    /// itself emits the placeholder in caps.
     @Test(arguments: [
         "Connection closed by UNKNOWN port 65535",
         "ssh_dispatch_run_fatal: Connection to UNKNOWN port 65535: Broken pipe",
-        "kex_exchange_identification: Connection closed by remote host\nConnection closed by UNKNOWN port 65535",
         "Connection closed by UnKnOwN port 65535",
     ])
-    func classifiesProxyCommandTransportClosed(_ stderr: String) {
+    func classifiesSilentProxyCommandClosures(_ stderr: String) {
         #expect(RemoteTmuxSSHTransport.indicatesProxyCommandTransportClosed(stderr))
+    }
+
+    /// The placeholder also stamps stderr when the proxy explains *why* it
+    /// closed: target unreachable behind a ProxyJump, `nc` to a refused port,
+    /// stdio forwarding teardown, target spoke no SSH on the negotiated port,
+    /// etc. None of those are recoverable by re-running ssh under a tty, so
+    /// the predicate MUST return false when any diagnostic marker is present
+    /// alongside the placeholder — otherwise the controller bounces the user
+    /// through a futile interactive prompt instead of surfacing the real
+    /// proxy error.
+    @Test(arguments: [
+        "channel 0: open failed: connect failed: Connection refused\nstdio forwarding failed\nConnection closed by UNKNOWN port 65535",
+        "connect failed: Connection refused\nConnection closed by UNKNOWN port 65535",
+        "stdio forwarding failed\nssh_exchange_identification: Connection closed by remote host\nConnection closed by UNKNOWN port 65535",
+        "kex_exchange_identification: Connection closed by remote host\nConnection closed by UNKNOWN port 65535",
+        "ssh: Could not resolve hostname inner.invalid: nodename nor servname provided\nConnection closed by UNKNOWN port 65535",
+        "channel 1: open failed: administratively prohibited: open failed\nConnection closed by UNKNOWN port 65535",
+    ])
+    func doesNotClassifyExplainedProxyClosures(_ stderr: String) {
+        #expect(!RemoteTmuxSSHTransport.indicatesProxyCommandTransportClosed(stderr))
     }
 
     /// The match is anchored to OpenSSH's exact phrasings (`to UNKNOWN port
@@ -159,6 +177,10 @@ import Testing
         "no matching host key type found. their offer: ssh-rsa",
         "ssh: connect to host bad.example.com port 22: Connection refused",
         "",
+        // An explained proxy closure (target unreachable behind ProxyJump) must
+        // not slip through the composed predicate either — surface the real
+        // error instead of bouncing the user through interactive auth.
+        "channel 0: open failed: connect failed: Connection refused\nstdio forwarding failed\nConnection closed by UNKNOWN port 65535",
     ])
     func composedPredicateRejectsNonRecoverableFailures(_ stderr: String) {
         #expect(!RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr))
