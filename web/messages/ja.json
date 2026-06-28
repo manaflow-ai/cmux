@@ -964,6 +964,14 @@
           "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
           "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。"
         },
+        "badge": {
+          "enabled": "iTerm2 のセッションバッジのように、各ターミナルサーフェスの内側にスクロールしても固定される透かしを表示し、所属するワークスペースとタブを示します。",
+          "template": "自由入力のバッジテキストです。プレースホルダー {workspace}、{tab}、{tabIndex}、{workspaceIndex} はサーフェスごとに置換され、その他のテキストはそのまま表示されます。",
+          "position": "バッジをターミナルサーフェスのどの隅（または中央）に固定するかを指定します。",
+          "opacity": "バッジの不透明度です。0（透明）から 1（完全に不透明）まで指定します。",
+          "color": "バッジのテキスト色を、SwiftUI のカラー名（red、orange、yellow、green、mint、teal、cyan、blue、indigo、purple、pink、brown、black、white、gray）または #RRGGBB の16進数で指定します。空の場合はターミナルの前景色（テキスト色）に従います。",
+          "fontSize": "バッジのフォントサイズ（ポイント）です。"
+        },
         "browser": {
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",

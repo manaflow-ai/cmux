@@ -28,16 +28,29 @@ public struct TerminalSection: View {
     @State private var rendererMaxWarm: DefaultsValueModel<Int>
     @State private var memGuardrailEnabled: DefaultsValueModel<Bool>
     @State private var memGuardrailThresholdGB: DefaultsValueModel<Double>
+    @State private var badgeEnabled: JSONValueModel<Bool>
+    @State private var badgeTemplate: JSONValueModel<String>
+    @State private var badgePosition: JSONValueModel<BadgePosition>
+    @State private var badgeOpacity: JSONValueModel<Double>
+    @State private var badgeColor: JSONValueModel<String>
+    @State private var badgeFontSize: JSONValueModel<Double>
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
-        hostActions: SettingsHostActions
+        hostActions: SettingsHostActions,
+        errorLog: SettingsErrorLog
     ) {
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.hostActions = hostActions
+        _badgeEnabled = State(initialValue: JSONValueModel(store: jsonStore, key: catalog.badge.enabled, errorLog: errorLog))
+        _badgeTemplate = State(initialValue: JSONValueModel(store: jsonStore, key: catalog.badge.template, errorLog: errorLog))
+        _badgePosition = State(initialValue: JSONValueModel(store: jsonStore, key: catalog.badge.position, errorLog: errorLog))
+        _badgeOpacity = State(initialValue: JSONValueModel(store: jsonStore, key: catalog.badge.opacity, errorLog: errorLog))
+        _badgeColor = State(initialValue: JSONValueModel(store: jsonStore, key: catalog.badge.color, errorLog: errorLog))
+        _badgeFontSize = State(initialValue: JSONValueModel(store: jsonStore, key: catalog.badge.fontSize, errorLog: errorLog))
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
         _scrollSpeed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.scrollSpeed))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
@@ -57,6 +70,7 @@ public struct TerminalSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
             mainCard
+            badgeCard
             resumeCommandsCard
         }
         .task { startObservingSettings() }
@@ -76,6 +90,12 @@ public struct TerminalSection: View {
             rendererMaxWarm,
             memGuardrailEnabled,
             memGuardrailThresholdGB,
+            badgeEnabled,
+            badgeTemplate,
+            badgePosition,
+            badgeOpacity,
+            badgeColor,
+            badgeFontSize,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -121,6 +141,153 @@ public struct TerminalSection: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    /// Localized display name for a badge anchor position.
+    private func badgePositionLabel(_ position: BadgePosition) -> String {
+        switch position {
+        case .topLeading:
+            return String(localized: "badge.position.topLeading", defaultValue: "Top Left")
+        case .topTrailing:
+            return String(localized: "badge.position.topTrailing", defaultValue: "Top Right")
+        case .bottomLeading:
+            return String(localized: "badge.position.bottomLeading", defaultValue: "Bottom Left")
+        case .bottomTrailing:
+            return String(localized: "badge.position.bottomTrailing", defaultValue: "Bottom Right")
+        case .center:
+            return String(localized: "badge.position.center", defaultValue: "Center")
+        }
+    }
+
+    /// The color shown in the badge color well, resolving the stored
+    /// `badge.color` string (a SwiftUI color name or `#RRGGBB` hex) via
+    /// ``BadgeColor``. Falls back to the terminal label color (`.primary`) when
+    /// the value is empty or unparseable, so the well still shows something the
+    /// user can click to pick a concrete color.
+    private func badgeColorWellColor() -> Color {
+        guard let parsed = BadgeColor(parsing: badgeColor.current) else {
+            return .primary
+        }
+        return Color(red: parsed.red, green: parsed.green, blue: parsed.blue)
+    }
+
+    @ViewBuilder
+    private var badgeCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("badge.enabled"),
+                String(localized: "settings.terminal.badge", defaultValue: "Terminal Badge"),
+                subtitle: badgeEnabled.current
+                    ? String(localized: "settings.terminal.badge.subtitleOn", defaultValue: "A scroll-fixed watermark identifying each terminal's workspace and tab, shown inside every surface.")
+                    : String(localized: "settings.terminal.badge.subtitleOff", defaultValue: "No identity watermark is drawn inside terminal surfaces.")
+            ) {
+                Toggle("", isOn: Binding(get: { badgeEnabled.current }, set: { badgeEnabled.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalBadgeToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("badge.template"),
+                String(localized: "settings.terminal.badge.template", defaultValue: "Badge Text"),
+                subtitle: String(localized: "settings.terminal.badge.template.subtitle", defaultValue: "Free-form text. Use {workspace}, {tab}, {tabIndex}, and {workspaceIndex} placeholders; other text is shown as-is."),
+                controlWidth: 330
+            ) {
+                TextField("", text: Binding(get: { badgeTemplate.current }, set: { badgeTemplate.set($0) }))
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(!badgeEnabled.current)
+                    .accessibilityIdentifier("SettingsTerminalBadgeTemplateField")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("badge.position"),
+                String(localized: "settings.terminal.badge.position", defaultValue: "Badge Position"),
+                subtitle: String(localized: "settings.terminal.badge.position.subtitle", defaultValue: "Which corner (or center) of the terminal surface the badge anchors to."),
+                controlWidth: 160
+            ) {
+                Picker("", selection: Binding(get: { badgePosition.current }, set: { badgePosition.set($0) })) {
+                    ForEach(BadgePosition.allCases, id: \.self) { position in
+                        Text(badgePositionLabel(position)).tag(position)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .disabled(!badgeEnabled.current)
+                .accessibilityIdentifier("SettingsTerminalBadgePositionPicker")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("badge.opacity"),
+                String(localized: "settings.terminal.badge.opacity", defaultValue: "Badge Opacity"),
+                subtitle: String(localized: "settings.terminal.badge.opacity.subtitle", defaultValue: "How visible the badge is, from faint (0%) to fully opaque (100%)."),
+                controlWidth: 250
+            ) {
+                HStack(spacing: 8) {
+                    Slider(
+                        value: Binding(get: { badgeOpacity.current }, set: { badgeOpacity.set($0) }),
+                        in: 0...1,
+                        step: 0.01
+                    )
+                    .frame(width: 130)
+                    .disabled(!badgeEnabled.current)
+                    .accessibilityIdentifier("SettingsTerminalBadgeOpacitySlider")
+
+                    Text(String.localizedStringWithFormat(String(localized: "settings.terminal.badge.opacity.value", defaultValue: "%d%%"), Int((badgeOpacity.current * 100).rounded())))
+                        .cmuxFont(size: 12, weight: .medium, design: .rounded)
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("badge.fontSize"),
+                String(localized: "settings.terminal.badge.fontSize", defaultValue: "Badge Font Size"),
+                subtitle: String(localized: "settings.terminal.badge.fontSize.subtitle", defaultValue: "Point size of the badge text."),
+                controlWidth: 250
+            ) {
+                HStack(spacing: 8) {
+                    Slider(
+                        value: Binding(get: { badgeFontSize.current }, set: { badgeFontSize.set($0) }),
+                        in: BadgeCatalogSection.fontSizeMinimum...BadgeCatalogSection.fontSizeMaximum,
+                        step: 1
+                    )
+                    .frame(width: 130)
+                    .disabled(!badgeEnabled.current)
+                    .accessibilityIdentifier("SettingsTerminalBadgeFontSizeSlider")
+
+                    Text(String.localizedStringWithFormat(String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"), hostActions.formattedFontSize(badgeFontSize.current)))
+                        .cmuxFont(size: 12, weight: .medium, design: .rounded)
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("badge.color"),
+                String(localized: "settings.terminal.badge.color", defaultValue: "Badge Color"),
+                subtitle: String(localized: "settings.terminal.badge.color.subtitle", defaultValue: "A color name (red, blue, green, …) or #RRGGBB hex. Leave empty to follow the terminal's text color."),
+                controlWidth: 200
+            ) {
+                HStack(spacing: 8) {
+                    ColorPicker("", selection: Binding(
+                        get: { badgeColorWellColor() },
+                        set: { newColor in badgeColor.set(newColor.cmuxHexString) }
+                    ), supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: 38)
+                    .disabled(!badgeEnabled.current)
+                    .accessibilityIdentifier("SettingsTerminalBadgeColorWell")
+
+                    TextField(
+                        String(localized: "settings.terminal.badge.color.placeholder", defaultValue: "name or #RRGGBB"),
+                        text: Binding(get: { badgeColor.current }, set: { badgeColor.set($0) })
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(!badgeEnabled.current)
+                    .accessibilityIdentifier("SettingsTerminalBadgeColorField")
                 }
             }
         }

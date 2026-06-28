@@ -1005,6 +1005,14 @@
           "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
           "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
         },
+        "badge": {
+          "enabled": "Show a scroll-fixed watermark inside every terminal surface identifying its workspace and tab, similar to iTerm2's session badge.",
+          "template": "Free-form badge text. The placeholders {workspace}, {tab}, {tabIndex}, and {workspaceIndex} are substituted per surface; any other text is shown as-is.",
+          "position": "Which corner (or center) of the terminal surface the badge anchors to.",
+          "opacity": "Badge opacity, from 0 (invisible) to 1 (fully opaque).",
+          "color": "Badge text color, given as a SwiftUI color name (red, orange, yellow, green, mint, teal, cyan, blue, indigo, purple, pink, brown, black, white, gray) or a #RRGGBB hex string. Empty means follow the terminal's foreground/text color.",
+          "fontSize": "Badge font size in points."
+        },
         "browser": {
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
