@@ -186,57 +186,9 @@ private struct TextBoxSendButtonStyle: ButtonStyle {
     }
 }
 
-struct TextBoxAttachment: Identifiable, TextBoxSubmissionAttachment {
-    let id = UUID()
-    let displayName: String
-    let submissionText: String
-    let submissionPath: String
-    let localURL: URL?
-    let thumbnail: NSImage?
-    let cleanupLocalURLWhenDisposed: Bool
+typealias TextBoxAttachment = CmuxWorkspaces.TextBoxAttachment
 
-    init(
-        displayName: String,
-        submissionText: String,
-        submissionPath: String,
-        localURL: URL?,
-        cleanupLocalURLWhenDisposed: Bool = false
-    ) {
-        let standardizedURL = localURL?.standardizedFileURL
-        let fallbackName = standardizedURL?.lastPathComponent ?? URL(fileURLWithPath: submissionPath).lastPathComponent
-        self.displayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? (fallbackName.isEmpty ? submissionPath : fallbackName)
-            : displayName
-        self.submissionText = submissionText
-        self.submissionPath = submissionPath
-        self.localURL = standardizedURL
-        self.thumbnail = standardizedURL.flatMap { TextBoxAttachment.makeThumbnail(for: $0) }
-        self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
-    }
-
-    init(
-        localURL: URL,
-        submissionText: String,
-        submissionPath: String? = nil,
-        cleanupLocalURLWhenDisposed: Bool = false
-    ) {
-        let standardizedURL = localURL.standardizedFileURL
-        self.displayName = standardizedURL.lastPathComponent.isEmpty
-            ? standardizedURL.path
-            : standardizedURL.lastPathComponent
-        self.submissionText = submissionText
-        self.submissionPath = submissionPath ?? standardizedURL.path
-        self.localURL = standardizedURL
-        self.thumbnail = TextBoxAttachment.makeThumbnail(for: standardizedURL)
-        self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
-    }
-
-    var isImage: Bool {
-        if thumbnail != nil { return true }
-        guard let localURL else { return false }
-        return TextBoxAttachment.isImageFileURL(localURL)
-    }
-
+extension TextBoxAttachment {
     var escapedSubmissionPath: String {
         TerminalImageTransferPlanner.escapeForShell(submissionPath)
     }
@@ -259,23 +211,6 @@ struct TextBoxAttachment: Identifiable, TextBoxSubmissionAttachment {
     static func shouldCleanupLocalURLWhenDisposed(_ fileURL: URL) -> Bool {
         GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(fileURL)
             || GhosttyApp.textBoxDraftAttachmentStore.isOwnedDraftCopy(fileURL)
-    }
-
-    private static func makeThumbnail(for url: URL) -> NSImage? {
-        guard TextBoxAttachment.isImageFileURL(url),
-              let image = NSImage(contentsOf: url) else {
-            return nil
-        }
-        return image
-    }
-
-    private static func isImageFileURL(_ url: URL) -> Bool {
-        let pathExtension = url.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !pathExtension.isEmpty,
-              let type = UTType(filenameExtension: pathExtension) else {
-            return false
-        }
-        return type.conforms(to: .image)
     }
 }
 
@@ -2721,10 +2656,7 @@ final class TextBoxInputTextView: NSTextView {
     var onMarkedTextStateChanged: (Bool) -> Void = { _ in }
     private var isReportingLayoutCompletion = false
 
-    private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
-    private static let pendingAttachmentUploadPlaceholderAttribute = NSAttributedString.Key(
-        "cmux.textBoxPendingAttachmentUploadID"
-    )
+    private static let controlKeyDecoder = TextBoxControlKeyDecoder()
     private var attachmentPreviewPopover: NSPopover?
     private var attachmentPreviewCharacterIndex: Int?
     private var focusedAttachmentCharacterIndex: Int?
@@ -2962,7 +2894,7 @@ final class TextBoxInputTextView: NSTextView {
 
     func attributedContentForPreservation() -> NSAttributedString {
         let preserved = NSMutableAttributedString(attributedString: attributedString())
-        Self.removePendingAttachmentUploadPlaceholders(from: preserved)
+        TextBoxInputTextMarkers.removePendingAttachmentUploadPlaceholders(from: preserved)
         return preserved
     }
 
@@ -3060,7 +2992,7 @@ final class TextBoxInputTextView: NSTextView {
     func insertPendingAttachmentUploadPlaceholder(id: UUID) {
         window?.makeFirstResponder(self)
         var attributes = currentTextAttributes()
-        attributes[Self.pendingAttachmentUploadPlaceholderAttribute] = id.uuidString
+        attributes[TextBoxInputTextMarkers.pendingAttachmentUploadPlaceholderAttribute] = id.uuidString
         insertText(
             NSAttributedString(
                 string: TextBoxInputTextMarkers().pendingAttachmentUploadPlaceholderCharacter,
@@ -3532,7 +3464,7 @@ final class TextBoxInputTextView: NSTextView {
            !flags.contains(.command),
            !flags.contains(.option),
            let key = controlKey(for: event) {
-            if Self.localControlKeys.contains(key) {
+            if Self.controlKeyDecoder.isLocalControlKey(key) {
                 super.keyDown(with: event)
             } else {
                 onForwardControl(key)
@@ -4722,71 +4654,29 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func shouldInsertAttachmentBoundarySpaceBefore(replacementRange: NSRange) -> Bool {
-        guard replacementRange.location > 0,
-              replacementRange.location <= attributedString().length else {
-            return false
-        }
-        return !isAttachmentBoundarySeparator(at: replacementRange.location - 1)
+        TextBoxInputTextMarkers.shouldInsertAttachmentBoundarySpaceBefore(
+            replacementRange: replacementRange,
+            in: attributedString()
+        )
     }
 
     private func shouldInsertAttachmentBoundarySpaceAfter(
         replacementRange: NSRange,
         attachments: [TextBoxAttachment]
     ) -> Bool {
-        guard attachments.contains(where: \.isImage) else {
-            return false
-        }
-        let afterLocation = NSMaxRange(replacementRange)
-        guard afterLocation >= 0,
-              afterLocation < attributedString().length else {
-            return true
-        }
-        return !isAttachmentBoundarySeparator(at: afterLocation)
+        TextBoxInputTextMarkers.shouldInsertAttachmentBoundarySpaceAfter(
+            replacementRange: replacementRange,
+            hasImageAttachment: attachments.contains(where: \.isImage),
+            in: attributedString()
+        )
     }
 
     private func isAttachmentBoundarySeparator(at location: Int) -> Bool {
-        guard location >= 0,
-              location < attributedString().length else {
-            return true
-        }
-        let character = (attributedString().string as NSString).substring(with: NSRange(location: location, length: 1))
-        return character.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
-    }
-
-    private static func pendingAttachmentUploadPlaceholderRanges(
-        in attributed: NSAttributedString,
-        id: UUID?
-    ) -> [NSRange] {
-        let fullRange = NSRange(location: 0, length: attributed.length)
-        guard fullRange.length > 0 else { return [] }
-
-        let idString = id?.uuidString
-        var result: [NSRange] = []
-        attributed.enumerateAttribute(
-            Self.pendingAttachmentUploadPlaceholderAttribute,
-            in: fullRange,
-            options: []
-        ) { value, range, stop in
-            guard let value = value as? String,
-                  idString == nil || value == idString else {
-                return
-            }
-            result.append(range)
-            if idString != nil {
-                stop.pointee = true
-            }
-        }
-        return result
-    }
-
-    private static func removePendingAttachmentUploadPlaceholders(from attributed: NSMutableAttributedString) {
-        for range in pendingAttachmentUploadPlaceholderRanges(in: attributed, id: nil).reversed() {
-            attributed.replaceCharacters(in: range, with: NSAttributedString(string: ""))
-        }
+        TextBoxInputTextMarkers.isAttachmentBoundarySeparator(at: location, in: attributedString())
     }
 
     private func pendingAttachmentUploadPlaceholderRange(id: UUID?) -> NSRange? {
-        Self.pendingAttachmentUploadPlaceholderRanges(in: attributedString(), id: id).first
+        TextBoxInputTextMarkers.pendingAttachmentUploadPlaceholderRanges(in: attributedString(), id: id).first
     }
 
     func cleanupDisposableAttachmentFiles(
@@ -5046,48 +4936,17 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func controlKey(for event: NSEvent) -> String? {
-        physicalControlKey(for: event) ?? event.charactersIgnoringModifiers?.lowercased()
+        Self.controlKeyDecoder.controlKey(
+            keyCode: Int(event.keyCode),
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers
+        )
     }
 
     private func mentionCompletionControlNavigationKey(for event: NSEvent) -> String? {
-        let normalizedKey = KeyboardLayout.normalizedCharacters(for: event).lowercased()
-        if normalizedKey.count == 1, normalizedKey.allSatisfy(\.isASCII) {
-            return normalizedKey
-        }
-        return controlKey(for: event)
-    }
-
-    private func physicalControlKey(for event: NSEvent) -> String? {
-        switch Int(event.keyCode) {
-        case kVK_ANSI_A: return "a"
-        case kVK_ANSI_B: return "b"
-        case kVK_ANSI_C: return "c"
-        case kVK_ANSI_D: return "d"
-        case kVK_ANSI_E: return "e"
-        case kVK_ANSI_F: return "f"
-        case kVK_ANSI_G: return "g"
-        case kVK_ANSI_H: return "h"
-        case kVK_ANSI_I: return "i"
-        case kVK_ANSI_J: return "j"
-        case kVK_ANSI_K: return "k"
-        case kVK_ANSI_L: return "l"
-        case kVK_ANSI_M: return "m"
-        case kVK_ANSI_N: return "n"
-        case kVK_ANSI_O: return "o"
-        case kVK_ANSI_P: return "p"
-        case kVK_ANSI_Q: return "q"
-        case kVK_ANSI_R: return "r"
-        case kVK_ANSI_S: return "s"
-        case kVK_ANSI_T: return "t"
-        case kVK_ANSI_U: return "u"
-        case kVK_ANSI_V: return "v"
-        case kVK_ANSI_W: return "w"
-        case kVK_ANSI_X: return "x"
-        case kVK_ANSI_Y: return "y"
-        case kVK_ANSI_Z: return "z"
-        case kVK_ANSI_Backslash: return "\\"
-        default:
-            return nil
-        }
+        Self.controlKeyDecoder.mentionCompletionControlNavigationKey(
+            keyCode: Int(event.keyCode),
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+            normalizedCharacters: KeyboardLayout.normalizedCharacters(for: event)
+        )
     }
 }
