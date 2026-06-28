@@ -425,7 +425,6 @@
 		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
 		D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */; };
 		D1FFC0DE000000000000E002 /* EmptyPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FFC0DE000000000000E001 /* EmptyPanelView.swift */; };
-		E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */; };
 		E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */; };
 		E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
@@ -858,7 +857,6 @@
 		C0DE48000000000000000001 /* SidebarProviderMenuRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE48000000000000000002 /* SidebarProviderMenuRegressionTests.swift */; };
 		B9000130A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */; };
 		B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */; };
-		C0DE35010000000000000001 /* SidebarScrim.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35010000000000000002 /* SidebarScrim.swift */; };
 		C9A57513C9A57513C9A57513 /* SidebarScrollViewConfiguratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57514C9A57514C9A57514 /* SidebarScrollViewConfiguratorTests.swift */; };
 		E62155868BB29FEB5DAAAF25 /* SidebarSelectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */; };
 		F57072635F25EBCA741E125D /* SidebarState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */; };
@@ -1102,6 +1100,7 @@
 		F62F663E1DE5BB85478EDC8F /* Workspace+TerminalAgentContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7F42D21104E0E25CA24F370 /* Workspace+TerminalAgentContext.swift */; };
 		5EA8A275682B6260C143DC1E /* Workspace+TerminalInputSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CD0C8784628E8438058C1C1 /* Workspace+TerminalInputSelection.swift */; };
 		E3B7A4000000000000000D40 /* Workspace+WorkspaceContextMenuHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000D41 /* Workspace+WorkspaceContextMenuHosting.swift */; };
+		E3B7A400000000000000F601 /* Workspace+WorkspaceCreationInheritanceReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000F602 /* Workspace+WorkspaceCreationInheritanceReading.swift */; };
 		E3D40D0000000000000000A0 /* Workspace+WorkspaceDropHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D40D0000000000000000A1 /* Workspace+WorkspaceDropHosting.swift */; };
 		E3B7A40000000000000009F1 /* Workspace+WorkspaceLayoutFollowUpHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000009F2 /* Workspace+WorkspaceLayoutFollowUpHosting.swift */; };
 		E3B7A40000000000000005D2 /* Workspace+WorkspaceLayoutHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000005D3 /* Workspace+WorkspaceLayoutHosting.swift */; };
@@ -1596,7 +1595,6 @@
 		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
 		D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableTextViewArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
 		D1FFC0DE000000000000E001 /* EmptyPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/EmptyPanelView.swift; sourceTree = "<group>"; };
-		E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorkspaceRowView.swift; sourceTree = "<group>"; };
 		E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreePrototype.swift; sourceTree = "<group>"; };
 		E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
@@ -2020,7 +2018,6 @@
 		C0DE48000000000000000002 /* SidebarProviderMenuRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarProviderMenuRegressionTests.swift; sourceTree = "<group>"; };
 		B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPullRequestInteractivityUITests.swift; sourceTree = "<group>"; };
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
-		C0DE35010000000000000002 /* SidebarScrim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarScrim.swift; sourceTree = "<group>"; };
 		C9A57514C9A57514C9A57514 /* SidebarScrollViewConfiguratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarScrollViewConfiguratorTests.swift; sourceTree = "<group>"; };
 		9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSelectionState.swift; sourceTree = "<group>"; };
 		D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarState.swift; sourceTree = "<group>"; };
@@ -2262,6 +2259,7 @@
 		D7F42D21104E0E25CA24F370 /* Workspace+TerminalAgentContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TerminalAgentContext.swift"; sourceTree = "<group>"; };
 		4CD0C8784628E8438058C1C1 /* Workspace+TerminalInputSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TerminalInputSelection.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000D41 /* Workspace+WorkspaceContextMenuHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceContextMenuHosting.swift"; sourceTree = "<group>"; };
+		E3B7A400000000000000F602 /* Workspace+WorkspaceCreationInheritanceReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceCreationInheritanceReading.swift"; sourceTree = "<group>"; };
 		E3D40D0000000000000000A1 /* Workspace+WorkspaceDropHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceDropHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000009F2 /* Workspace+WorkspaceLayoutFollowUpHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceLayoutFollowUpHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000005D3 /* Workspace+WorkspaceLayoutHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceLayoutHosting.swift"; sourceTree = "<group>"; };
@@ -2657,7 +2655,6 @@
 				C3A1B702 /* SidebarTabReorderHost.swift */,
 				C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */,
 				C0DE46030000000000000002 /* CMUXSidebarExtensionBrowserPanel.swift */,
-				E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */,
 				E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */,
 				C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */,
 				A5001F000000000000000002 /* DetachedFolderDragIcon.swift */,
@@ -2665,7 +2662,6 @@
 				D0B1001BA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift */,
 				D0B10021A1B2C3D4E5F60001 /* FileDropOverlayView.swift */,
 				D0B10023A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift */,
-				C0DE35010000000000000002 /* SidebarScrim.swift */,
 				D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */,
 				D7ABB07A0000000000000004 /* BonsplitTabTransferPasteboard.swift */,
 				D0B10025A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift */,
@@ -2816,6 +2812,7 @@
 				E3B7A4000000000000000D11 /* Workspace+SplitDetachHosting.swift */,
 				E3B7A40000000000000005D1 /* Workspace+AgentHibernationHosting.swift */,
 				E3B7A40000000000000005E1 /* Workspace+AgentForkHosting.swift */,
+				E3B7A400000000000000F602 /* Workspace+WorkspaceCreationInheritanceReading.swift */,
 				E3CAB00000000000000000A1 /* TabContextAction+KeyboardShortcuts.swift */,
 				E3D40D0000000000000000A1 /* Workspace+WorkspaceDropHosting.swift */,
 				E3B7A40000000000000006A1 /* Workspace+RemoteSurfaceHosting.swift */,
@@ -4290,7 +4287,6 @@
 				D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */,
 				D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */,
 				D1FFC0DE000000000000E002 /* EmptyPanelView.swift in Sources */,
-				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
 				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
 				FEED0000000000000000F017 /* FeedAttentionCoordinator.swift in Sources */,
 				FEED0000000000000000F0D1 /* FeedButtonDebugStore.swift in Sources */,
@@ -4574,7 +4570,6 @@
 				D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */,
 				A5009D02 /* SidebarDragStateRegistryEnvironment.swift in Sources */,
 				C0DEF0A30000000000000001 /* SidebarPortDisplayText.swift in Sources */,
-				C0DE35010000000000000001 /* SidebarScrim.swift in Sources */,
 				E62155868BB29FEB5DAAAF25 /* SidebarSelectionState.swift in Sources */,
 				F57072635F25EBCA741E125D /* SidebarState.swift in Sources */,
 				A5009101 /* SidebarTabItemActions.swift in Sources */,
@@ -4774,6 +4769,7 @@
 				F62F663E1DE5BB85478EDC8F /* Workspace+TerminalAgentContext.swift in Sources */,
 				5EA8A275682B6260C143DC1E /* Workspace+TerminalInputSelection.swift in Sources */,
 				E3B7A4000000000000000D40 /* Workspace+WorkspaceContextMenuHosting.swift in Sources */,
+				E3B7A400000000000000F601 /* Workspace+WorkspaceCreationInheritanceReading.swift in Sources */,
 				E3D40D0000000000000000A0 /* Workspace+WorkspaceDropHosting.swift in Sources */,
 				E3B7A40000000000000009F1 /* Workspace+WorkspaceLayoutFollowUpHosting.swift in Sources */,
 				E3B7A40000000000000005D2 /* Workspace+WorkspaceLayoutHosting.swift in Sources */,

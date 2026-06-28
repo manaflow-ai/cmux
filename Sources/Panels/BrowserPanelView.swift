@@ -1386,25 +1386,20 @@ struct BrowserPanelView: View {
     }
 
     private var webContentRecoveryOverlay: some View {
-        ZStack {
-            Color(nsColor: browserChromeBackgroundColor)
-                .opacity(0.92)
-            Button(action: {
-                panel.recoverTerminatedWebContent(reason: "overlayButton")
-            }) {
-                Label(
-                    String(localized: "browser.error.reload", defaultValue: "Reload"),
-                    systemImage: "arrow.clockwise"
-                )
-                .font(.system(size: 13, weight: .medium))
-                .padding(.horizontal, 6)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .safeHelp(String(localized: "browser.reload", defaultValue: "Reload"))
-            .accessibilityIdentifier("BrowserWebContentRecoveryButton")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        BrowserWebContentRecoveryOverlay(
+            snapshot: BrowserWebContentRecoverySnapshot(
+                backgroundColor: Color(nsColor: browserChromeBackgroundColor),
+                reloadLabel: String(localized: "browser.error.reload", defaultValue: "Reload"),
+                reloadSystemImage: "arrow.clockwise",
+                reloadHelp: String(localized: "browser.reload", defaultValue: "Reload"),
+                accessibilityIdentifier: "BrowserWebContentRecoveryButton"
+            ),
+            actions: BrowserWebContentRecoveryActions(
+                onReload: {
+                    panel.recoverTerminatedWebContent(reason: "overlayButton")
+                }
+            )
+        )
     }
 
     private func triggerFocusFlashAnimation() {
@@ -1498,20 +1493,6 @@ struct BrowserPanelView: View {
         }
     }
 
-    private func browserFocusResponderChainContains(
-        _ start: NSResponder?,
-        target: NSResponder
-    ) -> Bool {
-        var current = start
-        var hops = 0
-        while let responder = current, hops < 64 {
-            if responder === target { return true }
-            current = responder.nextResponder
-            hops += 1
-        }
-        return false
-    }
-
     private func isPanelFocusedInModel() -> Bool {
         guard let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: panel.workspaceId),
@@ -1549,7 +1530,7 @@ struct BrowserPanelView: View {
         let window = browserFocusWindow()
         let firstResponder = window?.firstResponder
         let firstResponderType = browserFocusResponderDescription(firstResponder)
-        let webResponder = browserFocusResponderChainContains(firstResponder, target: panel.webView) ? 1 : 0
+        let webResponder = (firstResponder?.chainContains(panel.webView) ?? false) ? 1 : 0
         var line =
             "browser.focus.trace event=\(event) panel=\(panel.id.uuidString.prefix(5)) " +
             "panelFocused=\(isFocused ? 1 : 0) addrFocused=\(addressBarFocused ? 1 : 0) " +
@@ -2375,7 +2356,7 @@ struct BrowserPanelView: View {
                         return
                     }
                     var hasWebViewResponder =
-                        browserFocusResponderChainContains(window.firstResponder, target: panel.webView)
+                        window.firstResponder?.chainContains(panel.webView) ?? false
                     if !hasWebViewResponder {
                         let fallbackFocusedWebView = window.makeFirstResponder(panel.webView)
                         hasWebViewResponder = fallbackFocusedWebView
@@ -4597,8 +4578,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 return preferredHit
             }
 
-            let inspectorCandidates = Self.visibleDescendants(in: root)
-                .filter { Self.isVisibleHostedInspectorCandidate($0) && Self.isInspectorView($0) }
+            let inspectorCandidates = root.visibleDescendants
+                .filter { $0.isVisibleHostedInspectorCandidate && Self.isInspectorView($0) }
                 .sorted { lhs, rhs in
                     let lhsFrame = root.convert(lhs.bounds, from: lhs)
                     let rhsFrame = root.convert(rhs.bounds, from: rhs)
@@ -4627,7 +4608,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                   let inspectorLeaf = hostedInspectorFrontendWebView,
                   pageLeaf.isDescendant(of: root),
                   inspectorLeaf.isDescendant(of: root),
-                  Self.isVisibleHostedInspectorCandidate(inspectorLeaf) else {
+                  inspectorLeaf.isVisibleHostedInspectorCandidate else {
                 return nil
             }
             return hostedInspectorDividerCandidate(
@@ -4650,13 +4631,13 @@ struct WebViewRepresentable: NSViewRepresentable {
                     currentInspector = containerView
                     continue
                 }
-                guard let pageView = Self.directChild(of: containerView, containing: pageLeaf) else {
+                guard let pageView = containerView.directChild(containing: pageLeaf) else {
                     currentInspector = containerView
                     continue
                 }
                 guard pageView !== inspectorView,
-                      Self.isVisibleHostedInspectorSiblingCandidate(pageView),
-                      Self.verticalOverlap(between: pageView.frame, and: inspectorView.frame) > 8,
+                      pageView.isVisibleHostedInspectorSiblingCandidate,
+                      pageView.frame.verticalOverlap(with: inspectorView.frame) > 8,
                       let dockSide = HostedInspectorDockSide.resolve(
                           pageFrame: pageView.frame,
                           inspectorFrame: inspectorView.frame
@@ -4694,9 +4675,9 @@ struct WebViewRepresentable: NSViewRepresentable {
                 guard let containerView = inspectorView.superview else { break }
 
                 let pageCandidates = containerView.subviews.compactMap { candidate -> (view: NSView, dockSide: HostedInspectorDockSide)? in
-                    guard Self.isVisibleHostedInspectorSiblingCandidate(candidate) else { return nil }
+                    guard candidate.isVisibleHostedInspectorSiblingCandidate else { return nil }
                     guard candidate !== inspectorView else { return nil }
-                    guard Self.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8 else {
+                    guard candidate.frame.verticalOverlap(with: inspectorView.frame) > 8 else {
                         return nil
                     }
                     guard let dockSide = HostedInspectorDockSide.resolve(
@@ -4729,13 +4710,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         private func hostedInspectorDividerCandidateScore(_ hit: HostedInspectorDividerHit) -> CGFloat {
             let pageFrame = convert(hit.pageView.bounds, from: hit.pageView)
             let inspectorFrame = convert(hit.inspectorView.bounds, from: hit.inspectorView)
-            let overlap = Self.verticalOverlap(between: pageFrame, and: inspectorFrame)
+            let overlap = pageFrame.verticalOverlap(with: inspectorFrame)
             let coverageWidth = max(pageFrame.maxX, inspectorFrame.maxX) - min(pageFrame.minX, inspectorFrame.minX)
             return (overlap * 1_000) + coverageWidth + pageFrame.width
         }
 
         private func hostedInspectorPageCandidateScore(_ pageView: NSView, inspectorView: NSView) -> CGFloat {
-            let overlap = Self.verticalOverlap(between: pageView.frame, and: inspectorView.frame)
+            let overlap = pageView.frame.verticalOverlap(with: inspectorView.frame)
             let coverageWidth = max(pageView.frame.maxX, inspectorView.frame.maxX) - min(pageView.frame.minX, inspectorView.frame.minX)
             return (overlap * 1_000) + coverageWidth + pageView.frame.width
         }
@@ -4885,46 +4866,8 @@ struct WebViewRepresentable: NSViewRepresentable {
             return (pageFrame, inspectorFrame)
         }
 
-        private static func visibleDescendants(in root: NSView) -> [NSView] {
-            var descendants: [NSView] = []
-            var stack = Array(root.subviews.reversed())
-            while let view = stack.popLast() {
-                descendants.append(view)
-                stack.append(contentsOf: view.subviews.reversed())
-            }
-            return descendants
-        }
-
-        private static func directChild(of container: NSView, containing descendant: NSView) -> NSView? {
-            var current: NSView? = descendant
-            var directChild: NSView?
-            while let view = current, view !== container {
-                directChild = view
-                current = view.superview
-            }
-            guard current === container else { return nil }
-            return directChild
-        }
-
         fileprivate static func isInspectorView(_ view: NSView) -> Bool {
             view.isCmuxWebInspectorObject
-        }
-
-        fileprivate static func isVisibleHostedInspectorCandidate(_ view: NSView) -> Bool {
-            !view.isHidden &&
-                view.alphaValue > 0 &&
-                view.frame.width > 1 &&
-                view.frame.height > 1
-        }
-
-        private static func isVisibleHostedInspectorSiblingCandidate(_ view: NSView) -> Bool {
-            !view.isHidden &&
-                view.alphaValue > 0 &&
-                view.frame.height > 1
-        }
-
-        private static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
-            max(0, min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY))
         }
     }
 
