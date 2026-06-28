@@ -2147,6 +2147,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     func syncActiveRemoteTerminalSessionCount() {
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
     }
+    /// Resets the published remote-terminal session count to zero, preserving the
+    /// `private(set)` encapsulation and the `didSet` publish. Used by the
+    /// `Workspace+RemoteConnectionLifecycleHosting.swift` witness for the disconnect
+    /// path lifted into `RemoteConnectionLifecycleCoordinator`.
+    func resetActiveRemoteTerminalSessionCount() {
+        activeRemoteTerminalSessionCount = 0
+    }
     /// The controlling-terminal device name per panel id; stored in the
     /// surface-registry sub-model.
     var surfaceTTYNames: [UUID: String] {
@@ -2185,6 +2192,15 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// host weakly, so there is no retain cycle.
     let remoteTerminalTracking = RemoteTerminalTrackingCoordinator<Workspace>()
 
+    /// Owns the top-level remote connection-lifecycle orchestration bodies
+    /// (configure/reconnect/notify-foreground/disconnect/clear-on-local). The full
+    /// published remote-status reset surface, the single live
+    /// `RemoteSessionCoordinator`, and the localized strings stay app-side behind
+    /// `RemoteConnectionLifecycleHosting`. `Workspace` keeps thin forwarders for the
+    /// externally-called methods. Held by `Workspace`, references the host weakly,
+    /// so there is no retain cycle.
+    let remoteConnectionLifecycle = RemoteConnectionLifecycleCoordinator<Workspace>()
+
     /// Orchestrates closing one pane of a mirrored multi-pane tmux window (the
     /// pane-header ✕): the close-tab warning decision, the live pane-activity
     /// query, the in-flight guard set, and the kill-pane dispatch. `Workspace`
@@ -2194,7 +2210,10 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// presenting the confirmation modal. Held by `Workspace`, references the
     /// host weakly, so there is no retain cycle.
     let remoteTmuxMirrorCoordinator = RemoteTmuxMirrorCoordinator<Workspace>()
-    private var pendingRemoteForegroundAuthToken: String?
+    // Internal (not private) so the `Workspace+RemoteConnectionLifecycleHosting.swift`
+    // witness can read/write the pending foreground-auth token the lifecycle
+    // coordinator consumes.
+    var pendingRemoteForegroundAuthToken: String?
     var activeRemoteSessionControllerID: UUID?
     // Internal (not private) so the `Workspace+RemoteStatusHosting.swift`
     // witness can read/reset the remote-status error-dedup fingerprints and the
@@ -2724,6 +2743,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         remoteSurfaceCoordinator.attach(host: self)
         remoteSurfaceTTYCoordinator.attach(host: self)
         remoteTerminalTracking.attach(host: self)
+        remoteConnectionLifecycle.attach(host: self)
         remoteTmuxMirrorCoordinator.attach(host: self)
         remoteRelaySession.attach(host: self)
         remoteStatus.attach(host: self)
@@ -4761,195 +4781,35 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         ).payload()
     }
 
+    /// App-side forwarder to ``RemoteConnectionLifecycleCoordinator/configureRemoteConnection(_:autoConnect:)``
+    /// in `CmuxRemoteWorkspace`, where the orchestration body now lives. The live
+    /// session construction stays app-side behind the
+    /// `Workspace+RemoteConnectionLifecycleHosting.swift` witness.
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
-        defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
-        let previousConfiguration = remoteConfiguration
-        skipControlMasterCleanupAfterDetachedRemoteTransfer = false
-        pendingRemoteDisconnectReplacement = nil
-        let remoteDisconnectPlaceholderPanelIdsToClear = remoteDisconnectPlaceholderPanelIds
-        if let previousConfiguration,
-           previousConfiguration != configuration,
-           !previousConfiguration.hasSamePersistentPTYIdentity(as: configuration) {
-            remoteRelaySession.removeAllRemotePTYSessionIDs()
-            endedPersistentRemotePTYAttachSurfaceIds.removeAll()
-            clearRemoteRelayIDAliases()
-        }
-        remoteConfiguration = configuration
-        seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
-        remoteDisconnectPlaceholderPanelIds.subtract(remoteDisconnectPlaceholderPanelIdsToClear)
-        clearRemoteDetectedSurfacePorts()
-        remoteDetectedPorts = []
-        remoteForwardedPorts = []
-        remotePortConflicts = []
-        remoteProxyEndpoint = nil
-        remoteHeartbeatCount = 0
-        remoteLastHeartbeatAt = nil
-        remoteConnectionDetail = nil
-        remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
-        statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
-        statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
-        remoteLastErrorFingerprint = nil
-        remoteLastDaemonErrorFingerprint = nil
-        remoteLastPortConflictFingerprint = nil
-        recomputeListeningPorts()
-
-        let previousController = remoteSessionController
-        activeRemoteSessionControllerID = nil
-        remoteSessionController = nil
-        previousController?.stop()
-        applyRemoteProxyEndpointUpdate(nil)
-        applyBrowserRemoteWorkspaceStatusToPanels()
-
-        let foregroundAuthToken = Self.normalizedForegroundAuthToken(configuration.foregroundAuthToken)
-        let shouldAutoConnect =
-            autoConnect
-            || (foregroundAuthToken != nil && foregroundAuthToken == pendingRemoteForegroundAuthToken)
-        pendingRemoteForegroundAuthToken = nil
-        if configuration.transport == .websocket,
-           configuration.daemonWebSocketEndpoint == nil {
-            remoteConnectionState = .connected
-            applyBrowserRemoteWorkspaceStatusToPanels()
-            return
-        }
-        guard shouldAutoConnect else {
-            remoteConnectionState = .disconnected
-            applyBrowserRemoteWorkspaceStatusToPanels()
-            return
-        }
-
-        remoteConnectionState = .connecting
-        applyBrowserRemoteWorkspaceStatusToPanels()
-        let controllerID = UUID()
-        var processRunner: any RemoteSessionProcessRunning = RemoteSessionProcessRunner()
-#if DEBUG
-        if let override = remoteSessionProcessRunnerOverrideForTesting {
-            processRunner = override
-        }
-#endif
-        let controller = RemoteSessionCoordinator(
-            host: WorkspaceRemoteSessionHostAdapter(workspace: self, controllerID: controllerID),
-            configuration: configuration,
-            proxyBroker: TerminalController.shared.remoteProxyBroker,
-            manifestRepository: RemoteDaemonManifestRepository(
-                homeDirectory: FileManager.default.homeDirectoryForCurrentUser
-            ),
-            processRunner: processRunner,
-            reachabilityProbe: RemoteHostReachabilityProbe(),
-            relayCommandRewriter: WorkspaceRemoteRelayCommandRewriter(),
-            buildInfo: WorkspaceRemoteSessionBuildInfo(),
-            daemonStrings: RemoteDaemonStrings.appLocalized,
-            strings: RemoteSessionStrings.appLocalized
-        )
-        activeRemoteSessionControllerID = controllerID
-        remoteSessionController = controller
-        controller.updateRemotePortScanningEnabled(Self.remotePortScanningEnabledFromSettings())
-        syncRemotePortScanTTYs()
-        syncRemoteRelayIDAliasesToController()
-        controller.start()
+        remoteConnectionLifecycle.configureRemoteConnection(configuration, autoConnect: autoConnect)
     }
 
+    /// App-side forwarder to ``RemoteConnectionLifecycleCoordinator/reconnectRemoteConnection(surfaceId:)``.
     func reconnectRemoteConnection(surfaceId: UUID? = nil) {
-        guard let configuration = remoteConfiguration else { return }
-        let reconnectingPlaceholderSurfaceId = surfaceId.flatMap { candidate -> UUID? in
-            guard remoteDisconnectPlaceholderPanelIds.contains(candidate),
-                  panels[candidate] is TerminalPanel else {
-                return nil
-            }
-            return candidate
-        }
-        if let reconnectingPlaceholderSurfaceId {
-            remoteDisconnectPlaceholderPanelIds.remove(reconnectingPlaceholderSurfaceId)
-            trackRemoteTerminalSurface(reconnectingPlaceholderSurfaceId)
-        }
-        configureRemoteConnection(configuration, autoConnect: true)
+        remoteConnectionLifecycle.reconnectRemoteConnection(surfaceId: surfaceId)
     }
 
-    private static func normalizedForegroundAuthToken(_ token: String?) -> String? {
-        RemoteForegroundAuthToken().normalized(token)
-    }
-
+    /// App-side forwarder to ``RemoteConnectionLifecycleCoordinator/notifyRemoteForegroundAuthenticationReady(token:)``.
     func notifyRemoteForegroundAuthenticationReady(token: String? = nil) {
-        guard let foregroundAuthToken = Self.normalizedForegroundAuthToken(token) else {
-            return
-        }
-
-        guard let remoteConfiguration else {
-            pendingRemoteForegroundAuthToken = foregroundAuthToken
-            return
-        }
-
-        guard Self.normalizedForegroundAuthToken(remoteConfiguration.foregroundAuthToken) == foregroundAuthToken else {
-            return
-        }
-
-        pendingRemoteForegroundAuthToken = nil
-        guard remoteConnectionState == .disconnected else { return }
-        reconnectRemoteConnection()
+        remoteConnectionLifecycle.notifyRemoteForegroundAuthenticationReady(token: token)
     }
 
+    /// App-side forwarder to ``RemoteConnectionLifecycleCoordinator/disconnectRemoteConnection(clearConfiguration:disconnectedDetail:)``.
     func disconnectRemoteConnection(clearConfiguration: Bool = false, disconnectedDetail: String? = nil) {
-        defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
-        let shouldCleanupControlMaster =
-            clearConfiguration
-            && !isDetachingCloseTransaction
-            && pendingDetachedSurfaces.isEmpty
-            && !skipControlMasterCleanupAfterDetachedRemoteTransfer
-        let configurationForCleanup = shouldCleanupControlMaster ? remoteConfiguration : nil
-        let previousController = remoteSessionController
-        activeRemoteSessionControllerID = nil
-        remoteSessionController = nil
-        previousController?.stop()
-        pendingRemoteForegroundAuthToken = nil
-        activeRemoteTerminalSurfaceIds.removeAll()
-        endedPersistentRemotePTYAttachSurfaceIds.removeAll()
-        activeRemoteTerminalSessionCount = 0
-        pendingRemoteSurfaceTTYName = nil
-        pendingRemoteSurfaceTTYSurfaceId = nil
-        pendingRemoteSurfacePortKickReason = nil
-        pendingRemoteSurfacePortKickSurfaceId = nil
-        clearRemoteDetectedSurfacePorts()
-        remoteDetectedPorts = []
-        remoteForwardedPorts = []
-        remotePortConflicts = []
-        remoteProxyEndpoint = nil
-        remoteHeartbeatCount = 0
-        remoteLastHeartbeatAt = nil
-        remoteConnectionState = .disconnected
-        remoteConnectionDetail = disconnectedDetail
-        remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
-        statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
-        statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
-        remoteLastErrorFingerprint = nil
-        remoteLastDaemonErrorFingerprint = nil
-        remoteLastPortConflictFingerprint = nil
-        if clearConfiguration {
-            remoteRelaySession.removeAllRemotePTYSessionIDs()
-            endedPersistentRemotePTYAttachSurfaceIds.removeAll()
-            clearRemoteRelayIDAliases()
-            remoteConfiguration = nil
-            pendingRemoteDisconnectReplacement = nil
-            remoteDisconnectPlaceholderPanelIds.removeAll()
-            skipControlMasterCleanupAfterDetachedRemoteTransfer = false
-        }
-        applyRemoteProxyEndpointUpdate(nil)
-        applyBrowserRemoteWorkspaceStatusToPanels()
-        recomputeListeningPorts()
-        if let configurationForCleanup {
-            Self.requestSSHControlMasterCleanupIfNeeded(configuration: configurationForCleanup)
-        }
+        remoteConnectionLifecycle.disconnectRemoteConnection(
+            clearConfiguration: clearConfiguration,
+            disconnectedDetail: disconnectedDetail
+        )
     }
 
+    /// App-side forwarder to ``RemoteConnectionLifecycleCoordinator/clearRemoteConfigurationIfWorkspaceBecameLocal()``.
     private func clearRemoteConfigurationIfWorkspaceBecameLocal() {
-        guard !isDetachingCloseTransaction, panels.isEmpty, remoteConfiguration != nil else { return }
-        guard pendingRemoteDisconnectReplacement == nil else { return }
-        if remoteConfiguration?.preserveAfterTerminalExit == true {
-            return
-        }
-        disconnectRemoteConnection(clearConfiguration: true)
-    }
-
-    private func seedInitialRemoteTerminalSessionIfNeeded(configuration: WorkspaceRemoteConfiguration) {
-        remoteTerminalTracking.seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
+        remoteConnectionLifecycle.clearRemoteConfigurationIfWorkspaceBecameLocal()
     }
 
     func trackRemoteTerminalSurface(_ panelId: UUID) {
@@ -5015,13 +4875,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         surfaceCreation.normalizedRemotePTYSessionID(value)
     }
 
-    private func syncRemoteRelayIDAliasesToController() {
-        remoteRelaySession.syncRemoteRelayIDAliasesToController()
-    }
-
-    private func clearRemoteRelayIDAliases() {
-        remoteRelaySession.clearRemoteRelayIDAliases()
-    }
 
     private func pruneRemoteRelaySurfaceAliases(validSurfaceIds: Set<UUID>) {
         remoteRelaySession.pruneRemoteRelaySurfaceAliases(validSurfaceIds: validSurfaceIds)
@@ -5218,10 +5071,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             conflicts: conflicts,
             target: target
         )
-    }
-
-    private func clearRemoteDetectedSurfacePorts() {
-        remoteStatus.clearRemoteDetectedSurfacePorts()
     }
 
     func appendSidebarLog(message: String, level: SidebarLogLevel, source: String?) {

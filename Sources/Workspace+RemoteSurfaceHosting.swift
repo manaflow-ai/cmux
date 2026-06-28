@@ -32,7 +32,8 @@ extension Workspace: RemoteSurfaceHosting {
     }
 
     var hostRemoteConfiguration: WorkspaceRemoteConfiguration? {
-        remoteConfiguration
+        get { remoteConfiguration }
+        set { remoteConfiguration = newValue }
     }
 
     var hostIsDetachingCloseTransaction: Bool {

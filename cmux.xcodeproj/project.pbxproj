@@ -1093,6 +1093,7 @@
 		7413E89C67E599AE13B28974 /* Workspace+FocusedPaneCloseTargetHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14F283838842222BA3A8A34A /* Workspace+FocusedPaneCloseTargetHosting.swift */; };
 		C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */; };
 		FB0CA0510000000000000007 /* Workspace+ReactGrabWorkspaceContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0CA0510000000000000008 /* Workspace+ReactGrabWorkspaceContext.swift */; };
+		E3B7A400000000000000F501 /* Workspace+RemoteConnectionLifecycleHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000F502 /* Workspace+RemoteConnectionLifecycleHosting.swift */; };
 		E3B7A40000000000000006B0 /* Workspace+RemoteRelaySessionHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000006B1 /* Workspace+RemoteRelaySessionHosting.swift */; };
 		E3B7A40000000000000006C0 /* Workspace+RemoteStatusHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000006C1 /* Workspace+RemoteStatusHosting.swift */; };
 		E3B7A40000000000000006A0 /* Workspace+RemoteSurfaceHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000006A1 /* Workspace+RemoteSurfaceHosting.swift */; };
@@ -2261,6 +2262,7 @@
 		14F283838842222BA3A8A34A /* Workspace+FocusedPaneCloseTargetHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+FocusedPaneCloseTargetHosting.swift"; sourceTree = "<group>"; };
 		C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelLifecycle.swift"; sourceTree = "<group>"; };
 		FB0CA0510000000000000008 /* Workspace+ReactGrabWorkspaceContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ReactGrabWorkspaceContext.swift"; sourceTree = "<group>"; };
+		E3B7A400000000000000F502 /* Workspace+RemoteConnectionLifecycleHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteConnectionLifecycleHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000006B1 /* Workspace+RemoteRelaySessionHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteRelaySessionHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000006C1 /* Workspace+RemoteStatusHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteStatusHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000006A1 /* Workspace+RemoteSurfaceHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteSurfaceHosting.swift"; sourceTree = "<group>"; };
@@ -2833,6 +2835,7 @@
 				E3CAB00000000000000000A1 /* TabContextAction+KeyboardShortcuts.swift */,
 				E3D40D0000000000000000A1 /* Workspace+WorkspaceDropHosting.swift */,
 				E3B7A40000000000000006A1 /* Workspace+RemoteSurfaceHosting.swift */,
+				E3B7A400000000000000F502 /* Workspace+RemoteConnectionLifecycleHosting.swift */,
 				E3B7A40000000000000006B1 /* Workspace+RemoteRelaySessionHosting.swift */,
 				E3B7A40000000000000006C1 /* Workspace+RemoteStatusHosting.swift */,
 				E3B7A40000000000000007A1 /* Workspace+RemoteSurfaceTTYHosting.swift */,
@@ -4785,6 +4788,7 @@
 				7413E89C67E599AE13B28974 /* Workspace+FocusedPaneCloseTargetHosting.swift in Sources */,
 				C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
 				FB0CA0510000000000000007 /* Workspace+ReactGrabWorkspaceContext.swift in Sources */,
+				E3B7A400000000000000F501 /* Workspace+RemoteConnectionLifecycleHosting.swift in Sources */,
 				E3B7A40000000000000006B0 /* Workspace+RemoteRelaySessionHosting.swift in Sources */,
 				E3B7A40000000000000006C0 /* Workspace+RemoteStatusHosting.swift in Sources */,
 				E3B7A40000000000000006A0 /* Workspace+RemoteSurfaceHosting.swift in Sources */,
