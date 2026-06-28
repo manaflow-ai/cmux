@@ -413,16 +413,20 @@ final class RemoteTmuxController {
         // failure (or cancellation) throws here and leaks no orphaned window.
         try await ensureControlMasterReadyForBurst(host: host)
 
-        // Aggregate into an existing linked-view window when requested ("multiple
-        // servers in one window"), otherwise open a fresh dedicated window. Only
-        // linked-view aggregates: its one shared stream per host keeps a window's
-        // hosts independent; per-session mirror mode stays single-host.
+        // Aggregate into the requested window when possible ("multiple servers in one
+        // window"), otherwise open a fresh dedicated window. We aggregate into a
+        // window that is either already a linked-view window OR a regular window with
+        // no remote host bound yet (so a user can pull hosts into their main window
+        // alongside local workspaces). We never aggregate into a per-session dedicated
+        // window: per-session mirror mode keeps the single-host invariant. Only
+        // linked-view's one-shared-stream-per-host model keeps a window's hosts
+        // independent, so aggregation requires linked-view to be enabled.
         let windowId: UUID
         let manager: TabManager
         let bootstrapWorkspaceId: UUID?
         let createdNewWindow: Bool
         if Self.linkedViewEnabled, let intoWindowId,
-           isLinkedViewWindow(intoWindowId),
+           isLinkedViewWindow(intoWindowId) || !windowRegistry.isDedicatedWindow(intoWindowId),
            let existingManager = appDelegate.tabManagerFor(windowId: intoWindowId) {
             windowId = intoWindowId
             manager = existingManager
