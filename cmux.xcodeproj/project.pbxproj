@@ -1080,6 +1080,7 @@
 		D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */; };
 		E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A06 /* Workspace+EqualizeSplitsSupport.swift */; };
 		7413E89C67E599AE13B28974 /* Workspace+FocusedPaneCloseTargetHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14F283838842222BA3A8A34A /* Workspace+FocusedPaneCloseTargetHosting.swift */; };
+		E3B7A4000000000000000B01 /* Workspace+PanelFocusNavigationHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000B02 /* Workspace+PanelFocusNavigationHosting.swift */; };
 		C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */; };
 		FB0CA0510000000000000007 /* Workspace+ReactGrabWorkspaceContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0CA0510000000000000008 /* Workspace+ReactGrabWorkspaceContext.swift */; };
 		E3B7A400000000000000F501 /* Workspace+RemoteConnectionLifecycleHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000F502 /* Workspace+RemoteConnectionLifecycleHosting.swift */; };
@@ -2237,6 +2238,7 @@
 		D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DetachedSurfaceTransfer.swift"; sourceTree = "<group>"; };
 		E3309A06 /* Workspace+EqualizeSplitsSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+EqualizeSplitsSupport.swift"; sourceTree = "<group>"; };
 		14F283838842222BA3A8A34A /* Workspace+FocusedPaneCloseTargetHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+FocusedPaneCloseTargetHosting.swift"; sourceTree = "<group>"; };
+		E3B7A4000000000000000B02 /* Workspace+PanelFocusNavigationHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelFocusNavigationHosting.swift"; sourceTree = "<group>"; };
 		C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelLifecycle.swift"; sourceTree = "<group>"; };
 		FB0CA0510000000000000008 /* Workspace+ReactGrabWorkspaceContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ReactGrabWorkspaceContext.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000F502 /* Workspace+RemoteConnectionLifecycleHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteConnectionLifecycleHosting.swift"; sourceTree = "<group>"; };
@@ -2801,6 +2803,7 @@
 				E3B7A40000000000000005C1 /* Workspace+SurfaceLifecycleHosting.swift */,
 				E3B7A40000000000000005D3 /* Workspace+WorkspaceLayoutHosting.swift */,
 				E3B7A40000000000000009F2 /* Workspace+WorkspaceLayoutFollowUpHosting.swift */,
+				E3B7A4000000000000000B02 /* Workspace+PanelFocusNavigationHosting.swift */,
 				E3B7A40000000000000005D5 /* CmuxLayoutNode+WorkspaceCustomLayout.swift */,
 				E3B7A4000000000000000CB1 /* Workspace+ClosedBrowserRestoreStagingHosting.swift */,
 				E3B7A4000000000000000A11 /* Workspace+SplitMoveReorderHosting.swift */,
@@ -4743,6 +4746,7 @@
 				D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */,
 				E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */,
 				7413E89C67E599AE13B28974 /* Workspace+FocusedPaneCloseTargetHosting.swift in Sources */,
+				E3B7A4000000000000000B01 /* Workspace+PanelFocusNavigationHosting.swift in Sources */,
 				C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
 				FB0CA0510000000000000007 /* Workspace+ReactGrabWorkspaceContext.swift in Sources */,
 				E3B7A400000000000000F501 /* Workspace+RemoteConnectionLifecycleHosting.swift in Sources */,
