@@ -3611,7 +3611,7 @@ extension BrowserPanel {
     }
 
     private static func windowContainsInspectorViews(_ root: NSView) -> Bool {
-        if cmuxIsWebInspectorObject(root) {
+        if root.isCmuxWebInspectorObject {
             return true
         }
         for subview in root.subviews where windowContainsInspectorViews(subview) {
@@ -5256,7 +5256,7 @@ extension BrowserPanel {
         var count = 0
         while let current = stack.popLast() {
             for subview in current.subviews {
-                if cmuxIsWebInspectorObject(subview) {
+                if subview.isCmuxWebInspectorObject {
                     count += 1
                 }
                 stack.append(subview)
@@ -5358,7 +5358,7 @@ private extension BrowserPanel {
     }
 
     static func isInspectorView(_ view: NSView) -> Bool {
-        cmuxIsWebInspectorObject(view)
+        view.isCmuxWebInspectorObject
     }
 
     static func isVisibleSideDockInspectorCandidate(_ view: NSView) -> Bool {
@@ -5491,7 +5491,7 @@ enum WebViewInspectorTeardown {
     }
 
     private static func isInspectorFrontendWebView(_ webView: WKWebView) -> Bool {
-        cmuxIsWebInspectorObject(webView)
+        webView.isCmuxWebInspectorObject
     }
 }
 
