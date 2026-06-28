@@ -442,10 +442,27 @@ class GhosttyApp {
         isBackgroundLogEnabled: { [weak self] in self?.backgroundLogEnabled ?? false },
         logBackground: { [weak self] message in self?.logBackground(message) }
     )
-    private var appliedGhosttyRuntimeColorScheme: ghostty_color_scheme_e?
-    private var runtimeColorSchemeSynchronizationDepth = 0
+
+    /// The cold color-scheme / theme synchronization orchestrator drained off
+    /// this god type into `CmuxTerminal`. Owns the moved sync state
+    /// (`lastAppearanceColorScheme`, the applied runtime color scheme, the sync
+    /// reentrancy depth, `usesHostLayerBackground`); the legacy
+    /// `synchronizeThemeWithAppearance` / `synchronizeGhosttyRuntimeColorScheme` /
+    /// `shouldProcessGhosttyReloadAction` / `setUsesHostLayerBackground` entry
+    /// points forward here, and the live ghostty / reload / log effects come back
+    /// through the `TerminalAppearanceHosting` conformance (see
+    /// `GhosttyTerminalAppearance.swift`).
+    private(set) lazy var appearanceCoordinator = TerminalAppearanceCoordinator(host: self)
     private var reloadConfigurationDepth = 0
-    private(set) var usesHostLayerBackground = false
+
+    /// Whether the terminal renders against a host-layer (window-owned)
+    /// background; read-forwarded to ``appearanceCoordinator``.
+    var usesHostLayerBackground: Bool { appearanceCoordinator.usesHostLayerBackground }
+
+    /// Narrow internal accessor for the private `reloadConfigurationDepth`, read
+    /// by the `TerminalAppearanceHosting` conformance (in a separate file) so the
+    /// reentrancy-depth field stays private to this type.
+    var appearanceReloadConfigurationDepth: Int { reloadConfigurationDepth }
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
 
     static func retainTickNotifications() -> () -> Void {
@@ -625,7 +642,6 @@ class GhosttyApp {
     /// composition root and `GhosttyApp` retires.
     let ghosttyAppService = GhosttyAppService()
     private var appObservers: [NSObjectProtocol] = []
-    private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
 
     /// Scroll-lag telemetry probe (was the `scrollLag*` accumulator state +
     /// `markScrollActivity`/`endScrollSession`/`shouldCaptureScrollLagEvent`).
@@ -966,7 +982,7 @@ class GhosttyApp {
 
         // Notify observers that a usable config is available (initial load).
         synchronizeGhosttyRuntimeColorScheme(effectiveTerminalColorSchemePreference, source: "initialize")
-        lastAppearanceColorScheme = initialColorScheme
+        appearanceCoordinator.lastAppearanceColorScheme = initialColorScheme
         GhosttyConfig.invalidateLoadCache()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
 
@@ -1270,7 +1286,7 @@ class GhosttyApp {
             let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
             ghostty_app_update_config(app, config)
-            lastAppearanceColorScheme = reloadColorScheme
+            appearanceCoordinator.lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
             scheduleSurfaceRefreshAfterConfigurationReload(
@@ -1313,7 +1329,7 @@ class GhosttyApp {
             ghostty_config_free(oldConfig)
         }
         config = newConfig
-        lastAppearanceColorScheme = reloadColorScheme
+        appearanceCoordinator.lastAppearanceColorScheme = reloadColorScheme
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
         scheduleSurfaceRefreshAfterConfigurationReload(
             source: source,
@@ -1335,107 +1351,23 @@ class GhosttyApp {
     }
 
     func synchronizeThemeWithAppearance(_: NSAppearance?, source: String) {
-        let currentColorScheme = GhosttyConfig.currentColorSchemePreference()
-        let plan = GhosttyConfig.appearanceSynchronizationPlan(
-            previousColorScheme: lastAppearanceColorScheme,
-            currentColorScheme: currentColorScheme
-        )
-        if backgroundLogEnabled {
-            let previousLabel: String
-            switch lastAppearanceColorScheme {
-            case .light:
-                previousLabel = "light"
-            case .dark:
-                previousLabel = "dark"
-            case nil:
-                previousLabel = "nil"
-            }
-            let currentLabel: String = currentColorScheme == .dark ? "dark" : "light"
-            logBackground(
-                "appearance sync source=\(source) previous=\(previousLabel) current=\(currentLabel) reload=\(plan.shouldReloadConfiguration)"
-            )
-        }
-        guard case let .reload(colorScheme, runtimeColorScheme) = plan else { return }
-        synchronizeGhosttyRuntimeColorScheme(
-            runtimeColorScheme,
-            colorScheme: colorScheme,
-            source: source
-        )
-        lastAppearanceColorScheme = colorScheme
-        reloadConfiguration(
-            source: "appearanceSync:\(source)",
-            reloadSettingsFromFile: false,
-            preferredColorScheme: colorScheme
-        )
+        appearanceCoordinator.synchronizeThemeWithAppearance(source: source)
     }
 
     private func synchronizeGhosttyRuntimeColorScheme(
         _ colorScheme: GhosttyConfig.ColorSchemePreference,
         source: String
     ) {
-        synchronizeGhosttyRuntimeColorScheme(
-            GhosttyConfig.ghosttyRuntimeColorScheme(for: colorScheme),
-            colorScheme: colorScheme,
-            source: source
-        )
-    }
-
-    private func synchronizeGhosttyRuntimeColorScheme(
-        _ runtimeColorScheme: ghostty_color_scheme_e,
-        colorScheme: GhosttyConfig.ColorSchemePreference,
-        source: String
-    ) {
-        guard let app else { return }
-        let decision = GhosttyConfig.runtimeColorSchemeSynchronizationDecision(
-            applied: appliedGhosttyRuntimeColorScheme,
-            requested: runtimeColorScheme,
-            isSynchronizing: runtimeColorSchemeSynchronizationDepth > 0
-        )
-        guard decision == .apply else {
-            if backgroundLogEnabled {
-                let schemeLabel = colorScheme == .dark ? "dark" : "light"
-                let reason: String
-                switch decision {
-                case .apply:
-                    reason = "apply"
-                case .skipReentrant:
-                    reason = "reentrant"
-                }
-                logBackground("app color scheme skipped source=\(source) scheme=\(schemeLabel) reason=\(reason)")
-            }
-            return
-        }
-
-        appliedGhosttyRuntimeColorScheme = runtimeColorScheme
-        runtimeColorSchemeSynchronizationDepth += 1
-        defer { runtimeColorSchemeSynchronizationDepth -= 1 }
-        ghostty_app_set_color_scheme(app, runtimeColorScheme)
-        if backgroundLogEnabled {
-            let schemeLabel = colorScheme == .dark ? "dark" : "light"
-            logBackground("app color scheme source=\(source) scheme=\(schemeLabel)")
-        }
+        appearanceCoordinator.synchronizeGhosttyRuntimeColorScheme(colorScheme, source: source)
     }
 
     private func shouldProcessGhosttyReloadAction(source: String, soft: Bool) -> Bool {
-        guard reloadConfigurationDepth == 0,
-              runtimeColorSchemeSynchronizationDepth == 0 else {
-            logThemeAction("reload request skipped source=\(source) soft=\(soft) reason=reentrant")
-            return false
-        }
-        return true
+        appearanceCoordinator.shouldProcessGhosttyReloadAction(source: source, soft: soft)
     }
 
     @discardableResult
     private func setUsesHostLayerBackground(_ newValue: Bool, source: String) -> Bool {
-        let previous = usesHostLayerBackground
-        usesHostLayerBackground = newValue
-        let hasChanged = previous != newValue
-        if hasChanged, backgroundLogEnabled {
-            logBackground(
-                "terminal rendering mode changed source=\(source) usesHostLayerBackground=\(newValue) previous=\(previous)"
-            )
-        }
-        return hasChanged
+        appearanceCoordinator.setUsesHostLayerBackground(newValue, source: source)
     }
 
     func focusFollowsMouseEnabled() -> Bool {
