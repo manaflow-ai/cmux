@@ -3259,6 +3259,10 @@ class TabManager: ObservableObject {
         notificationDismissalContext: NotificationDismissalContext?
     ) {
         guard selectedTabId != tabId else {
+            // Re-selecting the current workspace is still an authoritative choice and
+            // supersedes a pending sidebar switch (selectedWorkspaceIdDidChange, which
+            // owns the cancel for real changes, never runs on this no-op path).
+            cancelPendingSidebarWorkspaceSelection()
             notificationDismissal.setPendingSelectionContext(nil)
             if let notificationDismissalContext {
                 notificationDismissal.dismissFocusedPanelNotificationIfActive(

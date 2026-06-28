@@ -56,6 +56,21 @@ final class TabManagerSidebarSelectionCoalescingTests: XCTestCase {
         XCTAssertNotEqual(manager.selectedTabId, second.id)
     }
 
+    func testReselectingCurrentWorkspaceViaDirectPathCancelsPendingSidebarSelection() async {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace(select: false)
+
+        manager.requestSidebarWorkspaceSelection(second)
+        // Re-select the already-selected workspace through the direct path (the
+        // numbered-shortcut / CLI no-op case); it must still drop the pending switch.
+        manager.selectWorkspace(first)
+
+        XCTAssertEqual(manager.selectedTabId, first.id)
+        await assertSelectionStays(manager, at: first.id)
+        XCTAssertNotEqual(manager.selectedTabId, second.id)
+    }
+
     /// Deadline-bounded poll: returns the instant the selection reaches `target`,
     /// only spinning up to the deadline so host load can slow a pass but never fail one.
     private func pollUntilSelection(_ manager: TabManager, equals target: UUID?) async {
