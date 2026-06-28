@@ -345,6 +345,15 @@ class TabManager {
     // requires (CmuxWorkspaces); the app shell applies each op to the closed-
     // item history store and flushes once.
     let closedPanelHistoryRemapPlanner = ClosedPanelHistoryRemapPlanner()
+    /// Owns this window's recently-closed reopen routing (CmuxWorkspaces): the
+    /// `AppDelegate.shared` delegation guard, the per-entry routing table, the
+    /// reopen-by-id remove → restore → re-insert bookkeeping, and the panel
+    /// restore's focus-history suppression ordering. This `TabManager` is its
+    /// ``ClosedPanelRestoreHosting`` witness (TabManager+ClosedItemReopenRouting):
+    /// the store mutations, live `Workspace` lookup/restore, selection, and the
+    /// still-app-side `restoreClosedWorkspace` invert back through it.
+    @ObservationIgnored
+    private(set) lazy var closedItemReopenRouting = ClosedItemReopenRouting(host: self)
     // Owns the whole-window session-snapshot restore ordering (CmuxWorkspaces):
     // reset → off-publish build → resolve selection/groups → atomic @Published
     // commit → prune/release/schedule/remap/post. Shares the same group-snapshot
@@ -3095,76 +3104,22 @@ class TabManager {
         browserReopen.mostRecentLegacyClosedBrowserPanelClosedAt()
     }
 
+    /// Forwards to the per-window ``ClosedItemReopenRouting`` (CmuxWorkspaces);
+    /// the routing/ordering lives there, the app effects invert back through
+    /// ``ClosedPanelRestoreHosting`` (TabManager+ClosedItemReopenRouting).
     @discardableResult
     func reopenMostRecentlyClosedItem() -> Bool {
-        if let appDelegate = AppDelegate.shared {
-            return appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: self)
-        }
-
-        if closedItemHistory.restoreFirstRestorable(using: { entry in
-            switch entry {
-            case .panel(let panelEntry):
-                return restoreClosedPanel(panelEntry)
-            case .workspace(let workspaceEntry):
-                return restoreClosedWorkspace(workspaceEntry)
-            case .window:
-                return false
-            }
-        }) {
-            return true
-        }
-
-        return false
+        closedItemReopenRouting.reopenMostRecentlyClosedItem()
     }
 
     @discardableResult
     func reopenClosedHistoryItem(id: UUID) -> Bool {
-        if let appDelegate = AppDelegate.shared {
-            return appDelegate.reopenClosedHistoryItem(id: id, preferredTabManager: self)
-        }
-
-        guard let removed = closedItemHistory.removeRecord(id: id) else {
-            return false
-        }
-
-        let didRestore: Bool
-        switch removed.record.entry {
-        case .panel(let panelEntry):
-            didRestore = restoreClosedPanel(panelEntry)
-        case .workspace(let workspaceEntry):
-            didRestore = restoreClosedWorkspace(workspaceEntry)
-        case .window:
-            didRestore = false
-        }
-
-        if !didRestore {
-            closedItemHistory.insert(removed.record, at: removed.index)
-        }
-        return didRestore
+        closedItemReopenRouting.reopenClosedHistoryItem(id: id)
     }
 
     @discardableResult
     func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> Bool {
-        guard let workspace = tabs.first(where: { $0.id == entry.workspaceId }) else {
-            return false
-        }
-
-        let preRestoreFocus = focusHistoryNavigation.currentFocusHistoryEntry
-        let panelId = focusHistoryNavigation.withFocusHistoryRecordingSuppressed {
-            workspace.restoreClosedPanel(entry)
-        }
-
-        guard let panelId else { return false }
-        closedItemHistory.remapPanelAnchorIds(from: entry.snapshot.id, to: panelId)
-        focusHistoryNavigation.withFocusHistoryRecordingSuppressed {
-            if selectedTabId != workspace.id {
-                selectedTabId = workspace.id
-            }
-        }
-        focusHistoryNavigation.recordFocusInHistory(preRestoreFocus, preservingForwardBranch: true)
-        rememberFocusedSurface(tabId: workspace.id, surfaceId: panelId)
-        focusHistoryNavigation.recordFocusInHistory(workspaceId: workspace.id, panelId: panelId, preservingForwardBranch: true)
-        return true
+        closedItemReopenRouting.restoreClosedPanel(entry)
     }
 
     @discardableResult

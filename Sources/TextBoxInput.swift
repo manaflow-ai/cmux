@@ -258,7 +258,7 @@ struct TextBoxAttachment: Identifiable, TextBoxSubmissionAttachment {
 
     static func shouldCleanupLocalURLWhenDisposed(_ fileURL: URL) -> Bool {
         GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(fileURL)
-            || TextBoxDraftAttachmentStorage.isOwnedDraftCopy(fileURL)
+            || GhosttyApp.textBoxDraftAttachmentStore.isOwnedDraftCopy(fileURL)
     }
 
     private static func makeThumbnail(for url: URL) -> NSImage? {
@@ -279,240 +279,45 @@ struct TextBoxAttachment: Identifiable, TextBoxSubmissionAttachment {
     }
 }
 
-private enum TextBoxDraftAttachmentStorage {
-    private struct DraftCopyState {
-        var copiedDraftPathByOriginalPath: [String: String] = [:]
-        var pendingOriginalPaths: Set<String> = []
-        var cancelledOriginalPaths: Set<String> = []
-    }
-
-    private nonisolated static let draftCopyState = OSAllocatedUnfairLock(
-        initialState: DraftCopyState()
-    )
-
-    static func snapshot(for attachment: TextBoxAttachment) -> SessionTextBoxInputAttachmentSnapshot {
-        guard let localURL = attachment.localURL,
-              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
-            return fallbackSnapshot(for: attachment)
-        }
-        let standardizedLocalURL = localURL.standardizedFileURL
-        guard FileManager.default.fileExists(atPath: standardizedLocalURL.path) else {
-            return fallbackSnapshot(for: attachment)
-        }
-
-        // Regular autosaves should not block the main thread on file copies.
-        // Termination/update relaunch saves flush pending draft copies before
-        // building the session snapshot so this lookup is already durable there.
-        prepareDurableCopy(forTemporaryFileAtPath: standardizedLocalURL.path)
-        guard let durableURL = copiedDraftURL(forOriginalURL: standardizedLocalURL) else {
-            return fallbackSnapshot(for: attachment)
-        }
-        let submissionFields = copiedSubmissionFields(
-            for: attachment,
-            originalLocalURL: standardizedLocalURL,
-            durableURL: durableURL
-        )
-        return SessionTextBoxInputAttachmentSnapshot(
-            displayName: attachment.displayName,
-            submissionText: submissionFields.text,
-            submissionPath: submissionFields.path,
-            localPath: durableURL.path,
-            cleanupLocalPathWhenDisposed: true
-        )
-    }
-
-    private static func fallbackSnapshot(for attachment: TextBoxAttachment) -> SessionTextBoxInputAttachmentSnapshot {
-        SessionTextBoxInputAttachmentSnapshot(
-            displayName: attachment.displayName,
-            submissionText: attachment.submissionText,
-            submissionPath: attachment.submissionPath,
-            localPath: attachment.localURL?.standardizedFileURL.path,
-            cleanupLocalPathWhenDisposed: attachment.cleanupLocalURLWhenDisposed
-        )
-    }
-
-    static func prepareDurableCopy(for attachment: TextBoxAttachment) {
-        guard let localURL = attachment.localURL,
-              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
-            return
-        }
-        let standardizedLocalURL = localURL.standardizedFileURL
-        guard FileManager.default.fileExists(atPath: standardizedLocalURL.path) else { return }
-        prepareDurableCopy(forTemporaryFileAtPath: standardizedLocalURL.path)
-    }
-
-    static func removeIfOwnedDraftCopy(_ fileURL: URL) -> Bool {
-        guard isOwnedDraftCopy(fileURL) else { return false }
-        try? FileManager.default.removeItem(at: fileURL.standardizedFileURL)
-        return true
-    }
-
-    static func removeCopiedDraftForOriginalTemporaryFile(_ fileURL: URL) {
-        let originalPath = fileURL.standardizedFileURL.path
-        let copiedPath = draftCopyState.withLock { state in
-            if state.pendingOriginalPaths.contains(originalPath) || state.cancelledOriginalPaths.contains(originalPath) {
-                state.cancelledOriginalPaths.insert(originalPath)
-            } else {
-                state.cancelledOriginalPaths.remove(originalPath)
-            }
-            return state.copiedDraftPathByOriginalPath.removeValue(forKey: originalPath)
-        }
-        guard let copiedPath else { return }
-        try? FileManager.default.removeItem(atPath: copiedPath)
-    }
-
-    private static func copiedDraftURL(forOriginalURL originalURL: URL) -> URL? {
-        let copiedPath = draftCopyState.withLock { state in
-            state.copiedDraftPathByOriginalPath[originalURL.standardizedFileURL.path]
-        }
-        guard let copiedPath else { return nil }
-        let copiedURL = URL(fileURLWithPath: copiedPath).standardizedFileURL
-        guard FileManager.default.fileExists(atPath: copiedURL.path) else {
-            _ = draftCopyState.withLock { state in
-                state.copiedDraftPathByOriginalPath.removeValue(
-                    forKey: originalURL.standardizedFileURL.path
-                )
-            }
-            return nil
-        }
-        return copiedURL
-    }
-
-    private static func prepareDurableCopy(forTemporaryFileAtPath originalPath: String) {
-        let originalPath = URL(fileURLWithPath: originalPath).standardizedFileURL.path
-        let shouldStart = draftCopyState.withLock { state in
-            guard state.copiedDraftPathByOriginalPath[originalPath] == nil,
-                  !state.pendingOriginalPaths.contains(originalPath),
-                  !state.cancelledOriginalPaths.contains(originalPath) else {
-                return false
-            }
-            state.pendingOriginalPaths.insert(originalPath)
-            return true
-        }
-        guard shouldStart else { return }
-
-        let originalURL = URL(fileURLWithPath: originalPath).standardizedFileURL
-        if let durableURL = linkToDurableStorageIfPossible(originalURL) {
-            draftCopyState.withLock { state in
-                state.pendingOriginalPaths.remove(originalPath)
-                state.cancelledOriginalPaths.remove(originalPath)
-                state.copiedDraftPathByOriginalPath[originalPath] = durableURL.path
-            }
-            return
-        }
-
-        Task.detached(priority: .utility) {
-            let durableURL = copyToDurableStorage(originalURL)
-            let copiedPathToRemove = draftCopyState.withLock { state -> String? in
-                guard state.pendingOriginalPaths.remove(originalPath) != nil else {
-                    return nil
-                }
-                guard let durableURL else { return nil }
-                if state.cancelledOriginalPaths.remove(originalPath) != nil {
-                    return durableURL.path
-                }
-                state.copiedDraftPathByOriginalPath[originalPath] = durableURL.path
-                return nil
-            }
-            if let copiedPathToRemove {
-                try? FileManager.default.removeItem(atPath: copiedPathToRemove)
-            }
-        }
-    }
-
-    static func flushPendingCopiesSynchronously() {
-        let pendingOriginalPaths = draftCopyState.withLock { state in
-            Array(state.pendingOriginalPaths)
-        }
-        for originalPath in pendingOriginalPaths {
-            let originalURL = URL(fileURLWithPath: originalPath).standardizedFileURL
-            let durableURL = linkToDurableStorageIfPossible(originalURL)
-                ?? copyToDurableStorage(originalURL)
-            let copiedPathToRemove = draftCopyState.withLock { state -> String? in
-                guard state.pendingOriginalPaths.remove(originalPath) != nil else {
-                    return nil
-                }
-                guard let durableURL else { return nil }
-                if state.cancelledOriginalPaths.remove(originalPath) != nil {
-                    return durableURL.path
-                }
-                state.copiedDraftPathByOriginalPath[originalPath] = durableURL.path
-                return nil
-            }
-            if let copiedPathToRemove {
-                try? FileManager.default.removeItem(atPath: copiedPathToRemove)
-            }
-        }
-    }
-
-    private static func copiedSubmissionFields(
-        for attachment: TextBoxAttachment,
-        originalLocalURL: URL,
-        durableURL: URL
-    ) -> (text: String, path: String) {
-        let originalLocalURL = originalLocalURL.standardizedFileURL
-        let originalLocalSubmissionText = TextBoxAttachment.submissionText(forLocalFileURL: originalLocalURL)
-        guard attachment.submissionPath == originalLocalURL.path,
-              attachment.submissionText == originalLocalSubmissionText else {
-            return (attachment.submissionText, attachment.submissionPath)
-        }
-        return (TextBoxAttachment.submissionText(forLocalFileURL: durableURL), durableURL.path)
-    }
-
-    private static func copyToDurableStorage(_ sourceURL: URL) -> URL? {
-        TextBoxDraftAttachmentDurableStorage().copyToDurableStorage(sourceURL)
-    }
-
-    private static func linkToDurableStorageIfPossible(_ sourceURL: URL) -> URL? {
-        TextBoxDraftAttachmentDurableStorage().linkToDurableStorageIfPossible(sourceURL)
-    }
-
-    static func isOwnedDraftCopy(_ fileURL: URL) -> Bool {
-        TextBoxDraftAttachmentDurableStorage().isOwnedDraftCopy(fileURL)
-    }
-
-#if DEBUG
-    static func debugPrepareDurableCopySynchronously(for attachment: TextBoxAttachment) -> URL? {
-        guard let localURL = attachment.localURL,
-              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
-            return nil
-        }
-        let originalURL = localURL.standardizedFileURL
-        guard let durableURL = copyToDurableStorage(originalURL) else {
-            return nil
-        }
-        draftCopyState.withLock { state in
-            state.pendingOriginalPaths.remove(originalURL.path)
-            state.cancelledOriginalPaths.remove(originalURL.path)
-            state.copiedDraftPathByOriginalPath[originalURL.path] = durableURL.path
-        }
-        return durableURL
-    }
-#endif
-}
-
 #if DEBUG
 extension TextBoxAttachment {
     func debugPrepareSessionDraftCopySynchronouslyForTesting() -> URL? {
-        TextBoxDraftAttachmentStorage.debugPrepareDurableCopySynchronously(for: self)
+        GhosttyApp.textBoxDraftAttachmentStore.debugPrepareDurableCopySynchronously(localURL: localURL)
     }
 
     func debugCancelSessionDraftCopyForTesting() {
         guard let localURL else { return }
-        TextBoxDraftAttachmentStorage.removeCopiedDraftForOriginalTemporaryFile(localURL)
+        GhosttyApp.textBoxDraftAttachmentStore.removeCopiedDraftForOriginalTemporaryFile(localURL)
     }
 }
 #endif
 
 extension TextBoxInputTextView {
     static func flushPendingSessionDraftAttachmentCopies() {
-        TextBoxDraftAttachmentStorage.flushPendingCopiesSynchronously()
+        GhosttyApp.textBoxDraftAttachmentStore.flushPendingCopiesSynchronously()
     }
 }
 
 extension SessionTextBoxInputAttachmentSnapshot {
+    /// Builds the durable snapshot for a live draft attachment.
+    ///
+    /// The app-side field-extraction half of the bridge: it materializes the
+    /// fallback snapshot from the concrete `TextBoxAttachment` and hands it,
+    /// with the attachment's local URL, to the process-wide draft store, which
+    /// owns the pasteboard-ownership check, the durable copy, and the submission
+    /// field rewrite.
     init(_ attachment: TextBoxAttachment) {
-        self = TextBoxDraftAttachmentStorage.snapshot(for: attachment)
+        let fallback = SessionTextBoxInputAttachmentSnapshot(
+            displayName: attachment.displayName,
+            submissionText: attachment.submissionText,
+            submissionPath: attachment.submissionPath,
+            localPath: attachment.localURL?.standardizedFileURL.path,
+            cleanupLocalPathWhenDisposed: attachment.cleanupLocalURLWhenDisposed
+        )
+        self = GhosttyApp.textBoxDraftAttachmentStore.durableSnapshot(
+            fallback: fallback,
+            localURL: attachment.localURL
+        )
     }
 
     func textBoxAttachment() -> TextBoxAttachment {
@@ -3279,7 +3084,7 @@ final class TextBoxInputTextView: NSTextView {
             return false
         }
 
-        attachments.forEach(TextBoxDraftAttachmentStorage.prepareDurableCopy)
+        attachments.forEach { GhosttyApp.textBoxDraftAttachmentStore.prepareDurableCopy(localURL: $0.localURL) }
         let selectedRangeBeforeReplacement = selectedRange()
         let inserted = inlineAttachmentAttributedString(for: attachments, replacing: placeholderRange)
         textStorage.replaceCharacters(in: placeholderRange, with: inserted)
@@ -3327,7 +3132,7 @@ final class TextBoxInputTextView: NSTextView {
         replacementRange: NSRange
     ) {
         guard !attachments.isEmpty else { return }
-        attachments.forEach(TextBoxDraftAttachmentStorage.prepareDurableCopy)
+        attachments.forEach { GhosttyApp.textBoxDraftAttachmentStore.prepareDurableCopy(localURL: $0.localURL) }
         let inserted = NSMutableAttributedString()
         inserted.append(inlineAttachmentAttributedString(for: attachments, replacing: replacementRange))
         insertText(inserted, replacementRange: replacementRange)
@@ -5014,8 +4819,8 @@ final class TextBoxInputTextView: NSTextView {
         }
 
         let ghosttyTemporaryURLs = urlsToClean.filter { url in
-            TextBoxDraftAttachmentStorage.removeCopiedDraftForOriginalTemporaryFile(url)
-            return !TextBoxDraftAttachmentStorage.removeIfOwnedDraftCopy(url)
+            GhosttyApp.textBoxDraftAttachmentStore.removeCopiedDraftForOriginalTemporaryFile(url)
+            return !GhosttyApp.textBoxDraftAttachmentStore.removeIfOwnedDraftCopy(url)
         }
         GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(ghosttyTemporaryURLs)
     }
@@ -5023,7 +4828,7 @@ final class TextBoxInputTextView: NSTextView {
     func cleanupCopiedDraftFilesForPreservedLocalPathSubmissions(_ attachments: [TextBoxAttachment]) {
         for attachment in attachments where attachment.cleanupLocalURLWhenDisposed && attachment.submitsLocalFilePath {
             guard let localURL = attachment.localURL else { continue }
-            TextBoxDraftAttachmentStorage.removeCopiedDraftForOriginalTemporaryFile(localURL)
+            GhosttyApp.textBoxDraftAttachmentStore.removeCopiedDraftForOriginalTemporaryFile(localURL)
         }
     }
 
