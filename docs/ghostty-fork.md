@@ -12,7 +12,27 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `05c3e2908`, which adds
+Current cmux pinned fork head: `7a5179843`, which layers Arabic/Hebrew RTL
+shaping support on top of `05c3e2908`. The RTL series is based on
+ghostty-org/ghostty#11079, is staged for the cmux Ghostty fork in
+manaflow-ai/ghostty#88, and adds the `itijah` bidi resolver, extends the
+shared `uucode` tables with bidi fields, resolves visual shaping runs per row,
+sets RTL shaping direction for CoreText/HarfBuzz, and anchors Arabic combining
+marks/tashkeel to the correct base cluster. The cmux-only follow-up commit
+adapts the new shaper tests to this pinned fork's `vtStream().nextSlice`
+void-returning API. Validated locally with:
+
+```bash
+cd ghostty
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=arabic
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=hebrew
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=bidi
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=RTL
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=mixed
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=Bengali
+```
+
+The previous cmux pinned fork head was `05c3e2908`, which adds
 the Darwin-only `ghostty_surface_set_renderer_realized` C API (a
 `display_realized` renderer-thread mailbox message that drives
 `displayUnrealized()`/`displayRealized()`) on top of `5697db81`. cmux uses it to
