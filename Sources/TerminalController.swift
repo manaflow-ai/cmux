@@ -1949,14 +1949,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         guard let action = v2ActionKey(params) else {
             return .err(code: "invalid_params", message: "Missing action", data: nil)
         }
-        let supportedActions = [
-            "pin", "unpin", "rename", "clear_name",
-            "set_description", "clear_description",
-            "move_up", "move_down", "move_top",
-            "close_others", "close_above", "close_below",
-            "mark_read", "mark_unread",
-            "set_color", "clear_color"
-        ]
+        let supportedActions = ControlWorkspaceActionResolution.supportedActions
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
             "action": action,
@@ -2002,43 +1995,81 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 result = .ok(payload)
             }
 
-            switch action {
-            case "pin":
+            // The pure resolution owns the supported-action canon, the
+            // title/description trimming rules, and the named-color→hex
+            // resolution. The palette snapshot is read app-side only for the
+            // `set_color` path (matching the legacy body, which read it after
+            // the non-blank color check). Live `tabManager` mutation stays here.
+            let colorRaw = v2String(params, "color")
+            let paletteSnapshot: [ControlWorkspaceColorPaletteEntry]
+            if action == "set_color",
+               let trimmedColor = colorRaw?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !trimmedColor.isEmpty {
+                paletteSnapshot = WorkspaceTabColorSettings.palette().map {
+                    ControlWorkspaceColorPaletteEntry(name: $0.name, hex: $0.hex)
+                }
+            } else {
+                paletteSnapshot = []
+            }
+
+            let plan: ControlWorkspaceActionPlan
+            switch ControlWorkspaceActionResolution.resolve(
+                action: action,
+                title: v2String(params, "title"),
+                description: v2String(params, "description"),
+                color: colorRaw,
+                palette: paletteSnapshot
+            ) {
+            case .unknownAction:
+                result = .err(code: "invalid_params", message: "Unknown workspace action", data: [
+                    "action": action,
+                    "supported_actions": supportedActions
+                ])
+                return
+            case .missingTitle:
+                result = .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
+                return
+            case .missingDescription:
+                result = .err(code: "invalid_params", message: "Missing or invalid description", data: nil)
+                return
+            case .missingColor:
+                result = .err(code: "invalid_params", message: "Missing or invalid color", data: nil)
+                return
+            case .invalidColor(let namedColors):
+                result = .err(code: "invalid_params", message: "Invalid color. Use a hex value (#RRGGBB) or a named color.", data: [
+                    "named_colors": namedColors
+                ])
+                return
+            case .planned(let resolvedPlan):
+                plan = resolvedPlan
+            }
+
+            switch plan {
+            case .pin:
                 tabManager.setPinned(workspace, pinned: true)
                 finish(["pinned": true])
 
-            case "unpin":
+            case .unpin:
                 tabManager.setPinned(workspace, pinned: false)
                 finish(["pinned": false])
 
-            case "rename":
-                guard let titleRaw = v2String(params, "title"),
-                      !titleRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    result = .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
-                    return
-                }
-                let title = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+            case .rename(let title):
                 tabManager.setCustomTitle(tabId: workspace.id, title: title)
                 finish(["title": title])
 
-            case "clear_name":
+            case .clearName:
                 tabManager.clearCustomTitle(tabId: workspace.id)
                 finish(["title": workspace.title])
 
-            case "set_description":
-                guard let descriptionRaw = v2String(params, "description"),
-                      !descriptionRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    result = .err(code: "invalid_params", message: "Missing or invalid description", data: nil)
-                    return
-                }
-                tabManager.setCustomDescription(tabId: workspace.id, description: descriptionRaw)
+            case .setDescription(let description):
+                tabManager.setCustomDescription(tabId: workspace.id, description: description)
                 finish(["description": v2OrNull(workspace.customDescription)])
 
-            case "clear_description":
+            case .clearDescription:
                 tabManager.clearCustomDescription(tabId: workspace.id)
                 finish(["description": NSNull()])
 
-            case "move_up":
+            case .moveUp:
                 guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
                     result = .err(code: "not_found", message: "Workspace not found", data: nil)
                     return
@@ -2046,7 +2077,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: max(currentIndex - 1, 0))
                 finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
 
-            case "move_down":
+            case .moveDown:
                 guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
                     result = .err(code: "not_found", message: "Workspace not found", data: nil)
                     return
@@ -2054,16 +2085,16 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: min(currentIndex + 1, tabManager.tabs.count - 1))
                 finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
 
-            case "move_top":
+            case .moveTop:
                 tabManager.moveTabToTop(workspace.id)
                 finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
 
-            case "close_others":
+            case .closeOthers:
                 let candidates = tabManager.tabs.filter { $0.id != workspace.id && !$0.isPinned }
                 let closed = closeWorkspaces(candidates)
                 finish(["closed": closed])
 
-            case "close_above":
+            case .closeAbove:
                 guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
                     result = .err(code: "not_found", message: "Workspace not found", data: nil)
                     return
@@ -2072,7 +2103,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 let closed = closeWorkspaces(candidates)
                 finish(["closed": closed])
 
-            case "close_below":
+            case .closeBelow:
                 guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
                     result = .err(code: "not_found", message: "Workspace not found", data: nil)
                     return
@@ -2086,49 +2117,21 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 let closed = closeWorkspaces(candidates)
                 finish(["closed": closed])
 
-            case "mark_read":
+            case .markRead:
                 AppDelegate.shared?.notificationStore?.markRead(forTabId: workspace.id)
                 finish()
 
-            case "mark_unread":
+            case .markUnread:
                 AppDelegate.shared?.notificationStore?.markUnread(forTabId: workspace.id)
                 finish()
 
-            case "set_color":
-                guard let colorRaw = v2String(params, "color"),
-                      !colorRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    result = .err(code: "invalid_params", message: "Missing or invalid color", data: nil)
-                    return
-                }
-                let colorInput = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Resolve named colors from the effective palette, including file-defined additions.
-                let effectivePalette = WorkspaceTabColorSettings.palette()
-                let hex: String
-                if let entry = effectivePalette.first(where: {
-                    $0.name.caseInsensitiveCompare(colorInput) == .orderedSame
-                }) {
-                    hex = entry.hex
-                } else if let normalized = WorkspaceTabColorSettings.normalizedHex(colorInput) {
-                    hex = normalized
-                } else {
-                    let colorNames = effectivePalette.map(\.name)
-                    result = .err(code: "invalid_params", message: "Invalid color. Use a hex value (#RRGGBB) or a named color.", data: [
-                        "named_colors": colorNames
-                    ])
-                    return
-                }
+            case .setColor(let hex):
                 tabManager.setTabColor(tabId: workspace.id, color: hex)
                 finish(["color": hex])
 
-            case "clear_color":
+            case .clearColor:
                 tabManager.setTabColor(tabId: workspace.id, color: nil)
                 finish(["color": NSNull()])
-
-            default:
-                result = .err(code: "invalid_params", message: "Unknown workspace action", data: [
-                    "action": action,
-                    "supported_actions": supportedActions
-                ])
             }
         }
 
