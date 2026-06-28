@@ -106,6 +106,11 @@ final class RemoteTmuxViewConnection {
         _ = await conn.query("display-message -p ok")
     }
 
+    /// Triggers a reconcile after an out-of-band change the view stream won't notify
+    /// on its own — e.g. a new tab is a `new-window` created in a home session that
+    /// isn't yet linked into the view, so no `%window-add` arrives on this stream.
+    func requestReconcile() { scheduleReconcile() }
+
     /// Kills one mirrored home session over the live stream and reconciles, so the
     /// coordinator drops its mirror + workspace (and tears down the window when it
     /// was the last). Used by the user-initiated workspace-close path.
