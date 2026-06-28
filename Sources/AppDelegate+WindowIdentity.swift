@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNotifications
 import CmuxWindowing
 import Foundation
 
@@ -17,7 +18,7 @@ extension AppDelegate {
         if let window = windowCoordinator.window(for: WindowID(windowId)) {
             return window
         }
-        let expectedIdentifier = "cmux.main.\(windowId.uuidString)"
+        let expectedIdentifier = MainTerminalWindowIdentifier(forWindowId: windowId).expectedIdentifier
         return NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
     }
 
