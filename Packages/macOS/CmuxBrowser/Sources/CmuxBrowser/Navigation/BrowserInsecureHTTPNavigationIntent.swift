@@ -4,7 +4,7 @@
 /// Drives ``BrowserNavigationIntentCoordinator`` and the app-side insecure-HTTP
 /// alert: `.currentTab` reloads the active web view, `.newTab` opens a sibling
 /// browser surface.
-public enum BrowserInsecureHTTPNavigationIntent: Sendable {
+public enum BrowserInsecureHTTPNavigationIntent: Sendable, Equatable {
     /// Resolve the navigation in the current tab's web view.
     case currentTab
     /// Resolve the navigation by opening a new sibling browser surface.

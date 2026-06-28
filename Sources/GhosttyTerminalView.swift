@@ -3085,35 +3085,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         startRow: Int,
         lineCount: Int
     ) -> Bool {
-        let clampedCount = terminalKeyboardCopyModeClampCount(lineCount)
-        let rows = metrics.rows
-        let targetRow = max(0, min(rows - 1, startRow))
-        let endRow = min(rows - 1, targetRow + clampedCount - 1)
         _ = GhosttyRuntimeCInterop.clearSelection(surface)
 
-        let yMax = max(bounds.height - 1, 0)
-
-        let startRawY = metrics.topOriginRect(
-            for: TerminalKeyboardCopyModeCursor(row: targetRow, column: 0)
-        ).midY
-        let endRawY = metrics.topOriginRect(
-            for: TerminalKeyboardCopyModeCursor(row: endRow, column: max(metrics.columns - 1, 0))
-        ).midY
-        let startY = max(0, min(startRawY, yMax))
-        let endY = max(0, min(endRawY, yMax))
-        let xMax = max(bounds.width - 1, 0)
-        let startX = min(metrics.xInset + 0.5, xMax)
-        let endX = min(metrics.xInset + (CGFloat(metrics.columns) * metrics.cellWidth) - 0.5, xMax)
+        let geometry = TerminalCopyModeViewportSelectionGeometry(
+            metrics: metrics,
+            startRow: startRow,
+            lineCount: lineCount,
+            boundsSize: bounds.size
+        )
 
         let mods = GHOSTTY_MODS_NONE
-        ghostty_surface_mouse_pos(surface, Double(startX), Double(startY), mods)
+        ghostty_surface_mouse_pos(surface, Double(geometry.startPoint.x), Double(geometry.startPoint.y), mods)
         guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
             return false
         }
         defer {
             _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
         }
-        ghostty_surface_mouse_pos(surface, Double(endX), Double(endY), mods)
+        ghostty_surface_mouse_pos(surface, Double(geometry.endPoint.x), Double(geometry.endPoint.y), mods)
         guard ghostty_surface_has_selection(surface) else { return false }
 
         return performBindingAction("copy_to_clipboard")
@@ -5606,10 +5595,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
     }
 
     private func debugImagePasteboardType(for url: URL) -> NSPasteboard.PasteboardType? {
-        let pathExtension = url.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let utType = UTType(filenameExtension: pathExtension),
-              utType.conforms(to: .image) else { return nil }
-        return NSPasteboard.PasteboardType(utType.identifier)
+        guard let identifier = TerminalDropAcceptancePolicy.imagePasteboardTypeIdentifier(
+            forExtension: url.pathExtension
+        ) else { return nil }
+        return NSPasteboard.PasteboardType(identifier)
     }
 
     fileprivate func debugRegisteredDropTypes() -> [String] {
@@ -5624,16 +5613,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         let types = sender.draggingPasteboard.types ?? []
         cmuxDebugLog("terminal.draggingEntered surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
         #endif
-        guard let types = sender.draggingPasteboard.types else { return [] }
         // Defer to bonsplit when a tab/session drag is in flight: bonsplit's pane
         // drop overlays should win over the terminal's text/file drop handling.
-        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
-            return []
+        // The accept/reject decision tree lives in CmuxTerminalCore; this view
+        // resolves the live pasteboard / drop-type rawValues and forwards.
+        guard let types = sender.draggingPasteboard.types else { return [] }
+        switch terminalDropDecision(for: types) {
+        case .reject: return []
+        case .copy: return .copy
         }
-        if Set(types).isDisjoint(with: Self.dropTypes) {
-            return []
-        }
-        return .copy
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
@@ -5642,24 +5630,36 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         cmuxDebugLog("terminal.draggingUpdated surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
         #endif
         guard let types = sender.draggingPasteboard.types else { return [] }
-        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
-            return []
+        switch terminalDropDecision(for: types) {
+        case .reject: return []
+        case .copy: return .copy
         }
-        if Set(types).isDisjoint(with: Self.dropTypes) {
-            return []
-        }
-        return .copy
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let types = sender.draggingPasteboard.types ?? []
-        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+        if TerminalDropAcceptancePolicy.isBonsplitDrag(
+            draggedTypes: Set(types.map(\.rawValue)),
+            tabTransferType: Self.tabTransferPasteboardType.rawValue,
+            sidebarTabReorderType: Self.sidebarTabReorderPasteboardType.rawValue
+        ) {
             return false
         }
         #if DEBUG
         cmuxDebugLog("terminal.fileDrop surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
         #endif
         return insertDroppedPasteboard(sender.draggingPasteboard)
+    }
+
+    private func terminalDropDecision(
+        for types: [NSPasteboard.PasteboardType]
+    ) -> TerminalDropAcceptancePolicy.Decision {
+        TerminalDropAcceptancePolicy.decide(
+            draggedTypes: Set(types.map(\.rawValue)),
+            dropTypes: Set(Self.dropTypes.map(\.rawValue)),
+            tabTransferType: Self.tabTransferPasteboardType.rawValue,
+            sidebarTabReorderType: Self.sidebarTabReorderPasteboardType.rawValue
+        )
     }
 }
 
@@ -6778,31 +6778,44 @@ final class GhosttySurfaceScrollView: NSView {
         imageTransferIndicatorShowWorkItem = nil
     }
 
+    private func overlayZOrderRelativeView(
+        for placement: TerminalOverlayZOrderPolicy.Placement,
+        overlay: NSView?
+    ) -> NSView? {
+        switch placement {
+        case .above(.overlay):
+            return overlay
+        case .above(.keyboardCopyModeBadge):
+            return keyboardCopyModeBadgeContainerView
+        case .aboveAll:
+            return nil
+        }
+    }
+
     private func updateImageTransferIndicatorZOrder(relativeTo overlay: NSView?) {
         guard !imageTransferIndicatorContainerView.isHidden else { return }
-        if let overlay, overlay.superview === self {
-            addSubview(imageTransferIndicatorContainerView, positioned: .above, relativeTo: overlay)
-            return
-        }
-        if keyboardCopyModeBadgeContainerView.superview === self,
-           !keyboardCopyModeBadgeContainerView.isHidden {
-            addSubview(
-                imageTransferIndicatorContainerView,
-                positioned: .above,
-                relativeTo: keyboardCopyModeBadgeContainerView
-            )
-            return
-        }
-        addSubview(imageTransferIndicatorContainerView, positioned: .above, relativeTo: nil)
+        let placement = TerminalOverlayZOrderPolicy.imageTransferIndicatorPlacement(
+            overlayIsSelfSibling: overlay?.superview === self,
+            badgeIsSelfSibling: keyboardCopyModeBadgeContainerView.superview === self,
+            badgeHidden: keyboardCopyModeBadgeContainerView.isHidden
+        )
+        addSubview(
+            imageTransferIndicatorContainerView,
+            positioned: .above,
+            relativeTo: overlayZOrderRelativeView(for: placement, overlay: overlay)
+        )
     }
 
     private func updateKeyboardCopyModeBadgeZOrder(relativeTo overlay: NSView?) {
         guard !keyboardCopyModeBadgeContainerView.isHidden else { return }
-        if let overlay, overlay.superview === self {
-            addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)
-        } else {
-            addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: nil)
-        }
+        let placement = TerminalOverlayZOrderPolicy.keyboardCopyModeBadgePlacement(
+            overlayIsSelfSibling: overlay?.superview === self
+        )
+        addSubview(
+            keyboardCopyModeBadgeContainerView,
+            positioned: .above,
+            relativeTo: overlayZOrderRelativeView(for: placement, overlay: overlay)
+        )
         updateImageTransferIndicatorZOrder(relativeTo: overlay)
     }
 
