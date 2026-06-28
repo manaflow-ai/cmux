@@ -4197,28 +4197,28 @@ class TerminalController: MobileViewportSurfaceLimiting {
         includePrivateMetadata: Bool = true
     ) -> V2CallResult {
         let status = MobileHostService.shared.statusSnapshot()
-        // Single source of truth shared with the mobile listener's public-status
-        // paths, so the advertised capabilities can never drift. Includes
-        // workspace.actions.v1 (the mobile-gated pin/unpin/rename handler), which
-        // the iOS client uses to show or hide rename/pin.
-        let capabilities = MobileHostCapabilities.advertised.identifiers
         guard includePrivateMetadata else {
             return .ok(MobileHostPublicStatus(
                 routesPayload: status.routes.map(\.mobileHostJSONObject)
             ).jsonObject)
         }
 
-        let tabManager = v2ResolveTabManager(params: params)
-        let workspaceCount = tabManager?.tabs.count ?? 0
+        let workspaceCount = v2ResolveTabManager(params: params)?.tabs.count ?? 0
 
-        return .ok([
-            "mac_device_id": MobileHostIdentity.deviceID(),
-            "mac_display_name": v2OrNull(MobileHostIdentity.displayName()),
-            "host_service": status.payload,
-            "workspace_count": workspaceCount,
-            "terminal_fidelity": "render_grid",
-            "capabilities": capabilities,
-        ])
+        // The identity-bearing wire-shape assembly lives in CMUXMobileCore's
+        // `MobileHostStatusPayloadBuilder`; the controller resolves the live
+        // inputs (the rendered host-service payload, the Mac identity, and the
+        // workspace count) and forwards. The builder reads the same single
+        // source of truth for capabilities (`MobileHostCapabilities.advertised`,
+        // which includes workspace.actions.v1, the mobile-gated pin/unpin/rename
+        // handler the iOS client uses to show or hide rename/pin) that the
+        // public-status path reads, so the advertised set can never drift.
+        return .ok(MobileHostStatusPayloadBuilder().privateStatusPayload(
+            hostServicePayload: status.payload,
+            macDeviceID: MobileHostIdentity.deviceID(),
+            macDisplayName: MobileHostIdentity.displayName(),
+            workspaceCount: workspaceCount
+        ))
     }
 
     #if DEBUG
