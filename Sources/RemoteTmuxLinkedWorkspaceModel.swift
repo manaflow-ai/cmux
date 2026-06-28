@@ -29,16 +29,26 @@ enum RemoteTmuxLinkedWorkspaceModel {
         let windowIndex: Int
     }
 
-    /// Recommended format for `list-windows -a -F`. The controlled fields
-    /// (`window_id` = `@N`, `window_index` = int) come first; the free-text
-    /// `session_name` is LAST so a separator inside a name can't drop the row.
-    static let listFormat = "#{window_id}\u{1f}#{window_index}\u{1f}#{session_name}"
+    /// Format for `list-windows -a -F`. Uses the printable `:` delimiter (like
+    /// ``RemoteTmuxSessionListParser``), NOT a control byte: tmux's
+    /// `utf8_sanitize()` rewrites non-printable bytes to `_` for non-UTF-8 clients,
+    /// which would drop every row. Controlled fields (`window_id` = `@N`,
+    /// `window_index` = int) come first; the free-text `session_name` is LAST and
+    /// rejoined from the remainder so a `:` in a name can't shift fields.
+    static let listFormat = "#{window_id}:#{window_index}:#{session_name}"
+
+    private static let fieldDelimiter = ":"
 
     static func parseRows(_ output: String) -> [WindowRow] {
-        output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
-            let f = line.split(separator: "\u{1f}", maxSplits: 2, omittingEmptySubsequences: false)
-            guard f.count == 3, let idx = Int(f[1]) else { return nil }
-            return WindowRow(sessionName: String(f[2]), windowId: String(f[0]), windowIndex: idx)
+        output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { rawLine in
+            var line = String(rawLine)
+            if line.last == "\r" { line.removeLast() }
+            let f = line.components(separatedBy: fieldDelimiter)
+            guard f.count >= 3, let idx = Int(f[1]) else { return nil }
+            return WindowRow(
+                sessionName: f[2...].joined(separator: fieldDelimiter),
+                windowId: f[0],
+                windowIndex: idx)
         }
     }
 

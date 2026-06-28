@@ -55,11 +55,18 @@ enum RemoteTmuxLinkedViewPlan {
             rows: snapshot.windows, excludedSessions: excluded)
 
         // Actual = window ids currently inside OUR view session (by exact name; the
-        // owned-view check above guarantees this name is ours, not a foreign/real
-        // session that merely collides — names are collision-resistant).
-        let actual = Set(snapshot.windows
-            .filter { $0.sessionName == viewName }
-            .map(\.windowId))
+        // owned-view check guarantees this name is ours, not a foreign/real session
+        // that merely collides — names are collision-resistant).
+        //
+        // When we must (re)create the view (first run, or a stale/old-format view
+        // sharing our name that the live layer will kill+recreate), the windows
+        // listed under that name belong to the about-to-be-destroyed session, so we
+        // must NOT treat them as already present — otherwise they'd be excluded from
+        // `toLink` and never re-linked into the fresh view, leaving it empty. Treat
+        // actual as empty so every desired window links into the new view.
+        let actual: Set<String> = needsCreate
+            ? []
+            : Set(snapshot.windows.filter { $0.sessionName == viewName }.map(\.windowId))
 
         let actions = RemoteTmuxViewReconciler.actions(
             desiredWindowIds: desired,
