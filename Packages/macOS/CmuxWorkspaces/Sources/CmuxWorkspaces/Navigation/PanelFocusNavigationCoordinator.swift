@@ -177,6 +177,75 @@ public final class PanelFocusNavigationCoordinator {
         )
     }
 
+    // MARK: - Post-close focus convergence
+
+    /// Resolves which tab `Workspace.closePanel(_:force:)` should close when the
+    /// panel→surface mapping has transiently drifted during a split-tree mutation
+    /// (legacy `closePanel`'s focused-pane fallback). When the target panel is the
+    /// active one (`targetIsActive`, precomputed app-side from `focusedPanelId` and
+    /// the AppKit first-responder terminal), the tab to close is whichever tab
+    /// bonsplit marks selected in the focused pane.
+    ///
+    /// `targetIsActive` is passed in because it reads `focusedPanelId` plus the
+    /// AppKit key/main-window first responder, neither of which the package can
+    /// name. Returns `nil` (skip the fallback close, legacy `return false`) when the
+    /// target is not active, no pane is focused, or the focused pane has no selected
+    /// tab. The app-side `closePanel` keeps the DEBUG skip/fallback logging and the
+    /// `requestCloseTab` effect; this only owns the snapshot decision.
+    public func resolveCloseFallbackTarget(targetIsActive: Bool) -> TabID? {
+        guard let host else { return nil }
+        guard targetIsActive,
+              let focusedPane = host.panelFocusNavFocusedPaneId,
+              let selected = host.panelFocusNavSelectedTabId(inPane: focusedPane) else {
+            return nil
+        }
+        return selected
+    }
+
+    /// Converges tab selection after a close, the shared post-close decision in
+    /// `Workspace`'s `didCloseTab`/`didClosePane` bonsplit delegate callbacks.
+    ///
+    /// Prefers `preferredSelectTabId` (didCloseTab's staged
+    /// `consumePostCloseSelectTabId`) when it still lives in `preferredPane` and
+    /// that pane is focused, selecting and applying it in the same close
+    /// transaction so the pane never shows a transient frame with no selected
+    /// content. Otherwise re-applies whatever bonsplit now reports as the focused
+    /// pane's selection (closing the last tab in a pane can move focus and skip
+    /// `didSelectTab`, so sidebar state must be re-synced). When no focused
+    /// selection exists and `scheduleReconcileWhenNoFocusedSelection` is true
+    /// (didClosePane's `shouldScheduleFocusReconcile`), falls back to a coalesced
+    /// focus reconcile.
+    ///
+    /// didCloseTab passes the staged tab + its pane with the reconcile fallback
+    /// off (it schedules the reconcile unconditionally later, gated on
+    /// `!isDetaching`); didClosePane passes `nil`/`nil` with the fallback on. All
+    /// effects route through ``PanelFocusNavigationHosting`` witnesses, so no
+    /// `BonsplitController` or `applyTabSelection` chain crosses into the package.
+    public func reapplyFocusedSelectionAfterClose(
+        preferredSelectTabId: TabID?,
+        preferredPane: PaneID?,
+        scheduleReconcileWhenNoFocusedSelection: Bool
+    ) {
+        guard let host else { return }
+
+        if let preferredSelectTabId,
+           let preferredPane,
+           host.panelFocusNavAllPaneIds.contains(preferredPane),
+           host.panelFocusNavTabIds(inPane: preferredPane).contains(where: { $0 == preferredSelectTabId }),
+           host.panelFocusNavFocusedPaneId == preferredPane {
+            host.panelFocusNavSelectTab(preferredSelectTabId)
+            host.panelFocusNavApplyTabSelection(tabId: preferredSelectTabId, inPane: preferredPane)
+            return
+        }
+
+        if let focusedPane = host.panelFocusNavFocusedPaneId,
+           let focusedTabId = host.panelFocusNavSelectedTabId(inPane: focusedPane) {
+            host.panelFocusNavApplyTabSelection(tabId: focusedTabId, inPane: focusedPane)
+        } else if scheduleReconcileWhenNoFocusedSelection {
+            scheduleFocusReconcile()
+        }
+    }
+
     // MARK: - Reconcile
 
     /// Re-reads the focused pane's selected tab and runs the `applyTabSelection`

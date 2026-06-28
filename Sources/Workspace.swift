@@ -6546,9 +6546,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             for: NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder
         )?.terminalSurface?.id
         let targetIsActive = focusedPanelId == panelId || firstResponderPanelId == panelId
-        guard targetIsActive,
-              let focusedPane = bonsplitController.focusedPaneId,
-              let selected = bonsplitController.selectedTab(inPane: focusedPane) else {
+        guard let selected = panelFocusNav.resolveCloseFallbackTarget(targetIsActive: targetIsActive) else {
 #if DEBUG
             cmuxDebugLog(
                 "surface.close.fallback.skip panel=\(panelId.uuidString.prefix(5)) " +
@@ -6560,11 +6558,11 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             return false
         }
 
-        let closed = requestCloseTab(selected.id, force: force)
+        let closed = requestCloseTab(selected, force: force)
 #if DEBUG
         cmuxDebugLog(
             "surface.close.fallback panel=\(panelId.uuidString.prefix(5)) " +
-            "selectedTab=\(String(describing: selected.id).prefix(5)) " +
+            "selectedTab=\(String(describing: selected).prefix(5)) " +
             "closed=\(closed ? 1 : 0)"
         )
 #endif
@@ -9063,20 +9061,17 @@ extension Workspace: BonsplitDelegate {
         // close could inherit stale remote-disconnect state.
         pendingRemoteDisconnectReplacement = nil
 
-        if let selectTabId,
-           bonsplitController.allPaneIds.contains(pane),
-           bonsplitController.tabs(inPane: pane).contains(where: { $0.id == selectTabId }),
-           bonsplitController.focusedPaneId == pane {
-            // Keep selection/focus convergence in the same close transaction to avoid a transient
-            // frame where the pane has no selected content.
-            bonsplitController.selectTab(selectTabId)
-            applyTabSelection(tabId: selectTabId, inPane: pane)
-        } else if let focusedPane = bonsplitController.focusedPaneId,
-                  let focusedTabId = bonsplitController.selectedTab(inPane: focusedPane)?.id {
-            // When closing the last tab in a pane, Bonsplit may focus a different pane and skip
-            // emitting didSelectTab. Re-apply the focused selection so sidebar state stays in sync.
-            applyTabSelection(tabId: focusedTabId, inPane: focusedPane)
-        }
+        // Keep selection/focus convergence in the same close transaction to avoid a transient
+        // frame where the pane has no selected content: prefer the staged post-close selection
+        // when it still lives in this focused pane, otherwise re-apply whatever bonsplit now
+        // reports focused (closing the last tab in a pane can move focus and skip didSelectTab).
+        // The reconcile fallback is off here; the unconditional scheduleFocusReconcile below
+        // (gated on !isDetaching) owns that. Decision in PanelFocusNavigationCoordinator.
+        panelFocusNav.reapplyFocusedSelectionAfterClose(
+            preferredSelectTabId: selectTabId,
+            preferredPane: pane,
+            scheduleReconcileWhenNoFocusedSelection: false
+        )
 
         if bonsplitController.allPaneIds.contains(pane) {
             normalizePinnedTabs(in: pane)
@@ -9232,12 +9227,11 @@ extension Workspace: BonsplitDelegate {
             recomputeListeningPorts()
             clearRemoteConfigurationIfWorkspaceBecameLocal()
 
-            if let focusedPane = bonsplitController.focusedPaneId,
-               let focusedTabId = bonsplitController.selectedTab(inPane: focusedPane)?.id {
-                applyTabSelection(tabId: focusedTabId, inPane: focusedPane)
-            } else if shouldScheduleFocusReconcile {
-                scheduleFocusReconcile()
-            }
+            panelFocusNav.reapplyFocusedSelectionAfterClose(
+                preferredSelectTabId: nil,
+                preferredPane: nil,
+                scheduleReconcileWhenNoFocusedSelection: shouldScheduleFocusReconcile
+            )
         }
 
         scheduleTerminalGeometryReconcile()
