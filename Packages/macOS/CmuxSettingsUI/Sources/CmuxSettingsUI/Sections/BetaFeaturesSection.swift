@@ -12,6 +12,7 @@ public struct BetaFeaturesSection: View {
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
+    @State private var remoteTmuxLinkedView: DefaultsValueModel<Bool>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
@@ -19,6 +20,7 @@ public struct BetaFeaturesSection: View {
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
+        _remoteTmuxLinkedView = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmuxLinkedView))
     }
 
     public var body: some View {
@@ -38,6 +40,8 @@ public struct BetaFeaturesSection: View {
                 customSidebarsRow
                 SettingsCardDivider()
                 remoteTmuxRow
+                SettingsCardDivider()
+                remoteTmuxLinkedViewRow
             }
         }
         .task { startObservingSettings() }
@@ -50,6 +54,7 @@ public struct BetaFeaturesSection: View {
             extensions,
             customSidebars,
             remoteTmux,
+            remoteTmuxLinkedView,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -136,6 +141,24 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaRemoteTmuxToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var remoteTmuxLinkedViewRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:remoteTmuxLinkedView",
+            String(localized: "settings.betaFeatures.remoteTmuxLinkedView", defaultValue: "Remote tmux linked view"),
+            subtitle: remoteTmuxLinkedView.current
+                ? String(localized: "settings.betaFeatures.remoteTmuxLinkedView.subtitleOn", defaultValue: "Mirrors a host's tmux sessions over a single ssh connection by linking every session's windows into one cmux-owned view. Use for hosts that allow only one session per connection (e.g. per-connection 2FA). Requires Remote tmux.")
+                : String(localized: "settings.betaFeatures.remoteTmuxLinkedView.subtitleOff", defaultValue: "Uses a separate ssh connection per remote tmux session until you enable this. Requires Remote tmux.")
+        ) {
+            Toggle("", isOn: Binding(get: { remoteTmuxLinkedView.current }, set: { remoteTmuxLinkedView.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .disabled(!remoteTmux.current)
+                .accessibilityIdentifier("SettingsBetaRemoteTmuxLinkedViewToggle")
         }
     }
 }
