@@ -987,7 +987,7 @@ final class RemoteTmuxController {
             }).value else { return nil }
             let ext = url.pathExtension.isEmpty ? nil : url.pathExtension
             guard let remotePath = await target.connection.uploadFileInBand(
-                data: data, remoteExtension: ext, paneId: target.paneId
+                data: data, remoteExtension: ext
             ) else { return nil }
             remotePaths.append(remotePath)
         }

@@ -879,7 +879,7 @@ final class RemoteTmuxControlConnection {
     /// helper binary), inserting it as `<tmp>/cmux-drop-*`. Returns the remote path,
     /// or nil on any failure (size cap, disconnect, decode/size/checksum mismatch).
     /// See ``RemoteTmuxInBandUpload`` for the wire protocol.
-    func uploadFileInBand(data: Data, remoteExtension: String?, paneId: Int) async -> String? {
+    func uploadFileInBand(data: Data, remoteExtension: String?) async -> String? {
         guard connectionState == .connected else { return nil }
         guard data.count <= RemoteTmuxInBandUpload.maxFileBytes else { return nil }
 
@@ -893,7 +893,7 @@ final class RemoteTmuxControlConnection {
         }.value
 
         func runShell(_ shell: String, timeout: Double) async -> Bool {
-            await queryWithTimeout("run-shell -t %\(paneId) \"\(shell)\"", timeout: timeout) != nil
+            await queryWithTimeout(RemoteTmuxInBandUpload.runShellCommand(shell), timeout: timeout) != nil
         }
 
         // NOTE (documented limitations of this v1 path): the upload streams to
@@ -910,7 +910,7 @@ final class RemoteTmuxControlConnection {
             guard await runShell(
                 RemoteTmuxInBandUpload.appendShellCommand(id: id, chunk: chunk), timeout: 20
             ) else {
-                _ = send("run-shell -t %\(paneId) \"rm -rf \(RemoteTmuxInBandUpload.tempDir(id: id))\"")
+                _ = send(RemoteTmuxInBandUpload.runShellCommand("rm -rf \(RemoteTmuxInBandUpload.tempDir(id: id))"))
                 return nil
             }
         }
@@ -918,7 +918,7 @@ final class RemoteTmuxControlConnection {
         guard await runShell(
             RemoteTmuxInBandUpload.finalizeShellCommand(id: id, sanitizedExtension: ext), timeout: 60
         ) else {
-            _ = send("run-shell -t %\(paneId) \"rm -rf \(RemoteTmuxInBandUpload.tempDir(id: id))\"")
+            _ = send(RemoteTmuxInBandUpload.runShellCommand("rm -rf \(RemoteTmuxInBandUpload.tempDir(id: id))"))
             return nil
         }
 

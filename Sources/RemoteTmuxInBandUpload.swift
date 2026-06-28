@@ -70,6 +70,14 @@ enum RemoteTmuxInBandUpload {
         return chunks
     }
 
+    /// Wraps a shell command as a tmux `run-shell` control command. Deliberately
+    /// has NO `-t <pane>` target: `run-shell` executes on the server, and targeting
+    /// a pane makes tmux display the command's output in that pane's copy/view-mode,
+    /// which swallows the user's input until they exit the viewer (a "frozen pane").
+    static func runShellCommand(_ shell: String) -> String {
+        "run-shell \"\(shell)\""
+    }
+
     // MARK: - Command builders (the string passed as run-shell's argument)
 
     static func setupShellCommand(id: String) -> String {

@@ -82,6 +82,14 @@ struct RemoteTmuxInBandUploadTests {
         #expect(id.allSatisfy { $0.isHexDigit })
     }
 
+    @Test("runShellCommand wraps without a pane target (no -t, which causes view-mode freeze)")
+    func runShellCommandNoPaneTarget() {
+        let wrapped = RemoteTmuxInBandUpload.runShellCommand("rm -rf /tmp/cmux-ul-x")
+        #expect(wrapped == "run-shell \"rm -rf /tmp/cmux-ul-x\"")
+        #expect(!wrapped.contains("-t "))
+        #expect(!wrapped.contains("%"))
+    }
+
     @Test("makeID is hex without dashes; outputPath honors sanitized extension")
     func idsAndPaths() {
         let id = RemoteTmuxInBandUpload.makeID(UUID())
