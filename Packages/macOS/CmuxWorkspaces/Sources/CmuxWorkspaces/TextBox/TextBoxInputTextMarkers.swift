@@ -116,4 +116,98 @@ public struct TextBoxInputTextMarkers: Sendable, Equatable {
         guard clampedLocation < nsText.length else { return clampedLocation }
         return NSMaxRange(nsText.rangeOfComposedCharacterSequence(at: clampedLocation))
     }
+
+    /// The text-storage attribute key that tags the zero-width placeholder
+    /// character for a pending attachment upload with its upload `UUID` string,
+    /// so the placeholder can be located and removed once the real attachment
+    /// arrives.
+    public static let pendingAttachmentUploadPlaceholderAttribute = NSAttributedString.Key(
+        "cmux.textBoxPendingAttachmentUploadID"
+    )
+
+    /// The ranges in `attributed` tagged with the pending-attachment-upload
+    /// placeholder attribute. When `id` is non-nil, returns at most the first
+    /// range whose stored UUID string matches; when `id` is nil, returns every
+    /// placeholder range.
+    public static func pendingAttachmentUploadPlaceholderRanges(
+        in attributed: NSAttributedString,
+        id: UUID?
+    ) -> [NSRange] {
+        let fullRange = NSRange(location: 0, length: attributed.length)
+        guard fullRange.length > 0 else { return [] }
+
+        let idString = id?.uuidString
+        var result: [NSRange] = []
+        attributed.enumerateAttribute(
+            pendingAttachmentUploadPlaceholderAttribute,
+            in: fullRange,
+            options: []
+        ) { value, range, stop in
+            guard let value = value as? String,
+                  idString == nil || value == idString else {
+                return
+            }
+            result.append(range)
+            if idString != nil {
+                stop.pointee = true
+            }
+        }
+        return result
+    }
+
+    /// Removes every pending-attachment-upload placeholder range from
+    /// `attributed`, deleting the placeholder characters in place.
+    public static func removePendingAttachmentUploadPlaceholders(from attributed: NSMutableAttributedString) {
+        for range in pendingAttachmentUploadPlaceholderRanges(in: attributed, id: nil).reversed() {
+            attributed.replaceCharacters(in: range, with: NSAttributedString(string: ""))
+        }
+    }
+
+    /// Whether the character at `location` in `attributed` is an attachment
+    /// boundary separator (whitespace or newline). Out-of-bounds locations count
+    /// as a boundary so callers do not insert a redundant separator at an edge.
+    public static func isAttachmentBoundarySeparator(at location: Int, in attributed: NSAttributedString) -> Bool {
+        guard location >= 0,
+              location < attributed.length else {
+            return true
+        }
+        let character = (attributed.string as NSString).substring(with: NSRange(location: location, length: 1))
+        return character.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
+    }
+
+    /// Whether a separator space should be inserted before an attachment that
+    /// replaces `replacementRange` in `attributed`: only when the replacement
+    /// starts inside the text and the preceding character is not already a
+    /// boundary separator.
+    public static func shouldInsertAttachmentBoundarySpaceBefore(
+        replacementRange: NSRange,
+        in attributed: NSAttributedString
+    ) -> Bool {
+        guard replacementRange.location > 0,
+              replacementRange.location <= attributed.length else {
+            return false
+        }
+        return !isAttachmentBoundarySeparator(at: replacementRange.location - 1, in: attributed)
+    }
+
+    /// Whether a separator space should be inserted after an attachment that
+    /// replaces `replacementRange` in `attributed`. Only image attachments get a
+    /// trailing space (`hasImageAttachment`); at or past the end it is always
+    /// inserted, otherwise only when the following character is not already a
+    /// boundary separator.
+    public static func shouldInsertAttachmentBoundarySpaceAfter(
+        replacementRange: NSRange,
+        hasImageAttachment: Bool,
+        in attributed: NSAttributedString
+    ) -> Bool {
+        guard hasImageAttachment else {
+            return false
+        }
+        let afterLocation = NSMaxRange(replacementRange)
+        guard afterLocation >= 0,
+              afterLocation < attributed.length else {
+            return true
+        }
+        return !isAttachmentBoundarySeparator(at: afterLocation, in: attributed)
+    }
 }
