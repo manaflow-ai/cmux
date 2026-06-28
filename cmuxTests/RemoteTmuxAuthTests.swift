@@ -67,6 +67,103 @@ import Testing
         #expect(RemoteTmuxSSHTransport.indicatesAuthRequired(stderr))
     }
 
+    // MARK: - Proxy-closed transport classification
+
+    /// Failures where the local `ProxyCommand` closes the transport before SSH
+    /// can emit an explicit auth-failure string. OpenSSH stamps these with the
+    /// `UNKNOWN port 65535` placeholder (no real socket address is known when
+    /// the transport is a pipe), and an interactive retry — where the wrapper
+    /// inherits the user's tty — recovers them. One mixed-case fixture guards
+    /// the predicate's `lowercased()` path against a future literal-only
+    /// refactor; OpenSSH itself emits the placeholder in caps.
+    @Test(arguments: [
+        "Connection closed by UNKNOWN port 65535",
+        "ssh_dispatch_run_fatal: Connection to UNKNOWN port 65535: Broken pipe",
+        "kex_exchange_identification: Connection closed by remote host\nConnection closed by UNKNOWN port 65535",
+        "Connection closed by UnKnOwN port 65535",
+    ])
+    func classifiesProxyCommandTransportClosed(_ stderr: String) {
+        #expect(RemoteTmuxSSHTransport.indicatesProxyCommandTransportClosed(stderr))
+    }
+
+    /// The match is anchored to OpenSSH's exact phrasings (`to UNKNOWN port
+    /// 65535` / `by UNKNOWN port 65535`) so remote-stderr noise that merely
+    /// mentions the words in a different order — `pam_motd`, `~/.ssh/rc`, or a
+    /// remote command spelling out the literal `UNKNOWN port 65535` without
+    /// OpenSSH's connection-formed preposition — does NOT misclassify into the
+    /// interactive-retry path.
+    @Test(arguments: [
+        "MOTD: lab name is UNKNOWN port 65535 status board",
+        "remote warning: process listening on port 65535 with unknown owner",
+        "user note: 'unknown port 65535' is reserved",
+    ])
+    func anchorsProxyClosedMatchToOpenSSHPhrasing(_ stderr: String) {
+        #expect(!RemoteTmuxSSHTransport.indicatesProxyCommandTransportClosed(stderr))
+    }
+
+    /// Real-port transport failures (a host that's actually unreachable on its
+    /// real port) MUST NOT be classified as proxy-closed — they will not be
+    /// fixed by an interactive retry and should surface as genuine errors
+    /// instead. Generic non-auth fixtures (empty stderr, unrelated text,
+    /// algorithm-negotiation) are covered by ``doesNotClassifyNonAuthFailures``
+    /// for the sibling predicate; the cases here are predicate-specific
+    /// (proxy-shaped strings that must not collide with real-port stderr).
+    @Test(arguments: [
+        "ssh: connect to host bad.example.com port 22: Connection refused",
+        "ssh: connect to host bad.example.com port 2222: Operation timed out",
+        "Connection closed by 10.0.0.5 port 22",
+    ])
+    func doesNotClassifyRealPortClosuresAsProxyTransport(_ stderr: String) {
+        #expect(!RemoteTmuxSSHTransport.indicatesProxyCommandTransportClosed(stderr))
+    }
+
+    /// The proxy-closed and auth-required predicates are independent: the
+    /// proxy-closed stderr should NOT be treated as an explicit auth failure,
+    /// and a clean `Permission denied` should NOT trip the proxy-closed match.
+    /// The controller routes through the composed predicate
+    /// ``indicatesInteractiveRetryWillHelp`` precisely because they're
+    /// different signals that share a recovery (interactive ssh retry).
+    @Test func proxyClosedAndAuthRequiredAreDisjoint() {
+        let proxyOnly = "ssh_dispatch_run_fatal: Connection to UNKNOWN port 65535: Broken pipe"
+        #expect(RemoteTmuxSSHTransport.indicatesProxyCommandTransportClosed(proxyOnly))
+        #expect(!RemoteTmuxSSHTransport.indicatesAuthRequired(proxyOnly))
+
+        let authOnly = "user@host: Permission denied (publickey,password)."
+        #expect(RemoteTmuxSSHTransport.indicatesAuthRequired(authOnly))
+        #expect(!RemoteTmuxSSHTransport.indicatesProxyCommandTransportClosed(authOnly))
+    }
+
+    // MARK: - Composed routing predicate
+
+    /// ``indicatesInteractiveRetryWillHelp`` is what every controller catch
+    /// site routes through. It MUST fire for every stderr either sibling
+    /// predicate fires for, so a future signal added to one constituent (or a
+    /// new third constituent) propagates to all routing sites at once instead
+    /// of silently regressing whichever catch still spells out only one of
+    /// the two. Asserted both directions for each stderr style.
+    @Test(arguments: [
+        // Auth-required side
+        "user@host: Permission denied (publickey,password).",
+        "Host key verification failed.",
+        "Too many authentication failures",
+        // Proxy-closed side
+        "Connection closed by UNKNOWN port 65535",
+        "ssh_dispatch_run_fatal: Connection to UNKNOWN port 65535: Broken pipe",
+    ])
+    func composedPredicateFiresForEitherRecoverableSignal(_ stderr: String) {
+        #expect(RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr))
+    }
+
+    @Test(arguments: [
+        "no server running on /tmp/tmux-501/default",
+        "no matching host key type found. their offer: ssh-rsa",
+        "ssh: connect to host bad.example.com port 22: Connection refused",
+        "",
+    ])
+    func composedPredicateRejectsNonRecoverableFailures(_ stderr: String) {
+        #expect(!RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr))
+    }
+
     @Test(arguments: [
         "command refresh-client: unknown flag -B",
         "refresh-client: unknown option -- B",
