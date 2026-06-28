@@ -1,3 +1,4 @@
+import Foundation
 public import Bonsplit
 
 /// Orchestrates pane/surface focus navigation for a workspace: Cmd-arrow
@@ -25,6 +26,17 @@ public import Bonsplit
 @MainActor
 public final class PanelFocusNavigationCoordinator {
     private weak var host: (any PanelFocusNavigationHosting)?
+
+    /// Reentrancy latch for ``reconcileFocusState()`` (legacy
+    /// `Workspace.isReconcilingFocusState`): the reconcile mutates bonsplit focus
+    /// and panel focus, which can feed back into another reconcile; this guards
+    /// against re-entering while a reconcile is in flight.
+    private var isReconcilingFocusState = false
+
+    /// Coalesce latch for ``scheduleFocusReconcile()`` (legacy
+    /// `Workspace.focusReconcileScheduled`): collapses a burst of schedule
+    /// requests within one turn into a single deferred reconcile.
+    private var focusReconcileScheduled = false
 
     /// Creates the coordinator. Call ``attach(host:)`` before use.
     public init() {}
@@ -117,6 +129,84 @@ public final class PanelFocusNavigationCoordinator {
         if let paneId = host.panelFocusNavFocusedPaneId,
            let tabId = host.panelFocusNavSelectedTabId(inPane: paneId) {
             host.panelFocusNavApplyTabSelection(tabId: tabId, inPane: paneId)
+        }
+    }
+
+    // MARK: - Focus-state reconcile
+
+    /// Converges AppKit first responder and panel focus onto the model source of
+    /// truth (the bonsplit focused pane + selected tab). Legacy
+    /// `Workspace.reconcileFocusState()`: reentrancy-guarded, inert while portal
+    /// rendering is disabled, and falling back to the first registered panel when
+    /// no pane resolves to a live panel.
+    public func reconcileFocusState() {
+        guard let host else { return }
+        guard host.panelFocusNavPortalRenderingEnabled else { return }
+        guard !isReconcilingFocusState else { return }
+        isReconcilingFocusState = true
+        defer { isReconcilingFocusState = false }
+
+        // Source of truth: bonsplit focused pane + selected tab.
+        // AppKit first responder must converge to this model state, not the other way around.
+        var targetPanelId: UUID?
+
+        if let focusedPane = host.panelFocusNavFocusedPaneId,
+           let focusedTabId = host.panelFocusNavSelectedTabId(inPane: focusedPane),
+           let mappedPanelId = host.panelFocusNavPanelId(fromSurfaceId: focusedTabId),
+           host.panelFocusNavPanelExists(panelId: mappedPanelId) {
+            targetPanelId = mappedPanelId
+        } else {
+            for pane in host.panelFocusNavAllPaneIds {
+                guard let selectedTabId = host.panelFocusNavSelectedTabId(inPane: pane),
+                      let mappedPanelId = host.panelFocusNavPanelId(fromSurfaceId: selectedTabId),
+                      host.panelFocusNavPanelExists(panelId: mappedPanelId) else { continue }
+                host.panelFocusNavFocusPane(pane)
+                host.panelFocusNavSelectTab(selectedTabId)
+                targetPanelId = mappedPanelId
+                break
+            }
+        }
+
+        if targetPanelId == nil, let fallbackPanelId = host.panelFocusNavAllPanelIds.first {
+            targetPanelId = fallbackPanelId
+            if let fallbackTabId = host.panelFocusNavSurfaceId(fromPanelId: fallbackPanelId),
+               let fallbackPane = host.panelFocusNavAllPaneIds.first(where: { paneId in
+                   host.panelFocusNavTabIds(inPane: paneId).contains(where: { $0 == fallbackTabId })
+               }) {
+                host.panelFocusNavFocusPane(fallbackPane)
+                host.panelFocusNavSelectTab(fallbackTabId)
+            }
+        }
+
+        guard let targetPanelId, host.panelFocusNavPanelExists(panelId: targetPanelId) else { return }
+
+        host.panelFocusNavUnfocusAllExcept(panelId: targetPanelId)
+
+        host.panelFocusNavFocusPanel(panelId: targetPanelId)
+        host.panelFocusNavEnsureTerminalFocus(panelId: targetPanelId)
+        host.panelFocusNavApplyFocusedPanelDirectory(panelId: targetPanelId)
+        host.panelFocusNavApplyFocusedPanelGitBranch(panelId: targetPanelId)
+        host.panelFocusNavApplyFocusedPanelPullRequest(panelId: targetPanelId)
+    }
+
+    /// Reconcile focus/first-responder convergence.
+    /// Coalesce to the next main-queue turn so bonsplit selection/pane mutations settle first.
+    /// Legacy `Workspace.scheduleFocusReconcile()`.
+    public func scheduleFocusReconcile() {
+        guard let host else { return }
+        guard host.panelFocusNavPortalRenderingEnabled else { return }
+        host.panelFocusNavNoteScheduleDuringDetach()
+        guard !focusReconcileScheduled else { return }
+        focusReconcileScheduled = true
+        host.panelFocusNavScheduleAfterCurrentTurn { [weak self] in
+            guard let self else { return }
+            guard let host = self.host else { return }
+            guard host.panelFocusNavPortalRenderingEnabled else {
+                self.focusReconcileScheduled = false
+                return
+            }
+            self.focusReconcileScheduled = false
+            self.reconcileFocusState()
         }
     }
 }

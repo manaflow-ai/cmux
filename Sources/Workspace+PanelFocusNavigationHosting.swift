@@ -75,4 +75,78 @@ extension Workspace: PanelFocusNavigationHosting {
     func panelFocusNavApplyTabSelection(tabId: TabID, inPane paneId: PaneID) {
         applyTabSelection(tabId: tabId, inPane: paneId)
     }
+
+    // MARK: Focus reconcile
+
+    var panelFocusNavPortalRenderingEnabled: Bool {
+        layoutFollowUpCoordinator.portalRenderingEnabled
+    }
+
+    func panelFocusNavScheduleAfterCurrentTurn(_ work: @escaping @MainActor () -> Void) {
+        DispatchQueue.main.async {
+            work()
+        }
+    }
+
+    func panelFocusNavNoteScheduleDuringDetach() {
+        #if DEBUG
+        if isDetachingCloseTransaction {
+            debugFocusReconcileScheduledDuringDetachCount += 1
+        }
+        #endif
+    }
+
+    func panelFocusNavPanelId(fromSurfaceId surfaceId: TabID) -> UUID? {
+        panelIdFromSurfaceId(surfaceId)
+    }
+
+    func panelFocusNavSurfaceId(fromPanelId panelId: UUID) -> TabID? {
+        surfaceIdFromPanelId(panelId)
+    }
+
+    func panelFocusNavPanelExists(panelId: UUID) -> Bool {
+        panels[panelId] != nil
+    }
+
+    var panelFocusNavAllPaneIds: [PaneID] {
+        bonsplitController.allPaneIds
+    }
+
+    var panelFocusNavAllPanelIds: [UUID] {
+        Array(panels.keys)
+    }
+
+    func panelFocusNavFocusPane(_ paneId: PaneID) {
+        bonsplitController.focusPane(paneId)
+    }
+
+    func panelFocusNavUnfocusAllExcept(panelId targetPanelId: UUID) {
+        for (panelId, panel) in panels where panelId != targetPanelId {
+            panel.unfocus()
+        }
+    }
+
+    func panelFocusNavFocusPanel(panelId: UUID) {
+        panels[panelId]?.focus()
+    }
+
+    func panelFocusNavEnsureTerminalFocus(panelId: UUID) {
+        if let terminalPanel = panels[panelId] as? TerminalPanel {
+            terminalPanel.hostedView.ensureFocus(for: id, surfaceId: panelId)
+        }
+    }
+
+    func panelFocusNavApplyFocusedPanelDirectory(panelId: UUID) {
+        if let dir = panelDirectories[panelId] {
+            currentDirectory = dir
+        }
+    }
+
+    func panelFocusNavApplyFocusedPanelGitBranch(panelId: UUID) {
+        gitBranch = panelGitBranches[panelId]
+    }
+
+    func panelFocusNavApplyFocusedPanelPullRequest(panelId: UUID) {
+        pullRequest = panelPullRequests[panelId]
+    }
 }
