@@ -78,7 +78,7 @@ extension AppDelegate {
 
         let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
         return !configuredCmuxShortcutActions(for: configuredCmuxShortcutContext).contains {
-            $0.shortcut.flatMap { StoredShortcut($0).bareShortcutStartKey } == bareShortcutKey
+            $0.shortcut.flatMap { $0.bareShortcutStartKey } == bareShortcutKey
         }
     }
 }
