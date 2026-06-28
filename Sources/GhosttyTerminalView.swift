@@ -2933,14 +2933,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
     }
 
     private func nearlyEqual(_ lhs: CGFloat, _ rhs: CGFloat, epsilon: CGFloat = 0.0001) -> Bool {
-        abs(lhs - rhs) <= epsilon
+        TerminalSurfaceGeometry.approxEqual(lhs, rhs, epsilon: epsilon)
     }
 
     func expectedPixelSize(for pointsSize: CGSize) -> CGSize {
         // Mirrors the surface-size derivation: window backing scale only, so
-        // ancestor magnification (canvas zoom) never re-typesets the grid.
-        let scale = max(1.0, window?.backingScaleFactor ?? layer?.contentsScale ?? 1.0)
-        return CGSize(width: pointsSize.width * scale, height: pointsSize.height * scale)
+        // ancestor magnification (canvas zoom) never re-typesets the grid. Read
+        // the live AppKit scale here; the clamp + multiply live in the kernel.
+        TerminalSurfaceGeometry.pixelSize(
+            for: pointsSize,
+            scale: window?.backingScaleFactor ?? layer?.contentsScale ?? 1.0
+        )
     }
 
     // Convenience accessor for the ghostty surface
@@ -6510,11 +6513,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func sizeApproximatelyEqual(_ lhs: CGSize, _ rhs: CGSize, epsilon: CGFloat = 0.0001) -> Bool {
-        abs(lhs.width - rhs.width) <= epsilon && abs(lhs.height - rhs.height) <= epsilon
+        TerminalSurfaceGeometry.approxEqual(lhs, rhs, epsilon: epsilon)
     }
 
     private func pointApproximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, epsilon: CGFloat = 0.5) -> Bool {
-        abs(lhs.x - rhs.x) <= epsilon && abs(lhs.y - rhs.y) <= epsilon
+        TerminalSurfaceGeometry.approxEqual(lhs, rhs, epsilon: epsilon)
     }
 
     private func dropZoneOverlayContainerView() -> NSView {
@@ -7156,10 +7159,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private static func rectApproximatelyEqual(_ lhs: CGRect, _ rhs: CGRect, epsilon: CGFloat = 0.5) -> Bool {
-        abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
-            abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
-            abs(lhs.size.width - rhs.size.width) <= epsilon &&
-            abs(lhs.size.height - rhs.size.height) <= epsilon
+        TerminalSurfaceGeometry.approxEqual(lhs, rhs, epsilon: epsilon)
     }
 
     func setDropZoneOverlay(zone: DropZone?) {
