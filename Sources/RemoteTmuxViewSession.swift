@@ -58,6 +58,10 @@ struct RemoteTmuxViewSession: Equatable {
             ["set-option", "-t", n, Self.optView, "1"],
             ["set-option", "-t", n, Self.optOwner, ownerId],
             ["set-option", "-t", n, Self.optVersion, String(Self.formatVersion)],
+            // The single shared `-CC` client can't size each linked window via
+            // `refresh-client -C`; `window-size manual` lets the coordinator size
+            // every window explicitly with `resize-window -t @id`.
+            ["set-option", "-t", n, "window-size", "manual"],
         ]
     }
 
