@@ -6480,29 +6480,11 @@ struct VerticalTabsSidebar: View {
     }
 
     private func cmuxSidebarSnapshotForCurrentTabs() -> CmuxSidebarSnapshot {
-        let snapshot = extensionSidebarSnapshotForCurrentTabs()
-        return CmuxSidebarSnapshot(
-            sequence: snapshot.sequence,
-            windowID: snapshot.windowId,
-            selectedWorkspaceID: snapshot.selectedWorkspaceId,
-            workspaces: snapshot.workspaces.map { workspace in
-                CmuxSidebarWorkspace(
-                    id: workspace.id,
-                    title: workspace.title,
-                    detail: workspace.customDescription,
-                    isPinned: workspace.isPinned,
-                    rootPath: workspace.rootPath,
-                    projectRootPath: workspace.projectRootPath,
-                    gitBranch: workspace.branchSummary,
-	                    unreadCount: workspace.unreadCount,
-	                    latestNotification: workspace.latestNotificationText,
-	                    listeningPorts: workspace.listeningPorts,
-	                    pullRequestURLs: workspace.pullRequestURLs,
-	                    surfaces: cmuxSidebarSurfaces(for: workspace)
-	                )
-	            }
-	        )
-	    }
+        ExtensionSidebarSnapshotBuilder().cmuxSidebarSnapshot(
+            from: extensionSidebarSnapshotForCurrentTabs(),
+            surfaces: { cmuxSidebarSurfaces(for: $0) }
+        )
+    }
 
     private func cmuxSidebarSurfaces(for workspace: CmuxSidebarProviderWorkspace) -> [CmuxSidebarSurface] {
         guard let liveWorkspace = tabManager.tabs.first(where: { $0.id == workspace.id }) else { return [] }
@@ -6836,23 +6818,18 @@ struct VerticalTabsSidebar: View {
     private func extensionSidebarWorkspaceSnapshotsById(
         for rows: [CmuxSidebarProviderRow]
     ) -> [UUID: CmuxSidebarProviderWorkspace] {
-        var snapshotsById: [UUID: CmuxSidebarProviderWorkspace] = [:]
-        for row in rows where snapshotsById[row.workspaceId] == nil {
-            snapshotsById[row.workspaceId] = extensionWorkspaceSnapshot(for: row.workspaceId)
-        }
-        return snapshotsById
+        ExtensionSidebarSnapshotBuilder().workspaceSnapshotsById(
+            for: rows,
+            snapshot: { extensionWorkspaceSnapshot(for: $0) }
+        )
     }
 
     private func extensionSidebarRenderedText(_ text: CmuxSidebarProviderText?, now: Date) -> String? {
-        guard let text else { return nil }
-        switch text {
-        case .plain(let value):
-            return value
-        case .localized(let localized):
-            return CmuxExtensionSidebarSelection().localizedText(localized)
-        case .relativeDate(let date, _):
-            return CmuxExtensionRelativeTimeFormatter.string(from: date, to: now)
-        }
+        ExtensionSidebarSnapshotBuilder().renderedText(
+            text,
+            now: now,
+            relativeDate: { CmuxExtensionRelativeTimeFormatter.string(from: $0, to: $1) }
+        )
     }
 
     @ViewBuilder
@@ -6917,10 +6894,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func extensionSidebarTreeSectionTitle(_ section: CmuxSidebarProviderTreeSection) -> String {
-        if let titleText = section.titleText {
-            return CmuxExtensionSidebarSelection().localizedText(titleText)
-        }
-        return section.title
+        ExtensionSidebarSnapshotBuilder().treeSectionTitle(section)
     }
 
     private func selectExtensionSidebarWorkspace(_ workspaceId: UUID) {
