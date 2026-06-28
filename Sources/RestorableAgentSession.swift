@@ -805,7 +805,8 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
     func resumeStartupCommand(
         fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        returnWorkingDirectory: String? = nil
     ) -> String? {
         guard let command = resumeCommand,
               let scriptURL = AgentResumeScriptStore.writeLauncherScript(
@@ -815,15 +816,28 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   returnToLoginShell: true,
-                  // Match the resume command's own cd: agents with an `.ignore` cwd policy resume from
-                  // the current directory (no cd), so the post-exit shell must not force the launch dir.
-                  workingDirectory: registration?.cwd == .ignore
-                      ? nil
-                      : (workingDirectory ?? launchCommand?.workingDirectory)
+                  workingDirectory: postExitReturnWorkingDirectory(fallback: returnWorkingDirectory)
               ) else {
             return nil
         }
         return "/bin/zsh \(shellSingleQuoted(scriptURL.path))"
+    }
+
+    /// The directory the OUTER login shell must return to after a resumed agent exits.
+    ///
+    /// The resume command's own `cd` runs inside the `-lic` child shell, so the outer `exec -l`
+    /// would otherwise land in the surface's spawn cwd — the surface default, which is `$HOME` on the
+    /// auto-resume path and `/` for a Finder/Dock launch. Prefer the agent's own launch/session cwd;
+    /// when that is missing — including the `.ignore` cwd policy, which only suppresses the *resume
+    /// command's* own `cd` (not the post-exit return) — fall back to the resolved session working
+    /// directory the restore already computed, so killing a resumed agent never drops the shell at the
+    /// surface default. See https://github.com/manaflow-ai/cmux/issues/7031 (auto-resume → `~`) and
+    /// https://github.com/manaflow-ai/cmux/issues/5391 (Finder/Dock launch → `/`).
+    private func postExitReturnWorkingDirectory(fallback: String?) -> String? {
+        let agentWorkingDirectory = registration?.cwd == .ignore
+            ? nil
+            : (workingDirectory ?? launchCommand?.workingDirectory)
+        return agentWorkingDirectory ?? fallback
     }
 
     func forkStartupInput(

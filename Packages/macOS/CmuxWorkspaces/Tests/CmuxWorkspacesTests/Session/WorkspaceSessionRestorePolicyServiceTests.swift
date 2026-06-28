@@ -58,7 +58,8 @@ struct WorkspaceSessionRestorePolicyServiceTests {
 
         func startupCommandWithLauncherScript(
             fileManager: FileManager,
-            temporaryDirectory: URL
+            temporaryDirectory: URL,
+            returnWorkingDirectory: String?
         ) -> String? {
             "\(startupCommandPrefix):\(command)"
         }

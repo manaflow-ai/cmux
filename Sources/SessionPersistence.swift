@@ -421,7 +421,8 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
     func startupCommandWithLauncherScript(
         fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        returnWorkingDirectory: String? = nil
     ) -> String? {
         guard let inlineInput = inlineStartupInput,
               let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
@@ -429,7 +430,8 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
                   binding: self,
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  returnToLoginShell: true
+                  returnToLoginShell: true,
+                  returnWorkingDirectory: returnWorkingDirectory
               ) else {
             return nil
         }
@@ -1321,7 +1323,8 @@ enum SurfaceResumeBindingScriptStore {
         binding: SurfaceResumeBindingSnapshot,
         fileManager: FileManager,
         temporaryDirectory: URL,
-        returnToLoginShell: Bool = false
+        returnToLoginShell: Bool = false,
+        returnWorkingDirectory: String? = nil
     ) -> URL? {
         let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
         do {
@@ -1339,9 +1342,12 @@ enum SurfaceResumeBindingScriptStore {
                 "rm -f -- \"$0\" 2>/dev/null || true"
             ]
             if returnToLoginShell {
+                // The binding's own `cwd` is the primary post-exit return target; when it carries
+                // none, fall back to the resolved session directory so the OUTER login shell never
+                // lands at the surface default ($HOME / `/`). https://github.com/manaflow-ai/cmux/issues/7031
                 lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
                     command: inlineInput,
-                    workingDirectory: binding.cwd
+                    workingDirectory: binding.cwd ?? returnWorkingDirectory
                 ))
             } else {
                 lines.append(inlineInput)

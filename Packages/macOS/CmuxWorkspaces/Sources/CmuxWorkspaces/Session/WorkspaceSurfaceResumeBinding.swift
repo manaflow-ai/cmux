@@ -34,8 +34,14 @@ public protocol WorkspaceSurfaceResumeBinding: Sendable {
     ) -> String?
 
     /// Returns a launcher command used when the restored terminal should run a command.
+    ///
+    /// `returnWorkingDirectory` is the resolved session directory the OUTER login shell should
+    /// return to after the resumed command exits, used as a fallback when the binding carries no
+    /// `cwd` of its own so the post-exit shell never lands at the surface default (`$HOME` / `/`).
+    /// See https://github.com/manaflow-ai/cmux/issues/7031.
     func startupCommandWithLauncherScript(
         fileManager: FileManager,
-        temporaryDirectory: URL
+        temporaryDirectory: URL,
+        returnWorkingDirectory: String?
     ) -> String?
 }

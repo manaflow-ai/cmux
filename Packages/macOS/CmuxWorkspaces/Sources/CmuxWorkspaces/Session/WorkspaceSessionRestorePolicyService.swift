@@ -110,6 +110,7 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         promptForApproval: Bool = true,
         approvalStoreURL: URL,
         approvalSigningSecret: Data? = nil,
+        returnWorkingDirectory: String? = nil,
         fileManager: FileManager = .default
     ) -> WorkspaceSurfaceResumeStartupLaunch? {
         guard let effectiveBinding = approvedSurfaceResumeBinding(
@@ -124,21 +125,28 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         return surfaceResumeStartupLaunch(
             forApprovedBinding: effectiveBinding,
             allowLauncherScript: allowLauncherScript,
+            returnWorkingDirectory: returnWorkingDirectory,
             fileManager: fileManager
         )
     }
 
     /// Returns the command or input launch action for an already approved binding.
+    ///
+    /// `returnWorkingDirectory` is the resolved session directory the OUTER login shell should
+    /// return to after the resumed command exits; it is used as a fallback only when the binding
+    /// carries no `cwd` of its own. See https://github.com/manaflow-ai/cmux/issues/7031.
     public func surfaceResumeStartupLaunch(
         forApprovedBinding effectiveBinding: Binding,
         allowLauncherScript: Bool = true,
+        returnWorkingDirectory: String? = nil,
         fileManager: FileManager = .default
     ) -> WorkspaceSurfaceResumeStartupLaunch? {
         if effectiveBinding.isAgentHookBinding,
            allowLauncherScript,
            let command = effectiveBinding.startupCommandWithLauncherScript(
                fileManager: fileManager,
-               temporaryDirectory: temporaryDirectory
+               temporaryDirectory: temporaryDirectory,
+               returnWorkingDirectory: returnWorkingDirectory
            ) {
             return .command(command)
         }
