@@ -1,4 +1,5 @@
-import CoreGraphics
+public import CoreGraphics
+import CmuxFoundation
 
 /// Derives the browser top-chrome sizes (omnibar text, navigation glyphs,
 /// toolbar icon buttons) from the user's tab bar font size so the whole top
@@ -14,14 +15,19 @@ import CoreGraphics
 /// The type is a pure value with no I/O, so the derivation is unit-testable
 /// without launching the app: construct it with a font size and read the
 /// computed sizes.
-struct BrowserChromeMetrics: Equatable {
+public struct BrowserChromeMetrics: Equatable {
     /// The tab bar font size the chrome scales against, in points.
-    let tabBarFontSize: CGFloat
+    public let tabBarFontSize: CGFloat
+
+    /// Creates the metrics for a given tab bar font size.
+    public init(tabBarFontSize: CGFloat) {
+        self.tabBarFontSize = tabBarFontSize
+    }
 
     /// The tab bar font size at which the chrome matches its legacy hardcoded
     /// sizes (scale `1`). Anchored to the shipped default so "default size looks
     /// unchanged" holds even if the default is later retuned.
-    static let referenceFontSize: CGFloat = GhosttyConfig.defaultSurfaceTabBarFontSize
+    static let referenceFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize)
 
     /// Lower bound on the derived scale; guards against a near-zero config value.
     static let minimumScale: CGFloat = 0.5
@@ -37,26 +43,26 @@ struct BrowserChromeMetrics: Equatable {
     }
 
     /// Point size for the omnibar URL text field. Base `12`.
-    var omnibarFontSize: CGFloat { scaled(12) }
+    public var omnibarFontSize: CGFloat { scaled(12) }
 
     /// Height of the omnibar text field so taller text is not clipped. Base `18`.
-    var omnibarFieldHeight: CGFloat { scaled(18) }
+    public var omnibarFieldHeight: CGFloat { scaled(18) }
 
     /// Point size for the back/forward/reload navigation glyphs. Base `12`.
-    var navigationIconFontSize: CGFloat { scaled(12) }
+    public var navigationIconFontSize: CGFloat { scaled(12) }
 
     /// Point size for the HTTPS lock badge in the omnibar. Base `10`.
-    var secureBadgeFontSize: CGFloat { scaled(10) }
+    public var secureBadgeFontSize: CGFloat { scaled(10) }
 
     /// Point size for the right-side accessory glyphs (screenshot, cursor grab,
     /// profile, theme, developer tools). Base `11`.
-    var accessoryIconFontSize: CGFloat { scaled(11) }
+    public var accessoryIconFontSize: CGFloat { scaled(11) }
 
     /// Square edge of the right-side accessory icon buttons. Base `22`.
-    var buttonIconSize: CGFloat { scaled(22) }
+    public var buttonIconSize: CGFloat { scaled(22) }
 
     /// Square hit target of the back/forward/reload buttons. Base `26`.
-    var buttonHitSize: CGFloat { scaled(26) }
+    public var buttonHitSize: CGFloat { scaled(26) }
 
     private func scaled(_ base: CGFloat) -> CGFloat { base * scale }
 }

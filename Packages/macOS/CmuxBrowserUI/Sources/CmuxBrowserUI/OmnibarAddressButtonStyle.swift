@@ -1,9 +1,11 @@
-import SwiftUI
+public import SwiftUI
 
 /// Button style for the browser omnibar address-bar pills: a rounded
 /// translucent background whose opacity tracks hover and pressed state.
-struct OmnibarAddressButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
+public struct OmnibarAddressButtonStyle: ButtonStyle {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
         OmnibarAddressButtonStyleBody(configuration: configuration)
     }
 }
