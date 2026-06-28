@@ -916,7 +916,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         // certificate for mutual-TLS challenges (auth/login popups can be
         // client-cert-gated too), then defer other challenges to the system
         // (keychain server-trust, MDM roots, SSO extensions e.g. Entra ID).
-        if BrowserClientCertificateResolver.handleIfClientCertificate(
+        if BrowserClientCertificateResolver().handleIfClientCertificate(
             challenge, completionHandler: completionHandler
         ) {
             return

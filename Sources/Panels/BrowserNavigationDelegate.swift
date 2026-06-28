@@ -167,7 +167,7 @@ import WebKit
         // endpoints, MDM-enrolled client certs, Entra Conditional Access) rejects
         // the handshake. Present a matching system-keychain identity, the same way
         // a system browser does.
-        if BrowserClientCertificateResolver.handleIfClientCertificate(
+        if BrowserClientCertificateResolver().handleIfClientCertificate(
             challenge, completionHandler: completionHandler
         ) {
             return

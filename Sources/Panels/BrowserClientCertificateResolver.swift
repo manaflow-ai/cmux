@@ -18,39 +18,48 @@ import Security
 /// so the browser does not need the token's keychain access group. An extractable
 /// software identity in the system keychain works the same way. (Verified
 /// empirically against a real mutual-TLS origin from an ad-hoc-signed build.)
-enum BrowserClientCertificateResolver {
+nonisolated struct BrowserClientCertificateResolver: Sendable {
     /// Answer a client-certificate (mutual-TLS) challenge by presenting a matching
     /// system-keychain identity, or deferring to the system when none matches.
     ///
-    /// Returns true when `challenge` was a client-certificate challenge (and the
-    /// completion handler has been invoked); returns false for every other
-    /// challenge kind so the caller applies its own default handling. Sharing this
-    /// across every browser navigation delegate keeps mTLS behavior identical for
-    /// the main browser and for popup/auth windows.
+    /// Returns true when `challenge` was a client-certificate challenge (so the
+    /// caller must not also answer it — the completion handler is invoked
+    /// asynchronously); returns false for every other challenge kind so the
+    /// caller applies its own default handling. The cheap synchronous check is
+    /// only the authentication method; the keychain lookup itself runs off the
+    /// caller's (main) actor because `SecIdentityCopyPreferred` /
+    /// `SecItemCopyMatching` are synchronous and can block or trigger an auth
+    /// prompt — doing that inline during the handshake would freeze the browser
+    /// window. Sharing this across every browser navigation delegate keeps mTLS
+    /// behavior identical for the main browser and for popup/auth windows.
     @discardableResult
-    static func handleIfClientCertificate(
+    func handleIfClientCertificate(
         _ challenge: URLAuthenticationChallenge,
-        completionHandler: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) -> Bool {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate
         else { return false }
 
-        if let credential = credential(for: challenge.protectionSpace) {
-            completionHandler(.useCredential, credential)
-        } else {
-            // No confident keychain match: defer to the system (it may present a
-            // picker or proceed without a certificate), preserving prior behavior.
-            completionHandler(.performDefaultHandling, nil)
+        let protectionSpace = challenge.protectionSpace
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let credential = self.credential(for: protectionSpace) {
+                completionHandler(.useCredential, credential)
+            } else {
+                // No confident keychain match: defer to the system (it may present
+                // a picker or proceed without a certificate), preserving prior
+                // behavior.
+                completionHandler(.performDefaultHandling, nil)
+            }
         }
         return true
     }
 
-    static func credential(for protectionSpace: URLProtectionSpace) -> URLCredential? {
+    private func credential(for protectionSpace: URLProtectionSpace) -> URLCredential? {
         guard let identity = identity(for: protectionSpace) else { return nil }
         return URLCredential(identity: identity, certificates: nil, persistence: .forSession)
     }
 
-    static func identity(for protectionSpace: URLProtectionSpace) -> SecIdentity? {
+    private func identity(for protectionSpace: URLProtectionSpace) -> SecIdentity? {
         // The CAs the server advertised as acceptable in its TLS CertificateRequest
         // (DER-encoded X.500 names). Used both to constrain a host preference and to
         // match by issuer; may be empty if the server did not advertise a list.
@@ -70,7 +79,7 @@ enum BrowserClientCertificateResolver {
             }
         }
 
-        // 2. Otherwise, ask the keychain for any identity whose certificate was
+        // 2. Otherwise, ask the keychain for every identity whose certificate was
         //    issued by one of the acceptable CAs. Letting the keychain do the match
         //    avoids issuer-DN normalization pitfalls.
         guard !acceptableIssuers.isEmpty else { return nil }
@@ -78,12 +87,16 @@ enum BrowserClientCertificateResolver {
             kSecClass: kSecClassIdentity,
             kSecMatchIssuers: acceptableIssuers,
             kSecReturnRef: true,
+            kSecMatchLimit: kSecMatchLimitAll,
         ]
-        var item: CFTypeRef?
-        if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-           let item, CFGetTypeID(item) == SecIdentityGetTypeID() {
-            return (item as! SecIdentity)
-        }
-        return nil
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let identities = result as? [SecIdentity] else { return nil }
+        // Fail closed: only auto-present when exactly one identity is eligible. If
+        // several match the server's acceptable issuers and the user expressed no
+        // host preference, defer to the system picker rather than silently choosing
+        // a certificate on their behalf.
+        guard identities.count == 1 else { return nil }
+        return identities.first
     }
 }
