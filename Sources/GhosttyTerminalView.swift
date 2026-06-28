@@ -3022,20 +3022,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
         guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
 
-        let rows = terminalKeyboardCopyModeVisibleViewportRows(
+        // Viewport-row clamp + grid-centering insets live in CmuxTerminalCore;
+        // the witness keeps the ghostty_surface_size sample, cell-size
+        // resolution, and the positive-dimension guard.
+        return TerminalKeyboardCopyModeGridMetrics.make(
             backingRows: backingRows,
-            viewHeight: Double(bounds.height),
-            cellHeight: Double(resolvedCellHeight)
-        )
-        let terminalWidth = CGFloat(columns) * resolvedCellWidth
-        let terminalHeight = CGFloat(rows) * resolvedCellHeight
-        return TerminalKeyboardCopyModeGridMetrics(
-            rows: rows,
             columns: columns,
             cellWidth: resolvedCellWidth,
             cellHeight: resolvedCellHeight,
-            xInset: max(0, (bounds.width - terminalWidth) / 2),
-            yInset: max(0, (bounds.height - terminalHeight) / 2),
+            viewWidth: bounds.width,
             viewHeight: bounds.height
         )
     }
@@ -8692,28 +8687,27 @@ final class GhosttySurfaceScrollView: NSView {
         if !isLiveScrolling {
             let cellHeight = surfaceView.cellSize.height
             if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
-                let offsetY =
-                    CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
-                let targetOrigin = CGPoint(x: 0, y: offsetY)
-
-                // Check if we're currently at the bottom (with threshold for float drift)
                 let currentOrigin = scrollView.contentView.bounds.origin
-                let documentHeight = documentView.frame.height
-                let viewportHeight = scrollView.contentView.bounds.height
-                let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
-                let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
+                // Auto-scroll arithmetic (target offset, at-bottom drift check,
+                // scrolled-away latch) lives in CmuxTerminalCore; the witness
+                // keeps the clip-view read and the scroll(to:) effect. Passive
+                // bottom packets do not override an explicit scrollback review,
+                // but the first scrollbar packet caused by the user's own wheel
+                // input still re-pins the viewport via allowExplicitScrollbarSync.
+                let decision = TerminalScrollbackViewportSync.autoScrollDecision(
+                    scrollbar: scrollbar,
+                    cellHeight: cellHeight,
+                    currentOriginY: currentOrigin.y,
+                    documentHeight: documentView.frame.height,
+                    viewportHeight: scrollView.contentView.bounds.height,
+                    scrolledAwayFromBottom: userScrolledAwayFromBottom,
+                    allowExplicitScrollbarSync: allowExplicitScrollbarSync,
+                    bottomThreshold: Self.scrollToBottomThreshold
+                )
+                userScrolledAwayFromBottom = decision.scrolledAwayFromBottom
+                let targetOrigin = CGPoint(x: 0, y: decision.targetOffsetY)
 
-                // Update userScrolledAwayFromBottom based on current position
-                if isAtBottom {
-                    userScrolledAwayFromBottom = false
-                }
-
-                // Passive bottom packets should not override an explicit scrollback review,
-                // but the first scrollbar packet caused by the user's own wheel input should
-                // still move the viewport to the requested scrollback position.
-                let shouldAutoScroll = !userScrolledAwayFromBottom || allowExplicitScrollbarSync
-
-                if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
+                if decision.shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
                     scrollView.contentView.scroll(to: targetOrigin)
                     didChangeGeometry = true
                 }
@@ -8737,21 +8731,22 @@ final class GhosttySurfaceScrollView: NSView {
         guard cellHeight > 0 else { return }
 
         let visibleRect = scrollView.contentView.documentVisibleRect
-        let documentHeight = documentView.frame.height
-        let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
+        // Live-scroll offset/row arithmetic + scrolled-away latch live in
+        // CmuxTerminalCore; the witness keeps the cellHeight guard, the
+        // row-dedupe, and the scroll_to_row: effect.
+        let decision = TerminalScrollbackViewportSync.liveScrollDecision(
+            cellHeight: cellHeight,
+            documentHeight: documentView.frame.height,
+            visibleOriginY: visibleRect.origin.y,
+            visibleHeight: visibleRect.height,
+            scrolledAwayFromBottom: userScrolledAwayFromBottom,
+            bottomThreshold: Self.scrollToBottomThreshold
+        )
+        userScrolledAwayFromBottom = decision.scrolledAwayFromBottom
 
-        // Track if user has scrolled away from bottom to review scrollback
-        if scrollOffset > Self.scrollToBottomThreshold {
-            userScrolledAwayFromBottom = true
-        } else if scrollOffset <= 0 {
-            userScrolledAwayFromBottom = false
-        }
-
-        let row = Int(scrollOffset / cellHeight)
-
-        guard row != lastSentRow else { return }
-        lastSentRow = row
-        _ = surfaceView.performBindingAction("scroll_to_row:\(row)")
+        guard decision.row != lastSentRow else { return }
+        lastSentRow = decision.row
+        _ = surfaceView.performBindingAction("scroll_to_row:\(decision.row)")
     }
 
     private func handleScrollbarUpdate(_ notification: Notification) {
@@ -8760,7 +8755,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
         let wasVisible = scrollView.hasVerticalScroller
         if pendingExplicitWheelScroll {
-            userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
+            userScrolledAwayFromBottom = scrollbar.isViewportAwayFromBottom
             allowExplicitScrollbarSync = true
             pendingExplicitWheelScroll = false
         }
@@ -8818,14 +8813,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func documentHeight() -> CGFloat {
-        let contentHeight = scrollView.contentSize.height
-        let cellHeight = surfaceView.cellSize.height
-        if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
-            let documentGridHeight = CGFloat(scrollbar.total) * cellHeight
-            let padding = contentHeight - (CGFloat(scrollbar.len) * cellHeight)
-            return documentGridHeight + padding
-        }
-        return contentHeight
+        TerminalScrollbackViewportSync.documentHeight(
+            contentHeight: scrollView.contentSize.height,
+            cellHeight: surfaceView.cellSize.height,
+            scrollbar: surfaceView.scrollbar
+        )
     }
 
     private func terminalScrollBarAllowedBySettings() -> Bool {
