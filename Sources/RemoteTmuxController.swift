@@ -655,6 +655,28 @@ final class RemoteTmuxController {
         return linkedViews[host.connectionHash]
     }
 
+    // MARK: - Action mirror lookup (both modes)
+
+    /// A workspace's mirror, whether per-session (non-linked) or shared (linked-view).
+    /// Action handlers use this so they work in both modes: a linked mirror shares one
+    /// view `-CC` connection but addresses windows/panes by tmux's GLOBAL ids, so
+    /// commands targeting `@windowId`/`%paneId` route correctly over it.
+    private func actionMirror(forWorkspaceId workspaceId: UUID) -> RemoteTmuxSessionMirror? {
+        sessionMirrors.values.first { $0.mirroredWorkspaceId == workspaceId }
+            ?? linkedMirrors.values.first { $0.mirroredWorkspaceId == workspaceId }
+    }
+
+    /// All action mirrors across both modes, for surface-based lookups.
+    private var actionMirrors: [RemoteTmuxSessionMirror] {
+        Array(sessionMirrors.values) + Array(linkedMirrors.values)
+    }
+
+    /// Whether `mirror` is a shared linked-view mirror (its connection is the view
+    /// stream, not a per-session one) — used to anchor session-relative commands.
+    private func isLinkedMirror(_ mirror: RemoteTmuxSessionMirror) -> Bool {
+        linkedMirrors.values.contains { $0 === mirror }
+    }
+
     // MARK: - Create / destroy propagation (P5)
 
     /// A new tab was requested in a mirrored workspace → create a tmux window in
@@ -685,12 +707,16 @@ final class RemoteTmuxController {
         workingDirectory: String?,
         workingDirectorySourcePanelId: UUID?
     ) -> Bool {
-        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
+        guard let mirror = actionMirror(forWorkspaceId: workspaceId),
               mirror.connection.connectionState == .connected else { return false }
         let afterWindowId: Int?
         switch placement {
         case .end:
-            afterWindowId = nil
+            // A linked mirror shares the view connection, whose `{end}` resolves in
+            // the VIEW session; anchor on the home session's last window so the new
+            // tab lands in the right session. (Non-linked: nil → `{end}` is correct,
+            // since its connection is attached to that session.)
+            afterWindowId = isLinkedMirror(mirror) ? mirror.orderedWindowIds.last : nil
         case .afterPanel(let panelId):
             // nil (panel has no live window) falls back to end placement.
             afterWindowId = mirror.windowId(forPanel: panelId)
@@ -755,16 +781,22 @@ final class RemoteTmuxController {
     /// tmux session name tracks the cmux workspace title.
     func handleMirrorWorkspaceRenamed(workspaceId: UUID, title: String?) {
         guard let name = RemoteTmuxHost.controlModeCommandName(title),
-              let entry = sessionMirrors.first(where: { $0.value.mirroredWorkspaceId == workspaceId })
+              let mirror = actionMirror(forWorkspaceId: workspaceId)
         else { return }
-        let mirror = entry.value
         let oldName = mirror.sessionName
         guard name != oldName, mirror.connection.connectionState == .connected else { return }
-        // Target by the stable session id when known, so the rename can't race a
-        // prior rename's name.
-        guard let target = mirror.connection.sessionId.map({ "$\($0)" })
-            ?? RemoteTmuxHost.controlModeLineSafeName(oldName).map(RemoteTmuxHost.shellSingleQuoted)
-        else { return }
+        // Non-linked: target by the stable session id when known, so the rename can't
+        // race a prior rename's name. Linked: the shared connection's session id is
+        // the VIEW session's, so target the home session by name instead. (The
+        // rename surfaces back through reconcile, which re-keys the linked mirror.)
+        let target: String?
+        if isLinkedMirror(mirror) {
+            target = RemoteTmuxHost.controlModeLineSafeName(oldName).map(RemoteTmuxHost.shellSingleQuoted)
+        } else {
+            target = mirror.connection.sessionId.map({ "$\($0)" })
+                ?? RemoteTmuxHost.controlModeLineSafeName(oldName).map(RemoteTmuxHost.shellSingleQuoted)
+        }
+        guard let target else { return }
         _ = mirror.connection.send("rename-session -t \(target) \(RemoteTmuxHost.shellSingleQuoted(name))")
         // Do not re-key local state here. tmux can reject a rename (for example
         // duplicate session name); `%session-changed` is the confirmation point.
@@ -815,7 +847,7 @@ final class RemoteTmuxController {
     /// `swap-window` only swaps two windows' indices (no unlink), so there is no
     /// churn. `-d` keeps the active window unchanged.
     func handleMirrorWindowsReordered(workspaceId: UUID, orderedPanelIds: [UUID]) {
-        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
+        guard let mirror = actionMirror(forWorkspaceId: workspaceId),
               mirror.connection.connectionState == .connected else { return }
         let desired = orderedPanelIds.compactMap { mirror.windowId(forPanel: $0) }
         guard desired.count >= 2 else { return }
@@ -849,7 +881,7 @@ final class RemoteTmuxController {
     /// `%layout-change`. Returns `true` if `surfaceId` is a mirror pane (the
     /// caller suppresses the local split).
     func handleMirrorSplitRequested(surfaceId: UUID, vertical: Bool) -> Bool {
-        for sessionMirror in sessionMirrors.values {
+        for sessionMirror in actionMirrors {
             if let match = sessionMirror.windowMirror(forSurfaceId: surfaceId) {
                 return match.mirror.requestSplit(fromPane: match.tmuxPaneId, vertical: vertical)
             }
@@ -860,7 +892,7 @@ final class RemoteTmuxController {
     /// Whether `surfaceId` is a pane of a mirrored multi-pane tmux window (used
     /// to keep the context-menu Split items enabled for mirror panes).
     func isMirrorPaneSurface(_ surfaceId: UUID) -> Bool {
-        for sessionMirror in sessionMirrors.values {
+        for sessionMirror in actionMirrors {
             if sessionMirror.windowMirror(forSurfaceId: surfaceId) != nil { return true }
         }
         return false
@@ -884,7 +916,7 @@ final class RemoteTmuxController {
     private func pasteTarget(forSurfaceId surfaceId: UUID)
         -> (connection: RemoteTmuxControlConnection, paneId: Int)?
     {
-        for sessionMirror in sessionMirrors.values where sessionMirror.connection.connectionState == .connected {
+        for sessionMirror in actionMirrors where sessionMirror.connection.connectionState == .connected {
             if let paneId = sessionMirror.paneId(forSurfaceId: surfaceId) {
                 return (sessionMirror.connection, paneId)
             }
@@ -897,7 +929,7 @@ final class RemoteTmuxController {
     /// to the remote tmux host (and insert the remote path) instead of an
     /// unreadable macOS-local one.
     func remoteUploadTarget(forSurfaceId surfaceId: UUID) -> TerminalRemoteUploadTarget? {
-        for sessionMirror in sessionMirrors.values
+        for sessionMirror in actionMirrors
         where !sessionMirror.connection.exited && sessionMirror.ownsSurface(surfaceId) {
             return .detectedSSH(sessionMirror.host.detectedSSHSession())
         }
@@ -908,7 +940,7 @@ final class RemoteTmuxController {
     /// bonsplit-level split) → propagate to tmux `split-window`. Covers both
     /// single-pane mirror windows and multi-pane ones. Returns `true` if handled.
     func handleMirrorTabSplitRequested(workspaceId: UUID, panelId: UUID, vertical: Bool) -> Bool {
-        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId })
+        guard let mirror = actionMirror(forWorkspaceId: workspaceId)
         else { return false }
         return mirror.requestSplit(windowPanelId: panelId, vertical: vertical)
     }
@@ -916,7 +948,7 @@ final class RemoteTmuxController {
     /// A mirrored window's tab was renamed → `rename-window` on the remote.
     func handleMirrorWindowRenamed(workspaceId: UUID, panelId: UUID, title: String?) {
         guard let name = RemoteTmuxHost.controlModeCommandName(title),
-              let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
+              let mirror = actionMirror(forWorkspaceId: workspaceId),
               mirror.connection.connectionState == .connected,
               let windowId = mirror.windowId(forPanel: panelId) else { return }
         _ = mirror.connection.send("rename-window -t @\(windowId) \(RemoteTmuxHost.shellSingleQuoted(name))")
@@ -929,7 +961,7 @@ final class RemoteTmuxController {
     private func mirrorWindowTarget(workspaceId: UUID, panelId: UUID)
         -> (mirror: RemoteTmuxSessionMirror, windowId: Int)?
     {
-        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
+        guard let mirror = actionMirror(forWorkspaceId: workspaceId),
               let windowId = mirror.windowId(forPanel: panelId) else { return nil }
         return (mirror, windowId)
     }
