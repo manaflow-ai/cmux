@@ -1,16 +1,24 @@
-import CmuxWorkspaces
 import Foundation
 
-struct CmuxWorkspaceDefinition: Codable, Sendable {
-    var name: String?
-    var cwd: String?
-    var color: String?
+/// A `cmux.json` workspace definition: the optional name, working directory,
+/// resolved tab color, inherited environment variables, and split layout for a
+/// workspace a command opens.
+///
+/// Decode resolves a `color` string (literal hex or a workspace color name)
+/// through ``WorkspaceTabColorSettings/resolvedColorHex(_:defaults:)`` against the
+/// `UserDefaults` carried on `decoder.userInfo[.cmuxWorkspaceColorDefaults]`
+/// (production decode falls back to `.standard`), preserving the on-disk wire
+/// format exactly.
+public struct CmuxWorkspaceDefinition: Codable, Sendable {
+    public var name: String?
+    public var cwd: String?
+    public var color: String?
     /// User-defined environment variables inherited by every shell spawned in the
     /// workspace (issue #5995). Managed `CMUX_*` variables always win.
-    var env: [String: String]?
-    var layout: CmuxLayoutNode?
+    public var env: [String: String]?
+    public var layout: CmuxLayoutNode?
 
-    init(
+    public init(
         name: String? = nil,
         cwd: String? = nil,
         color: String? = nil,
@@ -24,7 +32,7 @@ struct CmuxWorkspaceDefinition: Codable, Sendable {
         self.layout = layout
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         name = try container.decodeIfPresent(String.self, forKey: .name)
         cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
