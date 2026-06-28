@@ -15,11 +15,8 @@ extension TabManager {
         }
 
         let workspaceId = workspace.id
-        sidebarWorkspaceSelectionCoalescer.signal { [weak self] in
-            guard let self,
-                  let workspace = self.tabs.first(where: { $0.id == workspaceId })
-            else { return }
-            self.selectWorkspace(workspace)
+        sidebarWorkspaceSelectionCoalescer.debounce { [weak self] in
+            self?.selectWorkspace(byId: workspaceId)
         }
     }
 

@@ -291,6 +291,9 @@ class TabManager: ObservableObject {
     /// chain, run synchronously after storage changed.
     func selectedWorkspaceIdDidChange(from oldValue: UUID?) {
             guard selectedTabId != oldValue else { return }
+            // Any authoritative selection (sidebar fire, keyboard, CLI, focus
+            // history) supersedes a still-pending sidebar debounce.
+            cancelPendingSidebarWorkspaceSelection()
             if !isRestoringSessionSnapshot {
                 workspaces.expandWorkspaceGroupForSelectionIfNeeded()
             }
@@ -2321,6 +2324,12 @@ class TabManager: ObservableObject {
         selectWorkspaceId(workspace.id, notificationDismissalContext: .explicitWorkspaceResume)
     }
 
+    /// O(1) selection by id; no-op if the workspace was closed meanwhile.
+    func selectWorkspace(byId id: UUID) {
+        guard let workspace = workspacesById[id] else { return }
+        selectWorkspace(workspace)
+    }
+
     // Keep selectTab as convenience alias
     func selectTab(_ tab: Workspace) { selectWorkspace(tab) }
 
@@ -3249,8 +3258,6 @@ class TabManager: ObservableObject {
         _ tabId: UUID,
         notificationDismissalContext: NotificationDismissalContext?
     ) {
-        // A direct selection supersedes any pending sidebar debounce.
-        cancelPendingSidebarWorkspaceSelection()
         guard selectedTabId != tabId else {
             notificationDismissal.setPendingSelectionContext(nil)
             if let notificationDismissalContext {
