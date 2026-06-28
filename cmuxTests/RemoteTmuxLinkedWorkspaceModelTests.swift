@@ -26,20 +26,23 @@ import Testing
     ]
 
     @Test func parsesRows() {
-        // format is window_id ⋮ window_index ⋮ session_name
-        let out = "@1\u{1f}0\u{1f}A\n@3\u{1f}0\u{1f}B"
+        // format is window_id : window_index : session_name
+        let out = "@1:0:A\n@3:0:B"
         #expect(M.parseRows(out) == [
             Row(sessionName: "A", windowId: "@1", windowIndex: 0),
             Row(sessionName: "B", windowId: "@3", windowIndex: 0),
         ])
     }
 
-    @Test func parsingKeepsSessionNamesContainingSeparator() {
-        // A name containing the unit separator must not drop or corrupt the row
-        // (free-text field is last + maxSplits).
-        let weird = "we\u{1f}ird"
-        let out = "@5\u{1f}2\u{1f}\(weird)"
-        #expect(M.parseRows(out) == [Row(sessionName: weird, windowId: "@5", windowIndex: 2)])
+    @Test func parsingKeepsSessionNamesContainingDelimiter() {
+        // A `:` in the (free-text, last) name must not drop or corrupt the row.
+        let out = "@5:2:we:ird:name"
+        #expect(M.parseRows(out) == [Row(sessionName: "we:ird:name", windowId: "@5", windowIndex: 2)])
+    }
+
+    @Test func usesPrintableDelimiterNotControlByte() {
+        #expect(!M.listFormat.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) })
+        #expect(M.listFormat.contains(":"))
     }
 
     @Test mutating func groupsByHomeSessionExcludingView() {
