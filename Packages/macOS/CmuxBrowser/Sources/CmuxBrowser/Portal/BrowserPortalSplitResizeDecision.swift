@@ -20,6 +20,7 @@ public import AppKit
 /// WebKit's attached DevTools uses internal `NSSplitView`s for its inspector
 /// layout; those resizes descend from `hostView` and stay local to hosted
 /// content, so they never trigger a portal re-sync.
+@MainActor
 public struct BrowserPortalSplitResizeDecision {
     private let splitView: NSSplitView
     private let window: NSWindow

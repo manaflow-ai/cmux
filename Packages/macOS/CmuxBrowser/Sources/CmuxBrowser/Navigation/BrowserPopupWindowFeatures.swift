@@ -48,6 +48,10 @@ public struct BrowserPopupWindowFeatures {
     }
 
     /// Captures the popup feature values surfaced by WebKit.
+    ///
+    /// `@MainActor`: `WKWindowFeatures` properties are main-actor under Swift 6.1
+    /// (CI Xcode 16.4); this runs on WebKit's main-thread UI-delegate callback.
+    @MainActor
     public init(windowFeatures: WKWindowFeatures) {
         self.init(
             x: windowFeatures.x,

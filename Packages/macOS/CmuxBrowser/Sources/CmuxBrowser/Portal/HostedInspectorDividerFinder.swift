@@ -12,6 +12,7 @@ public import AppKit
 /// predicates (`isVisibleHostedInspectorCandidate`,
 /// `isVisibleHostedInspectorSiblingCandidate`, `isCmuxWebInspectorObject`) and
 /// `HostedInspectorDockSide`, so it holds no app or window state.
+@MainActor
 public struct HostedInspectorDividerFinder {
     /// Half-width the divider hit rectangle is expanded by on each side in
     /// `hitRect(for:)`.

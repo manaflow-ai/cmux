@@ -7,6 +7,7 @@ public import AppKit
 /// call walks `view`'s subtree front-to-back and reports the first split-view
 /// divider under the point, tagging whether that divider descends from the
 /// host (hosted web content) or sits in the app's split layout.
+@MainActor
 public struct SplitDividerHitTester {
     /// The portal host view. A divider hit is classified as hosted content when
     /// the owning split view descends from this view.
