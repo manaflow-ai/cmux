@@ -2,6 +2,7 @@ import CMUXAgentLaunch
 import CmuxBrowser
 import CmuxNotifications
 import CmuxSettings
+import CmuxWorkspaces
 import Foundation
 
 extension CmuxSettingsFileStore {

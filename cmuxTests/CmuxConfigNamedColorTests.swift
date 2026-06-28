@@ -1,4 +1,5 @@
 import XCTest
+import CmuxWorkspaces
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
