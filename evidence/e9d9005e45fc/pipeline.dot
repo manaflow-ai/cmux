@@ -1,0 +1,93 @@
+digraph MinimalPRNoHoldout {
+  graph [
+    include="@pipelines/_base.dot",
+    goal="Iterate an in-flight bug-fix branch to merge-ready: implement -> tests -> fresh-eyes review -> /es -> real /er. No sealed behavioral holdout exists for this feature, so the holdout node is intentionally omitted; the real gate_er (repo .claude/commands/er.md, adversarial cross-vendor) is the merge-confidence bar."
+    rankdir=LR
+  ]
+
+  start [shape=Mdiamond, label="Start"]
+  exit  [shape=Msquare, label="Exit - Ready to Merge"]
+
+  research [
+    type="codergen",
+    label="Research (read-only)",
+    prompt="@prompts/slim/research.md"
+  ]
+
+  plan [
+    type="codergen",
+    label="Plan & Spec",
+    class="plan",
+    prompt="@prompts/slim/plan.md"
+  ]
+
+  implement [
+    type="codergen",
+    label="Implement",
+    class="implement",
+    prompt="@prompts/slim/implement.md",
+    max_retries=2
+  ]
+
+  test [
+    type="tool",
+    label="Run Tests",
+    command="${state.slim.test_command}",
+    validation=true,
+    goal_gate=true,
+    timeout=600,
+    retry_target="fix"
+  ]
+
+  review [
+    type="codergen",
+    label="Fresh Eyes Review",
+    class="review",
+    prompt="@prompts/slim/review.md",
+    goal_gate=true,
+    retry_target="fix"
+  ]
+
+  gate_es [
+    type="gate_es",
+    label="/es Evidence Standards",
+    timeout=600
+  ]
+
+  gate_er [
+    type="gate_er",
+    label="/er Evidence Review",
+    gate_strict="true",
+    timeout=600
+  ]
+
+  fix [
+    type="codergen",
+    label="Fix & Iterate",
+    class="fix",
+    prompt="@prompts/slim/fix.md",
+    max_retries=2,
+    max_visits="3",
+    no_progress_max="2"
+  ]
+
+  start -> explore_in
+  explore_out -> research
+  research -> plan
+  plan -> implement
+  implement -> test
+
+  test -> review [condition="outcome=success"]
+  test -> fix [condition="outcome!=success"]
+
+  review -> gate_es [condition="outcome=success"]
+  review -> fix [condition="outcome!=success"]
+
+  gate_es -> gate_er [condition="outcome=success"]
+  gate_es -> fix [condition="outcome!=success"]
+
+  gate_er -> exit [condition="outcome=success"]
+  gate_er -> fix [condition="outcome!=success"]
+
+  fix -> test
+}

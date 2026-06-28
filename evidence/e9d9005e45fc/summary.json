@@ -1,0 +1,19 @@
+{
+  "command": "dark-factory --workdir /Users/jleechan/projects_reference/cmux --pipeline /Users/jleechan/projects/dark-factory/pipelines/slim/bugfix_noholdout.dot --goal 'Verify fix/dev-cli-shim-resilience: install tagged cmux build to /Applications/cmux DEV <tag>.app/ + cleanup-dev-builds regex update' --cxdb /Users/jleechan/.dark-factory/cxdb-fix-shim.sqlite",
+  "cxdb_path": "/Users/jleechan/.dark-factory/cxdb-fix-shim.sqlite",
+  "cxdb_sha256": "6b29a314e92e6ff79c9cd9ffc70de721e940fdcf808c78b01cdab8b309a0ef5d",
+  "ended_ts": 1782670092.173238,
+  "events_path": "/Users/jleechan/projects_reference/cmux/evidence/e9d9005e45fc/events.jsonl",
+  "exit_reached": false,
+  "extract_path": "/Users/jleechan/projects_reference/cmux/evidence/e9d9005e45fc/cxdb-e9d9005e45fc.sqlite",
+  "extract_sha256": "64d12370c1adafe8537825fbaf751f5e16159ede701b2b1ceb44be53aa0d0d10",
+  "final_outcome": "exhausted",
+  "goal": "Verify fix/dev-cli-shim-resilience: install tagged cmux build to /Applications/cmux DEV <tag>.app/ + cleanup-dev-builds regex update",
+  "node_io_path": "node_io.jsonl",
+  "pipeline_name": "MinimalPRNoHoldout",
+  "pipeline_path": "/Users/jleechan/projects/dark-factory/pipelines/slim/bugfix_noholdout.dot",
+  "run_id": "e9d9005e45fc",
+  "started_ts": 1782670088.196141,
+  "steps": 18,
+  "wall_clock_ms": 3977
+}

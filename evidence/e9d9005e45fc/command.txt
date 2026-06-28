@@ -1,0 +1,1 @@
+dark-factory --workdir /Users/jleechan/projects_reference/cmux --pipeline /Users/jleechan/projects/dark-factory/pipelines/slim/bugfix_noholdout.dot --goal 'Verify fix/dev-cli-shim-resilience: install tagged cmux build to /Applications/cmux DEV <tag>.app/ + cleanup-dev-builds regex update' --cxdb /Users/jleechan/.dark-factory/cxdb-fix-shim.sqlite

@@ -1,0 +1,23 @@
+Investigate the codebase and produce a detailed research report for this goal.
+
+Goal:
+Verify fix/dev-cli-shim-resilience: install tagged cmux build to /Applications/cmux DEV <tag>.app/ + cleanup-dev-builds regex update
+
+## Inputs
+- `.dark-factory/explore-findings.md` (consolidated explore results)
+- Codebase files referenced or relevant to the goal.
+
+## Rules
+- You have full read-write tool access to the current workspace. Use your tools to inspect, build, run tests, and verify the repository state as needed.
+- Identify the exact files, functions, and call sites the change must touch, with `path:line` references.
+- Surface existing modules or helpers to reuse rather than reimplement.
+- Call out constraints, edge cases, and prior art relevant to the goal.
+- Do not seek out, read, or summarize sealed holdout scenarios or evaluator internals; work only from the visible spec and repository.
+
+## Output
+Write `.dark-factory/research-findings.md` in the target repo containing:
+1. Executive summary of the findings.
+2. Codebase analysis with exact file paths and line ranges.
+3. Recommended implementation plan.
+
+End your response with: `research complete: .dark-factory/research-findings.md`

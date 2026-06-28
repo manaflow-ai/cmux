@@ -934,6 +934,11 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_AUTH_WWW_ORIGIN "$CMUX_DEV_ORIGIN"
       set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_ORIGIN"
       set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_ORIGIN"
+      gh_token="$(gh auth token 2>/dev/null || true)"
+      if [[ -n "$gh_token" ]]; then
+        set_plist_env "$INFO_PLIST" GH_TOKEN "$gh_token"
+        set_plist_env "$INFO_PLIST" GITHUB_TOKEN "$gh_token"
+      fi
       if [[ -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
@@ -1004,8 +1009,34 @@ if [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
 if [[ -x "$CLI_PATH" ]]; then
-  echo "$CLI_PATH" > /tmp/cmux-last-cli-path || true
-  ln -sfn "$CLI_PATH" /tmp/cmux-cli || true
+  # For tagged dev builds, also install the .app to /Applications/ so the
+  # `~/.local/bin/cmux` shim and any direct consumer of the marker file
+  # resolve to a durable path. Xcode can evict `DerivedData/cmux-<tag>/`
+  # at any time, which left the shim pointing at a non-existent binary
+  # after cleanup (the "cmux DEV <tag>.app/.../bin/cmux: No such file or
+  # directory" hook error). /Applications/ survives DerivedData eviction.
+  INSTALL_APP_PATH=""
+  if [[ -n "${TAG:-}" && -n "${TAG_SLUG:-}" ]]; then
+    INSTALL_APP_PATH="/Applications/cmux DEV ${TAG_SLUG}.app"
+    # Remove any prior install of this tag (cp -R refuses to overwrite).
+    rm -rf "$INSTALL_APP_PATH"
+    if cp -R "$APP_PATH" "/Applications/" 2>/dev/null; then
+      : # installed successfully
+    elif ln -sfn "$APP_PATH" "$INSTALL_APP_PATH" 2>/dev/null; then
+      : # symlinked (no write permission to /Applications/)
+    else
+      INSTALL_APP_PATH="" # neither worked; fall back to DerivedData
+    fi
+  fi
+  # Marker points at the durable install path when available, so the shim
+  # survives DerivedData eviction. Falls back to DerivedData otherwise.
+  if [[ -n "$INSTALL_APP_PATH" && -x "$INSTALL_APP_PATH/Contents/Resources/bin/cmux" ]]; then
+    echo "$INSTALL_APP_PATH/Contents/Resources/bin/cmux" > /tmp/cmux-last-cli-path || true
+    ln -sfn "$INSTALL_APP_PATH/Contents/Resources/bin/cmux" /tmp/cmux-cli || true
+  else
+    echo "$CLI_PATH" > /tmp/cmux-last-cli-path || true
+    ln -sfn "$CLI_PATH" /tmp/cmux-cli || true
+  fi
 fi
 
 # Tag mode: always terminate the existing same-tag instance after a successful build,

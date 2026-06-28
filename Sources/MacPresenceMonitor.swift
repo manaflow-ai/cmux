@@ -103,6 +103,7 @@ extension MacPresenceMonitor {
         // notification-based source has seen any lock that predates the
         // first presence evaluation.
         _ = ScreenLockObserver.shared
+        _ = ScreensaverStateTracker.shared
         return MacPresenceMonitor(now: now, signals: liveSignals)
     }
 
@@ -149,8 +150,19 @@ extension MacPresenceMonitor {
     }
 
     private static func liveScreensaverRunning() -> Bool {
-        NSWorkspace.shared.runningApplications.contains {
-            $0.bundleIdentifier == "com.apple.ScreenSaver.Engine"
+        // Source the screensaver signal from `ScreensaverStateTracker`,
+        // which subscribes to `NSWorkspace.screensaverDidStart/StopNotification`
+        // — passive system events that never enumerate running apps.
+        // The previous `NSWorkspace.shared.runningApplications.contains { ... }`
+        // enumeration triggered the macOS App Management privacy prompt
+        // ("X would like to access data from other apps") for every new
+        // cmux DEV tag (unique bundle ID per `scripts/reload.sh --tag`).
+        // The trade-off: `ScreensaverStateTracker.isRunning` defaults to
+        // false at launch, so if the screensaver was already running when
+        // cmux launched, we won't see it until the screen wakes and a
+        // stop notification fires — see that type's docs.
+        MainActor.assumeIsolated {
+            ScreensaverStateTracker.shared.isRunning
         }
     }
 

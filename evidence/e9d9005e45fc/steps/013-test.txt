@@ -1,0 +1,3 @@
+
+STDERR:
+sandbox-exec: execvp() of '${state.slim.test_command}' failed: No such file or directory

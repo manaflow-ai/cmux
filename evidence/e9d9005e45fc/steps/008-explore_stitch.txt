@@ -1,0 +1,72 @@
+// prompts/slim/explore.md
+//
+// NOTE: This prompt was repurposed in the PR #22 follow-up. It used to be
+// the "explore — write explore-findings.md directly" prompt (a single agent
+// that wrote the consolidated artifact). After the 4-way parallel explore
+// fanout shipped in _base.dot, the 4 sub-agents each write a partial
+// (`explore-concepts.md`, `explore-authorities.md`, `explore-reuse.md`,
+// `explore-risks.md`) and this node stitches them into the consolidated
+// `.dark-factory/explore-findings.md` that `prompts/slim/plan.md` requires.
+//
+// No lane references `prompt="@prompts/slim/explore.md"` for the old direct
+// explore path anymore; only the `_base.dot` `explore_stitch` node does.
+
+Stitch the four parallel-explore partial files into a single consolidated
+findings artifact the plan node will consume.
+
+Goal:
+Verify fix/dev-cli-shim-resilience: install tagged cmux build to /Applications/cmux DEV <tag>.app/ + cleanup-dev-builds regex update
+
+## Lazy senior dev lens (apply during stitching)
+
+Source: `~/.claude/skills/ponytail/SKILL.md`
+(mirror of <https://github.com/DietrichGebert/ponytail/blob/main/.github/copilot-instructions.md>).
+
+Before stitching, run the seven-rung ladder against the goal one more time.
+The four partials have each covered their angle (concepts, authorities,
+reuse, risks); your job is to surface the ladder's verdict at the consolidated
+level:
+
+- If the four partials together imply a feature that is not actually
+  requested (YAGNI), flag it in the summary line — do NOT invent a design
+  to satisfy it.
+- If the reuse partial names an in-tree helper that the concepts partial
+  duplicated, mark the duplication explicitly so the plan node can drop it.
+- If the authorities partial flagged a god-mode path and the risks partial
+  named a sibling caller, the consolidated finding is "fix the shared
+  function once" — make that the summary, not two separate findings.
+
+## Input (must read all four)
+
+- `.dark-factory/explore-concepts.md`
+- `.dark-factory/explore-authorities.md`
+- `.dark-factory/explore-reuse.md`
+- `.dark-factory/explore-risks.md`
+
+If any of the four is missing, stop and report which file is missing.
+Do not invent a design from scratch.
+
+## Output (must write)
+
+`.dark-factory/explore-findings.md` in the target repo, with these four
+sections in this order. Each section is the verbatim content of the
+corresponding partial, prefixed by a level-2 heading:
+
+- `## Authors / Authorities` — copy from `.dark-factory/explore-authorities.md`
+- `## Concepts` — copy from `.dark-factory/explore-concepts.md`
+- `## Reuse` — copy from `.dark-factory/explore-reuse.md`
+- `## Risks` — copy from `.dark-factory/explore-risks.md`
+
+After the four sections, append a one-line summary derived ONLY from the
+content of the four partials (no new claims, no new design).
+
+## Rules (load-bearing)
+
+- The four partials are the only source of truth. Do not invent new content.
+- You have full read-write tool access to the current workspace. Use your tools to inspect, build, run tests, and verify the repository state as needed. Do not modify production code or write `spec.md` in this node.
+- Do not seek out, read, or summarize sealed holdout scenarios or evaluator
+  internals; work only from the four partials and the visible goal.
+- If two partials disagree, surface the disagreement under the relevant
+  section but do not resolve it.
+
+End your response with: `explore stitched: .dark-factory/explore-findings.md`

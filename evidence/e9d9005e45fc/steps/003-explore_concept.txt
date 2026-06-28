@@ -1,0 +1,50 @@
+Explore the codebase. Produce the **concepts** angle of the explore phase.
+
+Goal:
+Verify fix/dev-cli-shim-resilience: install tagged cmux build to /Applications/cmux DEV <tag>.app/ + cleanup-dev-builds regex update
+
+## What to map (this sub-agent only)
+
+Identify the fields, flags, modules, routes, state keys, and event types this goal
+touches. Grep/search the repo for every reference; list writers and readers with
+`path:line` citations.
+
+## Lazy senior dev lens (apply before naming concepts)
+
+Source: `~/.claude/skills/ponytail/SKILL.md`
+(mirror of <https://github.com/DietrichGebert/ponytail/blob/main/.github/copilot-instructions.md>).
+
+Run the seven-rung ladder against the goal before enumerating concepts:
+
+1. Does this need to be built at all? (YAGNI)
+2. Does it already exist in this codebase? Reuse the helper, util, or pattern
+   that's already here — don't re-write it.
+3. Does the standard library already do this?
+4. Does a native platform feature cover it?
+5. Does an already-installed dependency solve it?
+6. Can this be one line?
+7. Only then: write the minimum code that works.
+
+For *this* (concepts) sub-agent, the ladder's output is a **concept inventory
+gated by rung 2**: list a concept only if it has a real owner and reader in
+the visible repo. A concept with no readers and no writers is a YAGNI trap
+— note it under "Open questions" so the plan agent can drop it.
+
+## Output
+
+Write `.dark-factory/explore-concepts.md` in the target repo. Sections:
+
+- **Concept inventory** (term → short definition, source of truth)
+- **Grep coverage** (terms searched, files hit — `path:line` per hit)
+- **Writers / readers table** (concept → who writes, who reads)
+- **Open questions** (anything you couldn't determine from the visible code)
+
+End your response with: `explore written: .dark-factory/explore-concepts.md`
+
+## Rules
+
+- You have full read-write tool access to the current workspace. Use your tools to inspect, build, run tests, and verify the repository state as needed.
+- Do not seek out, read, or summarize sealed holdout scenarios or evaluator
+  internals; work only from the visible goal and repository.
+- Focus on **what exists today** — naming, surfaces, and call sites. Leave
+  authority and reuse analysis to the other sub-agents.

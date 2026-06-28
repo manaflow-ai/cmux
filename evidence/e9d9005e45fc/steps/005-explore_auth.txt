@@ -1,0 +1,55 @@
+Explore the codebase. Produce the **authorities** angle of the explore phase.
+
+Goal:
+Verify fix/dev-cli-shim-resilience: install tagged cmux build to /Applications/cmux DEV <tag>.app/ + cleanup-dev-builds regex update
+
+## What to map (this sub-agent only)
+
+For every concept relevant to this goal, state which component is currently
+authoritative. Call out:
+
+- Implicit state machines (where state lives across multiple files)
+- Legacy projection fields (read-only mirrors, deprecated aliases)
+- God-mode paths (handlers that bypass the normal flow)
+- Streaming vs non-streaming branches
+- Persistence boundaries (where authoritative state diverges from cached state)
+
+## Lazy senior dev lens (apply before naming authorities)
+
+Source: `~/.claude/skills/ponytail/SKILL.md`
+(mirror of <https://github.com/DietrichGebert/ponytail/blob/main/.github/copilot-instructions.md>).
+
+The ladder's "fix the shared function once" rule maps directly onto authority
+analysis:
+
+- **One guard at the shared function is a smaller diff than one guard per caller.**
+  When you find a "conflicting authorities" case, do NOT name multiple writers
+  as acceptable. Name the single upstream authority that should win, and call
+  out the projections that become read-only mirrors.
+- **A bug report names a symptom. Grep every caller of the function you touch.**
+  When you flag a god-mode path, list every caller it bypasses; the plan agent
+  needs the full set to decide whether to centralize or leave the bypass.
+
+Mark intentional simplifications with a `ponytail:` comment when you call
+out a ceiling (legacy projection kept for compatibility, streamed branch kept
+for backpressure, etc.).
+
+## Output
+
+Write `.dark-factory/explore-authorities.md` in the target repo. Sections:
+
+- **Current authorities** (concept → owning component + `path:line`)
+- **Conflicting authorities** (places where two components both claim write)
+- **Implicit state machines** (state key → lifecycle, persistence, readers)
+- **Streaming / non-streaming branches** (call sites that diverge)
+- **God-mode paths** (any code that bypasses the normal pipeline)
+
+End your response with: `explore written: .dark-factory/explore-authorities.md`
+
+## Rules
+
+- You have full read-write tool access to the current workspace. Use your tools to inspect, build, run tests, and verify the repository state as needed.
+- Do not seek out, read, or summarize sealed holdout scenarios or evaluator
+  internals; work only from the visible goal and repository.
+- Focus on **who owns what today** — leaving reuse/centralization to the
+  reuse sub-agent.

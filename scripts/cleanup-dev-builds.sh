@@ -87,7 +87,8 @@ artifact_paths_for_tag() {
         "/tmp/cmux-debug-${tag}.sock" \
         "/tmp/cmux-debug-${tag}.log" \
         "/tmp/cmux-reload-${tag}.log" \
-        "$APP_SUPPORT_DIR/cmuxd-dev-${tag}.sock"
+        "$APP_SUPPORT_DIR/cmuxd-dev-${tag}.sock" \
+        "/Applications/cmux DEV ${tag}.app"
 }
 
 bytes_in_path() {
@@ -122,12 +123,15 @@ derived_data_mtime_days() {
 # ---- safety probes ----------------------------------------------------------
 
 # Active tag (most recent reload) per the CLI symlink target. Match
-# `/cmux-<tag>/` anywhere in the path so we cover paths under DerivedData,
-# /tmp, or other locations reload.sh may emit.
+# either DerivedData (`.../cmux-<tag>/...`) or /Applications/ install
+# (`.../cmux DEV <tag>.app/...`) so the safety check covers both layouts
+# reload.sh may have written.
 active_tag=""
 if [[ -r "$LAST_CLI_PATH_FILE" ]]; then
     last_path="$(cat "$LAST_CLI_PATH_FILE" 2>/dev/null || true)"
-    if [[ "$last_path" =~ /cmux-([A-Za-z0-9._-]+)/ ]]; then
+    if [[ "$last_path" =~ DerivedData/cmux-([A-Za-z0-9._-]+)/ ]]; then
+        active_tag="${BASH_REMATCH[1]}"
+    elif [[ "$last_path" =~ cmux\ DEV\ ([A-Za-z0-9._-]+)\.app/ ]]; then
         active_tag="${BASH_REMATCH[1]}"
     fi
 fi

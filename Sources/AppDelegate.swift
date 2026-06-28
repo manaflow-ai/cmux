@@ -1422,7 +1422,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 StartupBreadcrumbLog.append("appDelegate.singleInstance.async.begin")
                 self.scheduleLaunchServicesBundleRegistration()
                 StartupBreadcrumbLog.append("appDelegate.singleInstance.launchServices.scheduled")
-                self.enforceSingleInstance()
+                // No startup enumeration of running apps — that would call
+                // NSRunningApplication.runningApplications(withBundleIdentifier:)
+                // and trigger the macOS App Management privacy prompt
+                // ("X would like to access data from other apps") for every
+                // new cmux DEV tag (unique bundle ID per scripts/reload.sh).
+                // observeDuplicateLaunches below handles new launches via a
+                // passive NSWorkspace.didLaunchApplicationNotification observer
+                // — no enumeration at registration time. Trade-off: instances
+                // already running before this one started are not terminated.
                 self.observeDuplicateLaunches()
                 StartupBreadcrumbLog.append("appDelegate.singleInstance.async.complete")
             }
@@ -15421,32 +15429,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 #endif
-
-    private func enforceSingleInstance() {
-        guard let bundleId = Bundle.main.bundleIdentifier else {
-            StartupBreadcrumbLog.append("singleInstance.enforce.skip", fields: ["reason": "missingBundleId"])
-            return
-        }
-        let currentPid = ProcessInfo.processInfo.processIdentifier
-        var terminatedPids: [String] = []
-
-        for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
-            guard app.processIdentifier != currentPid else { continue }
-            terminatedPids.append(String(app.processIdentifier))
-            app.terminate()
-            if !app.isTerminated {
-                _ = app.forceTerminate()
-            }
-        }
-        StartupBreadcrumbLog.append(
-            "singleInstance.enforce.complete",
-            fields: [
-                "bundleIdentifier": bundleId,
-                "currentPid": String(currentPid),
-                "terminatedPids": terminatedPids.joined(separator: ",")
-            ]
-        )
-    }
 
     private func observeDuplicateLaunches() {
         guard let bundleId = Bundle.main.bundleIdentifier else {
