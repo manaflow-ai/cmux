@@ -2722,9 +2722,6 @@ final class TextBoxInputTextView: NSTextView {
     private var isReportingLayoutCompletion = false
 
     private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
-    private static let pendingAttachmentUploadPlaceholderAttribute = NSAttributedString.Key(
-        "cmux.textBoxPendingAttachmentUploadID"
-    )
     private var attachmentPreviewPopover: NSPopover?
     private var attachmentPreviewCharacterIndex: Int?
     private var focusedAttachmentCharacterIndex: Int?
@@ -2962,7 +2959,7 @@ final class TextBoxInputTextView: NSTextView {
 
     func attributedContentForPreservation() -> NSAttributedString {
         let preserved = NSMutableAttributedString(attributedString: attributedString())
-        Self.removePendingAttachmentUploadPlaceholders(from: preserved)
+        TextBoxInputTextMarkers.removePendingAttachmentUploadPlaceholders(from: preserved)
         return preserved
     }
 
@@ -3060,7 +3057,7 @@ final class TextBoxInputTextView: NSTextView {
     func insertPendingAttachmentUploadPlaceholder(id: UUID) {
         window?.makeFirstResponder(self)
         var attributes = currentTextAttributes()
-        attributes[Self.pendingAttachmentUploadPlaceholderAttribute] = id.uuidString
+        attributes[TextBoxInputTextMarkers.pendingAttachmentUploadPlaceholderAttribute] = id.uuidString
         insertText(
             NSAttributedString(
                 string: TextBoxInputTextMarkers().pendingAttachmentUploadPlaceholderCharacter,
@@ -4722,71 +4719,29 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func shouldInsertAttachmentBoundarySpaceBefore(replacementRange: NSRange) -> Bool {
-        guard replacementRange.location > 0,
-              replacementRange.location <= attributedString().length else {
-            return false
-        }
-        return !isAttachmentBoundarySeparator(at: replacementRange.location - 1)
+        TextBoxInputTextMarkers.shouldInsertAttachmentBoundarySpaceBefore(
+            replacementRange: replacementRange,
+            in: attributedString()
+        )
     }
 
     private func shouldInsertAttachmentBoundarySpaceAfter(
         replacementRange: NSRange,
         attachments: [TextBoxAttachment]
     ) -> Bool {
-        guard attachments.contains(where: \.isImage) else {
-            return false
-        }
-        let afterLocation = NSMaxRange(replacementRange)
-        guard afterLocation >= 0,
-              afterLocation < attributedString().length else {
-            return true
-        }
-        return !isAttachmentBoundarySeparator(at: afterLocation)
+        TextBoxInputTextMarkers.shouldInsertAttachmentBoundarySpaceAfter(
+            replacementRange: replacementRange,
+            hasImageAttachment: attachments.contains(where: \.isImage),
+            in: attributedString()
+        )
     }
 
     private func isAttachmentBoundarySeparator(at location: Int) -> Bool {
-        guard location >= 0,
-              location < attributedString().length else {
-            return true
-        }
-        let character = (attributedString().string as NSString).substring(with: NSRange(location: location, length: 1))
-        return character.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
-    }
-
-    private static func pendingAttachmentUploadPlaceholderRanges(
-        in attributed: NSAttributedString,
-        id: UUID?
-    ) -> [NSRange] {
-        let fullRange = NSRange(location: 0, length: attributed.length)
-        guard fullRange.length > 0 else { return [] }
-
-        let idString = id?.uuidString
-        var result: [NSRange] = []
-        attributed.enumerateAttribute(
-            Self.pendingAttachmentUploadPlaceholderAttribute,
-            in: fullRange,
-            options: []
-        ) { value, range, stop in
-            guard let value = value as? String,
-                  idString == nil || value == idString else {
-                return
-            }
-            result.append(range)
-            if idString != nil {
-                stop.pointee = true
-            }
-        }
-        return result
-    }
-
-    private static func removePendingAttachmentUploadPlaceholders(from attributed: NSMutableAttributedString) {
-        for range in pendingAttachmentUploadPlaceholderRanges(in: attributed, id: nil).reversed() {
-            attributed.replaceCharacters(in: range, with: NSAttributedString(string: ""))
-        }
+        TextBoxInputTextMarkers.isAttachmentBoundarySeparator(at: location, in: attributedString())
     }
 
     private func pendingAttachmentUploadPlaceholderRange(id: UUID?) -> NSRange? {
-        Self.pendingAttachmentUploadPlaceholderRanges(in: attributedString(), id: id).first
+        TextBoxInputTextMarkers.pendingAttachmentUploadPlaceholderRanges(in: attributedString(), id: id).first
     }
 
     func cleanupDisposableAttachmentFiles(

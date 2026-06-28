@@ -1,16 +1,26 @@
-import AppKit
-import SwiftUI
+public import AppKit
+public import SwiftUI
 
 /// Resolved chrome colors for a browser panel: the panel background, the
 /// readable color scheme derived from that background, and the omnibar pill
 /// background. Construct one via ``resolve(for:themeBackgroundColor:drawsBackground:)``;
 /// the individual `resolved*` statics expose each derivation for testing.
-struct BrowserChromeStyle {
-    let backgroundColor: NSColor
-    let colorScheme: ColorScheme
-    let omnibarPillBackgroundColor: NSColor
+public struct BrowserChromeStyle {
+    public let backgroundColor: NSColor
+    public let colorScheme: ColorScheme
+    public let omnibarPillBackgroundColor: NSColor
 
-    static func resolvedBrowserChromeBackgroundColor(
+    public init(
+        backgroundColor: NSColor,
+        colorScheme: ColorScheme,
+        omnibarPillBackgroundColor: NSColor
+    ) {
+        self.backgroundColor = backgroundColor
+        self.colorScheme = colorScheme
+        self.omnibarPillBackgroundColor = omnibarPillBackgroundColor
+    }
+
+    public static func resolvedBrowserChromeBackgroundColor(
         for colorScheme: ColorScheme,
         themeBackgroundColor: NSColor,
         drawsBackground: Bool
@@ -24,18 +34,18 @@ struct BrowserChromeStyle {
         }
     }
 
-    static func resolvedBrowserChromeColorScheme(
+    public static func resolvedBrowserChromeColorScheme(
         for colorScheme: ColorScheme,
         themeBackgroundColor: NSColor,
         windowBackgroundColor: NSColor = .windowBackgroundColor
     ) -> ColorScheme {
         let perceivedBackgroundColor = themeBackgroundColor.alphaComponent < 0.999
-            ? cmuxCompositedNSColor(themeBackgroundColor, over: windowBackgroundColor)
+            ? themeBackgroundColor.composited(over: windowBackgroundColor)
             : themeBackgroundColor
-        return cmuxReadableColorScheme(for: perceivedBackgroundColor)
+        return perceivedBackgroundColor.readableColorScheme
     }
 
-    static func resolvedBrowserOmnibarPillBackgroundColor(
+    public static func resolvedBrowserOmnibarPillBackgroundColor(
         for colorScheme: ColorScheme,
         themeBackgroundColor: NSColor
     ) -> NSColor {
@@ -53,7 +63,7 @@ struct BrowserChromeStyle {
         return blendedColor.withAlphaComponent(themeBackgroundColor.alphaComponent)
     }
 
-    static func resolve(
+    public static func resolve(
         for colorScheme: ColorScheme,
         themeBackgroundColor: NSColor,
         drawsBackground: Bool
