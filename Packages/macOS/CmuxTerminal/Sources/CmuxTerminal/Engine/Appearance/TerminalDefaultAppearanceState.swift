@@ -80,10 +80,10 @@ public final class TerminalDefaultAppearanceState {
     ///     the native legacy baseline for unparsed appearance (the app passes
     ///     `GhosttyApp.configDiscovery`).
     ///   - resolveColorSchemePreference: Maps a resolved background color to the
-    ///     effective terminal color-scheme preference (the app passes
-    ///     `GhosttyApp.terminalRuntimeColorSchemePreference(forBackgroundColor:)`,
-    ///     which lives app-side because it reads the SwiftUI readable-color-scheme
-    ///     helper).
+    ///     effective terminal color-scheme preference (the app reads the SwiftUI
+    ///     readable-color-scheme helper app-side and forwards the resolved
+    ///     light/dark to
+    ///     `TerminalColorSchemePreference.runtimePreference(readableSchemeIsLight:)`).
     ///   - isBackgroundLogEnabled: Whether the background debug log is active;
     ///     gates string-building before any log call exactly as the legacy
     ///     `backgroundLogEnabled` gate did.
