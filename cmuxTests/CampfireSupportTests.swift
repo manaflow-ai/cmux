@@ -484,6 +484,27 @@ struct CampfireSupportTests {
         #expect(registration.sessionDirectory == "~/.campfire/agent/sessions")
     }
 
+    @Test func alternateOnlyDetectRuleDoesNotMatchUnrelatedProcess() throws {
+        // A detect rule that specifies only alternate criteria (no primary
+        // process names and no `argvContains`) must not classify an unrelated
+        // process. Otherwise the empty primary criteria make the primary match
+        // succeed for every process before the alternate criteria are checked.
+        var registration = CmuxVaultAgentRegistration.builtInCampfire
+        registration.detect = CmuxVaultAgentDetectRule(
+            alternateArgvContainsAny: ["packages/session/bin/campfire.ts"]
+        )
+
+        let detected = Self.detectedCampfireSnapshot(
+            processName: "node",
+            processPath: "/opt/homebrew/bin/node",
+            arguments: ["/opt/homebrew/bin/node", "some-other-script.js"],
+            environment: ["PWD": "/tmp"],
+            registration: registration
+        )
+
+        #expect(detected == nil)
+    }
+
     private static func detectedCampfireSnapshot(
         processName: String = "campfire",
         processPath: String? = "/Users/example/.local/bin/campfire",
