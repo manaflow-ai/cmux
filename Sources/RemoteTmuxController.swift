@@ -603,7 +603,8 @@ final class RemoteTmuxController {
                     tabManager: manager,
                     workspace: workspace,
                     windowIdFilter: windowIds,
-                    managesOwnLifecycle: false)
+                    managesOwnLifecycle: false,
+                    perWindowSizing: true)
             }
         }
 

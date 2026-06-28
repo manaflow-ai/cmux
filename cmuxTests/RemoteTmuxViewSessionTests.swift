@@ -42,6 +42,9 @@ import Testing
         #expect(argvs.contains(["set-option", "-t", s.sessionName, "@cmux_view", "1"]))
         #expect(argvs.contains(["set-option", "-t", s.sessionName, "@cmux_view_owner", "o1"]))
         #expect(argvs.contains(["set-option", "-t", s.sessionName, "@cmux_view_version", "1"]))
+        // The shared client can't size each linked window via refresh-client, so the
+        // view session must run window-size manual for per-window resize-window.
+        #expect(argvs.contains(["set-option", "-t", s.sessionName, "window-size", "manual"]))
     }
 
     @Test func parsesListRowsWithFreeTextNameLast() {
