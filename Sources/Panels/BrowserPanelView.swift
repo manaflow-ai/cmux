@@ -1049,7 +1049,7 @@ struct BrowserPanelView: View {
             devToolsTint: devToolsColorOption.color,
             devToolsIconName: devToolsIconOption.rawValue,
             themeIconName: browserThemeMode.iconName,
-            themeIconColor: browserThemeModeIconColor,
+            themeIconColor: devToolsColorOption.color,
             goBackHelp: String(localized: "browser.goBack", defaultValue: "Go Back"),
             goForwardHelp: String(localized: "browser.goForward", defaultValue: "Go Forward"),
             reloadOrStopHelp: panel.isLoading
@@ -1120,106 +1120,75 @@ struct BrowserPanelView: View {
     }
 
     private var browserProfilePopover: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(String(localized: "browser.profile.menu.title", defaultValue: "Profiles"))
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
+        BrowserProfilePopoverView(
+            snapshot: browserProfilePopoverSnapshot,
+            actions: browserProfilePopoverActions
+        )
+    }
 
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(browserProfileStore.profiles) { profile in
-                    Button {
-                        applyBrowserProfileSelection(profile.id)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: profile.id == panel.profileID ? "checkmark" : "circle")
-                                .cmuxSymbolRasterSize(10, weight: .semibold)
-                                .opacity(profile.id == panel.profileID ? 1.0 : 0.0)
-                                .frame(width: 12, alignment: .center)
-                            Text(profile.displayName)
-                                .font(.system(size: 12))
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 8)
-                        .frame(height: 24)
-                        .contentShape(Rectangle())
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(profile.id == panel.profileID ? Color.primary.opacity(0.12) : Color.clear)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+    private var browserProfilePopoverSnapshot: BrowserProfilePopoverSnapshot {
+        BrowserProfilePopoverSnapshot(
+            title: String(localized: "browser.profile.menu.title", defaultValue: "Profiles"),
+            profiles: browserProfileStore.profiles.map { profile in
+                BrowserProfilePopoverSnapshot.Profile(
+                    id: profile.id,
+                    displayName: profile.displayName,
+                    isSelected: profile.id == panel.profileID
+                )
+            },
+            canRenameActiveProfile: browserProfileStore.canRenameProfile(id: panel.profileID),
+            horizontalPadding: browserProfilePopoverHorizontalPadding,
+            verticalPadding: browserProfilePopoverVerticalPadding,
+            newProfileLabel: String(localized: "browser.profile.new", defaultValue: "New Profile..."),
+            importLabel: String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"),
+            renameLabel: String(localized: "browser.profile.rename", defaultValue: "Rename Current Profile...")
+        )
+    }
 
-            Divider()
-
-            Button {
+    private var browserProfilePopoverActions: BrowserProfilePopoverActions {
+        BrowserProfilePopoverActions(
+            onSelectProfile: { applyBrowserProfileSelection($0) },
+            onCreateProfile: {
                 isBrowserProfileMenuPresented = false
                 presentCreateBrowserProfilePrompt()
-            } label: {
-                Text(String(localized: "browser.profile.new", defaultValue: "New Profile..."))
-                    .font(.system(size: 12))
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                presentImportDialogFromProfileMenu()
-            } label: {
-                Text(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"))
-                    .font(.system(size: 12))
-            }
-            .buttonStyle(.plain)
-
-            if browserProfileStore.canRenameProfile(id: panel.profileID) {
-                Button {
-                    isBrowserProfileMenuPresented = false
-                    presentRenameBrowserProfilePrompt()
-                } label: {
-                    Text(String(localized: "browser.profile.rename", defaultValue: "Rename Current Profile..."))
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, browserProfilePopoverHorizontalPadding)
-        .padding(.vertical, browserProfilePopoverVerticalPadding)
-        .frame(minWidth: 208)
+            },
+            onRenameProfile: {
+                isBrowserProfileMenuPresented = false
+                presentRenameBrowserProfilePrompt()
+            },
+            onOpenImportSettings: { presentImportDialogFromProfileMenu() }
+        )
     }
 
     private var browserThemeModePopover: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(BrowserThemeMode.allCases) { mode in
-                Button {
-                    applyBrowserThemeModeSelection(mode)
-                    isBrowserThemeMenuPresented = false
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: mode == browserThemeMode ? "checkmark" : "circle")
-                            .cmuxSymbolRasterSize(10, weight: .semibold)
-                            .opacity(mode == browserThemeMode ? 1.0 : 0.0)
-                            .frame(width: 12, alignment: .center)
-                        Text(mode.displayName)
-                            .font(.system(size: 12))
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 8)
-                    .frame(height: 24)
-                    .contentShape(Rectangle())
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(mode == browserThemeMode ? Color.primary.opacity(0.12) : Color.clear)
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("BrowserThemeModeOption\(mode.rawValue.capitalized)")
-            }
-        }
-        .padding(8)
-        .frame(minWidth: 128)
+        BrowserThemePopoverView(
+            snapshot: browserThemePopoverSnapshot,
+            actions: browserThemePopoverActions
+        )
     }
 
-    private var browserThemeModeIconColor: Color {
-        devToolsColorOption.color
+    private var browserThemePopoverSnapshot: BrowserThemePopoverSnapshot {
+        BrowserThemePopoverSnapshot(
+            options: BrowserThemeMode.allCases.map { mode in
+                BrowserThemePopoverSnapshot.Option(
+                    id: mode.rawValue,
+                    displayName: mode.displayName,
+                    isSelected: mode == browserThemeMode,
+                    accessibilityIdentifier: "BrowserThemeModeOption\(mode.rawValue.capitalized)"
+                )
+            }
+        )
+    }
+
+    private var browserThemePopoverActions: BrowserThemePopoverActions {
+        BrowserThemePopoverActions(
+            onSelectThemeMode: { rawValue in
+                if let mode = BrowserThemeMode(rawValue: rawValue) {
+                    applyBrowserThemeModeSelection(mode)
+                }
+                isBrowserThemeMenuPresented = false
+            }
+        )
     }
 
     private var omnibarField: some View {
@@ -1720,118 +1689,44 @@ struct BrowserPanelView: View {
     }
 
     private var emptyBrowserStateCardOverlay: some View {
-        VStack {
-            Spacer(minLength: 22)
-
-            browserImportHintBody
-            .padding(12)
-            .frame(maxWidth: 360, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.9))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(
-                    Color(nsColor: .separatorColor).opacity(0.45),
-                    lineWidth: 1
-                )
-            )
-            .shadow(color: Color.black.opacity(0.08), radius: 8, y: 3)
-
-            Spacer()
-        }
-        .padding(.horizontal, 18)
+        BrowserEmptyStateView(
+            placement: .floatingCard,
+            snapshot: browserImportHintSnapshot,
+            actions: browserImportHintActions
+        )
     }
 
     private var emptyBrowserStateInlineStrip: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            browserImportHintBody
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .frame(maxWidth: 520, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(nsColor: .windowBackgroundColor).opacity(0.84))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(
-                        Color(nsColor: .separatorColor).opacity(0.35),
-                        lineWidth: 1
-                    )
-                )
-                .shadow(color: Color.black.opacity(0.05), radius: 6, y: 2)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 14)
+        BrowserEmptyStateView(
+            placement: .inlineStrip,
+            snapshot: browserImportHintSnapshot,
+            actions: browserImportHintActions
+        )
     }
 
     private var browserImportHintPopover: some View {
-        browserImportHintBody
+        BrowserImportHintView(snapshot: browserImportHintSnapshot, actions: browserImportHintActions)
             .padding(12)
             .frame(width: 300, alignment: .leading)
     }
 
-    private var browserImportHintBody: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(String(localized: "browser.import.hint.title", defaultValue: "Import browser data"))
-                .font(.system(size: 12.5, weight: .semibold))
-
-            Text(browserImportHintSummary)
-                .font(.system(size: 11.5))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text(String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."))
-                .font(.system(size: 10.5))
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) {
-                    browserImportHintPrimaryButton
-                    browserImportHintSettingsButton
-                    browserImportHintDismissButton
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    browserImportHintPrimaryButton
-                    HStack(spacing: 10) {
-                        browserImportHintSettingsButton
-                        browserImportHintDismissButton
-                    }
-                }
-            }
-        }
-        .accessibilityElement(children: .contain)
+    private var browserImportHintSnapshot: BrowserImportHintSnapshot {
+        BrowserImportHintSnapshot(
+            title: String(localized: "browser.import.hint.title", defaultValue: "Import browser data"),
+            summary: browserImportHintSummary,
+            settingsFootnote: String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."),
+            primaryButtonTitle: String(localized: "browser.import.hint.import", defaultValue: "Import…"),
+            settingsButtonTitle: String(localized: "browser.import.hint.settings", defaultValue: "Browser Settings"),
+            dismissButtonTitle: String(localized: "browser.import.hint.dismiss", defaultValue: "Hide Hint")
+        )
     }
 
-    private var browserImportHintPrimaryButton: some View {
-        Button(String(localized: "browser.import.hint.import", defaultValue: "Import…")) {
-            presentImportDialogFromHint()
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .accessibilityIdentifier("BrowserImportHintImportButton")
-    }
-
-    private var browserImportHintSettingsButton: some View {
-        Button(String(localized: "browser.import.hint.settings", defaultValue: "Browser Settings")) {
-            openBrowserImportSettings()
-        }
-        .buttonStyle(.plain)
-        .controlSize(.small)
-        .accessibilityIdentifier("BrowserImportHintSettingsButton")
-    }
-
-    private var browserImportHintDismissButton: some View {
-        Button(String(localized: "browser.import.hint.dismiss", defaultValue: "Hide Hint")) {
-            dismissBrowserImportHint()
-        }
-        .buttonStyle(.plain)
-        .controlSize(.small)
-        .accessibilityIdentifier("BrowserImportHintDismissButton")
+    private var browserImportHintActions: BrowserImportHintActions {
+        BrowserImportHintActions(
+            onPresentImportFromHint: { presentImportDialogFromHint() },
+            onOpenImportSettings: { openBrowserImportSettings() },
+            onDismissImportHint: { dismissBrowserImportHint() }
+        )
     }
 
     private var shouldShowEmptyStateImportOverlay: Bool {
