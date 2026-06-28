@@ -71,7 +71,21 @@ jobs:
           command -v bun >/dev/null 2>&1 || curl -fsSL https://bun.sh/install | bash
           command -v postgres >/dev/null 2>&1 || brew install postgresql@16 || true
           command -v idb_companion >/dev/null 2>&1 || brew install idb-companion || true
-          python3 -m pip install --user fb-idb >/dev/null 2>&1 || pipx install fb-idb || true
+          # fb-idb (the `idb` CLI) needs a Python it supports; the runner's default
+          # python3 may be too new (3.14). Install it into a dedicated venv on a
+          # pinned Python and put that venv's bin on PATH for later steps, so `idb`
+          # resolves deterministically regardless of the system python.
+          brew install python@3.12 || true
+          PY312="$(brew --prefix python@3.12 2>/dev/null)/bin/python3.12"
+          [ -x "$PY312" ] || PY312="$(command -v python3.12 || true)"
+          [ -x "$PY312" ] || PY312="$(command -v python3.11 || true)"
+          [ -x "$PY312" ] || PY312="python3"
+          echo "using python for fb-idb: $PY312 ($($PY312 --version 2>&1))"
+          "$PY312" -m venv /tmp/idbvenv
+          /tmp/idbvenv/bin/pip install --quiet --upgrade pip
+          /tmp/idbvenv/bin/pip install --quiet fb-idb
+          echo "/tmp/idbvenv/bin" >> "$GITHUB_PATH"
+          /tmp/idbvenv/bin/idb --version || true
 
       - name: Materialize dev secret bundle
         env:
@@ -126,14 +140,41 @@ jobs:
         run: ./ios/scripts/reload.sh --tag cistream --simulator "iPhone 17 Pro Max" --no-attach --swift-frontend-workaround
 
       - name: Pair simulator + capture one streamed terminal
+        env:
+          # Dedicated CI screenshot account (NOT a personal account). dev-secrets
+          # resolution reads CMUX_DOGFOOD_STACK_* from the environment first, so
+          # mobile-dev-launch signs the device in with this account.
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
         run: |
           set -euo pipefail
-          export PATH="$HOME/.bun/bin:$PATH"
+          export PATH="/tmp/idbvenv/bin:$HOME/.bun/bin:$PATH"
+          # Prereqs: idb on PATH + the web backend still serving sign-in/pairing.
+          command -v idb >/dev/null || { echo "::error::idb not on PATH"; exit 1; }
+          idb --version || true
+          curl -fsS http://localhost:3000/handler/sign-in >/dev/null || {
+            echo "::error::web backend not reachable from capture step"; cat /tmp/webdev.log || true; exit 1; }
           SIM_ID="$(xcrun simctl list devices booted -j | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next(x["udid"] for r in d["devices"].values() for x in r if "Pro Max" in x["name"]))')"
+          echo "sim: $SIM_ID"
           xcrun simctl ui "$SIM_ID" appearance dark || true
-          ./scripts/mobile-dev-launch.sh --tag cistream --simulator-id "$SIM_ID" --ensure-mac &
-          sleep 60
-          python3 ios/scripts/capture-streamed.py --tag cistream --sim-id "$SIM_ID" --agents opencode --out /tmp/streamed-ci || true
+          # Launch the tagged Mac app FIRST: mobile-dev-launch --ensure-mac mints
+          # the pairing ticket from the running Mac app's pairing host, so it must
+          # already be up or the device lands signed-in-only (never paired, no
+          # workspaces to stream).
+          MAC_APP="$(ls -d "$HOME/Library/Developer/Xcode/DerivedData/cmux-cistream/Build/Products/Debug/"*.app 2>/dev/null | head -1)"
+          [ -n "$MAC_APP" ] || { echo "::error::tagged Mac app not found"; exit 1; }
+          open "$MAC_APP"
+          for i in $(seq 1 60); do CMUX_TAG=cistream ./scripts/cmux-debug-cli.sh identify >/dev/null 2>&1 && break; sleep 2; done
+          CMUX_TAG=cistream ./scripts/cmux-debug-cli.sh identify >/dev/null 2>&1 || { echo "::error::tagged Mac app debug socket never came up"; exit 1; }
+          # Sign in + pair the device to the tagged Mac. --detach returns after
+          # launch (no --console-pty stdio attach, which would block the step).
+          ./scripts/mobile-dev-launch.sh --tag cistream --simulator-id "$SIM_ID" --ensure-mac --detach
+          # Let sign-in + pairing + the first stream frames settle.
+          sleep 45
+          mkdir -p /tmp/streamed-ci
+          python3 ios/scripts/capture-streamed.py --tag cistream --sim-id "$SIM_ID" --agents opencode --out /tmp/streamed-ci
+          echo "=== captured files ==="; ls -la /tmp/streamed-ci || true
+          ls /tmp/streamed-ci/*.png >/dev/null 2>&1 || { echo "::error::no streamed screenshot was captured"; exit 1; }
 
       - name: Upload validation artifacts
         if: ${{ always() }}
