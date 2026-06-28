@@ -131,12 +131,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let window: NSWindow? = {
                     if let key = NSApp.keyWindow,
                        let raw = key.identifier?.rawValue,
-                       raw == "cmux.main" || raw.hasPrefix("cmux.main.") {
+                       MainTerminalWindowIdentifier.matches(rawIdentifier: raw) {
                         return key
                     }
                     return NSApp.windows.first(where: {
                         guard let raw = $0.identifier?.rawValue else { return false }
-                        return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+                        return MainTerminalWindowIdentifier.matches(rawIdentifier: raw)
                     })
                 }()
                 guard let window else { return }
@@ -10990,7 +10990,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         guard let raw = window.identifier?.rawValue else { return false }
-        return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+        return MainTerminalWindowIdentifier.matches(rawIdentifier: raw)
     }
 
     private func workspaceForMainActor(tabId: UUID) -> Workspace? {
@@ -11008,7 +11008,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         closeMainWindowContainingTabIdObserverForTesting?(tabId, recordHistory)
 #endif
         guard let context = contextContainingTabId(tabId) else { return }
-        let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
+        let expectedIdentifier = MainTerminalWindowIdentifier(forWindowId: context.windowId).expectedIdentifier
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         if !recordHistory {
             closedWindowHistorySuppressedWindowIds.insert(context.windowId)
@@ -11079,7 +11079,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func openNotificationInContext(_ context: RegisteredMainWindow, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
+        let expectedIdentifier = MainTerminalWindowIdentifier(forWindowId: context.windowId).expectedIdentifier
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         guard let window else {
 #if DEBUG
