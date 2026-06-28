@@ -116,17 +116,101 @@ public protocol ControlSurfaceContext: AnyObject {
 
     // MARK: - move / reorder
 
-    /// Moves a surface for `surface.move`, delegating to the shared
-    /// surface-move logic, and bridges the result to a ``ControlCallResult``.
+    /// Locates the source surface for `surface.move`: the moved surface, its
+    /// source workspace, current pane/index, and default destination pane.
     ///
-    /// The whole body is app-typed end to end (it walks windows/workspaces/panes
-    /// and mutates Bonsplit), so the coordinator passes the raw params through and
-    /// the app returns the fully shaped result (forwarding the still-app-side
-    /// `v2SurfaceMove`, exactly as `pane.join` does).
+    /// Preserves the legacy `AppDelegate`-unavailable vs surface-not-found split
+    /// (the coordinator maps each to the identical error).
     ///
-    /// - Parameter params: The raw command params.
-    /// - Returns: The fully shaped call result.
-    func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult
+    /// - Parameter surfaceID: The surface being moved.
+    /// - Returns: The source resolution.
+    func controlSurfaceMoveLocateSource(surfaceID: UUID) -> ControlSurfaceMoveSourceResolution
+
+    /// Locates the anchor surface for the `.anchor` routing branch of
+    /// `surface.move` (`before_surface_id` / `after_surface_id`).
+    ///
+    /// - Parameter surfaceID: The anchor surface id.
+    /// - Returns: The anchor snapshot, or `nil` when the anchor surface, its
+    ///   workspace, pane, or index did not resolve (legacy "Anchor surface not
+    ///   found").
+    func controlSurfaceMoveLocateAnchor(surfaceID: UUID) -> ControlSurfaceMoveAnchorSnapshot?
+
+    /// Locates the pane for the `.pane` routing branch of `surface.move`
+    /// (`pane_id`).
+    ///
+    /// - Parameter paneID: The requested destination pane id.
+    /// - Returns: The pane snapshot, or `nil` when the pane did not resolve
+    ///   (legacy "Pane not found").
+    func controlSurfaceMoveLocatePane(paneID: UUID) -> ControlSurfaceMovePaneSnapshot?
+
+    /// Locates the workspace for the `.workspace` routing branch of
+    /// `surface.move` (`workspace_id`).
+    ///
+    /// - Parameter workspaceID: The requested destination workspace id.
+    /// - Returns: The workspace snapshot, or `nil` when the workspace did not
+    ///   resolve (legacy "Workspace not found").
+    func controlSurfaceMoveLocateWorkspace(workspaceID: UUID) -> ControlSurfaceMoveWorkspaceSnapshot?
+
+    /// Locates the window for the `.window` routing branch of `surface.move`
+    /// (`window_id`), preserving the window-not-found vs no-selected-workspace
+    /// split.
+    ///
+    /// - Parameter windowID: The requested destination window id.
+    /// - Returns: The window resolution.
+    func controlSurfaceMoveLocateWindow(windowID: UUID) -> ControlSurfaceMoveWindowResolution
+
+    /// Performs the same-workspace in-place pane move for `surface.move`
+    /// (`Workspace.moveSurface`).
+    ///
+    /// The app resolves the requested-vs-allowed focus
+    /// (`v2FocusAllowed(requested:)`) itself.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The (shared source/target) workspace.
+    ///   - surfaceID: The surface being moved.
+    ///   - destinationPaneID: The destination pane.
+    ///   - index: The destination index, or `nil`.
+    ///   - requestedFocus: Whether the request asked to focus the surface.
+    /// - Returns: Whether the move succeeded (legacy `internal_error` / "Failed
+    ///   to move surface" on `false`).
+    func controlSurfaceMovePerformMove(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        destinationPaneID: UUID,
+        index: Int?,
+        requestedFocus: Bool
+    ) -> Bool
+
+    /// Performs the cross-workspace transfer for `surface.move`: detach from the
+    /// source workspace, attach onto the target (rolling back to the source
+    /// pane/index on attach failure), then focus the target when allowed.
+    ///
+    /// The app resolves the requested-vs-allowed focus
+    /// (`v2FocusAllowed(requested:)`) itself and drives
+    /// `setActiveTabManager` / `selectWorkspace` / `focusMainWindow`.
+    ///
+    /// - Parameters:
+    ///   - sourceWorkspaceID: The workspace the surface currently lives in.
+    ///   - sourcePaneID: The surface's current pane (for rollback), or `nil`.
+    ///   - sourceIndex: The surface's current index (for rollback), or `nil`.
+    ///   - targetWorkspaceID: The destination workspace.
+    ///   - targetWindowID: The destination window (focused on success).
+    ///   - surfaceID: The surface being moved.
+    ///   - destinationPaneID: The destination pane.
+    ///   - index: The destination index, or `nil`.
+    ///   - requestedFocus: Whether the request asked to focus the surface.
+    /// - Returns: The transfer outcome.
+    func controlSurfaceMovePerformTransfer(
+        sourceWorkspaceID: UUID,
+        sourcePaneID: UUID?,
+        sourceIndex: Int?,
+        targetWorkspaceID: UUID,
+        targetWindowID: UUID,
+        surfaceID: UUID,
+        destinationPaneID: UUID,
+        index: Int?,
+        requestedFocus: Bool
+    ) -> ControlSurfaceMoveTransferOutcome
 
     /// Reorders a surface within its pane for `surface.reorder`.
     ///

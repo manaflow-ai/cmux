@@ -12,19 +12,147 @@ import GhosttyKit
 /// that file's doc comment for the overview.
 extension TerminalController {
 
-    // MARK: - move (bridge to still-app-side v2SurfaceMove)
+    // MARK: - move
 
-    func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {
-        // `v2SurfaceMove` walks windows/workspaces/panes and mutates Bonsplit; it
-        // stays in TerminalController.swift (shared with pane.join). We forward the
-        // raw params and bridge its Foundation result, exactly as pane.join does.
-        let foundationParams = params.mapValues(\.foundationObject)
-        switch v2SurfaceMove(params: foundationParams) {
-        case let .ok(payload):
-            return .ok(JSONValue(foundationObject: payload) ?? .object([:]))
-        case let .err(code, message, data):
-            return .err(code: code, message: message, data: data.flatMap { JSONValue(foundationObject: $0) })
+    /// The former `v2SurfaceMove` `app.locateSurface` / `sourceWorkspace` reads,
+    /// preserving the `AppDelegate`-unavailable vs surface-not-found split. The
+    /// coordinator owns the routing precedence and branch; these witnesses keep
+    /// every live window/workspace/pane lookup and Bonsplit mutation app-side.
+    func controlSurfaceMoveLocateSource(surfaceID: UUID) -> ControlSurfaceMoveSourceResolution {
+        guard let app = AppDelegate.shared else { return .appUnavailable }
+        guard let source = app.locateSurface(surfaceId: surfaceID),
+              let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }) else {
+            return .surfaceNotFound
         }
+        let sourcePane = sourceWorkspace.paneId(forPanelId: surfaceID)
+        let sourceIndex = sourceWorkspace.indexInPane(forPanelId: surfaceID)
+        let defaultDestinationPane = sourcePane
+            ?? sourceWorkspace.bonsplitController.focusedPaneId
+            ?? sourceWorkspace.bonsplitController.allPaneIds.first
+        return .located(ControlSurfaceMoveSourceSnapshot(
+            windowID: source.windowId,
+            workspaceID: sourceWorkspace.id,
+            paneID: sourcePane?.id,
+            index: sourceIndex,
+            defaultDestinationPaneID: defaultDestinationPane?.id
+        ))
+    }
+
+    func controlSurfaceMoveLocateAnchor(surfaceID: UUID) -> ControlSurfaceMoveAnchorSnapshot? {
+        guard let app = AppDelegate.shared,
+              let anchor = app.locateSurface(surfaceId: surfaceID),
+              let anchorWorkspace = anchor.tabManager.tabs.first(where: { $0.id == anchor.workspaceId }),
+              let anchorPane = anchorWorkspace.paneId(forPanelId: surfaceID),
+              let anchorIndex = anchorWorkspace.indexInPane(forPanelId: surfaceID) else {
+            return nil
+        }
+        return ControlSurfaceMoveAnchorSnapshot(
+            windowID: anchor.windowId,
+            workspaceID: anchorWorkspace.id,
+            paneID: anchorPane.id,
+            index: anchorIndex
+        )
+    }
+
+    func controlSurfaceMoveLocatePane(paneID: UUID) -> ControlSurfaceMovePaneSnapshot? {
+        guard let located = v2LocatePane(paneID) else { return nil }
+        return ControlSurfaceMovePaneSnapshot(
+            windowID: located.windowId,
+            workspaceID: located.workspace.id,
+            paneID: located.paneId.id
+        )
+    }
+
+    func controlSurfaceMoveLocateWorkspace(workspaceID: UUID) -> ControlSurfaceMoveWorkspaceSnapshot? {
+        guard let app = AppDelegate.shared,
+              let tabManager = app.tabManagerFor(tabId: workspaceID),
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            return nil
+        }
+        let destinationPane = workspace.bonsplitController.focusedPaneId
+            ?? workspace.bonsplitController.allPaneIds.first
+        return ControlSurfaceMoveWorkspaceSnapshot(
+            windowID: app.windowId(for: tabManager),
+            workspaceID: workspace.id,
+            destinationPaneID: destinationPane?.id
+        )
+    }
+
+    func controlSurfaceMoveLocateWindow(windowID: UUID) -> ControlSurfaceMoveWindowResolution {
+        guard let app = AppDelegate.shared, let tabManager = app.tabManagerFor(windowId: windowID) else {
+            return .windowNotFound
+        }
+        guard let selectedWorkspaceId = tabManager.selectedTabId,
+              let workspace = tabManager.tabs.first(where: { $0.id == selectedWorkspaceId }) else {
+            return .noSelectedWorkspace
+        }
+        let destinationPane = workspace.bonsplitController.focusedPaneId
+            ?? workspace.bonsplitController.allPaneIds.first
+        return .resolved(workspaceID: workspace.id, destinationPaneID: destinationPane?.id)
+    }
+
+    func controlSurfaceMovePerformMove(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        destinationPaneID: UUID,
+        index: Int?,
+        requestedFocus: Bool
+    ) -> Bool {
+        let focus = v2FocusAllowed(requested: requestedFocus)
+        guard let app = AppDelegate.shared,
+              let tabManager = app.tabManagerFor(tabId: workspaceID),
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }),
+              let destinationPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == destinationPaneID }) else {
+            return false
+        }
+        return workspace.moveSurface(panelId: surfaceID, toPane: destinationPane, atIndex: index, focus: focus)
+    }
+
+    func controlSurfaceMovePerformTransfer(
+        sourceWorkspaceID: UUID,
+        sourcePaneID: UUID?,
+        sourceIndex: Int?,
+        targetWorkspaceID: UUID,
+        targetWindowID: UUID,
+        surfaceID: UUID,
+        destinationPaneID: UUID,
+        index: Int?,
+        requestedFocus: Bool
+    ) -> ControlSurfaceMoveTransferOutcome {
+        let focus = v2FocusAllowed(requested: requestedFocus)
+        guard let app = AppDelegate.shared,
+              let sourceTabManager = app.tabManagerFor(tabId: sourceWorkspaceID),
+              let sourceWorkspace = sourceTabManager.tabs.first(where: { $0.id == sourceWorkspaceID }),
+              let targetTabManager = app.tabManagerFor(tabId: targetWorkspaceID),
+              let targetWorkspace = targetTabManager.tabs.first(where: { $0.id == targetWorkspaceID }),
+              let destinationPane = targetWorkspace.bonsplitController.allPaneIds.first(where: { $0.id == destinationPaneID }) else {
+            return .detachFailed
+        }
+
+        guard let transfer = sourceWorkspace.detachSurface(panelId: surfaceID) else {
+            return .detachFailed
+        }
+
+        if targetWorkspace.attachDetachedSurface(transfer, inPane: destinationPane, atIndex: index, focus: focus) == nil {
+            // Roll back to source workspace if attach fails.
+            let rollbackPane = sourcePaneID.flatMap { paneID in
+                sourceWorkspace.bonsplitController.allPaneIds.first(where: { $0.id == paneID })
+            }
+                ?? sourceWorkspace.bonsplitController.focusedPaneId
+                ?? sourceWorkspace.bonsplitController.allPaneIds.first
+            if let rollbackPane {
+                _ = sourceWorkspace.attachDetachedSurface(transfer, inPane: rollbackPane, atIndex: sourceIndex, focus: focus)
+            }
+            return .attachFailed
+        }
+
+        if focus {
+            _ = app.focusMainWindow(windowId: targetWindowID)
+            setActiveTabManager(targetTabManager)
+            targetTabManager.selectWorkspace(targetWorkspace)
+        }
+
+        return .transferred
     }
 
     // MARK: - reorder

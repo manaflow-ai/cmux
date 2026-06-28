@@ -466,9 +466,35 @@ extension ControlSurfaceContext {
         surfaceID: UUID?
     ) -> ControlSurfaceCloseResolution { .tabManagerUnavailable }
 
-    func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {
-        .err(code: "internal_error", message: "", data: nil)
-    }
+    func controlSurfaceMoveLocateSource(surfaceID: UUID) -> ControlSurfaceMoveSourceResolution { .surfaceNotFound }
+
+    func controlSurfaceMoveLocateAnchor(surfaceID: UUID) -> ControlSurfaceMoveAnchorSnapshot? { nil }
+
+    func controlSurfaceMoveLocatePane(paneID: UUID) -> ControlSurfaceMovePaneSnapshot? { nil }
+
+    func controlSurfaceMoveLocateWorkspace(workspaceID: UUID) -> ControlSurfaceMoveWorkspaceSnapshot? { nil }
+
+    func controlSurfaceMoveLocateWindow(windowID: UUID) -> ControlSurfaceMoveWindowResolution { .windowNotFound }
+
+    func controlSurfaceMovePerformMove(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        destinationPaneID: UUID,
+        index: Int?,
+        requestedFocus: Bool
+    ) -> Bool { false }
+
+    func controlSurfaceMovePerformTransfer(
+        sourceWorkspaceID: UUID,
+        sourcePaneID: UUID?,
+        sourceIndex: Int?,
+        targetWorkspaceID: UUID,
+        targetWindowID: UUID,
+        surfaceID: UUID,
+        destinationPaneID: UUID,
+        index: Int?,
+        requestedFocus: Bool
+    ) -> ControlSurfaceMoveTransferOutcome { .detachFailed }
 
     func controlSurfaceReorder(
         surfaceID: UUID,

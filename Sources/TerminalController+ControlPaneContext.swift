@@ -554,34 +554,19 @@ extension TerminalController: ControlPaneContext {
             return .missingSurface
         }
 
-        var moveParams: [String: Any] = [
-            "surface_id": surfaceId.uuidString,
-            "pane_id": targetPaneID.uuidString,
+        // The surface-move logic now lives on the coordinator
+        // (`ControlCommandCoordinator.surfaceMove`); `pane.join` forwards the
+        // resolved move through the same public entry `surface.move` dispatches
+        // to, so both surfaces share one path (the legacy `pane.join` delegated to
+        // `v2SurfaceMove`).
+        var moveParams: [String: JSONValue] = [
+            "surface_id": .string(surfaceId.uuidString),
+            "pane_id": .string(targetPaneID.uuidString),
         ]
         if hasFocusParam {
-            moveParams["focus"] = focus
+            moveParams["focus"] = .bool(focus)
         }
-        return .moved(v2SurfaceMoveControlResult(params: moveParams))
-    }
-
-    /// Runs the legacy `v2SurfaceMove` and bridges its Foundation-shaped
-    /// `V2CallResult` to the typed `ControlCallResult` (the exact pattern
-    /// `bridgeMobileResult` uses), so `pane.join` forwards the surface-move
-    /// outcome byte-faithfully. `v2SurfaceMove` is currently `private`; the
-    /// integrator must relax it to at least `internal` (it lives in
-    /// `TerminalController.swift`, which this extension cannot reach while
-    /// `private`).
-    private func v2SurfaceMoveControlResult(params: [String: Any]) -> ControlCallResult {
-        switch v2SurfaceMove(params: params) {
-        case let .ok(payload):
-            return .ok(JSONValue(foundationObject: payload) ?? .object([:]))
-        case let .err(code, message, data):
-            return .err(
-                code: code,
-                message: message,
-                data: data.flatMap { JSONValue(foundationObject: $0) }
-            )
-        }
+        return .moved(controlCommandCoordinator.surfaceMove(moveParams))
     }
 
     // MARK: - last
