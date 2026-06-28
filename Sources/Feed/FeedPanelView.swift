@@ -4,6 +4,7 @@ import CMUXAgentLaunch
 import CmuxAppKitSupportUI
 import CmuxFeedUI
 import CmuxSidebar
+import CmuxWindowing
 import SwiftUI
 #if DEBUG
 private func feedDebugResponderSummary(_ responder: NSResponder?) -> String {

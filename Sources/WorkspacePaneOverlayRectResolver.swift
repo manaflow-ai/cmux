@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import Bonsplit
+import CmuxWindowing
 import CmuxWorkspaces
 
 /// Resolves the tmux-style pane overlay rectangles (unread dots and the

@@ -6,6 +6,7 @@ import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebar
+import CmuxWindowing
 import SwiftUI
 
 private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {

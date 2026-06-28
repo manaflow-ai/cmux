@@ -3,6 +3,7 @@ import CmuxAppKitSupportUI
 import CmuxBrowser
 import CmuxFoundation
 import CmuxSettings
+import CmuxWindowing
 import SwiftUI
 
 /// App-target owner of the About / debug-window content builders that were

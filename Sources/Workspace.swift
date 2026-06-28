@@ -1,5 +1,6 @@
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxWindowing
 import Foundation
 import CmuxCore
 import CmuxRemoteDaemon
