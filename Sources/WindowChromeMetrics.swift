@@ -1,10 +1,6 @@
 import CmuxWindowing
 import CoreGraphics
 
-enum MinimalModeChromeMetrics {
-    static let titlebarHeight: CGFloat = WindowChromeMetrics.appTitlebarHeight
-}
-
 enum SidebarWorkspaceListMetrics {
     static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
     static let rowVerticalPadding: CGFloat = 8

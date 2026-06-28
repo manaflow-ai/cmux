@@ -4,6 +4,7 @@ import AppKit
 import CmuxFoundation
 import Bonsplit
 import CmuxCore
+import CmuxWindowing
 import CmuxWorkspaces
 import CmuxTerminal
 import CmuxTerminalCore
