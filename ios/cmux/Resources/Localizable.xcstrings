@@ -3860,6 +3860,23 @@
         }
       }
     },
+    "mobile.settings.oneFingerSelects": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap-drag selects text (two fingers to scroll)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップしてドラッグでテキストを選択（2本指でスクロール）"
+          }
+        }
+      }
+    },
     "mobile.settings.pointsFormat": {
       "extractionState": "manual",
       "localizations": {
@@ -6984,6 +7001,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペース"
+          }
+        }
+      }
+    },
+    "terminal.copy_toast.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Copied %lld character"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Copied %lld characters"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld文字をコピーしました"
+                }
+              }
+            }
           }
         }
       }

@@ -7,7 +7,7 @@ import GhosttyKit
 import OSLog
 import UIKit
 
-private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
+nonisolated private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
 // lint:allow namespace-enum — file-local DEBUG input-trace logger on the off-limits typing-latency render path; type reshape deferred to the GhosttySurfaceView UI-god-object split wave.
 enum TerminalInputDebugLog {
@@ -24,19 +24,11 @@ enum TerminalInputDebugLog {
         logger.debug("input: \(message, privacy: .public)")
     }
 
-    static func textSummary(_ text: String) -> String {
-        let summary = String(reflecting: text)
-        guard summary.count > 96 else { return summary }
-        return "\(summary.prefix(96))..."
-    }
-
+    /// Byte COUNT only — never the bytes (or their UTF-8 decoding) themselves.
+    /// Encoded input can carry typed terminal content (and thus secrets), so the
+    /// trace is limited to a length even behind `#if DEBUG` + `CMUX_INPUT_DEBUG`.
     static func dataSummary(_ data: Data) -> String {
-        let prefix = data.prefix(32)
-        let prefixData = Data(prefix)
-        let hex = prefix.map { String(format: "%02X", $0) }.joined(separator: " ")
-        let utf8 = String(data: prefixData, encoding: .utf8) ?? "<non-utf8>"
-        let suffix = data.count > prefix.count ? " ..." : ""
-        return "len=\(data.count) hex=\(hex)\(suffix) utf8=\(textSummary(utf8))"
+        "len=\(data.count)"
     }
 }
 
@@ -575,10 +567,43 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// elapsed time regardless of frame rate.
     private var zoomOverlayLastInteraction: CFTimeInterval = 0
     private static let zoomOverlayVisibleDuration: CFTimeInterval = 2.5
+    /// Transient "Copied N characters" HUD shown after a drag-select copy, created
+    /// lazily on the first copy. A blur chip + label (matching the zoom HUD's
+    /// title chip), centered near the top so it never overlaps the centered zoom
+    /// HUD.
+    var copyToastOverlay: UIView?
+    /// The "Copied N characters" label hosted inside ``copyToastOverlay``; its text
+    /// is refreshed on each copy.
+    var copyToastLabel: UILabel?
+    /// Whether the copy toast is currently presented (alpha animating toward 1).
+    var copyToastShown = false
+    /// Media time the copy toast was last shown. The display link fades it once
+    /// this is older than `copyToastVisibleDuration` — time-based off the per-frame
+    /// callback, NOT a `Timer`/`DispatchQueue.asyncAfter`, so it honors the same
+    /// no-sleep rule as the zoom HUD fade and tracks real elapsed time.
+    var copyToastLastShown: CFTimeInterval = 0
+    /// How long (seconds) the copy toast stays fully shown after the last copy
+    /// before the display-link fade begins.
+    private static let copyToastVisibleDuration: CFTimeInterval = 1.5
     /// Persisted user "default zoom" backing the zoom-control overlay's
     /// reset/save/restore actions. Owned by the surface (constructed at init)
     /// rather than reached through a singleton, so it is injectable in tests.
     private let zoomPreference = MobileTerminalZoomPreference()
+    /// Persisted "one-finger selects / two-finger scrolls" gesture mode. Owned by
+    /// the surface (like ``zoomPreference``) so it is injectable in tests; applied
+    /// live via ``applyGesturePreference()`` on its change notification.
+    let gesturePreference = MobileTerminalGesturePreference()
+    /// The one-finger text-selection drag, retained weakly so
+    /// ``applyGesturePreference()`` can enable/disable it as the preference flips.
+    /// Restricted to `.direct` (finger) touches so it never double-fires with the
+    /// indirect-pointer selection pan below.
+    weak var selectionPanRecognizer: UIPanGestureRecognizer?
+    /// The trackpad / indirect-pointer (mouse) click-drag text-selection pan,
+    /// routed to the same ``handleSelectionPan(_:)`` handler. Restricted to
+    /// `.indirectPointer` touches and kept always-enabled: the one-finger-selects
+    /// preference governs finger touches only, and a trackpad click-drag is
+    /// unambiguous selection intent.
+    weak var selectionPointerPanRecognizer: UIPanGestureRecognizer?
     private let bridge = GhosttySurfaceBridge()
     private let prefersSnapshotFallbackRendering = false
     var onFocusInputRequestedForTesting: (() -> Void)?
@@ -586,6 +611,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var displayLink: CADisplayLink?
     private var cursorBlinkState = TerminalCursorBlinkState()
     private var cursorOverlayLayer: CALayer?
+    /// Self-owned drag-selection highlight, layered above the Metal surface so
+    /// inbound render-grid frames never overwrite it. The on-device ghostty
+    /// selection is invisible on the iPad mirror (the Mac owns it and re-streams
+    /// highlighted cells), so the one-finger / trackpad drag selection is drawn
+    /// and tracked entirely here; see ``handleSelectionPan(_:)``. Lazily created
+    /// on the first drag.
+    var selectionOverlay: TerminalSelectionOverlay?
+    /// Viewport cell captured at the drag's true touch-down (`.began`), held as
+    /// the fixed anchor while the focus cell tracks the finger on `.changed`.
+    /// `nil` whenever no drag selection is in flight.
+    var selectionAnchorCell: TerminalGridCell?
+    /// Terminal `selection-background` color, read from config alongside the
+    /// background/cursor colors. `nil` falls back to a translucent system tint.
+    private(set) var configSelectionColor: UIColor?
     /// Whether the host terminal currently wants the cursor shown (DECTCEM).
     /// TUIs that hide the cursor (vim, fzf, htop, less, …) emit `ESC [ ? 25 l`;
     /// the render-grid producer forwards that in the VT-patch bytes, so we track
@@ -655,7 +694,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
-    private lazy var scrollMechanicsView: UIScrollView = {
+    /// Full-bounds, content-less scroll view whose pan/momentum drives terminal
+    /// scrollback (translated to wheel reports), kept above the Metal surface. Its
+    /// `panGestureRecognizer` touch-count is retuned by ``applyGesturePreference()``
+    /// so one-finger drags can be handed to text selection instead.
+    lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear
         view.isOpaque = false
@@ -825,7 +868,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// `ghostty_surface_size` measurement. Used to translate an effective
     /// cols×rows pin into a pixel box without re-round-tripping through
     /// Ghostty. Zero until the first layout has measured.
-    private var cellPixelSize: CGSize = .zero
+    var cellPixelSize: CGSize = .zero
     /// 1 px separator stroke drawn around the pinned surface rect when the
     /// container is larger than the render target (i.e., this device is
     /// not the smallest). Added lazily on first letterbox.
@@ -833,7 +876,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Last render rect used for the Ghostty surface inside the host view's
     /// coordinate space. Kept so the border layer can match it without a
     /// second set_size round-trip.
-    private var lastRenderRect: CGRect = .zero
+    var lastRenderRect: CGRect = .zero
     private var keyboardHeightAnimation: TerminalKeyboardHeightAnimation?
     private var keyboardHeightAnimationID = 0
 
@@ -906,7 +949,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // Replace \n with \r (terminals expect CR for Return).
             let normalized = text.replacingOccurrences(of: "\n", with: "\r")
             let data = Data(normalized.utf8)
-            TerminalInputDebugLog.log("surface.onText text=\(TerminalInputDebugLog.textSummary(text)) data=\(TerminalInputDebugLog.dataSummary(data))")
+            TerminalInputDebugLog.log("surface.onText textLen=\(text.count) \(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
         inputProxy.onBackspace = { [weak self] in
@@ -914,13 +957,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             self.resetCursorBlink()
             // Send DEL (0x7F) directly to transport as raw byte.
             let data = Data([0x7F])
-            TerminalInputDebugLog.log("surface.onBackspace data=\(TerminalInputDebugLog.dataSummary(data))")
+            TerminalInputDebugLog.log("surface.onBackspace \(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
         inputProxy.onEscapeSequence = { [weak self] data in
             guard let self else { return }
             self.resetCursorBlink()
-            TerminalInputDebugLog.log("surface.onEscape data=\(TerminalInputDebugLog.dataSummary(data))")
+            TerminalInputDebugLog.log("surface.onEscape \(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
         inputProxy.onPasteImage = { [weak self] data, format in
@@ -1028,6 +1071,31 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         addGestureRecognizer(pinch)
 
+        // One-finger text-selection drag. Enabled (and the scroll view bumped to
+        // two-finger) only while `gesturePreference.oneFingerSelects` is on; see
+        // `applyGesturePreference()`, called at the end of init and on the pref's
+        // change notification.
+        let selectPan = UIPanGestureRecognizer(target: self, action: #selector(handleSelectionPan(_:)))
+        selectPan.maximumNumberOfTouches = 1
+        selectPan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        selectPan.delegate = self
+        addGestureRecognizer(selectPan)
+        selectionPanRecognizer = selectPan
+
+        // Trackpad / indirect-pointer (mouse) click-drag selection. Same handler
+        // as `selectPan`, but restricted to `.indirectPointer` touches so the two
+        // never double-fire, and always enabled (a trackpad click-drag is
+        // unambiguous selection intent, independent of the one-finger-selects
+        // touch preference). `allowedScrollTypesMask` stays empty: two-finger
+        // trackpad scrolling is a scroll event handled by `scrollMechanicsView`,
+        // not a pointer click-drag, so this pan correctly ignores it.
+        let pointerSelectPan = UIPanGestureRecognizer(target: self, action: #selector(handleSelectionPan(_:)))
+        pointerSelectPan.maximumNumberOfTouches = 1
+        pointerSelectPan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)]
+        pointerSelectPan.delegate = self
+        addGestureRecognizer(pointerSelectPan)
+        selectionPointerPanRecognizer = pointerSelectPan
+
         // Suspend rendering on `willResignActive` (fires before
         // `didEnterBackground`, while the GPU is still usable) so an in-flight
         // `render_now` drains and no new one is dispatched into the background.
@@ -1062,6 +1130,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             name: UIResponder.keyboardWillChangeFrameNotification,
             object: nil
         )
+        // Flip the one-finger-selects / two-finger-scroll wiring live when the
+        // Settings toggle changes it.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleGesturePreferenceChanged),
+            name: MobileTerminalGesturePreference.didChangeNotification,
+            object: nil
+        )
+
+        applyGesturePreference()
     }
 
     @objc private func handleAppWillResignActive() {
@@ -1130,7 +1208,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// much to keep the bottom TUI rows visible above it. 0 until the toolbar is
     /// installed (`installPersistentToolbar`), so the home-indicator reservation
     /// still lands even if the toolbar UI is absent.
-    private var reservedToolbarHeight: CGFloat = 0
+    var reservedToolbarHeight: CGFloat = 0
     /// Height of the docked accessory bar reserved in the grid geometry so the
     /// bottom TUI rows stay visible above it. Locked to the bar's actual button-row
     /// height (`TerminalInputTextView.dockedButtonRowHeight`) so the grid reserves
@@ -1172,7 +1250,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// grid reservation adds this so a field-grow pushes the toolbar and terminal
     /// above it upward while the band stays pinned to the keyboard — the keyboard
     /// itself never moves.
-    private var composerBandHeight: CGFloat = 0
+    var composerBandHeight: CGFloat = 0
     /// True once SwiftUI has dismantled the hosting representable for this
     /// surface. A dismantled surface performs no render, output, or
     /// accessibility work so a view SwiftUI has removed cannot keep driving the
@@ -1387,7 +1465,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// sit flush on the screen edge — this returns ``safeAreaInsetsBottom`` then. The
     /// composer band and toolbar stack ABOVE this inset; the grid reserves it too.
     /// Used by ``bottomDockFrames()`` and the grid reservation.
-    private var keyboardOccupancyInBounds: CGFloat {
+    var keyboardOccupancyInBounds: CGFloat {
         TerminalLetterboxGeometry.keyboardOccupancy(
             keyboardHeight: keyboardHeight,
             bottomSafeAreaInset: safeAreaInsetsBottom
@@ -1926,14 +2004,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
-    /// alt-screen mouse-wheel reports at the cell under the finger.
-    private func scrollCell(at point: CGPoint) -> (col: Int, row: Int) {
-        let scale = max(preferredScreenScale, 1)
-        let cellW = max(cellPixelSize.width / scale, 1)
-        let cellH = max(cellPixelSize.height / scale, 1)
-        let col = max(0, Int((point.x - lastRenderRect.minX) / cellW))
-        let row = max(0, Int((point.y - lastRenderRect.minY) / cellH))
-        return (col, row)
+    /// alt-screen mouse-wheel reports at the cell under the finger and the drag
+    /// selection anchors on the cell the finger is actually over. Routed through
+    /// ``selectionGeometry(for:)`` so this point→cell hit-test and the overlay's
+    /// cell→rect math are the SAME ghostty geometry — true cell advance plus the
+    /// `window-padding` glyph inset — and can never drift apart.
+    func scrollCell(at point: CGPoint) -> (col: Int, row: Int) {
+        guard let surface, let geometry = selectionGeometry(for: surface) else { return (0, 0) }
+        let cell = geometry.cell(at: point)
+        return (cell.col, cell.row)
     }
 
     private func flushPendingScrollIfNeeded() {
@@ -1957,6 +2036,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // brings back a still-presented composer must restore focus to the COMPOSER
         // field, not the terminal proxy — otherwise the next compose-button tap reads
         // "presented but unfocused" and the prior round dismissed it, losing the draft.
+        // A tap elsewhere dismisses the local drag-selection highlight. The
+        // Mac-owned word/line highlight (double/triple-tap, rendered into the
+        // Metal layer) is independent and unaffected.
+        clearLocalSelectionOverlay()
         let wasHidden = chromeHidden
         if chromeHidden {
             setChromeHidden(false)
@@ -1980,6 +2063,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         switch gesture.state {
         case .began:
             pinchAccumulatedScale = 1.0
+            // A zoom changes the cell size and reflows the viewport, so any
+            // painted selection rects would land on the wrong cells. Drop it.
+            clearLocalSelectionOverlay()
         case .changed:
             let delta = gesture.scale - pinchAccumulatedScale
             if abs(delta) >= 0.15 {
@@ -2570,6 +2656,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     func disposeSurface() {
         stopDisplayLink()
+        clearLocalSelectionOverlay()
         guard let surface else { return }
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
@@ -2591,7 +2678,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private var preferredScreenScale: CGFloat {
+    /// The device pixel scale used to convert ghostty's pixel metrics to points
+    /// (renderer scale factor, selection geometry, cell sizing). Prefers the
+    /// hosting scene's screen scale, falls back to the trait `displayScale`, and
+    /// defaults to `2` before the view joins a window.
+    var preferredScreenScale: CGFloat {
         if let screen = window?.windowScene?.screen {
             return screen.scale
         }
@@ -2772,6 +2863,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
            CACurrentMediaTime() - zoomOverlayLastInteraction > Self.zoomOverlayVisibleDuration {
             fadeOutZoomOverlay()
         }
+
+        // Fade the copy toast on the SAME quiet-elapsed check, off the same
+        // display link (no timer / `Task.sleep`).
+        if copyToastShown,
+           CACurrentMediaTime() - copyToastLastShown > Self.copyToastVisibleDuration {
+            fadeOutCopyToast()
+        }
     }
 
     /// Drive a full render cycle via `ghostty_surface_render_now`, dispatched
@@ -2933,6 +3031,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 red: CGFloat(cursorColor.r) / 255.0,
                 green: CGFloat(cursorColor.g) / 255.0,
                 blue: CGFloat(cursorColor.b) / 255.0,
+                alpha: 1.0
+            )
+        }
+        var selectionColor = ghostty_config_color_s()
+        let selectionKey = "selection-background"
+        if ghostty_config_get(config, &selectionColor, selectionKey, UInt(selectionKey.lengthOfBytes(using: .utf8))) {
+            configSelectionColor = UIColor(
+                red: CGFloat(selectionColor.r) / 255.0,
+                green: CGFloat(selectionColor.g) / 255.0,
+                blue: CGFloat(selectionColor.b) / 255.0,
                 alpha: 1.0
             )
         }
@@ -3345,7 +3453,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // flows through `inputProxy` (`didProduceInput`), not here, so dropping
         // these is safe.
         #if DEBUG
-        TerminalInputDebugLog.log("surface.outboundDropped data=\(TerminalInputDebugLog.dataSummary(bytes))")
+        TerminalInputDebugLog.log("surface.outboundDropped \(TerminalInputDebugLog.dataSummary(bytes))")
         #endif
     }
 
@@ -3622,6 +3730,24 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
         }
         return true
     }
+
+    /// Let the text-selection pans recognize alongside the full-bounds scroll
+    /// view's recognizers (and its private single-finger touch tracking). The
+    /// scroll view fills the surface and cancels content touches, so UIKit's
+    /// default exclusive arbitration let it starve the ancestor selection pan —
+    /// a one-finger hold-drag never reached `.began` on device. Scoped to the
+    /// selection pans only (direct + indirect pointer); scroll/pinch/tap
+    /// arbitration is unchanged. The pans still honor their own touch-count
+    /// limits, so a two-finger scroll never trips the one-finger selection pan.
+    public func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer === selectionPanRecognizer
+            || gestureRecognizer === selectionPointerPanRecognizer
+            || otherGestureRecognizer === selectionPanRecognizer
+            || otherGestureRecognizer === selectionPointerPanRecognizer
+    }
 }
 
 extension GhosttySurfaceView: UIScrollViewDelegate {
@@ -3639,6 +3765,12 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
 
         let deltaY = offsetY - previousOffsetY
         lastScrollMechanicsOffsetY = offsetY
+        if deltaY != 0 {
+            // Scrolling shifts viewport content under the (viewport-anchored)
+            // highlight, so the painted rects no longer match the selected
+            // cells. Drop the local selection on any real scroll delta.
+            clearLocalSelectionOverlay()
+        }
         if scrollView.isTracking || scrollView.isDragging {
             lastScrollMechanicsTouchPoint = scrollView.panGestureRecognizer.location(in: self)
         }

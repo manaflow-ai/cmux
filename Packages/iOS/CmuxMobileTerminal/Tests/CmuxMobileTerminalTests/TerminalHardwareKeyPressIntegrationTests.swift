@@ -1,0 +1,348 @@
+#if canImport(UIKit)
+import Foundation
+import Testing
+import UIKit
+@testable import CmuxMobileTerminal
+
+// MARK: - UIKit press doubles
+
+/// A `UIKey` whose four read fields the capture path consults
+/// (`keyCode`, `modifierFlags`, `characters`, `charactersIgnoringModifiers`) are
+/// fully controlled. UIKit never sees this object; only our own `pressesBegan`
+/// override reads it, so overriding the public getters fully simulates any
+/// physical key chord.
+private final class FakeKey: UIKey {
+    private let _keyCode: UIKeyboardHIDUsage
+    private let _modifierFlags: UIKeyModifierFlags
+    private let _characters: String
+
+    init(keyCode: UIKeyboardHIDUsage, modifierFlags: UIKeyModifierFlags, characters: String) {
+        _keyCode = keyCode
+        _modifierFlags = modifierFlags
+        _characters = characters
+        super.init()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("unused in tests") }
+
+    override var keyCode: UIKeyboardHIDUsage { _keyCode }
+    override var modifierFlags: UIKeyModifierFlags { _modifierFlags }
+    override var characters: String { _characters }
+    override var charactersIgnoringModifiers: String { _characters }
+}
+
+/// A `UIPress` that vends a ``FakeKey``. The capture path reads only `press.key`,
+/// so `phase`/`type` keep their defaults.
+private final class FakePress: UIPress {
+    private let _key: UIKey?
+    init(key: UIKey?) {
+        _key = key
+        super.init()
+    }
+    override var key: UIKey? { _key }
+}
+
+// MARK: - Deterministic hold-to-repeat timer doubles
+
+/// A ``TerminalKeyRepeatTimerFactory`` that records every timer it makes and
+/// lets the test fire ticks synchronously, so hold-to-repeat cadence is
+/// exercised with zero real `DispatchSourceTimer` scheduling and no wall-clock
+/// waiting — the deterministic replacement for the reverted clock-driven path.
+@MainActor
+private final class FakeKeyRepeatTimerFactory: TerminalKeyRepeatTimerFactory {
+    private(set) var timers: [FakeKeyRepeatTimer] = []
+
+    func makeRepeatTimer(
+        initialDelay: Duration,
+        interval: Duration,
+        onTick: @escaping @MainActor () -> Void
+    ) -> any TerminalKeyRepeatTimer {
+        let timer = FakeKeyRepeatTimer(initialDelay: initialDelay, interval: interval, onTick: onTick)
+        timers.append(timer)
+        return timer
+    }
+}
+
+/// A fake ``TerminalKeyRepeatTimer`` whose ticks are driven manually by
+/// ``fire()`` and which records its cadence and cancellation for assertions.
+@MainActor
+private final class FakeKeyRepeatTimer: TerminalKeyRepeatTimer {
+    let initialDelay: Duration
+    let interval: Duration
+    private let onTick: @MainActor () -> Void
+    private(set) var isCancelled = false
+
+    init(initialDelay: Duration, interval: Duration, onTick: @escaping @MainActor () -> Void) {
+        self.initialDelay = initialDelay
+        self.interval = interval
+        self.onTick = onTick
+    }
+
+    /// Simulate one timer tick (the first after `initialDelay`, or a later
+    /// `interval` repeat). A no-op once cancelled, exactly like a real timer.
+    func fire() {
+        guard !isCancelled else { return }
+        onTick()
+    }
+
+    func cancel() { isCancelled = true }
+}
+
+private func hexString(_ data: Data) -> String {
+    data.map { String(format: "%02X", $0) }.joined(separator: " ")
+}
+
+/// One hardware chord → the exact send-sink bytes it must produce (hex).
+struct PressCase: Sendable, CustomTestStringConvertible {
+    let label: String
+    let keyCode: UIKeyboardHIDUsage
+    let modifiers: UIKeyModifierFlags
+    let characters: String
+    let expectedHex: String
+
+    var testDescription: String { "\(label) → \(expectedHex)" }
+}
+
+/// The full asserted table (key → exact send-sink bytes, hex). After the fix:
+///  - Option+Left/Right emit the readline META word-move bytes `ESC b`/`ESC f`
+///    (what macOS terminals send for Option+Arrow and what zsh/bash bind);
+///  - Ctrl+Left/Right ALSO collapse to the readline META word-move bytes
+///    `ESC b`/`ESC f` (zsh/bash leave the xterm `ESC[1;5D`/`ESC[1;5C` cursor form
+///    UNBOUND, so it would self-insert as literal text) — same policy as Option,
+///    matching `TerminalKeyEncoder.cursorSequence`;
+///  - plain/Shift arrows, Home/Ctrl+Home, and the Ctrl-letter C0 codes are
+///    unchanged and correct.
+let pressCases: [PressCase] = [
+    PressCase(label: "plain Left", keyCode: .keyboardLeftArrow, modifiers: [], characters: "\u{F702}", expectedHex: "1B 5B 44"),
+    PressCase(label: "Option+Left", keyCode: .keyboardLeftArrow, modifiers: [.alternate], characters: "\u{F702}", expectedHex: "1B 62"),
+    PressCase(label: "Option+Right", keyCode: .keyboardRightArrow, modifiers: [.alternate], characters: "\u{F703}", expectedHex: "1B 66"),
+    PressCase(label: "Ctrl+Left", keyCode: .keyboardLeftArrow, modifiers: [.control], characters: "\u{F702}", expectedHex: "1B 62"),
+    PressCase(label: "Ctrl+Right", keyCode: .keyboardRightArrow, modifiers: [.control], characters: "\u{F703}", expectedHex: "1B 66"),
+    PressCase(label: "Shift+Left", keyCode: .keyboardLeftArrow, modifiers: [.shift], characters: "\u{F702}", expectedHex: "1B 5B 31 3B 32 44"),
+    PressCase(label: "Ctrl+C", keyCode: .keyboardC, modifiers: [.control], characters: "c", expectedHex: "03"),
+    PressCase(label: "Ctrl+W", keyCode: .keyboardW, modifiers: [.control], characters: "w", expectedHex: "17"),
+    PressCase(label: "Ctrl+U", keyCode: .keyboardU, modifiers: [.control], characters: "u", expectedHex: "15"),
+    PressCase(label: "Alt+b", keyCode: .keyboardB, modifiers: [.alternate], characters: "b", expectedHex: "1B 62"),
+    PressCase(label: "Home", keyCode: .keyboardHome, modifiers: [], characters: "\u{F729}", expectedHex: "1B 5B 48"),
+    PressCase(label: "Ctrl+Home", keyCode: .keyboardHome, modifiers: [.control], characters: "\u{F729}", expectedHex: "1B 5B 31 3B 35 7E"),
+]
+
+/// Byte-level INTEGRATION tests for the hardware-keyboard capture path.
+///
+/// These drive a fabricated ``UIPress`` through the real
+/// ``TerminalInputTextView/pressesBegan(_:with:)`` path, which delegates to
+/// ``TerminalHardwareKeyCapture`` — `pressesBegan` → `handleHardwarePress` →
+/// `shouldConsume` → `terminalInput(for:)` (keyCode→input map) →
+/// ``TerminalHardwareKeyResolver`` → ``TerminalKeyEncoder`` → emit — and assert
+/// the EXACT bytes that reach the ``TerminalInputTextView/onEscapeSequence`` send
+/// sink (the same bytes `GhosttySurfaceView` forwards verbatim to the Mac
+/// transport). Unlike the encoder unit tests, this proves the keyCode mapping,
+/// the consume decision, and the emit wiring end to end.
+@MainActor
+@Suite("TerminalInputTextView hardware-press byte path")
+struct TerminalHardwareKeyPressIntegrationTests {
+    /// Drive one fabricated press through the real capture path and return every
+    /// byte block delivered to the send sink (`onEscapeSequence`). A modified
+    /// arrow that wrongly fell back to plain text/backspace would surface as a
+    /// `TEXT:`/`BACKSPACE` block instead, failing the exact-bytes assertion.
+    private func emitted(
+        keyCode: UIKeyboardHIDUsage,
+        modifiers: UIKeyModifierFlags,
+        characters: String
+    ) -> [Data] {
+        // A fake timer factory keeps every hold-to-repeat timer inert (it only
+        // ticks when the test calls `fire()`), so these byte-table cases never
+        // touch a real `DispatchSourceTimer` or the wall clock.
+        let view = TerminalInputTextView(keyRepeatTimerFactory: FakeKeyRepeatTimerFactory())
+        var captured: [Data] = []
+        view.onEscapeSequence = { captured.append($0) }
+        view.onText = { captured.append(Data("TEXT:\($0)".utf8)) }
+        view.onBackspace = { captured.append(Data("BACKSPACE".utf8)) }
+
+        let press = FakePress(key: FakeKey(keyCode: keyCode, modifierFlags: modifiers, characters: characters))
+        // Drive the REAL capture path directly (no production test seam): a begin
+        // immediately followed by an end, so a consumed press's hold-to-repeat
+        // timer is cancelled and cannot re-emit on a later tick.
+        // `pressesBegan`/`pressesEnded` are reachable via `@testable import`.
+        view.pressesBegan([press], with: nil)
+        view.pressesEnded([press], with: nil)
+        return captured
+    }
+
+    /// Drive one fabricated press through the capture coordinator DIRECTLY and
+    /// report whether it was forwarded to `super` plus every byte it emitted.
+    /// ``TerminalHardwareKeyCapture/pressesBegan(_:)`` returns exactly the presses
+    /// ``TerminalInputTextView/pressesBegan(_:with:)`` hands to `super.pressesBegan`,
+    /// so an empty forwarded set proves the press was CONSUMED — kept from the
+    /// system — rather than leaked to default handling. This is the only seam that
+    /// can observe consume-vs-forward; the `onEscapeSequence`-based `emitted` helper
+    /// sees bytes but not the forward decision.
+    private func captureOutcome(
+        keyCode: UIKeyboardHIDUsage,
+        modifiers: UIKeyModifierFlags,
+        characters: String
+    ) -> (forwardedToSuper: Bool, emitted: [Data]) {
+        var emitted: [Data] = []
+        let capture = TerminalHardwareKeyCapture(
+            timerFactory: FakeKeyRepeatTimerFactory(),
+            isComposing: { false },
+            emit: { emitted.append($0) }
+        )
+        let press = FakePress(key: FakeKey(keyCode: keyCode, modifierFlags: modifiers, characters: characters))
+        let forwarded = capture.pressesBegan([press])
+        return (forwardedToSuper: forwarded.contains(press), emitted: emitted)
+    }
+
+    @Test("hardware press emits exactly the expected send-sink bytes", arguments: pressCases)
+    func pressEmitsExpectedBytes(_ c: PressCase) {
+        let blocks = emitted(keyCode: c.keyCode, modifiers: c.modifiers, characters: c.characters)
+        #expect(blocks.count == 1, "\(c.label): expected 1 send-sink block, got \(blocks.map(hexString))")
+        let actualHex = blocks.first.map(hexString) ?? "<none>"
+        #expect(actualHex == c.expectedHex, "\(c.label): expected [\(c.expectedHex)], got [\(actualHex)]")
+    }
+
+    // MARK: Targeted regression assertions (the build-4 word-movement bug)
+
+    @Test("Option+Left is ESC b, never the unbound xterm ESC[1;3D")
+    func optionLeftIsMetaB() {
+        let blocks = emitted(keyCode: .keyboardLeftArrow, modifiers: [.alternate], characters: "\u{F702}")
+        #expect(blocks == [Data([0x1B, 0x62])])
+        #expect(blocks.first != Data([0x1B, 0x5B, 0x31, 0x3B, 0x33, 0x44]))
+    }
+
+    @Test("Option+Right is ESC f, never the unbound xterm ESC[1;3C")
+    func optionRightIsMetaF() {
+        let blocks = emitted(keyCode: .keyboardRightArrow, modifiers: [.alternate], characters: "\u{F703}")
+        #expect(blocks == [Data([0x1B, 0x66])])
+        #expect(blocks.first != Data([0x1B, 0x5B, 0x31, 0x3B, 0x33, 0x43]))
+    }
+
+    @Test("every modified arrow/nav sequence carries the leading ESC (0x1B)")
+    func modifiedSequencesLeadWithEsc() {
+        let modified: [(UIKeyboardHIDUsage, UIKeyModifierFlags)] = [
+            (.keyboardLeftArrow, [.alternate]), (.keyboardRightArrow, [.alternate]),
+            (.keyboardLeftArrow, [.control]), (.keyboardRightArrow, [.control]),
+            (.keyboardLeftArrow, [.shift]), (.keyboardHome, [.control]),
+        ]
+        for (keyCode, mods) in modified {
+            let blocks = emitted(keyCode: keyCode, modifiers: mods, characters: "\u{F702}")
+            #expect(blocks.first?.first == 0x1B, "keyCode \(keyCode.rawValue) mods \(mods.rawValue) lost its ESC: \(blocks.map(hexString))")
+        }
+    }
+
+    // MARK: Ctrl+C pre-encoded-ETX regression (real-device dropped-keystroke bug)
+
+    @Test("Ctrl+C resolves from keyCode even when the device pre-encodes ETX (U+0003)")
+    func ctrlCEmitsEtxWhenCharsArePreEncoded() {
+        // On a physical keyboard, a Control chord can arrive with
+        // `charactersIgnoringModifiers` ALREADY collapsed to its C0 byte: Ctrl+C
+        // reports U+0003 (ETX), not "c". Reading that pre-encoded scalar fails the
+        // encoder's 0x40...0x5F control-letter guard and drops the keystroke (no
+        // SIGINT reaches the shell). The capture path must instead resolve the
+        // letter from the physical `.keyboardC` keyCode so the encoder still
+        // produces ETX (0x03). Ctrl+W/U/A/E only ever worked because the device
+        // happened to report their letter; this proves the keyCode fallback.
+        let blocks = emitted(keyCode: .keyboardC, modifiers: [.control], characters: "\u{03}")
+        #expect(blocks == [Data([0x03])], "Ctrl+C (pre-encoded ETX) must emit 0x03, got \(blocks.map(hexString))")
+    }
+
+    // MARK: Consumed-but-unencodable chord (Option+Up/Down)
+
+    @Test("Option+Up / Option+Down are consumed silently — kept from super, zero bytes")
+    func optionVerticalArrowsConsumedButSilent() {
+        // `shouldConsume` claims these (special key + Option), so they are kept
+        // from the focused text system — but the encoder has NO META vertical
+        // word-move, so the chord emits no bytes (`TerminalKeyEncoder` returns
+        // nil for Option-only Up/Down, which would otherwise echo the
+        // shell-unbound "[1;3A"/"[1;3B" literally). A claimed-but-unencodable
+        // chord must still be CONSUMED, not forwarded to `super`: returning it
+        // would leak the press to the system's default handling. Assert BOTH —
+        // it never reaches `super` AND it emits nothing.
+        for (label, keyCode, characters) in [
+            ("Option+Up", UIKeyboardHIDUsage.keyboardUpArrow, "\u{F700}"),
+            ("Option+Down", UIKeyboardHIDUsage.keyboardDownArrow, "\u{F701}"),
+        ] {
+            let outcome = captureOutcome(keyCode: keyCode, modifiers: [.alternate], characters: characters)
+            #expect(!outcome.forwardedToSuper, "\(label) leaked to super instead of being consumed silently")
+            #expect(outcome.emitted.isEmpty, "\(label) emitted bytes: \(outcome.emitted.map(hexString))")
+        }
+    }
+
+    @Test("a plain unclaimed character is forwarded to super and emits nothing")
+    func plainCharacterForwardedToSuper() {
+        // The counterpart guard: a bare letter with no modifiers is NOT claimed
+        // by `shouldConsume`, so the capture must forward it to `super` (where
+        // `insertText`/the IME handle it) and emit no terminal bytes. This proves
+        // the silent-consume fix is surgical — only CLAIMED-but-unencodable chords
+        // are swallowed; genuinely unclaimed keys still leak through by design.
+        let outcome = captureOutcome(keyCode: .keyboardA, modifiers: [], characters: "a")
+        #expect(outcome.forwardedToSuper, "a plain unclaimed 'a' must forward to super")
+        #expect(outcome.emitted.isEmpty, "a plain 'a' must not emit terminal bytes")
+    }
+
+    // MARK: Hold-to-repeat cadence (deterministic, fake-timer driven)
+
+    @Test("a held key emits immediately on press, then re-emits the same bytes on each repeat tick")
+    func holdToRepeatEmitsImmediateThenRepeats() {
+        // The capture emits the first keystroke SYNCHRONOUSLY on `pressesBegan`,
+        // then arms a timer that stays silent for the initial delay and re-emits
+        // the SAME bytes on each tick. Driving a fake timer makes the
+        // immediate→delay→interval cadence deterministic — no real clock.
+        let factory = FakeKeyRepeatTimerFactory()
+        let view = TerminalInputTextView(keyRepeatTimerFactory: factory)
+        var captured: [Data] = []
+        view.onEscapeSequence = { captured.append($0) }
+
+        let left = Data([0x1B, 0x5B, 0x44])
+        let press = FakePress(key: FakeKey(keyCode: .keyboardLeftArrow, modifierFlags: [], characters: "\u{F702}"))
+        view.pressesBegan([press], with: nil)
+
+        // Immediate emission only — the timer has not ticked yet.
+        #expect(captured == [left], "press should emit exactly the immediate keystroke, got \(captured.map(hexString))")
+        #expect(factory.timers.count == 1, "press should arm exactly one hold-to-repeat timer")
+        guard let timer = factory.timers.first else { return }
+        // The cadence matches the typematic constants (≈400ms hold, then ≈60ms).
+        #expect(timer.initialDelay == TerminalHardwareKeyCapture.keyRepeatInitialDelay)
+        #expect(timer.interval == TerminalHardwareKeyCapture.keyRepeatInterval)
+
+        // First tick = the post-initial-delay repeat; second tick = an interval
+        // repeat. Each re-emits the identical bytes.
+        timer.fire()
+        timer.fire()
+        #expect(captured == [left, left, left], "each repeat tick must re-emit the same bytes, got \(captured.map(hexString))")
+
+        withExtendedLifetime(view) {}
+    }
+
+    // MARK: Lifecycle symmetry (pressesCancelled cancels key-repeat like pressesEnded)
+
+    @Test("pressesCancelled cancels the hold-to-repeat timer, exactly like pressesEnded")
+    func pressesCancelledStopsKeyRepeat() {
+        // A held Left arrow emits its first byte block on `pressesBegan` and arms
+        // a repeat timer. `pressesCancelled` (e.g. a system gesture preempts the
+        // press) must cancel that timer just as `pressesEnded` does, so no further
+        // bytes leak after the physical key is gone.
+        let factory = FakeKeyRepeatTimerFactory()
+        let view = TerminalInputTextView(keyRepeatTimerFactory: factory)
+        var captured: [Data] = []
+        view.onEscapeSequence = { captured.append($0) }
+
+        let press = FakePress(key: FakeKey(keyCode: .keyboardLeftArrow, modifierFlags: [], characters: "\u{F702}"))
+        view.pressesBegan([press], with: nil)
+        #expect(captured.count == 1, "expected the initial keystroke, got \(captured.map(hexString))")
+        #expect(factory.timers.count == 1, "pressesBegan should have armed a hold-to-repeat timer")
+        guard let timer = factory.timers.first else { return }
+        #expect(!timer.isCancelled)
+
+        view.pressesCancelled([press], with: nil)
+        #expect(timer.isCancelled, "pressesCancelled must cancel the hold-to-repeat timer")
+
+        // A cancelled timer never ticks again — firing it is a no-op — so no bytes
+        // leak after the key is gone. Fully deterministic: no wall-clock wait.
+        timer.fire()
+        #expect(captured.count == 1, "a cancelled timer must not emit: \(captured.map(hexString))")
+        withExtendedLifetime(view) {}
+    }
+}
+#endif

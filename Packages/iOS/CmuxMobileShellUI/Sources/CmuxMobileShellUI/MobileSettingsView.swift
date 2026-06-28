@@ -2,6 +2,7 @@
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import CmuxMobileWorkspace
 import SwiftUI
 
@@ -166,6 +167,15 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
+
+                    Toggle(
+                        L10n.string(
+                            "mobile.settings.oneFingerSelects",
+                            defaultValue: "Tap-drag selects text (two fingers to scroll)"
+                        ),
+                        isOn: oneFingerSelectsBinding
+                    )
+                    .accessibilityIdentifier("MobileSettingsOneFingerSelects")
                 }
 
                 #if DEBUG
@@ -346,6 +356,17 @@ struct MobileSettingsView: View {
                     authManager.selectedTeamID = newValue
                 }
             }
+        )
+    }
+
+    /// Reads/writes the one-finger-selects terminal gesture preference. The
+    /// pref's setter persists the value and posts the change notification the
+    /// live ``GhosttySurfaceView`` observes, so toggling here re-wires the
+    /// selection/scroll gestures without a relaunch.
+    private var oneFingerSelectsBinding: Binding<Bool> {
+        Binding(
+            get: { MobileTerminalGesturePreference().oneFingerSelects },
+            set: { MobileTerminalGesturePreference().oneFingerSelects = $0 }
         )
     }
 
