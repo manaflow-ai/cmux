@@ -3386,7 +3386,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         var onDidMoveToWindow: (() -> Void)?
         var onGeometryChanged: (() -> Void)?
         private(set) var geometryRevision: UInt64 = 0
-        private var lastReportedGeometryState: GeometryState?
+        private var lastReportedGeometryState: BrowserHostGeometrySnapshot?
         private var hasPendingGeometryNotification = false
         private weak var hostedWebView: WKWebView?
         private var hostedWebViewConstraints: [NSLayoutConstraint] = []
@@ -3402,13 +3402,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             let dockSide: HostedInspectorDockSide
         }
 
-        private struct GeometryState: Equatable {
-            let frame: CGRect
-            let bounds: CGRect
-            let windowNumber: Int?
-            let superviewID: ObjectIdentifier?
-        }
-
         private struct HostedInspectorDividerDragState {
             let containerView: NSView
             let pageView: NSView
@@ -3419,18 +3412,9 @@ struct WebViewRepresentable: NSViewRepresentable {
             let initialInspectorFrame: NSRect
         }
 
-        private enum DividerCursorKind: Equatable {
-            case vertical
-
-            var cursor: NSCursor { .resizeLeftRight }
-        }
-
-        private static let hostedInspectorDividerHitExpansion: CGFloat = 10
-        private static let minimumHostedInspectorWidth: CGFloat = 120
-        private static let minimumHostedInspectorPageWidthForSideDock: CGFloat = 240
-        private static let adaptiveBottomDockRequestCooldown: TimeInterval = 0.25
+        private let hostedInspectorDockLayout = HostedInspectorDockLayout()
         private var trackingArea: NSTrackingArea?
-        private var activeDividerCursorKind: DividerCursorKind?
+        private var activeDividerCursorKind: HostedInspectorDividerCursorKind?
         private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
         private var preferredHostedInspectorWidth: CGFloat?
         private var preferredHostedInspectorWidthFraction: CGFloat?
@@ -3465,20 +3449,17 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         private func recordPreferredHostedInspectorWidth(_ width: CGFloat, containerBounds: NSRect) {
             preferredHostedInspectorWidth = width
-            guard containerBounds.width > 0 else {
-                preferredHostedInspectorWidthFraction = nil
-                onPreferredHostedInspectorWidthChanged?(width, nil)
-                return
-            }
-            preferredHostedInspectorWidthFraction = width / containerBounds.width
-            onPreferredHostedInspectorWidthChanged?(width, preferredHostedInspectorWidthFraction)
+            let fraction = hostedInspectorDockLayout.widthFraction(forWidth: width, in: containerBounds)
+            preferredHostedInspectorWidthFraction = fraction
+            onPreferredHostedInspectorWidthChanged?(width, fraction)
         }
 
         private func resolvedPreferredHostedInspectorWidth(in containerBounds: NSRect) -> CGFloat? {
-            if let preferredHostedInspectorWidthFraction, containerBounds.width > 0 {
-                return max(0, containerBounds.width * preferredHostedInspectorWidthFraction)
-            }
-            return preferredHostedInspectorWidth
+            hostedInspectorDockLayout.resolvedPreferredWidth(
+                widthFraction: preferredHostedInspectorWidthFraction,
+                fallbackWidth: preferredHostedInspectorWidth,
+                in: containerBounds
+            )
         }
 
         func setPreferredHostedInspectorWidth(width: CGFloat?, widthFraction: CGFloat?) {
@@ -3488,17 +3469,14 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         private func recordHostedInspectorSideDockWidth(_ width: CGFloat) {
             guard width > 1 else { return }
-            recordedHostedInspectorSideDockWidth = max(Self.minimumHostedInspectorWidth, width)
+            recordedHostedInspectorSideDockWidth = max(hostedInspectorDockLayout.minimumInspectorWidth, width)
         }
 
         private func shouldAllowHostedInspectorManualSideDock() -> Bool {
-            let containerWidth = max(0, bounds.width)
-            guard containerWidth > 1 else { return true }
-            let baselineWidth = max(
-                Self.minimumHostedInspectorWidth,
-                recordedHostedInspectorSideDockWidth ?? Self.minimumHostedInspectorWidth
+            hostedInspectorDockLayout.allowsManualSideDock(
+                containerBounds: bounds,
+                recordedSideDockWidth: recordedHostedInspectorSideDockWidth
             )
-            return containerWidth - baselineWidth >= Self.minimumHostedInspectorPageWidthForSideDock
         }
 
         private func updateHostedInspectorDockControlAvailabilityIfNeeded(reason: String) {
@@ -3704,8 +3682,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 #endif
 
-        private func currentGeometryState() -> GeometryState {
-            GeometryState(
+        private func currentGeometryState() -> BrowserHostGeometrySnapshot {
+            BrowserHostGeometrySnapshot(
                 frame: frame,
                 bounds: bounds,
                 windowNumber: window?.windowNumber,
@@ -4078,7 +4056,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                     inspectorView: inspectorView,
                     dockSide: dockSide
                 ),
-                minimumInspectorWidth: Self.minimumHostedInspectorWidth,
+                minimumInspectorWidth: hostedInspectorDockLayout.minimumInspectorWidth,
                 reason: reason
             )
         }
@@ -4101,10 +4079,10 @@ struct WebViewRepresentable: NSViewRepresentable {
 
             let currentInspectorWidth = max(0, hit.inspectorView.frame.width)
             let currentPageWidth = max(0, hit.pageView.frame.width)
-            let remainingPageWidth = max(0, containerWidth - max(Self.minimumHostedInspectorWidth, currentInspectorWidth))
+            let remainingPageWidth = max(0, containerWidth - max(hostedInspectorDockLayout.minimumInspectorWidth, currentInspectorWidth))
             let effectivePageWidth = min(currentPageWidth, remainingPageWidth)
 
-            return effectivePageWidth < Self.minimumHostedInspectorPageWidthForSideDock
+            return effectivePageWidth < hostedInspectorDockLayout.minimumInspectorPageWidthForSideDock
         }
 
         @discardableResult
@@ -4115,7 +4093,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             guard let hostedInspectorFrontendWebView else { return false }
 
-            adaptiveBottomDockRequestCooldownDeadline = now.addingTimeInterval(Self.adaptiveBottomDockRequestCooldown)
+            adaptiveBottomDockRequestCooldownDeadline = now.addingTimeInterval(hostedInspectorDockLayout.adaptiveBottomDockRequestCooldown)
             updateHostedInspectorDockControlAvailabilityIfNeeded(reason: reason)
 #if DEBUG
             cmuxDebugLog(
@@ -4415,7 +4393,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
 
             let containerBounds = dragState.containerView.bounds
-            let minimumInspectorWidth = Self.minimumHostedInspectorWidth
+            let minimumInspectorWidth = hostedInspectorDockLayout.minimumInspectorWidth
             let initialDividerX = dragState.dockSide.dividerX(
                 pageFrame: dragState.initialPageFrame,
                 inspectorFrame: dragState.initialInspectorFrame
@@ -4440,7 +4418,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                     inspectorView: dragState.inspectorView,
                     dockSide: dragState.dockSide
                 ),
-                minimumInspectorWidth: Self.minimumHostedInspectorWidth,
+                minimumInspectorWidth: hostedInspectorDockLayout.minimumInspectorWidth,
                 reason: "drag"
             )
 #if DEBUG
@@ -4659,11 +4637,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         private func hostedInspectorDividerHitRect(for hit: HostedInspectorDividerHit) -> NSRect {
             let pageFrame = convert(hit.pageView.bounds, from: hit.pageView)
             let inspectorFrame = convert(hit.inspectorView.bounds, from: hit.inspectorView)
-            return hit.dockSide.dividerHitRect(
+            return hostedInspectorDockLayout.dividerHitRect(
                 in: bounds,
                 pageFrame: pageFrame,
                 inspectorFrame: inspectorFrame,
-                expansion: Self.hostedInspectorDividerHitExpansion
+                dockSide: hit.dockSide
             )
         }
 
@@ -4710,15 +4688,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         private func hostedInspectorDividerCandidateScore(_ hit: HostedInspectorDividerHit) -> CGFloat {
             let pageFrame = convert(hit.pageView.bounds, from: hit.pageView)
             let inspectorFrame = convert(hit.inspectorView.bounds, from: hit.inspectorView)
-            let overlap = pageFrame.verticalOverlap(with: inspectorFrame)
-            let coverageWidth = max(pageFrame.maxX, inspectorFrame.maxX) - min(pageFrame.minX, inspectorFrame.minX)
-            return (overlap * 1_000) + coverageWidth + pageFrame.width
+            return hostedInspectorDockLayout.candidateScore(pageFrame: pageFrame, inspectorFrame: inspectorFrame)
         }
 
         private func hostedInspectorPageCandidateScore(_ pageView: NSView, inspectorView: NSView) -> CGFloat {
-            let overlap = pageView.frame.verticalOverlap(with: inspectorView.frame)
-            let coverageWidth = max(pageView.frame.maxX, inspectorView.frame.maxX) - min(pageView.frame.minX, inspectorView.frame.minX)
-            return (overlap * 1_000) + coverageWidth + pageView.frame.width
+            hostedInspectorDockLayout.candidateScore(pageFrame: pageView.frame, inspectorFrame: inspectorView.frame)
         }
 
         fileprivate func scheduleHostedInspectorDividerReapply(reason: String) {
@@ -4798,7 +4772,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             _ = applyHostedInspectorDividerWidth(
                 preferredWidth,
                 to: hit,
-                minimumInspectorWidth: Self.minimumHostedInspectorWidth,
+                minimumInspectorWidth: hostedInspectorDockLayout.minimumInspectorWidth,
                 reason: reason
             )
         }
