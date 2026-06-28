@@ -4222,59 +4222,41 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         isFindEscapeSuppressionArmed && cmuxFindEventIsPlainEscape(event)
     }
 
-    /// Get the unshifted codepoint for the key event
+    /// Get the unshifted codepoint for the key event. Supplies the app-side
+    /// layout character to the package encoder (``NSEvent/ghosttyUnshiftedCodepoint(layoutCharacter:)``).
     private func unshiftedCodepointFromEvent(_ event: NSEvent) -> UInt32 {
-        if let layoutChars = KeyboardLayout.character(forKeyCode: event.keyCode),
-           layoutChars.count == 1,
-           let layoutScalar = layoutChars.unicodeScalars.first,
-           layoutScalar.value >= 0x20,
-           !(layoutScalar.value >= 0xF700 && layoutScalar.value <= 0xF8FF) {
-            return layoutScalar.value
-        }
-
-        guard let chars = (event.characters(byApplyingModifiers: []) ?? event.charactersIgnoringModifiers ?? event.characters),
-              let scalar = chars.unicodeScalars.first else { return 0 }
-        return scalar.value
-    }
-
-    /// If AppKit consumed Shift+Space for IME/input-source switching, interpretKeyEvents
-    /// can return without insertText and without a detectable layout ID change.
-    /// In that case we must not synthesize a literal space fallback.
-    private func shouldSuppressShiftSpaceFallbackText(event: NSEvent, markedTextBefore: Bool) -> Bool {
-        guard event.keyCode == 49 else { return false }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags == [.shift] else { return false }
-        guard !markedTextBefore, markedText.length == 0 else { return false }
-        return true
-    }
-
-    private func shouldSendCommittedIMEConfirmKey(event: NSEvent, markedTextBefore: Bool) -> Bool {
-        guard markedTextBefore, markedText.length == 0 else { return false }
-        guard event.keyCode == 36 || event.keyCode == 76 else { return false }
-        // Korean IME: Enter commits the syllable AND executes the command (single step).
-        // Japanese/Chinese IME: Enter only confirms the conversion; a second Enter executes.
-        // Only send the extra Return key for Korean input sources.
-        guard let sourceId = KeyboardLayout.id else { return false }
-        return sourceId.range(of: "korean", options: .caseInsensitive) != nil
-    }
-
-    private func ghosttyKeyEvent(for event: NSEvent, surface: ghostty_surface_t) -> ghostty_input_key_s {
-        var keyEvent = ghostty_input_key_s()
-        keyEvent.action = GHOSTTY_ACTION_PRESS
-        keyEvent.keycode = UInt32(event.keyCode)
-        keyEvent.mods = event.terminalGhosttyKeyMods
-
-        // Translate mods to respect Ghostty config (e.g., macos-option-as-alt).
-        let translationModsGhostty = ghostty_surface_key_translation_mods(surface, event.terminalGhosttyKeyMods)
-        let translationMods = event.modifierFlags.terminalGhosttyTranslationFlags(
-            ghosttyTranslationMods: translationModsGhostty
+        event.ghosttyUnshiftedCodepoint(
+            layoutCharacter: KeyboardLayout.character(forKeyCode: event.keyCode)
         )
+    }
 
-        keyEvent.consumed_mods = translationMods.terminalGhosttyConsumedMods
-        keyEvent.text = nil
-        keyEvent.composing = false
-        keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
-        return keyEvent
+    /// Forwards the IME marked-text state to the package decision
+    /// (``NSEvent/shouldSuppressShiftSpaceFallbackText(markedTextBefore:markedLength:)``).
+    private func shouldSuppressShiftSpaceFallbackText(event: NSEvent, markedTextBefore: Bool) -> Bool {
+        event.shouldSuppressShiftSpaceFallbackText(
+            markedTextBefore: markedTextBefore,
+            markedLength: markedText.length
+        )
+    }
+
+    /// Forwards the IME marked-text state and current input-source ID to the
+    /// package decision (``NSEvent/shouldSendCommittedIMEConfirmKey(markedTextBefore:markedLength:layoutId:)``).
+    private func shouldSendCommittedIMEConfirmKey(event: NSEvent, markedTextBefore: Bool) -> Bool {
+        event.shouldSendCommittedIMEConfirmKey(
+            markedTextBefore: markedTextBefore,
+            markedLength: markedText.length,
+            layoutId: KeyboardLayout.id
+        )
+    }
+
+    /// Builds the libghostty press key event via the package encoder
+    /// (``NSEvent/ghosttyKeyEvent(surface:layoutCharacter:)``), supplying the
+    /// app-side layout character for the unshifted codepoint.
+    private func ghosttyKeyEvent(for event: NSEvent, surface: ghostty_surface_t) -> ghostty_input_key_s {
+        event.ghosttyKeyEvent(
+            surface: surface,
+            layoutCharacter: KeyboardLayout.character(forKeyCode: event.keyCode)
+        )
     }
 
     func updateKeySequence(_ action: ghostty_action_key_sequence_s) {
