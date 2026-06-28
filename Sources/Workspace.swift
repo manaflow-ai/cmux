@@ -7897,38 +7897,14 @@ final class Workspace: Identifiable, ObservableObject {
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false
     ) -> BrowserPanel? {
-        // A remote tmux mirror workspace is a 1:1 view of a tmux session (no browser
-        // concept) — a local browser pane here would be an orphan the mirror's
-        // rebuild() never reconciles. For an explicit user action (globe tab-strip
-        // button via splitTabBar, command palette via openBrowser) open the browser in
-        // a NEW LOCAL workspace in the same window instead of no-op'ing, so every
-        // interactive "new browser" entrypoint behaves the same. The fresh workspace
-        // isn't a mirror, so this doesn't recurse.
-        //
-        // Restoration and automation/socket creation deliberately fall through to the
-        // `return nil` below: their callers require the returned panel to live in THIS
-        // workspace. Restoration's replaceSurface would otherwise `closePanel` the
-        // mirror's own pane and re-home it into a different workspace; the socket
-        // `new-surface`/`browser` handlers report the created surface under THIS
-        // workspace's id, so a cross-workspace panel would make them lie. For those a
-        // clean nil (the long-standing "mirror refuses a local browser" behavior) is
-        // correct.
-        if isRemoteTmuxMirror {
-            guard creationPolicy == .userInitiated,
-                  let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id)
-            else { return nil }
-            let browserWorkspace = manager.addWorkspace(initialSurface: .browser, select: focus ?? true)
-            let panel = browserWorkspace.panels.values.compactMap { $0 as? BrowserPanel }.first
-            if let url, let panel {
-                panel.navigate(to: url)
-            } else {
-                // No URL → blank browser: focus the address bar so the user can type,
-                // matching performNewBrowserWorkspaceAction's behavior (the globe
-                // button otherwise lands on a blank tab with nothing focused).
-                AppDelegate.shared?.focusInitialBrowserAddressBar(in: browserWorkspace)
-            }
-            return panel
-        }
+        // A remote tmux mirror workspace may host a LOCAL browser surface as a normal
+        // tab alongside its tmux-window tabs. The mirror's rebuild() reconciles only
+        // the surfaces it owns (tracked by windowId/paneId in panelIdByWindow); it
+        // never enumerates or prunes surfaces it doesn't own, so a local browser tab
+        // survives reconcile. Every routing decision (close/split/rename/reorder)
+        // keys off "is this panel a tmux window tab?" and falls through to local
+        // handling for a browser. So no special case is needed here — fall through to
+        // normal browser creation, which adds the browser as a tab in this workspace.
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
             if let externalURL = url ?? initialRequest?.url {
