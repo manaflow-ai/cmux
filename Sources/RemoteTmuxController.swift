@@ -718,9 +718,14 @@ final class RemoteTmuxController {
         // when linked into both the home session and the hidden view, so it would
         // create the tab in the view over the shared connection.
         if isLinkedMirror(mirror) {
-            return mirror.connection.send(
+            let sent = mirror.connection.send(
                 Self.newWindowCommandInSession(mirror.sessionName, workingDirectory: commandWorkingDirectory)
             )
+            // The new window is in the home session, not yet linked into the view, so
+            // the view stream gets no %window-add — nudge a reconcile to link it and
+            // surface it as a tab.
+            if sent { linkedViews[mirror.host.connectionHash]?.requestReconcile() }
+            return sent
         }
         let afterWindowId: Int?
         switch placement {
