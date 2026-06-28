@@ -70,7 +70,7 @@ func shortcutRoutingShouldBypassForPrintableOptionText(
 private func shortcutRoutingTextIsPrintable(_ text: String?) -> Bool {
     guard let text, !text.isEmpty else { return false }
     return text.unicodeScalars.allSatisfy { scalar in
-        guard !isControlCharacterScalar(scalar) else { return false }
+        guard !scalar.isTerminalControlCharacter else { return false }
         return scalar.value < 0xF700 || scalar.value > 0xF8FF
     }
 }
