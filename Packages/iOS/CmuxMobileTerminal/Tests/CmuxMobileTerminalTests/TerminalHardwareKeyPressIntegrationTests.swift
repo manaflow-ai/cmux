@@ -43,6 +43,52 @@ private final class FakePress: UIPress {
     override var key: UIKey? { _key }
 }
 
+// MARK: - Deterministic hold-to-repeat timer doubles
+
+/// A ``TerminalKeyRepeatTimerFactory`` that records every timer it makes and
+/// lets the test fire ticks synchronously, so hold-to-repeat cadence is
+/// exercised with zero real `DispatchSourceTimer` scheduling and no wall-clock
+/// waiting — the deterministic replacement for the reverted clock-driven path.
+@MainActor
+private final class FakeKeyRepeatTimerFactory: TerminalKeyRepeatTimerFactory {
+    private(set) var timers: [FakeKeyRepeatTimer] = []
+
+    func makeRepeatTimer(
+        initialDelay: Duration,
+        interval: Duration,
+        onTick: @escaping @MainActor () -> Void
+    ) -> any TerminalKeyRepeatTimer {
+        let timer = FakeKeyRepeatTimer(initialDelay: initialDelay, interval: interval, onTick: onTick)
+        timers.append(timer)
+        return timer
+    }
+}
+
+/// A fake ``TerminalKeyRepeatTimer`` whose ticks are driven manually by
+/// ``fire()`` and which records its cadence and cancellation for assertions.
+@MainActor
+private final class FakeKeyRepeatTimer: TerminalKeyRepeatTimer {
+    let initialDelay: Duration
+    let interval: Duration
+    private let onTick: @MainActor () -> Void
+    private(set) var isCancelled = false
+
+    init(initialDelay: Duration, interval: Duration, onTick: @escaping @MainActor () -> Void) {
+        self.initialDelay = initialDelay
+        self.interval = interval
+        self.onTick = onTick
+    }
+
+    /// Simulate one timer tick (the first after `initialDelay`, or a later
+    /// `interval` repeat). A no-op once cancelled, exactly like a real timer.
+    func fire() {
+        guard !isCancelled else { return }
+        onTick()
+    }
+
+    func cancel() { isCancelled = true }
+}
+
 private func hexString(_ data: Data) -> String {
     data.map { String(format: "%02X", $0) }.joined(separator: " ")
 }
@@ -85,11 +131,11 @@ let pressCases: [PressCase] = [
 /// Byte-level INTEGRATION tests for the hardware-keyboard capture path.
 ///
 /// These drive a fabricated ``UIPress`` through the real
-/// ``TerminalInputTextView/pressesBegan(_:with:)`` path —
-/// `pressesBegan` → `handleHardwarePress` → `shouldConsume` →
-/// `terminalInput(for:)` (keyCode→input map) → `encodeAndEmitHardwareKey` →
-/// ``TerminalHardwareKeyResolver`` → ``TerminalKeyEncoder`` — and assert the
-/// EXACT bytes that reach the ``TerminalInputTextView/onEscapeSequence`` send
+/// ``TerminalInputTextView/pressesBegan(_:with:)`` path, which delegates to
+/// ``TerminalHardwareKeyCapture`` — `pressesBegan` → `handleHardwarePress` →
+/// `shouldConsume` → `terminalInput(for:)` (keyCode→input map) →
+/// ``TerminalHardwareKeyResolver`` → ``TerminalKeyEncoder`` → emit — and assert
+/// the EXACT bytes that reach the ``TerminalInputTextView/onEscapeSequence`` send
 /// sink (the same bytes `GhosttySurfaceView` forwards verbatim to the Mac
 /// transport). Unlike the encoder unit tests, this proves the keyCode mapping,
 /// the consume decision, and the emit wiring end to end.
@@ -105,7 +151,10 @@ struct TerminalHardwareKeyPressIntegrationTests {
         modifiers: UIKeyModifierFlags,
         characters: String
     ) -> [Data] {
-        let view = TerminalInputTextView()
+        // A fake timer factory keeps every hold-to-repeat timer inert (it only
+        // ticks when the test calls `fire()`), so these byte-table cases never
+        // touch a real `DispatchSourceTimer` or the wall clock.
+        let view = TerminalInputTextView(keyRepeatTimerFactory: FakeKeyRepeatTimerFactory())
         var captured: [Data] = []
         view.onEscapeSequence = { captured.append($0) }
         view.onText = { captured.append(Data("TEXT:\($0)".utf8)) }
@@ -114,8 +163,8 @@ struct TerminalHardwareKeyPressIntegrationTests {
         let press = FakePress(key: FakeKey(keyCode: keyCode, modifierFlags: modifiers, characters: characters))
         // Drive the REAL capture path directly (no production test seam): a begin
         // immediately followed by an end, so a consumed press's hold-to-repeat
-        // `Task` is cancelled and cannot outlive the call and re-emit on a later
-        // tick. `pressesBegan`/`pressesEnded` are reachable via `@testable import`.
+        // timer is cancelled and cannot re-emit on a later tick.
+        // `pressesBegan`/`pressesEnded` are reachable via `@testable import`.
         view.pressesBegan([press], with: nil)
         view.pressesEnded([press], with: nil)
         return captured
@@ -187,37 +236,67 @@ struct TerminalHardwareKeyPressIntegrationTests {
         #expect(emitted(keyCode: .keyboardDownArrow, modifiers: [.alternate], characters: "\u{F701}").isEmpty)
     }
 
+    // MARK: Hold-to-repeat cadence (deterministic, fake-timer driven)
+
+    @Test("a held key emits immediately on press, then re-emits the same bytes on each repeat tick")
+    func holdToRepeatEmitsImmediateThenRepeats() {
+        // The capture emits the first keystroke SYNCHRONOUSLY on `pressesBegan`,
+        // then arms a timer that stays silent for the initial delay and re-emits
+        // the SAME bytes on each tick. Driving a fake timer makes the
+        // immediate→delay→interval cadence deterministic — no real clock.
+        let factory = FakeKeyRepeatTimerFactory()
+        let view = TerminalInputTextView(keyRepeatTimerFactory: factory)
+        var captured: [Data] = []
+        view.onEscapeSequence = { captured.append($0) }
+
+        let left = Data([0x1B, 0x5B, 0x44])
+        let press = FakePress(key: FakeKey(keyCode: .keyboardLeftArrow, modifierFlags: [], characters: "\u{F702}"))
+        view.pressesBegan([press], with: nil)
+
+        // Immediate emission only — the timer has not ticked yet.
+        #expect(captured == [left], "press should emit exactly the immediate keystroke, got \(captured.map(hexString))")
+        #expect(factory.timers.count == 1, "press should arm exactly one hold-to-repeat timer")
+        guard let timer = factory.timers.first else { return }
+        // The cadence matches the typematic constants (≈400ms hold, then ≈60ms).
+        #expect(timer.initialDelay == TerminalHardwareKeyCapture.keyRepeatInitialDelay)
+        #expect(timer.interval == TerminalHardwareKeyCapture.keyRepeatInterval)
+
+        // First tick = the post-initial-delay repeat; second tick = an interval
+        // repeat. Each re-emits the identical bytes.
+        timer.fire()
+        timer.fire()
+        #expect(captured == [left, left, left], "each repeat tick must re-emit the same bytes, got \(captured.map(hexString))")
+
+        withExtendedLifetime(view) {}
+    }
+
     // MARK: Lifecycle symmetry (pressesCancelled cancels key-repeat like pressesEnded)
 
-    @Test("pressesCancelled cancels the hold-to-repeat task, exactly like pressesEnded")
-    func pressesCancelledStopsKeyRepeat() async {
+    @Test("pressesCancelled cancels the hold-to-repeat timer, exactly like pressesEnded")
+    func pressesCancelledStopsKeyRepeat() {
         // A held Left arrow emits its first byte block on `pressesBegan` and arms
-        // a repeat. `pressesCancelled` (e.g. a system gesture preempts the press)
-        // must cancel that repeat just as `pressesEnded` does, so no further bytes
-        // leak after the physical key is gone.
-        let view = TerminalInputTextView()
+        // a repeat timer. `pressesCancelled` (e.g. a system gesture preempts the
+        // press) must cancel that timer just as `pressesEnded` does, so no further
+        // bytes leak after the physical key is gone.
+        let factory = FakeKeyRepeatTimerFactory()
+        let view = TerminalInputTextView(keyRepeatTimerFactory: factory)
         var captured: [Data] = []
         view.onEscapeSequence = { captured.append($0) }
 
         let press = FakePress(key: FakeKey(keyCode: .keyboardLeftArrow, modifierFlags: [], characters: "\u{F702}"))
         view.pressesBegan([press], with: nil)
         #expect(captured.count == 1, "expected the initial keystroke, got \(captured.map(hexString))")
-
-        // Capture the in-flight repeat task BEFORE cancelling — `pressesCancelled`
-        // clears the dictionary entry. The repeat now routes through
-        // `TerminalArrowRepeatService`, whose injected-clock sleep throws the
-        // instant the task is cancelled, so awaiting the task's completion is a
-        // real, DETERMINISTIC stop signal: no wall-clock `Task.sleep`. The held
-        // key never reached its 400ms repeat delay, so a correctly-cancelled task
-        // finishes having emitted nothing further.
-        let repeatTask = view.keyRepeatTasks[.keyboardLeftArrow]
-        #expect(repeatTask != nil, "pressesBegan should have armed a hold-to-repeat task")
+        #expect(factory.timers.count == 1, "pressesBegan should have armed a hold-to-repeat timer")
+        guard let timer = factory.timers.first else { return }
+        #expect(!timer.isCancelled)
 
         view.pressesCancelled([press], with: nil)
-        await repeatTask?.value
-        #expect(captured.count == 1, "pressesCancelled did not cancel the repeat: \(captured.map(hexString))")
-        // Keep `view` alive across the await so the (weakly-held) repeat task
-        // would still have a live target to emit through if it weren't cancelled.
+        #expect(timer.isCancelled, "pressesCancelled must cancel the hold-to-repeat timer")
+
+        // A cancelled timer never ticks again — firing it is a no-op — so no bytes
+        // leak after the key is gone. Fully deterministic: no wall-clock wait.
+        timer.fire()
+        #expect(captured.count == 1, "a cancelled timer must not emit: \(captured.map(hexString))")
         withExtendedLifetime(view) {}
     }
 }

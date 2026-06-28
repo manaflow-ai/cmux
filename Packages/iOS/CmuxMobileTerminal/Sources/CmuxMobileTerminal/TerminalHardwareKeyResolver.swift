@@ -4,6 +4,9 @@ import CmuxMobileTerminalKit
 import Foundation
 import UIKit
 
+/// Stateless namespace that encodes a UIKit key chord (a `UIKeyCommand.input*`
+/// string or typed character plus `UIKeyModifierFlags`) into the terminal's VT
+/// byte sequence, bridging UIKit input types to ``TerminalKeyEncoder``.
 struct TerminalHardwareKeyResolver {
     private init() {}
 
@@ -45,6 +48,9 @@ struct TerminalHardwareKeyResolver {
         return result
     }
 
+    /// Encode `input` + `modifierFlags` to terminal bytes: a special-key input
+    /// routes through the special-key encoder, any other input through the
+    /// character encoder. Returns `nil` when the combination has no encoding.
     static func data(input: String, modifierFlags: UIKeyModifierFlags) -> Data? {
         let modifiers = kitModifiers(modifierFlags)
         if let key = specialKey(for: input) {

@@ -6,7 +6,7 @@ import GhosttyKit
 import OSLog
 import UIKit
 
-private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.runtime")
+nonisolated private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.runtime")
 
 // lint:allow free-function — @convention(c) trampoline: libghostty takes a C
 // function pointer, which cannot capture context or live on a Swift type.
@@ -21,23 +21,23 @@ private func cmuxIOSRuntimeReadClipboardCallback(
 @MainActor
 public final class GhosttyRuntime {
     enum RuntimeError: LocalizedError {
-        case backendInitFailed(code: Int32)
+        case backendInitFailed
         case appCreationFailed
 
+        // User-facing text is intentionally vendor-neutral ("terminal engine"):
+        // the underlying engine name and raw failure codes are an implementation
+        // detail and belong in logs/diagnostics, not in a message a user sees.
         var errorDescription: String? {
             switch self {
-            case .backendInitFailed(let code):
+            case .backendInitFailed:
                 return String(
-                    format: String(
-                        localized: "terminal.runtime.init_failed",
-                        defaultValue: "libghostty initialization failed (%d)"
-                    ),
-                    Int(code)
+                    localized: "terminal.runtime.init_failed",
+                    defaultValue: "The terminal engine failed to start."
                 )
             case .appCreationFailed:
                 return String(
                     localized: "terminal.runtime.app_creation_failed",
-                    defaultValue: "libghostty app creation failed"
+                    defaultValue: "The terminal engine failed to start."
                 )
             }
         }
@@ -129,6 +129,8 @@ public final class GhosttyRuntime {
 
         guard let app = ghostty_app_new(&runtimeConfig, config) else {
             ghostty_config_free(config)
+            // Vendor detail stays in diagnostics; the thrown error is neutral.
+            log.error("libghostty app creation failed: ghostty_app_new returned nil")
             throw RuntimeError.appCreationFailed
         }
 
@@ -155,7 +157,9 @@ public final class GhosttyRuntime {
         guard !backendInitialized else { return }
         let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
         guard result == GHOSTTY_SUCCESS else {
-            throw RuntimeError.backendInitFailed(code: result)
+            // Vendor detail + raw code stay in diagnostics; the error is neutral.
+            log.error("libghostty backend init failed: ghostty_init code=\(result, privacy: .public)")
+            throw RuntimeError.backendInitFailed
         }
         backendInitialized = true
     }

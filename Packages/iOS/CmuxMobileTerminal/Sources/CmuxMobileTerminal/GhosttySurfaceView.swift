@@ -7,7 +7,7 @@ import GhosttyKit
 import OSLog
 import UIKit
 
-private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
+nonisolated private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
 // lint:allow namespace-enum — file-local DEBUG input-trace logger on the off-limits typing-latency render path; type reshape deferred to the GhosttySurfaceView UI-god-object split wave.
 enum TerminalInputDebugLog {

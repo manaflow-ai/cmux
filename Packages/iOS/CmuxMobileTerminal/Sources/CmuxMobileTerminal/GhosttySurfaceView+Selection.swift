@@ -171,6 +171,9 @@ extension GhosttySurfaceView {
         (configSelectionColor ?? .systemBlue).withAlphaComponent(0.35)
     }
 
+    /// Return the selection highlight overlay, lazily creating and attaching it
+    /// above the Metal layer on first use so inbound render frames never repaint
+    /// over the selection.
     private func ensureSelectionOverlay() -> TerminalSelectionOverlay {
         if let selectionOverlay {
             return selectionOverlay

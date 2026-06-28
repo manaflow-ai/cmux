@@ -67,6 +67,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// first-responder that forwards taps into the reducer and reads its state
     /// back for byte encoding and button styling.
     private var modifierState = TerminalInputModifierState()
+    /// Factory for hardware-key hold-to-repeat timers, injected so tests drive the
+    /// cadence with a deterministic fake. Production uses the
+    /// `DispatchSourceTimer`-backed default; consumed by ``hardwareKeyCapture``.
+    private let keyRepeatTimerFactory: any TerminalKeyRepeatTimerFactory
     private var controlAccessoryArmed: Bool { modifierState.isArmed(.control) }
     private var alternateAccessoryArmed: Bool { modifierState.isArmed(.alternate) }
     private var commandAccessoryArmed: Bool { modifierState.isArmed(.command) }
@@ -149,7 +153,21 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     // `keyCommands` (or `wantsPriorityOverSystemBehavior`) can fire. Capturing
     // at `pressesBegan` runs below the text system, so special keys and
     // Control/Option chords reach the terminal; everything else falls through to
-    // `super` so normal typing/IME/dictation still routes via `insertText`.
+    // `super` so normal typing/IME/dictation still routes via `insertText`. The
+    // capture decision, byte encoding, and timer-driven hold-to-repeat all live
+    // in the dedicated `TerminalHardwareKeyCapture`; the overrides below are thin
+    // adapters that hand UIKit's press batches to it and forward the remainder to
+    // `super`.
+
+    /// Owns hardware-key capture and timer-driven hold-to-repeat (see
+    /// ``TerminalHardwareKeyCapture``), extracted so this view keeps only thin
+    /// press overrides. `isComposing` blocks capture during IME marking; `emit`
+    /// routes encoded bytes to the ``onEscapeSequence`` send sink.
+    private lazy var hardwareKeyCapture = TerminalHardwareKeyCapture(
+        timerFactory: keyRepeatTimerFactory,
+        isComposing: { [weak self] in self?.markedText != nil },
+        emit: { [weak self] data in self?.onEscapeSequence?(data) }
+    )
 
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
@@ -159,243 +177,26 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     override func resignFirstResponder() -> Bool {
         // A hardware key held while focus leaves this proxy never delivers its
-        // `pressesEnded`, so cancel every in-flight key-repeat here to avoid a
-        // runaway timer re-emitting bytes after the terminal loses focus. The
-        // captured-press set is dropped for the same reason: the matching
-        // `pressesEnded` never arrives, so retaining it would leak the `UIPress`.
-        stopAllKeyRepeats()
-        capturedPresses.removeAll()
+        // `pressesEnded`, so cancel every in-flight key-repeat (and drop the
+        // captured-press set whose matching ends will never arrive) before
+        // yielding first responder.
+        hardwareKeyCapture.reset()
         return super.resignFirstResponder()
     }
 
-    /// Presses this proxy captured (consumed AND encoded) in ``pressesBegan``,
-    /// tracked so the matching ``pressesEnded`` / ``pressesCancelled`` are withheld
-    /// from `super` while every press we forwarded in `began` IS forwarded again —
-    /// keeping UIKit's begin/end/cancel events balanced. Keying the end/cancel
-    /// decision off ``shouldConsume(_:)`` instead drifts: a consumed-but-unencodable
-    /// chord (e.g. Option+Up, which has no terminal encoding) is forwarded to
-    /// `super` in `began` yet still reports `shouldConsume == true`, so `super`
-    /// would see a `began` with no matching `ended`.
-    private var capturedPresses: Set<UIPress> = []
-
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        var forwarded: Set<UIPress> = []
-        for press in presses {
-            TerminalInputDebugLog.log(
-                "proxy.pressesBegan keyCode=\(press.key?.keyCode.rawValue ?? -1) "
-                    + "mods=\(press.key?.modifierFlags.rawValue ?? 0) "
-                    + "handled=\(shouldConsume(press))"
-            )
-            if handleHardwarePress(press) {
-                capturedPresses.insert(press)
-            } else {
-                forwarded.insert(press)
-            }
-        }
+        let forwarded = hardwareKeyCapture.pressesBegan(presses)
         if !forwarded.isEmpty { super.pressesBegan(forwarded, with: event) }
     }
 
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        var forwarded: Set<UIPress> = []
-        for press in presses {
-            // Releasing a key stops only its own repeat, regardless of whether it
-            // is still "consumed", so an overlapping hold of another key keeps
-            // repeating.
-            if let keyCode = press.key?.keyCode { stopKeyRepeat(for: keyCode) }
-            // Forward to `super` exactly the presses whose `began` we forwarded
-            // (the ones we did NOT capture), so begin/end stay balanced.
-            if capturedPresses.remove(press) == nil { forwarded.insert(press) }
-        }
+        let forwarded = hardwareKeyCapture.pressesEnded(presses)
         if !forwarded.isEmpty { super.pressesEnded(forwarded, with: event) }
     }
 
     override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        var forwarded: Set<UIPress> = []
-        for press in presses {
-            if let keyCode = press.key?.keyCode { stopKeyRepeat(for: keyCode) }
-            if capturedPresses.remove(press) == nil { forwarded.insert(press) }
-        }
+        let forwarded = hardwareKeyCapture.pressesCancelled(presses)
         if !forwarded.isEmpty { super.pressesCancelled(forwarded, with: event) }
-    }
-
-    /// Whether this press should be captured for the terminal instead of the
-    /// focused text system. Special navigation/control keys (arrows, Home/End,
-    /// Page Up/Down, forward-Delete, Escape, Tab) and any Control/Option chord
-    /// are claimed; plain characters fall through so `insertText` (and the IME)
-    /// keep working. Never claim while an IME composition is marked.
-    private func shouldConsume(_ press: UIPress) -> Bool {
-        guard markedText == nil, let key = press.key else { return false }
-        let mods = key.modifierFlags
-        let isSpecial = Self.isSpecialKey(key.keyCode)
-        return isSpecial || mods.contains(.control) || mods.contains(.alternate)
-    }
-
-    @discardableResult
-    private func handleHardwarePress(_ press: UIPress) -> Bool {
-        guard shouldConsume(press), let key = press.key, let input = Self.terminalInput(for: key),
-              let data = encodeAndEmitHardwareKey(input: input, modifierFlags: key.modifierFlags)
-        else { return false }
-        // Hold-to-repeat: the first keystroke was just emitted; arm a repeat that
-        // re-sends the SAME encoded bytes after an initial delay, then on a fast
-        // interval, until this physical key's `pressesEnded`/`pressesCancelled`.
-        // Mirrors `TerminalArrowNubView`'s auto-repeat so a held arrow, Ctrl-key,
-        // or any captured chord repeats like a real hardware keyboard.
-        startKeyRepeat(for: key.keyCode, bytes: data)
-        return true
-    }
-
-    /// Maps a key to the `UIKeyCommand.input*` string (or the typed character)
-    /// the resolver encodes. Special keys return their navigation constant; every
-    /// other key returns its unmodified character so a Control/Option chord (e.g.
-    /// Ctrl-C) resolves through ``TerminalHardwareKeyResolver``.
-    private static func terminalInput(for key: UIKey) -> String? {
-        switch key.keyCode {
-        case .keyboardUpArrow: return UIKeyCommand.inputUpArrow
-        case .keyboardDownArrow: return UIKeyCommand.inputDownArrow
-        case .keyboardLeftArrow: return UIKeyCommand.inputLeftArrow
-        case .keyboardRightArrow: return UIKeyCommand.inputRightArrow
-        case .keyboardHome: return UIKeyCommand.inputHome
-        case .keyboardEnd: return UIKeyCommand.inputEnd
-        case .keyboardPageUp: return UIKeyCommand.inputPageUp
-        case .keyboardPageDown: return UIKeyCommand.inputPageDown
-        case .keyboardDeleteForward: return UIKeyCommand.inputDelete
-        case .keyboardEscape: return UIKeyCommand.inputEscape
-        case .keyboardTab: return "\t"
-        default:
-            // Resolve letter keys from the PHYSICAL keyCode, not
-            // `charactersIgnoringModifiers`. On-device a Control chord can arrive
-            // already pre-encoded as its C0 byte — Ctrl+C reports U+0003 (ETX),
-            // not "c". That pre-encoded scalar then fails the encoder's
-            // `0x40...0x5F` control-letter guard, the resolver returns nil, and
-            // the keystroke is silently dropped. The keyCode is modifier- and
-            // layout-independent, so it always yields the bare letter the encoder
-            // needs. (Ctrl+W/U/A/E only ever worked because the device happened to
-            // report their letter; this makes EVERY Control/Alt+letter chord
-            // robust.) Mirrors the Mac surface's `keycodeForLetter`. Plain typing
-            // is unaffected — `shouldConsume` only routes here for special keys or
-            // Control/Alt chords, never a bare letter.
-            if let letter = Self.letter(forKeyCode: key.keyCode) { return letter }
-            return key.charactersIgnoringModifiers
-        }
-    }
-
-    /// The bare lowercase letter for a US-layout letter keyCode
-    /// (`.keyboardA`…`.keyboardZ` → `"a"`…`"z"`), or `nil` for any non-letter key.
-    /// `keyCode` is the physical key, independent of modifiers/layout shifting, so
-    /// a Control/Option chord resolves to the un-encoded letter the encoder
-    /// expects even when `charactersIgnoringModifiers` has been collapsed to a C0
-    /// control byte. Mirrors the Mac surface's `keycodeForLetter` (inverted:
-    /// code→letter here, letter→code there).
-    private static func letter(forKeyCode keyCode: UIKeyboardHIDUsage) -> String? {
-        switch keyCode {
-        case .keyboardA: return "a"
-        case .keyboardB: return "b"
-        case .keyboardC: return "c"
-        case .keyboardD: return "d"
-        case .keyboardE: return "e"
-        case .keyboardF: return "f"
-        case .keyboardG: return "g"
-        case .keyboardH: return "h"
-        case .keyboardI: return "i"
-        case .keyboardJ: return "j"
-        case .keyboardK: return "k"
-        case .keyboardL: return "l"
-        case .keyboardM: return "m"
-        case .keyboardN: return "n"
-        case .keyboardO: return "o"
-        case .keyboardP: return "p"
-        case .keyboardQ: return "q"
-        case .keyboardR: return "r"
-        case .keyboardS: return "s"
-        case .keyboardT: return "t"
-        case .keyboardU: return "u"
-        case .keyboardV: return "v"
-        case .keyboardW: return "w"
-        case .keyboardX: return "x"
-        case .keyboardY: return "y"
-        case .keyboardZ: return "z"
-        default: return nil
-        }
-    }
-
-    /// The set of keyCodes whose terminal encoding is a navigation/control
-    /// sequence rather than a literal character. Kept in sync with the explicit
-    /// cases in ``terminalInput(for:)``. Used instead of comparing the resolved
-    /// input against `charactersIgnoringModifiers`, because arrows report the same
-    /// U+F70x constant for both (and Tab reports `\t` for both), so that compare
-    /// would never flag the very keys this capture path exists to claim.
-    private static func isSpecialKey(_ keyCode: UIKeyboardHIDUsage) -> Bool {
-        switch keyCode {
-        case .keyboardUpArrow, .keyboardDownArrow, .keyboardLeftArrow, .keyboardRightArrow,
-             .keyboardHome, .keyboardEnd, .keyboardPageUp, .keyboardPageDown,
-             .keyboardDeleteForward, .keyboardEscape, .keyboardTab:
-            return true
-        default:
-            return false
-        }
-    }
-
-    // MARK: Hold-to-repeat (hardware keys)
-    //
-    // `pressesBegan` fires once per physical press, so a held arrow/Ctrl-key would
-    // emit a single byte sequence with no repeat. These keep one cancellable
-    // repeat task per held key code (so overlapping holds are independent and
-    // releasing one key stops only its own timer), re-emitting the captured bytes
-    // after an initial delay, then on a fast interval — driven through the same
-    // injected-clock `TerminalArrowRepeatService` as `TerminalArrowNubView`'s
-    // auto-repeat, so this latency-sensitive input path holds no hand-rolled
-    // `Task.sleep` loop.
-
-    /// The sanctioned injected-clock repeat scheduler shared with the arrow nub.
-    /// Owns the typematic cadence so this view's hold-to-repeat carries no
-    /// hand-rolled `Task.sleep` loop; see ``startKeyRepeat(for:bytes:)``.
-    private let keyRepeatService = TerminalArrowRepeatService()
-    /// Active hold-to-repeat tasks, keyed by physical key code. Each consumes one
-    /// ``TerminalArrowRepeatService`` stream; cancelling the task ends the cadence.
-    /// `internal` (not `private`) so a `@testable` test can capture a task and
-    /// `await` its completion to prove cancellation deterministically — without a
-    /// wall-clock sleep — rather than reaching through a production test seam.
-    var keyRepeatTasks: [UIKeyboardHIDUsage: Task<Void, Never>] = [:]
-    /// Delay before a held key starts repeating, then the per-tick cadence
-    /// (≈0.4s then ≈0.06s — a standard keyboard's typematic feel, close to the
-    /// arrow nub's 80ms repeat).
-    private static let keyRepeatInitialDelay: Duration = .milliseconds(400)
-    private static let keyRepeatInterval: Duration = .milliseconds(60)
-
-    /// Arm (or re-arm) hold-to-repeat for a consumed hardware key. The first
-    /// keystroke is emitted by the caller; this only adds the held cadence by
-    /// consuming a ``TerminalArrowRepeatService`` stream that stays silent for the
-    /// initial delay, then re-sends `bytes` every interval until the key is
-    /// released (`stopKeyRepeat`) or focus leaves (`stopAllKeyRepeats`) cancels the
-    /// task. Routing the cadence through the sanctioned injected-clock service
-    /// keeps this latency-sensitive input path free of a hand-rolled `Task.sleep`.
-    private func startKeyRepeat(for keyCode: UIKeyboardHIDUsage, bytes: Data) {
-        keyRepeatTasks[keyCode]?.cancel()
-        let repeats = keyRepeatService.repeats(
-            of: bytes,
-            initialDelay: Self.keyRepeatInitialDelay,
-            every: Self.keyRepeatInterval,
-            clock: ContinuousClock()
-        )
-        keyRepeatTasks[keyCode] = Task { @MainActor [weak self] in
-            for await repeatBytes in repeats {
-                guard let self else { return }
-                self.onEscapeSequence?(repeatBytes)
-                TerminalInputDebugLog.log("proxy.keyRepeat code=\(keyCode.rawValue) \(TerminalInputDebugLog.dataSummary(repeatBytes))")
-            }
-        }
-    }
-
-    /// Stop and clear the repeat task for one key code (its key was released).
-    private func stopKeyRepeat(for keyCode: UIKeyboardHIDUsage) {
-        keyRepeatTasks[keyCode]?.cancel()
-        keyRepeatTasks[keyCode] = nil
-    }
-
-    /// Cancel every in-flight key-repeat (focus loss / teardown).
-    private func stopAllKeyRepeats() {
-        for task in keyRepeatTasks.values { task.cancel() }
-        keyRepeatTasks.removeAll()
     }
 
     /// Restores standard system paste on this documentless responder.
@@ -893,7 +694,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         }
     }
 
-    init() {
+    /// Creates the input proxy.
+    /// - Parameter keyRepeatTimerFactory: Source of hold-to-repeat timers. Pass a
+    ///   fake to drive the cadence deterministically in tests; production callers
+    ///   omit it to use the `DispatchSourceTimer`-backed default.
+    init(keyRepeatTimerFactory: (any TerminalKeyRepeatTimerFactory)? = nil) {
+        self.keyRepeatTimerFactory = keyRepeatTimerFactory ?? TerminalKeyRepeatDispatchTimerFactory()
         super.init(frame: .zero)
         backgroundColor = .clear
         tintColor = .clear
@@ -1027,10 +833,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         }
     }
 
-    func simulateHardwareKeyCommandForTesting(input: String, modifierFlags: UIKeyModifierFlags) -> Bool {
-        handleHardwareKeyInput(input: input, modifierFlags: modifierFlags)
-    }
-
     func simulateAccessoryActionForTesting(_ action: TerminalInputAccessoryAction) {
         resetStickyTapTimeForTesting(action)
         handleAccessoryAction(action)
@@ -1099,26 +901,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         refreshAccessoryButtonStyles()
         guard let output = custom.output else { return }
         onEscapeSequence?(output)
-    }
-
-    @discardableResult
-    private func handleHardwareKeyInput(input: String, modifierFlags: UIKeyModifierFlags) -> Bool {
-        encodeAndEmitHardwareKey(input: input, modifierFlags: modifierFlags) != nil
-    }
-
-    /// Encode `input` + `modifierFlags` to terminal bytes and forward them once,
-    /// logging the FULL encoded byte sequence (always-on `.notice`) so on-device
-    /// we can read e.g. `encode Ctrl+Left -> 1B 5B 31 3B 35 44` (ESC[1;5D).
-    /// Returns the bytes on success, or `nil` when the combination has no encoding
-    /// (so the caller falls through to `super` and skips arming key-repeat).
-    private func encodeAndEmitHardwareKey(input: String, modifierFlags: UIKeyModifierFlags) -> Data? {
-        guard let data = TerminalHardwareKeyResolver.data(input: input, modifierFlags: modifierFlags), !data.isEmpty else {
-            TerminalInputDebugLog.log("proxy.encode mods=\(modifierFlags.rawValue) bytes=0 (no-data)")
-            return nil
-        }
-        TerminalInputDebugLog.log("proxy.encode mods=\(modifierFlags.rawValue) \(TerminalInputDebugLog.dataSummary(data))")
-        onEscapeSequence?(data)
-        return data
     }
 
     private func makeAccessoryButton(for action: TerminalInputAccessoryAction) -> AccessoryActionButton {
