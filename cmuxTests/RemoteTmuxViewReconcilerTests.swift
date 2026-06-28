@@ -85,15 +85,40 @@ import Testing
         ])
     }
 
-    @Test func handlesMissingPlaceholder() {
-        // After cmux closes the placeholder, an owned undesired window still unlinks.
+    @Test func neverEmptiesTheViewWhenPlaceholderIsMissing() {
+        // The only window is owned + undesired, and there's no placeholder. Unlinking
+        // it would kill the view session, so the safety net keeps the last window.
         let actions = R.actions(
             desiredWindowIds: [],
             actualWindowIds: ["@2"],
             placeholderWindowId: nil,
             cmuxOwnedWindowIds: ["@2"]
         )
-        #expect(actions == [.unlinkFromView(windowId: "@2")])
+        #expect(actions.isEmpty)
+    }
+
+    @Test func unlinksUndesiredButKeepsLastSurvivorWithoutPlaceholder() {
+        // @2 and @3 owned+undesired, no placeholder → unlink one, keep one alive.
+        let actions = R.actions(
+            desiredWindowIds: [],
+            actualWindowIds: ["@2", "@3"],
+            placeholderWindowId: nil,
+            cmuxOwnedWindowIds: ["@2", "@3"]
+        )
+        // keeps the min (@2), unlinks the rest
+        #expect(actions == [.unlinkFromView(windowId: "@3")])
+    }
+
+    @Test func unlinksAllUndesiredWhenPlaceholderSurvives() {
+        // With a (non-owned) placeholder present, the view never empties, so all
+        // owned+undesired windows can unlink.
+        let actions = R.actions(
+            desiredWindowIds: [],
+            actualWindowIds: ["@0", "@2", "@3"],
+            placeholderWindowId: "@0",
+            cmuxOwnedWindowIds: ["@2", "@3"]
+        )
+        #expect(actions == [.unlinkFromView(windowId: "@2"), .unlinkFromView(windowId: "@3")])
     }
 
     @Test func reconcileIsIdempotentAcrossRepeatedRuns() {

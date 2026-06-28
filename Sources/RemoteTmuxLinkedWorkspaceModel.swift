@@ -9,10 +9,17 @@ import Foundation
 /// workspace; that session's windows are its tabs, in tmux index order.
 ///
 /// This type turns `list-windows -a` rows into that grouping. It is pure (no tmux)
-/// so the regrouping policy is unit-testable and deterministic. A window linked
-/// into the view appears under BOTH its home session and the view session; it is
-/// always attributed to its home (non-view) session, and the view session itself
-/// is never surfaced as a workspace.
+/// so the regrouping policy is unit-testable and deterministic.
+///
+/// Two correctness properties enforced here (hardened after adversarial review):
+/// - **All view sessions are excluded**, not just our own — a *foreign* cmux
+///   install's `cmux-view-*` session must never be surfaced as a workspace nor
+///   have its windows treated as desired. Callers pass the full set of view
+///   session names (from `RemoteTmuxViewSession.isAnyView`).
+/// - **Each window has exactly one deterministic home.** A window linked into
+///   several real sessions is attributed to the lexicographically smallest
+///   non-excluded session containing it, so it appears in exactly one workspace
+///   and `%output` routing is stable regardless of tmux row order.
 enum RemoteTmuxLinkedWorkspaceModel {
     /// One `list-windows -a -F` row. `sessionName` is the session this row is
     /// listed under (a linked window yields one row per session it's in).
@@ -22,16 +29,16 @@ enum RemoteTmuxLinkedWorkspaceModel {
         let windowIndex: Int
     }
 
-    /// Recommended format for `list-windows -a -F` (session-unit-separated; name last
-    /// is not needed since session_name has no separator char here, but we keep a
-    /// non-printable separator so window names can't corrupt parsing).
-    static let listFormat = "#{session_name}\u{1f}#{window_id}\u{1f}#{window_index}"
+    /// Recommended format for `list-windows -a -F`. The controlled fields
+    /// (`window_id` = `@N`, `window_index` = int) come first; the free-text
+    /// `session_name` is LAST so a separator inside a name can't drop the row.
+    static let listFormat = "#{window_id}\u{1f}#{window_index}\u{1f}#{session_name}"
 
     static func parseRows(_ output: String) -> [WindowRow] {
         output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
-            let f = line.components(separatedBy: "\u{1f}")
-            guard f.count == 3, let idx = Int(f[2]) else { return nil }
-            return WindowRow(sessionName: f[0], windowId: f[1], windowIndex: idx)
+            let f = line.split(separator: "\u{1f}", maxSplits: 2, omittingEmptySubsequences: false)
+            guard f.count == 3, let idx = Int(f[1]) else { return nil }
+            return WindowRow(sessionName: String(f[2]), windowId: String(f[0]), windowIndex: idx)
         }
     }
 
@@ -41,19 +48,40 @@ enum RemoteTmuxLinkedWorkspaceModel {
         let windowIds: [String]   // ordered by window index
     }
 
-    /// Groups rows into workspaces, excluding the view session entirely.
+    /// The deterministic home session for a window: the lexicographically smallest
+    /// non-excluded session that contains it, or `nil` if it only exists in
+    /// excluded (view) sessions. Used both to route `%output` and to assign a
+    /// window to exactly one workspace.
+    static func homeSession(
+        forWindowId id: String,
+        rows: [WindowRow],
+        excludedSessions: Set<String>
+    ) -> String? {
+        rows.lazy
+            .filter { $0.windowId == id && !excludedSessions.contains($0.sessionName) }
+            .map(\.sessionName)
+            .min()
+    }
+
+    /// Groups rows into workspaces, excluding the given (view) sessions and
+    /// assigning each window to exactly one home.
     ///
-    /// - Parameters:
-    ///   - rows: every `list-windows -a` row for the host's tmux server.
-    ///   - viewSessionName: the hidden view session to exclude from workspaces.
     /// - Returns: workspaces sorted by session name; each workspace's window ids
-    ///   sorted by (windowIndex, windowId) for a stable tab order. A window that
-    ///   only exists in the view (no home session row) is dropped — cmux only ever
-    ///   shows windows that have a real home session.
-    static func workspaces(rows: [WindowRow], viewSessionName: String) -> [Workspace] {
-        // Collect, per home session, its (index, id) windows. Exclude the view.
+    ///   sorted by (windowIndex, windowId) for a stable tab order.
+    static func workspaces(rows: [WindowRow], excludedSessions: Set<String>) -> [Workspace] {
+        // Resolve each window's single home once (id → home session).
+        var homeByWindow: [String: String] = [:]
+        for r in rows where !excludedSessions.contains(r.sessionName) {
+            if homeByWindow[r.windowId] == nil {
+                homeByWindow[r.windowId] = homeSession(
+                    forWindowId: r.windowId, rows: rows, excludedSessions: excludedSessions)
+            }
+        }
+        // Collect each home session's windows, taking the index from the row that
+        // belongs to that home session (not a different session's linked copy).
         var bySession: [String: [(idx: Int, id: String)]] = [:]
-        for r in rows where r.sessionName != viewSessionName {
+        for r in rows where !excludedSessions.contains(r.sessionName)
+            && homeByWindow[r.windowId] == r.sessionName {
             bySession[r.sessionName, default: []].append((r.windowIndex, r.windowId))
         }
         return bySession.keys.sorted().map { name in
@@ -65,15 +93,9 @@ enum RemoteTmuxLinkedWorkspaceModel {
     }
 
     /// The set of window ids that SHOULD be linked into the view = every window
-    /// that has a real home session (i.e. all non-view windows). This is the
-    /// `desiredWindowIds` fed to ``RemoteTmuxViewReconciler``.
-    static func desiredLinkedWindowIds(rows: [WindowRow], viewSessionName: String) -> Set<String> {
-        Set(rows.filter { $0.sessionName != viewSessionName }.map(\.windowId))
-    }
-
-    /// home session for a given window id (its non-view session), or nil if the
-    /// window has no home (view-only) — used to route `%output` to a workspace.
-    static func homeSession(forWindowId id: String, rows: [WindowRow], viewSessionName: String) -> String? {
-        rows.first { $0.windowId == id && $0.sessionName != viewSessionName }?.sessionName
+    /// that has a real (non-excluded) home session. Fed to the reconciler as
+    /// `desiredWindowIds`.
+    static func desiredLinkedWindowIds(rows: [WindowRow], excludedSessions: Set<String>) -> Set<String> {
+        Set(rows.filter { !excludedSessions.contains($0.sessionName) }.map(\.windowId))
     }
 }
