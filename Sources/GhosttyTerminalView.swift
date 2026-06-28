@@ -5209,8 +5209,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
     private func maybeRequestFirstResponderForMouseFocus() {
         guard let window else { return }
         let alreadyFirstResponder = window.firstResponder === self
-        let shouldRequest = TerminalWindowFocusPolicy.shouldRequestFirstResponderForMouseFocus(
-            focusFollowsMouseEnabled: GhosttyApp.shared.focusFollowsMouseEnabled(),
+        let shouldRequest = TerminalMouseFocusPolicy(
+            focusFollowsMouseEnabled: GhosttyApp.shared.focusFollowsMouseEnabled()
+        ).shouldRequestFirstResponder(
             pressedMouseButtons: NSEvent.pressedMouseButtons,
             appIsActive: NSApp.isActive,
             windowIsKey: window.isKeyWindow,
