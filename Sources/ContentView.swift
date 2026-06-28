@@ -5911,7 +5911,7 @@ struct VerticalTabsSidebar: View {
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
             }
-            SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+            SidebarFooterHostView(updateViewModel: updateViewModel, onSendFeedback: onSendFeedback)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("Sidebar")
@@ -7294,64 +7294,40 @@ struct VerticalTabsSidebar: View {
     }
 }
 
-private struct SidebarFooter: View {
+/// App-target host for the lifted `CmuxSidebarUI.SidebarFooter`.
+///
+/// Owns the two reactive reads that drive the footer (the experimental
+/// extensions `@LiveSetting` and the keyboard-shortcut revision observer) and
+/// resolves every localized string and `AppDelegate`/`BrowserDataImportCoordinator`
+/// effect in the app bundle, threading them into the package footer as plain
+/// values and `@MainActor` closures. Keeping this thin host between
+/// `VerticalTabsSidebar` and the package view preserves the original footer's
+/// reactivity scope (only the footer re-renders when the extensions flag or a
+/// shortcut binding changes). The former dead-threaded `FileExplorerState`
+/// parameter is dropped (it was never read by any footer view).
+private struct SidebarFooterHostView: View {
     var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
-
-    var body: some View {
-#if DEBUG
-        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-#else
-        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-            .padding(.leading, 6)
-            .padding(.trailing, 10)
-            .padding(.bottom, 6)
-#endif
-    }
-}
-
-private struct SidebarFooterButtons: View {
-    var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
-    let onSendFeedback: () -> Void
-    @State private var extensionBrowserAnchorView: NSView?
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     var body: some View {
-        HStack(spacing: 4) {
-            SidebarHelpMenuButton(
-                helpTitle: String(localized: "sidebar.help.button", defaultValue: "Help"),
-                options: helpMenuOptions
-            )
-            // The puzzle button opens the extensions browser; it only shows
-            // while the experimental Extensions feature is enabled.
-            if extensionsExperimentalEnabled {
-                Button {
-                    _ = AppDelegate.shared?.openSidebarExtensionBrowser(
-                        from: extensionBrowserAnchorView,
-                        title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
-                    )
-                } label: {
-                    Image(systemName: "puzzlepiece.extension")
-                        .symbolRenderingMode(.monochrome)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                        .frame(width: 22, height: 22, alignment: .center)
-                }
-                .buttonStyle(SidebarFooterIconButtonStyle())
-                .frame(width: 22, height: 22, alignment: .center)
-                .safeHelp(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
-                .accessibilityLabel(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
-                .accessibilityIdentifier("SidebarExtensionMenuButton")
-                .background(TitlebarControlAnchorView { extensionBrowserAnchorView = $0 })
-            }
-            if let updateActionsHost = AppDelegate.shared {
-                UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        SidebarFooter(
+            updateViewModel: updateViewModel,
+            helpTitle: String(localized: "sidebar.help.button", defaultValue: "Help"),
+            helpMenuOptions: helpMenuOptions,
+            extensionsEnabled: extensionsExperimentalEnabled,
+            extensionsBrowserTitle: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"),
+            onOpenExtensionBrowser: { anchorView in
+                _ = AppDelegate.shared?.openSidebarExtensionBrowser(
+                    from: anchorView,
+                    title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+                )
+            },
+            accentColor: cmuxAccentColor(),
+            updateActionsHost: AppDelegate.shared,
+            devBuildBannerText: String(localized: "debug.devBuildBanner.title", defaultValue: "THIS IS A DEV BUILD")
+        )
     }
 
     private static let docsURL = URL(string: "https://cmux.com/docs")
@@ -7475,30 +7451,6 @@ private struct SidebarFooterButtons: View {
         return options
     }
 }
-
-#if DEBUG
-private struct SidebarDevFooter: View {
-    var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
-    let onSendFeedback: () -> Void
-    @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
-    private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-            if showSidebarDevBuildBanner {
-                SidebarDevBuildBanner(
-                    text: String(localized: "debug.devBuildBanner.title", defaultValue: "THIS IS A DEV BUILD")
-                )
-            }
-        }
-        .padding(.leading, 6)
-        .padding(.trailing, 10)
-        .padding(.bottom, 6)
-    }
-}
-#endif
 
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
 // the parent rebuilds with unchanged values. Without this, every TabManager
@@ -7853,12 +7805,29 @@ struct TabItemView: View, Equatable {
         }
     }
 
+    /// App-coupled sidebar row actions live on this adapter (see
+    /// `SidebarTabItemActions`); the row constructs it from its own values,
+    /// bindings, and closures and forwards each action to it.
+    private var actions: SidebarTabItemActions {
+        SidebarTabItemActions(
+            tabManager: tabManager,
+            notificationStore: notificationStore,
+            tab: tab,
+            index: index,
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+            setSelectionToTabs: setSelectionToTabs,
+            openSidebarPullRequestLinksInCmuxBrowser: openSidebarPullRequestLinksInCmuxBrowser,
+            openSidebarPortLinksInCmuxBrowser: openSidebarPortLinksInCmuxBrowser
+        )
+    }
+
     private func copyWorkspaceIdsToPasteboard(_ ids: [UUID], includeRefs: Bool = false) {
-        WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceIds(ids, includeRefs: includeRefs)
+        actions.copyWorkspaceIdsToPasteboard(ids, includeRefs: includeRefs)
     }
 
     private func copyWorkspaceLinksToPasteboard(_ ids: [UUID]) {
-        WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(ids)
+        actions.copyWorkspaceLinksToPasteboard(ids)
     }
 
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
@@ -8407,147 +8376,47 @@ struct TabItemView: View, Equatable {
     }
 
     private func moveBy(_ delta: Int) {
-        let targetIndex = index + delta
-        guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
-        guard tabManager.reorderWorkspace(tabId: tab.id, toIndex: targetIndex) else { return }
-        selectedTabIds = [tab.id]
-        lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == tab.id }
-        tabManager.selectTab(tab)
-        setSelectionToTabs()
+        actions.moveBy(delta)
     }
 
     private func updateSelection() {
-        let modifiers = NSEvent.modifierFlags
-        let isCommand = modifiers.contains(.command)
-        let isShift = modifiers.contains(.shift)
-        let wasSelected = tabManager.selectedTabId == tab.id
-        #if DEBUG
-        var modStr = ""
-        if modifiers.contains(.command) { modStr += "cmd " }
-        if modifiers.contains(.shift) { modStr += "shift " }
-        if modifiers.contains(.option) { modStr += "opt " }
-        if modifiers.contains(.control) { modStr += "ctrl " }
-        cmuxDebugLog("sidebar.select workspace=\(tab.id.uuidString.prefix(5)) modifiers=\(modStr.isEmpty ? "none" : modStr.trimmingCharacters(in: .whitespaces))")
-        #endif
-
-        let workspaceIds = tabManager.tabs.map(\.id)
-        let shiftAnchorIndex = isShift
-            ? SidebarWorkspaceSelectionSyncPolicy().shiftClickAnchorIndex(
-                existingAnchorIndex: lastSidebarSelectionIndex,
-                selectedWorkspaceIds: selectedTabIds,
-                focusedWorkspaceId: tabManager.selectedTabId,
-                liveWorkspaceIds: workspaceIds
-            )
-            : nil
-
-        if isShift, let anchorIndex = shiftAnchorIndex {
-            let lower = min(anchorIndex, index)
-            let upper = max(anchorIndex, index)
-            // Filter out workspaces hidden inside collapsed groups so a
-            // Shift-click range never silently includes rows the user
-            // can't see (e.g. clicking a collapsed group's anchor and
-            // then Shift-clicking a row below would otherwise sweep
-            // every collapsed child between them).
-            let collapsedGroupIds: Set<UUID> = Set(
-                tabManager.workspaceGroups
-                    .filter { $0.isCollapsed }
-                    .map(\.id)
-            )
-            let anchorIdsByGroup: [UUID: UUID] = Dictionary(
-                uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
-            )
-            let rangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
-                if let gid = tab.groupId,
-                   collapsedGroupIds.contains(gid),
-                   anchorIdsByGroup[gid] != tab.id {
-                    return nil
-                }
-                return tab.id
-            }
-            if isCommand {
-                selectedTabIds.formUnion(rangeIds)
-            } else {
-                selectedTabIds = Set(rangeIds)
-            }
-        } else if isCommand {
-            if selectedTabIds.contains(tab.id) {
-                selectedTabIds.remove(tab.id)
-            } else {
-                selectedTabIds.insert(tab.id)
-            }
-        } else {
-            selectedTabIds = [tab.id]
-        }
-
-        lastSidebarSelectionIndex = SidebarWorkspaceSelectionSyncPolicy().anchorIndexAfterWorkspaceClick(
-            isShiftClick: isShift,
-            resolvedShiftAnchorIndex: shiftAnchorIndex,
-            clickedIndex: index
-        )
-        tabManager.selectTab(tab)
-        if wasSelected, !isCommand, !isShift {
-            tabManager.dismissNotificationOnDirectInteraction(
-                tabId: tab.id,
-                surfaceId: tabManager.focusedSurfaceId(for: tab.id)
-            )
-        }
-        setSelectionToTabs()
+        actions.updateSelection()
     }
 
     private func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {
-        tabManager.closeWorkspacesWithConfirmation(targetIds, allowPinned: allowPinned)
-        syncSelectionAfterMutation()
+        actions.closeTabs(targetIds, allowPinned: allowPinned)
     }
 
     private func closeOtherTabs(_ targetIds: [UUID]) {
-        let keepIds = Set(targetIds)
-        let idsToClose = tabManager.tabs.compactMap { keepIds.contains($0.id) ? nil : $0.id }
-        closeTabs(idsToClose, allowPinned: true)
+        actions.closeOtherTabs(targetIds)
     }
 
     private func closeTabsBelow(tabId: UUID) {
-        guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        let idsToClose = tabManager.tabs.suffix(from: anchorIndex + 1).map { $0.id }
-        closeTabs(idsToClose, allowPinned: true)
+        actions.closeTabsBelow(tabId: tabId)
     }
 
     private func closeTabsAbove(tabId: UUID) {
-        guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        let idsToClose = tabManager.tabs.prefix(upTo: anchorIndex).map { $0.id }
-        closeTabs(idsToClose, allowPinned: true)
+        actions.closeTabsAbove(tabId: tabId)
     }
 
     private func markTabsRead(_ targetIds: [UUID]) {
-        for id in targetIds {
-            notificationStore.markRead(forTabId: id)
-        }
+        actions.markTabsRead(targetIds)
     }
 
     private func markTabsUnread(_ targetIds: [UUID]) {
-        for id in targetIds {
-            notificationStore.markUnread(forTabId: id)
-        }
+        actions.markTabsUnread(targetIds)
     }
 
     private func clearLatestNotifications(_ targetIds: [UUID]) {
-        for id in targetIds {
-            notificationStore.clearLatestNotification(forTabId: id)
-        }
+        actions.clearLatestNotifications(targetIds)
     }
 
     private func hasLatestNotifications(in targetIds: [UUID]) -> Bool {
-        targetIds.contains { notificationStore.latestNotification(forTabId: $0) != nil }
+        actions.hasLatestNotifications(in: targetIds)
     }
 
     private func syncSelectionAfterMutation() {
-        let existingIds = Set(tabManager.tabs.map { $0.id })
-        selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
-        if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
-            selectedTabIds = [selectedId]
-        }
-        if let selectedId = tabManager.selectedTabId {
-            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
-        }
+        actions.syncSelectionAfterMutation()
     }
 
     private var remoteStateHelpText: String {
@@ -8703,40 +8572,11 @@ struct TabItemView: View, Equatable {
     }
 
     private func moveWorkspaces(_ workspaceIds: [UUID], toWindow windowId: UUID) {
-        guard let app = AppDelegate.shared else { return }
-        let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
-        guard !orderedWorkspaceIds.isEmpty else { return }
-
-        for (index, workspaceId) in orderedWorkspaceIds.enumerated() {
-            let shouldFocus = index == orderedWorkspaceIds.count - 1
-            _ = app.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: shouldFocus)
-        }
-
-        selectedTabIds.subtract(orderedWorkspaceIds)
-        syncSelectionAfterMutation()
+        actions.moveWorkspaces(workspaceIds, toWindow: windowId)
     }
 
     private func moveWorkspacesToNewWindow(_ workspaceIds: [UUID]) {
-        guard let app = AppDelegate.shared else { return }
-        let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
-        guard let firstWorkspaceId = orderedWorkspaceIds.first else { return }
-
-        let shouldFocusImmediately = orderedWorkspaceIds.count == 1
-        guard let newWindowId = app.moveWorkspaceToNewWindow(workspaceId: firstWorkspaceId, focus: shouldFocusImmediately) else {
-            return
-        }
-
-        if orderedWorkspaceIds.count > 1 {
-            for workspaceId in orderedWorkspaceIds.dropFirst() {
-                _ = app.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: newWindowId, focus: false)
-            }
-            if let finalWorkspaceId = orderedWorkspaceIds.last {
-                _ = app.moveWorkspaceToWindow(workspaceId: finalWorkspaceId, windowId: newWindowId, focus: true)
-            }
-        }
-
-        selectedTabIds.subtract(orderedWorkspaceIds)
-        syncSelectionAfterMutation()
+        actions.moveWorkspacesToNewWindow(workspaceIds)
     }
 
     // latestNotificationText is now passed as a parameter from the parent view
@@ -8861,36 +8701,11 @@ struct TabItemView: View, Equatable {
     }
 
     private func openPullRequestLink(_ url: URL) {
-        updateSelection()
-        if openSidebarPullRequestLinksInCmuxBrowser {
-            if tabManager.openBrowser(
-                inWorkspace: tab.id,
-                url: url,
-                preferSplitRight: true,
-                insertAtEnd: true
-            ) == nil {
-                NSWorkspace.shared.open(url)
-            }
-            return
-        }
-        NSWorkspace.shared.open(url)
+        actions.openPullRequestLink(url)
     }
 
     private func openPortLink(_ port: Int) {
-        guard let url = URL(string: "http://localhost:\(port)") else { return }
-        updateSelection()
-        if openSidebarPortLinksInCmuxBrowser {
-            if tabManager.openBrowser(
-                inWorkspace: tab.id,
-                url: url,
-                preferSplitRight: true,
-                insertAtEnd: true
-            ) == nil {
-                NSWorkspace.shared.open(url)
-            }
-            return
-        }
-        NSWorkspace.shared.open(url)
+        actions.openPortLink(port)
     }
 
     private func pullRequestStatusLabel(_ status: SidebarPullRequestStatus) -> String {
@@ -8914,79 +8729,23 @@ struct TabItemView: View, Equatable {
     }
 
     private func applyTabColor(_ hex: String?, targetIds: [UUID]) {
-        tabManager.applyWorkspaceColor(hex, toWorkspaceIds: targetIds)
+        actions.applyTabColor(hex, targetIds: targetIds)
     }
 
     private func promptCustomColor(targetIds: [UUID]) {
-        let alert = NSAlert()
-        alert.messageText = String(localized: "alert.customColor.title", defaultValue: "Custom Workspace Color")
-        alert.informativeText = String(localized: "alert.customColor.message", defaultValue: "Enter a hex color in the format #RRGGBB.")
-
-        let seed = tab.customColor ?? WorkspaceTabColorSettings.customPaletteEntries().first?.hex ?? ""
-        let input = NSTextField(string: seed)
-        input.placeholderString = "#1565C0"
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(withTitle: String(localized: "alert.customColor.apply", defaultValue: "Apply"))
-        alert.addButton(withTitle: String(localized: "alert.customColor.cancel", defaultValue: "Cancel"))
-
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        DispatchQueue.main.async {
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-
-        let response = alert.runModal()
-        guard response == .alertFirstButtonReturn else { return }
-        guard let normalized = WorkspaceTabColorSettings.addCustomColor(input.stringValue) else {
-            showInvalidColorAlert(input.stringValue)
-            return
-        }
-        applyTabColor(normalized, targetIds: targetIds)
+        actions.promptCustomColor(targetIds: targetIds)
     }
 
     private func showInvalidColorAlert(_ value: String) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = String(localized: "alert.invalidColor.title", defaultValue: "Invalid Color")
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            alert.informativeText = String(localized: "alert.invalidColor.emptyMessage", defaultValue: "Enter a hex color in the format #RRGGBB.")
-        } else {
-            alert.informativeText = String(localized: "alert.invalidColor.invalidMessage", defaultValue: "\"\(trimmed)\" is not a valid hex color. Use #RRGGBB.")
-        }
-        alert.addButton(withTitle: String(localized: "alert.invalidColor.ok", defaultValue: "OK"))
-        _ = alert.runModal()
+        actions.showInvalidColorAlert(value)
     }
 
     private func promptRename() {
-        let alert = NSAlert()
-        alert.messageText = String(localized: "alert.renameWorkspace.title", defaultValue: "Rename Workspace")
-        alert.informativeText = String(localized: "alert.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
-        let input = NSTextField(string: tab.customTitle ?? tab.title)
-        input.placeholderString = String(localized: "alert.renameWorkspace.placeholder", defaultValue: "Workspace name")
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(withTitle: String(localized: "alert.renameWorkspace.rename", defaultValue: "Rename"))
-        alert.addButton(withTitle: String(localized: "alert.renameWorkspace.cancel", defaultValue: "Cancel"))
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        DispatchQueue.main.async {
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-        let response = alert.runModal()
-        guard response == .alertFirstButtonReturn else { return }
-        tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+        actions.promptRename()
     }
 
     private func beginWorkspaceDescriptionEditFromContextMenu() {
-        selectedTabIds = [tab.id]
-        lastSidebarSelectionIndex = index
-        tabManager.selectTab(tab)
-        setSelectionToTabs()
-        _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
+        actions.beginWorkspaceDescriptionEditFromContextMenu()
     }
 }
 
