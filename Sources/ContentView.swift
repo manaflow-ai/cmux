@@ -6021,46 +6021,59 @@ struct VerticalTabsSidebar: View {
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
-        return GeometryReader { geometryProxy in
-            let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
-                viewportHeight: geometryProxy.size.height,
-                insets: scrollInsets
-            )
-            ScrollViewReader { scrollProxy in
-                ScrollView(.vertical) {
+        return ScrollViewReader { scrollProxy in
+            SidebarScrollColumn(
+                topInset: scrollInsets.top,
+                bottomInset: scrollInsets.bottom,
+                topScrimHeight: sidebarTopScrimHeight,
+                bottomScrimHeight: sidebarBottomScrimHeight,
+                isMinimalMode: isMinimalMode,
+                minimalControlsLeadingInset: CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset),
+                minimalControlsTopPadding: minimalModeSidebarTitlebarControlsTopPadding,
+                configureScrollView: { scrollView in
+                    configureSidebarScrollView(scrollView)
+                    dragAutoScrollController.attach(scrollView: scrollView)
+                },
+                content: { geometryProxy in
                     workspaceScrollContent(
                         renderContext: renderContext,
-                        minHeight: contentMinHeight
+                        minHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
+                            viewportHeight: geometryProxy.size.height,
+                            insets: scrollInsets
+                        )
                     )
-                }
-                .background(
-                    SidebarScrollViewResolver { scrollView in
-                        configureSidebarScrollView(scrollView)
-                        dragAutoScrollController.attach(scrollView: scrollView)
-                    }
-                    .frame(width: 0, height: 0)
-                )
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    Color.clear.frame(height: scrollInsets.top)
-                        .allowsHitTesting(false)
-                }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    Color.clear.frame(height: scrollInsets.bottom)
-                        .allowsHitTesting(false)
-                }
-                .mask(
-                    SidebarWorkspaceScrollEdgeFadeMask(
-                        topHeight: sidebarTopScrimHeight,
-                        bottomHeight: sidebarBottomScrimHeight
-                    )
-                )
-                .overlay(alignment: .top) {
+                },
+                titlebarOverlay: {
                     // The sidebar top strip remains draggable and handles
                     // double-clicks with the standard titlebar action.
                     WindowDragHandleView()
                         .frame(height: sidebarTitlebarInteractionHeight)
                         .background(TitlebarDoubleClickMonitorView())
+                },
+                minimalControls: {
+                    HiddenTitlebarSidebarControlsView(
+                        notificationStore: notificationStore,
+                        onToggleSidebar: onToggleSidebar,
+                        onToggleNotifications: { anchorView in
+                            AppDelegate.shared?.toggleNotificationsPopover(
+                                animated: true,
+                                anchorView: anchorView
+                            )
+                        },
+                        onNewTab: onNewTab,
+                        onFocusHistoryBack: {
+                            if !tabManager.navigateBack() {
+                                NSSound.beep()
+                            }
+                        },
+                        onFocusHistoryForward: {
+                            if !tabManager.navigateForward() {
+                                NSSound.beep()
+                            }
+                        }
+                    )
                 }
+            )
                 .overlay(alignment: .top) {
                     if dragState.draggedTabId != nil, let firstWorkspaceId = renderContext.workspaceIds.first {
                         Color.clear
@@ -6078,41 +6091,6 @@ struct VerticalTabsSidebar: View {
                             ))
                     }
                 }
-                .overlay(alignment: .topLeading) {
-                    if isMinimalMode {
-                        HiddenTitlebarSidebarControlsView(
-                            notificationStore: notificationStore,
-                            onToggleSidebar: onToggleSidebar,
-                            onToggleNotifications: { anchorView in
-                                AppDelegate.shared?.toggleNotificationsPopover(
-                                    animated: true,
-                                    anchorView: anchorView
-                                )
-                            },
-                            onNewTab: onNewTab,
-                            onFocusHistoryBack: {
-                                if !tabManager.navigateBack() {
-                                    NSSound.beep()
-                                }
-                            },
-                            onFocusHistoryForward: {
-                                if !tabManager.navigateForward() {
-                                    NSSound.beep()
-                                }
-                            }
-                        )
-                            .padding(
-                                .leading,
-                                CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset)
-                            )
-                            .padding(
-                                .top,
-                                minimalModeSidebarTitlebarControlsTopPadding
-                            )
-                    }
-                }
-                .background(Color.clear)
-                .modifier(ClearScrollBackground())
                 .onAppear {
                     requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
                 }
@@ -6178,7 +6156,6 @@ struct VerticalTabsSidebar: View {
                         lastSidebarSelectionIndex = index
                     }
                 }
-            }
         }
     }
 
@@ -6278,8 +6255,19 @@ struct VerticalTabsSidebar: View {
         model: CmuxSidebarProviderRenderModel,
         now: Date
     ) -> some View {
-        GeometryReader { geometryProxy in
-            ScrollView {
+        SidebarScrollColumn(
+            topInset: SidebarWorkspaceScrollInsets.workspaceList.top,
+            bottomInset: SidebarWorkspaceScrollInsets.workspaceList.bottom,
+            topScrimHeight: sidebarTopScrimHeight,
+            bottomScrimHeight: sidebarBottomScrimHeight,
+            isMinimalMode: isMinimalMode,
+            minimalControlsLeadingInset: CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset),
+            minimalControlsTopPadding: minimalModeSidebarTitlebarControlsTopPadding,
+            configureScrollView: { scrollView in
+                configureSidebarScrollView(scrollView)
+                dragAutoScrollController.attach(scrollView: scrollView)
+            },
+            content: { geometryProxy in
                 if model.presentation == .browserStack {
                     extensionBrowserStackSidebar(model: model, now: now)
                         .frame(
@@ -6319,80 +6307,47 @@ struct VerticalTabsSidebar: View {
                         }
                     )
                 }
-            }
-            .background(
-                SidebarScrollViewResolver { scrollView in
-                    configureSidebarScrollView(scrollView)
-                    dragAutoScrollController.attach(scrollView: scrollView)
-                }
-                .frame(width: 0, height: 0)
-            )
-            .safeAreaInset(edge: .top, spacing: 0) {
-                Color.clear.frame(height: SidebarWorkspaceScrollInsets.workspaceList.top)
-                    .allowsHitTesting(false)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                Color.clear.frame(height: SidebarWorkspaceScrollInsets.workspaceList.bottom)
-                    .allowsHitTesting(false)
-            }
-            .mask(
-                SidebarWorkspaceScrollEdgeFadeMask(
-                    topHeight: sidebarTopScrimHeight,
-                    bottomHeight: sidebarBottomScrimHeight
-                )
-            )
-            .overlay(alignment: .top) {
+            },
+            titlebarOverlay: {
                 WindowDragHandleView()
                     .frame(height: sidebarTitlebarInteractionHeight)
                     .background(TitlebarDoubleClickMonitorView())
-            }
-            .overlay(alignment: .topLeading) {
-                if isMinimalMode {
-                    HiddenTitlebarSidebarControlsView(
-                        notificationStore: notificationStore,
-                        onToggleSidebar: onToggleSidebar,
-                        onToggleNotifications: { anchorView in
-                            AppDelegate.shared?.toggleNotificationsPopover(
-                                animated: true,
-                                anchorView: anchorView
-                            )
-                        },
-                        onNewTab: onNewTab,
-                        onFocusHistoryBack: {
-                            if !tabManager.navigateBack() {
-                                NSSound.beep()
-                            }
-                        },
-                        onFocusHistoryForward: {
-                            if !tabManager.navigateForward() {
-                                NSSound.beep()
-                            }
+            },
+            minimalControls: {
+                HiddenTitlebarSidebarControlsView(
+                    notificationStore: notificationStore,
+                    onToggleSidebar: onToggleSidebar,
+                    onToggleNotifications: { anchorView in
+                        AppDelegate.shared?.toggleNotificationsPopover(
+                            animated: true,
+                            anchorView: anchorView
+                        )
+                    },
+                    onNewTab: onNewTab,
+                    onFocusHistoryBack: {
+                        if !tabManager.navigateBack() {
+                            NSSound.beep()
                         }
-                    )
-                    .padding(
-                        .leading,
-                        CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset)
-                    )
-                    .padding(
-                        .top,
-                        minimalModeSidebarTitlebarControlsTopPadding
-                    )
-                }
+                    },
+                    onFocusHistoryForward: {
+                        if !tabManager.navigateForward() {
+                            NSSound.beep()
+                        }
+                    }
+                )
             }
-            .background(Color.clear)
-            .modifier(ClearScrollBackground())
-            .onReceive(extensionSidebarImmediateObservationPublisher) { _ in
-                refreshExtensionSidebarSnapshot()
-            }
-            .onReceive(extensionSidebarDebouncedObservationPublisher) { _ in
-                refreshExtensionSidebarSnapshot()
-            }
-            .onReceive(
-                NotificationCenter.default.publisher(for: BrowserStackSidebar.stateDidLoadNotification)
-                    .receive(on: RunLoop.main)
-            ) { _ in
-                refreshExtensionSidebarSnapshot()
-            }
+        )
+        .onReceive(extensionSidebarImmediateObservationPublisher) { _ in
+            refreshExtensionSidebarSnapshot()
+        }
+        .onReceive(extensionSidebarDebouncedObservationPublisher) { _ in
+            refreshExtensionSidebarSnapshot()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: BrowserStackSidebar.stateDidLoadNotification)
+                .receive(on: RunLoop.main)
+        ) { _ in
+            refreshExtensionSidebarSnapshot()
         }
     }
 
