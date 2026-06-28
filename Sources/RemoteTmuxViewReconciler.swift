@@ -79,9 +79,9 @@ enum RemoteTmuxViewReconciler {
         // last one linked until a placeholder/new window exists. The live layer
         // also guarantees a placeholder, but the pure policy must not depend on
         // that being accurate (a nil/stale placeholder must still be safe).
-        let survivors = actualWindowIds.subtracting(unlinkable)
-        if toLink.isEmpty, survivors.isEmpty, let keep = unlinkable.min() {
-            unlinkable.remove(keep)
+        let wouldEmptyView = toLink.isEmpty && actualWindowIds.subtracting(unlinkable).isEmpty
+        if wouldEmptyView, let keepAlive = unlinkable.min() {
+            unlinkable.remove(keepAlive)
         }
 
         return toLink.sorted().map { Action.link(windowId: $0) }

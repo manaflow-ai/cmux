@@ -37,18 +37,10 @@ enum RemoteTmuxLinkedWorkspaceModel {
     /// rejoined from the remainder so a `:` in a name can't shift fields.
     static let listFormat = "#{window_id}:#{window_index}:#{session_name}"
 
-    private static let fieldDelimiter = ":"
-
     static func parseRows(_ output: String) -> [WindowRow] {
-        output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { rawLine in
-            var line = String(rawLine)
-            if line.last == "\r" { line.removeLast() }
-            let f = line.components(separatedBy: fieldDelimiter)
-            guard f.count >= 3, let idx = Int(f[1]) else { return nil }
-            return WindowRow(
-                sessionName: f[2...].joined(separator: fieldDelimiter),
-                windowId: f[0],
-                windowIndex: idx)
+        RemoteTmuxSessionListParser.splitRows(output, fieldCount: 3).compactMap { f in
+            guard let idx = Int(f[1]) else { return nil }
+            return WindowRow(sessionName: f[2], windowId: f[0], windowIndex: idx)
         }
     }
 
@@ -79,19 +71,20 @@ enum RemoteTmuxLinkedWorkspaceModel {
     /// - Returns: workspaces sorted by session name; each workspace's window ids
     ///   sorted by (windowIndex, windowId) for a stable tab order.
     static func workspaces(rows: [WindowRow], excludedSessions: Set<String>) -> [Workspace] {
-        // Resolve each window's single home once (id → home session).
+        // One pass: each window's home is the lexicographically smallest non-excluded
+        // session that contains it (deterministic single home).
         var homeByWindow: [String: String] = [:]
         for r in rows where !excludedSessions.contains(r.sessionName) {
-            if homeByWindow[r.windowId] == nil {
-                homeByWindow[r.windowId] = homeSession(
-                    forWindowId: r.windowId, rows: rows, excludedSessions: excludedSessions)
+            if let existing = homeByWindow[r.windowId] {
+                if r.sessionName < existing { homeByWindow[r.windowId] = r.sessionName }
+            } else {
+                homeByWindow[r.windowId] = r.sessionName
             }
         }
         // Collect each home session's windows, taking the index from the row that
         // belongs to that home session (not a different session's linked copy).
         var bySession: [String: [(idx: Int, id: String)]] = [:]
-        for r in rows where !excludedSessions.contains(r.sessionName)
-            && homeByWindow[r.windowId] == r.sessionName {
+        for r in rows where homeByWindow[r.windowId] == r.sessionName {
             bySession[r.sessionName, default: []].append((r.windowIndex, r.windowId))
         }
         return bySession.keys.sorted().map { name in
