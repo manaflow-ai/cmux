@@ -2262,11 +2262,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         }
         return UserDefaults.standard.bool(forKey: "cmuxFocusDebug")
     }()
-    internal enum DropPlan: Equatable {
-        case insertText(String)
-        case uploadFiles([URL])
-        case reject
-    }
+    /// The simplified drop outcome asserted by the drop regression tests, lifted
+    /// to ``CmuxTerminalCore/TerminalDropPlan``. The alias keeps every
+    /// `GhosttyNSView.DropPlan` / `Self.DropPlan` reference resolving unchanged.
+    typealias DropPlan = TerminalDropPlan
 
     private static let dropTypes: Set<NSPasteboard.PasteboardType> = PasteboardFileURLReader.fileURLPasteboardTypes.union([
         .string,
@@ -7533,12 +7532,10 @@ final class GhosttySurfaceScrollView: NSView {
         ringChrome.notificationRingDebugState
     }
 
-    struct DebugDropZoneOverlayState {
-        let isHidden: Bool
-        let frame: CGRect
-        let isAttachedToHostedView: Bool
-        let isAttachedToParentContainer: Bool
-    }
+    /// The drop-zone overlay snapshot, lifted to
+    /// ``CmuxTerminalCore/DebugDropZoneOverlayState``. The alias keeps the
+    /// nested-type spelling so callers resolve unchanged.
+    typealias DebugDropZoneOverlayState = CmuxTerminalCore.DebugDropZoneOverlayState
 
     func debugDropZoneOverlayState() -> DebugDropZoneOverlayState {
         DebugDropZoneOverlayState(
@@ -8465,23 +8462,10 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
 #if DEBUG
-    struct DebugRenderStats {
-        let drawCount: Int
-        let lastDrawTime: CFTimeInterval
-        let metalDrawableCount: Int
-        let metalLastDrawableTime: CFTimeInterval
-        let presentCount: Int
-        let lastPresentTime: CFTimeInterval
-        let layerClass: String
-        let layerContentsKey: String
-        let inWindow: Bool
-        let windowIsKey: Bool
-        let windowOcclusionVisible: Bool
-        let appIsActive: Bool
-        let isActive: Bool
-        let desiredFocus: Bool
-        let isFirstResponder: Bool
-    }
+    /// The render/focus snapshot, lifted to
+    /// ``CmuxTerminalCore/DebugRenderStats``. The alias keeps the nested-type
+    /// spelling so callers resolve unchanged.
+    typealias DebugRenderStats = CmuxTerminalCore.DebugRenderStats
 
     func debugRenderStats() -> DebugRenderStats {
         let layerClass = surfaceView.layer.map { String(describing: type(of: $0)) } ?? "nil"

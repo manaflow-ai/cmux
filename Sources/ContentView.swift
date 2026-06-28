@@ -6839,54 +6839,32 @@ struct VerticalTabsSidebar: View {
         now: Date
     ) -> some View {
         let isCollapsed = collapsedExtensionSidebarSectionIds.contains(section.id)
-        let canCreateWorktree = section.treeSection.projectRootPath != nil
-        let selectedWorkspaceId = tabManager.selectedTabId
-        let workspaceSnapshotsById = extensionSidebarWorkspaceSnapshotsById(for: section.rows)
-
-        VStack(alignment: .leading, spacing: 1) {
-            ExtensionSidebarSectionHeaderRow(
-                title: extensionSidebarTreeSectionTitle(section.treeSection),
-                isCollapsed: isCollapsed,
-                canCreateWorktree: canCreateWorktree,
-                isWorktreeCreationInFlight: extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id),
-                sectionAccessibilityId: section.id,
-                toggleHelp: String(localized: "sidebar.extension.toggleSection", defaultValue: "Toggle section"),
-                createWorktreeHelp: String(localized: "sidebar.extension.createWorktree", defaultValue: "Create worktree"),
-                onToggle: {
-                    withAnimation(Self.extensionSidebarDisclosureAnimation) {
-                        if isCollapsed {
-                            collapsedExtensionSidebarSectionIds.remove(section.id)
-                        } else {
-                            collapsedExtensionSidebarSectionIds.insert(section.id)
-                        }
-                    }
-                },
-                onCreateWorktree: {
-                    createExtensionWorktreeWorkspace(for: section.treeSection)
+        ExtensionSidebarSectionView(
+            section: section,
+            providerId: providerId,
+            now: now,
+            isCollapsed: isCollapsed,
+            isWorktreeCreationInFlight: extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id),
+            canCreateWorktree: section.treeSection.projectRootPath != nil,
+            selectedWorkspaceId: tabManager.selectedTabId,
+            workspaceSnapshotsById: extensionSidebarWorkspaceSnapshotsById(for: section.rows),
+            treeSectionTitle: extensionSidebarTreeSectionTitle(section.treeSection),
+            toggleHelp: String(localized: "sidebar.extension.toggleSection", defaultValue: "Toggle section"),
+            createWorktreeHelp: String(localized: "sidebar.extension.createWorktree", defaultValue: "Create worktree"),
+            disclosureAnimation: Self.extensionSidebarDisclosureAnimation,
+            onToggle: {
+                if isCollapsed {
+                    collapsedExtensionSidebarSectionIds.remove(section.id)
+                } else {
+                    collapsedExtensionSidebarSectionIds.insert(section.id)
                 }
-            )
-
-            if !isCollapsed {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(section.rows) { row in
-                        CmuxExtensionSidebarWorkspaceRowView(
-                            row: row,
-                            workspace: workspaceSnapshotsById[row.workspaceId],
-                            providerId: providerId,
-                            relativeNow: now,
-                            isSelected: row.workspaceId == selectedWorkspaceId,
-                            onSelect: selectExtensionSidebarWorkspace,
-                            onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
-                        )
-                        .id(row.id)
-                        .accessibilityIdentifier("extensionSidebar.workspace.\(row.workspaceId.uuidString)")
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .clipped()
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
+            },
+            onCreateWorktree: {
+                createExtensionWorktreeWorkspace(for: section.treeSection)
+            },
+            onSelect: selectExtensionSidebarWorkspace,
+            onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
+        )
     }
 
     private func extensionWorkspaceSnapshot(for workspaceId: UUID) -> CmuxSidebarProviderWorkspace? {
