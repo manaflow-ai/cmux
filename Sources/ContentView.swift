@@ -7470,7 +7470,6 @@ typealias SidebarWorkspaceSnapshotBuilder = CmuxSidebar.SidebarWorkspaceSnapshot
 
 struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
-    private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
 
     // DEBUG-only sidebar-description render log, injected into the lifted
     // `SidebarWorkspaceDescriptionText` package view so the app keeps emitting
@@ -8413,45 +8412,45 @@ struct TabItemView: View, Equatable {
         let orderedPanelIds: [UUID]? = (detailVisibility.showsBranchDirectory || detailVisibility.showsPullRequests)
             ? tab.sidebarOrderedPanelIds()
             : nil
-        let compactGitBranchSummaryText: String? = {
+
+        // Gather the ordered branch/directory/pull-request projections from live
+        // workspace state, gated exactly as the row's layout requires, then hand
+        // them as plain value arrays to the snapshot builder, which performs all
+        // formatting and derivation. The gating below is the only place these
+        // reads happen, so a hidden detail never pays for its projection.
+        let branches: [SidebarGitBranchState] = {
             guard detailVisibility.showsBranchDirectory,
                   !sidebarBranchVerticalLayout,
                   sidebarShowGitBranch,
                   let orderedPanelIds else {
-                return nil
+                return []
             }
-            return gitBranchSummaryText(orderedPanelIds: orderedPanelIds)
+            return tab.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds)
         }()
-        let compactDirectoryCandidates: [String] = {
+        let directories: [String] = {
             guard detailVisibility.showsBranchDirectory,
                   !sidebarBranchVerticalLayout,
                   let orderedPanelIds else {
                 return []
             }
-            return compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)
+            return tab.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
         }()
-        let compactBranchDirectoryCandidates = compactBranchDirectoryCandidatesList(
-            gitSummary: compactGitBranchSummaryText,
-            directoryCandidates: compactDirectoryCandidates
-        )
-        let branchDirectoryLines: [SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine] = {
+        let directoryEntries: [SidebarBranchOrdering.BranchDirectoryEntry] = {
             guard detailVisibility.showsBranchDirectory,
                   sidebarBranchVerticalLayout,
                   let orderedPanelIds else {
                 return []
             }
-            return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
+            return tab.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
         }()
-        let branchLinesContainBranch = sidebarShowGitBranch && branchDirectoryLines.contains { $0.branch != nil }
-        let pullRequestRows: [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] = {
+        let pullRequests: [SidebarPullRequestState] = {
             guard detailVisibility.showsPullRequests, let orderedPanelIds else { return [] }
-            return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
+            return tab.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds)
         }()
 
-        return SidebarWorkspaceSnapshotBuilder.Snapshot(
-            presentationKey: workspaceSnapshotPresentationKey,
+        let inputs = SidebarWorkspaceSnapshotBuilder.RowInputs(
             title: tab.title,
-            customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
+            customDescription: tab.customDescription,
             isPinned: tab.isPinned,
             customColorHex: tab.customColor,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
@@ -8465,24 +8464,19 @@ struct TabItemView: View, Equatable {
             metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
             latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? tab.progress : nil,
-            compactGitBranchSummaryText: compactGitBranchSummaryText,
-            compactDirectoryCandidates: compactDirectoryCandidates,
-            compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
-            branchDirectoryLines: branchDirectoryLines,
-            branchLinesContainBranch: branchLinesContainBranch,
-            pullRequestRows: pullRequestRows,
-            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : [],
+            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : []
+        )
+
+        return SidebarWorkspaceSnapshotBuilder.snapshot(
+            presentationKey: workspaceSnapshotPresentationKey,
+            branches: branches,
+            directoryEntries: directoryEntries,
+            directories: directories,
+            pullRequests: pullRequests,
+            settings: settings,
+            flags: inputs,
             finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: tab)
         )
-    }
-
-    private var sidebarVisibleCustomDescription: String? {
-        guard let description = tab.customDescription else { return nil }
-        if tab.title.hasPrefix("vm:"),
-           description.trimmingCharacters(in: .whitespacesAndNewlines) == Self.legacyVMWebSocketDescription {
-            return nil
-        }
-        return description
     }
 
     private func moveWorkspaces(_ workspaceIds: [UUID], toWindow windowId: UUID) {
@@ -8495,120 +8489,6 @@ struct TabItemView: View, Equatable {
 
     // latestNotificationText is now passed as a parameter from the parent view
     // to avoid subscribing to notificationStore changes in every TabItemView.
-
-    // Builds the joined "branch · directory" candidates list for inline mode.
-    // Each entry pairs the (fixed) git summary with one entry from the
-    // directory candidates list, so ViewThatFits can choose how aggressively to
-    // shorten the directory portion as the row width changes.
-    private func compactBranchDirectoryCandidatesList(
-        gitSummary: String?,
-        directoryCandidates: [String]
-    ) -> [String] {
-        if directoryCandidates.isEmpty {
-            return gitSummary.flatMap { $0.isEmpty ? nil : [$0] } ?? []
-        }
-        guard let gitSummary, !gitSummary.isEmpty else { return directoryCandidates }
-        return directoryCandidates.map { "\(gitSummary) · \($0)" }
-    }
-
-    private func gitBranchSummaryText(orderedPanelIds: [UUID]) -> String? {
-        let lines = gitBranchSummaryLines(orderedPanelIds: orderedPanelIds)
-        guard !lines.isEmpty else { return nil }
-        return lines.joined(separator: " | ")
-    }
-
-    private func gitBranchSummaryLines(orderedPanelIds: [UUID]) -> [String] {
-        tab.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).map { branch in
-            "\(branch.branch)\(branch.isDirty ? "*" : "")"
-        }
-    }
-
-    private func verticalBranchDirectoryLines(orderedPanelIds: [UUID]) -> [SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine] {
-        let entries = tab.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
-        let home = SidebarPathFormatter.homeDirectoryPath
-        let useViewportAwarePath = sidebarUsesLastSegmentPath
-        return entries.compactMap { entry in
-            let branchText: String? = {
-                guard sidebarShowGitBranch, let branch = entry.branch else { return nil }
-                return "\(branch)\(entry.isDirty ? "*" : "")"
-            }()
-
-            let directoryCandidates: [String] = {
-                guard let directory = entry.directory else { return [] }
-                if useViewportAwarePath {
-                    return SidebarPathFormatter.pathCandidates(directory, homeDirectoryPath: home)
-                }
-                let shortened = SidebarPathFormatter.shortenedPath(directory, homeDirectoryPath: home)
-                return shortened.isEmpty ? [] : [shortened]
-            }()
-
-            if branchText == nil && directoryCandidates.isEmpty {
-                return nil
-            }
-            return SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine(
-                branch: branchText,
-                directoryCandidates: directoryCandidates
-            )
-        }
-    }
-
-    // Candidates for the inline-mode directory line, longest → shortest. When
-    // viewport-aware truncation is off, returns a single element with each
-    // panel directory shortened via `~/`. When on, walks per-path candidate
-    // indices, bumping the rightmost path that can still shrink at each step.
-    // Each emitted candidate differs from the previous by exactly one path
-    // collapsing one level, so ViewThatFits sees a strictly monotone gradient
-    // (`full|full`, `full|mid`, `full|leaf`, `mid|leaf`, `leaf|leaf`) — later
-    // panels shrink before earlier ones, preserving the leading workspace dir
-    // as long as the row width allows.
-    private func compactDirectoryCandidatesList(orderedPanelIds: [UUID]) -> [String] {
-        let home = SidebarPathFormatter.homeDirectoryPath
-        let directories = tab.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
-        guard !directories.isEmpty else { return [] }
-
-        if !sidebarUsesLastSegmentPath {
-            let joined = directories
-                .map { SidebarPathFormatter.shortenedPath($0, homeDirectoryPath: home) }
-                .filter { !$0.isEmpty }
-                .joined(separator: " | ")
-            return joined.isEmpty ? [] : [joined]
-        }
-
-        let perDirectoryCandidates: [[String]] = directories
-            .map { SidebarPathFormatter.pathCandidates($0, homeDirectoryPath: home) }
-            .filter { !$0.isEmpty }
-        guard !perDirectoryCandidates.isEmpty else { return [] }
-
-        var indices = Array(repeating: 0, count: perDirectoryCandidates.count)
-        var result: [String] = []
-        while true {
-            let pieces = zip(indices, perDirectoryCandidates).map { idx, candidates in
-                candidates[idx]
-            }
-            let joined = pieces.joined(separator: " | ")
-            if !joined.isEmpty, result.last != joined {
-                result.append(joined)
-            }
-            guard let bumpIdx = indices.indices.last(where: { indices[$0] < perDirectoryCandidates[$0].count - 1 }) else {
-                break
-            }
-            indices[bumpIdx] += 1
-        }
-        return result
-    }
-
-    private func pullRequestDisplays(orderedPanelIds: [UUID]) -> [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] {
-        tab.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds).map { pullRequest in
-            SidebarWorkspaceSnapshotBuilder.PullRequestDisplay(
-                id: "\(pullRequest.label.lowercased())#\(pullRequest.number)|\(pullRequest.url.absoluteString)",
-                number: pullRequest.number,
-                label: pullRequest.label,
-                url: pullRequest.url,
-                status: pullRequest.status,
-                isStale: pullRequest.isStale
-            )
-        }
-    }
 
     private var pullRequestForegroundColor: Color {
         isActive ? colorPalette.activeSecondaryColor(0.75) : .secondary

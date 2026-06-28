@@ -65,6 +65,85 @@ public enum SidebarWorkspaceSnapshotBuilder {
         }
     }
 
+    /// The app-resolved, per-render tab content the builder folds into a
+    /// ``SidebarWorkspaceSnapshotBuilder/Snapshot`` alongside the gathered
+    /// branch/directory/pull-request value arrays.
+    ///
+    /// Every field here is read from live `Workspace`/`Tab` state by the
+    /// app-side witness (titles, remote-connection strings, agent metadata,
+    /// ports, the raw custom description) and passed through by value, so the
+    /// builder performs only pure derivation and never touches model state. The
+    /// auxiliary-detail arrays (`metadataEntries`/`metadataBlocks`/`latestLog`/
+    /// `progress`/`listeningPorts`) arrive already gated by the witness on the
+    /// row's auxiliary-detail visibility.
+    public struct RowInputs: Equatable, Sendable {
+        /// The displayed workspace title.
+        public let title: String
+        /// The raw custom workspace description (pre-visibility check), or `nil`.
+        public let customDescription: String?
+        /// Whether the workspace is pinned.
+        public let isPinned: Bool
+        /// The custom color hex, or `nil`.
+        public let customColorHex: String?
+        /// Remote workspace sidebar text, or `nil` for a local workspace.
+        public let remoteWorkspaceSidebarText: String?
+        /// The remote connection status text.
+        public let remoteConnectionStatusText: String
+        /// The remote state help text.
+        public let remoteStateHelpText: String
+        /// Whether to show the remote reconnect affordance.
+        public let showsRemoteReconnectAffordance: Bool
+        /// A copyable SSH error string, or `nil`.
+        public let copyableSidebarSSHError: String?
+        /// The latest conversation message, or `nil`.
+        public let latestConversationMessage: String?
+        /// The custom metadata pill entries (already gated).
+        public let metadataEntries: [SidebarStatusEntry]
+        /// The custom metadata blocks (already gated).
+        public let metadataBlocks: [SidebarMetadataBlock]
+        /// The latest log entry (already gated), or `nil`.
+        public let latestLog: SidebarLogEntry?
+        /// The agent progress state (already gated), or `nil`.
+        public let progress: SidebarProgressState?
+        /// The forwarded listening ports (already gated).
+        public let listeningPorts: [Int]
+
+        /// Creates the per-render tab content bundle.
+        public init(
+            title: String,
+            customDescription: String?,
+            isPinned: Bool,
+            customColorHex: String?,
+            remoteWorkspaceSidebarText: String?,
+            remoteConnectionStatusText: String,
+            remoteStateHelpText: String,
+            showsRemoteReconnectAffordance: Bool,
+            copyableSidebarSSHError: String?,
+            latestConversationMessage: String?,
+            metadataEntries: [SidebarStatusEntry],
+            metadataBlocks: [SidebarMetadataBlock],
+            latestLog: SidebarLogEntry?,
+            progress: SidebarProgressState?,
+            listeningPorts: [Int]
+        ) {
+            self.title = title
+            self.customDescription = customDescription
+            self.isPinned = isPinned
+            self.customColorHex = customColorHex
+            self.remoteWorkspaceSidebarText = remoteWorkspaceSidebarText
+            self.remoteConnectionStatusText = remoteConnectionStatusText
+            self.remoteStateHelpText = remoteStateHelpText
+            self.showsRemoteReconnectAffordance = showsRemoteReconnectAffordance
+            self.copyableSidebarSSHError = copyableSidebarSSHError
+            self.latestConversationMessage = latestConversationMessage
+            self.metadataEntries = metadataEntries
+            self.metadataBlocks = metadataBlocks
+            self.latestLog = latestLog
+            self.progress = progress
+            self.listeningPorts = listeningPorts
+        }
+    }
+
     /// One pull-request badge shown under a workspace row.
     public struct PullRequestDisplay: Identifiable, Equatable, Sendable {
         /// Stable identity for the badge (the PR's display key).
