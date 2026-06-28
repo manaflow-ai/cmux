@@ -7046,26 +7046,26 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         // bonsplit has already mutated focusedPaneId), prefer it over the derived value.
         let previousTerminalHostedView = previousHostedView ?? focusedTerminalPanel?.hostedView
 
-        // `selectTab` does not necessarily move bonsplit's focused pane. For programmatic focus
-        // (socket API, notification click, etc.), ensure the target tab's pane becomes focused
-        // so `focusedPanelId` and follow-on focus logic are coherent.
-        let targetPaneId = bonsplitController.allPaneIds.first(where: { paneId in
-            bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabId })
-        })
-        let selectionAlreadyConverged: Bool = {
-            guard let targetPaneId else { return false }
-            return bonsplitController.focusedPaneId == targetPaneId &&
-                bonsplitController.selectedTab(inPane: targetPaneId)?.id == tabId
-        }()
+        // The reparent-suppression read is derived from the target terminal's AppKit hosted view,
+        // so it is computed here and passed into the coordinator as a precomputed Bool; no AppKit
+        // type crosses the seam.
         let targetHostedView = terminalPanel(for: panelId)?.hostedView
         let targetHasPendingReparentSuppression = targetHostedView.map { hostedView in
             hostedView.isSuppressingReparentFocusForLayoutFollowUp() ||
                 layoutFollowUpCoordinator.hasPendingReparentFocusSuppression(for: hostedView)
         } ?? false
-        let shouldSuppressReentrantRefocus =
-            trigger == .terminalFirstResponder &&
-            selectionAlreadyConverged &&
-            targetHasPendingReparentSuppression
+
+        // `selectTab` does not necessarily move bonsplit's focused pane. For programmatic focus
+        // (socket API, notification click, etc.), the decision resolves the target tab's owning pane
+        // so `focusedPanelId` and follow-on focus logic stay coherent.
+        let focusDecision = panelFocusNav.panelFocusDecision(
+            forTabId: tabId,
+            isTerminalFirstResponderTrigger: trigger == .terminalFirstResponder,
+            targetHasPendingReparentSuppression: targetHasPendingReparentSuppression
+        )
+        let targetPaneId = focusDecision.targetPaneId
+        let selectionAlreadyConverged = focusDecision.selectionAlreadyConverged
+        let shouldSuppressReentrantRefocus = focusDecision.shouldSuppressReentrantRefocus
 #if DEBUG
         let targetPaneShort = targetPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
         let focusedPaneShort = bonsplitController.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
