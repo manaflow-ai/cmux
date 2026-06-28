@@ -421,9 +421,10 @@ public final class SurfaceRegistryModel<TabSelectionRequest> {
     /// `Workspace.nonFocusSplitFocusReassertGeneration` /
     /// `pendingNonFocusSplitFocusReassert`, both already owned here), so it
     /// moves without a host seam; the deferred-turn scheduling and the actual
-    /// AppKit focus reassertion stay app-side in
-    /// `Workspace.preserveFocusAfterNonFocusSplit` /
-    /// `reassertFocusAfterNonFocusSplit`, which forward into these methods.
+    /// AppKit focus reassertion live on
+    /// `PanelFocusNavigationCoordinator.preserveFocusAfterNonFocusSplit` /
+    /// `reassertFocusAfterNonFocusSplit`, which forward into these methods
+    /// through the `PanelFocusNavigationHosting` witnesses.
     public func beginNonFocusSplitFocusReassert(
         preferredPanelId: UUID,
         splitPanelId: UUID

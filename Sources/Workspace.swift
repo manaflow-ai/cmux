@@ -5437,7 +5437,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             )
             focusPanel(newPanel.id, previousHostedView: previousHostedView)
         } else {
-            preserveFocusAfterNonFocusSplit(
+            panelFocusNav.preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
                 splitPanelId: newPanel.id,
                 previousHostedView: previousHostedView
@@ -5666,13 +5666,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             newPanel.focus()
             applyTabSelection(tabId: newTabId, inPane: paneId)
         } else if preserveFocusWhenUnfocused || owningTabManager?.selectedTabId == id {
-            preserveFocusAfterNonFocusSplit(
+            panelFocusNav.preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
                 splitPanelId: newPanel.id,
                 previousHostedView: previousHostedView
             )
         } else {
-            clearNonFocusSplitFocusReassert()
+            panelFocusNavClearNonFocusSplitFocusReassert()
         }
 
         if autoRefreshMetadata {
@@ -6021,7 +6021,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             )
             focusPanel(browserPanel.id)
         } else {
-            preserveFocusAfterNonFocusSplit(
+            panelFocusNav.preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
                 splitPanelId: browserPanel.id,
                 previousHostedView: previousHostedView
@@ -6128,7 +6128,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             if selectWhenNotFocused {
                 hideBrowserPortalsForDeselectedTabs(inPane: paneId, selectedTabId: newTabId)
             }
-            preserveFocusAfterNonFocusSplit(
+            panelFocusNav.preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
                 splitPanelId: browserPanel.id,
                 previousHostedView: previousHostedView
@@ -6928,93 +6928,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         return detachedRelayPort == currentRelayPort
     }
     // MARK: - Focus Management
-
-    private func preserveFocusAfterNonFocusSplit(
-        preferredPanelId: UUID?,
-        splitPanelId: UUID,
-        previousHostedView: GhosttySurfaceScrollView?
-    ) {
-        guard let preferredPanelId, panels[preferredPanelId] != nil else {
-            clearNonFocusSplitFocusReassert()
-            scheduleFocusReconcile()
-            return
-        }
-
-        let generation = beginNonFocusSplitFocusReassert(
-            preferredPanelId: preferredPanelId,
-            splitPanelId: splitPanelId
-        )
-
-        // Bonsplit splitPane focuses the newly created pane and may emit one delayed
-        // didSelect/didFocus callback. Re-assert focus over multiple turns so model
-        // focus and AppKit first responder stay aligned with non-focus-intent splits.
-        reassertFocusAfterNonFocusSplit(
-            generation: generation,
-            preferredPanelId: preferredPanelId,
-            splitPanelId: splitPanelId,
-            previousHostedView: previousHostedView,
-            allowPreviousHostedView: true
-        )
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.reassertFocusAfterNonFocusSplit(
-                generation: generation,
-                preferredPanelId: preferredPanelId,
-                splitPanelId: splitPanelId,
-                previousHostedView: previousHostedView,
-                allowPreviousHostedView: false
-            )
-
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.reassertFocusAfterNonFocusSplit(
-                    generation: generation,
-                    preferredPanelId: preferredPanelId,
-                    splitPanelId: splitPanelId,
-                    previousHostedView: previousHostedView,
-                    allowPreviousHostedView: false
-                )
-                self.scheduleFocusReconcile()
-                self.clearNonFocusSplitFocusReassert(generation: generation)
-            }
-        }
-    }
-
-    private func reassertFocusAfterNonFocusSplit(
-        generation: UInt64,
-        preferredPanelId: UUID,
-        splitPanelId: UUID,
-        previousHostedView: GhosttySurfaceScrollView?,
-        allowPreviousHostedView: Bool
-    ) {
-        guard matchesPendingNonFocusSplitFocusReassert(
-            generation: generation,
-            preferredPanelId: preferredPanelId,
-            splitPanelId: splitPanelId
-        ) else {
-            return
-        }
-
-        guard panels[preferredPanelId] != nil else {
-            clearNonFocusSplitFocusReassert(generation: generation)
-            return
-        }
-
-        if focusedPanelId == splitPanelId {
-            focusPanel(
-                preferredPanelId,
-                previousHostedView: allowPreviousHostedView ? previousHostedView : nil
-            )
-            return
-        }
-
-        guard focusedPanelId == preferredPanelId,
-              let terminalPanel = terminalPanel(for: preferredPanelId) else {
-            return
-        }
-        terminalPanel.hostedView.ensureFocus(for: id, surfaceId: preferredPanelId)
-    }
 
     func focusPanel(
         _ panelId: UUID,
@@ -8092,10 +8005,10 @@ extension Workspace: SurfaceCreationHosting {
     }
 
     func preserveSurfaceFocusAfterNonFocusSplit(preferredPanelId: UUID?, splitPanelId: UUID, previousHostedView: AnyObject?) {
-        preserveFocusAfterNonFocusSplit(
+        panelFocusNav.preserveFocusAfterNonFocusSplit(
             preferredPanelId: preferredPanelId,
             splitPanelId: splitPanelId,
-            previousHostedView: previousHostedView as? GhosttySurfaceScrollView
+            previousHostedView: previousHostedView
         )
     }
 
@@ -8737,12 +8650,14 @@ extension Workspace: BonsplitDelegate {
         }
     }
 
-    // Thin forwards into `SurfaceRegistryModel`, which owns the non-focusing-
-    // split focus-reassert state machine (the generation counter and the
-    // pending request). The deferred-turn scheduling and AppKit focus
-    // reassertion stay app-side in `preserveFocusAfterNonFocusSplit` /
-    // `reassertFocusAfterNonFocusSplit`.
-    private func beginNonFocusSplitFocusReassert(
+    // `PanelFocusNavigationHosting` witnesses for the non-focusing-split
+    // focus-reassert state machine. Thin forwards into `SurfaceRegistryModel`,
+    // which owns the generation counter and the pending request. They live here
+    // (not in `Workspace+PanelFocusNavigationHosting.swift`) because they touch
+    // the file-private `surfaceRegistry`. The deferred-turn scheduling and AppKit
+    // focus reassertion that drive these now live on
+    // `PanelFocusNavigationCoordinator`.
+    func panelFocusNavBeginNonFocusSplitFocusReassert(
         preferredPanelId: UUID,
         splitPanelId: UUID
     ) -> UInt64 {
@@ -8752,7 +8667,7 @@ extension Workspace: BonsplitDelegate {
         )
     }
 
-    private func matchesPendingNonFocusSplitFocusReassert(
+    func panelFocusNavMatchesPendingNonFocusSplitFocusReassert(
         generation: UInt64,
         preferredPanelId: UUID,
         splitPanelId: UUID
@@ -8764,7 +8679,7 @@ extension Workspace: BonsplitDelegate {
         )
     }
 
-    private func clearNonFocusSplitFocusReassert(generation: UInt64? = nil) {
+    func panelFocusNavClearNonFocusSplitFocusReassert(generation: UInt64? = nil) {
         surfaceRegistry.clearNonFocusSplitFocusReassert(generation: generation)
     }
 

@@ -149,4 +149,16 @@ extension Workspace: PanelFocusNavigationHosting {
     func panelFocusNavApplyFocusedPanelPullRequest(panelId: UUID) {
         pullRequest = panelPullRequests[panelId]
     }
+
+    // MARK: Non-focus-split focus-reassert
+
+    func panelFocusNavReassertFocusPanel(panelId: UUID, previousHostedView: AnyObject?) {
+        focusPanel(panelId, previousHostedView: previousHostedView as? GhosttySurfaceScrollView)
+    }
+
+    // `panelFocusNavBeginNonFocusSplitFocusReassert` /
+    // `panelFocusNavMatchesPendingNonFocusSplitFocusReassert` /
+    // `panelFocusNavClearNonFocusSplitFocusReassert` satisfy the same protocol
+    // but live in `Workspace.swift` because they touch the file-private
+    // `surfaceRegistry` state machine.
 }
