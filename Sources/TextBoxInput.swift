@@ -186,57 +186,9 @@ private struct TextBoxSendButtonStyle: ButtonStyle {
     }
 }
 
-struct TextBoxAttachment: Identifiable, TextBoxSubmissionAttachment {
-    let id = UUID()
-    let displayName: String
-    let submissionText: String
-    let submissionPath: String
-    let localURL: URL?
-    let thumbnail: NSImage?
-    let cleanupLocalURLWhenDisposed: Bool
+typealias TextBoxAttachment = CmuxWorkspaces.TextBoxAttachment
 
-    init(
-        displayName: String,
-        submissionText: String,
-        submissionPath: String,
-        localURL: URL?,
-        cleanupLocalURLWhenDisposed: Bool = false
-    ) {
-        let standardizedURL = localURL?.standardizedFileURL
-        let fallbackName = standardizedURL?.lastPathComponent ?? URL(fileURLWithPath: submissionPath).lastPathComponent
-        self.displayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? (fallbackName.isEmpty ? submissionPath : fallbackName)
-            : displayName
-        self.submissionText = submissionText
-        self.submissionPath = submissionPath
-        self.localURL = standardizedURL
-        self.thumbnail = standardizedURL.flatMap { TextBoxAttachment.makeThumbnail(for: $0) }
-        self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
-    }
-
-    init(
-        localURL: URL,
-        submissionText: String,
-        submissionPath: String? = nil,
-        cleanupLocalURLWhenDisposed: Bool = false
-    ) {
-        let standardizedURL = localURL.standardizedFileURL
-        self.displayName = standardizedURL.lastPathComponent.isEmpty
-            ? standardizedURL.path
-            : standardizedURL.lastPathComponent
-        self.submissionText = submissionText
-        self.submissionPath = submissionPath ?? standardizedURL.path
-        self.localURL = standardizedURL
-        self.thumbnail = TextBoxAttachment.makeThumbnail(for: standardizedURL)
-        self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
-    }
-
-    var isImage: Bool {
-        if thumbnail != nil { return true }
-        guard let localURL else { return false }
-        return TextBoxAttachment.isImageFileURL(localURL)
-    }
-
+extension TextBoxAttachment {
     var escapedSubmissionPath: String {
         TerminalImageTransferPlanner.escapeForShell(submissionPath)
     }
@@ -259,23 +211,6 @@ struct TextBoxAttachment: Identifiable, TextBoxSubmissionAttachment {
     static func shouldCleanupLocalURLWhenDisposed(_ fileURL: URL) -> Bool {
         GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(fileURL)
             || GhosttyApp.textBoxDraftAttachmentStore.isOwnedDraftCopy(fileURL)
-    }
-
-    private static func makeThumbnail(for url: URL) -> NSImage? {
-        guard TextBoxAttachment.isImageFileURL(url),
-              let image = NSImage(contentsOf: url) else {
-            return nil
-        }
-        return image
-    }
-
-    private static func isImageFileURL(_ url: URL) -> Bool {
-        let pathExtension = url.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !pathExtension.isEmpty,
-              let type = UTType(filenameExtension: pathExtension) else {
-            return false
-        }
-        return type.conforms(to: .image)
     }
 }
 
