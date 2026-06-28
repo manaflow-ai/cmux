@@ -76,10 +76,11 @@ extension TerminalController {
     /// allow-list and its normalization (trim, lowercase, map `-` to `_`, exactly
     /// as ``v2ActionKey(_:_:)``) live in ``MobileWorkspaceAction`` in the shared
     /// `CMUXMobileCore` package so this gate and the handler can never disagree on
-    /// which action runs.
+    /// which action runs. The gating decision is folded into
+    /// ``MobileHostParamPolicy``, the host's pure param-policy value type.
     /// - Parameter rawAction: The raw `action` param value.
     /// - Returns: `true` when the normalized action is mobile-allowed.
     nonisolated static func mobileAllowsWorkspaceAction(_ rawAction: String?) -> Bool {
-        MobileWorkspaceAction.isMobileAllowed(rawAction)
+        MobileHostParamPolicy().allowsWorkspaceAction(rawAction)
     }
 }
