@@ -5423,87 +5423,31 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         let title: String
         let message: String
 
-        switch (error.domain, error.code) {
-        case (NSURLErrorDomain, NSURLErrorCannotConnectToHost),
-             (NSURLErrorDomain, NSURLErrorCannotFindHost),
-             (NSURLErrorDomain, NSURLErrorTimedOut):
+        switch BrowserNavigationErrorKind.classify(domain: error.domain, code: error.code) {
+        case .cantReach:
             title = String(localized: "browser.error.cantReach.title", defaultValue: "Can\u{2019}t reach this page")
             if failedURL.isEmpty {
                 message = String(localized: "browser.error.cantReach.messageSite", defaultValue: "The site refused to connect. Check that a server is running on this address.")
             } else {
                 message = String(localized: "browser.error.cantReach.messageURL", defaultValue: "\(failedURL) refused to connect. Check that a server is running on this address.")
             }
-        case (NSURLErrorDomain, NSURLErrorNotConnectedToInternet),
-             (NSURLErrorDomain, NSURLErrorNetworkConnectionLost):
+        case .noInternet:
             title = String(localized: "browser.error.noInternet", defaultValue: "No internet connection")
             message = String(localized: "browser.error.checkNetwork", defaultValue: "Check your network connection and try again.")
-        case (NSURLErrorDomain, NSURLErrorSecureConnectionFailed),
-             (NSURLErrorDomain, NSURLErrorServerCertificateUntrusted),
-             (NSURLErrorDomain, NSURLErrorServerCertificateHasUnknownRoot),
-             (NSURLErrorDomain, NSURLErrorServerCertificateHasBadDate),
-             (NSURLErrorDomain, NSURLErrorServerCertificateNotYetValid):
+        case .insecure:
             title = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure")
             message = String(localized: "browser.error.invalidCertificate", defaultValue: "The certificate for this site is invalid.")
-        default:
+        case .cantOpen:
             title = String(localized: "browser.error.cantOpen.title", defaultValue: "Can\u{2019}t open this page")
             message = error.localizedDescription
         }
 
-        let escapeHTML: (String) -> String = { value in
-            value
-                .replacingOccurrences(of: "&", with: "&amp;")
-                .replacingOccurrences(of: "<", with: "&lt;")
-                .replacingOccurrences(of: ">", with: "&gt;")
-                .replacingOccurrences(of: "\"", with: "&quot;")
-        }
-
-        let escapedTitle = escapeHTML(title)
-        let escapedMessage = escapeHTML(message)
-        let escapedURL = escapeHTML(failedURL)
-        let escapedReloadLabel = escapeHTML(String(localized: "browser.error.reload", defaultValue: "Reload"))
-
-        let html = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width">
-        <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            display: flex; align-items: center; justify-content: center;
-            min-height: 80vh; margin: 0; padding: 20px;
-            background: #1a1a1a; color: #e0e0e0;
-        }
-        .container { text-align: center; max-width: 420px; }
-        h1 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
-        p { font-size: 13px; color: #999; line-height: 1.5; }
-        .url { font-size: 12px; color: #666; word-break: break-all; margin-top: 16px; }
-        button {
-            margin-top: 20px; padding: 6px 20px;
-            background: #333; color: #e0e0e0; border: 1px solid #555;
-            border-radius: 6px; font-size: 13px; cursor: pointer;
-        }
-        button:hover { background: #444; }
-        @media (prefers-color-scheme: light) {
-            body { background: #fafafa; color: #222; }
-            p { color: #666; }
-            .url { color: #999; }
-            button { background: #eee; color: #222; border-color: #ccc; }
-            button:hover { background: #ddd; }
-        }
-        </style>
-        </head>
-        <body>
-        <div class="container">
-            <h1>\(escapedTitle)</h1>
-            <p>\(escapedMessage)</p>
-            <div class="url">\(escapedURL)</div>
-            <button onclick="location.reload()">\(escapedReloadLabel)</button>
-        </div>
-        </body>
-        </html>
-        """
+        let html = BrowserNavigationErrorPage.html(
+            title: title,
+            message: message,
+            failedURL: failedURL,
+            reloadLabel: String(localized: "browser.error.reload", defaultValue: "Reload")
+        )
         webView.loadHTMLString(html, baseURL: URL(string: failedURL))
     }
 
@@ -5547,30 +5491,34 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         )
 #endif
 
-        if let url = navigationAction.request.url,
-           navigationAction.targetFrame?.isMainFrame != false,
-           shouldBlockInsecureHTTPNavigation?(url) == true {
-            let intent: BrowserInsecureHTTPNavigationIntent
-            if shouldOpenInNewTab || navigationAction.targetFrame == nil {
-                intent = .newTab
-            } else {
-                intent = .currentTab
-            }
+        // Branch classification lives in the package; the delegate executes the
+        // resolved case. The insecure-HTTP block check stays app-side and is
+        // evaluated lazily so it runs only when the request has a URL and the
+        // action targets the main frame, matching the original short-circuit.
+        switch BrowserMainFrameNavigationActionDecision.resolve(
+            request: navigationAction.request,
+            isMainFrame: navigationAction.targetFrame?.isMainFrame != false,
+            targetFrameIsNil: navigationAction.targetFrame == nil,
+            shouldBlockInsecureHTTP: { [shouldBlockInsecureHTTPNavigation] url in
+                shouldBlockInsecureHTTPNavigation?(url) == true
+            },
+            shouldOpenInNewTab: shouldOpenInNewTab,
+            fallsBackNilTargetToNewTab: navigationAction.navigationType.fallsBackNilTargetToNewTab,
+            shouldPerformDownload: navigationAction.shouldPerformDownload
+        ) {
+        case .blockedInsecureHTTP(let intent):
 #if DEBUG
             cmuxDebugLog(
                 "browser.nav.decidePolicy.action kind=blockedInsecure intent=\(intent == .newTab ? "newTab" : "currentTab") " +
-                "url=\(url.absoluteString)"
+                "url=\(navigationAction.request.url?.absoluteString ?? "nil")"
             )
 #endif
             handleBlockedInsecureHTTPNavigation?(navigationAction.request, intent)
             decisionHandler(.cancel)
-            return
-        }
 
-        // WebKit cannot open app-specific deeplinks (discord://, slack://, zoommtg://, etc.).
-        // Hand these off to macOS so the owning app can handle them.
-        if let url = navigationAction.request.url,
-           BrowserExternalNavigationAction.shouldRoute(url) {
+        case .routeExternally(let url):
+            // WebKit cannot open app-specific deeplinks (discord://, slack://, zoommtg://, etc.).
+            // Hand these off to macOS so the owning app can handle them.
             browserHandleExternalNavigation(
                 url,
                 source: "navDelegate",
@@ -5581,51 +5529,42 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
                 presentAlert: presentAlert
             )
             decisionHandler(.cancel)
-            return
-        }
 
-        if navigationAction.shouldPerformDownload {
+        case .download:
             decisionHandler(.download)
-            return
-        }
 
-        // Cmd+click and middle-click on regular links should always open in a new tab.
-        if shouldOpenInNewTab,
-           let requestURL = navigationAction.request.url {
+        case .openInNewTab(let request):
+            // Cmd+click and middle-click on regular links should always open in a new tab.
 #if DEBUG
             cmuxDebugLog(
-                "browser.nav.decidePolicy.action kind=openInNewTab url=\(requestURL.absoluteString)"
+                "browser.nav.decidePolicy.action kind=openInNewTab url=\(request.url?.absoluteString ?? "nil")"
             )
 #endif
-            openRequestInNewTab(navigationAction.request)
+            openRequestInNewTab(request)
             decisionHandler(.cancel)
-            return
-        }
 
-        // target=_blank link navigations should open in a new tab.
-        // Scripted popups (navigationType == .other) are handled in
-        // WKUIDelegate.createWebViewWith so OAuth opener linkage survives.
-        if navigationAction.targetFrame == nil,
-           navigationAction.navigationType.fallsBackNilTargetToNewTab,
-           let requestURL = navigationAction.request.url {
+        case .openInNewTabFromNilTarget(let request):
+            // target=_blank link navigations should open in a new tab.
+            // Scripted popups (navigationType == .other) are handled in
+            // WKUIDelegate.createWebViewWith so OAuth opener linkage survives.
 #if DEBUG
             cmuxDebugLog(
-                "browser.nav.decidePolicy.action kind=openInNewTabFromNilTarget url=\(requestURL.absoluteString)"
+                "browser.nav.decidePolicy.action kind=openInNewTabFromNilTarget url=\(request.url?.absoluteString ?? "nil")"
             )
 #endif
-            openRequestInNewTab(navigationAction.request)
+            openRequestInNewTab(request)
             decisionHandler(.cancel)
-            return
-        }
 
+        case .allow(let resolvedLastAttemptedURL):
 #if DEBUG
-        let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
-        cmuxDebugLog("browser.nav.decidePolicy.action kind=allow url=\(targetURL)")
+            let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
+            cmuxDebugLog("browser.nav.decidePolicy.action kind=allow url=\(targetURL)")
 #endif
-        if navigationAction.targetFrame?.isMainFrame != false {
-            lastAttemptedURL = navigationAction.request.url
+            if navigationAction.targetFrame?.isMainFrame != false {
+                lastAttemptedURL = resolvedLastAttemptedURL
+            }
+            decisionHandler(.allow)
         }
-        decisionHandler(.allow)
     }
 
     func webView(
@@ -5633,42 +5572,47 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
-        if !navigationResponse.isForMainFrame {
-            decisionHandler(.allow)
-            return
-        }
-
         let mime = navigationResponse.response.mimeType ?? "unknown"
         let canShow = navigationResponse.canShowMIMEType
         let responseURL = navigationResponse.response.url?.absoluteString ?? "nil"
 
-        // Only classify HTTP(S) top-level responses as downloads.
-        if let scheme = navigationResponse.response.url?.scheme?.lowercased(),
-           scheme != "http", scheme != "https" {
-            decisionHandler(.allow)
-            return
-        }
-
-        NSLog("BrowserPanel navigationResponse: url=%@ mime=%@ canShow=%d isMainFrame=%d",
-              responseURL, mime, canShow ? 1 : 0,
-              navigationResponse.isForMainFrame ? 1 : 0)
-
-        let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?
-            .value(forHTTPHeaderField: "Content-Disposition")
-        if let reason = BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
-            mimeType: mime,
-            canShowMIMEType: canShow,
-            contentDisposition: contentDisposition
+        // Branch classification lives in the package; the delegate executes the
+        // resolved case and interleaves its app-side logging. The download
+        // determination stays app-side (it consults the app's download-filename
+        // resolver) and is evaluated lazily so it runs only after the main-frame
+        // and scheme guards pass, matching the original. The response-info log and
+        // the resolver both fire from inside the lazy closure, so they run exactly
+        // when the original code reached them (main-frame HTTP(S) responses only).
+        var downloadReason: String?
+        switch BrowserMainFrameNavigationResponseDecision.resolve(
+            isForMainFrame: navigationResponse.isForMainFrame,
+            scheme: navigationResponse.response.url?.scheme,
+            isDownload: {
+                NSLog("BrowserPanel navigationResponse: url=%@ mime=%@ canShow=%d isMainFrame=%d",
+                      responseURL, mime, canShow ? 1 : 0,
+                      navigationResponse.isForMainFrame ? 1 : 0)
+                let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?
+                    .value(forHTTPHeaderField: "Content-Disposition")
+                downloadReason = BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
+                    mimeType: mime,
+                    canShowMIMEType: canShow,
+                    contentDisposition: contentDisposition
+                )
+                return downloadReason != nil
+            }
         ) {
-            NSLog("BrowserPanel download: %@ mime=%@ url=%@", reason, mime, responseURL)
-            #if DEBUG
-            cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime)")
-            #endif
-            decisionHandler(.download)
-            return
-        }
+        case .allow:
+            decisionHandler(.allow)
 
-        decisionHandler(.allow)
+        case .download:
+            if let reason = downloadReason {
+                NSLog("BrowserPanel download: %@ mime=%@ url=%@", reason, mime, responseURL)
+                #if DEBUG
+                cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime)")
+                #endif
+            }
+            decisionHandler(.download)
+        }
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {

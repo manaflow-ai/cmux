@@ -58,6 +58,7 @@
 		C4160A030000000000000001 /* AppDelegate+ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */; };
 		C3677004000000000000001 /* AppDelegate+CmuxSSHURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */; };
 		E3309A01 /* AppDelegate+EqualizeSplitsShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */; };
+		D5C0CE7B0000000000000001 /* AppDelegate+ExternalURLOpenRouterHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5C0CE7B0000000000000002 /* AppDelegate+ExternalURLOpenRouterHost.swift */; };
 		2907B0032907B0032907B003 /* AppDelegate+FeedRequestSeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907B0042907B0042907B004 /* AppDelegate+FeedRequestSeams.swift */; };
 		C4160A040000000000000001 /* AppDelegate+FocusHistoryContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */; };
 		3865A0063865A0063865A006 /* AppDelegate+GlobalSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */; };
@@ -1079,6 +1080,7 @@
 		D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */; };
 		E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A06 /* Workspace+EqualizeSplitsSupport.swift */; };
 		7413E89C67E599AE13B28974 /* Workspace+FocusedPaneCloseTargetHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14F283838842222BA3A8A34A /* Workspace+FocusedPaneCloseTargetHosting.swift */; };
+		E3B7A4000000000000000B01 /* Workspace+PanelFocusNavigationHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000B02 /* Workspace+PanelFocusNavigationHosting.swift */; };
 		C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */; };
 		FB0CA0510000000000000007 /* Workspace+ReactGrabWorkspaceContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0CA0510000000000000008 /* Workspace+ReactGrabWorkspaceContext.swift */; };
 		E3B7A400000000000000F501 /* Workspace+RemoteConnectionLifecycleHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000F502 /* Workspace+RemoteConnectionLifecycleHosting.swift */; };
@@ -1281,6 +1283,7 @@
 		C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ClosedItemHistory.swift"; sourceTree = "<group>"; };
 		C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CmuxSSHURL.swift"; sourceTree = "<group>"; };
 		E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+EqualizeSplitsShortcut.swift"; sourceTree = "<group>"; };
+		D5C0CE7B0000000000000002 /* AppDelegate+ExternalURLOpenRouterHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ExternalURLOpenRouterHost.swift"; sourceTree = "<group>"; };
 		2907B0042907B0042907B004 /* AppDelegate+FeedRequestSeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+FeedRequestSeams.swift"; sourceTree = "<group>"; };
 		C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+FocusHistoryContextMenu.swift"; sourceTree = "<group>"; };
 		3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Search/AppDelegate+GlobalSearch.swift"; sourceTree = "<group>"; };
@@ -2235,6 +2238,7 @@
 		D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DetachedSurfaceTransfer.swift"; sourceTree = "<group>"; };
 		E3309A06 /* Workspace+EqualizeSplitsSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+EqualizeSplitsSupport.swift"; sourceTree = "<group>"; };
 		14F283838842222BA3A8A34A /* Workspace+FocusedPaneCloseTargetHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+FocusedPaneCloseTargetHosting.swift"; sourceTree = "<group>"; };
+		E3B7A4000000000000000B02 /* Workspace+PanelFocusNavigationHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelFocusNavigationHosting.swift"; sourceTree = "<group>"; };
 		C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelLifecycle.swift"; sourceTree = "<group>"; };
 		FB0CA0510000000000000008 /* Workspace+ReactGrabWorkspaceContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ReactGrabWorkspaceContext.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000F502 /* Workspace+RemoteConnectionLifecycleHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteConnectionLifecycleHosting.swift"; sourceTree = "<group>"; };
@@ -2798,6 +2802,7 @@
 				E3B7A40000000000000005C1 /* Workspace+SurfaceLifecycleHosting.swift */,
 				E3B7A40000000000000005D3 /* Workspace+WorkspaceLayoutHosting.swift */,
 				E3B7A40000000000000009F2 /* Workspace+WorkspaceLayoutFollowUpHosting.swift */,
+				E3B7A4000000000000000B02 /* Workspace+PanelFocusNavigationHosting.swift */,
 				E3B7A40000000000000005D5 /* CmuxLayoutNode+WorkspaceCustomLayout.swift */,
 				E3B7A4000000000000000CB1 /* Workspace+ClosedBrowserRestoreStagingHosting.swift */,
 				E3B7A4000000000000000A11 /* Workspace+SplitMoveReorderHosting.swift */,
@@ -2982,6 +2987,7 @@
 				C3677005000000000000002 /* CmuxExternalLinkPromptPresenter.swift */,
 				C3677006000000000000002 /* CmuxExternalLinkErrorPresenter.swift */,
 				D5C0CE7A0000000000000002 /* AppDelegate+SocketListenerLifecycleHost.swift */,
+				D5C0CE7B0000000000000002 /* AppDelegate+ExternalURLOpenRouterHost.swift */,
 				E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */,
 				D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */,
 				D7CD00000000000000000002 /* AppDelegate+PaneSurfaceMoveHosting.swift */,
@@ -4092,6 +4098,7 @@
 				C4160A030000000000000001 /* AppDelegate+ClosedItemHistory.swift in Sources */,
 				C3677004000000000000001 /* AppDelegate+CmuxSSHURL.swift in Sources */,
 				E3309A01 /* AppDelegate+EqualizeSplitsShortcut.swift in Sources */,
+				D5C0CE7B0000000000000001 /* AppDelegate+ExternalURLOpenRouterHost.swift in Sources */,
 				2907B0032907B0032907B003 /* AppDelegate+FeedRequestSeams.swift in Sources */,
 				C4160A040000000000000001 /* AppDelegate+FocusHistoryContextMenu.swift in Sources */,
 				3865A0063865A0063865A006 /* AppDelegate+GlobalSearch.swift in Sources */,
@@ -4739,6 +4746,7 @@
 				D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */,
 				E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */,
 				7413E89C67E599AE13B28974 /* Workspace+FocusedPaneCloseTargetHosting.swift in Sources */,
+				E3B7A4000000000000000B01 /* Workspace+PanelFocusNavigationHosting.swift in Sources */,
 				C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
 				FB0CA0510000000000000007 /* Workspace+ReactGrabWorkspaceContext.swift in Sources */,
 				E3B7A400000000000000F501 /* Workspace+RemoteConnectionLifecycleHosting.swift in Sources */,
