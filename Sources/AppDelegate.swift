@@ -868,6 +868,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// writer did. Reads live state back through `self` as
     /// ``UITestDiagnosticsProviding``.
     private lazy var displayDiagnosticsUITestRecorder = DisplayDiagnosticsUITestRecorder(provider: self)
+    /// The launch-time UI-test scaffold (CmuxTestSupport): owns the
+    /// diagnostics-probe install order, the `DispatchQueue.main.asyncAfter`
+    /// schedule, and the `CMUX_UI_TEST_*` env gates lifted out of
+    /// `applicationDidFinishLaunching`. Built fresh per call site from the
+    /// composition-root probes and `self` as ``StartupUITestScaffoldDriving``.
+    private var startupUITestScaffold: StartupUITestScaffold {
+        StartupUITestScaffold(
+            recorder: displayDiagnosticsUITestRecorder,
+            stallMonitor: runLoopStallMonitor,
+            turnProfiler: mainThreadTurnProfiler,
+            driver: self
+        )
+    }
 #endif
     private var multiWindowNotificationUITestScaffold: MultiWindowNotificationUITestScaffold?
     private var displayResolutionUITestRecorder: DisplayResolutionUITestRecorder?
@@ -1759,17 +1772,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
 #if DEBUG
-        writeUITestDiagnosticsIfNeeded(stage: "didFinishLaunching")
-        // Install the injected diagnostics probes (CmuxTestSupport), replacing the
-        // former `CmuxMainRunLoopStallMonitor.shared` / `CmuxMainThreadTurnProfiler.shared`
-        // singletons. Point the typing probe's `logDuration` forwarder at the same
-        // profiler instance before any keystroke can be processed.
-        CmuxTypingTiming.turnProfiler = mainThreadTurnProfiler
-        runLoopStallMonitor.installIfNeeded()
-        mainThreadTurnProfiler.installIfNeeded()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.writeUITestDiagnosticsIfNeeded(stage: "after1s")
-        }
+        // Writes the launch diagnostics, installs the injected stall / turn
+        // probes (pointing `CmuxTypingTiming.turnProfiler` at the same profiler
+        // before any keystroke), and schedules the after-1s diagnostics write.
+        startupUITestScaffold.installDiagnosticsProbesAndScheduleAfter1s()
 #endif
 
         if telemetryEnabled {
@@ -1885,80 +1891,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
         StartupBreadcrumbLog.append("appDelegate.didFinish.complete")
 #if DEBUG
-        UpdateTestSupport(model: updateController.model, log: updateLog).applyIfNeeded()
-        if env["CMUX_UI_TEST_MODE"] == "1" {
-            let trigger = env["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] ?? "<nil>"
-            let feed = env["CMUX_UI_TEST_FEED_URL"] ?? "<nil>"
-            updateLog.append("ui test env: trigger=\(trigger) feed=\(feed)")
-        }
-        if env["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1" {
-            updateLog.append("ui test trigger update check detected")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                guard let self else { return }
-                let windowIds = NSApp.windows.map { $0.identifier?.rawValue ?? "<nil>" }
-                updateLog.append("ui test windows: count=\(NSApp.windows.count) ids=\(windowIds.joined(separator: ","))")
-                if UpdateTestSupport(model: self.updateController.model, log: updateLog).performMockFeedCheckIfNeeded() {
-                    return
-                }
-                self.checkForUpdates(nil)
-            }
-        }
-
-        // In UI tests, `WindowGroup` occasionally fails to materialize a window quickly on the VM.
-        // If there are no windows shortly after launch, force-create one so XCUITest can proceed.
-        if isRunningUnderXCTest {
-            if let rawVariant = env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_VARIANT"] {
-                UserDefaults.standard.set(
-                    BrowserImportHintSettings.variant(for: rawVariant).rawValue,
-                    forKey: BrowserImportHintSettings.variantKey
-                )
-            }
-            if let rawShow = env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_SHOW"] {
-                UserDefaults.standard.set(
-                    rawShow == "1",
-                    forKey: BrowserImportHintSettings.showOnBlankTabsKey
-                )
-            }
-            if let rawDismissed = env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_DISMISSED"] {
-                UserDefaults.standard.set(
-                    rawDismissed == "1",
-                    forKey: BrowserImportHintSettings.dismissedKey
-                )
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                guard let self else { return }
-                if NSApp.windows.isEmpty {
-                    self.openNewMainWindow(nil)
-                }
-                self.moveUITestWindowToTargetDisplayIfNeeded()
-                NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
-                // On headless CI runners, activate() silently fails (no GUI session).
-                // Force windows visible so the terminal surface starts rendering.
-                for window in NSApp.windows {
-                    window.orderFrontRegardless()
-                }
-                self.writeUITestDiagnosticsIfNeeded(stage: "afterForceWindow")
-            }
-            if env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_OPEN_BLANK_BROWSER"] == "1" {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
-                    guard let self else { return }
-                    _ = self.openBrowserAndFocusAddressBar(insertAtEnd: true)
-                }
-            }
-            if env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_OPEN_SETTINGS"] == "1" {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
-                    self?.openPreferencesWindow(
-                        debugSource: "uiTest.browserImportHint",
-                        navigationTarget: .browser
-                    )
-                }
-            }
-            if env["CMUX_UI_TEST_BROWSER_IMPORT_AUTO_OPEN"] == "1" {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    BrowserDataImportCoordinator.shared.presentImportDialog()
-                }
-            }
-        }
+        // Env-gated launch UI-test actions: update-check mock/trigger, and (under
+        // XCTest) the browser import-hint defaults plus the force-window /
+        // browser-import scheduled hops. The scaffold owns the gates + schedule;
+        // each live action is an ``StartupUITestScaffoldDriving`` witness below.
+        startupUITestScaffold.runLaunchScaffolds(environment: env, isRunningUnderXCTest: isRunningUnderXCTest)
 #endif
     }
 
@@ -12606,6 +12543,85 @@ extension AppDelegate: UITestRecorderInstalling {
         let bonsplitTabDrag = bonsplitTabDragUITestRecorder ?? BonsplitTabDragUITestRecorder(appDelegate: self)
         bonsplitTabDragUITestRecorder = bonsplitTabDrag
         return [jumpUnread, terminalCmdClick, gotoSplit, bonsplitTabDrag]
+    }
+}
+
+// MARK: - CmuxTestSupport launch-scaffold seam conformance
+
+// The live launch actions ``StartupUITestScaffold`` sequences. They touch `NSApp`
+// windows, the Sparkle update controller / log, the browser import-hint
+// `UserDefaults` keys, the browser address bar, the preferences window, and the
+// browser-data import dialog, all of which are app-target state, so the bodies
+// stay here and the scaffold (CmuxTestSupport) owns the gates + schedule.
+extension AppDelegate: StartupUITestScaffoldDriving {
+    func applyUpdateTestSupport() {
+        UpdateTestSupport(model: updateController.model, log: updateLog).applyIfNeeded()
+    }
+
+    func logUpdateTestEnvironment(trigger: String, feed: String) {
+        updateLog.append("ui test env: trigger=\(trigger) feed=\(feed)")
+    }
+
+    func logTriggerUpdateCheckDetected() {
+        updateLog.append("ui test trigger update check detected")
+    }
+
+    func performTriggerUpdateCheck() {
+        let windowIds = NSApp.windows.map { $0.identifier?.rawValue ?? "<nil>" }
+        updateLog.append("ui test windows: count=\(NSApp.windows.count) ids=\(windowIds.joined(separator: ","))")
+        if UpdateTestSupport(model: updateController.model, log: updateLog).performMockFeedCheckIfNeeded() {
+            return
+        }
+        checkForUpdates(nil)
+    }
+
+    func applyBrowserImportHintDefaults(variant: String?, show: String?, dismissed: String?) {
+        if let rawVariant = variant {
+            UserDefaults.standard.set(
+                BrowserImportHintSettings.variant(for: rawVariant).rawValue,
+                forKey: BrowserImportHintSettings.variantKey
+            )
+        }
+        if let rawShow = show {
+            UserDefaults.standard.set(
+                rawShow == "1",
+                forKey: BrowserImportHintSettings.showOnBlankTabsKey
+            )
+        }
+        if let rawDismissed = dismissed {
+            UserDefaults.standard.set(
+                rawDismissed == "1",
+                forKey: BrowserImportHintSettings.dismissedKey
+            )
+        }
+    }
+
+    func forceMainWindowAndActivate() {
+        if NSApp.windows.isEmpty {
+            openNewMainWindow(nil)
+        }
+        moveUITestWindowToTargetDisplayIfNeeded()
+        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        // On headless CI runners, activate() silently fails (no GUI session).
+        // Force windows visible so the terminal surface starts rendering.
+        for window in NSApp.windows {
+            window.orderFrontRegardless()
+        }
+    }
+
+    func openBlankBrowserAndFocusAddressBar() {
+        _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
+    }
+
+    func openBrowserImportSettings() {
+        openPreferencesWindow(
+            debugSource: "uiTest.browserImportHint",
+            navigationTarget: .browser
+        )
+    }
+
+    func presentBrowserImportDialog() {
+        BrowserDataImportCoordinator.shared.presentImportDialog()
     }
 }
 #endif
