@@ -241,9 +241,12 @@ final class TerminalHardwareKeyCapture {
     }
 
     /// Encode a claimed press, emit its bytes once, and arm hold-to-repeat.
-    /// Returns `true` when the press was captured (so the caller withholds it from
-    /// `super`), or `false` when it should fall through (unclaimed, or a claimed
-    /// chord with no terminal encoding such as Option+Up).
+    /// Returns `true` when the press was claimed (so the caller withholds it from
+    /// `super`) — both when it encoded to bytes (emit + repeat) and when it is a
+    /// claimed chord with no terminal encoding such as Option+Up: `shouldConsume`
+    /// already matched it, so it is consumed silently rather than leaked to the
+    /// system's default handling. Returns `false` only when the press is genuinely
+    /// unclaimed (so the caller forwards it to `super`).
     @discardableResult
     private func handleHardwarePress(_ press: UIPress) -> Bool {
         guard shouldConsume(press), let key = press.key, let input = Self.terminalInput(for: key)
@@ -251,8 +254,11 @@ final class TerminalHardwareKeyCapture {
         let mods = key.modifierFlags
         guard let data = TerminalHardwareKeyResolver.data(input: input, modifierFlags: mods), !data.isEmpty
         else {
+            // Claimed (shouldConsume matched) but the resolver produced no bytes —
+            // e.g. Option+Up/Down. Consume it silently: returning `false` here would
+            // forward the press to `super`, leaking the chord to the system.
             TerminalInputDebugLog.log("proxy.encode mods=\(mods.rawValue) bytes=0 (no-data)")
-            return false
+            return true
         }
         TerminalInputDebugLog.log("proxy.encode mods=\(mods.rawValue) \(TerminalInputDebugLog.dataSummary(data))")
         // First keystroke goes out immediately; the timer adds the held cadence.

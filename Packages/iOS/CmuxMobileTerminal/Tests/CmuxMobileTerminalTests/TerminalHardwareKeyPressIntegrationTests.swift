@@ -170,6 +170,30 @@ struct TerminalHardwareKeyPressIntegrationTests {
         return captured
     }
 
+    /// Drive one fabricated press through the capture coordinator DIRECTLY and
+    /// report whether it was forwarded to `super` plus every byte it emitted.
+    /// ``TerminalHardwareKeyCapture/pressesBegan(_:)`` returns exactly the presses
+    /// ``TerminalInputTextView/pressesBegan(_:with:)`` hands to `super.pressesBegan`,
+    /// so an empty forwarded set proves the press was CONSUMED — kept from the
+    /// system — rather than leaked to default handling. This is the only seam that
+    /// can observe consume-vs-forward; the `onEscapeSequence`-based `emitted` helper
+    /// sees bytes but not the forward decision.
+    private func captureOutcome(
+        keyCode: UIKeyboardHIDUsage,
+        modifiers: UIKeyModifierFlags,
+        characters: String
+    ) -> (forwardedToSuper: Bool, emitted: [Data]) {
+        var emitted: [Data] = []
+        let capture = TerminalHardwareKeyCapture(
+            timerFactory: FakeKeyRepeatTimerFactory(),
+            isComposing: { false },
+            emit: { emitted.append($0) }
+        )
+        let press = FakePress(key: FakeKey(keyCode: keyCode, modifierFlags: modifiers, characters: characters))
+        let forwarded = capture.pressesBegan([press])
+        return (forwardedToSuper: forwarded.contains(press), emitted: emitted)
+    }
+
     @Test("hardware press emits exactly the expected send-sink bytes", arguments: pressCases)
     func pressEmitsExpectedBytes(_ c: PressCase) {
         let blocks = emitted(keyCode: c.keyCode, modifiers: c.modifiers, characters: c.characters)
@@ -225,15 +249,36 @@ struct TerminalHardwareKeyPressIntegrationTests {
 
     // MARK: Consumed-but-unencodable chord (Option+Up/Down)
 
-    @Test("Option+Up / Option+Down are consumed but emit nothing")
+    @Test("Option+Up / Option+Down are consumed silently — kept from super, zero bytes")
     func optionVerticalArrowsConsumedButSilent() {
         // `shouldConsume` claims these (special key + Option), so they are kept
         // from the focused text system — but the encoder has NO META vertical
         // word-move, so the chord emits no bytes (`TerminalKeyEncoder` returns
         // nil for Option-only Up/Down, which would otherwise echo the
-        // shell-unbound "[1;3A"/"[1;3B" literally). Captured, yet silent.
-        #expect(emitted(keyCode: .keyboardUpArrow, modifiers: [.alternate], characters: "\u{F700}").isEmpty)
-        #expect(emitted(keyCode: .keyboardDownArrow, modifiers: [.alternate], characters: "\u{F701}").isEmpty)
+        // shell-unbound "[1;3A"/"[1;3B" literally). A claimed-but-unencodable
+        // chord must still be CONSUMED, not forwarded to `super`: returning it
+        // would leak the press to the system's default handling. Assert BOTH —
+        // it never reaches `super` AND it emits nothing.
+        for (label, keyCode, characters) in [
+            ("Option+Up", UIKeyboardHIDUsage.keyboardUpArrow, "\u{F700}"),
+            ("Option+Down", UIKeyboardHIDUsage.keyboardDownArrow, "\u{F701}"),
+        ] {
+            let outcome = captureOutcome(keyCode: keyCode, modifiers: [.alternate], characters: characters)
+            #expect(!outcome.forwardedToSuper, "\(label) leaked to super instead of being consumed silently")
+            #expect(outcome.emitted.isEmpty, "\(label) emitted bytes: \(outcome.emitted.map(hexString))")
+        }
+    }
+
+    @Test("a plain unclaimed character is forwarded to super and emits nothing")
+    func plainCharacterForwardedToSuper() {
+        // The counterpart guard: a bare letter with no modifiers is NOT claimed
+        // by `shouldConsume`, so the capture must forward it to `super` (where
+        // `insertText`/the IME handle it) and emit no terminal bytes. This proves
+        // the silent-consume fix is surgical — only CLAIMED-but-unencodable chords
+        // are swallowed; genuinely unclaimed keys still leak through by design.
+        let outcome = captureOutcome(keyCode: .keyboardA, modifiers: [], characters: "a")
+        #expect(outcome.forwardedToSuper, "a plain unclaimed 'a' must forward to super")
+        #expect(outcome.emitted.isEmpty, "a plain 'a' must not emit terminal bytes")
     }
 
     // MARK: Hold-to-repeat cadence (deterministic, fake-timer driven)
