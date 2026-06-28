@@ -1,10 +1,18 @@
+public import CmuxSidebarProviderKit
+public import Foundation
+public import SwiftUI
 import AppKit
 import CmuxSidebar
-import CmuxSidebarProviderKit
-import SwiftUI
 import WebKit
 
-struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
+/// A single extension-provider workspace row in the sidebar.
+///
+/// A pure presentation leaf: it holds no app-target state and reads no
+/// `Workspace`/`TabManager`. It is handed an immutable
+/// ``CmuxSidebarProviderRow`` plus an optional ``CmuxSidebarProviderWorkspace``
+/// snapshot and two closures (`onSelect`, `onOpenWindow`), and renders the
+/// title/subtitle/trailing text plus an optional inspector accessory popover.
+public struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     let row: CmuxSidebarProviderRow
     let workspace: CmuxSidebarProviderWorkspace?
     let providerId: String
@@ -15,7 +23,34 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     @State private var showsInspector = false
     @State private var inspectorDraft: CmuxExtensionWorkspaceInspectorDraft?
 
-    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+    /// Creates an extension-provider workspace row.
+    /// - Parameters:
+    ///   - row: The immutable provider row snapshot (title/subtitle/accessory).
+    ///   - workspace: The provider workspace snapshot backing the inspector, if any.
+    ///   - providerId: The provider id the row belongs to.
+    ///   - relativeNow: The reference date used to render relative timestamps.
+    ///   - isSelected: Whether the row is the selected workspace.
+    ///   - onSelect: Invoked with the row's workspace id when the row is tapped.
+    ///   - onOpenWindow: Invoked with the workspace snapshot to open its window.
+    public init(
+        row: CmuxSidebarProviderRow,
+        workspace: CmuxSidebarProviderWorkspace?,
+        providerId: String,
+        relativeNow: Date,
+        isSelected: Bool,
+        onSelect: @escaping (UUID) -> Void,
+        onOpenWindow: @escaping (CmuxSidebarProviderWorkspace) -> Void
+    ) {
+        self.row = row
+        self.workspace = workspace
+        self.providerId = providerId
+        self.relativeNow = relativeNow
+        self.isSelected = isSelected
+        self.onSelect = onSelect
+        self.onOpenWindow = onOpenWindow
+    }
+
+    public nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.row == rhs.row &&
             lhs.workspace == rhs.workspace &&
             lhs.providerId == rhs.providerId &&
@@ -31,7 +66,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         false
     }
 
-    var body: some View {
+    public var body: some View {
         let primarySize: CGFloat = isSuperCompact ? 10.5 : 12.5
         let secondarySize: CGFloat = isSuperCompact ? 9 : 10
         HStack(spacing: isSuperCompact ? 5 : 7) {
@@ -142,8 +177,11 @@ struct CmuxExtensionWorkspaceInspectorDraft: Equatable {
     }
 }
 
-enum CmuxExtensionRelativeTimeFormatter {
-    static func string(from date: Date, to now: Date) -> String {
+/// Formats a compact relative timestamp ("now", "5m", "3h", "2d", "1w") for
+/// extension-sidebar rows, localized via the main bundle's `Localizable` table.
+public enum CmuxExtensionRelativeTimeFormatter {
+    /// Returns the localized compact relative-time string between `date` and `now`.
+    public static func string(from date: Date, to now: Date) -> String {
         let seconds = max(0, Int(now.timeIntervalSince(date)))
         if seconds < 60 { return String(localized: "relativeTime.now", defaultValue: "now") }
         let minutes = seconds / 60
@@ -299,12 +337,17 @@ struct CmuxExtensionWorkspaceInspectorBrowserView: NSViewRepresentable {
     }
 }
 
+/// Manages the per-workspace inspector windows opened from the extension
+/// sidebar's workspace rows. Keyed by ``CmuxSidebarProviderWorkspace/id`` so a
+/// second open focuses the existing window instead of spawning a duplicate.
 @MainActor
-final class CmuxExtensionSidebarInspectorWindowController {
+public final class CmuxExtensionSidebarInspectorWindowController {
     private static var controllers: [UUID: NSWindowController] = [:]
-    private static var closeObservers: [UUID: NSObjectProtocol] = [:]
+    private static var closeObservers: [UUID: any NSObjectProtocol] = [:]
 
-    static func show(workspace: CmuxSidebarProviderWorkspace) {
+    /// Opens (or focuses) the inspector window for the given workspace snapshot.
+    /// - Parameter workspace: The provider workspace snapshot to inspect.
+    public static func show(workspace: CmuxSidebarProviderWorkspace) {
         if let controller = controllers[workspace.id] {
             controller.window?.title = workspace.title
             controller.window?.setContentSize(NSSize(width: 620, height: 440))
