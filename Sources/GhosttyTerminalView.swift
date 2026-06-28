@@ -6789,31 +6789,44 @@ final class GhosttySurfaceScrollView: NSView {
         imageTransferIndicatorShowWorkItem = nil
     }
 
+    private func overlayZOrderRelativeView(
+        for placement: TerminalOverlayZOrderPolicy.Placement,
+        overlay: NSView?
+    ) -> NSView? {
+        switch placement {
+        case .above(.overlay):
+            return overlay
+        case .above(.keyboardCopyModeBadge):
+            return keyboardCopyModeBadgeContainerView
+        case .aboveAll:
+            return nil
+        }
+    }
+
     private func updateImageTransferIndicatorZOrder(relativeTo overlay: NSView?) {
         guard !imageTransferIndicatorContainerView.isHidden else { return }
-        if let overlay, overlay.superview === self {
-            addSubview(imageTransferIndicatorContainerView, positioned: .above, relativeTo: overlay)
-            return
-        }
-        if keyboardCopyModeBadgeContainerView.superview === self,
-           !keyboardCopyModeBadgeContainerView.isHidden {
-            addSubview(
-                imageTransferIndicatorContainerView,
-                positioned: .above,
-                relativeTo: keyboardCopyModeBadgeContainerView
-            )
-            return
-        }
-        addSubview(imageTransferIndicatorContainerView, positioned: .above, relativeTo: nil)
+        let placement = TerminalOverlayZOrderPolicy.imageTransferIndicatorPlacement(
+            overlayIsSelfSibling: overlay?.superview === self,
+            badgeIsSelfSibling: keyboardCopyModeBadgeContainerView.superview === self,
+            badgeHidden: keyboardCopyModeBadgeContainerView.isHidden
+        )
+        addSubview(
+            imageTransferIndicatorContainerView,
+            positioned: .above,
+            relativeTo: overlayZOrderRelativeView(for: placement, overlay: overlay)
+        )
     }
 
     private func updateKeyboardCopyModeBadgeZOrder(relativeTo overlay: NSView?) {
         guard !keyboardCopyModeBadgeContainerView.isHidden else { return }
-        if let overlay, overlay.superview === self {
-            addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)
-        } else {
-            addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: nil)
-        }
+        let placement = TerminalOverlayZOrderPolicy.keyboardCopyModeBadgePlacement(
+            overlayIsSelfSibling: overlay?.superview === self
+        )
+        addSubview(
+            keyboardCopyModeBadgeContainerView,
+            positioned: .above,
+            relativeTo: overlayZOrderRelativeView(for: placement, overlay: overlay)
+        )
         updateImageTransferIndicatorZOrder(relativeTo: overlay)
     }
 
