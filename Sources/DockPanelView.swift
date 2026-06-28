@@ -3,6 +3,7 @@ import CmuxFoundation
 import CmuxSidebar
 import CmuxSidebarUI
 import CmuxTerminal
+import CmuxWorkspaces
 import Bonsplit
 import Observation
 import SwiftUI

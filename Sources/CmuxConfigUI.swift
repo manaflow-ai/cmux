@@ -97,13 +97,6 @@ enum CmuxResolvedConfigContextMenuItem: Identifiable, Sendable, Hashable {
     }
 }
 
-enum CmuxRestartBehavior: String, Codable, Sendable {
-    case new
-    case recreate
-    case ignore
-    case confirm
-}
-
 extension CmuxButtonIcon {
     func contextMenuImage(configSourcePath: String?, globalConfigPath: String) -> NSImage? {
         switch bonsplitIcon(configSourcePath: configSourcePath, globalConfigPath: globalConfigPath) {

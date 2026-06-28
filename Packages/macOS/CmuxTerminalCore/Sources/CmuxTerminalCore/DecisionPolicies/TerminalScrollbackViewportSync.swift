@@ -84,6 +84,25 @@ public enum TerminalScrollbackViewportSync: Sendable {
         )
     }
 
+    /// The document-view height that backs the clip view, in points.
+    ///
+    /// Mirrors `GhosttySurfaceScrollView.documentHeight()`: when a scrollbar
+    /// packet is available the document spans the full scrollback grid
+    /// (`total * cellHeight`) plus the clip view's non-grid padding
+    /// (`contentHeight - len * cellHeight`); before the first packet (or a
+    /// zero cell height) it falls back to the clip view's content height. The
+    /// witness samples `contentSize`, `cellSize`, and the live ``GhosttyScrollbar``.
+    public static func documentHeight(
+        contentHeight: CGFloat,
+        cellHeight: CGFloat,
+        scrollbar: GhosttyScrollbar?
+    ) -> CGFloat {
+        guard cellHeight > 0, let scrollbar else { return contentHeight }
+        let documentGridHeight = CGFloat(scrollbar.total) * cellHeight
+        let padding = contentHeight - (CGFloat(scrollbar.len) * cellHeight)
+        return documentGridHeight + padding
+    }
+
     /// Decision for a live user drag of the scroller (`handleLiveScroll`).
     public struct LiveScrollDecision: Sendable, Equatable {
         /// The scrollback row the witness should request via `scroll_to_row:`.

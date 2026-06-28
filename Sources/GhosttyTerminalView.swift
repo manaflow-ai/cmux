@@ -3022,20 +3022,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
         guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
 
-        let rows = terminalKeyboardCopyModeVisibleViewportRows(
+        // Viewport-row clamp + grid-centering insets live in CmuxTerminalCore;
+        // the witness keeps the ghostty_surface_size sample, cell-size
+        // resolution, and the positive-dimension guard.
+        return TerminalKeyboardCopyModeGridMetrics.make(
             backingRows: backingRows,
-            viewHeight: Double(bounds.height),
-            cellHeight: Double(resolvedCellHeight)
-        )
-        let terminalWidth = CGFloat(columns) * resolvedCellWidth
-        let terminalHeight = CGFloat(rows) * resolvedCellHeight
-        return TerminalKeyboardCopyModeGridMetrics(
-            rows: rows,
             columns: columns,
             cellWidth: resolvedCellWidth,
             cellHeight: resolvedCellHeight,
-            xInset: max(0, (bounds.width - terminalWidth) / 2),
-            yInset: max(0, (bounds.height - terminalHeight) / 2),
+            viewWidth: bounds.width,
             viewHeight: bounds.height
         )
     }
@@ -8818,14 +8813,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func documentHeight() -> CGFloat {
-        let contentHeight = scrollView.contentSize.height
-        let cellHeight = surfaceView.cellSize.height
-        if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
-            let documentGridHeight = CGFloat(scrollbar.total) * cellHeight
-            let padding = contentHeight - (CGFloat(scrollbar.len) * cellHeight)
-            return documentGridHeight + padding
-        }
-        return contentHeight
+        TerminalScrollbackViewportSync.documentHeight(
+            contentHeight: scrollView.contentSize.height,
+            cellHeight: surfaceView.cellSize.height,
+            scrollbar: surfaceView.scrollbar
+        )
     }
 
     private func terminalScrollBarAllowedBySettings() -> Bool {

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNotifications
+import CmuxWorkspaces
 
 /// Filters notification hooks down to the ones whose trust descriptor is already
 /// trusted, plus the ones the user authorizes interactively, gating each untrusted
