@@ -39,16 +39,23 @@ final class RemoteTmuxWindowMirror {
     /// minted at panel-creation time so the view body is a pure read.
     @ObservationIgnored private var syntheticPaneIds: [Int: PaneID] = [:]
 
+    /// Linked-view windows share one control client, so this window is sized via
+    /// `resize-window -t @id` rather than `refresh-client -C`. See
+    /// ``RemoteTmuxSessionMirror`` `perWindowSizing`.
+    private let perWindowSizing: Bool
+
     init(
         windowId: Int,
         panelId: UUID,
         connection: RemoteTmuxControlConnection,
         layout: RemoteTmuxLayoutNode,
+        perWindowSizing: Bool = false,
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
         self.windowId = windowId
         self.panelId = panelId
         self.connection = connection
+        self.perWindowSizing = perWindowSizing
         self.makePanel = makePanel
         self.layout = layout
         reconcile(layout: layout)
@@ -121,7 +128,11 @@ final class RemoteTmuxWindowMirror {
         let rows = max(5, Int(contentSizePoints.height / cell.height))
         guard lastClientSize?.cols != cols || lastClientSize?.rows != rows else { return true }
         lastClientSize = (cols, rows)
-        connection?.setClientSize(columns: cols, rows: rows)
+        if perWindowSizing {
+            connection?.resizeWindow(windowId: windowId, columns: cols, rows: rows)
+        } else {
+            connection?.setClientSize(columns: cols, rows: rows)
+        }
         return true
     }
 
