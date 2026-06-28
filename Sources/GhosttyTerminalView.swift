@@ -4622,10 +4622,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         _ = GhosttyRuntimeCInterop.clearSelection(surface)
         ghostty_surface_mouse_pos(surface, xRange.startX, Double(y), mods)
-        guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
-            _ = GhosttyRuntimeCInterop.clearSelection(surface)
-            return false
-        }
+        // ghostty_surface_mouse_button returns whether Ghostty *consumed* the event
+        // (e.g. via mouse reporting); for a normal selection-start on a surface without
+        // mouse reporting it returns false. Discard it like the real mouseDown handler
+        // does instead of treating it as failure, otherwise keyboard copy-mode selection
+        // never starts.
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
         ghostty_surface_mouse_pos(surface, xRange.endX, Double(y), mods)
         let selectedCursorCell = ghostty_surface_has_selection(surface)
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
@@ -4664,9 +4666,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let mods = GHOSTTY_MODS_NONE
         ghostty_surface_mouse_pos(surface, Double(startX), Double(startY), mods)
-        guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
-            return false
-        }
+        // Discard the "consumed" return — false just means no mouse reporting, not failure.
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
         defer {
             _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
         }
