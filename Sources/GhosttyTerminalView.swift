@@ -2244,7 +2244,7 @@ extension TerminalSurface {
 
 // MARK: - Ghostty Surface View
 
-class GhosttyNSView: NSView, NSUserInterfaceValidations {
+class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting {
     private static let focusDebugEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_FOCUS_DEBUG"] == "1" {
             return true
@@ -2390,6 +2390,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // viewport-jump tracking, and the key-sequence/key-table stacks.
     let keyboardCopyModeController = TerminalKeyboardCopyModeController()
     private var wordPathHoverActive = false
+    /// Owns the cmd-click word-path resolution precedence (CmuxTerminal); this
+    /// view conforms to ``TerminalWordPathHosting`` and vends the app-coupled
+    /// reads through it. Lazy so `self` is fully initialized before the host wire.
+    private lazy var wordPathRouter = TerminalWordPathRoutingCoordinator(host: self)
     private var imeConsumedKeyUps: Set<UInt16> = []
     private let keyboardCopyModeCursorOverlayView = GhosttyFlashOverlayView(frame: .zero)
     // internal (not fileprivate): witnesses for TerminalSurfaceNativeViewing
@@ -4513,18 +4517,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func resolveWordUnderCursorPath(at point: NSPoint? = nil) -> WordPathResolution? {
-        guard let surface = surface else { return nil }
+        wordPathRouter.resolveWordUnderCursorPath(at: point)
+    }
 
+    // MARK: - TerminalWordPathHosting
+
+    /// The working directory cmd-click paths resolve against, gated by the live
+    /// surface / owning-workspace / non-remote guards. Vended to the router.
+    func wordPathWorkingDirectory() -> String? {
+        guard surface != nil else { return nil }
         guard let termSurface = terminalSurface,
               let workspace = termSurface.owningWorkspace(),
               !workspace.isRemoteTerminalSurface(termSurface.id) else { return nil }
+        return resolvedWordPathWorkingDirectory(workspace: workspace, terminalSurface: termSurface)
+    }
 
-        guard let cwd = resolvedWordPathWorkingDirectory(workspace: workspace, terminalSurface: termSurface) else {
-            return nil
-        }
-
-        let snapshotPoint = preferredPointerPoint(from: point)
-        let pointSnapshotResolution = snapshotPoint.flatMap {
+    /// The pointer-anchored visible-grid resolution for the requested point. Maps
+    /// the point to a cell and reads the visible terminal text app-side.
+    func pointSnapshotWordPath(at requestedPoint: CGPoint?, cwd: String) -> WordPathResolution? {
+        guard let termSurface = terminalSurface,
+              let workspace = termSurface.owningWorkspace() else { return nil }
+        let snapshotPoint = preferredPointerPoint(from: requestedPoint)
+        return snapshotPoint.flatMap {
             resolveVisibleWordPath(
                 at: $0,
                 cwd: cwd,
@@ -4532,87 +4546,40 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 terminalSurface: termSurface
             )
         }
+    }
 
+    /// The live Ghostty QuickLook-word snapshot for the current surface, decoded
+    /// app-side because it dereferences the `ghostty_surface_t` and the runtime's
+    /// text buffer. Vended to the router.
+    func quicklookWordSnapshot() -> TerminalQuicklookWordSnapshot? {
+        guard let surface else { return nil }
         var text = ghostty_text_s()
-        if ghostty_surface_quicklook_word(surface, &text) {
-            defer { ghostty_surface_free_text(surface, &text) }
-            var quicklookResolution: WordPathResolution?
-            if text.text_len > 0, let ptr = text.text {
-                let wordData = Data(bytes: ptr, count: Int(text.text_len))
-                if let decodedWord = String(bytes: wordData, encoding: .utf8) {
-#if DEBUG
-                    let resolvedQuicklookWord = cmuxTerminalCmdClickQuicklookOverride(decodedWord)
-#else
-                    let resolvedQuicklookWord = decodedWord
-#endif
-                    if let resolvedPath = TerminalPathResolver().resolveQuicklookPath(resolvedQuicklookWord, cwd: cwd) {
-                        quicklookResolution = WordPathResolution(
-                            path: resolvedPath,
-                            source: .quicklook,
-                            rawToken: resolvedQuicklookWord
-                        )
-                    }
-                }
-            }
-
-            var viewportResolution: WordPathResolution?
-            if text.offset_len > 0 {
-#if DEBUG
-                let viewportOffsetStart = cmuxTerminalCmdClickViewportOffsetDelta(Int(text.offset_start))
-#else
-                let viewportOffsetStart = Int(text.offset_start)
-#endif
-                viewportResolution = resolveVisibleWordPathFromViewportOffset(
-                    viewportOffsetStart,
-                    cwd: cwd,
-                    workspace: workspace,
-                    terminalSurface: termSurface
-                )
-            }
-
-            if let viewportResolution {
-                // The pointer-anchored snapshot is the only source tied directly to the
-                // actual click location. Prefer it over quicklook and viewport offsets,
-                // which can lag or target a sibling entry in multi-column `ls` output.
-                if let pointSnapshotResolution {
-                    return pointSnapshotResolution
-                }
-                return viewportResolution
-            }
-
-            if let pointSnapshotResolution {
-                return pointSnapshotResolution
-            }
-
-            if let quicklookResolution {
-                return quicklookResolution
-            }
+        guard ghostty_surface_quicklook_word(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        var decodedWord: String?
+        if text.text_len > 0, let ptr = text.text {
+            let wordData = Data(bytes: ptr, count: Int(text.text_len))
+            decodedWord = String(bytes: wordData, encoding: .utf8)
         }
-
-        return pointSnapshotResolution
+        let viewportOffsetStart: Int? = text.offset_len > 0 ? Int(text.offset_start) : nil
+        return TerminalQuicklookWordSnapshot(
+            decodedWord: decodedWord,
+            viewportOffsetStart: viewportOffsetStart
+        )
     }
 
-    #if DEBUG
-    private func cmuxTerminalCmdClickQuicklookOverride(_ decodedWord: String) -> String {
-        let env = ProcessInfo.processInfo.environment
-        guard let override = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_QUICKLOOK_OVERRIDE"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-              !override.isEmpty else {
-            return decodedWord
-        }
-        return override
+    /// The viewport-offset visible-grid resolution for the given offset. Reads the
+    /// visible terminal text app-side.
+    func viewportWordPath(viewportOffsetStart: Int, cwd: String) -> WordPathResolution? {
+        guard let termSurface = terminalSurface,
+              let workspace = termSurface.owningWorkspace() else { return nil }
+        return resolveVisibleWordPathFromViewportOffset(
+            viewportOffsetStart,
+            cwd: cwd,
+            workspace: workspace,
+            terminalSurface: termSurface
+        )
     }
-
-    private func cmuxTerminalCmdClickViewportOffsetDelta(_ viewportOffsetStart: Int) -> Int {
-        let env = ProcessInfo.processInfo.environment
-        guard let delta = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_VIEWPORT_OFFSET_DELTA"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-              let parsedDelta = Int(delta) else {
-            return viewportOffsetStart
-        }
-        return max(0, viewportOffsetStart + parsedDelta)
-    }
-    #endif
 
     /// Update the pointing-hand cursor when Cmd-hovering over a bare filename
     /// that exists in the terminal's CWD.
