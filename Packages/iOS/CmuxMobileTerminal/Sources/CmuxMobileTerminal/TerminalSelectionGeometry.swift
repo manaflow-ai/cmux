@@ -6,9 +6,12 @@ import CoreGraphics
 /// `GHOSTTY_POINT_VIEWPORT` / `GHOSTTY_POINT_COORD_EXACT` point feeds to
 /// `ghostty_surface_read_text`.
 struct TerminalGridCell: Equatable, Sendable {
+    /// Zero-based column, counting from the left edge of the viewport.
     var col: Int
+    /// Zero-based row, counting from the top visible row of the viewport.
     var row: Int
 
+    /// Creates a cell at the given viewport `(col, row)`.
     init(col: Int, row: Int) {
         self.col = col
         self.row = row
@@ -43,6 +46,7 @@ struct TerminalSelectionCellGeometry: Equatable, Sendable {
     /// Number of rows in the grid; clamps rows.
     var rows: Int
 
+    /// Creates a cell-geometry snapshot from ghostty's measured render metrics.
     init(origin: CGPoint, cellWidth: CGFloat, cellHeight: CGFloat, columns: Int, rows: Int) {
         self.origin = origin
         self.cellWidth = cellWidth

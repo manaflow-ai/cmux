@@ -7,7 +7,7 @@ import GhosttyKit
 import OSLog
 import UIKit
 
-private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
+nonisolated private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
 /// One-finger / trackpad text selection, the glyph-aligned highlight overlay, the
 /// local grid-text copy, and the "Copied N characters" HUD — the drag-to-select
@@ -33,6 +33,9 @@ extension GhosttySurfaceView {
         }
     }
 
+    /// `NotificationCenter` selector for ``MobileTerminalGesturePreference/didChangeNotification``:
+    /// re-applies the live recognizer configuration so a Settings toggle takes
+    /// effect without relaunching.
     @objc func handleGesturePreferenceChanged() {
         applyGesturePreference()
     }

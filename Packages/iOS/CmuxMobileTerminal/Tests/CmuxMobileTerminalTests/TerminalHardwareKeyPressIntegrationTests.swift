@@ -203,10 +203,18 @@ struct TerminalHardwareKeyPressIntegrationTests {
         view.pressesBegan([press], with: nil)
         #expect(captured.count == 1, "expected the initial keystroke, got \(captured.map(hexString))")
 
+        // Capture the in-flight repeat task BEFORE cancelling — `pressesCancelled`
+        // clears the dictionary entry. The repeat now routes through
+        // `TerminalArrowRepeatService`, whose injected-clock sleep throws the
+        // instant the task is cancelled, so awaiting the task's completion is a
+        // real, DETERMINISTIC stop signal: no wall-clock `Task.sleep`. The held
+        // key never reached its 400ms repeat delay, so a correctly-cancelled task
+        // finishes having emitted nothing further.
+        let repeatTask = view.keyRepeatTasks[.keyboardLeftArrow]
+        #expect(repeatTask != nil, "pressesBegan should have armed a hold-to-repeat task")
+
         view.pressesCancelled([press], with: nil)
-        // Wait well past the initial repeat delay (400ms) plus several 60ms ticks;
-        // a live repeat would have fired by now.
-        try? await Task.sleep(for: .milliseconds(700))
+        await repeatTask?.value
         #expect(captured.count == 1, "pressesCancelled did not cancel the repeat: \(captured.map(hexString))")
         // Keep `view` alive across the await so the (weakly-held) repeat task
         // would still have a live target to emit through if it weren't cancelled.

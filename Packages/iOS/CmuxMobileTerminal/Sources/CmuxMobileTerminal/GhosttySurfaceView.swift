@@ -572,6 +572,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// title chip), centered near the top so it never overlaps the centered zoom
     /// HUD.
     var copyToastOverlay: UIView?
+    /// The "Copied N characters" label hosted inside ``copyToastOverlay``; its text
+    /// is refreshed on each copy.
     var copyToastLabel: UILabel?
     /// Whether the copy toast is currently presented (alpha animating toward 1).
     var copyToastShown = false
@@ -580,6 +582,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// callback, NOT a `Timer`/`DispatchQueue.asyncAfter`, so it honors the same
     /// no-sleep rule as the zoom HUD fade and tracks real elapsed time.
     var copyToastLastShown: CFTimeInterval = 0
+    /// How long (seconds) the copy toast stays fully shown after the last copy
+    /// before the display-link fade begins.
     private static let copyToastVisibleDuration: CFTimeInterval = 1.5
     /// Persisted user "default zoom" backing the zoom-control overlay's
     /// reset/save/restore actions. Owned by the surface (constructed at init)
@@ -690,6 +694,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
+    /// Full-bounds, content-less scroll view whose pan/momentum drives terminal
+    /// scrollback (translated to wheel reports), kept above the Metal surface. Its
+    /// `panGestureRecognizer` touch-count is retuned by ``applyGesturePreference()``
+    /// so one-finger drags can be handed to text selection instead.
     lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear
@@ -2670,6 +2678,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
+    /// The device pixel scale used to convert ghostty's pixel metrics to points
+    /// (renderer scale factor, selection geometry, cell sizing). Prefers the
+    /// hosting scene's screen scale, falls back to the trait `displayScale`, and
+    /// defaults to `2` before the view joins a window.
     var preferredScreenScale: CGFloat {
         if let screen = window?.windowScene?.screen {
             return screen.scale

@@ -18,8 +18,11 @@ public final class MobileTerminalGesturePreference {
     /// re-apply its gesture configuration immediately.
     public static let didChangeNotification = Notification.Name("MobileTerminalGesturePreferenceDidChange")
 
+    /// `UserDefaults` key backing ``oneFingerSelects``. Versioned (`.v1`) so a
+    /// future semantics change can migrate without colliding with stored values.
     private static let oneFingerSelectsKey = "cmux.terminal.oneFingerSelects.v1"
 
+    /// The backing store the preference reads and writes (injected for tests).
     private let defaults: UserDefaults
 
     /// Creates a preference store.

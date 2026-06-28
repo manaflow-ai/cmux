@@ -22,6 +22,10 @@ final class TerminalSelectionOverlay {
     /// Whether a non-empty highlight is currently shown.
     private(set) var isActive = false
 
+    /// Builds the highlight layer with the initial fill `color`, z-ordered above
+    /// the Metal renderer but below the cursor, with implicit animations disabled
+    /// so the highlight tracks the drag frame-for-frame. Hidden until the first
+    /// ``update(rects:scale:)``.
     init(color: CGColor) {
         shapeLayer.name = "cmux.selectionOverlay"
         // Above the Metal renderer layer (zPosition 0) so render-grid repaints

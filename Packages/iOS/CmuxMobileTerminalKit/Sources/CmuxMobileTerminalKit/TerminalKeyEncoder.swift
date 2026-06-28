@@ -102,6 +102,9 @@ public struct TerminalKeyEncoder {
         return Data(bytes)
     }
 
+    /// The trailing CSI letter for each cursor key (`A`/`B`/`C`/`D` for
+    /// up/down/right/left), shared by the bare `ESC [ <final>` and modified
+    /// `ESC [ 1 ; <m> <final>` forms. `nil` for any non-arrow key.
     private static func cursorFinalByte(_ key: TerminalSpecialKey) -> UInt8? {
         switch key {
         case .upArrow: return 0x41    // A

@@ -341,11 +341,21 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     // emit a single byte sequence with no repeat. These keep one cancellable
     // repeat task per held key code (so overlapping holds are independent and
     // releasing one key stops only its own timer), re-emitting the captured bytes
-    // after an initial delay, then on a fast interval — the same shape as
-    // `TerminalArrowNubView`'s auto-repeat.
+    // after an initial delay, then on a fast interval — driven through the same
+    // injected-clock `TerminalArrowRepeatService` as `TerminalArrowNubView`'s
+    // auto-repeat, so this latency-sensitive input path holds no hand-rolled
+    // `Task.sleep` loop.
 
-    /// Active hold-to-repeat tasks, keyed by physical key code.
-    private var keyRepeatTasks: [UIKeyboardHIDUsage: Task<Void, Never>] = [:]
+    /// The sanctioned injected-clock repeat scheduler shared with the arrow nub.
+    /// Owns the typematic cadence so this view's hold-to-repeat carries no
+    /// hand-rolled `Task.sleep` loop; see ``startKeyRepeat(for:bytes:)``.
+    private let keyRepeatService = TerminalArrowRepeatService()
+    /// Active hold-to-repeat tasks, keyed by physical key code. Each consumes one
+    /// ``TerminalArrowRepeatService`` stream; cancelling the task ends the cadence.
+    /// `internal` (not `private`) so a `@testable` test can capture a task and
+    /// `await` its completion to prove cancellation deterministically — without a
+    /// wall-clock sleep — rather than reaching through a production test seam.
+    var keyRepeatTasks: [UIKeyboardHIDUsage: Task<Void, Never>] = [:]
     /// Delay before a held key starts repeating, then the per-tick cadence
     /// (≈0.4s then ≈0.06s — a standard keyboard's typematic feel, close to the
     /// arrow nub's 80ms repeat).
@@ -353,18 +363,25 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private static let keyRepeatInterval: Duration = .milliseconds(60)
 
     /// Arm (or re-arm) hold-to-repeat for a consumed hardware key. The first
-    /// keystroke is emitted by the caller; this only adds the held cadence,
-    /// re-sending `bytes` after the initial delay and then every interval until
-    /// the key is released (`stopKeyRepeat`) or focus leaves (`stopAllKeyRepeats`).
+    /// keystroke is emitted by the caller; this only adds the held cadence by
+    /// consuming a ``TerminalArrowRepeatService`` stream that stays silent for the
+    /// initial delay, then re-sends `bytes` every interval until the key is
+    /// released (`stopKeyRepeat`) or focus leaves (`stopAllKeyRepeats`) cancels the
+    /// task. Routing the cadence through the sanctioned injected-clock service
+    /// keeps this latency-sensitive input path free of a hand-rolled `Task.sleep`.
     private func startKeyRepeat(for keyCode: UIKeyboardHIDUsage, bytes: Data) {
         keyRepeatTasks[keyCode]?.cancel()
+        let repeats = keyRepeatService.repeats(
+            of: bytes,
+            initialDelay: Self.keyRepeatInitialDelay,
+            every: Self.keyRepeatInterval,
+            clock: ContinuousClock()
+        )
         keyRepeatTasks[keyCode] = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: Self.keyRepeatInitialDelay) } catch { return }
-            while !Task.isCancelled {
+            for await repeatBytes in repeats {
                 guard let self else { return }
-                self.onEscapeSequence?(bytes)
-                TerminalInputDebugLog.log("proxy.keyRepeat code=\(keyCode.rawValue) \(TerminalInputDebugLog.dataSummary(bytes))")
-                do { try await Task.sleep(for: Self.keyRepeatInterval) } catch { return }
+                self.onEscapeSequence?(repeatBytes)
+                TerminalInputDebugLog.log("proxy.keyRepeat code=\(keyCode.rawValue) \(TerminalInputDebugLog.dataSummary(repeatBytes))")
             }
         }
     }
