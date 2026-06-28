@@ -33,7 +33,7 @@ import CmuxTestSupport
 #endif
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment, ExternalOpenIntentHosting, WindowLifecycleHosting {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment, ExternalOpenIntentHosting, WindowLifecycleHosting, AppMenuHosting {
     nonisolated(unsafe) static var shared: AppDelegate?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
@@ -1546,6 +1546,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// stays here behind the ``ApplicationActivationHost`` seam this delegate
     /// conforms to.
     private lazy var activationCoordinator = ApplicationActivationCoordinator(host: self)
+    /// Owns the stateless application/dock menu-building decisions, emitting
+    /// Sendable ``DockMenuSpec`` values. The live `NSMenu`/`NSMenuItem`
+    /// materialization, the `@objc openNewMainWindow` selector wiring, and the
+    /// `String(localized:)` title resolution stay here behind the
+    /// ``AppMenuHosting`` seam this delegate conforms to.
+    private lazy var appMenuCoordinator = AppMenuCoordinator(host: self)
     /// Owns the three `NSWorkspace` session-lifecycle observers
     /// (willPowerOff / sessionDidResignActive / didWake) and surfaces them as a
     /// typed ``SessionLifecycleEvent`` `AsyncStream` (CmuxWorkspaces);
@@ -5033,14 +5039,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
-        let menu = NSMenu(title: "")
-        let newWindowItem = NSMenuItem(
-            title: String(localized: "menu.file.newWindow", defaultValue: "New Window"),
-            action: #selector(openNewMainWindow(_:)),
-            keyEquivalent: ""
+        let spec = appMenuCoordinator.dockMenuSpec(
+            newWindowTitle: String(localized: "menu.file.newWindow", defaultValue: "New Window")
         )
-        newWindowItem.target = self
-        menu.addItem(newWindowItem)
+        return materializeAppMenu(spec)
+    }
+
+    /// Materializes an ``AppMenuCoordinator`` ``DockMenuSpec`` into a live
+    /// `NSMenu`, binding each item's `@objc` selector and `target` app-side (the
+    /// coordinator emits only the Sendable value description).
+    private func materializeAppMenu(_ spec: DockMenuSpec) -> NSMenu {
+        let menu = NSMenu(title: "")
+        for item in spec.items {
+            switch item.action {
+            case .separator:
+                menu.addItem(.separator())
+            case .newMainWindow:
+                let menuItem = NSMenuItem(
+                    title: item.title,
+                    action: #selector(openNewMainWindow(_:)),
+                    keyEquivalent: item.keyEquivalent
+                )
+                if !item.keyEquivalent.isEmpty {
+                    menuItem.keyEquivalentModifierMask = item.modifierMask
+                }
+                menuItem.target = self
+                menu.addItem(menuItem)
+            }
+        }
         return menu
     }
 
