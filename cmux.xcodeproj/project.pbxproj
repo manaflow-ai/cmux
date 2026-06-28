@@ -62,6 +62,7 @@
 		C4160A040000000000000001 /* AppDelegate+FocusHistoryContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */; };
 		3865A0063865A0063865A006 /* AppDelegate+GlobalSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */; };
 		D7AB00000000000000000001 /* AppDelegate+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */; };
+		2907D0012907D0012907D001 /* AppDelegate+NotificationActivationSeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907D0022907D0022907D002 /* AppDelegate+NotificationActivationSeams.swift */; };
 		4EDE10010000000000000001 /* AppDelegate+NotificationDeliverySeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EDE10010000000000000002 /* AppDelegate+NotificationDeliverySeams.swift */; };
 		2907B0012907B0012907B001 /* AppDelegate+NotificationNavSeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907B0022907B0022907B002 /* AppDelegate+NotificationNavSeams.swift */; };
 		2907C0012907C0012907C001 /* AppDelegate+NotificationOpenRoutingSeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907C0022907C0022907C002 /* AppDelegate+NotificationOpenRoutingSeams.swift */; };
@@ -1095,6 +1096,7 @@
 		E3B7A40000000000000006C0 /* Workspace+RemoteStatusHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000006C1 /* Workspace+RemoteStatusHosting.swift */; };
 		E3B7A40000000000000006A0 /* Workspace+RemoteSurfaceHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000006A1 /* Workspace+RemoteSurfaceHosting.swift */; };
 		E3B7A40000000000000007A0 /* Workspace+RemoteSurfaceTTYHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000007A1 /* Workspace+RemoteSurfaceTTYHosting.swift */; };
+		E3B7A40000000000000007C0 /* Workspace+RemoteTerminalTrackingHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000007C1 /* Workspace+RemoteTerminalTrackingHosting.swift */; };
 		A50091B0 /* Workspace+Scripting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50091B1 /* Workspace+Scripting.swift */; };
 		E30798000000000000000004 /* Workspace+SessionRestoreHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30798000000000000000003 /* Workspace+SessionRestoreHosting.swift */; };
 		E3B7A4000000000000000C10 /* Workspace+SplitCloseHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000C11 /* Workspace+SplitCloseHosting.swift */; };
@@ -1293,6 +1295,7 @@
 		C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+FocusHistoryContextMenu.swift"; sourceTree = "<group>"; };
 		3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Search/AppDelegate+GlobalSearch.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
+		2907D0022907D0022907D002 /* AppDelegate+NotificationActivationSeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationActivationSeams.swift"; sourceTree = "<group>"; };
 		4EDE10010000000000000002 /* AppDelegate+NotificationDeliverySeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationDeliverySeams.swift"; sourceTree = "<group>"; };
 		2907B0022907B0022907B002 /* AppDelegate+NotificationNavSeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationNavSeams.swift"; sourceTree = "<group>"; };
 		2907C0022907C0022907C002 /* AppDelegate+NotificationOpenRoutingSeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationOpenRoutingSeams.swift"; sourceTree = "<group>"; };
@@ -2260,6 +2263,7 @@
 		E3B7A40000000000000006C1 /* Workspace+RemoteStatusHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteStatusHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000006A1 /* Workspace+RemoteSurfaceHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteSurfaceHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000007A1 /* Workspace+RemoteSurfaceTTYHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteSurfaceTTYHosting.swift"; sourceTree = "<group>"; };
+		E3B7A40000000000000007C1 /* Workspace+RemoteTerminalTrackingHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteTerminalTrackingHosting.swift"; sourceTree = "<group>"; };
 		A50091B1 /* Workspace+Scripting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+Scripting.swift"; sourceTree = "<group>"; };
 		E30798000000000000000003 /* Workspace+SessionRestoreHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SessionRestoreHosting.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000C11 /* Workspace+SplitCloseHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SplitCloseHosting.swift"; sourceTree = "<group>"; };
@@ -2829,6 +2833,7 @@
 				E3B7A40000000000000006B1 /* Workspace+RemoteRelaySessionHosting.swift */,
 				E3B7A40000000000000006C1 /* Workspace+RemoteStatusHosting.swift */,
 				E3B7A40000000000000007A1 /* Workspace+RemoteSurfaceTTYHosting.swift */,
+				E3B7A40000000000000007C1 /* Workspace+RemoteTerminalTrackingHosting.swift */,
 				A5001511 /* UITestRecorder.swift */,
 				A5001520 /* PostHogAnalytics.swift */,
 				A5001416 /* Workspace.swift */,
@@ -3005,6 +3010,7 @@
 				4EDE10010000000000000002 /* AppDelegate+NotificationDeliverySeams.swift */,
 				2907B0022907B0022907B002 /* AppDelegate+NotificationNavSeams.swift */,
 				2907C0022907C0022907C002 /* AppDelegate+NotificationOpenRoutingSeams.swift */,
+				2907D0022907D0022907D002 /* AppDelegate+NotificationActivationSeams.swift */,
 				2907B0042907B0042907B004 /* AppDelegate+FeedRequestSeams.swift */,
 				2907B1022907B1022907B102 /* AppDelegate+TerminalTextSendSeams.swift */,
 				2907B1042907B1042907B104 /* AppDelegate+TerminalTextSendTracing.swift */,
@@ -4119,6 +4125,7 @@
 				C4160A040000000000000001 /* AppDelegate+FocusHistoryContextMenu.swift in Sources */,
 				3865A0063865A0063865A006 /* AppDelegate+GlobalSearch.swift in Sources */,
 				D7AB00000000000000000001 /* AppDelegate+MoveTabToNewWorkspace.swift in Sources */,
+				2907D0012907D0012907D001 /* AppDelegate+NotificationActivationSeams.swift in Sources */,
 				4EDE10010000000000000001 /* AppDelegate+NotificationDeliverySeams.swift in Sources */,
 				2907B0012907B0012907B001 /* AppDelegate+NotificationNavSeams.swift in Sources */,
 				2907C0012907C0012907C001 /* AppDelegate+NotificationOpenRoutingSeams.swift in Sources */,
@@ -4778,6 +4785,7 @@
 				E3B7A40000000000000006C0 /* Workspace+RemoteStatusHosting.swift in Sources */,
 				E3B7A40000000000000006A0 /* Workspace+RemoteSurfaceHosting.swift in Sources */,
 				E3B7A40000000000000007A0 /* Workspace+RemoteSurfaceTTYHosting.swift in Sources */,
+				E3B7A40000000000000007C0 /* Workspace+RemoteTerminalTrackingHosting.swift in Sources */,
 				A50091B0 /* Workspace+Scripting.swift in Sources */,
 				E30798000000000000000004 /* Workspace+SessionRestoreHosting.swift in Sources */,
 				E3B7A4000000000000000C10 /* Workspace+SplitCloseHosting.swift in Sources */,
