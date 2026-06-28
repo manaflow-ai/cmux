@@ -34,6 +34,11 @@ extension CGRect {
     /// Returns `self` snapped to device pixels using `view`'s backing scale
     /// factor (falling back to the main screen's, then 1.0). Non-finite rects are
     /// returned unchanged; snapped width and height are clamped to be non-negative.
+    ///
+    /// `@MainActor`: reads `NSView.window`/`backingScaleFactor` + `NSScreen.main`,
+    /// main-actor under Swift 6.1 (CI Xcode 16.4). Sibling pure-CGRect methods stay
+    /// nonisolated.
+    @MainActor
     public func pixelSnapped(in view: NSView) -> CGRect {
         guard origin.x.isFinite,
               origin.y.isFinite,

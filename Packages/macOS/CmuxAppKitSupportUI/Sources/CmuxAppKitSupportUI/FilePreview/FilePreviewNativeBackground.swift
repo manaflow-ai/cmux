@@ -2,9 +2,14 @@ public import AppKit
 
 /// Pure AppKit helpers that paint the file-preview native host's background layer and
 /// scroll/clip view backgrounds. Stateless; operates on the views it is handed.
+///
+/// `@MainActor`: the apply/scan helpers mutate/read NSView layer/background/subviews,
+/// main-actor under Swift 6.1 (CI Xcode 16.4). `resolvedColor` is pure NSColor and
+/// stays `nonisolated`.
+@MainActor
 public enum FilePreviewNativeBackground {
     /// The effective background color, or `.clear` when the host does not draw a background.
-    public static func resolvedColor(backgroundColor: NSColor, drawsBackground: Bool) -> NSColor {
+    public nonisolated static func resolvedColor(backgroundColor: NSColor, drawsBackground: Bool) -> NSColor {
         drawsBackground ? backgroundColor : .clear
     }
 

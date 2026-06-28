@@ -86,7 +86,11 @@ public final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSO
     }
 
     deinit {
-        removePDFScrollObserver()
+        // Swift 6.1: a nonisolated deinit cannot call the @MainActor
+        // removePDFScrollObserver(). Its only effect that matters at deinit is
+        // removing self as the bounds-change observer of observedPDFClipView, which
+        // the catch-all removeObserver(self) below already covers (nil-ing the
+        // stored property at deinit is moot).
         NotificationCenter.default.removeObserver(self)
     }
 
