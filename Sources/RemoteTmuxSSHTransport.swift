@@ -434,12 +434,14 @@ actor RemoteTmuxSSHTransport {
         "connection refused",
         "no route to host",
         "network is unreachable",
-        "operation timed out",
+        "operation timed out",              // BSD/macOS TCP connect timeout
+        "connection timed out",             // Linux TCP connect timeout (nc / OpenSSH)
         "could not resolve hostname",       // OpenSSH DNS-resolution wrapper (all OSes)
         "name or service not known",        // Linux getaddrinfo NXDOMAIN
         "nodename nor servname provided",   // BSD/macOS getaddrinfo NXDOMAIN (e.g. ProxyCommand `nc`)
         "temporary failure in name resolution",
-        "kex_exchange_identification:",     // target spoke no SSH / closed during banner
+        "kex_exchange_identification:",     // target spoke no SSH / closed during key exchange
+        "ssh_exchange_identification:",     // target closed during banner exchange (fail2ban, tcpwrappers, not-SSH)
     ]
 
     /// Convenience predicate composing the recovery rule the controller's
