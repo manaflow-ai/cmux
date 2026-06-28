@@ -105,4 +105,52 @@ public struct BrowserSessionHistoryURLResolver: Sendable {
         }
         return nil
     }
+
+    /// Whether a restored session snapshot has a target URL to render.
+    ///
+    /// Diff-viewer URLs are temporary, so ``preferredURLString(webViewDisplayURL:currentURL:)``
+    /// is `nil` for them, but they restore via their token; honor their render
+    /// intent too (otherwise a restored diff surface never navigates).
+    ///
+    /// - Parameters:
+    ///   - preferredURLString: The snapshot's preferred (eligible) URL string.
+    ///   - hasDiffViewerComponents: Whether the surface is a diff-viewer surface.
+    public func sessionSnapshotIsRenderable(
+        preferredURLString: String?,
+        hasDiffViewerComponents: Bool
+    ) -> Bool {
+        preferredURLString != nil || hasDiffViewerComponents
+    }
+
+    /// Whether a browser surface's session snapshot should be persisted.
+    ///
+    /// Diff-viewer surfaces are otherwise treated as temporary. Persist them only
+    /// when they can actually be restored via the custom scheme (a local-only,
+    /// non-pending manifest); otherwise persisting would leave a blank panel on
+    /// restart with no URL to fall back to. Any non-diff-viewer surface persists
+    /// unless its live, current, or restored-current URL is a transient
+    /// session-history URL.
+    ///
+    /// - Parameters:
+    ///   - diffViewerRestorable: `nil` when the surface is not a diff-viewer
+    ///     surface; otherwise whether the diff-viewer surface is restorable.
+    ///   - webViewURL: The live web-view URL.
+    ///   - currentURL: The surface's current URL.
+    ///   - restoredCurrentURL: The restored-session-history current URL.
+    public func shouldPersistSessionSnapshot(
+        diffViewerRestorable: Bool?,
+        webViewURL: URL?,
+        currentURL: URL?,
+        restoredCurrentURL: URL?
+    ) -> Bool {
+        if let diffViewerRestorable {
+            return diffViewerRestorable
+        }
+        guard !sanitizer.isTemporarySessionHistoryURL(webViewURL),
+              !sanitizer.isTemporarySessionHistoryURL(currentURL),
+              !sanitizer.isTemporarySessionHistoryURL(restoredCurrentURL) else {
+            return false
+        }
+        return true
+    }
 }
