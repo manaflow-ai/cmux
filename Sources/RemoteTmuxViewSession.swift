@@ -74,8 +74,6 @@ struct RemoteTmuxViewSession: Equatable {
     static let listFormat =
         "#{\(optView)}:#{\(optOwner)}:#{\(optVersion)}:#{session_name}"
 
-    private static let fieldDelimiter = ":"
-
     /// One parsed `list-sessions` row (from ``listFormat``).
     struct SessionRow: Equatable {
         let name: String
@@ -85,17 +83,8 @@ struct RemoteTmuxViewSession: Equatable {
     }
 
     static func parseRows(_ output: String) -> [SessionRow] {
-        output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { rawLine in
-            var line = String(rawLine)
-            if line.last == "\r" { line.removeLast() }
-            let f = line.components(separatedBy: fieldDelimiter)
-            guard f.count >= 4 else { return nil }
-            return SessionRow(
-                name: f[3...].joined(separator: fieldDelimiter),  // free-text remainder
-                isView: f[0] == "1",
-                owner: f[1],
-                version: Int(f[2])
-            )
+        RemoteTmuxSessionListParser.splitRows(output, fieldCount: 4).map { f in
+            SessionRow(name: f[3], isView: f[0] == "1", owner: f[1], version: Int(f[2]))
         }
     }
 
