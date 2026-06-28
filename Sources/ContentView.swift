@@ -2250,8 +2250,10 @@ struct ContentView: View {
             }
             return
         }
-        let title = tabManager.resolvedWorkspaceDisplayTitle(for: tab)
+        let baseTitle = tabManager.resolvedWorkspaceDisplayTitle(for: tab)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Show the remote host name in the title bar for a mirror workspace.
+        let title = tabManager.withRemoteHostPrefix(baseTitle, tab: tab)
         if titlebarText != title {
             titlebarText = title
         }
