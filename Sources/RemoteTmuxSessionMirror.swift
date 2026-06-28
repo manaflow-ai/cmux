@@ -73,13 +73,23 @@ final class RemoteTmuxSessionMirror {
     /// regroups (a new tab in this session adds an id) via ``updateWindowIdFilter``.
     private var windowIdFilter: Set<Int>?
 
+    /// Whether this mirror owns its connection's lifecycle. `true` (per-session
+    /// transport): a connection `%exit` means THIS session ended, so route to
+    /// `handleSessionEndedRemotely`. `false` (linked-view): the connection is the
+    /// SHARED view stream owned by `RemoteTmuxViewConnection`; a single session
+    /// ending is a reconcile unlink (the coordinator removes this mirror), and a
+    /// connection `%exit` means the whole view ended (the coordinator tears down
+    /// every mirror) — so this mirror must NOT self-trigger per-session teardown.
+    private let managesOwnLifecycle: Bool
+
     init(
         host: RemoteTmuxHost,
         sessionName: String,
         connection: RemoteTmuxControlConnection,
         tabManager: TabManager,
         workspace: Workspace,
-        windowIdFilter: Set<Int>? = nil
+        windowIdFilter: Set<Int>? = nil,
+        managesOwnLifecycle: Bool = true
     ) {
         self.host = host
         self.sessionName = sessionName
@@ -87,6 +97,7 @@ final class RemoteTmuxSessionMirror {
         self.tabManager = tabManager
         self.workspace = workspace
         self.windowIdFilter = windowIdFilter
+        self.managesOwnLifecycle = managesOwnLifecycle
         self.defaultPanelIds = Array(workspace.panels.keys)
 
         // Register as one of possibly several observers — never overwrite a
@@ -111,7 +122,8 @@ final class RemoteTmuxSessionMirror {
                 self?.rebuild()
             },
             onExit: { [weak self] in
-                self?.handleConnectionExited()
+                guard let self, self.managesOwnLifecycle else { return }
+                self.handleConnectionExited()
             }
         )
         rebuild()
