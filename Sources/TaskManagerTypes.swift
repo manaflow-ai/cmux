@@ -744,7 +744,7 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
     }
 
     private static let argumentHostBasenames: Set<String> = [
-        "node", "bun", "deno", "npm", "npx", "pnpm", "yarn", "tsx"
+        "node", "bun", "deno", "npm", "npx", "pnpm", "yarn", "tsx", "ts-node"
     ]
 
     private static let ambiguousDirectBasenames: Set<String> = [

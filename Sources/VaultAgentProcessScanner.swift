@@ -889,10 +889,17 @@ private extension CmuxVaultAgentRegistration {
 private extension CmuxVaultAgentDetectRule {
     func matches(_ process: VaultObservedAgentProcess) -> Bool {
         let expectedNames = primaryProcessNames
-        guard !expectedNames.isEmpty || !argvContains.isEmpty || !alternateArgvContains.isEmpty || !alternateArgvContainsAny.isEmpty else {
+        let hasPrimaryCriteria = !expectedNames.isEmpty || !argvContains.isEmpty
+        let hasAlternateCriteria = !alternateArgvContains.isEmpty || !alternateArgvContainsAny.isEmpty
+        guard hasPrimaryCriteria || hasAlternateCriteria else {
             return false
         }
-        return primaryMatches(process, expectedNames: expectedNames) || alternateMatches(process)
+        // Gate the primary match on the presence of primary criteria. Without
+        // this, an alternate-only rule (empty process names and `argvContains`)
+        // makes `primaryMatches` return true for every process, so it would
+        // match before the alternate criteria are ever checked.
+        let primary = hasPrimaryCriteria && primaryMatches(process, expectedNames: expectedNames)
+        return primary || alternateMatches(process)
     }
 
     func usesAlternateMatchWithoutPrimaryMatch(_ process: VaultObservedAgentProcess) -> Bool {

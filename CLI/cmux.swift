@@ -25997,9 +25997,10 @@ struct CMUXCLI {
             return String(localized: "agent.campfire.capability.toolsContribute", defaultValue: "add tools or skills")
         case "files:list":
             return String(localized: "agent.campfire.capability.filesList", defaultValue: "browse files")
-        case let value?:
-            return value
-        case nil:
+        default:
+            // Unknown/unmapped (or nil) capabilities fall back to the localized
+            // generic label rather than surfacing the raw capability identifier
+            // in user-facing notification copy.
             return String(localized: "agent.campfire.capability.fallback", defaultValue: "do something")
         }
     }
