@@ -19,6 +19,10 @@ extension TmuxPaneOverlayGeometry {
     ///   coordinate space, or `nil` when the two views are not in the same live
     ///   window, the target is unattached, or the converted rect is degenerate
     ///   (1pt or less on either axis).
+    // @MainActor: reads NSView window/superview/bounds + convert(_:to:/from:),
+    // all main-actor under Swift 6.1 (CI Xcode 16.4); runs on the main-thread
+    // overlay-placement path. The sibling pure-CGRect chooser stays nonisolated.
+    @MainActor
     public static func exactRect(
         for targetView: NSView,
         in contentView: NSView
