@@ -132,6 +132,93 @@ public final class WorkspaceCreationCoordinator<Tab: WorkspaceTabRepresenting> {
         return config
     }
 
+    /// The working directory a new tab inherits from a source workspace: the
+    /// first non-empty normalized directory from `currentDirectory` followed by
+    /// `orderedPanelDirectories`, or `nil` when none normalizes non-empty. Lifts
+    /// the legacy `TabManager.preferredWorkingDirectoryForNewTab(workspace:)`
+    /// body one-for-one.
+    ///
+    /// Uses cached directory state only; avoiding live focus traversal keeps
+    /// workspace creation resilient when Bonsplit is in the middle of a rapid
+    /// Cmd+N churn. `normalize` is the app-side git-probe normalizer
+    /// (`String.nonEmptyNormalizedGitProbeDirectory` from CmuxSidebarGit), passed
+    /// in so the package never depends on the git subsystem; it returns the
+    /// normalized directory or `nil` when blank.
+    public func preferredWorkingDirectoryForNewTab(
+        currentDirectory: String?,
+        orderedPanelDirectories: [String],
+        normalize: (String?) -> String?
+    ) -> String? {
+        if let currentDirectory = normalize(currentDirectory) {
+            return currentDirectory
+        }
+        // Equivalent to the legacy `panelDirectories.values.lazy.compactMap(normalize).first`:
+        // return the first panel directory that normalizes non-empty. A manual loop keeps
+        // `normalize` non-escaping (a lazy chain would capture it into an escaping closure).
+        for directory in orderedPanelDirectories {
+            if let normalized = normalize(directory) {
+                return normalized
+            }
+        }
+        return nil
+    }
+
+    /// The implicit working directory a new workspace inherits from a source
+    /// workspace when `inheritWorkingDirectory` is set, or `nil`. Lifts the
+    /// legacy `TabManager.implicitWorkingDirectoryForNewWorkspace(from:)` body
+    /// one-for-one; the inherit-working-directory setting read stays app-side and
+    /// is threaded in as `inheritWorkingDirectory`.
+    public func implicitWorkingDirectoryForNewWorkspace(
+        inheritWorkingDirectory: Bool,
+        currentDirectory: String?,
+        orderedPanelDirectories: [String],
+        normalize: (String?) -> String?
+    ) -> String? {
+        guard inheritWorkingDirectory else {
+            return nil
+        }
+        return preferredWorkingDirectoryForNewTab(
+            currentDirectory: currentDirectory,
+            orderedPanelDirectories: orderedPanelDirectories,
+            normalize: normalize
+        )
+    }
+
+    // MARK: - Creation chrome inheritance (tab-bar leading inset)
+
+    /// The tab-bar leading inset a new workspace inherits during creation: the
+    /// window's current inset when set, otherwise the source workspace's current
+    /// inset, otherwise `nil`. Lifts the legacy
+    /// `TabManager.applyCreationChromeInheritance` resolution one-for-one.
+    ///
+    /// `sourceTabBarLeadingInset` is a non-escaping closure so the source
+    /// workspace's bonsplit appearance is read only when the window inset is
+    /// `nil`, preserving the legacy `??` short-circuit. The bonsplit-appearance
+    /// read and the `currentWindowTabBarLeadingInset` stored property stay
+    /// window-side (the stored property cannot cross the module boundary and the
+    /// appearance lives on the app-target `Workspace`); the window threads both
+    /// through this pure resolution.
+    public func inheritedTabBarLeadingInset(
+        currentWindowTabBarLeadingInset: CGFloat?,
+        sourceTabBarLeadingInset: () -> CGFloat?
+    ) -> CGFloat? {
+        currentWindowTabBarLeadingInset ?? sourceTabBarLeadingInset()
+    }
+
+    /// Normalizes a tab-bar leading inset to be non-negative. Lifts the legacy
+    /// `TabManager.syncWorkspaceTabBarLeadingInset` `max(0, inset)` one-for-one.
+    public func normalizedTabBarLeadingInset(_ inset: CGFloat) -> CGFloat {
+        max(0, inset)
+    }
+
+    /// Whether a workspace's tab-bar leading inset needs rewriting to reach
+    /// `new` from its `current` value. Lifts the legacy
+    /// `TabManager.applyTabBarLeadingInset` change-gate one-for-one; the actual
+    /// bonsplit-appearance write stays window-side.
+    public func tabBarLeadingInsetNeedsApply(current: CGFloat, new: CGFloat) -> Bool {
+        current != new
+    }
+
     /// Re-maps the snapshot's tab order onto the model's current live order, or
     /// `nil` when the live tabs no longer match the snapshot (a re-entrant
     /// create/close/reorder happened mid-creation). Lifts the legacy

@@ -6291,34 +6291,32 @@ struct VerticalTabsSidebar: View {
                             alignment: .topLeading
                         )
                 } else {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(model.sections) { section in
-                            extensionSidebarSection(section, providerId: model.providerId, now: now)
-                        }
-
-                        SidebarEmptyArea(
-                            rowSpacing: tabRowSpacing,
-                            selectedTabIds: $selectedTabIds,
-                            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                            dragAutoScrollController: dragAutoScrollController,
-                            actions: sidebarEmptyAreaActions(),
-                            topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
-                            tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
-                            bonsplitDropIndicator: dropIndicatorBinding,
-                            topDropIndicatorColor: { cmuxAccentColor() },
-                            bonsplitDropOverlay: sidebarBonsplitDropOverlay
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                    }
-                    .padding(.top, SidebarWorkspaceListMetrics.rowVerticalPadding)
-                    .padding(.bottom, SidebarWorkspaceListMetrics.rowVerticalPadding + 40)
-                    .frame(
-                        maxWidth: .infinity,
-                        minHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
+                    ExtensionSidebarSectionsColumn(
+                        sections: model.sections,
+                        rowVerticalPadding: SidebarWorkspaceListMetrics.rowVerticalPadding,
+                        bottomPadding: SidebarWorkspaceListMetrics.rowVerticalPadding + 40,
+                        contentMinHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
                             viewportHeight: geometryProxy.size.height,
                             insets: SidebarWorkspaceScrollInsets.workspaceList
                         ),
-                        alignment: .topLeading
+                        makeSection: { section in
+                            extensionSidebarSection(section, providerId: model.providerId, now: now)
+                        },
+                        emptyArea: {
+                            SidebarEmptyArea(
+                                rowSpacing: tabRowSpacing,
+                                selectedTabIds: $selectedTabIds,
+                                lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                                dragAutoScrollController: dragAutoScrollController,
+                                actions: sidebarEmptyAreaActions(),
+                                topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
+                                tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
+                                bonsplitDropIndicator: dropIndicatorBinding,
+                                topDropIndicatorColor: { cmuxAccentColor() },
+                                bonsplitDropOverlay: sidebarBonsplitDropOverlay
+                            )
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                        }
                     )
                 }
             }
@@ -6837,7 +6835,7 @@ struct VerticalTabsSidebar: View {
         _ section: CmuxSidebarProviderSection,
         providerId: String,
         now: Date
-    ) -> some View {
+    ) -> ExtensionSidebarSectionView {
         let isCollapsed = collapsedExtensionSidebarSectionIds.contains(section.id)
         ExtensionSidebarSectionView(
             section: section,
