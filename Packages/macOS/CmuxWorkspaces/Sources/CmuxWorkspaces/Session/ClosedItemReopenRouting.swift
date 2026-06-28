@@ -10,7 +10,7 @@ public import Foundation
 /// **What the coordinator owns vs. inverts.** The coordinator owns the *sequence*
 /// independent of the app types: the `AppDelegate` delegation guard each flow
 /// opens with, the per-entry routing table (panel → ``restoreClosedPanel(_:)``,
-/// workspace → the host's `restoreClosedWorkspace`, window → `false`), the
+/// workspace → ``restoreClosedWorkspace(_:)``, window → `false`), the
 /// reopen-by-id remove → restore → re-insert-on-failure bookkeeping, and the
 /// focus-history suppression ordering of the panel restore (capture pre-restore
 /// focus, restore suppressed, remap anchors, select suppressed, record the
@@ -77,18 +77,89 @@ public final class ClosedItemReopenRouting<Host: ClosedPanelRestoreHosting> {
     }
 
     /// The per-entry routing table shared by both reopen flows: panel entries run
-    /// the coordinator's own focus-ordering restore, workspace entries forward to
-    /// the host's `restoreClosedWorkspace`, and window entries are never
-    /// restorable here (legacy `switch entry { … case .window: return false }`).
+    /// the coordinator's own focus-ordering restore, workspace entries run the
+    /// coordinator's own ``restoreClosedWorkspace(_:)``, and window entries are
+    /// never restorable here (legacy `switch entry { … case .window: return false }`).
     private func restore(_ entry: Host.Entry) -> Bool {
         switch host.route(for: entry) {
         case .panel(let panelEntry):
             return restoreClosedPanel(panelEntry)
         case .workspace(let workspaceEntry):
-            return host.restoreClosedWorkspace(workspaceEntry)
+            return restoreClosedWorkspace(workspaceEntry)
         case .window:
             return false
         }
+    }
+
+    /// Restores a closed workspace from `entry` and records its focus-history
+    /// landing, returning whether it was restored. Lifts the legacy
+    /// `TabManager.restoreClosedWorkspace(_:)` one-for-one: capture the pre-restore
+    /// focus, add a fresh workspace seeded from the snapshot, replay the session
+    /// snapshot, roll back (close, no history) when the snapshot promised panels
+    /// but none came back or the workspace is empty, drop a stale group id, decide
+    /// whether a group normalize is needed, remap the store's panel-workspace ids,
+    /// reinsert the workspace at its original index, normalize group contiguity
+    /// when grouped, then select with recording suppressed and record the landing
+    /// (flashing the focused panel when present). Every concrete reach inverts
+    /// through ``ClosedPanelRestoreHosting``.
+    @discardableResult
+    public func restoreClosedWorkspace(_ entry: Host.WorkspaceEntry) -> Bool {
+        let preRestoreFocus = host.focusHistory.currentFocusHistoryEntry
+        let workspace = host.addRestoredWorkspace(for: entry)
+        let restoredPanelIds = host.restoreSessionSnapshot(entry, into: workspace)
+        guard !host.snapshotHasRestorablePanels(entry) || !restoredPanelIds.isEmpty else {
+            host.closeRestoredWorkspace(workspace)
+            return false
+        }
+        guard !host.restoredWorkspaceHasNoPanels(workspace) else {
+            host.closeRestoredWorkspace(workspace)
+            return false
+        }
+        // The snapshot may carry a groupId for a group that no longer exists
+        // in this window (e.g. the group was dissolved between close and
+        // reopen). Drop those stale references so the restored workspace
+        // doesn't render as an orphaned indented row under no header.
+        if let groupId = host.restoredWorkspaceGroupId(workspace),
+           !host.hasWorkspaceGroup(id: groupId) {
+            host.clearRestoredWorkspaceGroupId(workspace)
+        }
+        // When the group DOES still exist, the workspace is about to be
+        // reinserted at its old absolute index, which may now sit inside a
+        // different group section after intervening reorders. Renormalize
+        // so the restored member lands beside its group.
+        let needsNormalize = host.restoredWorkspaceGroupId(workspace) != nil && host.hasAnyWorkspaceGroups()
+        let workspaceId = host.restoredWorkspaceId(workspace)
+        host.remapPanelWorkspaceIds(
+            from: host.entryWorkspaceId(entry),
+            to: workspaceId,
+            panelIdMap: restoredPanelIds
+        )
+
+        host.reinsertRestoredWorkspace(id: workspaceId, atIndex: host.entryWorkspaceIndex(entry))
+        if needsNormalize {
+            host.normalizeWorkspaceGroupContiguity()
+        }
+
+        host.focusHistory.withFocusHistoryRecordingSuppressed {
+            host.selectWorkspace(workspaceId)
+        }
+        host.focusHistory.recordFocusInHistory(preRestoreFocus, preservingForwardBranch: true)
+        if let focusedPanelId = host.restoredWorkspaceFocusedPanelId(workspace) {
+            host.rememberFocusedSurface(workspaceId: workspaceId, surfaceId: focusedPanelId)
+            host.triggerFocusFlash(workspace, panelId: focusedPanelId)
+            host.focusHistory.recordFocusInHistory(
+                workspaceId: workspaceId,
+                panelId: focusedPanelId,
+                preservingForwardBranch: true
+            )
+        } else {
+            host.focusHistory.recordFocusInHistory(
+                workspaceId: workspaceId,
+                panelId: nil,
+                preservingForwardBranch: true
+            )
+        }
+        return true
     }
 
     /// Restores a closed panel into its workspace and records the focus-history

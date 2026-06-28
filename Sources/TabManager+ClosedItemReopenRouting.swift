@@ -11,14 +11,16 @@ import Foundation
 /// `selectWorkspace(_:)` and `rememberFocusedSurface(workspaceId:surfaceId:)`
 /// are already witnessed by the ``FocusHistoryHosting`` conformance
 /// (TabManager+FocusHistoryHosting); one declaration satisfies both seams, so
-/// they are not repeated here. `restoreClosedWorkspace(_:)` is the window god's
-/// existing method (still owned there until its own slice), reached only for the
-/// `.workspace` route.
+/// they are not repeated here. The `.workspace` route runs the coordinator's own
+/// ``ClosedItemReopenRouting/restoreClosedWorkspace(_:)``, which inverts the
+/// add/replay/guard/group-normalize/select/focus-flash sequence through the
+/// workspace-restore witnesses below; `RestoredWorkspace` is the live `Workspace`.
 extension TabManager: ClosedPanelRestoreHosting {
     typealias Entry = ClosedItemHistoryEntry
     typealias PanelEntry = ClosedPanelHistoryEntry
     typealias WorkspaceEntry = ClosedWorkspaceHistoryEntry
     typealias RemovedRecord = ClosedItemRemovedHistoryRecord
+    typealias RestoredWorkspace = Workspace
 
     var focusHistory: any FocusHistoryNavigating { focusHistoryNavigation }
 
@@ -72,5 +74,88 @@ extension TabManager: ClosedPanelRestoreHosting {
 
     func remapPanelAnchorIds(for entry: ClosedPanelHistoryEntry, to panelId: UUID) {
         closedItemHistory.remapPanelAnchorIds(from: entry.snapshot.id, to: panelId)
+    }
+
+    // MARK: Workspace-restore witnesses
+
+    func snapshotHasRestorablePanels(_ entry: ClosedWorkspaceHistoryEntry) -> Bool {
+        entry.snapshot.hasRestorablePanels
+    }
+
+    func entryWorkspaceId(_ entry: ClosedWorkspaceHistoryEntry) -> UUID {
+        entry.workspaceId
+    }
+
+    func entryWorkspaceIndex(_ entry: ClosedWorkspaceHistoryEntry) -> Int {
+        entry.workspaceIndex
+    }
+
+    func addRestoredWorkspace(for entry: ClosedWorkspaceHistoryEntry) -> Workspace {
+        addWorkspace(
+            title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
+            workingDirectory: entry.snapshot.currentDirectory,
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
+    }
+
+    func restoreSessionSnapshot(_ entry: ClosedWorkspaceHistoryEntry, into workspace: Workspace) -> [UUID: UUID] {
+        workspace.restoreSessionSnapshot(entry.snapshot)
+    }
+
+    func closeRestoredWorkspace(_ workspace: Workspace) {
+        closeWorkspace(workspace, recordHistory: false)
+    }
+
+    func restoredWorkspaceHasNoPanels(_ workspace: Workspace) -> Bool {
+        workspace.panels.isEmpty
+    }
+
+    func restoredWorkspaceId(_ workspace: Workspace) -> UUID {
+        workspace.id
+    }
+
+    func restoredWorkspaceGroupId(_ workspace: Workspace) -> UUID? {
+        workspace.groupId
+    }
+
+    func clearRestoredWorkspaceGroupId(_ workspace: Workspace) {
+        workspace.groupId = nil
+    }
+
+    func restoredWorkspaceFocusedPanelId(_ workspace: Workspace) -> UUID? {
+        workspace.focusedPanelId
+    }
+
+    func hasWorkspaceGroup(id: UUID) -> Bool {
+        workspaceGroups.contains(where: { $0.id == id })
+    }
+
+    func hasAnyWorkspaceGroups() -> Bool {
+        !workspaceGroups.isEmpty
+    }
+
+    func remapPanelWorkspaceIds(from oldWorkspaceId: UUID, to newWorkspaceId: UUID, panelIdMap: [UUID: UUID]) {
+        closedItemHistory.remapPanelWorkspaceIds(
+            from: oldWorkspaceId,
+            to: newWorkspaceId,
+            panelIdMap: panelIdMap
+        )
+    }
+
+    func reinsertRestoredWorkspace(id workspaceId: UUID, atIndex workspaceIndex: Int) {
+        if let currentIndex = tabs.firstIndex(where: { $0.id == workspaceId }) {
+            let removed = tabs.remove(at: currentIndex)
+            let insertIndex = min(max(workspaceIndex, 0), tabs.count)
+            tabs.insert(removed, at: insertIndex)
+        }
+    }
+
+    func normalizeWorkspaceGroupContiguity() {
+        workspaces.normalizeWorkspaceGroupContiguity()
+    }
+
+    func triggerFocusFlash(_ workspace: Workspace, panelId: UUID) {
+        workspace.triggerFocusFlash(panelId: panelId)
     }
 }

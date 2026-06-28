@@ -1094,6 +1094,7 @@
 		E3B7A40000000000000006B0 /* Workspace+RemoteRelaySessionHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000006B1 /* Workspace+RemoteRelaySessionHosting.swift */; };
 		E3B7A40000000000000006C0 /* Workspace+RemoteStatusHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000006C1 /* Workspace+RemoteStatusHosting.swift */; };
 		E3B7A40000000000000006A0 /* Workspace+RemoteSurfaceHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000006A1 /* Workspace+RemoteSurfaceHosting.swift */; };
+		E3B7A40000000000000007A0 /* Workspace+RemoteSurfaceTTYHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000007A1 /* Workspace+RemoteSurfaceTTYHosting.swift */; };
 		A50091B0 /* Workspace+Scripting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50091B1 /* Workspace+Scripting.swift */; };
 		E30798000000000000000004 /* Workspace+SessionRestoreHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30798000000000000000003 /* Workspace+SessionRestoreHosting.swift */; };
 		E3B7A4000000000000000C10 /* Workspace+SplitCloseHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000C11 /* Workspace+SplitCloseHosting.swift */; };
@@ -2258,6 +2259,7 @@
 		E3B7A40000000000000006B1 /* Workspace+RemoteRelaySessionHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteRelaySessionHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000006C1 /* Workspace+RemoteStatusHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteStatusHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000006A1 /* Workspace+RemoteSurfaceHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteSurfaceHosting.swift"; sourceTree = "<group>"; };
+		E3B7A40000000000000007A1 /* Workspace+RemoteSurfaceTTYHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteSurfaceTTYHosting.swift"; sourceTree = "<group>"; };
 		A50091B1 /* Workspace+Scripting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+Scripting.swift"; sourceTree = "<group>"; };
 		E30798000000000000000003 /* Workspace+SessionRestoreHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SessionRestoreHosting.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000C11 /* Workspace+SplitCloseHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SplitCloseHosting.swift"; sourceTree = "<group>"; };
@@ -2826,6 +2828,7 @@
 				E3B7A40000000000000006A1 /* Workspace+RemoteSurfaceHosting.swift */,
 				E3B7A40000000000000006B1 /* Workspace+RemoteRelaySessionHosting.swift */,
 				E3B7A40000000000000006C1 /* Workspace+RemoteStatusHosting.swift */,
+				E3B7A40000000000000007A1 /* Workspace+RemoteSurfaceTTYHosting.swift */,
 				A5001511 /* UITestRecorder.swift */,
 				A5001520 /* PostHogAnalytics.swift */,
 				A5001416 /* Workspace.swift */,
@@ -4774,6 +4777,7 @@
 				E3B7A40000000000000006B0 /* Workspace+RemoteRelaySessionHosting.swift in Sources */,
 				E3B7A40000000000000006C0 /* Workspace+RemoteStatusHosting.swift in Sources */,
 				E3B7A40000000000000006A0 /* Workspace+RemoteSurfaceHosting.swift in Sources */,
+				E3B7A40000000000000007A0 /* Workspace+RemoteSurfaceTTYHosting.swift in Sources */,
 				A50091B0 /* Workspace+Scripting.swift in Sources */,
 				E30798000000000000000004 /* Workspace+SessionRestoreHosting.swift in Sources */,
 				E3B7A4000000000000000C10 /* Workspace+SplitCloseHosting.swift in Sources */,

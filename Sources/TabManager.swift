@@ -3124,62 +3124,7 @@ class TabManager {
 
     @discardableResult
     func restoreClosedWorkspace(_ entry: ClosedWorkspaceHistoryEntry) -> Bool {
-        let preRestoreFocus = focusHistoryNavigation.currentFocusHistoryEntry
-        let workspace = addWorkspace(
-            title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
-            workingDirectory: entry.snapshot.currentDirectory,
-            select: false,
-            autoWelcomeIfNeeded: false
-        )
-        let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot)
-        guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
-            closeWorkspace(workspace, recordHistory: false)
-            return false
-        }
-        guard !workspace.panels.isEmpty else {
-            closeWorkspace(workspace, recordHistory: false)
-            return false
-        }
-        // The snapshot may carry a groupId for a group that no longer exists
-        // in this TabManager (e.g. the group was dissolved between close and
-        // reopen). Drop those stale references so the restored workspace
-        // doesn't render as an orphaned indented row under no header.
-        if let groupId = workspace.groupId,
-           !workspaceGroups.contains(where: { $0.id == groupId }) {
-            workspace.groupId = nil
-        }
-        // When the group DOES still exist, the workspace is about to be
-        // reinserted at its old absolute index, which may now sit inside a
-        // different group section after intervening reorders. Renormalize
-        // so the restored member lands beside its group.
-        let needsNormalize = workspace.groupId != nil && !workspaceGroups.isEmpty
-        closedItemHistory.remapPanelWorkspaceIds(
-            from: entry.workspaceId,
-            to: workspace.id,
-            panelIdMap: restoredPanelIds
-        )
-
-        if let currentIndex = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            let removed = tabs.remove(at: currentIndex)
-            let insertIndex = min(max(entry.workspaceIndex, 0), tabs.count)
-            tabs.insert(removed, at: insertIndex)
-        }
-        if needsNormalize {
-            workspaces.normalizeWorkspaceGroupContiguity()
-        }
-
-        focusHistoryNavigation.withFocusHistoryRecordingSuppressed {
-            selectedTabId = workspace.id
-        }
-        focusHistoryNavigation.recordFocusInHistory(preRestoreFocus, preservingForwardBranch: true)
-        if let focusedPanelId = workspace.focusedPanelId {
-            rememberFocusedSurface(tabId: workspace.id, surfaceId: focusedPanelId)
-            workspace.triggerFocusFlash(panelId: focusedPanelId)
-            focusHistoryNavigation.recordFocusInHistory(workspaceId: workspace.id, panelId: focusedPanelId, preservingForwardBranch: true)
-        } else {
-            focusHistoryNavigation.recordFocusInHistory(workspaceId: workspace.id, panelId: nil, preservingForwardBranch: true)
-        }
-        return true
+        closedItemReopenRouting.restoreClosedWorkspace(entry)
     }
 
     /// Flash the currently focused panel so the user can visually confirm focus.
