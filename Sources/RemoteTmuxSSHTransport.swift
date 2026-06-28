@@ -389,27 +389,56 @@ actor RemoteTmuxSSHTransport {
     }
 
     /// Whether a failed `BatchMode=yes` connect failed because the local
-    /// `ProxyCommand` closed the transport before SSH could surface an explicit
-    /// auth error string — a separate signal from ``indicatesAuthRequired``.
-    /// A `ProxyCommand` with its own pre-handshake authentication or 2FA leg
+    /// `ProxyCommand` closed the transport *silently* — no other diagnostic
+    /// markers explaining the closure — before SSH could surface an explicit
+    /// auth error string. A separate signal from ``indicatesAuthRequired``: a
+    /// `ProxyCommand` with its own pre-handshake authentication or 2FA leg
     /// (jumphost wrappers, Cloudflare/Teleport-style brokers, corporate SSH
     /// wrappers) can silently abort that leg under BatchMode because it has no
     /// tty to prompt on, then drop the proxy pipe; an interactive retry where
     /// the wrapper inherits the user's tty lets that prompt surface and the
     /// connect then succeeds.
     ///
-    /// Anchored to OpenSSH's canonical pipe-transport placeholders
-    /// (`to UNKNOWN port 65535`, `by UNKNOWN port 65535`) — those are the
-    /// exact phrasings OpenSSH emits when `getpeername(2)` returns no socket
-    /// address (the `ProxyCommand` case). A direct TCP failure surfaces a
-    /// real host:port instead and is treated as a genuine unreachable error,
-    /// and the anchored phrases are unlikely to appear verbatim in remote
-    /// stderr forwarded through the connection (`pam_motd`, `~/.ssh/rc`).
+    /// Anchored to OpenSSH's canonical pipe-transport placeholders (`to UNKNOWN
+    /// port 65535`, `by UNKNOWN port 65535`) — those are the exact phrasings
+    /// OpenSSH emits when `getpeername(2)` returns no socket address (the
+    /// `ProxyCommand` case). A direct TCP failure surfaces a real host:port
+    /// instead and is treated as a genuine unreachable error.
+    ///
+    /// The same placeholder ALSO appears when the proxy closes for reasons no
+    /// interactive retry can fix — target unreachable behind a ProxyJump,
+    /// `nc` to a refused port, stdio forwarding setup failed, etc. Those
+    /// failures stamp diagnostic markers (`connect failed:`, `: open failed:`,
+    /// `stdio forwarding failed`, `kex_exchange_identification:`, etc.) into
+    /// stderr in addition to the placeholder; this predicate returns false
+    /// when any such marker is present so the controller surfaces the real
+    /// error instead of bouncing the user through a futile interactive retry.
     static func indicatesProxyCommandTransportClosed(_ stderr: String) -> Bool {
         let lowered = stderr.lowercased()
-        return lowered.contains("to unknown port 65535")
+        let hasProxyPlaceholder = lowered.contains("to unknown port 65535")
             || lowered.contains("by unknown port 65535")
+        guard hasProxyPlaceholder else { return false }
+        return !Self.nonRecoverableProxyMarkers.contains(where: { lowered.contains($0) })
     }
+
+    /// Lowercase substrings that indicate a `ProxyCommand` / `ProxyJump`
+    /// closure was NOT silent — the proxy explained itself, and no
+    /// interactive ssh retry will reach a host that's refusing, unreachable,
+    /// or already past the auth boundary. Kept as a `static let` so the
+    /// predicate doesn't reallocate it on every cold-path call.
+    private static let nonRecoverableProxyMarkers: [String] = [
+        "connect failed:",                  // ssh -W target connection refused/timeout
+        ": open failed:",                   // channel N: open failed: ...
+        "stdio forwarding failed",          // ProxyJump -W teardown
+        "port forwarding failed",
+        "connection refused",
+        "no route to host",
+        "network is unreachable",
+        "operation timed out",
+        "name or service not known",        // DNS NXDOMAIN
+        "temporary failure in name resolution",
+        "kex_exchange_identification:",     // target spoke no SSH / closed during banner
+    ]
 
     /// Convenience predicate composing the recovery rule the controller's
     /// BatchMode-discovery catch sites share: a failure where re-running ssh
