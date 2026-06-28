@@ -1,4 +1,5 @@
 public import AppKit
+public import Foundation
 
 /// Owns the stateless application/dock menu-building decisions, lifted out of the
 /// `@main` app target so menu structure stops living as inline `NSMenu` assembly
@@ -114,5 +115,58 @@ public final class AppMenuCoordinator<Host: AppMenuHosting> {
             return nil
         }
         return ordered
+    }
+
+    /// Decides whether a menu item should validate as enabled. The policy is
+    /// unconditional: user-initiated update checks are always allowed and every
+    /// other item is unconditionally valid (preserving the prior
+    /// `UpdateController.validateMenuItem` behavior). The witness reads the live
+    /// item's action selector app-side and passes its name (or `nil`) through;
+    /// the result drives `NSMenuItemValidation.validateMenuItem(_:)`.
+    public func isMenuItemValid(actionSelectorName: String?) -> Bool {
+        true
+    }
+
+    /// Walks a value-tree snapshot of a live menu and returns the `IndexPath`s of
+    /// every item (at any depth) whose action selector name equals `selectorName`,
+    /// in depth-first pre-order. Each `IndexPath` indexes `nodes`, then the matched
+    /// node's `submenu`, and so on, so the witness can map each path back onto the
+    /// concrete `NSMenuItem` and clear its key equivalent / modifier mask and
+    /// disable it. A node is recorded before its descendants, matching the prior
+    /// recursive `disableMenuItemShortcut(in:action:)` traversal order.
+    public func menuItemPathsToDisable(
+        in nodes: [MenuItemValidationNode],
+        matching selectorName: String
+    ) -> [IndexPath] {
+        var paths: [IndexPath] = []
+        appendMenuItemPathsToDisable(
+            in: nodes,
+            matching: selectorName,
+            prefix: IndexPath(),
+            into: &paths
+        )
+        return paths
+    }
+
+    private func appendMenuItemPathsToDisable(
+        in nodes: [MenuItemValidationNode],
+        matching selectorName: String,
+        prefix: IndexPath,
+        into paths: inout [IndexPath]
+    ) {
+        for (index, node) in nodes.enumerated() {
+            let path = prefix.appending(index)
+            if node.actionSelectorName == selectorName {
+                paths.append(path)
+            }
+            if let submenu = node.submenu {
+                appendMenuItemPathsToDisable(
+                    in: submenu,
+                    matching: selectorName,
+                    prefix: path,
+                    into: &paths
+                )
+            }
+        }
     }
 }

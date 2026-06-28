@@ -10300,9 +10300,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        // User-initiated update checks are always allowed; other items are unconditionally valid
-        // (this preserves the prior UpdateController.validateMenuItem behavior).
-        true
+        // The unconditional menu-validation policy lives in AppMenuCoordinator;
+        // this witness only projects the live item's action selector across the
+        // seam and forwards the decision.
+        appMenuCoordinator.isMenuItemValid(
+            actionSelectorName: item.action.map { NSStringFromSelector($0) }
+        )
     }
 
 
@@ -10316,16 +10319,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func disableMenuItemShortcut(in menu: NSMenu, action: Selector) {
-        for item in menu.items {
-            if item.action == action {
-                item.keyEquivalent = ""
-                item.keyEquivalentModifierMask = []
-                item.isEnabled = false
-            }
-            if let submenu = item.submenu {
-                disableMenuItemShortcut(in: submenu, action: action)
-            }
+        // The recursive match decision lives in AppMenuCoordinator: snapshot the
+        // live menu into a value tree, ask the coordinator which item paths match
+        // the target selector, then perform the live mutation app-side over those
+        // paths.
+        let paths = appMenuCoordinator.menuItemPathsToDisable(
+            in: menuItemValidationNodes(of: menu),
+            matching: NSStringFromSelector(action)
+        )
+        for path in paths {
+            guard let item = menuItem(at: path, in: menu) else { continue }
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            item.isEnabled = false
         }
+    }
+
+    private func menuItemValidationNodes(of menu: NSMenu) -> [MenuItemValidationNode] {
+        menu.items.map { item in
+            MenuItemValidationNode(
+                actionSelectorName: item.action.map { NSStringFromSelector($0) },
+                submenu: item.submenu.map { menuItemValidationNodes(of: $0) }
+            )
+        }
+    }
+
+    private func menuItem(at path: IndexPath, in menu: NSMenu) -> NSMenuItem? {
+        var currentMenu: NSMenu? = menu
+        var resolved: NSMenuItem?
+        for index in path {
+            guard let items = currentMenu?.items, index < items.count else { return nil }
+            resolved = items[index]
+            currentMenu = resolved?.submenu
+        }
+        return resolved
     }
 
     private func ensureApplicationIcon() {
