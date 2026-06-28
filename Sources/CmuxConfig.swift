@@ -7,10 +7,6 @@ import CryptoKit
 import Foundation
 import CmuxSettings
 
-extension CodingUserInfoKey {
-    static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
-}
-
 struct CmuxConfigFile: Codable, Sendable {
     var actions: [String: CmuxConfigActionDefinition]
     var ui: CmuxConfigUIDefinition?

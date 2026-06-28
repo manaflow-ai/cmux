@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxSettings
+import CmuxWorkspaces
 import Foundation
 import os
 

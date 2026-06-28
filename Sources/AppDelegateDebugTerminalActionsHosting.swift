@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxTestSupport
+import CmuxWorkspaces
 import Foundation
 
 /// Live-state conformance for the Debug menu's terminal-tab openers.

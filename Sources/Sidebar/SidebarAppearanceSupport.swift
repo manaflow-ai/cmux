@@ -5,6 +5,7 @@ import CmuxSidebarUI
 import Foundation
 import SwiftUI
 import CmuxSettings
+import CmuxWorkspaces
 
 enum SidebarMatchTerminalBackgroundSettings {
     static let userDefaultsKey = "sidebarMatchTerminalBackground"

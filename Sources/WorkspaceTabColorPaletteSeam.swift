@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxWorkspaces
 import Foundation
 
 /// App-side conformer wiring ``ManagedDefaultsBackupService``'s palette seam to
