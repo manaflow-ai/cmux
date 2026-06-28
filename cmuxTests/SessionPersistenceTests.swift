@@ -2072,6 +2072,106 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testBundledClaudeWrapperScrubsNestedSessionEnvironmentOnResume() throws {
+        let fileManager = FileManager.default
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let wrapperURL = repoRoot
+            .appendingPathComponent("Resources/bin/cmux-claude-wrapper", isDirectory: false)
+        try XCTSkipUnless(
+            fileManager.isExecutableFile(atPath: wrapperURL.path),
+            "Bundled cmux-claude-wrapper is required for resume environment coverage"
+        )
+
+        let sandbox = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-resume-\(String(UUID().uuidString.prefix(8)))", isDirectory: true)
+        let binDir = sandbox.appendingPathComponent("bin", isDirectory: true)
+        let homeDir = sandbox.appendingPathComponent("home", isDirectory: true)
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: homeDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: sandbox) }
+
+        let socketURL = sandbox.appendingPathComponent("cmux.sock", isDirectory: false)
+        let socketFD = try bindUnixSocket(at: socketURL.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketURL.path)
+        }
+
+        let recordURL = sandbox.appendingPathComponent("record.txt", isDirectory: false)
+        let realClaudeURL = binDir.appendingPathComponent("claude", isDirectory: false)
+        try writeExecutable(
+            realClaudeURL,
+            """
+            #!/usr/bin/env bash
+            {
+              printf 'argv=%s\\n' "$*"
+              for key in CLAUDECODE CLAUDE_CODE CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_PARENT_SESSION_ID CLAUDE_CODE_SESSION_ID CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_EXECPATH CLAUDE_CODE_SSE_PORT CLAUDE_CODE_USE_VERTEX; do
+                if value="$(printenv "$key")"; then
+                  printf '%s=%s\\n' "$key" "$value"
+                else
+                  printf '%s=<unset>\\n' "$key"
+                fi
+              done
+            } > \(shellQuotedForTest(recordURL.path))
+            """
+        )
+        let fakeCmuxURL = binDir.appendingPathComponent("cmux", isDirectory: false)
+        try writeExecutable(
+            fakeCmuxURL,
+            """
+            #!/usr/bin/env bash
+            if [[ "${1:-}" == "--socket" && "${3:-}" == "ping" ]]; then
+              exit 0
+            fi
+            exit 1
+            """
+        )
+
+        let process = Process()
+        process.executableURL = wrapperURL
+        process.arguments = ["--resume", "claude-session-123"]
+        process.environment = [
+            "PATH": "\(binDir.path):/usr/bin:/bin",
+            "HOME": homeDir.path,
+            "TMPDIR": sandbox.path,
+            "CMUX_SURFACE_ID": UUID().uuidString,
+            "CMUX_SOCKET_PATH": socketURL.path,
+            "CMUX_BUNDLED_CLI_PATH": fakeCmuxURL.path,
+            "CLAUDECODE": "1",
+            "CLAUDE_CODE": "1",
+            "CLAUDE_CODE_CHILD_SESSION": "parent-child",
+            "CLAUDE_CODE_PARENT_SESSION_ID": "parent-session",
+            "CLAUDE_CODE_SESSION_ID": "parent-session",
+            "CLAUDE_CODE_ENTRYPOINT": "cli",
+            "CLAUDE_CODE_EXECPATH": "/opt/homebrew/bin/claude",
+            "CLAUDE_CODE_SSE_PORT": "12345",
+            "CLAUDE_CODE_USE_VERTEX": "1",
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(process, shellDescription: "cmux-claude-wrapper --resume")
+
+        let recorded = try String(contentsOf: recordURL, encoding: .utf8)
+        XCTAssertTrue(recorded.contains("--settings"), recorded)
+        XCTAssertTrue(recorded.contains("--resume claude-session-123"), recorded)
+        for key in [
+            "CLAUDECODE",
+            "CLAUDE_CODE",
+            "CLAUDE_CODE_CHILD_SESSION",
+            "CLAUDE_CODE_PARENT_SESSION_ID",
+            "CLAUDE_CODE_SESSION_ID",
+            "CLAUDE_CODE_ENTRYPOINT",
+            "CLAUDE_CODE_EXECPATH",
+            "CLAUDE_CODE_SSE_PORT",
+        ] {
+            XCTAssertTrue(recorded.contains("\(key)=<unset>"), recorded)
+        }
+        XCTAssertTrue(recorded.contains("CLAUDE_CODE_USE_VERTEX=1"), recorded)
+    }
+
     private func shellQuotedForTest(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
@@ -2355,6 +2455,69 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             process.terminate()
             XCTFail("Resume shell (\(shellDescription)) did not exit within \(Int(timeout))s; treating as hung.")
         }
+    }
+
+    private func writeExecutable(_ url: URL, _ contents: String) throws {
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private func bindUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
+
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(errno),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to create Unix socket"]
+            )
+        }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let maxPathLength = MemoryLayout.size(ofValue: address.sun_path)
+        guard path.utf8.count < maxPathLength else {
+            Darwin.close(fd)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(ENAMETOOLONG),
+                userInfo: [NSLocalizedDescriptionKey: "Unix socket path is too long: \(path)"]
+            )
+        }
+        path.withCString { pointer in
+            withUnsafeMutablePointer(to: &address.sun_path) { pathPointer in
+                let pathBuffer = UnsafeMutableRawPointer(pathPointer).assumingMemoryBound(to: CChar.self)
+                strncpy(pathBuffer, pointer, maxPathLength - 1)
+            }
+        }
+
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                Darwin.bind(fd, socketPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            let code = Int(errno)
+            Darwin.close(fd)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: code,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to bind Unix socket"]
+            )
+        }
+
+        guard Darwin.listen(fd, 1) == 0 else {
+            let code = Int(errno)
+            Darwin.close(fd)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: code,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to listen on Unix socket"]
+            )
+        }
+
+        return fd
     }
 
     func testRestorableAgentResumeStartupInputEscapesNonAsciiWorkingDirectoryAsAsciiShellInput() throws {
