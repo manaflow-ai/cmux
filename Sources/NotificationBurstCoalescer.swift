@@ -51,10 +51,30 @@ final class NotificationBurstCoalescer {
         scheduleFlushIfNeeded()
     }
 
+    /// Like `signal`, but resets the delay window on every call so the action
+    /// fires only after calls stop for `delay` (trailing debounce, not the
+    /// fire-from-first-signal throttle that `signal` provides).
+    func debounce(delay newDelay: TimeInterval? = nil, _ action: @escaping @MainActor () -> Void) {
+        if let newDelay {
+            delay = max(0, newDelay)
+        }
+        pendingAction = action
+        cancelScheduledFlush?()
+        cancelScheduledFlush = nil
+        scheduleFlushIfNeeded()
+    }
+
     func flushNow() {
         cancelScheduledFlush?()
         cancelScheduledFlush = nil
         flush()
+    }
+
+    /// Drops the pending action and any scheduled flush without running it.
+    func cancel() {
+        cancelScheduledFlush?()
+        cancelScheduledFlush = nil
+        pendingAction = nil
     }
 
     private func scheduleFlushIfNeeded() {

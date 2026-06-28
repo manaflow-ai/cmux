@@ -229,6 +229,7 @@ class TabManager: ObservableObject {
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
+    let sidebarWorkspaceSelectionCoalescer = NotificationBurstCoalescer(delay: 0.06)
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -290,6 +291,9 @@ class TabManager: ObservableObject {
     /// chain, run synchronously after storage changed.
     func selectedWorkspaceIdDidChange(from oldValue: UUID?) {
             guard selectedTabId != oldValue else { return }
+            // Any authoritative selection (sidebar fire, keyboard, CLI, focus
+            // history) supersedes a still-pending sidebar debounce.
+            cancelPendingSidebarWorkspaceSelection()
             if !isRestoringSessionSnapshot {
                 workspaces.expandWorkspaceGroupForSelectionIfNeeded()
             }
@@ -2320,6 +2324,12 @@ class TabManager: ObservableObject {
         selectWorkspaceId(workspace.id, notificationDismissalContext: .explicitWorkspaceResume)
     }
 
+    /// O(1) selection by id; no-op if the workspace was closed meanwhile.
+    func selectWorkspace(byId id: UUID) {
+        guard let workspace = workspacesById[id] else { return }
+        selectWorkspace(workspace)
+    }
+
     // Keep selectTab as convenience alias
     func selectTab(_ tab: Workspace) { selectWorkspace(tab) }
 
@@ -3249,6 +3259,10 @@ class TabManager: ObservableObject {
         notificationDismissalContext: NotificationDismissalContext?
     ) {
         guard selectedTabId != tabId else {
+            // Re-selecting the current workspace is still an authoritative choice and
+            // supersedes a pending sidebar switch (selectedWorkspaceIdDidChange, which
+            // owns the cancel for real changes, never runs on this no-op path).
+            cancelPendingSidebarWorkspaceSelection()
             notificationDismissal.setPendingSelectionContext(nil)
             if let notificationDismissalContext {
                 notificationDismissal.dismissFocusedPanelNotificationIfActive(
