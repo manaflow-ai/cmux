@@ -161,16 +161,21 @@ import WebKit
             return
         }
 
-        // WKWebView rejects all authentication challenges by default when this
-        // delegate method is not implemented (.rejectProtectionSpace). This
-        // breaks TLS client-certificate flows such as Microsoft Entra ID
-        // Conditional Access, which verifies device compliance via a client
-        // certificate stored in the system keychain by MDM enrollment.
-        //
-        // By returning .performDefaultHandling the system's standard URL-loading
-        // behaviour takes over: the keychain is searched for matching client
-        // identities, MDM-installed root CAs are trusted, and any configured SSO
-        // extensions (e.g. Microsoft Enterprise SSO) can intercept the challenge.
+        // A TLS client-certificate (mutual-TLS) challenge needs an explicit
+        // identity: .performDefaultHandling presents NO certificate, so a
+        // client-cert-gated origin (corporate zero-trust / device-attestation
+        // endpoints, MDM-enrolled client certs, Entra Conditional Access) rejects
+        // the handshake. Present a matching system-keychain identity, the same way
+        // a system browser does.
+        if BrowserClientCertificateResolver.handleIfClientCertificate(
+            challenge, completionHandler: completionHandler
+        ) {
+            return
+        }
+
+        // For all other challenges (server trust, etc.) defer to the system's
+        // standard handling, which trusts MDM-installed root CAs and lets
+        // configured SSO extensions intercept.
         completionHandler(.performDefaultHandling, nil)
     }
 

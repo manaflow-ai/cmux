@@ -912,8 +912,15 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             return
         }
 
-        // Parity with main browser: performDefaultHandling enables system keychain
-        // lookups, MDM client certs, and SSO extensions (e.g. Microsoft Entra ID).
+        // Parity with the main browser: present a system-keychain client
+        // certificate for mutual-TLS challenges (auth/login popups can be
+        // client-cert-gated too), then defer other challenges to the system
+        // (keychain server-trust, MDM roots, SSO extensions e.g. Entra ID).
+        if BrowserClientCertificateResolver.handleIfClientCertificate(
+            challenge, completionHandler: completionHandler
+        ) {
+            return
+        }
         completionHandler(.performDefaultHandling, nil)
     }
 
