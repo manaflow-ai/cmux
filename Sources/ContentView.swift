@@ -12434,14 +12434,7 @@ struct VerticalTabsSidebar: View {
     /// Softens a palette color toward a pastel tone by blending it part-way to
     /// white, so the origin rails read as gentle accents rather than vivid bars.
     private static func pastel(_ color: NSColor) -> NSColor {
-        guard let c = color.usingColorSpace(.sRGB) else { return color }
-        let blend: CGFloat = 0.4
-        return NSColor(
-            srgbRed: c.redComponent + (1 - c.redComponent) * blend,
-            green: c.greenComponent + (1 - c.greenComponent) * blend,
-            blue: c.blueComponent + (1 - c.blueComponent) * blend,
-            alpha: 1
-        )
+        color.usingColorSpace(.sRGB)?.blended(withFraction: 0.4, of: .white) ?? color
     }
 
     /// A coarse RGB identity (0-255 per channel) for comparing two `NSColor`s by
