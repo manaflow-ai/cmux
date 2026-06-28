@@ -4,6 +4,7 @@ import Combine
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxGit
+import CmuxWindowing
 import CmuxSidebar
 import CmuxWorkspaces
 import CmuxSettings
