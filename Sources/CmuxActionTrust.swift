@@ -1,78 +1,20 @@
 import CmuxWorkspaces
-import CryptoKit
 import Foundation
 
-struct CmuxActionTrustDescriptor: Codable, Sendable {
-    var schemaVersion: Int = 1
-    var actionID: String
-    var kind: String
-    var command: String?
-    var target: String?
-    var workspaceCommand: CmuxCommandDefinition?
-    var configPath: String?
-    var projectRoot: String?
-    var iconFingerprint: String?
+/// App composition-root accessor for the shared ``CmuxActionTrust`` store. The
+/// store type and on-disk format live in `CmuxWorkspaces`; the app owns the
+/// production store path (`Application Support/cmux/trusted-actions.json`) and
+/// constructs the process-wide instance here. This `static let shared` is the
+/// single construction point, kept app-side because the package must not own a
+/// `static let shared` (de-singletonization rule).
+extension CmuxActionTrust {
+    static let shared = CmuxActionTrust(storePath: defaultStorePath())
 
-    var fingerprint: String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        let data = (try? encoder.encode(self)) ?? Data()
-        return Self.sha256Hex(data)
-    }
-
-    private static func sha256Hex(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
-}
-
-final class CmuxActionTrust {
-    static let shared = CmuxActionTrust()
-    static let didChangeNotification = Notification.Name("cmux.actionTrustDidChange")
-
-    private let storePath: String
-    private var trustedFingerprints: Set<String>
-
-    private init() {
+    private static func defaultStorePath() -> String {
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first!.appendingPathComponent("cmux")
-        storePath = appSupport.appendingPathComponent("trusted-actions.json").path
-
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: appSupport.path) {
-            try? fm.createDirectory(atPath: appSupport.path, withIntermediateDirectories: true)
-        }
-
-        if let data = fm.contents(atPath: storePath),
-           let values = try? JSONDecoder().decode([String].self, from: data) {
-            trustedFingerprints = Set(values)
-        } else {
-            trustedFingerprints = []
-        }
-    }
-
-    func isTrusted(_ descriptor: CmuxActionTrustDescriptor) -> Bool {
-        trustedFingerprints.contains(descriptor.fingerprint)
-    }
-
-    func trust(_ descriptor: CmuxActionTrustDescriptor) {
-        trustedFingerprints.insert(descriptor.fingerprint)
-        save()
-    }
-
-    func clearAll() {
-        trustedFingerprints.removeAll()
-        save()
-    }
-
-    var allTrustedFingerprints: [String] {
-        trustedFingerprints.sorted()
-    }
-
-    private func save() {
-        guard let data = try? JSONEncoder().encode(trustedFingerprints.sorted()) else { return }
-        FileManager.default.createFile(atPath: storePath, contents: data)
-        NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
+        return appSupport.appendingPathComponent("trusted-actions.json").path
     }
 }

@@ -36,7 +36,7 @@ public struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
         self.confirm = confirm
     }
 
-    public init(from decoder: Decoder) throws {
+    public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         name = try container.decode(String.self, forKey: .name)
         description = try container.decodeIfPresent(String.self, forKey: .description)

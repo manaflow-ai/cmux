@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 extension CodingUserInfoKey {
     /// Decoder `userInfo` key carrying the `UserDefaults` whose effective palette
