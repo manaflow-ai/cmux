@@ -171,10 +171,24 @@ jobs:
           ./scripts/mobile-dev-launch.sh --tag cistream --simulator-id "$SIM_ID" --ensure-mac --detach
           # Let sign-in + pairing + the first stream frames settle.
           sleep 45
-          mkdir -p /tmp/streamed-ci
+          mkdir -p /tmp/streamed-ci /tmp/streamed-ci/_diag
+          # Snapshot the device state right after pairing, before capture, so we
+          # can see whether it's the login screen, an empty workspace list, or a
+          # list missing the just-created workspace.
+          xcrun simctl io "$SIM_ID" screenshot /tmp/streamed-ci/_diag/after-pair.png || true
+          idb ui describe-all --udid "$SIM_ID" > /tmp/streamed-ci/_diag/after-pair-a11y.json 2>&1 || true
+          set +e
           python3 ios/scripts/capture-streamed.py --tag cistream --sim-id "$SIM_ID" --agents opencode --out /tmp/streamed-ci
-          echo "=== captured files ==="; ls -la /tmp/streamed-ci || true
-          ls /tmp/streamed-ci/*.png >/dev/null 2>&1 || { echo "::error::no streamed screenshot was captured"; exit 1; }
+          CAP_RC=$?
+          set -e
+          # Post-capture device diagnostics (always), so a failure tells us the
+          # exact on-device state instead of guessing across CI iterations.
+          CMUX_TAG=cistream ./scripts/cmux-debug-cli.sh list-workspaces > /tmp/streamed-ci/_diag/mac-workspaces.txt 2>&1 || true
+          xcrun simctl io "$SIM_ID" screenshot /tmp/streamed-ci/_diag/post-capture.png || true
+          idb ui describe-all --udid "$SIM_ID" > /tmp/streamed-ci/_diag/post-capture-a11y.json 2>&1 || true
+          echo "=== captured files ==="; ls -laR /tmp/streamed-ci || true
+          # Assert on an AGENT shot at the top level (_diag/*.png are diagnostics).
+          ls /tmp/streamed-ci/*.png >/dev/null 2>&1 || { echo "::error::no streamed screenshot was captured (capture rc=$CAP_RC); see _diag artifacts"; exit 1; }
 
       - name: Upload validation artifacts
         if: ${{ always() }}
