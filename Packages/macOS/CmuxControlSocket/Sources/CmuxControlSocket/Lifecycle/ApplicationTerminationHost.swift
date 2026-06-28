@@ -51,6 +51,60 @@ public protocol ApplicationTerminationHost: AnyObject {
     /// property, which many non-terminate paths read).
     func setTerminatingApp(_ value: Bool)
 
+    // MARK: Ordered teardown witnesses
+    //
+    // The irreducible per-subsystem stop/detach/flush operations
+    // ``ApplicationTerminateReplyCoordinator/performTeardown()`` sequences during
+    // `applicationWillTerminate(_:)`. The coordinator owns the ORDER; each
+    // witness forwards to the still-app-owned subsystem.
+
+    /// Stops the Sentry memory-context refresh loop.
+    func stopSentryMemoryContextRefresh()
+
+    /// Detaches all local ssh clients for remote tmux (plain quit only; explicit
+    /// last-tab close has already killed marked sessions).
+    func detachAllRemoteTmuxClients()
+
+    /// Sends the best-effort presence goodbye before terminate; unclean exits
+    /// are covered by the service's missed-heartbeat timeout.
+    func notifyPresenceAppWillTerminate()
+
+    /// Stops the periodic session-autosave timer.
+    func stopSessionAutosaveTimer()
+
+    /// Terminates all in-flight Cloud VM actions.
+    func terminateAllCloudVMActions()
+
+    /// Terminates all in-flight ssh:// URL launches.
+    func terminateAllSSHURLLaunches()
+
+    /// Stops the mobile host service.
+    func stopMobileHostService()
+
+    /// Stops the terminal controller.
+    func stopTerminalControl()
+
+    /// Cleans up all owned temporary pasteboard image files.
+    func cleanupOwnedTemporaryImageFiles()
+
+    /// Stops the VS Code serve-web controller.
+    func stopVSCodeServeWebController()
+
+    /// Flushes the browser profile store's pending saves.
+    func flushBrowserProfilePendingSaves()
+
+    /// Cancels the Ghostty crash-breadcrumb task.
+    func cancelGhosttyCrashBreadcrumbTask()
+
+    /// Clears the terminal notification store.
+    func clearNotificationStore()
+
+    /// Marks a clean Ghostty exit in the crash breadcrumb.
+    func markGhosttyCleanExit()
+
+    /// Enables sudden termination if the app's state allows it.
+    func enableSuddenTerminationIfNeeded()
+
     /// Presents the localized quit-confirmation alert asynchronously and reports
     /// the user's choice (`true` = quit) back on the main actor.
     ///

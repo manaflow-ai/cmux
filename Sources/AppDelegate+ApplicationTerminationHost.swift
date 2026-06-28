@@ -48,6 +48,67 @@ extension AppDelegate: ApplicationTerminationHost {
         isTerminatingApp = value
     }
 
+    // MARK: Ordered teardown witnesses
+    //
+    // `ApplicationTerminateReplyCoordinator.performTeardown()` owns the ORDER of
+    // these per-subsystem stop/detach/flush operations; each witness forwards to
+    // the still-app-owned subsystem. `stopSessionAutosaveTimer()` and
+    // `enableSuddenTerminationIfNeeded()` are defined on `AppDelegate` itself and
+    // witness their requirements directly.
+
+    func stopSentryMemoryContextRefresh() {
+        sentryStopMemoryContextRefresh()
+    }
+
+    func detachAllRemoteTmuxClients() {
+        remoteTmuxController.detachAll()
+    }
+
+    func notifyPresenceAppWillTerminate() {
+        PresenceHeartbeatClient.shared.appWillTerminate()
+    }
+
+    func terminateAllCloudVMActions() {
+        CloudVMActionLauncher.shared.terminateAll()
+    }
+
+    func terminateAllSSHURLLaunches() {
+        sshURLLaunchService.terminateAll()
+    }
+
+    func stopMobileHostService() {
+        MobileHostService.shared.stop()
+    }
+
+    func stopTerminalControl() {
+        terminalControl.stop()
+    }
+
+    func cleanupOwnedTemporaryImageFiles() {
+        GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
+    }
+
+    func stopVSCodeServeWebController() {
+        vscodeServeWebController.stop()
+    }
+
+    func flushBrowserProfilePendingSaves() {
+        BrowserProfileStore.shared.flushPendingSaves()
+    }
+
+    func cancelGhosttyCrashBreadcrumbTask() {
+        ghosttyCrashBreadcrumbTask?.cancel()
+        ghosttyCrashBreadcrumbTask = nil
+    }
+
+    func clearNotificationStore() {
+        notificationStore?.clearAll()
+    }
+
+    func markGhosttyCleanExit() {
+        GhosttyCrashBreadcrumb.markCleanExit()
+    }
+
     func presentQuitConfirmation(_ completion: @escaping @MainActor (Bool) -> Void) {
         DispatchQueue.main.async {
             let alert = NSAlert()
