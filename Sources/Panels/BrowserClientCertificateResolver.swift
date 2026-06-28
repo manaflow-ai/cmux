@@ -12,10 +12,12 @@ import Security
 /// rejects the connection. This resolver finds a matching identity in the
 /// system keychain and the caller presents it with `.useCredential`.
 ///
-/// Note: a hardware-backed (Secure Enclave) identity is usable only by an
-/// application entitled to its keychain access group, so it can only be presented
-/// by a suitably code-signed build. An extractable identity in the system
-/// keychain works without that entitlement.
+/// Note: this works from an unsigned (ad-hoc) build with no special entitlement.
+/// A hardware-backed identity held in a CryptoTokenKit token (e.g. Secure
+/// Enclave) is presented through the token, which brokers the signing operation,
+/// so the browser does not need the token's keychain access group. An extractable
+/// software identity in the system keychain works the same way. (Verified
+/// empirically against a real mutual-TLS origin from an ad-hoc-signed build.)
 enum BrowserClientCertificateResolver {
     /// Answer a client-certificate (mutual-TLS) challenge by presenting a matching
     /// system-keychain identity, or deferring to the system when none matches.
