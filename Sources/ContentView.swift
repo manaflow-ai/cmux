@@ -5679,6 +5679,43 @@ struct VerticalTabsSidebar: View {
         )
     }
 
+    /// The app-target side effects `SidebarEmptyArea`'s double-tap triggers,
+    /// bound to this window's `TabManager` plus `AppDelegate.shared`
+    /// new-workspace routing so the lifted view holds no app-target references.
+    private func sidebarEmptyAreaActions() -> SidebarEmptyAreaActions {
+        // Resolve the environment TabManager and selection binding once during
+        // body so the closures capture stable references, matching how
+        // `emptyAreaTabDropDelegate` resolves `tabManager` into its host.
+        let tabManager = tabManager
+        let selectionBinding = $selection
+        return SidebarEmptyAreaActions(
+            selectedTabIsRemoteTmuxMirror: { tabManager.selectedTab?.isRemoteTmuxMirror == true },
+            performNewWorkspaceAction: {
+                _ = AppDelegate.shared?.performNewWorkspaceAction(
+                    tabManager: tabManager,
+                    debugSource: "sidebar.emptyArea.remoteTmux"
+                )
+            },
+            addWorkspaceAtEnd: { tabManager.addWorkspace(placementOverride: .end) },
+            selectedTabId: { tabManager.selectedTabId },
+            tabIndex: { id in tabManager.tabs.firstIndex { $0.id == id } },
+            selectTabs: { selectionBinding.wrappedValue = .tabs }
+        )
+    }
+
+    /// The app-target bonsplit tab-to-new-workspace drop overlay, erased so the
+    /// lifted `SidebarEmptyArea` can host it without referencing the app target.
+    private func sidebarBonsplitDropOverlay() -> AnyView {
+        AnyView(
+            SidebarBonsplitTabNewWorkspaceDropOverlay(
+                tabManager: tabManager,
+                selectedTabIds: $selectedTabIds,
+                lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                dropIndicator: dropIndicatorBinding
+            )
+        )
+    }
+
     private var sidebarTopScrimHeight: CGFloat {
         SidebarWorkspaceListMetrics.topScrimHeight
     }
@@ -6261,13 +6298,15 @@ struct VerticalTabsSidebar: View {
 
                         SidebarEmptyArea(
                             rowSpacing: tabRowSpacing,
-                            selection: $selection,
                             selectedTabIds: $selectedTabIds,
                             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
                             dragAutoScrollController: dragAutoScrollController,
+                            actions: sidebarEmptyAreaActions(),
                             topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
                             tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
-                            bonsplitDropIndicator: dropIndicatorBinding
+                            bonsplitDropIndicator: dropIndicatorBinding,
+                            topDropIndicatorColor: { cmuxAccentColor() },
+                            bonsplitDropOverlay: sidebarBonsplitDropOverlay
                         )
                         .frame(maxWidth: .infinity, minHeight: 48)
                     }
@@ -6963,13 +7002,15 @@ struct VerticalTabsSidebar: View {
             .background(alignment: .top) {
                 SidebarEmptyArea(
                     rowSpacing: tabRowSpacing,
-                    selection: $selection,
                     selectedTabIds: $selectedTabIds,
                     lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
                     dragAutoScrollController: dragAutoScrollController,
+                    actions: sidebarEmptyAreaActions(),
                     topDropIndicatorVisible: false,
                     tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
                     bonsplitDropIndicator: dropIndicatorBinding,
+                    topDropIndicatorColor: { cmuxAccentColor() },
+                    bonsplitDropOverlay: sidebarBonsplitDropOverlay,
                     expandsVertically: true
                 )
             }
@@ -7458,80 +7499,6 @@ private struct SidebarDevFooter: View {
     }
 }
 #endif
-
-private struct SidebarEmptyArea: View {
-    @Environment(TabManager.self) var tabManager
-    let rowSpacing: CGFloat
-    @Binding var selection: SidebarSelection
-    @Binding var selectedTabIds: Set<UUID>
-    @Binding var lastSidebarSelectionIndex: Int?
-    let dragAutoScrollController: SidebarDragAutoScrollController
-    // Value snapshot + closure bundles instead of an @Observable store
-    // reference (snapshot-boundary rule).
-    let topDropIndicatorVisible: Bool
-    let tabDropDelegate: SidebarTabDropDelegate
-    let bonsplitDropIndicator: Binding<SidebarDropIndicator?>
-    var expandsVertically = true
-    var minimumHeight: CGFloat? = nil
-
-    var body: some View {
-        hitTarget
-            .onTapGesture(count: 2) {
-                // When the active workspace is a remote-tmux mirror, route through
-                // performNewWorkspaceAction so a new workspace becomes a new tmux
-                // session instead of a local (orphan) workspace. Gate on the
-                // SELECTED tab, not `tabs.contains`: a dedicated remote window can
-                // be polluted with a dragged-in local workspace (move targets don't
-                // exclude dedicated windows), and `contains` would then misroute a
-                // local empty-area double-tap into spawning an unwanted tmux session.
-                if tabManager.selectedTab?.isRemoteTmuxMirror == true {
-                    _ = AppDelegate.shared?.performNewWorkspaceAction(
-                        tabManager: tabManager,
-                        debugSource: "sidebar.emptyArea.remoteTmux"
-                    )
-                } else {
-                    tabManager.addWorkspace(placementOverride: .end)
-                }
-                if let selectedId = tabManager.selectedTabId {
-                    selectedTabIds = [selectedId]
-                    lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
-                }
-                selection = .tabs
-            }
-            .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegate)
-            .overlay {
-                SidebarBonsplitTabNewWorkspaceDropOverlay(
-                    tabManager: tabManager,
-                    selectedTabIds: $selectedTabIds,
-                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                    dropIndicator: bonsplitDropIndicator
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .overlay(alignment: .top) {
-                if topDropIndicatorVisible {
-                    Rectangle()
-                        .fill(cmuxAccentColor())
-                        .frame(height: 2)
-                        .padding(.horizontal, 8)
-                        .offset(y: -(rowSpacing / 2))
-                }
-            }
-    }
-
-    @ViewBuilder
-    private var hitTarget: some View {
-        if expandsVertically {
-            Color.clear
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-        } else {
-            Color.clear
-                .frame(maxWidth: .infinity, minHeight: minimumHeight ?? 0)
-                .contentShape(Rectangle())
-        }
-    }
-}
 
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
 // the parent rebuilds with unchanged values. Without this, every TabManager
@@ -8121,7 +8088,7 @@ struct TabItemView: View, Equatable {
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
         .onDrop(of: BonsplitTabTransferPasteboard.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
             targetWorkspaceId: tab.id,
-            tabManager: tabManager,
+            host: SidebarTabReorderHost(tabManager: tabManager),
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
         ))
@@ -9032,59 +8999,6 @@ struct TabItemView: View, Equatable {
 /// unqualified `SidebarTabDragPayload` spelling resolving for app-target
 /// consumers (ContentView drop wiring and `DragOverlayRoutingPolicy`).
 typealias SidebarTabDragPayload = CmuxSidebar.SidebarTabDragPayload
-
-private struct SidebarBonsplitTabDropDelegate: DropDelegate {
-    let targetWorkspaceId: UUID
-    let tabManager: TabManager
-    @Binding var selectedTabIds: Set<UUID>
-    @Binding var lastSidebarSelectionIndex: Int?
-    private let tabTransferPasteboard = BonsplitTabTransferPasteboard()
-
-    func validateDrop(info: DropInfo) -> Bool {
-        guard info.hasItemsConforming(to: [BonsplitTabTransferPasteboard.typeIdentifier]) else { return false }
-        return tabTransferPasteboard.currentTransfer() != nil
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        guard validateDrop(info: info) else { return nil }
-        return DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard validateDrop(info: info),
-              let transfer = tabTransferPasteboard.currentTransfer(),
-              let app = AppDelegate.shared else {
-            return false
-        }
-
-        if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
-           source.workspaceId == targetWorkspaceId {
-            syncSidebarSelection()
-            return true
-        }
-
-        guard app.moveBonsplitTab(
-            tabId: transfer.tab.id,
-            toWorkspace: targetWorkspaceId,
-            focus: true,
-            focusWindow: true
-        ) else {
-            return false
-        }
-
-        selectedTabIds = [targetWorkspaceId]
-        syncSidebarSelection()
-        return true
-    }
-
-    private func syncSidebarSelection() {
-        if let selectedId = tabManager.selectedTabId {
-            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
-        } else {
-            lastSidebarSelectionIndex = nil
-        }
-    }
-}
 
 /// Lifted to `CmuxCore.SidebarSelection`; this typealias keeps the unqualified
 /// `SidebarSelection` spelling resolving for app-target consumers.
