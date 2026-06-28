@@ -82,6 +82,14 @@ export default async function RemoteTmuxPage({
       <DocsHeading level={2} id="how-it-works">{t("howTitle")}</DocsHeading>
       <p>{t("howDesc")}</p>
 
+      <DocsHeading level={2} id="linked-view">{t("linkedViewTitle")}</DocsHeading>
+      <p>{t("linkedViewIntro")}</p>
+      <p>{t("linkedViewEnable")}</p>
+
+      <DocsHeading level={3} id="multiple-servers">{t("multiServerTitle")}</DocsHeading>
+      <p>{t("multiServerDesc")}</p>
+      <CodeBlock lang="bash">{`# Attach another host into the current window\ncmux ssh-tmux other-host --into-window current`}</CodeBlock>
+
       <DocsHeading level={2} id="behavior">{t("behaviorTitle")}</DocsHeading>
       <ul>
         <li>{t("behaviorSize")}</li>
