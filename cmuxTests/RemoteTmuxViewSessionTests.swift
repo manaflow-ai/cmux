@@ -35,13 +35,13 @@ import Testing
         #expect(VS(ownerId: "a.b").sessionName == VS(ownerId: "a.b").sessionName) // stable
     }
 
-    @Test func createCommandsUseExplicitSizeAndStampOwnership() {
+    @Test func createArgvsUseExplicitSizeAndStampOwnership() {
         let s = v("o1")
-        let cmds = s.createCommands(cols: 120, rows: 40)
-        #expect(cmds[0].contains("new-session -d -s '\(s.sessionName)' -x 120 -y 40"))
-        #expect(cmds.contains { $0.contains("@cmux_view 1") })
-        #expect(cmds.contains { $0.contains("@cmux_view_owner 'o1'") })
-        #expect(cmds.contains { $0.contains("@cmux_view_version 1") })
+        let argvs = s.createArgvs(cols: 120, rows: 40)
+        #expect(argvs[0] == ["new-session", "-d", "-s", s.sessionName, "-x", "120", "-y", "40"])
+        #expect(argvs.contains(["set-option", "-t", s.sessionName, "@cmux_view", "1"]))
+        #expect(argvs.contains(["set-option", "-t", s.sessionName, "@cmux_view_owner", "o1"]))
+        #expect(argvs.contains(["set-option", "-t", s.sessionName, "@cmux_view_version", "1"]))
     }
 
     @Test func parsesListRowsWithFreeTextNameLast() {
