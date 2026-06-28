@@ -112,7 +112,12 @@ struct TerminalHardwareKeyPressIntegrationTests {
         view.onBackspace = { captured.append(Data("BACKSPACE".utf8)) }
 
         let press = FakePress(key: FakeKey(keyCode: keyCode, modifierFlags: modifiers, characters: characters))
-        view.simulateHardwarePressForTesting(press)
+        // Drive the REAL capture path directly (no production test seam): a begin
+        // immediately followed by an end, so a consumed press's hold-to-repeat
+        // `Task` is cancelled and cannot outlive the call and re-emit on a later
+        // tick. `pressesBegan`/`pressesEnded` are reachable via `@testable import`.
+        view.pressesBegan([press], with: nil)
+        view.pressesEnded([press], with: nil)
         return captured
     }
 
@@ -167,6 +172,45 @@ struct TerminalHardwareKeyPressIntegrationTests {
         // happened to report their letter; this proves the keyCode fallback.
         let blocks = emitted(keyCode: .keyboardC, modifiers: [.control], characters: "\u{03}")
         #expect(blocks == [Data([0x03])], "Ctrl+C (pre-encoded ETX) must emit 0x03, got \(blocks.map(hexString))")
+    }
+
+    // MARK: Consumed-but-unencodable chord (Option+Up/Down)
+
+    @Test("Option+Up / Option+Down are consumed but emit nothing")
+    func optionVerticalArrowsConsumedButSilent() {
+        // `shouldConsume` claims these (special key + Option), so they are kept
+        // from the focused text system — but the encoder has NO META vertical
+        // word-move, so the chord emits no bytes (`TerminalKeyEncoder` returns
+        // nil for Option-only Up/Down, which would otherwise echo the
+        // shell-unbound "[1;3A"/"[1;3B" literally). Captured, yet silent.
+        #expect(emitted(keyCode: .keyboardUpArrow, modifiers: [.alternate], characters: "\u{F700}").isEmpty)
+        #expect(emitted(keyCode: .keyboardDownArrow, modifiers: [.alternate], characters: "\u{F701}").isEmpty)
+    }
+
+    // MARK: Lifecycle symmetry (pressesCancelled cancels key-repeat like pressesEnded)
+
+    @Test("pressesCancelled cancels the hold-to-repeat task, exactly like pressesEnded")
+    func pressesCancelledStopsKeyRepeat() async {
+        // A held Left arrow emits its first byte block on `pressesBegan` and arms
+        // a repeat. `pressesCancelled` (e.g. a system gesture preempts the press)
+        // must cancel that repeat just as `pressesEnded` does, so no further bytes
+        // leak after the physical key is gone.
+        let view = TerminalInputTextView()
+        var captured: [Data] = []
+        view.onEscapeSequence = { captured.append($0) }
+
+        let press = FakePress(key: FakeKey(keyCode: .keyboardLeftArrow, modifierFlags: [], characters: "\u{F702}"))
+        view.pressesBegan([press], with: nil)
+        #expect(captured.count == 1, "expected the initial keystroke, got \(captured.map(hexString))")
+
+        view.pressesCancelled([press], with: nil)
+        // Wait well past the initial repeat delay (400ms) plus several 60ms ticks;
+        // a live repeat would have fired by now.
+        try? await Task.sleep(for: .milliseconds(700))
+        #expect(captured.count == 1, "pressesCancelled did not cancel the repeat: \(captured.map(hexString))")
+        // Keep `view` alive across the await so the (weakly-held) repeat task
+        // would still have a live target to emit through if it weren't cancelled.
+        withExtendedLifetime(view) {}
     }
 }
 #endif

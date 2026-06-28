@@ -160,42 +160,62 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     override func resignFirstResponder() -> Bool {
         // A hardware key held while focus leaves this proxy never delivers its
         // `pressesEnded`, so cancel every in-flight key-repeat here to avoid a
-        // runaway timer re-emitting bytes after the terminal loses focus.
+        // runaway timer re-emitting bytes after the terminal loses focus. The
+        // captured-press set is dropped for the same reason: the matching
+        // `pressesEnded` never arrives, so retaining it would leak the `UIPress`.
         stopAllKeyRepeats()
+        capturedPresses.removeAll()
         return super.resignFirstResponder()
     }
 
+    /// Presses this proxy captured (consumed AND encoded) in ``pressesBegan``,
+    /// tracked so the matching ``pressesEnded`` / ``pressesCancelled`` are withheld
+    /// from `super` while every press we forwarded in `began` IS forwarded again —
+    /// keeping UIKit's begin/end/cancel events balanced. Keying the end/cancel
+    /// decision off ``shouldConsume(_:)`` instead drifts: a consumed-but-unencodable
+    /// chord (e.g. Option+Up, which has no terminal encoding) is forwarded to
+    /// `super` in `began` yet still reports `shouldConsume == true`, so `super`
+    /// would see a `began` with no matching `ended`.
+    private var capturedPresses: Set<UIPress> = []
+
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        var unhandled: Set<UIPress> = []
+        var forwarded: Set<UIPress> = []
         for press in presses {
             TerminalInputDebugLog.log(
                 "proxy.pressesBegan keyCode=\(press.key?.keyCode.rawValue ?? -1) "
                     + "mods=\(press.key?.modifierFlags.rawValue ?? 0) "
-                    + "chars=\(TerminalInputDebugLog.textSummary(press.key?.charactersIgnoringModifiers ?? "")) "
                     + "handled=\(shouldConsume(press))"
             )
-            if !handleHardwarePress(press) { unhandled.insert(press) }
+            if handleHardwarePress(press) {
+                capturedPresses.insert(press)
+            } else {
+                forwarded.insert(press)
+            }
         }
-        if !unhandled.isEmpty { super.pressesBegan(unhandled, with: event) }
+        if !forwarded.isEmpty { super.pressesBegan(forwarded, with: event) }
     }
 
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        var unhandled: Set<UIPress> = []
+        var forwarded: Set<UIPress> = []
         for press in presses {
             // Releasing a key stops only its own repeat, regardless of whether it
             // is still "consumed", so an overlapping hold of another key keeps
             // repeating.
             if let keyCode = press.key?.keyCode { stopKeyRepeat(for: keyCode) }
-            if !shouldConsume(press) { unhandled.insert(press) }
+            // Forward to `super` exactly the presses whose `began` we forwarded
+            // (the ones we did NOT capture), so begin/end stay balanced.
+            if capturedPresses.remove(press) == nil { forwarded.insert(press) }
         }
-        if !unhandled.isEmpty { super.pressesEnded(unhandled, with: event) }
+        if !forwarded.isEmpty { super.pressesEnded(forwarded, with: event) }
     }
 
     override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        var forwarded: Set<UIPress> = []
         for press in presses {
             if let keyCode = press.key?.keyCode { stopKeyRepeat(for: keyCode) }
+            if capturedPresses.remove(press) == nil { forwarded.insert(press) }
         }
-        super.pressesCancelled(presses, with: event)
+        if !forwarded.isEmpty { super.pressesCancelled(forwarded, with: event) }
     }
 
     /// Whether this press should be captured for the terminal instead of the
@@ -892,7 +912,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// terminal. Committing here also ends any IME composition.
     func insertText(_ text: String) {
         guard !text.isEmpty else { return }
-        TerminalInputDebugLog.log("proxy.insertText text=\(TerminalInputDebugLog.textSummary(text)) composing=\(markedText != nil)")
+        TerminalInputDebugLog.log("proxy.insertText len=\(text.count) composing=\(markedText != nil)")
         // A committed insert ends composition. The candidate the IME was showing
         // is exactly `text`, so clear the marked state and emit `text` once.
         if markedText != nil {
@@ -994,22 +1014,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         handleHardwareKeyInput(input: input, modifierFlags: modifierFlags)
     }
 
-    /// Integration test seam: feed a fabricated ``UIPress`` through the REAL
-    /// hardware-capture path — ``pressesBegan`` → ``handleHardwarePress`` →
-    /// ``shouldConsume`` → ``terminalInput(for:)`` (keyCode→input mapping) →
-    /// ``encodeAndEmitHardwareKey`` → ``TerminalHardwareKeyResolver`` →
-    /// ``TerminalKeyEncoder`` → ``onEscapeSequence``. The emitted bytes are
-    /// observed by setting ``onEscapeSequence`` before calling this. The press is
-    /// immediately ended so the hold-to-repeat ``Task`` armed by a consumed press
-    /// cannot outlive the test and re-emit on a later tick.
-    ///
-    /// Exercises the full byte path a real Bluetooth-keyboard press takes, unlike
-    /// ``simulateHardwareKeyCommandForTesting`` which enters below the keyCode map.
-    func simulateHardwarePressForTesting(_ press: UIPress) {
-        pressesBegan([press], with: nil)
-        pressesEnded([press], with: nil)
-    }
-
     func simulateAccessoryActionForTesting(_ action: TerminalInputAccessoryAction) {
         resetStickyTapTimeForTesting(action)
         handleAccessoryAction(action)
@@ -1092,10 +1096,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// (so the caller falls through to `super` and skips arming key-repeat).
     private func encodeAndEmitHardwareKey(input: String, modifierFlags: UIKeyModifierFlags) -> Data? {
         guard let data = TerminalHardwareKeyResolver.data(input: input, modifierFlags: modifierFlags), !data.isEmpty else {
-            TerminalInputDebugLog.log("proxy.encode input=\(TerminalInputDebugLog.textSummary(input)) mods=\(modifierFlags.rawValue) bytes=0 (no-data)")
+            TerminalInputDebugLog.log("proxy.encode mods=\(modifierFlags.rawValue) bytes=0 (no-data)")
             return nil
         }
-        TerminalInputDebugLog.log("proxy.encode input=\(TerminalInputDebugLog.textSummary(input)) mods=\(modifierFlags.rawValue) \(TerminalInputDebugLog.dataSummary(data))")
+        TerminalInputDebugLog.log("proxy.encode mods=\(modifierFlags.rawValue) \(TerminalInputDebugLog.dataSummary(data))")
         onEscapeSequence?(data)
         return data
     }
@@ -1441,7 +1445,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     private func emitCommittedText(_ committedText: String, source: String) {
-        TerminalInputDebugLog.log("proxy.emit source=\(source) text=\(TerminalInputDebugLog.textSummary(committedText))")
+        TerminalInputDebugLog.log("proxy.emit source=\(source) len=\(committedText.count)")
         if controlAccessoryArmed {
             if !controlAccessorySticky {
                 setControlAccessoryArmed(false)
@@ -1709,7 +1713,7 @@ extension TerminalInputTextView {
     /// `textWillChange`/`textDidChange` (via ``withMarkedTextChange(_:)``) so the
     /// IME and dictation machinery keep their composition state synchronized.
     func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
-        TerminalInputDebugLog.log("proxy.setMarkedText text=\(TerminalInputDebugLog.textSummary(markedText ?? ""))")
+        TerminalInputDebugLog.log("proxy.setMarkedText len=\((markedText ?? "").count)")
         withMarkedTextChange {
             self.markedText = (markedText?.isEmpty == true) ? nil : markedText
         }
@@ -1757,7 +1761,7 @@ extension TerminalInputTextView {
     /// the in-progress IME composition, so clear it first. An empty replacement is
     /// a pure deletion of the marked composition (no committed text to send).
     func replace(_ range: UITextRange, withText text: String) {
-        TerminalInputDebugLog.log("proxy.replace text=\(TerminalInputDebugLog.textSummary(text))")
+        TerminalInputDebugLog.log("proxy.replace len=\(text.count)")
         if markedText != nil {
             withMarkedTextChange { markedText = nil }
         }

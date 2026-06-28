@@ -181,6 +181,21 @@ public final class GhosttyRuntime {
         }
     }
 
+    /// Canonical iOS terminal window padding in points — the SINGLE source of
+    /// truth for the grid's glyph inset. These values are baked into the ghostty
+    /// config below (`window-padding-x` / `window-padding-y`) AND read by
+    /// ``GhosttySurfaceView`` to inset the drag-selection geometry, so the config
+    /// that drives rendering and the selection overlay can never drift apart.
+    ///
+    /// They are NOT read back from libghostty because its C `ghostty_config_get`
+    /// cannot vend them: the value type `WindowPadding` is a non-`packed` struct
+    /// with no `cval`, so `c_get` returns `false` for it (unlike
+    /// `selection-background`, a `Color` that has a `cval`), and
+    /// `ghostty_surface_size_s` carries no padding field. This Swift constant —
+    /// which generates the config — is therefore the authoritative source.
+    static let windowPaddingXPoints = 2
+    static let windowPaddingYPoints = 0
+
     private static func applyiOSDefaults(_ config: ghostty_config_t) {
         // scrollback-limit: bound the mirror surface's local scrollback page
         // memory (ghostty defaults to 10MB per surface). On iOS the user-facing
@@ -194,7 +209,8 @@ public final class GhosttyRuntime {
         font-family = Menlo
         font-size = 10
         window-padding-balance = false
-        window-padding-y = 0
+        window-padding-x = \(Self.windowPaddingXPoints)
+        window-padding-y = \(Self.windowPaddingYPoints)
         cursor-style = bar
         cursor-style-blink = true
         background = #272822
@@ -246,7 +262,8 @@ public final class GhosttyRuntime {
         font-family = Menlo
         font-size = 10
         window-padding-balance = false
-        window-padding-y = 0
+        window-padding-x = \(Self.windowPaddingXPoints)
+        window-padding-y = \(Self.windowPaddingYPoints)
         cursor-style = bar
         cursor-style-blink = true
         background = #272822
