@@ -7783,8 +7783,10 @@ final class Workspace: Identifiable, ObservableObject {
         bypassRemoteProxy: Bool = false,
         initialDividerPosition: CGFloat? = nil
     ) -> BrowserPanel? {
-        // No local browser surfaces in a remote tmux mirror workspace (it is a
-        // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
+        // A mirror workspace allows a local browser as a TAB (see
+        // ``newBrowserSurface(inPane:)``), but not as a SPLIT: the mirror's tabs must
+        // all live in one pane (the tmux-driven reorder can't span a user split), so
+        // a second local pane here would break that invariant. Refuse the split.
         if isRemoteTmuxMirror { return nil }
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
@@ -12216,16 +12218,18 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
-        // In a remote tmux mirror, split means tmux `split-window`; always veto
-        // local splits so the mirror never gains an orphan pane.
-        guard isRemoteTmuxMirror else { return true }
-        if let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
-           let panelId = panelIdFromSurfaceId(tabId) {
-            _ = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
-                workspaceId: id, panelId: panelId, vertical: orientation == .vertical
-            )
-        }
-        return false
+        // In a remote tmux mirror, splitting a MIRROR window tab means tmux
+        // `split-window` — veto the local split so the mirror never gains an orphan
+        // pane. But the workspace may also hold a local tab (e.g. a browser the user
+        // opened); splitting that should behave locally. So only veto when the split
+        // actually routed to tmux (the selected tab is a mirror-owned window tab).
+        guard isRemoteTmuxMirror,
+              let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
+              let panelId = panelIdFromSurfaceId(tabId) else { return true }
+        let routedToTmux = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
+            workspaceId: id, panelId: panelId, vertical: orientation == .vertical
+        ) ?? false
+        return !routedToTmux
     }
 
     func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {

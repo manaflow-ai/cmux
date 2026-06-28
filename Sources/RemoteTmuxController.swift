@@ -716,7 +716,14 @@ final class RemoteTmuxController {
                 manager.closeWorkspace(workspace, recordHistory: false)
             }
         }
-        if windowRegistry.hosts(forWindowId: windowId).isEmpty,
+        // Only discard a window that was purely this host's (a dedicated remote
+        // window whose last tab can't be closed). If the window also holds LOCAL
+        // workspaces (a host aggregated into the user's regular window), the close
+        // loop above already removed this host's tabs — discarding now would destroy
+        // the user's local work.
+        let hasLocalWorkspaces = manager?.tabs.contains { !$0.isRemoteTmuxMirror } ?? false
+        if !hasLocalWorkspaces,
+           windowRegistry.hosts(forWindowId: windowId).isEmpty,
            let appDelegate = AppDelegate.shared,
            appDelegate.windowForMainWindowId(windowId) != nil {
             appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId)
