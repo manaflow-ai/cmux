@@ -2739,21 +2739,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
     override var isOpaque: Bool { false }
 
     private func resolvedSurfaceSize(preferred size: CGSize?) -> CGSize {
-        if let size,
-           size.width > 0,
-           size.height > 0 {
-            return size
-        }
-        let currentBounds = bounds.size
-        if currentBounds.width > 0, currentBounds.height > 0 {
-            return currentBounds
-        }
-        if let pending = pendingSurfaceSize,
-           pending.width > 0,
-           pending.height > 0 {
-            return pending
-        }
-        return currentBounds
+        TerminalSurfacePixelGeometry.resolvedSurfaceSize(
+            preferred: size,
+            currentBounds: bounds.size,
+            pending: pendingSurfaceSize
+        )
     }
 
     private static func hasTabDragPasteboardTypes() -> Bool {
@@ -2840,11 +2830,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         // render duplicated rows. Terminals keep their logical pixel density
         // and scale visually under magnification; in split mode the two
         // formulas are identical.
-        let backingSize = CGSize(
-            width: size.width * max(1.0, window.backingScaleFactor),
-            height: size.height * max(1.0, window.backingScaleFactor)
+        let geometry = TerminalSurfacePixelGeometry(
+            resolvedSize: size,
+            backingScale: window.backingScaleFactor
         )
-        guard backingSize.width > 0, backingSize.height > 0 else {
+        let backingSize = geometry.backingSize
+        guard geometry.isValid else {
 #if DEBUG
             let signature = "zeroBacking-\(Int(backingSize.width))x\(Int(backingSize.height))"
             if lastSizeSkipSignature != signature {
@@ -2868,13 +2859,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
             lastSizeSkipSignature = nil
         }
 #endif
-        let xScale = backingSize.width / size.width
-        let yScale = backingSize.height / size.height
-        let layerScale = max(1.0, window.backingScaleFactor)
-        let drawablePixelSize = CGSize(
-            width: floor(max(0, backingSize.width)),
-            height: floor(max(0, backingSize.height))
-        )
+        let xScale = geometry.xScale
+        let yScale = geometry.yScale
+        let layerScale = geometry.layerScale
+        let drawablePixelSize = geometry.drawablePixelSize
         var didChange = false
 
         CATransaction.begin()
@@ -5618,10 +5606,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
     }
 
     private func debugImagePasteboardType(for url: URL) -> NSPasteboard.PasteboardType? {
-        let pathExtension = url.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let utType = UTType(filenameExtension: pathExtension),
-              utType.conforms(to: .image) else { return nil }
-        return NSPasteboard.PasteboardType(utType.identifier)
+        guard let identifier = TerminalDropAcceptancePolicy.imagePasteboardTypeIdentifier(
+            forExtension: url.pathExtension
+        ) else { return nil }
+        return NSPasteboard.PasteboardType(identifier)
     }
 
     fileprivate func debugRegisteredDropTypes() -> [String] {
@@ -5636,16 +5624,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         let types = sender.draggingPasteboard.types ?? []
         cmuxDebugLog("terminal.draggingEntered surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
         #endif
-        guard let types = sender.draggingPasteboard.types else { return [] }
         // Defer to bonsplit when a tab/session drag is in flight: bonsplit's pane
         // drop overlays should win over the terminal's text/file drop handling.
-        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
-            return []
+        // The accept/reject decision tree lives in CmuxTerminalCore; this view
+        // resolves the live pasteboard / drop-type rawValues and forwards.
+        guard let types = sender.draggingPasteboard.types else { return [] }
+        switch terminalDropDecision(for: types) {
+        case .reject: return []
+        case .copy: return .copy
         }
-        if Set(types).isDisjoint(with: Self.dropTypes) {
-            return []
-        }
-        return .copy
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
@@ -5654,24 +5641,36 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         cmuxDebugLog("terminal.draggingUpdated surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
         #endif
         guard let types = sender.draggingPasteboard.types else { return [] }
-        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
-            return []
+        switch terminalDropDecision(for: types) {
+        case .reject: return []
+        case .copy: return .copy
         }
-        if Set(types).isDisjoint(with: Self.dropTypes) {
-            return []
-        }
-        return .copy
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let types = sender.draggingPasteboard.types ?? []
-        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+        if TerminalDropAcceptancePolicy.isBonsplitDrag(
+            draggedTypes: Set(types.map(\.rawValue)),
+            tabTransferType: Self.tabTransferPasteboardType.rawValue,
+            sidebarTabReorderType: Self.sidebarTabReorderPasteboardType.rawValue
+        ) {
             return false
         }
         #if DEBUG
         cmuxDebugLog("terminal.fileDrop surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
         #endif
         return insertDroppedPasteboard(sender.draggingPasteboard)
+    }
+
+    private func terminalDropDecision(
+        for types: [NSPasteboard.PasteboardType]
+    ) -> TerminalDropAcceptancePolicy.Decision {
+        TerminalDropAcceptancePolicy.decide(
+            draggedTypes: Set(types.map(\.rawValue)),
+            dropTypes: Set(Self.dropTypes.map(\.rawValue)),
+            tabTransferType: Self.tabTransferPasteboardType.rawValue,
+            sidebarTabReorderType: Self.sidebarTabReorderPasteboardType.rawValue
+        )
     }
 }
 
