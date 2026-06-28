@@ -8499,6 +8499,7 @@ struct CMUXCLI {
         var port: Int?
         var identityFile: String?
         var noFocus = false
+        var intoWindow: String?
 
         // Intentional subset of parseSSHCommandOptions: the mirror verb has a
         // different pipeline (no relay/cmuxd bootstrap, no `--` passthrough, no
@@ -8526,6 +8527,12 @@ struct CMUXCLI {
             case "--no-focus":
                 noFocus = true
                 index += 1
+            case "--into-window":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --into-window requires a window id or 'current'")
+                }
+                intoWindow = commandArgs[index + 1]
+                index += 2
             default:
                 if arg.hasPrefix("-") {
                     throw CLIError(
@@ -8549,6 +8556,21 @@ struct CMUXCLI {
         if let port { params["port"] = port }
         if let identityFile, !identityFile.isEmpty { params["identity_file"] = identityFile }
         if noFocus { params["activate"] = false }
+        // Aggregate into an existing linked-view window ("multiple servers in one
+        // window"). `current` resolves the caller's window from CMUX_WORKSPACE_ID
+        // (surfaces export the workspace id, not the window id); otherwise pass a
+        // window id (e.g. from a prior `ssh-tmux` JSON result or `list-windows`).
+        if let intoWindow {
+            if intoWindow == "current" {
+                guard let workspaceId = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
+                      !workspaceId.isEmpty else {
+                    throw CLIError(message: "ssh-tmux: --into-window current must be run from inside a cmux surface")
+                }
+                params["into_workspace"] = workspaceId
+            } else {
+                params["into_window"] = intoWindow
+            }
+        }
 
         // The first call runs a non-interactive (BatchMode) discovery in the app,
         // which can take a couple of seconds; show progress so it doesn't look idle.

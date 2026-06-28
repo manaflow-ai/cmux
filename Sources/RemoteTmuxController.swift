@@ -348,7 +348,8 @@ final class RemoteTmuxController {
     @discardableResult
     func mirrorHostInNewWindow(
         host: RemoteTmuxHost,
-        activateWindow: Bool = true
+        activateWindow: Bool = true,
+        intoWindowId: UUID? = nil
     ) async throws -> RemoteTmuxAttachOutcome {
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
@@ -412,13 +413,33 @@ final class RemoteTmuxController {
         // failure (or cancellation) throws here and leaks no orphaned window.
         try await ensureControlMasterReadyForBurst(host: host)
 
-        let windowId = appDelegate.createMainWindow(shouldActivate: activateWindow)
-        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            throw RemoteTmuxError.unreachable("could not create window")
+        // Aggregate into an existing linked-view window when requested ("multiple
+        // servers in one window"), otherwise open a fresh dedicated window. Only
+        // linked-view aggregates: its one shared stream per host keeps a window's
+        // hosts independent; per-session mirror mode stays single-host.
+        let windowId: UUID
+        let manager: TabManager
+        let bootstrapWorkspaceId: UUID?
+        let createdNewWindow: Bool
+        if Self.linkedViewEnabled, let intoWindowId,
+           isLinkedViewWindow(intoWindowId),
+           let existingManager = appDelegate.tabManagerFor(windowId: intoWindowId) {
+            windowId = intoWindowId
+            manager = existingManager
+            bootstrapWorkspaceId = nil  // window already holds the first host's workspaces
+            createdNewWindow = false
+            if activateWindow { appDelegate.windowForMainWindowId(intoWindowId)?.makeKeyAndOrderFront(nil) }
+        } else {
+            let newWindowId = appDelegate.createMainWindow(shouldActivate: activateWindow)
+            guard let newManager = appDelegate.tabManagerFor(windowId: newWindowId) else {
+                throw RemoteTmuxError.unreachable("could not create window")
+            }
+            windowId = newWindowId
+            manager = newManager
+            bootstrapWorkspaceId = newManager.tabs.first?.id
+            createdNewWindow = true
         }
         windowRegistry.bind(host: host, windowId: windowId)
-
-        let bootstrapWorkspaceId = manager.tabs.first?.id
 
         // Linked-view mode: one shared `-CC` view stream for the whole host (for
         // MaxSessions=1 hosts). The coordinator discovers/links sessions and
@@ -426,9 +447,21 @@ final class RemoteTmuxController {
         // window populates as its first reconcile lands (the per-session loop and
         // its synchronous empty-window guard below are skipped).
         if Self.linkedViewEnabled {
-            try await startLinkedView(
-                host: host, windowId: windowId, manager: manager,
-                bootstrapWorkspaceId: bootstrapWorkspaceId)
+            do {
+                try await startLinkedView(
+                    host: host, windowId: windowId, manager: manager,
+                    bootstrapWorkspaceId: bootstrapWorkspaceId)
+            } catch {
+                // Unbind this host; discard the window only if we created it for this
+                // host (never an aggregated window that still holds other hosts).
+                windowRegistry.unbind(hostHash: host.connectionHash)
+                transportRegistry.remove(connectionHash: host.connectionHash)
+                RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+                if createdNewWindow {
+                    appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId)
+                }
+                throw error
+            }
             return .mirrored(windowId: windowId)
         }
 
@@ -640,18 +673,45 @@ final class RemoteTmuxController {
     }
 
     /// Tears down a host's linked-view coordinator and all its mirrors (the view
-    /// stream ended for good), then closes the dedicated window.
+    /// stream ended for good). Closes the host's workspaces and, when no other
+    /// aggregated host remains in the window, discards the window.
     private func teardownLinkedView(host: RemoteTmuxHost, windowId: UUID) {
+        // Close this host's workspaces (when the window holds others, e.g. a second
+        // server) so an ended host's tabs don't linger; the window's FINAL workspace
+        // can't be closed, so a single-host window is discarded below instead.
+        if let manager = AppDelegate.shared?.tabManagerFor(windowId: windowId) {
+            for mirror in linkedMirrors.values
+            where mirror.host.connectionHash == host.connectionHash {
+                guard manager.tabs.count > 1,
+                      let workspaceId = mirror.mirroredWorkspaceId,
+                      let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { continue }
+                manager.closeWorkspace(workspace, recordHistory: false)
+            }
+        }
         stopLinkedView(host: host)
-        if let appDelegate = AppDelegate.shared,
+        if windowRegistry.hosts(forWindowId: windowId).isEmpty,
+           let appDelegate = AppDelegate.shared,
            appDelegate.windowForMainWindowId(windowId) != nil {
             appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId)
         }
     }
 
-    /// Whether `windowId` is a dedicated linked-view window (its host has a live
-    /// coordinator). Used to route New Workspace through the coordinator.
+    /// Whether `windowId` is a live linked-view window (at least one of its hosts has
+    /// a running coordinator) — the only kind that can aggregate another server.
+    private func isLinkedViewWindow(_ windowId: UUID) -> Bool {
+        windowRegistry.hosts(forWindowId: windowId).contains { linkedViews[$0.connectionHash] != nil }
+    }
+
+    /// The linked-view coordinator a New Workspace / New Tab in `windowId` should
+    /// ride. A window can aggregate several servers, so route to the SELECTED
+    /// workspace's host (its mirror); fall back to the window's first host when no
+    /// remote mirror is selected yet.
     private func linkedViewCoordinator(forWindowId windowId: UUID) -> RemoteTmuxViewConnection? {
+        if let manager = AppDelegate.shared?.tabManagerFor(windowId: windowId),
+           let selected = manager.selectedTab,
+           let mirror = linkedMirrors.values.first(where: { $0.mirroredWorkspaceId == selected.id }) {
+            return linkedViews[mirror.host.connectionHash]
+        }
         guard let host = windowRegistry.host(forWindowId: windowId) else { return nil }
         return linkedViews[host.connectionHash]
     }
@@ -1311,32 +1371,35 @@ final class RemoteTmuxController {
     func killMarkedSessionsBeforeTerminate(timeout: Duration = .seconds(3)) async {
         var jobs: [(transport: RemoteTmuxSSHTransport, target: String)] = []
         for windowId in windowRegistry.windowsMarkedForKillOnClose() {
-            guard windowRegistry.consumeKillSessionsOnClose(windowId: windowId),
-                  let host = windowRegistry.host(forWindowId: windowId) else { continue }
-            // Linked-view: the host's real sessions are reachable only over the live
-            // view stream (a one-shot ssh would be refused under MaxSessions=1). Kill
-            // them there with a round-trip barrier so the kills land before we stop
-            // the shared coordinator. Gated on live state, not the beta flag.
-            if let coordinator = linkedViews[host.connectionHash] {
-                await coordinator.killAllWorkspaceSessions()
-                stopLinkedView(host: host)
-                continue
-            }
+            guard windowRegistry.consumeKillSessionsOnClose(windowId: windowId) else { continue }
             let closingWorkspaceIds = Set(AppDelegate.shared?.tabManagerFor(windowId: windowId)?.tabs.map(\.id) ?? [])
-            let transport = transport(for: host)
-            let mirrorsInWindow = sessionMirrors.filter { _, mirror in
-                mirror.host.connectionHash == host.connectionHash
-                    && mirror.mirroredWorkspaceId.map(closingWorkspaceIds.contains) == true
+            // A window can aggregate several hosts (linked-view multi-server); kill
+            // each host's sessions.
+            for host in windowRegistry.hosts(forWindowId: windowId) {
+                // Linked-view: the host's real sessions are reachable only over the
+                // live view stream (a one-shot ssh would be refused under
+                // MaxSessions=1). Kill them there with a round-trip barrier so the
+                // kills land before we stop the shared coordinator.
+                if let coordinator = linkedViews[host.connectionHash] {
+                    await coordinator.killAllWorkspaceSessions()
+                    stopLinkedView(host: host)
+                    continue
+                }
+                let transport = transport(for: host)
+                let mirrorsInWindow = sessionMirrors.filter { _, mirror in
+                    mirror.host.connectionHash == host.connectionHash
+                        && mirror.mirroredWorkspaceId.map(closingWorkspaceIds.contains) == true
+                }
+                for (key, mirror) in mirrorsInWindow {
+                    sessionMirrors.removeValue(forKey: key)
+                    mirror.detachObserver()
+                    detach(host: host, sessionName: mirror.sessionName)  // removes the connection too
+                    jobs.append((transport, mirror.connection.sessionId.map { "$\($0)" } ?? mirror.sessionName))
+                }
+                let hostHasOtherMirrors = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
+                if !hostHasOtherMirrors { windowRegistry.unbind(hostHash: host.connectionHash) }
+                if !hostHasOtherMirrors, !connectionsByHostSession.values.contains(where: { $0.host.connectionHash == host.connectionHash }) { transportRegistry.remove(connectionHash: host.connectionHash) }
             }
-            for (key, mirror) in mirrorsInWindow {
-                sessionMirrors.removeValue(forKey: key)
-                mirror.detachObserver()
-                detach(host: host, sessionName: mirror.sessionName)  // removes the connection too
-                jobs.append((transport, mirror.connection.sessionId.map { "$\($0)" } ?? mirror.sessionName))
-            }
-            let hostHasOtherMirrors = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
-            if !hostHasOtherMirrors { windowRegistry.unbind(hostHash: host.connectionHash) }
-            if !hostHasOtherMirrors, !connectionsByHostSession.values.contains(where: { $0.host.connectionHash == host.connectionHash }) { transportRegistry.remove(connectionHash: host.connectionHash) }
         }
         await RemoteTmuxSSHTransport.killSessions(jobs, timeout: timeout)
     }
@@ -1344,13 +1407,18 @@ final class RemoteTmuxController {
     /// Dedicated window close detaches only that window's mirrors; same-host mirrors
     /// in other windows keep their control streams.
     func handleRemoteWindowClosed(windowId: UUID) {
+        // Linked-view: shared `-CC` coordinators back the window — stop EVERY
+        // aggregated host's coordinator (a window can hold several servers) instead
+        // of walking per-session mirrors. The window is already closing, so
+        // `stopLinkedView` must not re-discard it. Gated on live coordinator state —
+        // NOT the beta flag — so a window opened while the flag was on still tears
+        // down if the user toggles it off.
+        var stoppedLinked = false
+        for host in windowRegistry.hosts(forWindowId: windowId) where stopLinkedView(host: host) {
+            stoppedLinked = true
+        }
+        if stoppedLinked { return }
         guard let host = windowRegistry.host(forWindowId: windowId) else { return }
-        // Linked-view: a single shared `-CC` coordinator backs the whole window, so
-        // stop it (and drop its mirrors) instead of walking per-session mirrors. The
-        // window is already closing, so `stopLinkedView` must not re-discard it.
-        // Gated on live coordinator state — NOT the beta flag — so a window opened
-        // while the flag was on still tears down if the user toggles it off.
-        if stopLinkedView(host: host) { return }
         let closingWorkspaceIds = Set(AppDelegate.shared?.tabManagerFor(windowId: windowId)?.tabs.map(\.id) ?? [])
         windowRegistry.unbind(windowId: windowId)
         let mirrorsInWindow = sessionMirrors.filter { _, mirror in
