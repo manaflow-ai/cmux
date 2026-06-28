@@ -1534,7 +1534,10 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// `hostEnvironment` matches a nil `AppDelegate.shared`). Constructor-injected
     /// at the composition root; defaults to the running delegate so existing
     /// construction sites need no change.
-    private let hostEnvironment: (any WorkspaceHostEnvironment)?
+    // Internal (not private) so the `Workspace+RemoteStatusHosting.swift` witness
+    // (a separate file) can reach the injected notification store for
+    // `hostAddRemoteNotification`.
+    let hostEnvironment: (any WorkspaceHostEnvironment)?
     /// When this workspace instance came into existence in this app session
     /// (creation, or restore at launch). The mobile list's last-activity
     /// fallback: a workspace that never fired a notification still carries a
@@ -2137,6 +2140,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     private(set) var activeRemoteTerminalSessionCount: Int = 0 {
         didSet { activeRemoteTerminalSessionCountPublisher.send(activeRemoteTerminalSessionCount) }
     }
+    /// Resyncs the published session count to the live tracked-set count.
+    /// Co-located with the `private(set)` property so the remote-terminal-tracking
+    /// witness (`Workspace+RemoteTerminalTrackingHosting.swift`, a separate file)
+    /// can drive it without widening the setter past `private(set)`.
+    func syncActiveRemoteTerminalSessionCount() {
+        activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
+    }
     /// The controlling-terminal device name per panel id; stored in the
     /// surface-registry sub-model.
     var surfaceTTYNames: [UUID: String] {
@@ -2166,6 +2176,14 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// forwards. Held by `Workspace`, references the host weakly, so there is no
     /// retain cycle.
     let remoteSurfaceTTYCoordinator = RemoteSurfaceTTYCoordinator<Workspace>()
+
+    /// Owns the remote-terminal tracking and SSH-session-end bookkeeping bodies
+    /// (seed/track/untrack, remote PTY-attach end/fail, demotion, transferred
+    /// cleanup, disconnect-after-exit, and teardown). The live tracked sets, the
+    /// published session count, and the lifecycle disconnect bodies stay app-side
+    /// behind `RemoteTerminalTrackingHosting`. Held by `Workspace`, references the
+    /// host weakly, so there is no retain cycle.
+    let remoteTerminalTracking = RemoteTerminalTrackingCoordinator<Workspace>()
 
     /// Orchestrates closing one pane of a mirrored multi-pane tmux window (the
     /// pane-header ✕): the close-tab warning decision, the live pane-activity
@@ -2209,7 +2227,9 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// visibly disconnected instead of falling through to a local login shell.
     /// The value type lives in `CmuxRemoteWorkspace`
     /// (`PendingRemoteDisconnectReplacement`).
-    private var pendingRemoteDisconnectReplacement: PendingRemoteDisconnectReplacement?
+    // Internal (not private) so the `Workspace+RemoteTerminalTrackingHosting.swift`
+    // witness can read/write the pending replacement the coordinator records.
+    var pendingRemoteDisconnectReplacement: PendingRemoteDisconnectReplacement?
     var remoteDisconnectPlaceholderPanelIds: Set<UUID> = []
 
     // Internal (not private) so the `Workspace+RemoteStatusHosting.swift`
@@ -2703,6 +2723,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         workspaceDrop.attach(host: self)
         remoteSurfaceCoordinator.attach(host: self)
         remoteSurfaceTTYCoordinator.attach(host: self)
+        remoteTerminalTracking.attach(host: self)
         remoteTmuxMirrorCoordinator.attach(host: self)
         remoteRelaySession.attach(host: self)
         remoteStatus.attach(host: self)
@@ -3131,7 +3152,9 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// Captured detach transfer payloads; stored in the split-layout
     /// sub-model. Mutations go through the model's detach-choreography
     /// verbs; this read-only view feeds the empty/count checks.
-    private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] {
+    // Internal (not private) so the `Workspace+RemoteTerminalTrackingHosting.swift`
+    // witness can read its emptiness for the SSH control-master cleanup decision.
+    var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] {
         splitLayout.pendingDetachedSurfaces
     }
     /// Open detach-close transaction count; stored in the split-layout
@@ -3158,7 +3181,9 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     // When the last live remote terminal is detached out, the source workspace may be
     // closed immediately after the move succeeds. That teardown must not shut down the
     // shared SSH control master that is still serving the moved terminal.
-    private var skipControlMasterCleanupAfterDetachedRemoteTransfer = false
+    // Internal (not private) so the `Workspace+RemoteTerminalTrackingHosting.swift`
+    // witness can read/clear the flag the tracking coordinator consults.
+    var skipControlMasterCleanupAfterDetachedRemoteTransfer = false
     var transferredRemoteCleanupConfigurationsByPanelId: [UUID: WorkspaceRemoteConfiguration] = [:]
 
     /// Source panel + pane captured at the start of a ``SplitDetachCoordinator``
@@ -4924,44 +4949,15 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     private func seedInitialRemoteTerminalSessionIfNeeded(configuration: WorkspaceRemoteConfiguration) {
-        guard configuration.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
-            return
-        }
-        guard activeRemoteTerminalSurfaceIds.isEmpty else { return }
-        let terminalIds = panels.compactMap { panelId, panel in
-            panel is TerminalPanel && !remoteDisconnectPlaceholderPanelIds.contains(panelId)
-                ? panelId
-                : nil
-        }
-        if terminalIds.count == 1, let initialPanelId = terminalIds.first {
-            trackRemoteTerminalSurface(initialPanelId)
-            return
-        }
-        if let focusedPanelId, terminalIds.contains(focusedPanelId) {
-            trackRemoteTerminalSurface(focusedPanelId)
-        }
+        remoteTerminalTracking.seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
     }
 
-    private func trackRemoteTerminalSurface(_ panelId: UUID) {
-        skipControlMasterCleanupAfterDetachedRemoteTransfer = false
-        endedPersistentRemotePTYAttachSurfaceIds.remove(panelId)
-        pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
-        transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
-        if remoteConfiguration?.preserveAfterTerminalExit == true,
-           normalizedRemotePTYSessionID(remoteRelaySession.remotePTYSessionID(forPanel: panelId)) == nil {
-            remoteRelaySession.setRemotePTYSessionID(Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId), forPanel: panelId)
-        }
-        guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
-        activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
-        applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
-        _ = applyPendingRemoteSurfacePortKickIfNeeded(to: panelId)
+    func trackRemoteTerminalSurface(_ panelId: UUID) {
+        remoteTerminalTracking.trackRemoteTerminalSurface(panelId)
     }
 
     func untrackRemoteTerminalSurface(_ panelId: UUID) {
-        guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else { return }
-        activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
-        guard !isDetachingCloseTransaction else { return }
-        maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
+        remoteTerminalTracking.untrackRemoteTerminalSurface(panelId)
     }
 
     /// App-side forwarder to ``SurfaceCreationCoordinator/sanitizedWorkspaceEnvironment(_:)``
@@ -5112,68 +5108,20 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     func discardRemotePTYSessionID(panelId: UUID) {
-        remoteRelaySession.removeRemotePTYSessionID(forPanel: panelId)
-        endedPersistentRemotePTYAttachSurfaceIds.remove(panelId)
-        remoteRelaySession.removeRemoteRelaySurfaceAliases(targeting: panelId)
+        remoteTerminalTracking.discardRemotePTYSessionID(panelId: panelId)
     }
 
     func remotePTYSessionIDMatches(panelId: UUID, sessionID: String?) -> Bool {
-        remoteRelaySession.remotePTYSessionIDMatches(panelId: panelId, sessionID: sessionID)
+        remoteTerminalTracking.remotePTYSessionIDMatches(panelId: panelId, sessionID: sessionID)
     }
 
     @discardableResult
     func markRemotePTYAttachEnded(surfaceId: UUID, sessionID: String) -> (clearedRemotePTYSession: Bool, untrackedRemoteTerminal: Bool) {
-        let normalizedSessionID = normalizedRemotePTYSessionID(sessionID)
-        let expectedSessionID = normalizedRemotePTYSessionID(remoteRelaySession.remotePTYSessionID(forPanel: surfaceId))
-            ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: surfaceId)
-        guard let normalizedSessionID, normalizedSessionID == expectedSessionID else {
-            return (false, false)
-        }
-
-        let wasTracked = activeRemoteTerminalSurfaceIds.contains(surfaceId)
-        if remoteConfiguration?.preserveAfterTerminalExit == true {
-            endedPersistentRemotePTYAttachSurfaceIds.insert(surfaceId)
-        } else {
-            endedPersistentRemotePTYAttachSurfaceIds.remove(surfaceId)
-        }
-        remoteRelaySession.removeRemotePTYSessionID(forPanel: surfaceId)
-        removeRemoteRelaySurfaceAliases(targeting: surfaceId)
-        untrackRemoteTerminalSurface(surfaceId)
-        return (true, wasTracked)
+        remoteTerminalTracking.markRemotePTYAttachEnded(surfaceId: surfaceId, sessionID: sessionID)
     }
 
     func markPersistentRemotePTYAttachFailed(surfaceId: UUID) {
-        guard remoteConfiguration?.preserveAfterTerminalExit == true else { return }
-
-        remoteRelaySession.removeRemotePTYSessionID(forPanel: surfaceId)
-        endedPersistentRemotePTYAttachSurfaceIds.remove(surfaceId)
-        removeRemoteRelaySurfaceAliases(targeting: surfaceId)
-        pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
-        transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: surfaceId)
-        surfaceTTYNames.removeValue(forKey: surfaceId)
-        if activeRemoteTerminalSurfaceIds.remove(surfaceId) != nil {
-            activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
-        }
-        syncRemotePortScanTTYs()
-        applyBrowserRemoteWorkspaceStatusToPanels()
-    }
-
-    private func maybeDemoteRemoteWorkspaceAfterSSHSessionEnded() {
-        guard activeRemoteTerminalSurfaceIds.isEmpty, remoteConfiguration != nil else { return }
-        if remoteConfiguration?.preserveAfterTerminalExit == true {
-            return
-        }
-        let hasBrowserPanels = panels.values.contains { $0 is BrowserPanel }
-        if !hasBrowserPanels {
-            if remoteConnectionState == .error ||
-                remoteDaemonStatus.state == .error ||
-                remoteConnectionState == .connecting ||
-                remoteConnectionState == .reconnecting ||
-                remoteConnectionState == .suspended {
-                return
-            }
-            disconnectRemoteConnection(clearConfiguration: true)
-        }
+        remoteTerminalTracking.markPersistentRemotePTYAttachFailed(surfaceId: surfaceId)
     }
 
     @MainActor
@@ -5211,91 +5159,20 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         remoteSurfaceTTYCoordinator.applyBootstrapRemoteTTY(ttyName)
     }
 
-    private func cleanupTransferredRemoteConnectionIfNeeded(surfaceId: UUID, relayPort: Int?) -> Bool {
-        guard let relayPort,
-              relayPort > 0,
-              let cleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId[surfaceId],
-              cleanupConfiguration.relayPort == relayPort else {
-            return false
-        }
-        transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: surfaceId)
-        Self.requestSSHControlMasterCleanupIfNeeded(configuration: cleanupConfiguration)
-        return true
-    }
-
-    private func remoteTerminalSessionEndMatchesCurrentConfiguration(
-        surfaceId: UUID,
-        relayPort: Int?,
-        configuration: WorkspaceRemoteConfiguration,
-        allowUntracked: Bool
-    ) -> Bool {
-        guard activeRemoteTerminalSurfaceIds.contains(surfaceId) ||
-            (allowUntracked && activeRemoteTerminalSurfaceIds.isEmpty) else {
-            return false
-        }
-        if let relayPort, relayPort > 0 {
-            return configuration.relayPort == relayPort
-        }
-        return true
-    }
-
-    private func disconnectRemoteConnectionAfterTerminalExit() {
-        disconnectRemoteConnection(
-            clearConfiguration: false,
-            disconnectedDetail: String(
-                localized: "remote.status.terminalDisconnected",
-                defaultValue: "Remote terminal session disconnected"
-            )
-        )
-    }
-
     func rememberPendingRemoteDisconnectReplacement(configuration: WorkspaceRemoteConfiguration) {
-        let reconnectCommand = configuration.terminalStartupCommand?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        pendingRemoteDisconnectReplacement = PendingRemoteDisconnectReplacement(
-            target: configuration.displayTarget,
-            reconnectCommand: reconnectCommand?.isEmpty == false ? reconnectCommand : nil
-        )
+        remoteTerminalTracking.rememberPendingRemoteDisconnectReplacement(configuration: configuration)
     }
 
     func markRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?, allowUntracked: Bool = false) {
-        if cleanupTransferredRemoteConnectionIfNeeded(surfaceId: surfaceId, relayPort: relayPort) {
-            return
-        }
-        guard let configuration = remoteConfiguration,
-              remoteTerminalSessionEndMatchesCurrentConfiguration(
-                surfaceId: surfaceId,
-                relayPort: relayPort,
-                configuration: configuration,
-                allowUntracked: allowUntracked
-              ) else {
-            return
-        }
-        let preservesRemotePTYSession = configuration.preserveAfterTerminalExit
-        if !preservesRemotePTYSession {
-            rememberPendingRemoteDisconnectReplacement(configuration: configuration)
-        }
-        pendingRemoteTerminalChildExitSurfaceIds.insert(surfaceId)
-        if activeRemoteTerminalSurfaceIds.remove(surfaceId) != nil {
-            activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
-        }
-        if activeRemoteTerminalSurfaceIds.isEmpty {
-            guard !preservesRemotePTYSession else { return }
-            let shouldCleanupControlMaster =
-                configuration.relayPort != nil &&
-                configuration.transport == .ssh &&
-                !isDetachingCloseTransaction &&
-                pendingDetachedSurfaces.isEmpty &&
-                !skipControlMasterCleanupAfterDetachedRemoteTransfer
-            disconnectRemoteConnectionAfterTerminalExit()
-            if shouldCleanupControlMaster {
-                Self.requestSSHControlMasterCleanupIfNeeded(configuration: configuration)
-            }
-        }
+        remoteTerminalTracking.markRemoteTerminalSessionEnded(
+            surfaceId: surfaceId,
+            relayPort: relayPort,
+            allowUntracked: allowUntracked
+        )
     }
 
     func teardownRemoteConnection() {
-        disconnectRemoteConnection(clearConfiguration: true)
+        remoteTerminalTracking.teardownRemoteConnection()
     }
 
     static func requestSSHControlMasterCleanupIfNeeded(configuration: WorkspaceRemoteConfiguration) {
