@@ -5423,87 +5423,31 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         let title: String
         let message: String
 
-        switch (error.domain, error.code) {
-        case (NSURLErrorDomain, NSURLErrorCannotConnectToHost),
-             (NSURLErrorDomain, NSURLErrorCannotFindHost),
-             (NSURLErrorDomain, NSURLErrorTimedOut):
+        switch BrowserNavigationErrorKind.classify(domain: error.domain, code: error.code) {
+        case .cantReach:
             title = String(localized: "browser.error.cantReach.title", defaultValue: "Can\u{2019}t reach this page")
             if failedURL.isEmpty {
                 message = String(localized: "browser.error.cantReach.messageSite", defaultValue: "The site refused to connect. Check that a server is running on this address.")
             } else {
                 message = String(localized: "browser.error.cantReach.messageURL", defaultValue: "\(failedURL) refused to connect. Check that a server is running on this address.")
             }
-        case (NSURLErrorDomain, NSURLErrorNotConnectedToInternet),
-             (NSURLErrorDomain, NSURLErrorNetworkConnectionLost):
+        case .noInternet:
             title = String(localized: "browser.error.noInternet", defaultValue: "No internet connection")
             message = String(localized: "browser.error.checkNetwork", defaultValue: "Check your network connection and try again.")
-        case (NSURLErrorDomain, NSURLErrorSecureConnectionFailed),
-             (NSURLErrorDomain, NSURLErrorServerCertificateUntrusted),
-             (NSURLErrorDomain, NSURLErrorServerCertificateHasUnknownRoot),
-             (NSURLErrorDomain, NSURLErrorServerCertificateHasBadDate),
-             (NSURLErrorDomain, NSURLErrorServerCertificateNotYetValid):
+        case .insecure:
             title = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure")
             message = String(localized: "browser.error.invalidCertificate", defaultValue: "The certificate for this site is invalid.")
-        default:
+        case .cantOpen:
             title = String(localized: "browser.error.cantOpen.title", defaultValue: "Can\u{2019}t open this page")
             message = error.localizedDescription
         }
 
-        let escapeHTML: (String) -> String = { value in
-            value
-                .replacingOccurrences(of: "&", with: "&amp;")
-                .replacingOccurrences(of: "<", with: "&lt;")
-                .replacingOccurrences(of: ">", with: "&gt;")
-                .replacingOccurrences(of: "\"", with: "&quot;")
-        }
-
-        let escapedTitle = escapeHTML(title)
-        let escapedMessage = escapeHTML(message)
-        let escapedURL = escapeHTML(failedURL)
-        let escapedReloadLabel = escapeHTML(String(localized: "browser.error.reload", defaultValue: "Reload"))
-
-        let html = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width">
-        <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            display: flex; align-items: center; justify-content: center;
-            min-height: 80vh; margin: 0; padding: 20px;
-            background: #1a1a1a; color: #e0e0e0;
-        }
-        .container { text-align: center; max-width: 420px; }
-        h1 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
-        p { font-size: 13px; color: #999; line-height: 1.5; }
-        .url { font-size: 12px; color: #666; word-break: break-all; margin-top: 16px; }
-        button {
-            margin-top: 20px; padding: 6px 20px;
-            background: #333; color: #e0e0e0; border: 1px solid #555;
-            border-radius: 6px; font-size: 13px; cursor: pointer;
-        }
-        button:hover { background: #444; }
-        @media (prefers-color-scheme: light) {
-            body { background: #fafafa; color: #222; }
-            p { color: #666; }
-            .url { color: #999; }
-            button { background: #eee; color: #222; border-color: #ccc; }
-            button:hover { background: #ddd; }
-        }
-        </style>
-        </head>
-        <body>
-        <div class="container">
-            <h1>\(escapedTitle)</h1>
-            <p>\(escapedMessage)</p>
-            <div class="url">\(escapedURL)</div>
-            <button onclick="location.reload()">\(escapedReloadLabel)</button>
-        </div>
-        </body>
-        </html>
-        """
+        let html = BrowserNavigationErrorPage.html(
+            title: title,
+            message: message,
+            failedURL: failedURL,
+            reloadLabel: String(localized: "browser.error.reload", defaultValue: "Reload")
+        )
         webView.loadHTMLString(html, baseURL: URL(string: failedURL))
     }
 
