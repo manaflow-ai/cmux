@@ -116,7 +116,11 @@ final class RemoteTmuxSessionMirror {
                 self?.handleActivePaneChanged(windowId: windowId, paneId: paneId)
             },
             onSessionChanged: { [weak self] oldName, newName in
-                self?.handleSessionNameChanged(oldName: oldName, newName: newName)
+                // Shared-connection (linked-view) mirrors must not drive the view
+                // connection's identity: the coordinator owns it. Same ownership
+                // gate as `onExit`.
+                guard let self, self.managesOwnLifecycle else { return }
+                self.handleSessionNameChanged(oldName: oldName, newName: newName)
             },
             onTopologyChanged: { [weak self] in
                 self?.rebuild()
