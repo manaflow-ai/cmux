@@ -38,20 +38,35 @@ public struct ChatSessionListReducer: Sendable {
             }
             var updated = sessions
             if let index = updated.firstIndex(where: { $0.id == descriptor.id }) {
+                // Version-gated upsert: best-effort pushes can arrive out of
+                // order, be duplicated, or race an authoritative pull. The host
+                // stamps a strictly increasing `version` on every change, so a
+                // descriptor whose version is LOWER than the one already
+                // applied is stale (or out of order) and must not clobber newer
+                // state the client got from a later push or a snapshot pull.
+                // Equal version is allowed through (a no-op in practice: the
+                // monotonic counter guarantees equal version == identical
+                // content), which also keeps unversioned (version 0) payloads
+                // upserting as before.
+                guard descriptor.version >= updated[index].version else {
+                    return sessions
+                }
                 updated[index] = descriptor
             } else {
                 updated.append(descriptor)
             }
             return updated
-        case .stateChanged(let state):
-            // A state push carries no workspace; only ever update an entry
-            // already in the (workspace-scoped) list, never insert.
-            guard let index = sessions.firstIndex(where: { $0.id == frame.sessionID }) else {
-                return sessions
-            }
-            var updated = sessions
-            updated[index] = updated[index].withState(state)
-            return updated
+        case .stateChanged:
+            // The bare state push carries NO version, so applying it here would
+            // let a duplicated or reordered frame clobber newer state the list
+            // already holds (the host emits an unversioned `stateChanged` AND a
+            // versioned `descriptorChanged` for the SAME transition, so the list
+            // always gets the state through the version-gated descriptor path
+            // above). The list is therefore driven solely by `descriptorChanged`;
+            // the unversioned `stateChanged` is a no-op for the list. The focused
+            // conversation's `ChatConversationStore` still consumes `stateChanged`
+            // directly for its own live state (it is not version-reconciled).
+            return sessions
         case .appended, .updated, .terminalBlocks, .streamingProse, .reset, .unknown:
             // Transcript-content frames don't affect the session list.
             return sessions
