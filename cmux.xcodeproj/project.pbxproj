@@ -120,9 +120,6 @@
 		D7ABB07A0000000000000003 /* BonsplitTabTransferPasteboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7ABB07A0000000000000004 /* BonsplitTabTransferPasteboard.swift */; };
 		D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */; };
 		B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770BA00000000000000002 /* BrowserAutomation.swift */; };
-		BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */; };
-		BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */; };
-		BC000011 /* BrowserChromeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC000001 /* BrowserChromeStyle.swift */; };
 		E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */; };
 		C10D517B0000000000000002 /* BrowserDevToolsIconColorOption+DevToolsColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D517B0000000000000001 /* BrowserDevToolsIconColorOption+DevToolsColor.swift */; };
 		C59240010000000000000003 /* BrowserDownloadFilenameResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */; };
@@ -534,7 +531,6 @@
 		CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */; };
 		C7A50B000000000000000025 /* HostMobileViewportReportModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000024 /* HostMobileViewportReportModelTests.swift */; };
 		CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */; };
-		0A1B0AB50000000000000011 /* Image+CmuxFlatSymbolColorRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1B0AB50000000000000012 /* Image+CmuxFlatSymbolColorRendering.swift */; };
 		F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */; };
 		DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
 		BE5CD51065BFA8B7941C8C45 /* IngestBlockingResult+SocketEncoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E2D4137C9D53C59611B6A67 /* IngestBlockingResult+SocketEncoding.swift */; };
@@ -653,7 +649,6 @@
 		C0DE00000000000000000DB6 /* NSView+CmuxDebugDragHit.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000DB5 /* NSView+CmuxDebugDragHit.swift */; };
 		D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */; };
 		645645000000000000000002 /* NumberedShortcutSwapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645645000000000000000001 /* NumberedShortcutSwapTests.swift */; };
-		0A1B0AB50000000000000001 /* OmnibarAddressButtonStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1B0AB50000000000000002 /* OmnibarAddressButtonStyle.swift */; };
 		4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */; };
 		9637C6D3170F4BE1A7EF6243 /* OmnibarSubmitDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */; };
 		8ABF422A675EF09045AD8DCD /* OmnibarSuggestion+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8366BD38105398873AD532 /* OmnibarSuggestion+App.swift */; };
@@ -1349,9 +1344,6 @@
 		D7ABB07A0000000000000004 /* BonsplitTabTransferPasteboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabTransferPasteboard.swift; sourceTree = "<group>"; };
 		D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
 		B3770BA00000000000000002 /* BrowserAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAutomation.swift; sourceTree = "<group>"; };
-		BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserChromeMetrics.swift; sourceTree = "<group>"; };
-		BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserChromeMetricsTests.swift; sourceTree = "<group>"; };
-		BC000001 /* BrowserChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserChromeStyle.swift; sourceTree = "<group>"; };
 		970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
 		C10D517B0000000000000001 /* BrowserDevToolsIconColorOption+DevToolsColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserDevToolsIconColorOption+DevToolsColor.swift"; sourceTree = "<group>"; };
 		C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDownloadFilenameResolverTests.swift; sourceTree = "<group>"; };
@@ -1707,7 +1699,6 @@
 		CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostAccountFlow.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000024 /* HostMobileViewportReportModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostMobileViewportReportModelTests.swift; sourceTree = "<group>"; };
 		CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostSettingsActions.swift; sourceTree = "<group>"; };
-		0A1B0AB50000000000000012 /* Image+CmuxFlatSymbolColorRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/Image+CmuxFlatSymbolColorRendering.swift"; sourceTree = "<group>"; };
 		F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InactivePaneFirstClickFocusTests.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000002 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		6E2D4137C9D53C59611B6A67 /* IngestBlockingResult+SocketEncoding.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "IngestBlockingResult+SocketEncoding.swift"; sourceTree = "<group>"; };
@@ -1824,7 +1815,6 @@
 		C0DE00000000000000000DB5 /* NSView+CmuxDebugDragHit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSView+CmuxDebugDragHit.swift"; sourceTree = "<group>"; };
 		D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/NSWindow+CmuxPeerWindow.swift"; sourceTree = "<group>"; };
 		645645000000000000000001 /* NumberedShortcutSwapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberedShortcutSwapTests.swift; sourceTree = "<group>"; };
-		0A1B0AB50000000000000002 /* OmnibarAddressButtonStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OmnibarAddressButtonStyle.swift; sourceTree = "<group>"; };
 		B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarAndToolsTests.swift; sourceTree = "<group>"; };
 		48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarSubmitDecisionTests.swift; sourceTree = "<group>"; };
 		AC8366BD38105398873AD532 /* OmnibarSuggestion+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/OmnibarSuggestion+App.swift"; sourceTree = "<group>"; };
@@ -3063,15 +3053,11 @@
 				A500MX00 /* BrowserPanel+MediaPlayback.swift */,
 				A500RG00 /* ReactGrab.swift */,
 				A5001413 /* TerminalPanelView.swift */,
-				BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */,
 				048DACB3F8147BCBDD266297 /* BrowserSystemProxyMirror.swift */,
 				109D0E38E29A8779FA0BAE82 /* BrowserRemoteWorkspaceStatus.swift */,
 				326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */,
 				A5001414 /* BrowserPanelView.swift */,
-				0A1B0AB50000000000000002 /* OmnibarAddressButtonStyle.swift */,
-				0A1B0AB50000000000000012 /* Image+CmuxFlatSymbolColorRendering.swift */,
 				0A1B0AB50000000000000022 /* BrowserOmnibarPreferenceKeys.swift */,
-				BC000001 /* BrowserChromeStyle.swift */,
 				A9E010000000000000000001 /* AgentSessionProvider.swift */,
 				A9F100000000000000000001 /* AgentExecutableResolver.swift */,
 				A9F100000000000000000002 /* AgentExecutableResolverError.swift */,
@@ -3389,7 +3375,6 @@
 				F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */,
 				B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */,
 				604100010000000000000002 /* GhosttyDrawableSizeRetryTests.swift */,
-				BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */,
 				A11EB0000000000000000001 /* GhosttyConfigPathResolverTests.swift */,
 				C13519000000000000000004 /* GhosttyTerminalStartupEnvironmentTests.swift */,
 				C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */,
@@ -4153,8 +4138,6 @@
 				B0759101AD1742E5B0759101 /* BonsplitTabDragUITestRecorder.swift in Sources */,
 				D7ABB07A0000000000000003 /* BonsplitTabTransferPasteboard.swift in Sources */,
 				B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */,
-				BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */,
-				BC000011 /* BrowserChromeStyle.swift in Sources */,
 				C10D517B0000000000000002 /* BrowserDevToolsIconColorOption+DevToolsColor.swift in Sources */,
 				1482031301087617B2718338 /* BrowserDownloadLocalizedInit.swift in Sources */,
 				BE0EE0010000000000000001 /* BrowserExternalNavigationPresenter.swift in Sources */,
@@ -4363,7 +4346,6 @@
 				BE12AB34CD56EF7890ABCD01 /* HermesTranscriptReader.swift in Sources */,
 				CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */,
 				CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */,
-				0A1B0AB50000000000000011 /* Image+CmuxFlatSymbolColorRendering.swift in Sources */,
 				BE5CD51065BFA8B7941C8C45 /* IngestBlockingResult+SocketEncoding.swift in Sources */,
 				A5001A04A1B2C3D4E5F60718 /* InteractiveGeometryResizeTracker.swift in Sources */,
 				4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */,
@@ -4449,7 +4431,6 @@
 				FE0A1103FE0A1103FE0A1103 /* NSResponder+FileExplorerDebug.swift in Sources */,
 				C0DE00000000000000000DB6 /* NSView+CmuxDebugDragHit.swift in Sources */,
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
-				0A1B0AB50000000000000001 /* OmnibarAddressButtonStyle.swift in Sources */,
 				8ABF422A675EF09045AD8DCD /* OmnibarSuggestion+App.swift in Sources */,
 				A9F200000000000000000017 /* OpenCodeEventStreamParser.swift in Sources */,
 				A9F200000000000000000018 /* OpenCodeEventTextAccumulator.swift in Sources */,
@@ -4946,7 +4927,6 @@
 				A4ECF22C62724853A72D6BDE /* AutoNamingGrokAdapterTests.swift in Sources */,
 				74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */,
 				D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */,
-				BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */,
 				E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */,
 				C59240010000000000000003 /* BrowserDownloadFilenameResolverTests.swift in Sources */,
 				A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
