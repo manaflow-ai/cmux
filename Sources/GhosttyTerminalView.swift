@@ -6845,8 +6845,10 @@ final class GhosttySurfaceScrollView: NSView {
 
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            guard self.activeImageTransferOperation === operation else { return }
-            guard !operation.isCancelled else { return }
+            guard TerminalImageTransferIndicatorPolicy.shouldShowAfterDelay(
+                operationIsStillActive: self.activeImageTransferOperation === operation,
+                operationIsCancelled: operation.isCancelled
+            ) else { return }
             self.imageTransferIndicatorShowWorkItem = nil
             self.imageTransferIndicatorSpinner.startAnimation(nil)
             self.imageTransferIndicatorContainerView.isHidden = false
@@ -6864,8 +6866,10 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        if let operation,
-           activeImageTransferOperation !== operation {
+        if !TerminalImageTransferIndicatorPolicy.shouldEnd(
+            hasRequestedOperation: operation != nil,
+            requestedMatchesActive: activeImageTransferOperation === operation
+        ) {
             return
         }
 
@@ -7301,40 +7305,22 @@ final class GhosttySurfaceScrollView: NSView {
 
 #if DEBUG
     private func logDropZoneOverlay(event: String, zone: DropZone?, frame: CGRect?) {
-        let surface = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
-        let zoneText = zone.map { String(describing: $0) } ?? "none"
-        let boundsText = String(format: "%.1fx%.1f", bounds.width, bounds.height)
-        let overlaySuperviewClass = dropZoneOverlayView.superview.map { String(describing: type(of: $0)) } ?? "nil"
-        let scrollOriginText = String(
-            format: "%.1f,%.1f",
-            scrollView.contentView.bounds.origin.x,
-            scrollView.contentView.bounds.origin.y
+        let signatureBuilder = TerminalDropOverlayLogSignature(
+            event: event,
+            surface: surfaceView.terminalSurface?.id.uuidString.prefix(5).description ?? "nil",
+            zoneText: zone.map { String(describing: $0) } ?? "none",
+            bounds: bounds,
+            frame: frame,
+            overlaySuperviewClass: dropZoneOverlayView.superview.map { String(describing: type(of: $0)) } ?? "nil",
+            scrollOrigin: scrollView.contentView.bounds.origin,
+            surfaceOrigin: surfaceView.frame.origin,
+            isHidden: dropZoneOverlayView.isHidden,
+            overlayExternal: dropZoneOverlayView.superview !== self
         )
-        let surfaceOriginText = String(
-            format: "%.1f,%.1f",
-            surfaceView.frame.origin.x,
-            surfaceView.frame.origin.y
-        )
-        let frameText: String
-        if let frame {
-            frameText = String(
-                format: "%.1f,%.1f %.1fx%.1f",
-                frame.origin.x, frame.origin.y, frame.width, frame.height
-            )
-        } else {
-            frameText = "-"
-        }
-        let signature =
-            "\(event)|\(surface)|\(zoneText)|\(boundsText)|\(frameText)|\(overlaySuperviewClass)|" +
-            "\(scrollOriginText)|\(surfaceOriginText)|\(dropZoneOverlayView.isHidden ? 1 : 0)"
+        let signature = signatureBuilder.signature
         guard lastDropZoneOverlayLogSignature != signature else { return }
         lastDropZoneOverlayLogSignature = signature
-        cmuxDebugLog(
-            "terminal.dropOverlay event=\(event) surface=\(surface) zone=\(zoneText) " +
-            "hidden=\(dropZoneOverlayView.isHidden ? 1 : 0) bounds=\(boundsText) frame=\(frameText) " +
-            "overlaySuper=\(overlaySuperviewClass) overlayExternal=\(dropZoneOverlayView.superview === self ? 0 : 1) " +
-            "scrollOrigin=\(scrollOriginText) surfaceOrigin=\(surfaceOriginText)"
-        )
+        cmuxDebugLog(signatureBuilder.logMessage)
     }
 #endif
 
