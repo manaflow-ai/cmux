@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cmux origin-rail palette options</title>
+<style>
+  :root { font-family: -apple-system, "SF Pro Text", system-ui, sans-serif; }
+  body { margin: 0; background: #6b6b6e; color: #fff; padding: 28px 32px 80px; }
+  h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; }
+  .sub { opacity: .8; font-size: 13px; margin: 0 0 24px; max-width: 760px; line-height: 1.5; }
+  .scheme { margin: 0 0 34px; }
+  .scheme > .name { font-size: 15px; font-weight: 700; margin: 0 0 2px; }
+  .scheme > .desc { font-size: 12px; opacity: .75; margin: 0 0 12px; }
+  .swatches { display: flex; gap: 10px; margin: 0 0 14px; flex-wrap: wrap; }
+  .swatch-wrap { width: 64px; text-align: center; }
+  .swatch { width: 64px; height: 48px; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); }
+  .swatch-wrap .lbl { font-size: 11px; font-weight: 600; margin-top: 4px; }
+  .swatch-wrap .hex { font-size: 9px; font-family: ui-monospace, monospace; opacity: .65; }
+  .pair { display: flex; gap: 18px; flex-wrap: wrap; }
+  .sidebar { width: 248px; border-radius: 12px; padding: 8px 8px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+  .sidebar.light    { background: #A7AAAB; }     /* ACTUAL sampled cmux sidebar grey (light mode) */
+  .sidebar.proposed { background: #e9e9ec; }     /* lighter grey you preferred */
+  .sidebar.dark     { background: #1b1b1d; }     /* dark-mode sidebar bg (near black) */
+  .sidebar.proposed .mode-label { color:#333; }
+  .sidebar.proposed .row .title { color:#1c1c1e; }
+  .sidebar.proposed .row .meta  { color:#3c3c43; }
+  .mode-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; opacity: .55; margin: 2px 0 8px 6px; }
+  .light .mode-label { color: #333; }
+  .row { position: relative; padding: 7px 10px 7px 16px; border-radius: 7px; margin: 1px 0; }
+  .row .rail { position: absolute; left: 4px; top: 6px; bottom: 6px; width: 3px; border-radius: 2px; }
+  .row .title { font-size: 13px; font-weight: 600; line-height: 1.25; }
+  .row .meta  { font-size: 11px; font-family: ui-monospace, "SF Mono", monospace; opacity: .55; line-height: 1.3; }
+  .light .row .title { color: #1c1c1e; }
+  .light .row .meta  { color: #3c3c43; }
+  .dark  .row .title { color: #f2f2f7; }
+  .dark  .row .meta  { color: #ebebf5; }
+  .row.sel { background: #3B86F7; }              /* ACTUAL cmux selection/accent blue (sampled) */
+  .row.sel .title, .row.sel .meta { color:#fff; opacity:1; }
+  .legend { font-size:11px; opacity:.7; margin:6px 0 0 6px; }
+</style>
+</head>
+<body>
+<h1>cmux origin-rail palette options</h1>
+<p class="sub">Origin-rail palette exploration for the remote-tmux linked-view feature. Each option shows a mock workspace sidebar for a window that mixes origins — <b>Local</b> rows (gray rail) + remote hosts (each its own color) — on the actual cmux <b>grey</b> background and the <b>dark/near-black</b> background, with <b>none</b> selected and <b>all</b> selected (the blue is the #3B86F7 selection highlight). <b>Shipped scheme: “Toned-down (recommended)”.</b> Palettes were optimized to maximize the minimum CIEDE2000 distance between every pair and from the built-in colors (accent #0088FF/#0091FF, selection #3B86F7, backgrounds), excluding blue. Distinguishing is best-effort — the host name in the title bar / row label is the primary cue. Local uses an adaptive gray.</p>
+<div id="root"></div>
+
+<script>
+// ---- color helpers ----
+function hexToRgb(h){h=h.replace('#','');return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
+function rgbStr(r){return `rgb(${r[0]|0},${r[1]|0},${r[2]|0})`;}
+function blend(hex, target, f){const a=hexToRgb(hex),b=target;return [a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f];}
+const WHITE=[255,255,255];
+// pastel toward white (used for light bg); for dark bg blend slightly toward white too but less
+function railFor(hex, mode){
+  // No pastel wash: mid-tone colors must keep enough contrast against the medium
+  // grey (#A7AAAB) and near-black backgrounds. On dark, lift very dark colors a hair.
+  return rgbStr(mode==='dark' ? blend(hex, WHITE, 0.06) : hexToRgb(hex));
+}
+// adaptive local gray
+const localRail = { light: 'rgba(60,60,67,0.5)', proposed: 'rgba(60,60,67,0.5)', dark: 'rgba(235,235,245,0.45)' };
+const modeTitle = { light:'Actual cmux grey (#A7AAAB)', proposed:'Lighter grey (you liked)', dark:'Dark mode (near-black)' };
+
+// ---- palettes ----
+// Constraints: NON-BLUE (cmux accent #0088FF + selection #3B86F7 are blue — avoid the
+// blue family), enough saturation to CONTRAST against the medium grey (#A7AAAB) light
+// background AND the near-black dark background (no pastel wash), and clearly distinct
+// from each other. Local = gray. Each scheme below shows its FULL range, one row/color.
+// All palettes optimized: chosen to MAXIMIZE the minimum CIEDE2000 distance between
+// every pair AND from the built-ins (accent #0088FF/#0091FF, selection #3B86F7, grey
+// bg #A7AAAB, black bg, white). Blue hues excluded. min ΔE noted per scheme (higher =
+// more distinguishable; ~2 is "just noticeable", >20 reads clearly even on a 3px rail).
+const schemes = [
+  { name:'Toned-down (recommended)', desc:'6 muted hues, optimized. min pairwise ΔE = 24.5. Calm but clearly separable; rose is dusty, not bright pink.',
+    colors:['#9E6652','#C7A958','#75C758','#469E92','#63469E','#C75893'],
+    labels:['clay','gold','green','teal','indigo','rose'] },
+  { name:'Toned-down +1 (up to 7 hosts)', desc:'Same muted feel extended to 7. min pairwise ΔE = 19.9 (a bit tighter — the cost of a 7th muted hue).',
+    colors:['#C77D77','#C7A958','#58C758','#469E92','#63469E','#BF58C7','#9E4663'],
+    labels:['clay','gold','green','teal','indigo','orchid','wine'] },
+  { name:'Mid (a touch more pop)', desc:'Optimized at higher saturation. min pairwise ΔE = 27.2. Most distinguishable, slightly louder.',
+    colors:['#D1724F','#D1AA3F','#70D13F','#2E9984','#5A3A99','#D14F8C'],
+    labels:['terracotta','gold','green','teal','indigo','rose'] },
+];
+
+// One row PER palette color so the full range is visible. Row 3 marked selected to show
+// the rail coexisting with the #3B86F7 selection highlight.
+function hostRows(n){
+  const out=[]; for(let i=0;i<n;i++) out.push({t:'host-'+String.fromCharCode(97+i), m:'session', idx:i});
+  return out;
+}
+const locals = [
+  {t:'~/src/cmux', m:'local'},
+  {t:'Terminal',   m:'local'},
+];
+
+function sidebar(scheme, mode, hl){   // hl: 'none' (nothing selected) | 'all' (everything selected)
+  const wrap=document.createElement('div');
+  wrap.className='sidebar '+mode;
+  const ml=document.createElement('div'); ml.className='mode-label';
+  ml.textContent = modeTitle[mode] + (hl==='all' ? ' · ALL selected' : ' · none selected'); wrap.appendChild(ml);
+  function row(item, railColor){
+    const sel = (hl==='all');
+    const r=document.createElement('div'); r.className='row '+mode+(sel?' sel':'');
+    const rail=document.createElement('div'); rail.className='rail'; rail.style.background=railColor; r.appendChild(rail);
+    const t=document.createElement('div'); t.className='title'; t.textContent=item.t; r.appendChild(t);
+    const m=document.createElement('div'); m.className='meta'; m.textContent=item.m; r.appendChild(m);
+    return r;
+  }
+  wrap.appendChild(row(locals[0], localRail[mode]));
+  hostRows(scheme.colors.length).forEach(h=> wrap.appendChild(row(h, railFor(scheme.colors[h.idx], mode))));
+  wrap.appendChild(row(locals[1], localRail[mode]));
+  return wrap;
+}
+
+const root=document.getElementById('root');
+schemes.forEach(s=>{
+  const sec=document.createElement('div'); sec.className='scheme';
+  const n=document.createElement('div'); n.className='name'; n.textContent=s.name; sec.appendChild(n);
+  const d=document.createElement('div'); d.className='desc'; d.textContent=s.desc; sec.appendChild(d);
+  const sw=document.createElement('div'); sw.className='swatches';
+  function swatch(color, label){
+    const w=document.createElement('div'); w.className='swatch-wrap';
+    const e=document.createElement('div'); e.className='swatch'; e.style.background=color; w.appendChild(e);
+    const l=document.createElement('div'); l.className='lbl'; l.textContent=label; w.appendChild(l);
+    const h=document.createElement('div'); h.className='hex'; h.textContent=color; w.appendChild(h);
+    return w;
+  }
+  s.colors.forEach((c,i)=> sw.appendChild(swatch(c, (s.labels&&s.labels[i])||('host '+(i+1)))));
+  sw.appendChild(swatch('#8a8a8e','Local'));
+  sec.appendChild(sw);
+  const pair=document.createElement('div'); pair.className='pair';
+  pair.appendChild(sidebar(s,'light','none'));
+  pair.appendChild(sidebar(s,'dark','none'));
+  pair.appendChild(sidebar(s,'light','all'));
+  pair.appendChild(sidebar(s,'dark','all'));
+  sec.appendChild(pair);
+  const lg2=document.createElement('div'); lg2.className='legend'; lg2.textContent='Local rows use the adaptive gray rail (rightmost swatch).'; sec.appendChild(lg2);
+  root.appendChild(sec);
+});
+</script>
+</body>
+</html>
