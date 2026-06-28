@@ -91,6 +91,9 @@
          location = "group:CmuxBrowser">
       </FileRef>
       <FileRef
+         location = "group:CmuxBrowserUI">
+      </FileRef>
+      <FileRef
          location = "group:CmuxCanvas">
       </FileRef>
       <FileRef

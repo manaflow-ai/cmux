@@ -1,6 +1,7 @@
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxBrowser
+import CmuxBrowserUI
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
@@ -25,9 +26,9 @@ private extension WKWebView {
     // Inspector-detection seam for the browser-panel rendering-state lifecycle.
     // The lifecycle itself (notifyHidden / reattach / forceRefresh) lives in
     // CmuxBrowser (`WKWebView+BrowserPanelRenderingState`); the inspector
-    // predicate stays app-side because `cmuxIsWebInspectorObject` is app-target.
+    // predicate also lives in CmuxBrowser (`NSObject.isCmuxWebInspectorObject`).
     var cmuxBrowserPanelIsInspectorFrontend: Bool {
-        cmuxIsWebInspectorObject(self)
+        isCmuxWebInspectorObject
     }
 }
 
@@ -4174,8 +4175,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         func pinHostedWebView(_ webView: WKWebView, in container: NSView) {
             guard webView.superview === container || webView.isDescendant(of: container) else { return }
 
-            let hasCompanionWKSubviews = Self.hasWebKitCompanionSubview(
-                in: container,
+            let hasCompanionWKSubviews = container.hasWebKitCompanionSubview(
                 primaryWebView: webView
             )
             let needsPlainWebViewFrameReset =
@@ -4208,28 +4208,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             needsLayout = true
             layoutSubtreeIfNeeded()
-        }
-
-        private static func hasWebKitCompanionSubview(in host: NSView, primaryWebView: WKWebView) -> Bool {
-            var stack = host.subviews.filter { $0 !== primaryWebView }
-            while let current = stack.popLast() {
-                if current.isDescendant(of: primaryWebView) {
-                    continue
-                }
-                if current.isHidden || current.alphaValue <= 0 {
-                    continue
-                }
-                if String(describing: type(of: current)).contains("WK") {
-                    let width = max(current.frame.width, current.bounds.width)
-                    let height = max(current.frame.height, current.bounds.height)
-                    if width > 1, height > 1 {
-                        return true
-                    }
-                    continue
-                }
-                stack.append(contentsOf: current.subviews)
-            }
-            return false
         }
 
         private func ensureHostedInspectorSideDockContainerView() -> HostedInspectorSideDockContainerView {
@@ -5177,7 +5155,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         fileprivate static func isInspectorView(_ view: NSView) -> Bool {
-            cmuxIsWebInspectorObject(view)
+            view.isCmuxWebInspectorObject
         }
 
         fileprivate static func isVisibleHostedInspectorCandidate(_ view: NSView) -> Bool {
@@ -5248,14 +5226,14 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private static func isLikelyInspectorResponder(_ responder: NSResponder?) -> Bool {
         guard let responder else { return false }
-        if cmuxIsWebInspectorObject(responder) {
+        if responder.isCmuxWebInspectorObject {
             return true
         }
         guard let view = responder as? NSView else { return false }
         var node: NSView? = view
         var hops = 0
         while let current = node, hops < 64 {
-            if cmuxIsWebInspectorObject(current) {
+            if current.isCmuxWebInspectorObject {
                 return true
             }
             node = current.superview
@@ -5369,7 +5347,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 continue
             }
-            if cmuxIsWebInspectorClassName(className) || cmuxIsWebInspectorObject(view) {
+            if className.isCmuxWebInspectorClassName || view.isCmuxWebInspectorObject {
                 continue
             }
             guard className.contains("WK") else { continue }

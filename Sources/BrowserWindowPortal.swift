@@ -64,11 +64,6 @@ private extension NSWindow {
 }
 
 final class WindowBrowserHostView: NSView {
-    private struct DividerHit {
-        let kind: DividerCursorKind
-        let isInHostedContent: Bool
-    }
-
     private struct HostedInspectorDividerHit {
         let slotView: WindowBrowserSlotView
         let containerView: NSView
@@ -88,18 +83,6 @@ final class WindowBrowserHostView: NSView {
         let initialInspectorFrame: NSRect
     }
 
-    private enum DividerCursorKind: Equatable {
-        case vertical
-        case horizontal
-
-        var cursor: NSCursor {
-            switch self {
-            case .vertical: return .resizeLeftRight
-            case .horizontal: return .resizeUpDown
-            }
-        }
-    }
-
     override var isOpaque: Bool { false }
     private static let sidebarLeadingEdgeEpsilon: CGFloat = 1
     private static let minimumVisibleLeadingContentWidth: CGFloat = 24
@@ -108,7 +91,7 @@ final class WindowBrowserHostView: NSView {
     private var cachedSidebarDividerX: CGFloat?
     private var sidebarDividerMissCount = 0
     private var trackingArea: NSTrackingArea?
-    private var activeDividerCursorKind: DividerCursorKind?
+    private var activeDividerCursorKind: SplitDividerHit.Kind?
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
@@ -134,7 +117,7 @@ final class WindowBrowserHostView: NSView {
         point: NSPoint,
         titlebarPassThrough: Bool,
         sidebarPassThrough: Bool,
-        dividerHit: DividerHit?,
+        dividerHit: SplitDividerHit?,
         hitView: NSView?
     ) {
         let event = NSApp.currentEvent
@@ -346,7 +329,7 @@ final class WindowBrowserHostView: NSView {
                     point: point,
                     titlebarPassThrough: false,
                     sidebarPassThrough: false,
-                    dividerHit: DividerHit(kind: .vertical, isInHostedContent: true),
+                    dividerHit: SplitDividerHit(kind: .vertical, isInHostedContent: true),
                     hitView: nativeHit
                 )
 #endif
@@ -358,7 +341,7 @@ final class WindowBrowserHostView: NSView {
                 point: point,
                 titlebarPassThrough: false,
                 sidebarPassThrough: false,
-                dividerHit: DividerHit(kind: .vertical, isInHostedContent: true),
+                dividerHit: SplitDividerHit(kind: .vertical, isInHostedContent: true),
                 hitView: hostedInspectorHit.inspectorView
             )
 #endif
@@ -524,7 +507,7 @@ final class WindowBrowserHostView: NSView {
 
     private func shouldPassThroughToSidebarResizer(
         at point: NSPoint,
-        dividerHit: DividerHit?,
+        dividerHit: SplitDividerHit?,
         hostedInspectorHit: HostedInspectorDividerHit? = nil
     ) -> Bool {
         // If WebKit has a hosted vertical inspector split collapsed to the pane edge,
@@ -602,7 +585,7 @@ final class WindowBrowserHostView: NSView {
 
     private func updateDividerCursor(
         at point: NSPoint,
-        dividerHit: DividerHit? = nil,
+        dividerHit: SplitDividerHit? = nil,
         hostedInspectorHit: HostedInspectorDividerHit? = nil
     ) {
         let resolvedDividerHit = dividerHit ?? splitDividerHit(at: point)
@@ -654,11 +637,11 @@ final class WindowBrowserHostView: NSView {
         }
     }
 
-    private func splitDividerHit(at point: NSPoint) -> DividerHit? {
+    private func splitDividerHit(at point: NSPoint) -> SplitDividerHit? {
         guard window != nil else { return nil }
         let windowPoint = convert(point, to: nil)
         guard let rootView = dividerSearchRootView() else { return nil }
-        return Self.dividerHit(at: windowPoint, in: rootView, hostView: self)
+        return SplitDividerHitTester(hostView: self).hit(at: windowPoint, in: rootView)
     }
 
     private func dividerSearchRootView() -> NSView? {
@@ -706,7 +689,7 @@ final class WindowBrowserHostView: NSView {
 
     private func hostedInspectorDividerCandidate(in slot: WindowBrowserSlotView) -> HostedInspectorDividerHit? {
         let inspectorCandidates = slot.visibleDescendants
-            .filter { $0.isVisibleHostedInspectorCandidate && Self.isInspectorView($0) }
+            .filter { $0.isVisibleHostedInspectorCandidate && $0.isCmuxWebInspectorObject }
             .sorted { lhs, rhs in
                 let lhsFrame = slot.convert(lhs.bounds, from: lhs)
                 let rhsFrame = slot.convert(rhs.bounds, from: rhs)
@@ -897,69 +880,6 @@ final class WindowBrowserHostView: NSView {
         )
 #endif
         return (pageFrame, inspectorFrame)
-    }
-    private static func dividerHit(
-        at windowPoint: NSPoint,
-        in view: NSView,
-        hostView: WindowBrowserHostView
-    ) -> DividerHit? {
-        guard !view.isHidden else { return nil }
-
-        if let splitView = view as? NSSplitView {
-            let pointInSplit = splitView.convert(windowPoint, from: nil)
-            if splitView.bounds.contains(pointInSplit) {
-                let expansion: CGFloat = 5
-                let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
-                for dividerIndex in 0..<dividerCount {
-                    let first = splitView.arrangedSubviews[dividerIndex].frame
-                    let second = splitView.arrangedSubviews[dividerIndex + 1].frame
-                    let thickness = splitView.dividerThickness
-                    let dividerRect: NSRect
-                    if splitView.isVertical {
-                        // Keep divider hit-testing active even when one side is nearly collapsed,
-                        // so users can drag the divider back out from the border.
-                        // But ignore transient states where both panes are effectively 0-width.
-                        guard first.width > 1 || second.width > 1 else { continue }
-                        let x = max(0, first.maxX)
-                        dividerRect = NSRect(
-                            x: x,
-                            y: 0,
-                            width: thickness,
-                            height: splitView.bounds.height
-                        )
-                    } else {
-                        // Same behavior for horizontal splits with a near-zero-height pane.
-                        guard first.height > 1 || second.height > 1 else { continue }
-                        let y = max(0, first.maxY)
-                        dividerRect = NSRect(
-                            x: 0,
-                            y: y,
-                            width: splitView.bounds.width,
-                            height: thickness
-                        )
-                    }
-                    let expanded = dividerRect.insetBy(dx: -expansion, dy: -expansion)
-                    if expanded.contains(pointInSplit) {
-                        return DividerHit(
-                            kind: splitView.isVertical ? .vertical : .horizontal,
-                            isInHostedContent: splitView.isDescendant(of: hostView)
-                        )
-                    }
-                }
-            }
-        }
-
-        for subview in view.subviews.reversed() {
-            if let hit = dividerHit(at: windowPoint, in: subview, hostView: hostView) {
-                return hit
-            }
-        }
-
-        return nil
-    }
-
-    private static func isInspectorView(_ view: NSView) -> Bool {
-        cmuxIsWebInspectorObject(view)
     }
 
 }
@@ -1380,10 +1300,10 @@ final class WindowBrowserSlotView: NSView {
     func pinHostedWebView(_ webView: WKWebView) {
         guard webView.superview === self else { return }
 
-        let hasCompanionWKSubviews = Self.hasWebKitCompanionSubview(in: self, primaryWebView: webView)
+        let hasCompanionWKSubviews = self.hasWebKitCompanionSubview(primaryWebView: webView)
         let needsPlainWebViewFrameReset =
             !hasCompanionWKSubviews &&
-            Self.frameDiffersFromBounds(webView.frame, bounds: bounds)
+            webView.frame.portalFrameDiffers(fromBounds: bounds)
         let needsFrameHosting =
             hostedWebView !== webView ||
             !hostedWebViewConstraints.isEmpty ||
@@ -1409,35 +1329,6 @@ final class WindowBrowserSlotView: NSView {
         }
         needsLayout = true
         layoutSubtreeIfNeeded()
-    }
-
-    private static func frameDiffersFromBounds(_ frame: NSRect, bounds: NSRect, epsilon: CGFloat = 0.5) -> Bool {
-        abs(frame.minX - bounds.minX) > epsilon ||
-            abs(frame.minY - bounds.minY) > epsilon ||
-            abs(frame.width - bounds.width) > epsilon ||
-            abs(frame.height - bounds.height) > epsilon
-    }
-
-    private static func hasWebKitCompanionSubview(in host: NSView, primaryWebView: WKWebView) -> Bool {
-        var stack = host.subviews.filter { $0 !== primaryWebView }
-        while let current = stack.popLast() {
-            if current.isDescendant(of: primaryWebView) {
-                continue
-            }
-            if current.isHidden || current.alphaValue <= 0 {
-                continue
-            }
-            if String(describing: type(of: current)).contains("WK") {
-                let width = max(current.frame.width, current.bounds.width)
-                let height = max(current.frame.height, current.bounds.height)
-                if width > 1, height > 1 {
-                    return true
-                }
-                continue
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
     }
 
     func effectivePaneTopChromeHeight() -> CGFloat {
@@ -1596,13 +1487,6 @@ final class WindowBrowserSlotView: NSView {
 final class WindowBrowserPortal: NSObject {
     private static let transientRecoveryRetryBudget: Int = 12
 
-    private static func dividerHitRectContains(_ point: NSPoint, rect: NSRect) -> Bool {
-        point.x >= rect.minX &&
-            point.x <= rect.maxX &&
-            point.y >= rect.minY &&
-            point.y <= rect.maxY
-    }
-
     private weak var window: NSWindow?
     private let hostView = WindowBrowserHostView(frame: .zero)
     private let chromeComposition = AppWindowChromeComposition()
@@ -1725,7 +1609,7 @@ final class WindowBrowserPortal: NSObject {
         }
 
         let hitRect = dividerRect.insetBy(dx: -5, dy: -5)
-        if dividerHitRectContains(location, rect: hitRect) {
+        if hitRect.portalDividerHitContains(location) {
             window.browserPortalHasInteractiveSplitDividerDrag = true
         }
     }
@@ -1856,9 +1740,9 @@ final class WindowBrowserPortal: NSObject {
             installedContainerView = container
             installedReferenceView = reference
         } else {
-            let aboveReference = Self.isView(hostView, above: reference, in: container)
+            let aboveReference = hostView.isOrdered(above: reference, in: container)
             let abovePlacementReference = placementReference === reference
-                || Self.isView(hostView, above: placementReference, in: container)
+                || hostView.isOrdered(above: placementReference, in: container)
             if !aboveReference || !abovePlacementReference {
                 container.addSubview(hostView, positioned: .above, relativeTo: placementReference)
             }
@@ -1902,35 +1786,6 @@ final class WindowBrowserPortal: NSObject {
             .contentOverlayTargetResolver
             .installationTarget(for: window) else { return nil }
         return (target.container, target.reference)
-    }
-
-    private static func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
-        if view.isHidden { return true }
-        var current = view.superview
-        while let v = current {
-            if v.isHidden { return true }
-            current = v.superview
-        }
-        return false
-    }
-
-    private static func pixelSnappedRect(_ rect: NSRect, in view: NSView) -> NSRect {
-        guard rect.origin.x.isFinite,
-              rect.origin.y.isFinite,
-              rect.size.width.isFinite,
-              rect.size.height.isFinite else {
-            return rect
-        }
-        let scale = max(1.0, view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0)
-        func snap(_ value: CGFloat) -> CGFloat {
-            (value * scale).rounded(.toNearestOrAwayFromZero) / scale
-        }
-        return NSRect(
-            x: snap(rect.origin.x),
-            y: snap(rect.origin.y),
-            width: max(0, snap(rect.size.width)),
-            height: max(0, snap(rect.size.height))
-        )
     }
 
     private static func searchOverlayConfigurationsEquivalent(
@@ -2000,7 +1855,7 @@ final class WindowBrowserPortal: NSObject {
         var count = 0
         while let current = stack.popLast() {
             for subview in current.subviews {
-                if cmuxIsWebInspectorObject(subview) {
+                if subview.isCmuxWebInspectorObject {
                     count += 1
                 }
                 stack.append(subview)
@@ -2009,14 +1864,6 @@ final class WindowBrowserPortal: NSObject {
         return count
     }
 #endif
-
-    private static func isView(_ view: NSView, above reference: NSView, in container: NSView) -> Bool {
-        guard let viewIndex = container.subviews.firstIndex(of: view),
-              let referenceIndex = container.subviews.firstIndex(of: reference) else {
-            return false
-        }
-        return viewIndex > referenceIndex
-    }
 
     private func preferredHostPlacementReference(in container: NSView, fallback reference: NSView) -> NSView {
         container.subviews.last(where: {
@@ -2062,7 +1909,7 @@ final class WindowBrowserPortal: NSObject {
         for view in sourceSuperview.subviews {
             if view === primaryWebView { continue }
             let className = String(describing: type(of: view))
-            if cmuxIsWebInspectorClassName(className) || Self.containsInspectorView(in: view) {
+            if className.isCmuxWebInspectorClassName || Self.containsInspectorView(in: view) {
                 continue
             }
             guard className.contains("WK") else { continue }
@@ -2075,7 +1922,7 @@ final class WindowBrowserPortal: NSObject {
     private static func containsInspectorView(in root: NSView) -> Bool {
         var stack: [NSView] = [root]
         while let current = stack.popLast() {
-            if cmuxIsWebInspectorObject(current) {
+            if current.isCmuxWebInspectorObject {
                 return true
             }
             stack.append(contentsOf: current.subviews)
@@ -2125,7 +1972,7 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private static func isInspectorFrontendWebView(_ webView: WKWebView) -> Bool {
-        cmuxIsWebInspectorObject(webView)
+        webView.isCmuxWebInspectorObject
     }
 
     private func notifyHostedWebKitHidden(
@@ -2980,7 +2827,7 @@ final class WindowBrowserPortal: NSObject {
         _ = synchronizeHostFrameToReference()
         let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
-        let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
+        let frameInHost = frameInHostRaw.portalPixelSnapped(in: hostView)
         let hostBounds = hostView.bounds
         let hasFiniteHostBounds =
             hostBounds.origin.x.isFinite &&
@@ -3046,7 +2893,7 @@ final class WindowBrowserPortal: NSObject {
             clampedFrame.width > 1 &&
             clampedFrame.height > 1
         let targetFrame = hasVisibleIntersection ? clampedFrame : frameInHost
-        let anchorHidden = Self.isHiddenOrAncestorHidden(anchorView)
+        let anchorHidden = anchorView.isHiddenOrAncestorHidden
         let tinyFrame = targetFrame.width <= 1 || targetFrame.height <= 1
         let outsideHostBounds = !hasVisibleIntersection
         let shouldHide =
@@ -3161,7 +3008,7 @@ final class WindowBrowserPortal: NSObject {
 #if DEBUG
         let inspectorSubviews = Self.inspectorSubviewCount(in: containerView)
 #endif
-        let bottomDockedInspectorGeometry = BottomDockedInspectorGeometry { cmuxIsWebInspectorObject($0) }
+        let bottomDockedInspectorGeometry = BottomDockedInspectorGeometry { $0.isCmuxWebInspectorObject }
         if containerOwnsWebView,
            let repairedBottomDockFrame = bottomDockedInspectorGeometry.repairedBottomDockedPageFrame(
                in: containerView,

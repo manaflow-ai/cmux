@@ -1,5 +1,5 @@
 import AppKit
-import Carbon.HIToolbox
+import CmuxFoundation
 
 final class FilePreviewFocusCoordinator {
     private struct Endpoint {
@@ -107,47 +107,5 @@ final class FilePreviewFocusCoordinator {
             distance += 1
         }
         return nil
-    }
-}
-
-enum FilePreviewPDFKeyboardAction: Equatable {
-    case native
-    case navigatePage(Int)
-}
-
-enum FilePreviewPDFKeyboardRouting {
-    static func action(
-        keyCode: UInt16,
-        modifiers: NSEvent.ModifierFlags,
-        region: FilePreviewPanelFocusIntent
-    ) -> FilePreviewPDFKeyboardAction {
-        let flags = modifiers.intersection(.deviceIndependentFlagsMask)
-        guard flags.intersection([.command, .control, .option, .shift]).isEmpty else {
-            return .native
-        }
-
-        guard region == .pdfThumbnails else {
-            return .native
-        }
-
-        switch Int(keyCode) {
-        case kVK_UpArrow, kVK_PageUp:
-            return .navigatePage(-1)
-        case kVK_DownArrow, kVK_PageDown:
-            return .navigatePage(1)
-        default:
-            return .native
-        }
-    }
-
-    static func action(
-        for event: NSEvent,
-        region: FilePreviewPanelFocusIntent
-    ) -> FilePreviewPDFKeyboardAction {
-        action(
-            keyCode: event.keyCode,
-            modifiers: event.modifierFlags,
-            region: region
-        )
     }
 }
