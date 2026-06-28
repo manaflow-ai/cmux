@@ -7462,25 +7462,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         item.action = #selector(reloadConfigurationMenuItem(_:))
 
         let shortcut = KeyboardShortcutSettings.menuShortcut(for: .reloadConfiguration)
-        if let keyEquivalent = shortcut.menuItemKeyEquivalent {
-            item.keyEquivalent = keyEquivalent
-            item.keyEquivalentModifierMask = shortcut.modifierFlags
-        } else {
-            item.keyEquivalent = ""
-            item.keyEquivalentModifierMask = []
-        }
+        let resolved = appMenuCoordinator.reloadConfigurationKeyEquivalent(
+            menuItemKeyEquivalent: shortcut.menuItemKeyEquivalent,
+            modifierMask: shortcut.modifierFlags
+        )
+        item.keyEquivalent = resolved.keyEquivalent
+        item.keyEquivalentModifierMask = resolved.modifierMask
     }
 
     private func reloadConfigurationMenuItem(in menu: NSMenu) -> NSMenuItem? {
-        if let identifiedItem = menu.items.first(where: { $0.identifier == Self.reloadConfigurationMenuItemIdentifier }) {
-            return identifiedItem
-        }
-
         let reloadConfigurationTitle = String(
             localized: "menu.app.reloadConfiguration",
             defaultValue: "Reload Configuration"
         )
-        return menu.items.first(where: { $0.title == reloadConfigurationTitle })
+        guard let index = appMenuCoordinator.locateReloadConfigurationItem(
+            in: menu.items.map { (identifier: $0.identifier?.rawValue, title: $0.title) },
+            identifier: Self.reloadConfigurationMenuItemIdentifier.rawValue,
+            localizedTitle: reloadConfigurationTitle
+        ) else { return nil }
+        return menu.items[index]
     }
 
     func reloadConfiguration(

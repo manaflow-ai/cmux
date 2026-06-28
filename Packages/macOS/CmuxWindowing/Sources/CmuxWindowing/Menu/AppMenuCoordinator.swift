@@ -1,3 +1,5 @@
+public import AppKit
+
 /// Owns the stateless application/dock menu-building decisions, lifted out of the
 /// `@main` app target so menu structure stops living as inline `NSMenu` assembly
 /// on the delegate. Emits Sendable value specs (``DockMenuSpec``); the live
@@ -38,5 +40,39 @@ public final class AppMenuCoordinator<Host: AppMenuHosting> {
                 action: .newMainWindow
             ),
         ])
+    }
+
+    /// Locates the Reload-Configuration item within the app menu's items: the
+    /// first item whose identifier matches `identifier`, else the first item
+    /// whose title matches `localizedTitle`, else `nil`. The witness walks the
+    /// live `NSMenu`, passes each item's `(identifier?.rawValue, title)` pair in
+    /// order, and maps the returned index back to the concrete `NSMenuItem`; the
+    /// stable identifier and the already-localized title stay app-side.
+    public func locateReloadConfigurationItem(
+        in items: [(identifier: String?, title: String)],
+        identifier: String,
+        localizedTitle: String
+    ) -> Int? {
+        if let index = items.firstIndex(where: { $0.identifier == identifier }) {
+            return index
+        }
+        return items.firstIndex(where: { $0.title == localizedTitle })
+    }
+
+    /// Resolves the key-equivalent and modifier mask to assign to the
+    /// Reload-Configuration menu item from the configured shortcut: when the
+    /// shortcut yields a non-nil `menuItemKeyEquivalent`, that equivalent plus
+    /// `modifierMask`; otherwise the cleared `("", [])` pair. The witness reads
+    /// `KeyboardShortcutSettings.menuShortcut(for: .reloadConfiguration)`
+    /// app-side, passes its `menuItemKeyEquivalent`/`modifierFlags`, and applies
+    /// the returned values onto the live `NSMenuItem`.
+    public func reloadConfigurationKeyEquivalent(
+        menuItemKeyEquivalent: String?,
+        modifierMask: NSEvent.ModifierFlags
+    ) -> (keyEquivalent: String, modifierMask: NSEvent.ModifierFlags) {
+        if let menuItemKeyEquivalent {
+            return (keyEquivalent: menuItemKeyEquivalent, modifierMask: modifierMask)
+        }
+        return (keyEquivalent: "", modifierMask: [])
     }
 }
