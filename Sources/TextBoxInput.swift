@@ -351,7 +351,7 @@ extension NSAttributedString {
                 parts.append(.attachment(inlineAttachment.textBoxAttachment))
             } else {
                 let text = raw.substring(with: range)
-                let strippedText = TextBoxInputTextView.stringByStrippingNonTextMarkers(from: text)
+                let strippedText = TextBoxInputTextMarkers().stringByStrippingNonTextMarkers(from: text)
                 guard !strippedText.isEmpty else { return }
                 parts.append(.text(strippedText))
             }
@@ -2722,10 +2722,6 @@ final class TextBoxInputTextView: NSTextView {
     private var isReportingLayoutCompletion = false
 
     private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
-    private static let pendingAttachmentUploadPlaceholderCharacter = "\u{200B}"
-    private static let pendingAttachmentUploadPlaceholderAttribute = NSAttributedString.Key(
-        "cmux.textBoxPendingAttachmentUploadID"
-    )
     private var attachmentPreviewPopover: NSPopover?
     private var attachmentPreviewCharacterIndex: Int?
     private var focusedAttachmentCharacterIndex: Int?
@@ -2963,7 +2959,7 @@ final class TextBoxInputTextView: NSTextView {
 
     func attributedContentForPreservation() -> NSAttributedString {
         let preserved = NSMutableAttributedString(attributedString: attributedString())
-        Self.removePendingAttachmentUploadPlaceholders(from: preserved)
+        TextBoxInputTextMarkers.removePendingAttachmentUploadPlaceholders(from: preserved)
         return preserved
     }
 
@@ -3061,10 +3057,10 @@ final class TextBoxInputTextView: NSTextView {
     func insertPendingAttachmentUploadPlaceholder(id: UUID) {
         window?.makeFirstResponder(self)
         var attributes = currentTextAttributes()
-        attributes[Self.pendingAttachmentUploadPlaceholderAttribute] = id.uuidString
+        attributes[TextBoxInputTextMarkers.pendingAttachmentUploadPlaceholderAttribute] = id.uuidString
         insertText(
             NSAttributedString(
-                string: Self.pendingAttachmentUploadPlaceholderCharacter,
+                string: TextBoxInputTextMarkers().pendingAttachmentUploadPlaceholderCharacter,
                 attributes: attributes
             ),
             replacementRange: selectedRange()
@@ -3141,7 +3137,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func plainText() -> String {
-        stringByStrippingNonTextMarkers(from: attributedString().string)
+        TextBoxInputTextMarkers().stringByStrippingNonTextMarkers(from: attributedString().string)
     }
 
     func inlineAttachments() -> [TextBoxAttachment] {
@@ -4331,17 +4327,11 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func composedCharacterLocationBefore(_ location: Int) -> Int {
-        let nsText = string as NSString
-        let clampedLocation = min(max(location, 0), nsText.length)
-        guard clampedLocation > 0 else { return clampedLocation }
-        return nsText.rangeOfComposedCharacterSequence(at: clampedLocation - 1).location
+        TextBoxInputTextMarkers.composedCharacterLocationBefore(location, in: string)
     }
 
     private func composedCharacterLocationAfter(_ location: Int) -> Int {
-        let nsText = string as NSString
-        let clampedLocation = min(max(location, 0), nsText.length)
-        guard clampedLocation < nsText.length else { return clampedLocation }
-        return NSMaxRange(nsText.rangeOfComposedCharacterSequence(at: clampedLocation))
+        TextBoxInputTextMarkers.composedCharacterLocationAfter(location, in: string)
     }
 
     private func selectAttachment(at characterIndex: Int) {
@@ -4540,12 +4530,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func isValidSelectedRange(_ range: NSRange) -> Bool {
-        guard range.location != NSNotFound,
-              range.location >= 0,
-              range.length >= 0 else {
-            return false
-        }
-        return NSMaxRange(range) <= attributedString().length
+        TextBoxInputTextMarkers.isValidSelectedRange(range, length: attributedString().length)
     }
 
     private func writeAttachments(
@@ -4632,7 +4617,7 @@ final class TextBoxInputTextView: NSTextView {
         for attachment in removedAttachments {
             guard attachment.cleanupLocalURLWhenDisposed,
                   let localURL = attachment.localURL else { continue }
-            pendingAutomaticAttachmentFileCleanup[Self.attachmentCleanupKey(for: localURL)] = attachment
+            pendingAutomaticAttachmentFileCleanup[TextBoxInputTextMarkers.attachmentCleanupKey(for: localURL)] = attachment
         }
     }
 
@@ -4676,8 +4661,6 @@ final class TextBoxInputTextView: NSTextView {
         let point: NSPoint
         let closeRect: NSRect
     }
-
-    private static let attachmentReplacementCharacter = "\u{FFFC}"
 
     private func currentTextAttributes(
         font explicitFont: NSFont? = nil,
@@ -4736,71 +4719,29 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func shouldInsertAttachmentBoundarySpaceBefore(replacementRange: NSRange) -> Bool {
-        guard replacementRange.location > 0,
-              replacementRange.location <= attributedString().length else {
-            return false
-        }
-        return !isAttachmentBoundarySeparator(at: replacementRange.location - 1)
+        TextBoxInputTextMarkers.shouldInsertAttachmentBoundarySpaceBefore(
+            replacementRange: replacementRange,
+            in: attributedString()
+        )
     }
 
     private func shouldInsertAttachmentBoundarySpaceAfter(
         replacementRange: NSRange,
         attachments: [TextBoxAttachment]
     ) -> Bool {
-        guard attachments.contains(where: \.isImage) else {
-            return false
-        }
-        let afterLocation = NSMaxRange(replacementRange)
-        guard afterLocation >= 0,
-              afterLocation < attributedString().length else {
-            return true
-        }
-        return !isAttachmentBoundarySeparator(at: afterLocation)
+        TextBoxInputTextMarkers.shouldInsertAttachmentBoundarySpaceAfter(
+            replacementRange: replacementRange,
+            hasImageAttachment: attachments.contains(where: \.isImage),
+            in: attributedString()
+        )
     }
 
     private func isAttachmentBoundarySeparator(at location: Int) -> Bool {
-        guard location >= 0,
-              location < attributedString().length else {
-            return true
-        }
-        let character = (attributedString().string as NSString).substring(with: NSRange(location: location, length: 1))
-        return character.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
-    }
-
-    private static func pendingAttachmentUploadPlaceholderRanges(
-        in attributed: NSAttributedString,
-        id: UUID?
-    ) -> [NSRange] {
-        let fullRange = NSRange(location: 0, length: attributed.length)
-        guard fullRange.length > 0 else { return [] }
-
-        let idString = id?.uuidString
-        var result: [NSRange] = []
-        attributed.enumerateAttribute(
-            Self.pendingAttachmentUploadPlaceholderAttribute,
-            in: fullRange,
-            options: []
-        ) { value, range, stop in
-            guard let value = value as? String,
-                  idString == nil || value == idString else {
-                return
-            }
-            result.append(range)
-            if idString != nil {
-                stop.pointee = true
-            }
-        }
-        return result
-    }
-
-    private static func removePendingAttachmentUploadPlaceholders(from attributed: NSMutableAttributedString) {
-        for range in pendingAttachmentUploadPlaceholderRanges(in: attributed, id: nil).reversed() {
-            attributed.replaceCharacters(in: range, with: NSAttributedString(string: ""))
-        }
+        TextBoxInputTextMarkers.isAttachmentBoundarySeparator(at: location, in: attributedString())
     }
 
     private func pendingAttachmentUploadPlaceholderRange(id: UUID?) -> NSRange? {
-        Self.pendingAttachmentUploadPlaceholderRanges(in: attributedString(), id: id).first
+        TextBoxInputTextMarkers.pendingAttachmentUploadPlaceholderRanges(in: attributedString(), id: id).first
     }
 
     func cleanupDisposableAttachmentFiles(
@@ -4812,7 +4753,7 @@ final class TextBoxInputTextView: NSTextView {
         for attachment in attachments {
             guard attachment.cleanupLocalURLWhenDisposed,
                   let url = attachment.localURL else { continue }
-            let key = Self.attachmentCleanupKey(for: url)
+            let key = TextBoxInputTextMarkers.attachmentCleanupKey(for: url)
             pendingUndoableAttachmentFileCleanup.removeValue(forKey: key)
             guard !activeKeys.contains(key) else { continue }
             urlsToClean.append(url)
@@ -4864,7 +4805,7 @@ final class TextBoxInputTextView: NSTextView {
         for attachment in attachments {
             guard let localURL = attachment.localURL else { continue }
             pendingUndoableAttachmentFileCleanup.removeValue(
-                forKey: Self.attachmentCleanupKey(for: localURL)
+                forKey: TextBoxInputTextMarkers.attachmentCleanupKey(for: localURL)
             )
         }
     }
@@ -4883,7 +4824,7 @@ final class TextBoxInputTextView: NSTextView {
         for attachment in attachments {
             guard attachment.cleanupLocalURLWhenDisposed,
                   let localURL = attachment.localURL else { continue }
-            let key = Self.attachmentCleanupKey(for: localURL)
+            let key = TextBoxInputTextMarkers.attachmentCleanupKey(for: localURL)
             guard !activePaths.contains(key) else { continue }
             pendingUndoableAttachmentFileCleanup[key] = attachment
         }
@@ -4891,12 +4832,8 @@ final class TextBoxInputTextView: NSTextView {
 
     private func activeInlineAttachmentCleanupKeys() -> Set<String> {
         Set(inlineAttachments().compactMap { attachment in
-            attachment.localURL.map(Self.attachmentCleanupKey(for:))
+            attachment.localURL.map(TextBoxInputTextMarkers.attachmentCleanupKey(for:))
         })
-    }
-
-    private static func attachmentCleanupKey(for fileURL: URL) -> String {
-        fileURL.standardizedFileURL.path
     }
 
     private func adjustedSelectionRange(
@@ -4904,31 +4841,12 @@ final class TextBoxInputTextView: NSTextView {
         replacing replacedRange: NSRange,
         insertedLength: Int
     ) -> NSRange {
-        guard isValidSelectedRange(selectedRange) else {
-            return NSRange(location: NSMaxRange(replacedRange) + insertedLength, length: 0)
-        }
-
-        let delta = insertedLength - replacedRange.length
-        if selectedRange.location > replacedRange.location {
-            return NSRange(
-                location: max(0, selectedRange.location + delta),
-                length: selectedRange.length
-            )
-        }
-        if NSIntersectionRange(selectedRange, replacedRange).length > 0 {
-            return NSRange(location: replacedRange.location + insertedLength, length: 0)
-        }
-        return selectedRange
-    }
-
-    fileprivate static func stringByStrippingNonTextMarkers(from text: String) -> String {
-        text
-            .replacingOccurrences(of: String(Self.attachmentReplacementCharacter), with: "")
-            .replacingOccurrences(of: Self.pendingAttachmentUploadPlaceholderCharacter, with: "")
-    }
-
-    private func stringByStrippingNonTextMarkers(from text: String) -> String {
-        Self.stringByStrippingNonTextMarkers(from: text)
+        TextBoxInputTextMarkers.adjustedSelectionRange(
+            selectedRange,
+            replacing: replacedRange,
+            insertedLength: insertedLength,
+            length: attributedString().length
+        )
     }
 
     func normalizeTextBaselineOffsets() {
@@ -4944,7 +4862,7 @@ final class TextBoxInputTextView: NSTextView {
         var updates: [(NSRange, CGFloat)] = []
         textStorage.enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
             let targetOffset = value == nil ? textOffset : TextBoxLayout.textBaselineOffset
-            let currentOffset = Self.baselineOffsetValue(
+            let currentOffset = TextBoxInputTextMarkers.baselineOffsetValue(
                 textStorage.attribute(.baselineOffset, at: range.location, effectiveRange: nil)
             )
             guard abs(currentOffset - targetOffset) > 0.01 else { return }
@@ -4977,16 +4895,6 @@ final class TextBoxInputTextView: NSTextView {
             stop.pointee = true
         }
         return foundAttachment
-    }
-
-    private static func baselineOffsetValue(_ value: Any?) -> CGFloat {
-        if let value = value as? CGFloat {
-            return value
-        }
-        if let number = value as? NSNumber {
-            return CGFloat(truncating: number)
-        }
-        return 0
     }
 
     private func attachmentRect(forCharacterIndex characterIndex: Int) -> NSRect? {
