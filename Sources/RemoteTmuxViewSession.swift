@@ -46,19 +46,18 @@ struct RemoteTmuxViewSession: Equatable {
         Self.namePrefix + Self.sanitizeOwner(ownerId) + "-" + Self.ownerHash(ownerId)
     }
 
-    /// tmux commands (control-mode safe, one per line) that create the view
-    /// detached at an explicit size and stamp ownership options. Creating with an
-    /// explicit `-x/-y` avoids an 80x24 placeholder flash before the first resize.
-    ///
-    /// `new-session -d -s <name>` is idempotent only if guarded; callers use
-    /// ``hasSessionGuardedCreateCommands(cols:rows:)`` which create-or-noops.
-    func createCommands(cols: Int, rows: Int) -> [String] {
+    /// Raw `tmux` argument vectors (NOT shell-quoted — the one-shot transport
+    /// quotes each token) that create the view detached at an explicit size and
+    /// stamp the ownership options. Run as sequential pre-attach one-shots, before
+    /// any `-CC` client holds the host's single session. Explicit `-x/-y` avoids an
+    /// 80x24 placeholder flash before the first resize.
+    func createArgvs(cols: Int, rows: Int) -> [[String]] {
         let n = sessionName
         return [
-            "new-session -d -s \(Self.q(n)) -x \(cols) -y \(rows)",
-            "set-option -t \(Self.q(n)) \(Self.optView) 1",
-            "set-option -t \(Self.q(n)) \(Self.optOwner) \(Self.q(ownerId))",
-            "set-option -t \(Self.q(n)) \(Self.optVersion) \(Self.formatVersion)",
+            ["new-session", "-d", "-s", n, "-x", String(cols), "-y", String(rows)],
+            ["set-option", "-t", n, Self.optView, "1"],
+            ["set-option", "-t", n, Self.optOwner, ownerId],
+            ["set-option", "-t", n, Self.optVersion, String(Self.formatVersion)],
         ]
     }
 
@@ -141,7 +140,4 @@ struct RemoteTmuxViewSession: Equatable {
     static func ownerHash(_ owner: String) -> String {
         RemoteTmuxHost.fnv1a64Hex(owner)
     }
-
-    /// Single-quote for a control-mode command argument.
-    private static func q(_ v: String) -> String { RemoteTmuxHost.shellSingleQuoted(v) }
 }
