@@ -437,6 +437,7 @@ actor RemoteTmuxSSHTransport {
         "operation timed out",
         "could not resolve hostname",       // OpenSSH DNS-resolution wrapper (all OSes)
         "name or service not known",        // Linux getaddrinfo NXDOMAIN
+        "nodename nor servname provided",   // BSD/macOS getaddrinfo NXDOMAIN (e.g. ProxyCommand `nc`)
         "temporary failure in name resolution",
         "kex_exchange_identification:",     // target spoke no SSH / closed during banner
     ]
