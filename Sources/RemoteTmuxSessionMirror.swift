@@ -62,18 +62,31 @@ final class RemoteTmuxSessionMirror {
     /// remote at ssh's default 80×24. Removed in ``detachObserver()``.
     private var surfaceReadyObservers: [NSObjectProtocol] = []
 
+    /// Restricts which of the connection's windows this mirror renders.
+    ///
+    /// `nil` (the default, used by the per-session transport) renders every window
+    /// of the connection's attached session. In linked-view mode several mirrors
+    /// share ONE control connection attached to the aggregate view session, so each
+    /// mirror is scoped to its home session's tmux window ids — output for other
+    /// windows is already ignored (no panel mapping), and this also bounds tab
+    /// creation/teardown to this workspace's windows. Updated as the coordinator
+    /// regroups (a new tab in this session adds an id) via ``updateWindowIdFilter``.
+    private var windowIdFilter: Set<Int>?
+
     init(
         host: RemoteTmuxHost,
         sessionName: String,
         connection: RemoteTmuxControlConnection,
         tabManager: TabManager,
-        workspace: Workspace
+        workspace: Workspace,
+        windowIdFilter: Set<Int>? = nil
     ) {
         self.host = host
         self.sessionName = sessionName
         self.connection = connection
         self.tabManager = tabManager
         self.workspace = workspace
+        self.windowIdFilter = windowIdFilter
         self.defaultPanelIds = Array(workspace.panels.keys)
 
         // Register as one of possibly several observers — never overwrite a
@@ -183,10 +196,24 @@ final class RemoteTmuxSessionMirror {
     /// tab titles after a tmux rename, activates/reconciles the in-tab multi-pane
     /// renderer for multi-pane windows, then closes the workspace's original
     /// local tab(s) once at least one remote tab exists.
+    /// Updates the window-id scope (linked-view regrouping) and rebuilds. A no-op
+    /// when unchanged so coordinator republishes don't churn the UI.
+    func updateWindowIdFilter(_ filter: Set<Int>?) {
+        guard filter != windowIdFilter else { return }
+        windowIdFilter = filter
+        rebuild()
+    }
+
+    /// The connection windows this mirror renders, honoring ``windowIdFilter``.
+    private var mirroredWindowOrder: [Int] {
+        guard let windowIdFilter else { return connection.windowOrder }
+        return connection.windowOrder.filter { windowIdFilter.contains($0) }
+    }
+
     func rebuild() {
         guard let workspace else { return }
         var createdNewPanel = false
-        for windowId in connection.windowOrder {
+        for windowId in mirroredWindowOrder {
             guard let window = connection.windowsByID[windowId],
                   let firstPaneId = window.paneIDsInOrder.first else { continue }
             let title = Self.tabTitle(for: window)
@@ -223,9 +250,9 @@ final class RemoteTmuxSessionMirror {
             reconcileWindowMirror(windowId: windowId, panelId: panelId, window: window, in: workspace)
         }
         if createdNewPanel { scheduleInitialClientSizing() }
-        // Close tabs for windows tmux removed, so a closed remote window doesn't
-        // leave a frozen tab behind.
-        let liveWindows = Set(connection.windowOrder)
+        // Close tabs for windows tmux removed (or that left this mirror's scope),
+        // so a closed/unlinked remote window doesn't leave a frozen tab behind.
+        let liveWindows = Set(mirroredWindowOrder)
         for (windowId, panelId) in panelIdByWindow where !liveWindows.contains(windowId) {
             if let mirror = windowMirrorByWindowId[windowId] {
                 workspace.setRemoteTmuxWindowMirror(nil, forPanelId: panelId)
@@ -247,7 +274,7 @@ final class RemoteTmuxSessionMirror {
         // stale. Reorder to match tmux's reported order, preserving focus. The
         // cmux→tmux drag direction is handled by handleMirrorWindowsReordered and
         // already matches, so this no-ops there.
-        let desiredPanelOrder = connection.windowOrder.compactMap { panelIdByWindow[$0] }
+        let desiredPanelOrder = mirroredWindowOrder.compactMap { panelIdByWindow[$0] }
         if desiredPanelOrder.count > 1 {
             workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
         }
