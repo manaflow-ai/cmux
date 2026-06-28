@@ -67,4 +67,60 @@ struct ConfiguredShortcutMatchingTests {
         #expect(chord.numberedConfiguredDigit(activeChordPrefix: cmd1) { $0 == self.cmdK ? 7 : nil } == 7)
         #expect(chord.numberedConfiguredDigit(activeChordPrefix: cmd2) { _ in 7 } == nil)
     }
+
+    @Test("KeyboardShortcutEvent: unbound shortcut never matches")
+    func keyboardEventUnboundNeverMatches() {
+        let unbound = StoredShortcut(first: ShortcutStroke(key: ""))
+        #expect(unbound.matchesKeyboardShortcutEvent(
+            usesNumberedDigitMatching: false,
+            numberedDigit: { 1 },
+            fullMatch: { true }
+        ) == false)
+    }
+
+    @Test("KeyboardShortcutEvent: numbered action matches when a digit resolves")
+    func keyboardEventNumberedUsesDigit() {
+        let shortcut = StoredShortcut(first: cmd1)
+        #expect(shortcut.matchesKeyboardShortcutEvent(
+            usesNumberedDigitMatching: true,
+            numberedDigit: { 4 },
+            fullMatch: { false }
+        ))
+        #expect(shortcut.matchesKeyboardShortcutEvent(
+            usesNumberedDigitMatching: true,
+            numberedDigit: { nil },
+            fullMatch: { true }
+        ) == false)
+    }
+
+    @Test("KeyboardShortcutEvent: chorded non-numbered shortcut never matches; single-stroke defers to fullMatch")
+    func keyboardEventNonNumberedBranches() {
+        let chord = StoredShortcut(first: cmd1, second: cmdK)
+        #expect(chord.matchesKeyboardShortcutEvent(
+            usesNumberedDigitMatching: false,
+            numberedDigit: { 1 },
+            fullMatch: { true }
+        ) == false)
+        let single = StoredShortcut(first: cmd1)
+        #expect(single.matchesKeyboardShortcutEvent(
+            usesNumberedDigitMatching: false,
+            numberedDigit: { 1 },
+            fullMatch: { true }
+        ))
+        #expect(single.matchesKeyboardShortcutEvent(
+            usesNumberedDigitMatching: false,
+            numberedDigit: { 1 },
+            fullMatch: { false }
+        ) == false)
+    }
+
+    @Test("firstStrokeNumberedDigit: resolves first stroke only for an unbound-free single-stroke shortcut")
+    func firstStrokeNumberedDigitBranches() {
+        let single = StoredShortcut(first: cmd1)
+        #expect(single.firstStrokeNumberedDigit { $0 == self.cmd1 ? 1 : nil } == 1)
+        let chord = StoredShortcut(first: cmd1, second: cmdK)
+        #expect(chord.firstStrokeNumberedDigit { _ in 1 } == nil)
+        let unbound = StoredShortcut(first: ShortcutStroke(key: ""))
+        #expect(unbound.firstStrokeNumberedDigit { _ in 1 } == nil)
+    }
 }

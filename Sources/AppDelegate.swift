@@ -10207,12 +10207,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         action: KeyboardShortcutSettings.Action,
         shortcut: StoredShortcut
     ) -> Bool {
-        guard !shortcut.isUnbound else { return false }
-        if action.usesNumberedDigitMatching {
-            return numberedShortcutDigit(event: event, shortcut: shortcut) != nil
-        }
-        guard !shortcut.hasChord else { return false }
-        return matchShortcut(event: event, shortcut: shortcut)
+        // The numbered-vs-full match decision lives on `StoredShortcut` in
+        // CmuxShortcuts; this witness supplies the two live-event closures.
+        shortcut.matchesKeyboardShortcutEvent(
+            usesNumberedDigitMatching: action.usesNumberedDigitMatching,
+            numberedDigit: { numberedShortcutDigit(event: event, shortcut: shortcut) },
+            fullMatch: { matchShortcut(event: event, shortcut: shortcut) }
+        )
     }
 
     func shouldSuppressStaleCmuxMenuShortcut(event: NSEvent) -> Bool {
@@ -10297,8 +10298,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func numberedShortcutDigit(event: NSEvent, shortcut: StoredShortcut) -> Int? {
-        guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
-        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
+        // The non-chord first-stroke digit decision lives on `StoredShortcut` in
+        // CmuxShortcuts; this witness supplies the per-stroke digit resolver.
+        shortcut.firstStrokeNumberedDigit { numberedShortcutDigit(event: event, stroke: $0) }
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {

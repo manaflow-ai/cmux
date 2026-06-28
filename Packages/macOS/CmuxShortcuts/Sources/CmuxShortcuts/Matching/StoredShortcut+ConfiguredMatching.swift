@@ -66,4 +66,48 @@ extension StoredShortcut {
         guard !isUnbound, !hasChord else { return nil }
         return digitForStroke(first)
     }
+
+    /// Match decision for a `KeyboardShortcutSettings` action's event, routing to
+    /// numbered-digit matching or full single-stroke matching per the action.
+    ///
+    /// Faithful relocation of the app target's stale-menu-shortcut matcher: an
+    /// unbound shortcut never matches; an action that uses numbered-digit
+    /// matching matches when its digit resolver yields a digit; otherwise a
+    /// chorded shortcut never matches and a single-stroke shortcut defers to the
+    /// full-stroke matcher. The app supplies both closures, which read the live
+    /// `NSEvent`.
+    ///
+    /// - Parameters:
+    ///   - usesNumberedDigitMatching: Whether the action matches by digit.
+    ///   - numberedDigit: The digit the event resolves to, or `nil`.
+    ///   - fullMatch: Whether the event fully matches this shortcut.
+    /// - Returns: `true` when the event matches the shortcut for the action.
+    public func matchesKeyboardShortcutEvent(
+        usesNumberedDigitMatching: Bool,
+        numberedDigit: () -> Int?,
+        fullMatch: () -> Bool
+    ) -> Bool {
+        guard !isUnbound else { return false }
+        if usesNumberedDigitMatching {
+            return numberedDigit() != nil
+        }
+        guard !hasChord else { return false }
+        return fullMatch()
+    }
+
+    /// The numbered digit for this shortcut's first stroke, ignoring chord state.
+    ///
+    /// Faithful relocation of the app target's non-chord numbered-digit helper:
+    /// an unbound or chorded shortcut resolves to `nil`; otherwise the first
+    /// stroke is mapped to a digit by the app-supplied resolver (which reads the
+    /// live `NSEvent`).
+    ///
+    /// - Parameter digitForStroke: The digit the given stroke resolves to, or `nil`.
+    /// - Returns: The first stroke's digit, or `nil`.
+    public func firstStrokeNumberedDigit(
+        digitForStroke: (ShortcutStroke) -> Int?
+    ) -> Int? {
+        guard !isUnbound, !hasChord else { return nil }
+        return digitForStroke(first)
+    }
 }
