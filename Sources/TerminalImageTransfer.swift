@@ -12,6 +12,10 @@ enum TerminalImageTransferMode {
 enum TerminalRemoteUploadTarget: Equatable {
     case workspaceRemote
     case detectedSSH(DetectedSSHSession)
+    /// Upload over a remote-tmux mirror's existing `-CC` control connection (no
+    /// second SSH channel), keyed by the mirror surface id. See
+    /// ``RemoteTmuxInBandUpload``.
+    case inBandTmux(surfaceID: UUID)
 }
 
 enum TerminalImageTransferTarget: Equatable {
@@ -277,6 +281,9 @@ enum TerminalImageTransferPlanner {
         operation: TerminalImageTransferOperation? = nil,
         uploadWorkspaceRemote: ([URL], TerminalImageTransferOperation, @escaping (Result<[String], Error>) -> Void) -> Void,
         uploadDetectedSSH: (DetectedSSHSession, [URL], TerminalImageTransferOperation, @escaping (Result<[String], Error>) -> Void) -> Void,
+        uploadInBand: (UUID, [URL], TerminalImageTransferOperation, @escaping (Result<[String], Error>) -> Void) -> Void = { _, _, _, completion in
+            completion(.failure(NSError(domain: "cmux.inBandUpload", code: -1)))
+        },
         insertText: @escaping (String) -> Void,
         scheduleAfter: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
             DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
@@ -311,6 +318,13 @@ enum TerminalImageTransferPlanner {
         case .uploadFiles(let fileURLs, .detectedSSH(let session)):
             let operation = operation ?? TerminalImageTransferOperation()
             uploadDetectedSSH(session, fileURLs, operation) { result in
+                guard operation.finish() else { return }
+                finishUpload(result: result, insertText: insertText, onFailure: onFailure)
+            }
+            return operation
+        case .uploadFiles(let fileURLs, .inBandTmux(let surfaceID)):
+            let operation = operation ?? TerminalImageTransferOperation()
+            uploadInBand(surfaceID, fileURLs, operation) { result in
                 guard operation.finish() else { return }
                 finishUpload(result: result, insertText: insertText, onFailure: onFailure)
             }

@@ -957,9 +957,41 @@ final class RemoteTmuxController {
     func remoteUploadTarget(forSurfaceId surfaceId: UUID) -> TerminalRemoteUploadTarget? {
         for sessionMirror in actionMirrors
         where !sessionMirror.connection.exited && sessionMirror.ownsSurface(surfaceId) {
+            // Prefer the in-band path over the control connection: it needs no
+            // second SSH channel, so it also works on MaxSessions=1 hosts where scp
+            // is refused. Fall back to scp only when the control stream isn't live.
+            if sessionMirror.connection.connectionState == .connected {
+                return .inBandTmux(surfaceID: surfaceId)
+            }
             return .detectedSSH(sessionMirror.host.detectedSSHSession())
         }
         return nil
+    }
+
+    /// Uploads `localURLs` to the remote host in band over the mirror's control
+    /// connection (no second SSH channel), returning the remote paths to insert, or
+    /// nil on failure. The image-paste path uses this for connected mirrors.
+    func uploadFilesInBand(surfaceId: UUID, localURLs: [URL]) async -> [String]? {
+        guard let target = pasteTarget(forSurfaceId: surfaceId) else { return nil }
+        var remotePaths: [String] = []
+        for url in localURLs {
+            // Reject oversized files by stat before reading them into memory, and
+            // read off the main actor so a large file can't freeze the UI.
+            if let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int,
+               size > RemoteTmuxInBandUpload.maxFileBytes {
+                return nil
+            }
+            let fileURL = url
+            guard let data = await Task.detached(priority: .userInitiated, operation: {
+                try? Data(contentsOf: fileURL)
+            }).value else { return nil }
+            let ext = url.pathExtension.isEmpty ? nil : url.pathExtension
+            guard let remotePath = await target.connection.uploadFileInBand(
+                data: data, remoteExtension: ext, paneId: target.paneId
+            ) else { return nil }
+            remotePaths.append(remotePath)
+        }
+        return remotePaths
     }
 
     /// A split was requested on a mirror window-tab (the split button / any

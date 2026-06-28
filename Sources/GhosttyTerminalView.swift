@@ -598,6 +598,21 @@ class GhosttyApp {
                             }
                         )
                     },
+                    uploadInBand: { surfaceID, fileURLs, _, finish in
+                        // Upload over the mirror's existing -CC control connection (no
+                        // second SSH channel) so it works on MaxSessions=1 hosts.
+                        Task { @MainActor in
+                            let paths = await AppDelegate.shared?.remoteTmuxController.uploadFilesInBand(
+                                surfaceId: surfaceID, localURLs: fileURLs
+                            )
+                            if let paths {
+                                finish(.success(paths))
+                            } else {
+                                finish(.failure(NSError(domain: "cmux.inBandUpload", code: 2)))
+                            }
+                            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        }
+                    },
                     insertText: { text in
                         MainActor.assumeIsolated {
                             callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
@@ -7606,6 +7621,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                         GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                     }
                 )
+            },
+            uploadInBand: { surfaceID, fileURLs, _, finish in
+                // Upload over the mirror's existing -CC control connection (no second
+                // SSH channel) so it works on MaxSessions=1 hosts.
+                Task { @MainActor in
+                    let paths = await AppDelegate.shared?.remoteTmuxController.uploadFilesInBand(
+                        surfaceId: surfaceID, localURLs: fileURLs
+                    )
+                    if let paths {
+                        finish(.success(paths))
+                    } else {
+                        finish(.failure(NSError(domain: "cmux.inBandUpload", code: 2)))
+                    }
+                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                }
             },
             insertText: { [weak self] text in
                 let send = {

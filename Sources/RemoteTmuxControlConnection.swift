@@ -848,6 +848,91 @@ final class RemoteTmuxControlConnection {
         }
     }
 
+    /// Like ``query(_:)`` but fails (returning nil) after `timeout` seconds instead
+    /// of awaiting `%end` forever. A wedged remote `run-shell` blocks tmux's command
+    /// queue, so the only recovery is to drop and re-establish the control
+    /// connection: on timeout this calls ``beginReconnecting()``, which also fails
+    /// all pending queries — that resolves the still-suspended ``query(_:)`` so the
+    /// task group can drain without leaking its continuation.
+    func queryWithTimeout(_ command: String, timeout: Double) async -> [String]? {
+        enum Outcome { case result([String]?); case timedOut }
+        return await withTaskGroup(of: Outcome.self) { group in
+            group.addTask { .result(await self.query(command)) }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
+                return .timedOut
+            }
+            let first = await group.next() ?? .result(nil)
+            if case .timedOut = first {
+                // Recover the wedged stream; this also resolves the pending query
+                // continuation so the group's implicit drain doesn't deadlock.
+                self.beginReconnecting()
+            }
+            group.cancelAll()
+            if case .result(let lines) = first { return lines }
+            return nil
+        }
+    }
+
+    /// Uploads `data` to the remote host *in band* over this control connection
+    /// (no second SSH session/channel — works on `MaxSessions 1` hosts; no remote
+    /// helper binary), inserting it as `<tmp>/cmux-drop-*`. Returns the remote path,
+    /// or nil on any failure (size cap, disconnect, decode/size/checksum mismatch).
+    /// See ``RemoteTmuxInBandUpload`` for the wire protocol.
+    func uploadFileInBand(data: Data, remoteExtension: String?, paneId: Int) async -> String? {
+        guard connectionState == .connected else { return nil }
+        guard data.count <= RemoteTmuxInBandUpload.maxFileBytes else { return nil }
+
+        let id = RemoteTmuxInBandUpload.makeID(UUID())
+        let ext = RemoteTmuxInBandUpload.sanitizedExtension(remoteExtension)
+
+        // Encode + checksum off the main actor (data is a value type) so a large
+        // file's CPU work doesn't block the UI.
+        let prepared = await Task.detached(priority: .userInitiated) {
+            (base64: data.base64EncodedString(), cksum: RemoteTmuxInBandUpload.posixCksum(data))
+        }.value
+
+        func runShell(_ shell: String, timeout: Double) async -> Bool {
+            await queryWithTimeout("run-shell -t %\(paneId) \"\(shell)\"", timeout: timeout) != nil
+        }
+
+        // NOTE (documented limitations of this v1 path): the upload streams to
+        // completion even if the UI operation is cancelled mid-flight; a timeout
+        // forces a reconnect, after which the best-effort temp cleanup can't be sent
+        // (leaving a remote /tmp/cmux-ul-* dir until the host clears it); and a
+        // multi-file batch isn't transactional (an earlier file's /tmp/cmux-drop-*
+        // can remain if a later one fails). None corrupt the user-visible result.
+        guard await runShell(RemoteTmuxInBandUpload.setupShellCommand(id: id), timeout: 15) else {
+            return nil
+        }
+
+        for chunk in RemoteTmuxInBandUpload.base64Chunks(prepared.base64) {
+            guard await runShell(
+                RemoteTmuxInBandUpload.appendShellCommand(id: id, chunk: chunk), timeout: 20
+            ) else {
+                _ = send("run-shell -t %\(paneId) \"rm -rf \(RemoteTmuxInBandUpload.tempDir(id: id))\"")
+                return nil
+            }
+        }
+
+        guard await runShell(
+            RemoteTmuxInBandUpload.finalizeShellCommand(id: id, sanitizedExtension: ext), timeout: 60
+        ) else {
+            _ = send("run-shell -t %\(paneId) \"rm -rf \(RemoteTmuxInBandUpload.tempDir(id: id))\"")
+            return nil
+        }
+
+        let ackOption = RemoteTmuxInBandUpload.ackOption(id: id)
+        let ackLines = await queryWithTimeout("show-options -gv \(ackOption)", timeout: 15)
+        _ = send("set -gu \(ackOption)")  // best-effort: drop the ack option
+        guard let ack = RemoteTmuxInBandUpload.parseAck(ackLines),
+              ack.size == data.count,
+              ack.cksum == prepared.cksum else {
+            return nil
+        }
+        return RemoteTmuxInBandUpload.outputPath(id: id, sanitizedExtension: ext)
+    }
+
     /// Fails every in-flight ``query(_:)`` with `nil` — called whenever the control
     /// stream becomes unusable, so awaiting coordinators don't hang.
     private func failPendingQueries() {

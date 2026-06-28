@@ -3288,6 +3288,18 @@ struct TextBoxInputContainer: View {
                 operation: operation,
                 completion: finish
             )
+        case .inBandTmux(let surfaceID):
+            // Upload over the mirror's existing -CC control connection (no second
+            // SSH channel) so it works on MaxSessions=1 hosts.
+            Task { @MainActor in
+                if let paths = await AppDelegate.shared?.remoteTmuxController.uploadFilesInBand(
+                    surfaceId: surfaceID, localURLs: fileURLs
+                ) {
+                    finish(.success(paths))
+                } else {
+                    finish(.failure(NSError(domain: "cmux.textbox.attachment", code: 4)))
+                }
+            }
         }
     }
 
