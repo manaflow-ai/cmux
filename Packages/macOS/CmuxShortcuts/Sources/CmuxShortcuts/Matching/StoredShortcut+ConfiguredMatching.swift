@@ -37,4 +37,33 @@ extension StoredShortcut {
         guard !hasChord else { return false }
         return strokeMatches(first)
     }
+
+    /// Chord-aware numbered-digit decision for a configured shortcut, mirroring
+    /// ``matchesConfigured(activeChordPrefix:strokeMatches:)`` but resolving the
+    /// matched stroke to a digit (1–9) instead of a boolean.
+    ///
+    /// The app supplies `digitForStroke`, which reads the live `NSEvent` to map
+    /// a ``ShortcutStroke`` to its pressed digit. The branching preserves the
+    /// legacy numbered-matcher guards exactly, including the redundant
+    /// no-active-prefix `isUnbound` re-check.
+    ///
+    /// - Parameters:
+    ///   - activeChordPrefix: The first stroke of an in-progress chord, or `nil`.
+    ///   - digitForStroke: The digit the given stroke resolves to for the live
+    ///     event, or `nil`.
+    /// - Returns: The matched digit under the current chord state, or `nil`.
+    public func numberedConfiguredDigit(
+        activeChordPrefix: ShortcutStroke?,
+        digitForStroke: (ShortcutStroke) -> Int?
+    ) -> Int? {
+        guard !isUnbound else { return nil }
+        if let prefix = activeChordPrefix {
+            guard let second, first == prefix else {
+                return nil
+            }
+            return digitForStroke(second)
+        }
+        guard !isUnbound, !hasChord else { return nil }
+        return digitForStroke(first)
+    }
 }

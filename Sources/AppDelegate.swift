@@ -9883,17 +9883,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> Int? {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        guard !shortcut.isUnbound else { return nil }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke == prefix else {
-                return nil
-            }
-            return numberedShortcutDigit(event: event, stroke: secondStroke)
-        }
-        guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
-        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
+        // The chord-aware numbered-digit decision lives on `StoredShortcut` in
+        // CmuxShortcuts; this witness supplies the per-stroke digit resolver that
+        // reads the live `NSEvent`.
+        KeyboardShortcutSettings.shortcut(for: action).numberedConfiguredDigit(
+            activeChordPrefix: activeConfiguredShortcutChordPrefixForCurrentEvent
+        ) { numberedShortcutDigit(event: event, stroke: $0) }
     }
 
     private func matchConfiguredDirectionalShortcut(

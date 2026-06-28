@@ -42,4 +42,29 @@ struct ConfiguredShortcutMatchingTests {
         let single = StoredShortcut(first: cmd1)
         #expect(single.matchesConfigured(activeChordPrefix: cmd1) { _ in true } == false)
     }
+
+    @Test("Numbered digit: unbound shortcut resolves to nil")
+    func numberedUnboundIsNil() {
+        let unbound = StoredShortcut(first: ShortcutStroke(key: ""))
+        #expect(unbound.numberedConfiguredDigit(activeChordPrefix: nil) { _ in 5 } == nil)
+    }
+
+    @Test("Numbered digit: single-stroke shortcut resolves its first stroke")
+    func numberedSingleStrokeResolvesFirst() {
+        let shortcut = StoredShortcut(first: cmd1)
+        #expect(shortcut.numberedConfiguredDigit(activeChordPrefix: nil) { $0 == self.cmd1 ? 1 : nil } == 1)
+    }
+
+    @Test("Numbered digit: chorded shortcut resolves to nil with no active prefix")
+    func numberedChordedNilWithoutPrefix() {
+        let chord = StoredShortcut(first: cmd1, second: cmdK)
+        #expect(chord.numberedConfiguredDigit(activeChordPrefix: nil) { _ in 9 } == nil)
+    }
+
+    @Test("Numbered digit: active prefix resolves the second stroke only when first equals prefix")
+    func numberedActivePrefixResolvesSecond() {
+        let chord = StoredShortcut(first: cmd1, second: cmdK)
+        #expect(chord.numberedConfiguredDigit(activeChordPrefix: cmd1) { $0 == self.cmdK ? 7 : nil } == 7)
+        #expect(chord.numberedConfiguredDigit(activeChordPrefix: cmd2) { _ in 7 } == nil)
+    }
 }
