@@ -82,6 +82,12 @@ final class RemoteTmuxSessionMirror {
     /// every mirror) — so this mirror must NOT self-trigger per-session teardown.
     private let managesOwnLifecycle: Bool
 
+    /// Linked-view mirrors share ONE control client across many windows, so they size
+    /// each window with `resize-window -t @id` (``RemoteTmuxControlConnection/resizeWindow(windowId:columns:rows:)``)
+    /// instead of the per-session `refresh-client -C`. Non-linked mirrors own their
+    /// client and keep using `setClientSize`.
+    private let perWindowSizing: Bool
+
     init(
         host: RemoteTmuxHost,
         sessionName: String,
@@ -89,7 +95,8 @@ final class RemoteTmuxSessionMirror {
         tabManager: TabManager,
         workspace: Workspace,
         windowIdFilter: Set<Int>? = nil,
-        managesOwnLifecycle: Bool = true
+        managesOwnLifecycle: Bool = true,
+        perWindowSizing: Bool = false
     ) {
         self.host = host
         self.sessionName = sessionName
@@ -98,6 +105,7 @@ final class RemoteTmuxSessionMirror {
         self.workspace = workspace
         self.windowIdFilter = windowIdFilter
         self.managesOwnLifecycle = managesOwnLifecycle
+        self.perWindowSizing = perWindowSizing
         self.defaultPanelIds = Array(workspace.panels.keys)
 
         // Register as one of possibly several observers — never overwrite a
@@ -251,8 +259,12 @@ final class RemoteTmuxSessionMirror {
                     // TUI runs) doesn't stay at ssh's default 80×24 and render
                     // mangled. The multi-pane path handles this via the window
                     // mirror's own geometry.
-                    onResize: { [weak connection] columns, rows in
-                        connection?.setClientSize(columns: columns, rows: rows)
+                    onResize: { [weak connection, perWindowSizing] columns, rows in
+                        if perWindowSizing {
+                            connection?.resizeWindow(windowId: windowId, columns: columns, rows: rows)
+                        } else {
+                            connection?.setClientSize(columns: columns, rows: rows)
+                        }
                     }
                 ) else { continue }
                 panelIdByWindow[windowId] = panel.id
@@ -331,17 +343,23 @@ final class RemoteTmuxSessionMirror {
     /// windows are skipped — their mirror view owns client sizing).
     private func pushInitialClientSize() -> Bool {
         guard let workspace else { return true }
-        let singlePanePanelIds = panelIdByWindow
-            .filter { windowMirrorByWindowId[$0.key] == nil }
-            .values
-        guard !singlePanePanelIds.isEmpty else { return true }
-        for panelId in singlePanePanelIds {
+        let singlePaneWindows = panelIdByWindow.filter { windowMirrorByWindowId[$0.key] == nil }
+        guard !singlePaneWindows.isEmpty else { return true }
+        // Non-linked: one client size suffices, so the first ready grid finishes.
+        // Linked (perWindowSizing): size EVERY single-pane window, and only report
+        // "done" once they all have a rendered grid — otherwise keep retrying.
+        var allSized = true
+        for (windowId, panelId) in singlePaneWindows {
             guard let panel = workspace.panels[panelId] as? TerminalPanel,
-                  let grid = panel.surface.renderedGridCells() else { continue }
-            connection.setClientSize(columns: grid.columns, rows: grid.rows)
-            return true
+                  let grid = panel.surface.renderedGridCells() else { allSized = false; continue }
+            if perWindowSizing {
+                connection.resizeWindow(windowId: windowId, columns: grid.columns, rows: grid.rows)
+            } else {
+                connection.setClientSize(columns: grid.columns, rows: grid.rows)
+                return true
+            }
         }
-        return false
+        return perWindowSizing ? allSized : false
     }
 
     /// Creates the in-tab multi-pane renderer the first time a window has more
@@ -364,6 +382,7 @@ final class RemoteTmuxSessionMirror {
             panelId: panelId,
             connection: connection,
             layout: window.layout,
+            perWindowSizing: perWindowSizing,
             makePanel: { [weak workspace, weak connection] tmuxPaneId in
                 workspace?.makeRemoteTmuxPanePanel(onInput: { data in
                     Task { @MainActor in connection?.sendKeys(paneId: tmuxPaneId, data: data) }
