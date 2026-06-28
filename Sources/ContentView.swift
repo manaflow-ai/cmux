@@ -8075,18 +8075,21 @@ struct TabItemView: View, Equatable {
             moveBy(1)
         }
         .contextMenu {
-            workspaceContextMenu
-                .onAppear {
+            SidebarTabItemContextMenu(
+                data: workspaceContextMenuData,
+                actions: workspaceContextMenuActions,
+                onMenuAppear: {
                     rowInteractionState.contextMenuDidAppear()
                     contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
                     contextMenuState.pendingWorkspaceSnapshot = nil
                     onContextMenuAppear()
-                }
-                .onDisappear {
+                },
+                onMenuDisappear: {
                     rowInteractionState.contextMenuDidDisappear()
                     onContextMenuDisappear()
                     flushDeferredWorkspaceObservationInvalidation()
                 }
+            )
         }
     }
 
@@ -8128,13 +8131,6 @@ struct TabItemView: View, Equatable {
         return remoteContextMenuWorkspaceIds.compactMap { workspaceId in
             tabManager.tabs.first(where: { $0.id == workspaceId })
         }
-    }
-
-    private var workspaceContextMenu: some View {
-        SidebarWorkspaceContextMenu(
-            data: workspaceContextMenuData,
-            actions: workspaceContextMenuActions
-        )
     }
 
     /// Immutable snapshot of every label, id, flag, and submenu list rendered by
