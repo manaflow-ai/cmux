@@ -147,74 +147,73 @@ class TabManager {
 #endif
     }
 
-    /// Legacy `@Published selectedTabId` didSet: the selection side-effect
-    /// chain, run synchronously after storage changed.
+    /// Legacy `@Published selectedTabId` didSet: forwards to the selection
+    /// side-effect chain, now owned by `WorkspaceSelectionSideEffectsCoordinator`
+    /// (CmuxWorkspaces). The app-coupled effects invert back through this window
+    /// via `WorkspaceSelectionSideEffectsHosting`.
     func selectedWorkspaceIdDidChange(from oldValue: UUID?) {
-            guard selectedTabId != oldValue else { return }
-            if !isRestoringSessionSnapshot {
-                workspaces.expandWorkspaceGroupForSelectionIfNeeded()
-            }
-            sentryBreadcrumb("workspace.switch", data: [
-                "tabCount": tabs.count
-            ])
-            let previousTabId = oldValue
-            if let previousTabId {
-                focusedSurface.recordRememberedFocusForPreviousSelection(previousTabId)
-            }
-            if shouldRecordFocusHistory {
-                if let previousTabId {
-                    focusHistoryNavigation.recordFocusInHistory(
-                        workspaceId: previousTabId,
-                        panelId: focusedPanelId(for: previousTabId),
-                        preservingForwardBranch: false
-                    )
-                }
-                if let selectedTabId,
-                   tabs.contains(where: { $0.id == selectedTabId }) {
-                    let selectedEntry = FocusHistoryEntry(
-                        workspaceId: selectedTabId,
-                        panelId: focusedSurface.rememberedFocusedPanelId(selectedTabId)
-                    )
-                    focusHistoryNavigation.recordFocusInHistory(
-                        workspaceId: selectedTabId,
-                        panelId: focusHistoryNavigation.resolvedFocusHistoryPanelId(for: selectedEntry),
-                        preservingForwardBranch: false
-                    )
-                }
-            }
-            publishCmuxWorkspaceSelectedChange(from: previousTabId)
-            let notificationDismissalContext = notificationDismissal.takePendingSelectionContext() ?? .activeFocus
+        selectionSideEffects.selectedWorkspaceIdDidChange(from: oldValue)
+    }
+
+    // MARK: - WorkspaceSelectionSideEffectsHosting witnesses
+
+    /// The notification-dismissal context taken synchronously during a selection
+    /// change and applied in the deferred turn. Stashed app-side because
+    /// `NotificationDismissalContext` is owned by a sibling package and never
+    /// crosses into CmuxWorkspaces. Transient deferred-turn bookkeeping, so
+    /// `@ObservationIgnored`.
+    @ObservationIgnored
+    private var pendingDeferredSelectionDismissalContext: NotificationDismissalContext = .activeFocus
+
+    var isSelectionSideEffectsRestoring: Bool { isRestoringSessionSnapshot }
+
+    func recordWorkspaceSwitchBreadcrumb(tabCount: Int) {
+        sentryBreadcrumb("workspace.switch", data: [
+            "tabCount": tabCount
+        ])
+    }
+
+    func publishWorkspaceSelectedChange(fromPreviousWorkspaceId previousWorkspaceId: UUID?) {
+        publishCmuxWorkspaceSelectedChange(from: previousWorkspaceId)
+    }
+
+    func takePendingNotificationDismissalContextForDeferredSideEffects() {
+        pendingDeferredSelectionDismissalContext = notificationDismissal.takePendingSelectionContext() ?? .activeFocus
+    }
+
+    func scheduleDeferredSelectionSideEffects(generation: UInt64, previousWorkspaceId: UUID?) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.selectionSideEffects.runDeferredSelectionSideEffects(
+                generation: generation,
+                previousWorkspaceId: previousWorkspaceId
+            )
+        }
+    }
+
+    func applyDeferredSelectionAppEffects() {
+        updateWindowTitleForSelectedTab()
+        if let selectedTabId {
+            dismissFocusedPanelNotificationIfActive(
+                tabId: selectedTabId,
+                context: pendingDeferredSelectionDismissalContext
+            )
+        }
+    }
+
+    func debugLogSelectionDidChange(
+        fromPreviousWorkspaceId previousWorkspaceId: UUID?,
+        toSelectedWorkspaceId selectedWorkspaceId: UUID?
+    ) {
 #if DEBUG
-            workspaceSwitchDebug.logSelectionDidChange(from: previousTabId, to: selectedTabId)
+        workspaceSwitchDebug.logSelectionDidChange(from: previousWorkspaceId, to: selectedWorkspaceId)
 #endif
-            selectionSideEffectsGeneration &+= 1
-            let generation = selectionSideEffectsGeneration
-            if !shouldRecordFocusHistory {
-                focusHistoryNavigation.markSuppressedSelectionSideEffectGeneration(generation)
-            }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                let suppressFocusHistory = self.focusHistoryNavigation.consumeSuppressedSelectionSideEffectGeneration(generation)
-                guard self.selectionSideEffectsGeneration == generation else { return }
-                let applySelectionSideEffects = {
-                    self.focusedSurface.focusSelectedWorkspacePanel(previousWorkspaceId: previousTabId)
-                    self.updateWindowTitleForSelectedTab()
-                    if let selectedTabId = self.selectedTabId {
-                        self.dismissFocusedPanelNotificationIfActive(
-                            tabId: selectedTabId,
-                            context: notificationDismissalContext
-                        )
-                    }
-                }
-                if suppressFocusHistory {
-                    self.focusHistoryNavigation.withFocusHistoryRecordingSuppressed(applySelectionSideEffects)
-                } else {
-                    applySelectionSideEffects()
-                }
+    }
+
+    func debugLogSelectionSideEffectsDone() {
 #if DEBUG
-                self.workspaceSwitchDebug.logSelectionSideEffectsDone(selected: self.selectedTabId)
+        workspaceSwitchDebug.logSelectionSideEffectsDone(selected: selectedTabId)
 #endif
-            }
     }
     // Typed NotificationCenter subscriptions, each owning its observer token and
     // unregistering it in its own (nonisolated) deinit when this TabManager
@@ -406,10 +405,16 @@ class TabManager {
     // collapse, and DEBUG switch tracing) invert through
     // WorkspaceSelectionHosting (TabManager+WorkspaceSelectionHosting.swift).
     let workspaceSelection: WorkspaceSelectionCoordinator<Workspace>
-    private var shouldRecordFocusHistory: Bool {
-        focusHistoryNavigation.shouldRecordFocusHistory
-    }
-    private var selectionSideEffectsGeneration: UInt64 = 0
+    // Selection side-effect chain over the workspaces / focused-surface /
+    // focus-history models (CmuxWorkspaces): the group auto-expand, the
+    // previous/next focus-history record ordering, and the generation-guarded
+    // deferred turn that focuses the selected panel, updates the window title,
+    // and dismisses the focused-panel notification. The app-coupled effects
+    // (Sentry breadcrumb, the Workspace-god focused-panel read, the
+    // CmuxWorkspaceSelected publish, the cross-package notification-dismissal
+    // context, DEBUG switch tracing, and the DispatchQueue.main.async hop)
+    // invert through WorkspaceSelectionSideEffectsHosting (witnesses below).
+    let selectionSideEffects: WorkspaceSelectionSideEffectsCoordinator<Workspace>
     var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
     private var currentWindowTabBarLeadingInset: CGFloat?
     /// Periodic agent-PID liveness sweep (extracted to CmuxWorkspaces).
@@ -506,6 +511,11 @@ class TabManager {
             model: workspaces,
             backgroundLoad: backgroundWorkspaceLoad
         )
+        selectionSideEffects = WorkspaceSelectionSideEffectsCoordinator(
+            model: workspaces,
+            focusedSurface: focusedSurface,
+            focusHistory: focusHistoryNavigation
+        )
         panelIdResolver = PanelIdResolver(model: workspaces)
 #if DEBUG
         let sidebarGitDebugLog: @Sendable (String) -> Void = { cmuxDebugLog($0) }
@@ -551,6 +561,7 @@ class TabManager {
         workspaceReordering.attach(host: self)
         workspaceCommands.attach(host: self)
         workspaceSelection.attach(host: self)
+        selectionSideEffects.attach(host: self)
         workspaceGrouping.attach(host: self)
         closeConfirmationPresenter.attach(presentingWindow: { [weak self] in self?.window })
         workspaceClosing.attach(confirming: closeConfirmationPresenter)
@@ -4306,7 +4317,7 @@ extension TabManager {
         focusHistoryNavigation.reset()
         focusHistoryRevision &+= 1
         workspaceSelection.resetWorkspaceCycleHotWindow()
-        selectionSideEffectsGeneration &+= 1
+        selectionSideEffects.invalidateDeferredSelectionSideEffects()
         browserModel.clearRecentlyClosedBrowserPanels()
     }
 
@@ -4451,6 +4462,7 @@ extension TabManager {
 extension TabManager: WorkspacesHosting {
     typealias Tab = Workspace
 }
+extension TabManager: WorkspaceSelectionSideEffectsHosting {}
 extension TabManager: WorkspaceGroupHosting {}
 extension TabManager: SessionSnapshotRestoreHosting {}
 extension TabManager: WorkspaceCloseHosting {}
