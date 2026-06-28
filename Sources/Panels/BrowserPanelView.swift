@@ -49,10 +49,6 @@ struct BrowserPanelView: View {
     /// through this rather than the former `BrowserInstalledBrowserDetector` static
     /// namespace.
     private let installedBrowserDetector = BrowserInstalledBrowserDetector()
-    /// Held remote-suggestion service; the view fetches address-bar predictions
-    /// through this instance rather than the former
-    /// `BrowserSearchSuggestionService.shared` singleton.
-    private let searchSuggestionService = BrowserSearchSuggestionService()
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettingsStore.searchEngineKey) private var searchEngineRaw = BrowserSearchSettingsStore.defaultSearchEngine.rawValue
@@ -72,12 +68,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
     private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
-    @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
-    @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
-    @State private var suggestionTask: Task<Void, Never>?
-    @State private var isLoadingRemoteSuggestions: Bool = false
-    @State private var latestRemoteSuggestionQuery: String = ""
-    @State private var latestRemoteSuggestions: [String] = []
+    @State private var omnibarSuggestionsCoordinator: BrowserOmnibarSuggestionsCoordinator
     @State private var emptyStateImportBrowsers: [InstalledBrowserCandidate] = []
     @State private var emptyStateImportBrowserRefreshTask: Task<Void, Never>?
     @State private var emptyStateImportBrowserRefreshGeneration: UInt64 = 0
@@ -150,6 +141,43 @@ struct BrowserPanelView: View {
             for: .light,
             themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
             drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
+        ))
+        // The omnibar suggestions coordinator owns the suggestion data, debounce
+        // scheduling, and remote fetch lifecycle. Its app-side dependencies are
+        // bound to the stable `panel` reference and `AppDelegate`/`TabManager`
+        // here (kept out of the CmuxBrowserUI package); the view forwards its
+        // live `@State` omnibar state through the `BrowserOmnibarSuggestionsHost`
+        // conformance below.
+        self._omnibarSuggestionsCoordinator = State(initialValue: BrowserOmnibarSuggestionsCoordinator(
+            historySuggestions: { [panel] query, limit in
+                panel.historyStore.suggestions(for: query, limit: limit)
+            },
+            recentHistorySuggestions: { [panel] limit in
+                panel.historyStore.recentSuggestions(limit: limit)
+            },
+            matchingOpenTabs: { [panel] query, limit in
+                guard !query.isEmpty, limit > 0 else { return [] }
+                let singleCharacterQuery = query.omnibarSingleCharacterQuery
+                let includeCurrentPanelForSingleCharacterQuery = singleCharacterQuery != nil
+                let currentPanelSnapshot = BrowserOpenTabSuggestionSnapshot(
+                    workspaceId: panel.workspaceId,
+                    panelId: panel.id,
+                    url: panel.preferredURLStringForOmnibar(),
+                    title: panel.pageTitle
+                )
+                let tabManager = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId) ?? AppDelegate.shared?.tabManager
+                return tabManager?.matchingOpenBrowserTabSuggestions(
+                    for: query,
+                    currentWorkspaceId: panel.workspaceId,
+                    currentPanelId: panel.id,
+                    currentPanelSnapshot: currentPanelSnapshot,
+                    includeCurrentPanelForSingleCharacterQuery: includeCurrentPanelForSingleCharacterQuery,
+                    limit: limit
+                ) ?? []
+            },
+            resolveNavigableURL: { [panel] query in
+                panel.resolveNavigableURL(from: query)
+            }
         ))
     }
 
@@ -277,7 +305,7 @@ struct BrowserPanelView: View {
             engineName: searchConfiguration.displayName,
             items: omnibarState.suggestions,
             selectedIndex: omnibarState.selectedSuggestionIndex,
-            isLoadingRemoteSuggestions: isLoadingRemoteSuggestions,
+            isLoadingRemoteSuggestions: omnibarSuggestionsCoordinator.isLoadingRemoteSuggestionsForDisplay,
             searchSuggestionsEnabled: remoteSuggestionsEnabled,
             onCommit: { item in
                 commitSuggestion(item)
@@ -767,7 +795,7 @@ struct BrowserPanelView: View {
                     items: omnibarState.suggestions,
                     badges: omnibarState.suggestions.map { $0.trailingBadgeText },
                     selectedIndex: omnibarState.selectedSuggestionIndex,
-                    isLoadingRemoteSuggestions: isLoadingRemoteSuggestions,
+                    isLoadingRemoteSuggestions: omnibarSuggestionsCoordinator.isLoadingRemoteSuggestionsForDisplay,
                     searchSuggestionsEnabled: remoteSuggestionsEnabled,
                     pillFrame: omnibarPillFrame,
                     colorScheme: browserChromeColorScheme,
@@ -1880,26 +1908,15 @@ struct BrowserPanelView: View {
     }
 
     private func startOmnibarSuggestionRefreshConsumer() {
-        guard omnibarSuggestionRefreshConsumerTask == nil else { return }
-        let scheduler = omnibarSuggestionRefreshScheduler
-        omnibarSuggestionRefreshConsumerTask = Task { @MainActor in
-            for await generation in scheduler.refreshStream {
-                guard scheduler.shouldProcessRefresh(generation) else { continue }
-                refreshSuggestions()
-            }
-        }
+        omnibarSuggestionsCoordinator.startRefreshConsumer(host: self)
     }
 
     private func stopOmnibarSuggestionRefreshConsumer() {
-        omnibarSuggestionRefreshConsumerTask?.cancel()
-        omnibarSuggestionRefreshConsumerTask = nil
+        omnibarSuggestionsCoordinator.stopRefreshConsumer()
     }
 
     private func cancelPendingOmnibarSuggestionWork() {
-        omnibarSuggestionRefreshScheduler.cancelPendingRefresh()
-        suggestionTask?.cancel()
-        suggestionTask = nil
-        isLoadingRemoteSuggestions = false
+        omnibarSuggestionsCoordinator.cancelPendingWork()
     }
 
     private func handleOmnibarSubmit(liveField: OmnibarLiveFieldSnapshot?) {
@@ -2089,13 +2106,7 @@ struct BrowserPanelView: View {
     }
 
     private func refreshInlineCompletion() {
-        inlineCompletion = OmnibarInlineCompletion.forDisplay(
-            typedText: omnibarState.buffer,
-            suggestions: omnibarState.suggestions,
-            isFocused: addressBarFocused,
-            selectionRange: omnibarSelectionRange,
-            hasMarkedText: omnibarHasMarkedText
-        )
+        omnibarSuggestionsCoordinator.refreshInlineCompletion(host: self)
     }
 
     private func refreshSuggestions() {
@@ -2110,193 +2121,7 @@ struct BrowserPanelView: View {
             )
         }
 #endif
-        suggestionTask?.cancel()
-        suggestionTask = nil
-        isLoadingRemoteSuggestions = false
-
-        guard addressBarFocused, !omnibarHasMarkedText else {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.omnibar.suggestions refresh=skip " +
-                "panel=\(panel.id.uuidString.prefix(5)) " +
-                "focused=\(addressBarFocused ? 1 : 0) marked=\(omnibarHasMarkedText ? 1 : 0) " +
-                "bufferLen=\(omnibarState.buffer.utf8.count)"
-            )
-#endif
-            let effects = omnibarState.reduce(.suggestionsUpdated([]))
-            applyOmnibarEffects(effects)
-            return
-        }
-
-        let query = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines)
-        let historyEntries: [BrowserHistoryStore.Entry] = {
-            if query.isEmpty {
-                return panel.historyStore.recentSuggestions(limit: 12)
-            }
-            return panel.historyStore.suggestions(for: query, limit: 12)
-        }()
-        let openTabMatches = query.isEmpty ? [] : matchingOpenTabSuggestions(for: query, limit: 12)
-        let isSingleCharacterQuery = query.omnibarSingleCharacterQuery != nil
-        let remoteSuggestionsEngine = searchConfiguration.remoteSuggestionsEngine
-        let allowsRemoteSuggestions = remoteSuggestionsEnabled && remoteSuggestionsEngine != nil
-        if !allowsRemoteSuggestions {
-            latestRemoteSuggestionQuery = ""
-            latestRemoteSuggestions = []
-        }
-        let staleRemote: [String]
-        if query.isEmpty || isSingleCharacterQuery {
-            staleRemote = []
-        } else {
-            staleRemote = staleRemoteSuggestionsForDisplay(
-                query: query,
-                allowsRemoteSuggestions: allowsRemoteSuggestions
-            )
-        }
-        let resolvedURL = query.isEmpty ? nil : panel.resolveNavigableURL(from: query)
-        let items = omnibarSuggestionEngine.buildSuggestions(
-            query: query,
-            engineName: searchConfiguration.displayName,
-            historyEntries: historyEntries,
-            openTabMatches: openTabMatches,
-            remoteQueries: staleRemote,
-            resolvedURL: resolvedURL,
-            limit: 8
-        )
-        let effects = omnibarState.reduce(.suggestionsUpdated(items))
-        applyOmnibarEffects(effects)
-        refreshInlineCompletion()
-#if DEBUG
-        cmuxDebugLog(
-            "browser.omnibar.suggestions refresh=local " +
-            "panel=\(panel.id.uuidString.prefix(5)) queryLen=\(query.utf8.count) " +
-            "items=\(items.count) history=\(historyEntries.count) openTabs=\(openTabMatches.count) " +
-            "staleRemote=\(staleRemote.count) frameWidth=\(String(format: "%.1f", omnibarPillFrame.width)) " +
-            "portal=\(shouldRenderOmnibarSuggestionsInPortal ? 1 : 0)"
-        )
-#endif
-
-        guard !query.isEmpty else { return }
-
-        if !isSingleCharacterQuery, let forcedRemote = forcedRemoteSuggestionsForUITest() {
-            latestRemoteSuggestionQuery = query
-            latestRemoteSuggestions = forcedRemote
-            let merged = omnibarSuggestionEngine.buildSuggestions(
-                query: query,
-                engineName: searchConfiguration.displayName,
-                historyEntries: historyEntries,
-                openTabMatches: openTabMatches,
-                remoteQueries: forcedRemote,
-                resolvedURL: resolvedURL,
-                limit: 8
-            )
-            let forcedEffects = omnibarState.reduce(.suggestionsUpdated(merged))
-            applyOmnibarEffects(forcedEffects)
-            refreshInlineCompletion()
-#if DEBUG
-            cmuxDebugLog(
-                "browser.omnibar.suggestions refresh=forcedRemote " +
-                "panel=\(panel.id.uuidString.prefix(5)) queryLen=\(query.utf8.count) items=\(merged.count)"
-            )
-#endif
-            return
-        }
-
-        guard remoteSuggestionsEnabled else { return }
-        guard !isSingleCharacterQuery else { return }
-        guard omnibarSuggestionEngine.inputIntent(for: query) != .urlLike else { return }
-
-        // Keep current remote rows visible while fetching fresh predictions.
-        guard let engine = remoteSuggestionsEngine else { return }
-        isLoadingRemoteSuggestions = true
-        suggestionTask = Task {
-            let remote = await searchSuggestionService.suggestions(engine: engine, query: query)
-            if Task.isCancelled { return }
-
-            await MainActor.run {
-                guard !Task.isCancelled else { return }
-                guard addressBarFocused, !omnibarHasMarkedText else { return }
-                let current = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard current == query else { return }
-                latestRemoteSuggestionQuery = query
-                latestRemoteSuggestions = remote
-                let merged = omnibarSuggestionEngine.buildSuggestions(
-                    query: query,
-                    engineName: searchConfiguration.displayName,
-                    historyEntries: panel.historyStore.suggestions(for: query, limit: 12),
-                    openTabMatches: matchingOpenTabSuggestions(for: query, limit: 12),
-                    remoteQueries: remote,
-                    resolvedURL: panel.resolveNavigableURL(from: query),
-                    limit: 8
-                )
-                let effects = omnibarState.reduce(.suggestionsUpdated(merged))
-                applyOmnibarEffects(effects)
-                refreshInlineCompletion()
-                isLoadingRemoteSuggestions = false
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.omnibar.suggestions refresh=remote " +
-                    "panel=\(panel.id.uuidString.prefix(5)) queryLen=\(query.utf8.count) " +
-                    "remote=\(remote.count) items=\(merged.count)"
-                )
-#endif
-            }
-        }
-    }
-
-    /// The pure omnibar ranking engine, wired to the app's navigable-URL
-    /// resolver so URL-intent classification matches address-bar navigation.
-    private var omnibarSuggestionEngine: BrowserOmnibarSuggestionEngine {
-        BrowserOmnibarSuggestionEngine(resolveNavigableURL: { $0.omnibarNavigableURL })
-    }
-
-    private func staleRemoteSuggestionsForDisplay(
-        query: String,
-        allowsRemoteSuggestions: Bool = true
-    ) -> [String] {
-        omnibarSuggestionEngine.staleRemoteSuggestionsForDisplay(
-            query: query,
-            previousRemoteQuery: latestRemoteSuggestionQuery,
-            previousRemoteSuggestions: latestRemoteSuggestions,
-            allowsRemoteSuggestions: allowsRemoteSuggestions
-        )
-    }
-
-    private func matchingOpenTabSuggestions(for query: String, limit: Int) -> [OmnibarOpenTabMatch] {
-        guard !query.isEmpty, limit > 0 else { return [] }
-        let singleCharacterQuery = query.omnibarSingleCharacterQuery
-        let includeCurrentPanelForSingleCharacterQuery = singleCharacterQuery != nil
-        let currentPanelSnapshot = BrowserOpenTabSuggestionSnapshot(
-            workspaceId: panel.workspaceId,
-            panelId: panel.id,
-            url: panel.preferredURLStringForOmnibar(),
-            title: panel.pageTitle
-        )
-        let tabManager = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId) ?? AppDelegate.shared?.tabManager
-        return tabManager?.matchingOpenBrowserTabSuggestions(
-            for: query,
-            currentWorkspaceId: panel.workspaceId,
-            currentPanelId: panel.id,
-            currentPanelSnapshot: currentPanelSnapshot,
-            includeCurrentPanelForSingleCharacterQuery: includeCurrentPanelForSingleCharacterQuery,
-            limit: limit
-        ) ?? []
-    }
-
-    private func forcedRemoteSuggestionsForUITest() -> [String]? {
-        let raw = ProcessInfo.processInfo.environment["CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON"]
-            ?? UserDefaults.standard.string(forKey: "CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON")
-        guard let raw,
-              let data = raw.data(using: .utf8),
-              let parsed = try? JSONSerialization.jsonObject(with: data) as? [Any] else {
-            return nil
-        }
-
-        let values = parsed.compactMap { item -> String? in
-            guard let s = item as? String else { return nil }
-            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
-        return values.isEmpty ? nil : values
+        omnibarSuggestionsCoordinator.refreshSuggestions(host: self)
     }
 
     private func applyOmnibarEffects(_ effects: OmnibarEffects) {
@@ -2307,7 +2132,7 @@ struct BrowserPanelView: View {
             inlineCompletion = nil
         }
         if effects.shouldRefreshSuggestions {
-            omnibarSuggestionRefreshScheduler.scheduleRefresh()
+            omnibarSuggestionsCoordinator.scheduleRefresh()
         }
         if effects.shouldSelectAll {
             omnibarSelectAllRequestId &+= 1
@@ -2375,6 +2200,31 @@ struct BrowserPanelView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - BrowserOmnibarSuggestionsHost
+
+/// Live omnibar-state seam the suggestions coordinator reads/writes. The reducer
+/// and the focus-handoff effects stay here; the coordinator drives suggestions
+/// and inline completion through these forwarders.
+extension BrowserPanelView: BrowserOmnibarSuggestionsHost {
+    var omnibarAddressBarFocused: Bool { addressBarFocused }
+    var omnibarBuffer: String { omnibarState.buffer }
+    var omnibarSuggestions: [OmnibarSuggestion] { omnibarState.suggestions }
+    var omnibarSearchConfiguration: BrowserSearchConfiguration { searchConfiguration }
+    var omnibarRemoteSuggestionsEnabled: Bool { remoteSuggestionsEnabled }
+    var omnibarPanelID: UUID { panel.id }
+    var omnibarPillFrameWidth: CGFloat { omnibarPillFrame.width }
+    var omnibarShouldRenderSuggestionsInPortal: Bool { shouldRenderOmnibarSuggestionsInPortal }
+
+    func applyOmnibarSuggestions(_ items: [OmnibarSuggestion]) {
+        let effects = omnibarState.reduce(.suggestionsUpdated(items))
+        applyOmnibarEffects(effects)
+    }
+
+    func setOmnibarInlineCompletion(_ completion: OmnibarInlineCompletion?) {
+        inlineCompletion = completion
     }
 }
 
