@@ -15,6 +15,7 @@ private struct SidebarImmediateObservationState: Equatable {
     let title: String
     let customDescription: String?
     let isPinned: Bool
+    let notificationsMuted: Bool
     let customColor: String?
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
@@ -50,10 +51,11 @@ extension Workspace {
             $isPinned,
             $customColor
         )
-        let conversationFields = Publishers.CombineLatest3(
+        let conversationFields = Publishers.CombineLatest4(
             $latestConversationMessage,
             $latestSubmittedMessage,
-            $latestSubmittedAt
+            $latestSubmittedAt,
+            $notificationsMuted
         )
 
         return workspaceFields
@@ -63,6 +65,7 @@ extension Workspace {
                     title: workspaceFields.0,
                     customDescription: workspaceFields.1,
                     isPinned: workspaceFields.2,
+                    notificationsMuted: conversationFields.3,
                     customColor: workspaceFields.3,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,

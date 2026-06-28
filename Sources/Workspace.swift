@@ -124,6 +124,7 @@ extension Workspace {
             customDescription: customDescription,
             customColor: customColor,
             isPinned: isPinned,
+            notificationsMuted: notificationsMuted,
             groupId: groupId,
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
@@ -213,6 +214,7 @@ extension Workspace {
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
+        notificationsMuted = snapshot.notificationsMuted == true
         groupId = snapshot.groupId
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
@@ -2219,6 +2221,13 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customTitleSource: CustomTitleSource?
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
+    /// When true, every notification targeting this workspace is recorded (so it
+    /// still appears in history as already-read) but produces no desktop banner,
+    /// sound, command, pane flash, Dock badge, or workspace reorder. Toggled from
+    /// the sidebar context menu ("Mute Notifications") and persisted across
+    /// restarts through the session manifest. The authoritative runtime value;
+    /// `TerminalNotificationStore` reads it to clamp effects at delivery time.
+    @Published var notificationsMuted: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?

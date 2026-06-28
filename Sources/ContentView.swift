@@ -13196,6 +13196,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let title: String
         let customDescription: String?
         let isPinned: Bool
+        let notificationsMuted: Bool
         let customColorHex: String?
         let remoteWorkspaceSidebarText: String?
         let remoteConnectionStatusText: String
@@ -14246,6 +14247,16 @@ struct TabItemView: View, Equatable {
             multi: String(localized: "contextMenu.clearLatestNotifications", defaultValue: "Clear Latest Notifications"),
             single: String(localized: "contextMenu.clearLatestNotification", defaultValue: "Clear Latest Notification"),
             isMulti: isMulti)
+        let isNotificationsMuted = workspaceSnapshot.notificationsMuted
+        let muteNotificationsLabel = isNotificationsMuted
+            ? contextMenuLabel(
+                multi: String(localized: "contextMenu.unmuteWorkspacesNotifications", defaultValue: "Unmute Notifications"),
+                single: String(localized: "contextMenu.unmuteWorkspaceNotifications", defaultValue: "Unmute Notifications"),
+                isMulti: isMulti)
+            : contextMenuLabel(
+                multi: String(localized: "contextMenu.muteWorkspacesNotifications", defaultValue: "Mute Notifications"),
+                single: String(localized: "contextMenu.muteWorkspaceNotifications", defaultValue: "Mute Notifications"),
+                isMulti: isMulti)
         let copyWorkspaceIDLabel = contextMenuLabel(
             multi: String(localized: "contextMenu.copyWorkspaceIDs", defaultValue: "Copy Workspace IDs"),
             single: String(localized: "contextMenu.copyWorkspaceID", defaultValue: "Copy Workspace ID"),
@@ -14456,6 +14467,11 @@ struct TabItemView: View, Equatable {
         }
         .disabled(!hasLatestNotifications(in: targetIds))
 
+        Button(muteNotificationsLabel) {
+            setNotificationsMuted(!isNotificationsMuted, for: targetIds)
+        }
+        .disabled(targetIds.isEmpty)
+
         Divider()
 
         Button(copyWorkspaceIDLabel) {
@@ -14647,6 +14663,12 @@ struct TabItemView: View, Equatable {
         }
     }
 
+    private func setNotificationsMuted(_ muted: Bool, for targetIds: [UUID]) {
+        for id in targetIds {
+            tabManager.tabs.first(where: { $0.id == id })?.notificationsMuted = muted
+        }
+    }
+
     private func hasLatestNotifications(in targetIds: [UUID]) -> Bool {
         targetIds.contains { notificationStore.latestNotification(forTabId: $0) != nil }
     }
@@ -14782,6 +14804,7 @@ struct TabItemView: View, Equatable {
             title: tab.title,
             customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
             isPinned: tab.isPinned,
+            notificationsMuted: tab.notificationsMuted,
             customColorHex: tab.customColor,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,

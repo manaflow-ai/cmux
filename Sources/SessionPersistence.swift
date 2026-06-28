@@ -1831,6 +1831,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customDescription: String?
     var customColor: String?
     var isPinned: Bool
+    /// Per-workspace "Mute Notifications" state. Optional with a `nil` default so
+    /// manifests written before this field decode cleanly (restore treats absent
+    /// as not muted).
+    var notificationsMuted: Bool? = nil
     var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil
