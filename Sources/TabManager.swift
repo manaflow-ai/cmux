@@ -860,14 +860,25 @@ class TabManager {
         // Sidebar-toggle relayout updates the live Bonsplit leading inset so minimal-mode
         // workspaces reserve traffic-light space. New workspaces need that same inset
         // copied immediately because creation itself does not trigger the resync path.
-        let inheritedLeadingInset = currentWindowTabBarLeadingInset
-            ?? sourceWorkspace?.bonsplitController.configuration.appearance.tabBarLeadingInset
+        //
+        // The pure inset resolution (window inset ?? source inset) lives in
+        // WorkspaceCreationCoordinator (CmuxWorkspaces); the currentWindowTabBarLeadingInset
+        // stored property and the source workspace's bonsplit-appearance read stay window-side
+        // and are threaded through. The source read is a closure so it stays lazy behind ??.
+        let inheritedLeadingInset = workspaceCreating.inheritedTabBarLeadingInset(
+            currentWindowTabBarLeadingInset: currentWindowTabBarLeadingInset,
+            sourceTabBarLeadingInset: {
+                sourceWorkspace?.bonsplitController.configuration.appearance.tabBarLeadingInset
+            }
+        )
         guard let inheritedLeadingInset else { return }
         applyTabBarLeadingInset(inheritedLeadingInset, to: newWorkspace)
     }
 
     func syncWorkspaceTabBarLeadingInset(_ inset: CGFloat) {
-        let normalizedInset = max(0, inset)
+        // The max(0,) normalization lives in WorkspaceCreationCoordinator (CmuxWorkspaces);
+        // the currentWindowTabBarLeadingInset stored property stays window-side.
+        let normalizedInset = workspaceCreating.normalizedTabBarLeadingInset(inset)
         currentWindowTabBarLeadingInset = normalizedInset
         for tab in tabs {
             applyTabBarLeadingInset(normalizedInset, to: tab)
@@ -875,7 +886,11 @@ class TabManager {
     }
 
     private func applyTabBarLeadingInset(_ inset: CGFloat, to workspace: Workspace) {
-        if workspace.bonsplitController.configuration.appearance.tabBarLeadingInset != inset {
+        // The change-gate (current != new) lives in WorkspaceCreationCoordinator
+        // (CmuxWorkspaces); the actual bonsplit-appearance write stays window-side as the
+        // witness effect.
+        let current = workspace.bonsplitController.configuration.appearance.tabBarLeadingInset
+        if workspaceCreating.tabBarLeadingInsetNeedsApply(current: current, new: inset) {
             workspace.bonsplitController.configuration.appearance.tabBarLeadingInset = inset
         }
     }
@@ -2058,16 +2073,15 @@ class TabManager {
         sentryBreadcrumb("workspace.create", data: ["tabCount": tabCount])
     }
 
-    func defaultWorkspaceTitle(initialSurface: NewWorkspaceInitialSurface, tabNumber: Int) -> String {
-        switch initialSurface {
-        case .terminal:
-            return "Terminal \(tabNumber)"
-        case .browser:
-            // Match the browser surface's blank new-tab title; the
-            // single-panel title sync keeps the workspace title following
-            // the page title once the user navigates.
-            return String(localized: "browser.newTab", defaultValue: "New tab")
-        }
+    func terminalDefaultWorkspaceTitle(tabNumber: Int) -> String {
+        "Terminal \(tabNumber)"
+    }
+
+    func browserDefaultWorkspaceTitle() -> String {
+        // Match the browser surface's blank new-tab title; the
+        // single-panel title sync keeps the workspace title following
+        // the page title once the user navigates.
+        String(localized: "browser.newTab", defaultValue: "New tab")
     }
 
     func makeWorkspaceForCreation(

@@ -184,6 +184,41 @@ public final class WorkspaceCreationCoordinator<Tab: WorkspaceTabRepresenting> {
         )
     }
 
+    // MARK: - Creation chrome inheritance (tab-bar leading inset)
+
+    /// The tab-bar leading inset a new workspace inherits during creation: the
+    /// window's current inset when set, otherwise the source workspace's current
+    /// inset, otherwise `nil`. Lifts the legacy
+    /// `TabManager.applyCreationChromeInheritance` resolution one-for-one.
+    ///
+    /// `sourceTabBarLeadingInset` is a non-escaping closure so the source
+    /// workspace's bonsplit appearance is read only when the window inset is
+    /// `nil`, preserving the legacy `??` short-circuit. The bonsplit-appearance
+    /// read and the `currentWindowTabBarLeadingInset` stored property stay
+    /// window-side (the stored property cannot cross the module boundary and the
+    /// appearance lives on the app-target `Workspace`); the window threads both
+    /// through this pure resolution.
+    public func inheritedTabBarLeadingInset(
+        currentWindowTabBarLeadingInset: CGFloat?,
+        sourceTabBarLeadingInset: () -> CGFloat?
+    ) -> CGFloat? {
+        currentWindowTabBarLeadingInset ?? sourceTabBarLeadingInset()
+    }
+
+    /// Normalizes a tab-bar leading inset to be non-negative. Lifts the legacy
+    /// `TabManager.syncWorkspaceTabBarLeadingInset` `max(0, inset)` one-for-one.
+    public func normalizedTabBarLeadingInset(_ inset: CGFloat) -> CGFloat {
+        max(0, inset)
+    }
+
+    /// Whether a workspace's tab-bar leading inset needs rewriting to reach
+    /// `new` from its `current` value. Lifts the legacy
+    /// `TabManager.applyTabBarLeadingInset` change-gate one-for-one; the actual
+    /// bonsplit-appearance write stays window-side.
+    public func tabBarLeadingInsetNeedsApply(current: CGFloat, new: CGFloat) -> Bool {
+        current != new
+    }
+
     /// Re-maps the snapshot's tab order onto the model's current live order, or
     /// `nil` when the live tabs no longer match the snapshot (a re-entrant
     /// create/close/reorder happened mid-creation). Lifts the legacy
@@ -330,10 +365,16 @@ public final class WorkspaceCreationCoordinator<Tab: WorkspaceTabRepresenting> {
             // reading @Published placement state from existing workspaces mid-creation.
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
             let ordinal = host.nextPortOrdinal()
-            let defaultTitle = host.defaultWorkspaceTitle(
-                initialSurface: initialSurface,
-                tabNumber: nextTabCount
-            )
+            let defaultTitle: String
+            switch initialSurface {
+            case .terminal:
+                defaultTitle = host.terminalDefaultWorkspaceTitle(tabNumber: nextTabCount)
+            case .browser:
+                // Match the browser surface's blank new-tab title; the
+                // single-panel title sync keeps the workspace title following
+                // the page title once the user navigates.
+                defaultTitle = host.browserDefaultWorkspaceTitle()
+            }
             let newWorkspace = host.makeWorkspaceForCreation(
                 title: title ?? defaultTitle,
                 explicitTitle: title,
