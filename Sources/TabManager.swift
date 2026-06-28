@@ -397,6 +397,12 @@ class TabManager {
     // welcome send) is irreducibly app-coupled and stays in this file, calling
     // these computations.
     let workspaceCreating: WorkspaceCreationCoordinator<Workspace>
+    // Pure config-inheritance decisions for a new workspace (candidate panel
+    // ordering + first-live selection, and the positive-guard font inheritance).
+    // The forwarders below flatten the live source `Workspace` into the
+    // resolver's `Sendable` value inputs through the
+    // `WorkspaceCreationInheritanceReading` seam.
+    private let workspaceCreationInheritanceResolver = WorkspaceCreationInheritanceResolver()
     // Selection-navigation flows over the workspaces model + background-load
     // model (CmuxWorkspaces): the next/prev wrap-around order math, select-by-
     // index, select-last, and the cycle-hot window state machine (generation +
@@ -1116,26 +1122,15 @@ class TabManager {
         guard let workspace else { return nil }
         // Prefer cached/published panel state here instead of walking live Bonsplit focus
         // during Cmd+N; rapid workspace creation can observe transient pane/tab selection.
-        let panels = workspace.panels
-        var candidates: [TerminalPanel] = []
-        var seen: Set<UUID> = []
-
-        func appendCandidate(_ panel: TerminalPanel?) {
-            guard let panel, seen.insert(panel.id).inserted else { return }
-            candidates.append(panel)
+        // The candidate ordering + first-live selection lives in the package-pure
+        // WorkspaceCreationInheritanceResolver; the seam flattens the live panels into
+        // its Sendable input and we map the chosen id back to the live panel here.
+        guard let panelId = workspaceCreationInheritanceResolver.configInheritanceSourcePanelId(
+            from: workspace.configInheritancePanelSource
+        ) else {
+            return nil
         }
-
-        appendCandidate(workspace.lastRememberedTerminalPanelForConfigInheritance())
-        for terminalPanel in panels.values
-            .compactMap({ $0 as? TerminalPanel })
-            .sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
-            appendCandidate(terminalPanel)
-        }
-
-        if let livePanel = candidates.first(where: { $0.surface.hasLiveSurface && $0.surface.surface != nil }) {
-            return livePanel
-        }
-        return candidates.first
+        return workspace.terminalPanel(for: panelId)
     }
 
     private func inheritedTerminalConfigForNewWorkspace() -> CmuxSurfaceConfigTemplate? {
@@ -1150,12 +1145,12 @@ class TabManager {
         // Avoid reading live panel/surface state here; the arm64 Nightly Cmd+N crash path
         // was repeatedly dereferencing pointer-backed terminal objects while preparing the
         // new workspace. The workspace already caches the rooted font lineage we need.
+        // The positive-guard decision lives in WorkspaceCreationInheritanceResolver; the
+        // read stays under the same extended-lifetime ARC pin as the legacy body.
         return withExtendedLifetime(workspace) {
-            guard let fontPoints = workspace.lastRememberedTerminalFontPointsForConfigInheritance(),
-                  fontPoints > 0 else {
-                return nil
-            }
-            return fontPoints
+            workspaceCreationInheritanceResolver.inheritedTerminalFontPoints(
+                rememberedFontPoints: workspace.rememberedTerminalFontPointsForConfigInheritance
+            )
         }
     }
 
