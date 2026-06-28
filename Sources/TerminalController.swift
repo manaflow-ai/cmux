@@ -4197,28 +4197,28 @@ class TerminalController: MobileViewportSurfaceLimiting {
         includePrivateMetadata: Bool = true
     ) -> V2CallResult {
         let status = MobileHostService.shared.statusSnapshot()
-        // Single source of truth shared with the mobile listener's public-status
-        // paths, so the advertised capabilities can never drift. Includes
-        // workspace.actions.v1 (the mobile-gated pin/unpin/rename handler), which
-        // the iOS client uses to show or hide rename/pin.
-        let capabilities = MobileHostCapabilities.advertised.identifiers
         guard includePrivateMetadata else {
             return .ok(MobileHostPublicStatus(
                 routesPayload: status.routes.map(\.mobileHostJSONObject)
             ).jsonObject)
         }
 
-        let tabManager = v2ResolveTabManager(params: params)
-        let workspaceCount = tabManager?.tabs.count ?? 0
+        let workspaceCount = v2ResolveTabManager(params: params)?.tabs.count ?? 0
 
-        return .ok([
-            "mac_device_id": MobileHostIdentity.deviceID(),
-            "mac_display_name": v2OrNull(MobileHostIdentity.displayName()),
-            "host_service": status.payload,
-            "workspace_count": workspaceCount,
-            "terminal_fidelity": "render_grid",
-            "capabilities": capabilities,
-        ])
+        // The identity-bearing wire-shape assembly lives in CMUXMobileCore's
+        // `MobileHostStatusPayloadBuilder`; the controller resolves the live
+        // inputs (the rendered host-service payload, the Mac identity, and the
+        // workspace count) and forwards. The builder reads the same single
+        // source of truth for capabilities (`MobileHostCapabilities.advertised`,
+        // which includes workspace.actions.v1, the mobile-gated pin/unpin/rename
+        // handler the iOS client uses to show or hide rename/pin) that the
+        // public-status path reads, so the advertised set can never drift.
+        return .ok(MobileHostStatusPayloadBuilder().privateStatusPayload(
+            hostServicePayload: status.payload,
+            macDeviceID: MobileHostIdentity.deviceID(),
+            macDisplayName: MobileHostIdentity.displayName(),
+            workspaceCount: workspaceCount
+        ))
     }
 
     #if DEBUG
@@ -4226,7 +4226,14 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     @MainActor
     func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
-        let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, 3600)))
+        // The pure decode/clamp and the store-error -> wire mapping live in
+        // CMUXMobileCore's `MobileAttachTicketRequestCoordinator`; the controller
+        // owns the `[String: Any]` extraction, the live workspace/surface/terminal
+        // resolution, the async `createAttachTicket` call, and the `V2CallResult`
+        // construction. The two identifier gates below stay app-side, owned by the
+        // sibling `MobileHostParamPolicy` through their existing thin forwarders.
+        let coordinator = MobileAttachTicketRequestCoordinator()
+        let ttl = coordinator.clampedTTL(ttlSeconds: v2Int(params, "ttl_seconds"))
         let routeID = v2OptionalTrimmedRawString(params, "route_id")
             ?? v2OptionalTrimmedRawString(params, "routeID")
         let routeKind = v2OptionalTrimmedRawString(params, "route_kind")
@@ -4237,7 +4244,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         // the workspace selected at QR-generation time, and tapping any
         // other workspace from the paired iPhone falls back to Stack
         // Auth verification, which is brittle on real-world networks.
-        let isMacScope = scope?.lowercased() == "mac"
+        let isMacScope = coordinator.isMacScope(scope: scope)
 
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
@@ -4282,31 +4289,31 @@ class TerminalController: MobileViewportSurfaceLimiting {
             )
             return .ok(payload)
         } catch MobileAttachTicketStoreError.noRoutes {
-            return .err(
-                code: "unavailable",
-                message: "Mobile host routes are not available yet",
-                data: nil
+            return v2MobileAttachTicketErrorResult(
+                coordinator.errorWire(for: .noRoutes, routeID: routeID, routeKind: routeKind)
             )
         } catch MobileAttachTicketStoreError.routeUnavailable {
-            var data: [String: Any] = [:]
-            if let routeID {
-                data["route_id"] = routeID
-            }
-            if let routeKind {
-                data["route_kind"] = routeKind
-            }
-            return .err(
-                code: "unavailable",
-                message: "Requested mobile host route is not available",
-                data: data.isEmpty ? nil : data
+            return v2MobileAttachTicketErrorResult(
+                coordinator.errorWire(for: .routeUnavailable, routeID: routeID, routeKind: routeKind)
             )
         } catch {
-            return .err(
-                code: "internal_error",
-                message: "Failed to create mobile attach ticket",
-                data: ["error": String(describing: error)]
+            return v2MobileAttachTicketErrorResult(
+                coordinator.errorWire(
+                    for: .other(String(describing: error)),
+                    routeID: routeID,
+                    routeKind: routeKind
+                )
             )
         }
+    }
+
+    // Wraps the coordinator's pure wire-error fields into the app-side
+    // `V2CallResult`. `V2CallResult` is app-side, so the package decides the
+    // code/message/data shape and this maps it to the wire result; the
+    // `[String: String]` data map is widened to the `[String: Any]` the result
+    // carries.
+    private func v2MobileAttachTicketErrorResult(_ wire: MobileAttachTicketErrorWire) -> V2CallResult {
+        .err(code: wire.code, message: wire.message, data: wire.data.map { $0 as [String: Any] })
     }
 
     func mobileTerminalAliasUUID(params: [String: Any]) -> MobileTerminalAliasUUID {

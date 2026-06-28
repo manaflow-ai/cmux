@@ -100,4 +100,78 @@ public protocol PanelFocusNavigationHosting: AnyObject {
     /// default `reassertAppKitFocus`), keeping AppKit first responder and the
     /// bonsplit-selected tab aligned after a navigation.
     func panelFocusNavApplyTabSelection(tabId: TabID, inPane paneId: PaneID)
+
+    // MARK: Focus reconcile
+
+    /// Whether portal rendering is currently enabled (legacy
+    /// `Workspace.layoutFollowUpCoordinator.portalRenderingEnabled`). Both the
+    /// reconcile and the schedule are inert when false, matching the legacy
+    /// early-return guards.
+    var panelFocusNavPortalRenderingEnabled: Bool { get }
+
+    /// Hops `work` to the next main-queue turn (legacy
+    /// `DispatchQueue.main.async`), letting bonsplit selection/pane mutations
+    /// settle before the coalesced reconcile runs. Byte-faithful main-queue
+    /// deferral; the app target owns the dispatch.
+    func panelFocusNavScheduleAfterCurrentTurn(_ work: @escaping @MainActor () -> Void)
+
+    /// Records the DEBUG-only "schedule arrived during a detaching close
+    /// transaction" diagnostic counter (legacy `#if DEBUG` increment of
+    /// `Workspace.debugFocusReconcileScheduledDuringDetachCount` guarded by
+    /// `isDetachingCloseTransaction`). No-op in release builds and when not
+    /// detaching; the counter stays app-side because tests read it off
+    /// `Workspace`.
+    func panelFocusNavNoteScheduleDuringDetach()
+
+    /// Maps a surface (tab) id to its owning panel id, if any (legacy
+    /// `Workspace.panelIdFromSurfaceId(_:)`).
+    func panelFocusNavPanelId(fromSurfaceId surfaceId: TabID) -> UUID?
+
+    /// Maps a panel id to its surface (tab) id, if any (legacy
+    /// `Workspace.surfaceIdFromPanelId(_:)`).
+    func panelFocusNavSurfaceId(fromPanelId panelId: UUID) -> TabID?
+
+    /// Whether a panel with `panelId` exists in the registry (legacy
+    /// `panels[panelId] != nil`).
+    func panelFocusNavPanelExists(panelId: UUID) -> Bool
+
+    /// All pane ids in the split tree (legacy `bonsplitController.allPaneIds`).
+    var panelFocusNavAllPaneIds: [PaneID] { get }
+
+    /// All panel ids in the registry (legacy `panels.keys`). `.first` is the
+    /// reconcile fallback target, matching the legacy `panels.keys.first`.
+    var panelFocusNavAllPanelIds: [UUID] { get }
+
+    /// Focuses the pane `paneId` in the split tree (legacy
+    /// `bonsplitController.focusPane(_:)`).
+    func panelFocusNavFocusPane(_ paneId: PaneID)
+
+    /// Unfocuses every registered panel except `panelId` (legacy
+    /// `for (panelId, panel) in panels where panelId != targetPanelId { panel.unfocus() }`).
+    func panelFocusNavUnfocusAllExcept(panelId: UUID)
+
+    /// Focuses the panel `panelId` (legacy `targetPanel.focus()`).
+    func panelFocusNavFocusPanel(panelId: UUID)
+
+    /// Ensures the AppKit first responder converges onto the focused terminal
+    /// surface for `panelId` when it is a terminal panel (legacy
+    /// `terminalPanel.hostedView.ensureFocus(for: id, surfaceId: targetPanelId)`).
+    /// No-op for non-terminal panels. The workspace id is supplied app-side.
+    func panelFocusNavEnsureTerminalFocus(panelId: UUID)
+
+    /// Applies the focused panel's recorded directory to the workspace's
+    /// `currentDirectory`, only when a directory is recorded (legacy
+    /// `if let dir = panelDirectories[targetPanelId] { currentDirectory = dir }`).
+    func panelFocusNavApplyFocusedPanelDirectory(panelId: UUID)
+
+    /// Applies the focused panel's recorded git-branch state to the workspace's
+    /// `gitBranch` (legacy `gitBranch = panelGitBranches[targetPanelId]`),
+    /// including clearing it to `nil` when none is recorded.
+    func panelFocusNavApplyFocusedPanelGitBranch(panelId: UUID)
+
+    /// Applies the focused panel's recorded pull-request state to the
+    /// workspace's `pullRequest` (legacy
+    /// `pullRequest = panelPullRequests[targetPanelId]`), including clearing it
+    /// to `nil` when none is recorded.
+    func panelFocusNavApplyFocusedPanelPullRequest(panelId: UUID)
 }

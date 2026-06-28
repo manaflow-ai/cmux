@@ -3149,8 +3149,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         get { surfaceRegistry.pendingTabSelection }
         set { surfaceRegistry.pendingTabSelection = newValue }
     }
-    private var isReconcilingFocusState = false
-    private var focusReconcileScheduled = false
 #if DEBUG
     private(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
     private var debugLastDidMoveTabTimestamp: TimeInterval = 0
@@ -7048,26 +7046,26 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         // bonsplit has already mutated focusedPaneId), prefer it over the derived value.
         let previousTerminalHostedView = previousHostedView ?? focusedTerminalPanel?.hostedView
 
-        // `selectTab` does not necessarily move bonsplit's focused pane. For programmatic focus
-        // (socket API, notification click, etc.), ensure the target tab's pane becomes focused
-        // so `focusedPanelId` and follow-on focus logic are coherent.
-        let targetPaneId = bonsplitController.allPaneIds.first(where: { paneId in
-            bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabId })
-        })
-        let selectionAlreadyConverged: Bool = {
-            guard let targetPaneId else { return false }
-            return bonsplitController.focusedPaneId == targetPaneId &&
-                bonsplitController.selectedTab(inPane: targetPaneId)?.id == tabId
-        }()
+        // The reparent-suppression read is derived from the target terminal's AppKit hosted view,
+        // so it is computed here and passed into the coordinator as a precomputed Bool; no AppKit
+        // type crosses the seam.
         let targetHostedView = terminalPanel(for: panelId)?.hostedView
         let targetHasPendingReparentSuppression = targetHostedView.map { hostedView in
             hostedView.isSuppressingReparentFocusForLayoutFollowUp() ||
                 layoutFollowUpCoordinator.hasPendingReparentFocusSuppression(for: hostedView)
         } ?? false
-        let shouldSuppressReentrantRefocus =
-            trigger == .terminalFirstResponder &&
-            selectionAlreadyConverged &&
-            targetHasPendingReparentSuppression
+
+        // `selectTab` does not necessarily move bonsplit's focused pane. For programmatic focus
+        // (socket API, notification click, etc.), the decision resolves the target tab's owning pane
+        // so `focusedPanelId` and follow-on focus logic stay coherent.
+        let focusDecision = panelFocusNav.panelFocusDecision(
+            forTabId: tabId,
+            isTerminalFirstResponderTrigger: trigger == .terminalFirstResponder,
+            targetHasPendingReparentSuppression: targetHasPendingReparentSuppression
+        )
+        let targetPaneId = focusDecision.targetPaneId
+        let selectionAlreadyConverged = focusDecision.selectionAlreadyConverged
+        let shouldSuppressReentrantRefocus = focusDecision.shouldSuppressReentrantRefocus
 #if DEBUG
         let targetPaneShort = targetPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
         let focusedPaneShort = bonsplitController.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
@@ -7391,81 +7389,18 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         return false
     }
 
-    private func reconcileFocusState() {
-        guard layoutFollowUpCoordinator.portalRenderingEnabled else { return }
-        guard !isReconcilingFocusState else { return }
-        isReconcilingFocusState = true
-        defer { isReconcilingFocusState = false }
-
-        // Source of truth: bonsplit focused pane + selected tab.
-        // AppKit first responder must converge to this model state, not the other way around.
-        var targetPanelId: UUID?
-
-        if let focusedPane = bonsplitController.focusedPaneId,
-           let focusedTab = bonsplitController.selectedTab(inPane: focusedPane),
-           let mappedPanelId = panelIdFromSurfaceId(focusedTab.id),
-           panels[mappedPanelId] != nil {
-            targetPanelId = mappedPanelId
-        } else {
-            for pane in bonsplitController.allPaneIds {
-                guard let selectedTab = bonsplitController.selectedTab(inPane: pane),
-                      let mappedPanelId = panelIdFromSurfaceId(selectedTab.id),
-                      panels[mappedPanelId] != nil else { continue }
-                bonsplitController.focusPane(pane)
-                bonsplitController.selectTab(selectedTab.id)
-                targetPanelId = mappedPanelId
-                break
-            }
-        }
-
-        if targetPanelId == nil, let fallbackPanelId = panels.keys.first {
-            targetPanelId = fallbackPanelId
-            if let fallbackTabId = surfaceIdFromPanelId(fallbackPanelId),
-               let fallbackPane = bonsplitController.allPaneIds.first(where: { paneId in
-                   bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == fallbackTabId })
-               }) {
-                bonsplitController.focusPane(fallbackPane)
-                bonsplitController.selectTab(fallbackTabId)
-            }
-        }
-
-        guard let targetPanelId, let targetPanel = panels[targetPanelId] else { return }
-
-        for (panelId, panel) in panels where panelId != targetPanelId {
-            panel.unfocus()
-        }
-
-        targetPanel.focus()
-        if let terminalPanel = targetPanel as? TerminalPanel {
-            terminalPanel.hostedView.ensureFocus(for: id, surfaceId: targetPanelId)
-        }
-        if let dir = panelDirectories[targetPanelId] {
-            currentDirectory = dir
-        }
-        gitBranch = panelGitBranches[targetPanelId]
-        pullRequest = panelPullRequests[targetPanelId]
+    /// Forwards to ``PanelFocusNavigationCoordinator/reconcileFocusState()``,
+    /// which owns the focus-state convergence (the reentrancy latch and the
+    /// bonsplit/panel/AppKit reconcile). The app-target reads and side effects it
+    /// drives live in `Workspace+PanelFocusNavigationHosting.swift`.
+    func reconcileFocusState() {
+        panelFocusNav.reconcileFocusState()
     }
 
-    /// Reconcile focus/first-responder convergence.
-    /// Coalesce to the next main-queue turn so bonsplit selection/pane mutations settle first.
+    /// Forwards to ``PanelFocusNavigationCoordinator/scheduleFocusReconcile()``,
+    /// which owns the coalesce latch and the next-main-queue-turn deferral.
     func scheduleFocusReconcile() {
-        guard layoutFollowUpCoordinator.portalRenderingEnabled else { return }
-#if DEBUG
-        if isDetachingCloseTransaction {
-            debugFocusReconcileScheduledDuringDetachCount += 1
-        }
-#endif
-        guard !focusReconcileScheduled else { return }
-        focusReconcileScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            guard self.layoutFollowUpCoordinator.portalRenderingEnabled else {
-                self.focusReconcileScheduled = false
-                return
-            }
-            self.focusReconcileScheduled = false
-            self.reconcileFocusState()
-        }
+        panelFocusNav.scheduleFocusReconcile()
     }
 
     /// Begins (or refreshes) an event-driven layout follow-up. Forwards to
