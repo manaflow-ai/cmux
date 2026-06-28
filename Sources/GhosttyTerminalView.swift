@@ -3022,20 +3022,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
         guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
 
-        let rows = terminalKeyboardCopyModeVisibleViewportRows(
+        // Viewport-row clamp + grid-centering insets live in CmuxTerminalCore;
+        // the witness keeps the ghostty_surface_size sample, cell-size
+        // resolution, and the positive-dimension guard.
+        return TerminalKeyboardCopyModeGridMetrics.make(
             backingRows: backingRows,
-            viewHeight: Double(bounds.height),
-            cellHeight: Double(resolvedCellHeight)
-        )
-        let terminalWidth = CGFloat(columns) * resolvedCellWidth
-        let terminalHeight = CGFloat(rows) * resolvedCellHeight
-        return TerminalKeyboardCopyModeGridMetrics(
-            rows: rows,
             columns: columns,
             cellWidth: resolvedCellWidth,
             cellHeight: resolvedCellHeight,
-            xInset: max(0, (bounds.width - terminalWidth) / 2),
-            yInset: max(0, (bounds.height - terminalHeight) / 2),
+            viewWidth: bounds.width,
             viewHeight: bounds.height
         )
     }

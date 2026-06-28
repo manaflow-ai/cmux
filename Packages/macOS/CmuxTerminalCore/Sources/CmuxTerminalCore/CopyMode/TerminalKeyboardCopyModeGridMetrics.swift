@@ -61,6 +61,51 @@ public struct TerminalKeyboardCopyModeGridMetrics: Equatable, Sendable {
         self.viewHeight = viewHeight
     }
 
+    /// Builds a snapshot from raw surface geometry, computing the visible
+    /// viewport row count and the centering insets.
+    ///
+    /// Mirrors the arithmetic that lived in
+    /// `GhosttyNSView.keyboardCopyModeGridMetrics(surface:)`: the visible row
+    /// count is clamped to the view height via
+    /// ``terminalKeyboardCopyModeVisibleViewportRows(backingRows:viewHeight:cellHeight:)``
+    /// and the grid is centered in the host view (`max(0, (view - grid) / 2)`).
+    /// The witness still samples `ghostty_surface_size`, resolves the cell size,
+    /// and guards positive cell dimensions before calling this.
+    ///
+    /// - Parameters:
+    ///   - backingRows: The surface's backing row count (already clamped ≥ 1).
+    ///   - columns: The surface's column count (already clamped ≥ 1).
+    ///   - cellWidth: The resolved cell width in points (> 0).
+    ///   - cellHeight: The resolved cell height in points (> 0).
+    ///   - viewWidth: The host view width in points.
+    ///   - viewHeight: The host view height in points.
+    /// - Returns: A centered grid-metrics snapshot.
+    public static func make(
+        backingRows: Int,
+        columns: Int,
+        cellWidth: CGFloat,
+        cellHeight: CGFloat,
+        viewWidth: CGFloat,
+        viewHeight: CGFloat
+    ) -> TerminalKeyboardCopyModeGridMetrics {
+        let rows = terminalKeyboardCopyModeVisibleViewportRows(
+            backingRows: backingRows,
+            viewHeight: Double(viewHeight),
+            cellHeight: Double(cellHeight)
+        )
+        let terminalWidth = CGFloat(columns) * cellWidth
+        let terminalHeight = CGFloat(rows) * cellHeight
+        return TerminalKeyboardCopyModeGridMetrics(
+            rows: rows,
+            columns: columns,
+            cellWidth: cellWidth,
+            cellHeight: cellHeight,
+            xInset: max(0, (viewWidth - terminalWidth) / 2),
+            yInset: max(0, (viewHeight - terminalHeight) / 2),
+            viewHeight: viewHeight
+        )
+    }
+
     /// The top-origin (flipped) rect for a cursor cell, used by synthetic selection.
     ///
     /// - Parameter cursor: The cursor to convert.
