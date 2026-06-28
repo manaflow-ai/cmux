@@ -4,8 +4,10 @@ public import Foundation
 /// irreducibly-app steps of a single window's recently-closed reopen flows:
 /// the `AppDelegate.shared` delegation guard, every reach into the app-target
 /// `ClosedItemHistoryStore`, the live `Workspace` lookup plus its closed-panel
-/// restore, and the closed-workspace restore that still lives on the window god
-/// (`restoreClosedWorkspace`). None of those can cross the module boundary
+/// restore, and the full closed-workspace restore sequence (add the workspace,
+/// replay its session snapshot, the empty/has-panels rollback guards, the
+/// stale-group drop, the index reinsert, the group-contiguity normalize, and the
+/// focus-flash landing). None of those can cross the module boundary
 /// (CONVENTIONS §6: an `AppDelegate`/`Workspace`/store reach lives in the
 /// executable target), so the coordinator owns the *sequence* and the routing
 /// table while inverting each concrete effect here. The window `TabManager` is
@@ -27,7 +29,7 @@ public import Foundation
 /// observable behavior. This mirrors ``ClosedItemReopenHosting`` (the
 /// cross-window `AppDelegate` flows) at the per-window scope.
 @MainActor
-public protocol ClosedPanelRestoreHosting<Entry, PanelEntry, WorkspaceEntry, RemovedRecord>: AnyObject {
+public protocol ClosedPanelRestoreHosting<Entry, PanelEntry, WorkspaceEntry, RemovedRecord, RestoredWorkspace>: AnyObject {
     /// Opaque carrier for the app-target `ClosedItemHistoryEntry`. The coordinator
     /// threads it from the store-restore closure / removed record to ``route(for:)``
     /// without inspecting it.
@@ -39,13 +41,21 @@ public protocol ClosedPanelRestoreHosting<Entry, PanelEntry, WorkspaceEntry, Rem
     associatedtype PanelEntry
 
     /// Opaque carrier for the app-target `ClosedWorkspaceHistoryEntry` a
-    /// `.workspace` route carries; the coordinator forwards it to
-    /// ``restoreClosedWorkspace(_:)``.
+    /// `.workspace` route carries; the coordinator threads it through the
+    /// workspace-restore witnesses in
+    /// ``ClosedItemReopenRouting/restoreClosedWorkspace(_:)``.
     associatedtype WorkspaceEntry
 
     /// Opaque carrier for a store record removed by id and re-inserted if its
     /// restore fails (the record plus its original index).
     associatedtype RemovedRecord
+
+    /// Opaque carrier for the live app-target `Workspace` that
+    /// ``addRestoredWorkspace(for:)`` creates and the rest of the workspace-restore
+    /// sequence threads (panel-replay, the rollback guards, the stale-group drop,
+    /// the index reinsert, and the focus-flash landing). The coordinator never
+    /// inspects it; it only hands it back to the witnesses below.
+    associatedtype RestoredWorkspace
 
     /// The window's focus-history navigator. The coordinator owns the
     /// suppression ordering of the panel-restore flow and records landings
@@ -92,10 +102,80 @@ public protocol ClosedPanelRestoreHosting<Entry, PanelEntry, WorkspaceEntry, Rem
     /// can switch without naming the app enum (legacy `switch entry { case .panel … }`).
     func route(for entry: Entry) -> ClosedItemReopenRoute<PanelEntry, WorkspaceEntry>
 
-    /// Restores a closed workspace entry, returning whether it was restored
-    /// (legacy `restoreClosedWorkspace(workspaceEntry)`, still owned by the window
-    /// god). Reached only for the `.workspace` route.
-    func restoreClosedWorkspace(_ entry: WorkspaceEntry) -> Bool
+    // MARK: Workspace-restore witnesses
+
+    /// Whether `entry`'s snapshot declares any restorable panels (legacy
+    /// `entry.snapshot.hasRestorablePanels`). Used by the first rollback guard.
+    func snapshotHasRestorablePanels(_ entry: WorkspaceEntry) -> Bool
+
+    /// The snapshot's original workspace id (legacy `entry.workspaceId`), the
+    /// `from:` of the panel-workspace-id remap.
+    func entryWorkspaceId(_ entry: WorkspaceEntry) -> UUID
+
+    /// The snapshot's original absolute workspace index (legacy
+    /// `entry.workspaceIndex`), where the restored workspace is reinserted.
+    func entryWorkspaceIndex(_ entry: WorkspaceEntry) -> Int
+
+    /// Adds a fresh workspace seeded from `entry`'s snapshot (title, working
+    /// directory) without selecting it or auto-welcoming, returning it as the
+    /// opaque ``RestoredWorkspace`` the rest of the flow threads (legacy
+    /// `addWorkspace(title:workingDirectory:select:false,autoWelcomeIfNeeded:false)`).
+    func addRestoredWorkspace(for entry: WorkspaceEntry) -> RestoredWorkspace
+
+    /// Replays `entry`'s session snapshot into `workspace`, returning the
+    /// old-to-new panel id map (legacy `workspace.restoreSessionSnapshot(entry.snapshot)`).
+    func restoreSessionSnapshot(_ entry: WorkspaceEntry, into workspace: RestoredWorkspace) -> [UUID: UUID]
+
+    /// Closes `workspace` without recording close history, the rollback both
+    /// has-panels guards run (legacy `closeWorkspace(workspace, recordHistory: false)`).
+    func closeRestoredWorkspace(_ workspace: RestoredWorkspace)
+
+    /// Whether `workspace` ended up with no live panels (legacy
+    /// `workspace.panels.isEmpty`). Drives the second rollback guard.
+    func restoredWorkspaceHasNoPanels(_ workspace: RestoredWorkspace) -> Bool
+
+    /// The id of the live restored `workspace` (legacy `workspace.id`), threaded
+    /// into the remap target, the index reinsert, the selection, and the
+    /// focus-history landing.
+    func restoredWorkspaceId(_ workspace: RestoredWorkspace) -> UUID
+
+    /// `workspace`'s current group id, or `nil` when ungrouped (legacy
+    /// `workspace.groupId`). Read for the stale-group drop and the normalize decision.
+    func restoredWorkspaceGroupId(_ workspace: RestoredWorkspace) -> UUID?
+
+    /// Clears `workspace`'s group id (legacy `workspace.groupId = nil`) when its
+    /// snapshot group no longer exists in this window.
+    func clearRestoredWorkspaceGroupId(_ workspace: RestoredWorkspace)
+
+    /// `workspace`'s focused panel id, or `nil` (legacy `workspace.focusedPanelId`).
+    /// Selects the focus-flash branch of the landing.
+    func restoredWorkspaceFocusedPanelId(_ workspace: RestoredWorkspace) -> UUID?
+
+    /// Whether a group with `id` still exists in this window (legacy
+    /// `workspaceGroups.contains(where: { $0.id == groupId })`).
+    func hasWorkspaceGroup(id: UUID) -> Bool
+
+    /// Whether this window has any workspace groups at all (legacy
+    /// `!workspaceGroups.isEmpty`). Part of the normalize decision.
+    func hasAnyWorkspaceGroups() -> Bool
+
+    /// Remaps the store's panel-workspace ids from `oldWorkspaceId` to
+    /// `newWorkspaceId` using `panelIdMap` (legacy
+    /// `closedItemHistory.remapPanelWorkspaceIds(from:to:panelIdMap:)`).
+    func remapPanelWorkspaceIds(from oldWorkspaceId: UUID, to newWorkspaceId: UUID, panelIdMap: [UUID: UUID])
+
+    /// Reinserts the restored workspace `id` at its clamped original
+    /// `workspaceIndex` in the tab order (legacy
+    /// `tabs.firstIndex … remove … insert(at: min(max(index,0), tabs.count))`).
+    func reinsertRestoredWorkspace(id workspaceId: UUID, atIndex workspaceIndex: Int)
+
+    /// Renormalizes group contiguity after a grouped restore (legacy
+    /// `workspaces.normalizeWorkspaceGroupContiguity()`).
+    func normalizeWorkspaceGroupContiguity()
+
+    /// Flashes `panelId` in `workspace` so the user can confirm focus (legacy
+    /// `workspace.triggerFocusFlash(panelId:)`).
+    func triggerFocusFlash(_ workspace: RestoredWorkspace, panelId: UUID)
 
     // MARK: Panel-restore witnesses
 
