@@ -1194,6 +1194,18 @@ extension Workspace {
                 snapshotRestorableAgent,
                 resumeBinding: resumeBinding
             )
+            // The directory the session lived in, used as the post-exit return target for resume
+            // launchers (the OUTER login shell) so killing a resumed agent leaves the shell where the
+            // session was, never the surface default ($HOME on auto-resume, `/` on Finder/Dock launch).
+            // Computed independently of which launch path runs and of `localWorkingDirectory` below
+            // (which is intentionally suppressed when the launcher cd's itself), since the launcher must
+            // always return the outer shell somewhere real. https://github.com/manaflow-ai/cmux/issues/7031
+            let sessionReturnWorkingDirectory =
+                resumeBinding?.cwd
+                ?? snapshot.terminal?.workingDirectory
+                ?? restorableAgent?.workingDirectory
+                ?? snapshot.directory
+                ?? currentDirectory
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
             // Only auto-resume if the agent was actively running when the snapshot was saved.
@@ -1224,7 +1236,8 @@ extension Workspace {
                 effectiveResumeBindingForStartup.flatMap {
                     sessionRestorePolicy.surfaceResumeStartupLaunch(
                         forApprovedBinding: $0,
-                        allowLauncherScript: true
+                        allowLauncherScript: true,
+                        returnWorkingDirectory: sessionReturnWorkingDirectory
                     )
                 }
             }
@@ -1252,7 +1265,7 @@ extension Workspace {
                         restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {
-                        restorableAgent?.resumeStartupCommand()
+                        restorableAgent?.resumeStartupCommand(returnWorkingDirectory: sessionReturnWorkingDirectory)
                             .map(SurfaceResumeStartupLaunch.command)
                     }
                 } else {

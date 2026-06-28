@@ -692,6 +692,153 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         XCTAssertTrue(bare.contains(exec), bare)
     }
 
+    // Regression for https://github.com/manaflow-ai/cmux/issues/7031 (restorable-agent path).
+    // After Cmd+Q quit + auto-resume, a Claude session resumes in the right project dir (Claude
+    // restores its own cwd), but the agent snapshot can carry no usable launch/session cwd of its
+    // own. The resolved session directory is still known to the restore (the terminal's saved cwd),
+    // yet the resume launcher was fed only the agent's own (nil) cwd, so the post-exit outer login
+    // shell fell back to the surface default ($HOME). Quitting the agent then dropped the user at
+    // `~`. The launcher must `cd` the OUTER shell back to the resolved session directory before
+    // `exec -l`, even when the agent's own cwd metadata is missing.
+    @MainActor
+    func testAutoResumeReturnShellCdsBackToSessionDirectoryWhenAgentCwdMissing() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResume = true (default)
+
+            let sessionDirectory = "/tmp/cmux-issue-7031-agent-repo"
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            _ = source.updatePanelDirectory(panelId: sourcePanelId, directory: sessionDirectory)
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "agent-issue-7031-session"
+            )
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+            var snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+
+            // Simulate the auto-resume nil-cwd path: the agent's own launch/session cwd metadata is
+            // absent (the resumed agent recovers its cwd internally), but the session's terminal
+            // directory is known and is the directory the session lived in.
+            let panelIndex = try XCTUnwrap(snapshot.panels.indices.first)
+            snapshot.panels[panelIndex].terminal?.agent?.workingDirectory = nil
+            snapshot.panels[panelIndex].terminal?.agent?.launchCommand?.workingDirectory = nil
+            snapshot.panels[panelIndex].terminal?.workingDirectory = sessionDirectory
+            snapshot.panels[panelIndex].directory = sessionDirectory
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+            try assertResumeReturnShellCdsBack(restoredPanel, toSessionDirectory: sessionDirectory)
+        }
+    }
+
+    // Regression for https://github.com/manaflow-ai/cmux/issues/7031 (agent-hook binding path).
+    // Same post-exit-cwd bug, reached through the surface-resume-binding launcher when the binding
+    // carries no cwd of its own. The resolved session directory is still known, so the binding
+    // launcher must `cd` the outer shell back to it before `exec -l`.
+    @MainActor
+    func testAutoResumeReturnShellCdsBackToSessionDirectoryWhenBindingCwdMissing() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let sessionDirectory = "/tmp/cmux-issue-7031-binding-repo"
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            _ = source.updatePanelDirectory(panelId: sourcePanelId, directory: sessionDirectory)
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "binding-issue-7031-session"
+            )
+            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+                SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume binding-issue-7031-session",
+                    cwd: nil, // binding carries no cwd of its own
+                    checkpointId: "binding-issue-7031-session",
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 1_777_777_777
+                ),
+            ])
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+            var snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: sourceIndex,
+                surfaceResumeBindingIndex: bindingIndex
+            )
+
+            // The binding has no cwd, and the agent's own cwd metadata is cleared, so the resolved
+            // session directory can only come from the saved terminal/session directory.
+            let panelIndex = try XCTUnwrap(snapshot.panels.indices.first)
+            snapshot.panels[panelIndex].terminal?.agent?.workingDirectory = nil
+            snapshot.panels[panelIndex].terminal?.agent?.launchCommand?.workingDirectory = nil
+            snapshot.panels[panelIndex].terminal?.workingDirectory = sessionDirectory
+            snapshot.panels[panelIndex].directory = sessionDirectory
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+            try assertResumeReturnShellCdsBack(restoredPanel, toSessionDirectory: sessionDirectory)
+        }
+    }
+
+    /// Asserts the restored surface runs a resume launcher script that returns the OUTER login shell
+    /// to `sessionDirectory` (via `cd --`) before the final `exec -l`, so quitting the resumed agent
+    /// leaves the shell where the session lived rather than at the surface default.
+    @MainActor
+    private func assertResumeReturnShellCdsBack(
+        _ panel: TerminalPanel,
+        toSessionDirectory sessionDirectory: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let command = try XCTUnwrap(panel.surface.debugInitialCommand(), file: file, line: line)
+        let prefix = "/bin/zsh "
+        XCTAssertTrue(command.hasPrefix(prefix + "'"), command, file: file, line: line)
+        // `debugInitialCommand()` is `/bin/zsh '<single-quoted script path>'`; reverse the shell
+        // single-quoting rather than trimming raw characters so a path containing a `'` resolves.
+        let scriptPath = Self.singleUnquotedShellWord(String(command.dropFirst(prefix.count)))
+        defer { try? FileManager.default.removeItem(atPath: scriptPath) }
+        let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
+
+        let outerCd = "{ cd -- '\(sessionDirectory)' 2>/dev/null || true; }"
+        let exec = "exec -l \"$_cmux_resume_shell\""
+        let cdRange = script.range(of: outerCd)
+        let execRange = script.range(of: exec)
+        XCTAssertNotNil(
+            cdRange,
+            "resume launcher must cd the outer shell back to the session dir; script:\n\(script)",
+            file: file,
+            line: line
+        )
+        XCTAssertNotNil(execRange, script, file: file, line: line)
+        if let cdRange, let execRange {
+            XCTAssertTrue(
+                cdRange.lowerBound < execRange.lowerBound,
+                "the return-to-session-dir cd must run before exec -l; script:\n\(script)",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    /// Reverses POSIX single-quoting (`'a'\''b'` -> `a'b`) to recover a script path from a
+    /// `/bin/zsh '<path>'` startup command, instead of blindly trimming the outer characters.
+    private static func singleUnquotedShellWord(_ value: String) -> String {
+        guard value.hasPrefix("'"), value.hasSuffix("'"), value.count >= 2 else { return value }
+        let inner = value.dropFirst().dropLast()
+        return inner.replacingOccurrences(of: "'\\''", with: "'")
+    }
+
     private func withRestoredDefaults<T>(
         key: String,
         defaults: UserDefaults = .standard,
@@ -716,8 +863,11 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         line: UInt = #line
     ) throws {
         let command = try XCTUnwrap(panel.surface.debugInitialCommand(), file: file, line: line)
-        XCTAssertTrue(command.hasPrefix("/bin/zsh '"), command, file: file, line: line)
-        let scriptPath = String(command.dropFirst("/bin/zsh '".count).dropLast())
+        let prefix = "/bin/zsh "
+        XCTAssertTrue(command.hasPrefix(prefix + "'"), command, file: file, line: line)
+        // `debugInitialCommand()` is `/bin/zsh '<single-quoted script path>'`; reverse the shell
+        // single-quoting rather than trimming raw characters so a path containing a `'` resolves.
+        let scriptPath = Self.singleUnquotedShellWord(String(command.dropFirst(prefix.count)))
         defer { try? FileManager.default.removeItem(atPath: scriptPath) }
         let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
         for needle in needles {
