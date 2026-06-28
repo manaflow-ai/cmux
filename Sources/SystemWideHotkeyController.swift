@@ -1,5 +1,6 @@
 import AppKit
 import Carbon
+import CmuxSettings
 import CmuxSettingsUI
 import CmuxShortcuts
 
