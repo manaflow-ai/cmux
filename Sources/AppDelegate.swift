@@ -220,7 +220,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
-    private var isRunningUnderXCTestCached: Bool {
+    // Internal (not private) so the `ApplicationActivationHost` conformance in
+    // `AppDelegate+ApplicationActivationHost.swift` can witness it.
+    var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
     }
     private var cmuxThemePreviewReloadGeneration = 0
@@ -721,7 +723,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         )
     )
-    private lazy var mainWindowVisibilityController = MainWindowVisibilityController(
+    // Internal (not private) so the `ApplicationActivationHost` conformance in
+    // `AppDelegate+ApplicationActivationHost.swift` can witness the activation
+    // visibility methods that drive it.
+    lazy var mainWindowVisibilityController = MainWindowVisibilityController(
         dependencies: .init(
             isActivationSuppressed: {
                 TerminalController.shouldSuppressSocketCommandActivation()
@@ -1520,6 +1525,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// stays here behind the ``ApplicationTerminationHost`` seam this delegate
     /// conforms to.
     private lazy var terminateReply = ApplicationTerminateReplyCoordinator(host: self)
+    /// Owns the application activation / resign lifecycle sequencing (pre/post
+    /// activation window visibility, the did-become-active breadcrumb + analytics,
+    /// the notification activation/unread reconcile, and the resign-time chord
+    /// clear + session-snapshot decision), draining it out of this delegate. The
+    /// live visibility, telemetry, notification, chord, and session-snapshot work
+    /// stays here behind the ``ApplicationActivationHost`` seam this delegate
+    /// conforms to.
+    private lazy var activationCoordinator = ApplicationActivationCoordinator(host: self)
     /// Owns the three `NSWorkspace` session-lifecycle observers
     /// (willPowerOff / sessionDidResignActive / didWake) and surfaces them as a
     /// typed ``SessionLifecycleEvent`` `AsyncStream` (CmuxWorkspaces);
@@ -2141,26 +2154,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    func applicationWillBecomeActive(_ notification: Notification) { if !hasVisibleMainTerminalWindow() { _ = mainWindowVisibilityController.orderFrontApplicationWindowsBeforeActivation(windows: mainWindowsForVisibilityController(), reason: .applicationWillBecomeActive) } }
+    func applicationWillBecomeActive(_ notification: Notification) {
+        // `applicationWillBecomeActive(_:)` stays the `NSApplicationDelegate`
+        // requirement; the pre-activation visibility sequencing is owned by
+        // `ApplicationActivationCoordinator` and reached through the
+        // `ApplicationActivationHost` seam this delegate conforms to.
+        activationCoordinator.applicationWillBecomeActive()
+    }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        let activationWindows = mainWindowsForVisibilityController()
-        if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
-            _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
-        }
-        sentryBreadcrumb("app.didBecomeActive", category: "lifecycle", data: [
-            "tabCount": tabManager?.tabs.count ?? 0
-        ])
-        if telemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTestCached {
-            PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
-        }
-
-        guard let notificationStore else { return }
-        notificationStore.handleApplicationDidBecomeActive()
-        guard let tabManager else { return }
-        guard let tabId = tabManager.selectedTabId else { return }
-        let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-        notificationActivationUnreadReconciler.reconcile(activeTabId: tabId, surfaceId: surfaceId)
+        // `applicationDidBecomeActive(_:)` stays the `NSApplicationDelegate`
+        // requirement; the visibility-restore + telemetry + notification-activation
+        // reconcile sequencing is owned by `ApplicationActivationCoordinator` and
+        // reached through the `ApplicationActivationHost` seam.
+        activationCoordinator.applicationDidBecomeActive()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -2215,11 +2222,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillResignActive(_ notification: Notification) {
-        guard !isTerminatingApp else { return }
-        clearConfiguredShortcutChordState()
-        if Self.sessionPersistenceDecisionPolicy.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: isTerminatingApp) {
-            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
-        }
+        // `applicationWillResignActive(_:)` stays the `NSApplicationDelegate`
+        // requirement; the terminate guard + chord-clear + session-snapshot
+        // sequencing is owned by `ApplicationActivationCoordinator` and reached
+        // through the `ApplicationActivationHost` seam.
+        activationCoordinator.applicationWillResignActive()
     }
 
     func persistSessionForUpdateRelaunch() {
@@ -2656,7 +2663,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// so a shared constant rather than per-call instantiation. The static
     /// decision helpers below forward to this instance so call sites (and the
     /// `SessionPersistenceTests` that drive each branch) stay byte-identical.
-    private nonisolated static let sessionPersistenceDecisionPolicy = SessionPersistenceDecisionPolicy()
+    // Internal (not private) so the `ApplicationActivationHost` conformance in
+    // `AppDelegate+ApplicationActivationHost.swift` can witness the resign-time
+    // snapshot decision.
+    nonisolated static let sessionPersistenceDecisionPolicy = SessionPersistenceDecisionPolicy()
 
     /// Pure session-snapshot window-assembly + autosave-fingerprint folding
     /// policy, lifted to ``CmuxWorkspaces/SessionSnapshotBuilder``. A stateless
@@ -3079,7 +3089,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
+    // Internal (not private) so the `ApplicationActivationHost` conformance in
+    // `AppDelegate+ApplicationActivationHost.swift` can witness the resign-time
+    // session snapshot.
+    func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) {
@@ -5196,7 +5209,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func hasVisibleMainTerminalWindow() -> Bool {
+    // Internal (not private) so the `ApplicationActivationHost` conformance in
+    // `AppDelegate+ApplicationActivationHost.swift` can witness the activation
+    // visibility methods.
+    func hasVisibleMainTerminalWindow() -> Bool {
         registeredMainWindows.contains { context in
             guard let window = resolvedWindow(for: context) else { return false }
             return window.isVisible && !window.isMiniaturized && window.alphaValue > 0.001
@@ -6644,7 +6660,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return window
     }
 
-    private func mainWindowsForVisibilityController() -> [NSWindow] {
+    // Internal (not private) so the `ApplicationActivationHost` conformance in
+    // `AppDelegate+ApplicationActivationHost.swift` can witness the activation
+    // visibility methods.
+    func mainWindowsForVisibilityController() -> [NSWindow] {
         makeMainWindowActivationResolver().mainWindowsForVisibilityController()
     }
 
