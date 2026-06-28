@@ -1386,25 +1386,20 @@ struct BrowserPanelView: View {
     }
 
     private var webContentRecoveryOverlay: some View {
-        ZStack {
-            Color(nsColor: browserChromeBackgroundColor)
-                .opacity(0.92)
-            Button(action: {
-                panel.recoverTerminatedWebContent(reason: "overlayButton")
-            }) {
-                Label(
-                    String(localized: "browser.error.reload", defaultValue: "Reload"),
-                    systemImage: "arrow.clockwise"
-                )
-                .font(.system(size: 13, weight: .medium))
-                .padding(.horizontal, 6)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .safeHelp(String(localized: "browser.reload", defaultValue: "Reload"))
-            .accessibilityIdentifier("BrowserWebContentRecoveryButton")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        BrowserWebContentRecoveryOverlay(
+            snapshot: BrowserWebContentRecoverySnapshot(
+                backgroundColor: Color(nsColor: browserChromeBackgroundColor),
+                reloadLabel: String(localized: "browser.error.reload", defaultValue: "Reload"),
+                reloadSystemImage: "arrow.clockwise",
+                reloadHelp: String(localized: "browser.reload", defaultValue: "Reload"),
+                accessibilityIdentifier: "BrowserWebContentRecoveryButton"
+            ),
+            actions: BrowserWebContentRecoveryActions(
+                onReload: {
+                    panel.recoverTerminatedWebContent(reason: "overlayButton")
+                }
+            )
+        )
     }
 
     private func triggerFocusFlashAnimation() {
