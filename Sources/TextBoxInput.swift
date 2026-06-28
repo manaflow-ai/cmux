@@ -254,51 +254,6 @@ extension SessionTextBoxInputAttachmentSnapshot {
             localURL: attachment.localURL
         )
     }
-
-    func textBoxAttachment() -> TextBoxAttachment {
-        let restoredLocalURL: URL?
-        if let localPath {
-            let url = URL(fileURLWithPath: localPath).standardizedFileURL
-            restoredLocalURL = FileManager.default.fileExists(atPath: url.path) ? url : nil
-        } else {
-            restoredLocalURL = nil
-        }
-        return TextBoxAttachment(
-            displayName: displayName,
-            submissionText: submissionText,
-            submissionPath: submissionPath,
-            localURL: restoredLocalURL,
-            cleanupLocalURLWhenDisposed: cleanupLocalPathWhenDisposed
-        )
-    }
-}
-
-extension NSAttributedString {
-    /// The submission parts (text runs and inline attachments) carried by this
-    /// attributed string, in document order.
-    var textBoxSubmissionParts: [TextBoxSubmissionPart] {
-        let raw = string as NSString
-        let fullRange = NSRange(location: 0, length: length)
-        var parts: [TextBoxSubmissionPart] = []
-
-        enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
-            if let inlineAttachment = value as? TextBoxInlineTextAttachment {
-                parts.append(.attachment(inlineAttachment.textBoxAttachment))
-            } else {
-                let text = raw.substring(with: range)
-                let strippedText = TextBoxInputTextMarkers().stringByStrippingNonTextMarkers(from: text)
-                guard !strippedText.isEmpty else { return }
-                parts.append(.text(strippedText))
-            }
-        }
-
-        return parts
-    }
-
-    /// The flattened, boundary-spaced submission text for this attributed string.
-    var textBoxFormattedSubmissionText: String {
-        textBoxSubmissionParts.textBoxFormattedSubmissionText
-    }
 }
 
 private final class TextBoxInlineTextAttachment: NSTextAttachment {
@@ -344,6 +299,12 @@ private final class TextBoxInlineTextAttachment: NSTextAttachment {
         return NSRect(x: 0, y: 0, width: width, height: 1)
     }
 }
+
+/// Exposes the carried ``TextBoxAttachment`` to the package's submission-parts
+/// reader. The stored `textBoxAttachment` satisfies the protocol requirement, so
+/// `NSAttributedString.textBoxSubmissionParts` matches this class identically to
+/// the legacy concrete `as? TextBoxInlineTextAttachment` cast.
+extension TextBoxInlineTextAttachment: TextBoxInlineAttachmentCarrying {}
 
 private final class TextBoxInlineAttachmentCell: NSTextAttachmentCell {
     private let textBoxAttachment: TextBoxAttachment
@@ -2906,9 +2867,10 @@ final class TextBoxInputTextView: NSTextView {
         from attributed: NSAttributedString,
         isActive: Bool
     ) -> SessionTextBoxInputDraftSnapshot? {
-        sessionDraftSnapshot(
-            parts: attributed.textBoxSubmissionParts,
-            isActive: isActive
+        SessionTextBoxInputDraftSnapshot.make(
+            fromAttributed: attributed,
+            isActive: isActive,
+            attachmentSnapshot: { SessionTextBoxInputAttachmentSnapshot($0) }
         )
     }
 
@@ -2917,53 +2879,20 @@ final class TextBoxInputTextView: NSTextView {
         attachments: [TextBoxAttachment],
         isActive: Bool
     ) -> SessionTextBoxInputDraftSnapshot? {
-        var parts: [TextBoxSubmissionPart] = []
-        if !text.isEmpty {
-            parts.append(.text(text))
-        }
-        parts.append(contentsOf: attachments.map { .attachment($0) })
-        return sessionDraftSnapshot(parts: parts, isActive: isActive)
+        SessionTextBoxInputDraftSnapshot.make(
+            text: text,
+            attachments: attachments,
+            isActive: isActive,
+            attachmentSnapshot: { SessionTextBoxInputAttachmentSnapshot($0) }
+        )
     }
 
     static func plainText(from draft: SessionTextBoxInputDraftSnapshot) -> String {
-        draft.parts.compactMap { part -> String? in
-            guard part.kind == .text else { return nil }
-            return part.text
-        }.joined()
+        SessionTextBoxInputDraftSnapshot.plainText(from: draft)
     }
 
     static func attachments(from draft: SessionTextBoxInputDraftSnapshot) -> [TextBoxAttachment] {
-        draft.parts.compactMap { part -> TextBoxAttachment? in
-            guard part.kind == .attachment,
-                  let attachment = part.attachment else { return nil }
-            return attachment.textBoxAttachment()
-        }
-    }
-
-    private static func sessionDraftSnapshot(
-        parts: [TextBoxSubmissionPart],
-        isActive: Bool
-    ) -> SessionTextBoxInputDraftSnapshot? {
-        let draftParts = parts.compactMap { part -> SessionTextBoxInputDraftPart? in
-            switch part {
-            case .text(let text):
-                guard !text.isEmpty else { return nil }
-                return .text(text)
-            case .attachment(let attachment):
-                guard let attachment = attachment as? TextBoxAttachment else { return nil }
-                return .attachment(SessionTextBoxInputAttachmentSnapshot(attachment))
-            }
-        }
-        let hasMeaningfulContent = draftParts.contains { part in
-            switch part.kind {
-            case .text:
-                return part.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            case .attachment:
-                return part.attachment != nil
-            }
-        }
-        guard hasMeaningfulContent else { return nil }
-        return SessionTextBoxInputDraftSnapshot(isActive: isActive, parts: draftParts)
+        SessionTextBoxInputDraftSnapshot.attachments(from: draft)
     }
 
     private func attributedContent(from draft: SessionTextBoxInputDraftSnapshot) -> NSAttributedString {

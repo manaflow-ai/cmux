@@ -64,12 +64,13 @@ private extension NSWindow {
 }
 
 final class WindowBrowserHostView: NSView {
-    private struct HostedInspectorDividerHit {
-        let slotView: WindowBrowserSlotView
-        let containerView: NSView
-        let pageView: NSView
-        let inspectorView: NSView
-        let dockSide: HostedInspectorDockSide
+    /// Pairs a resolved package `HostedInspectorDividerHit` with the concrete
+    /// `WindowBrowserSlotView` it was found in, so the host can drive live drag
+    /// state and frame mutation (which need the slot's typed API) without
+    /// downcasting the hit's `NSView`-typed `slotView`.
+    private struct HostedInspectorDividerResolution {
+        let slot: WindowBrowserSlotView
+        let hit: HostedInspectorDividerHit
     }
 
     private struct HostedInspectorDividerDragState {
@@ -244,7 +245,7 @@ final class WindowBrowserHostView: NSView {
         }
 
         let dividerHit = splitDividerHit(at: point)
-        let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point) : nil
+        let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point)?.hit : nil
         updateDividerCursor(at: point, dividerHit: dividerHit, hostedInspectorHit: hostedInspectorHit)
 
         let eventType = routingContext.eventType
@@ -363,14 +364,16 @@ final class WindowBrowserHostView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        guard let hostedInspectorHit = hostedInspectorDividerHit(at: point) else {
+        guard let resolution = hostedInspectorDividerHit(at: point) else {
             super.mouseDown(with: event)
             return
         }
+        let slot = resolution.slot
+        let hostedInspectorHit = resolution.hit
 
-        hostedInspectorHit.slotView.isHostedInspectorDividerDragActive = true
+        slot.isHostedInspectorDividerDragActive = true
         hostedInspectorDividerDrag = HostedInspectorDividerDragState(
-            slotView: hostedInspectorHit.slotView,
+            slotView: slot,
             containerView: hostedInspectorHit.containerView,
             pageView: hostedInspectorHit.pageView,
             inspectorView: hostedInspectorHit.inspectorView,
@@ -381,7 +384,7 @@ final class WindowBrowserHostView: NSView {
         )
 #if DEBUG
         cmuxDebugLog(
-            "browser.portal.manualInspectorDrag stage=start slot=\(browserPortalDebugToken(hostedInspectorHit.slotView)) " +
+            "browser.portal.manualInspectorDrag stage=start slot=\(browserPortalDebugToken(slot)) " +
             "page=\(browserPortalDebugToken(hostedInspectorHit.pageView)) " +
             "inspector=\(browserPortalDebugToken(hostedInspectorHit.inspectorView)) " +
             "pageFrame=\(browserPortalDebugFrame(hostedInspectorHit.pageView.frame)) " +
@@ -426,6 +429,7 @@ final class WindowBrowserHostView: NSView {
         dragState.slotView.recordPreferredHostedInspectorWidth(inspectorWidth, containerBounds: containerBounds)
         let appliedFrames = applyHostedInspectorDividerWidth(
             inspectorWidth,
+            slot: dragState.slotView,
             to: HostedInspectorDividerHit(
                 slotView: dragState.slotView,
                 containerView: dragState.containerView,
@@ -497,7 +501,7 @@ final class WindowBrowserHostView: NSView {
 
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
         let dividerHit = splitDividerHit(at: point)
-        let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point) : nil
+        let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point)?.hit : nil
         return shouldPassThroughToSidebarResizer(
             at: point,
             dividerHit: dividerHit,
@@ -589,7 +593,7 @@ final class WindowBrowserHostView: NSView {
         hostedInspectorHit: HostedInspectorDividerHit? = nil
     ) {
         let resolvedDividerHit = dividerHit ?? splitDividerHit(at: point)
-        let resolvedHostedInspectorHit = resolvedDividerHit == nil ? (hostedInspectorHit ?? hostedInspectorDividerHit(at: point)) : nil
+        let resolvedHostedInspectorHit = resolvedDividerHit == nil ? (hostedInspectorHit ?? hostedInspectorDividerHit(at: point)?.hit) : nil
         if shouldPassThroughToSidebarResizer(
             at: point,
             dividerHit: resolvedDividerHit,
@@ -668,119 +672,24 @@ final class WindowBrowserHostView: NSView {
         )
     }
 
-    private func hostedInspectorDividerHit(at point: NSPoint) -> HostedInspectorDividerHit? {
+    private func hostedInspectorDividerHit(at point: NSPoint) -> HostedInspectorDividerResolution? {
+        let finder = HostedInspectorDividerFinder(hitExpansion: Self.hostedInspectorDividerHitExpansion)
         let visibleSlots = subviews.compactMap { $0 as? WindowBrowserSlotView }
             .filter { !$0.isHidden && $0.window != nil && $0.frame.height > 1 }
 
         for slot in visibleSlots {
             let pointInSlot = slot.convert(point, from: self)
             guard slot.bounds.contains(pointInSlot),
-                  let hit = hostedInspectorDividerCandidate(in: slot) else {
+                  let hit = finder.candidate(in: slot) else {
                 continue
             }
 
-            if hostedInspectorDividerHitRect(for: hit).contains(pointInSlot) {
-                return hit
+            if finder.hitRect(for: hit).contains(pointInSlot) {
+                return HostedInspectorDividerResolution(slot: slot, hit: hit)
             }
         }
 
         return nil
-    }
-
-    private func hostedInspectorDividerCandidate(in slot: WindowBrowserSlotView) -> HostedInspectorDividerHit? {
-        let inspectorCandidates = slot.visibleDescendants
-            .filter { $0.isVisibleHostedInspectorCandidate && $0.isCmuxWebInspectorObject }
-            .sorted { lhs, rhs in
-                let lhsFrame = slot.convert(lhs.bounds, from: lhs)
-                let rhsFrame = slot.convert(rhs.bounds, from: rhs)
-                return lhsFrame.minX < rhsFrame.minX
-            }
-
-        var bestHit: HostedInspectorDividerHit?
-        var bestScore = -CGFloat.greatestFiniteMagnitude
-
-        for inspectorCandidate in inspectorCandidates {
-            guard let candidate = hostedInspectorDividerCandidate(in: slot, startingAt: inspectorCandidate) else {
-                continue
-            }
-            let score = hostedInspectorDividerCandidateScore(candidate)
-            if score > bestScore {
-                bestScore = score
-                bestHit = candidate
-            }
-        }
-
-        return bestHit
-    }
-
-    private func hostedInspectorDividerCandidate(
-        in slot: WindowBrowserSlotView,
-        startingAt inspectorLeaf: NSView
-    ) -> HostedInspectorDividerHit? {
-        var current: NSView? = inspectorLeaf
-        var bestHit: HostedInspectorDividerHit?
-
-        while let inspectorView = current, inspectorView !== slot {
-            guard let containerView = inspectorView.superview else { break }
-
-            let pageCandidates = containerView.subviews.compactMap { candidate -> (view: NSView, dockSide: HostedInspectorDockSide)? in
-                guard candidate.isVisibleHostedInspectorSiblingCandidate else { return nil }
-                guard candidate !== inspectorView else { return nil }
-                guard candidate.frame.verticalOverlap(with: inspectorView.frame) > 8 else {
-                    return nil
-                }
-                guard let dockSide = HostedInspectorDockSide.resolve(
-                    pageFrame: candidate.frame,
-                    inspectorFrame: inspectorView.frame
-                ) else {
-                    return nil
-                }
-                return (view: candidate, dockSide: dockSide)
-            }
-
-            if let pageCandidate = pageCandidates.max(by: {
-                hostedInspectorPageCandidateScore($0.view, inspectorView: inspectorView)
-                    < hostedInspectorPageCandidateScore($1.view, inspectorView: inspectorView)
-            }) {
-                bestHit = HostedInspectorDividerHit(
-                    slotView: slot,
-                    containerView: containerView,
-                    pageView: pageCandidate.view,
-                    inspectorView: inspectorView,
-                    dockSide: pageCandidate.dockSide
-                )
-            }
-
-            current = containerView
-        }
-
-        return bestHit
-    }
-
-    private func hostedInspectorDividerHitRect(for hit: HostedInspectorDividerHit) -> NSRect {
-        let slotBounds = hit.slotView.bounds
-        let pageFrame = hit.slotView.convert(hit.pageView.bounds, from: hit.pageView)
-        let inspectorFrame = hit.slotView.convert(hit.inspectorView.bounds, from: hit.inspectorView)
-        return hit.dockSide.dividerHitRect(
-            in: slotBounds,
-            pageFrame: pageFrame,
-            inspectorFrame: inspectorFrame,
-            expansion: Self.hostedInspectorDividerHitExpansion
-        )
-    }
-
-    private func hostedInspectorDividerCandidateScore(_ hit: HostedInspectorDividerHit) -> CGFloat {
-        let pageFrame = hit.slotView.convert(hit.pageView.bounds, from: hit.pageView)
-        let inspectorFrame = hit.slotView.convert(hit.inspectorView.bounds, from: hit.inspectorView)
-        let overlap = pageFrame.verticalOverlap(with: inspectorFrame)
-        let coverageWidth = max(pageFrame.maxX, inspectorFrame.maxX) - min(pageFrame.minX, inspectorFrame.minX)
-        return (overlap * 1_000) + coverageWidth + pageFrame.width
-    }
-
-    private func hostedInspectorPageCandidateScore(_ pageView: NSView, inspectorView: NSView) -> CGFloat {
-        let overlap = pageView.frame.verticalOverlap(with: inspectorView.frame)
-        let coverageWidth = max(pageView.frame.maxX, inspectorView.frame.maxX) - min(pageView.frame.minX, inspectorView.frame.minX)
-        return (overlap * 1_000) + coverageWidth + pageView.frame.width
     }
 
     private func reapplyHostedInspectorDividersIfNeeded(reason: String) {
@@ -811,11 +720,13 @@ final class WindowBrowserHostView: NSView {
             return false
         }
         guard let preferredWidth = slot.resolvedPreferredHostedInspectorWidth(in: slot.bounds) else { return false }
-        guard let hit = hostedInspectorDividerCandidate(in: slot) else { return false }
+        let finder = HostedInspectorDividerFinder(hitExpansion: Self.hostedInspectorDividerHitExpansion)
+        guard let hit = finder.candidate(in: slot) else { return false }
         let oldPageFrame = hit.pageView.frame
         let oldInspectorFrame = hit.inspectorView.frame
         _ = applyHostedInspectorDividerWidth(
             preferredWidth,
+            slot: slot,
             to: hit,
             minimumInspectorWidth: Self.minimumHostedInspectorWidth,
             reason: reason
@@ -827,6 +738,7 @@ final class WindowBrowserHostView: NSView {
     @discardableResult
     private func applyHostedInspectorDividerWidth(
         _ preferredWidth: CGFloat,
+        slot: WindowBrowserSlotView,
         to hit: HostedInspectorDividerHit,
         minimumInspectorWidth: CGFloat,
         reason: String
@@ -850,13 +762,13 @@ final class WindowBrowserHostView: NSView {
             return (pageFrame, inspectorFrame)
         }
 
-        hit.slotView.isApplyingHostedInspectorLayout = true
+        slot.isApplyingHostedInspectorLayout = true
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         hit.pageView.frame = pageFrame
         hit.inspectorView.frame = inspectorFrame
         CATransaction.commit()
-        hit.slotView.isApplyingHostedInspectorLayout = false
+        slot.isApplyingHostedInspectorLayout = false
 
         let isLiveDrag = reason == "drag"
         hit.pageView.needsDisplay = true
