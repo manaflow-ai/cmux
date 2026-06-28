@@ -14532,7 +14532,6 @@ struct TabItemView: View, Equatable {
         let modifiers = NSEvent.modifierFlags
         let isCommand = modifiers.contains(.command)
         let isShift = modifiers.contains(.shift)
-        let wasSelected = tabManager.selectedTabId == tab.id
         #if DEBUG
         var modStr = ""
         if modifiers.contains(.command) { modStr += "cmd " }
@@ -14596,12 +14595,10 @@ struct TabItemView: View, Equatable {
             resolvedShiftAnchorIndex: shiftAnchorIndex,
             clickedIndex: index
         )
-        tabManager.selectTab(tab)
-        if wasSelected, !isCommand, !isShift {
-            tabManager.dismissNotificationOnDirectInteraction(
-                tabId: tab.id,
-                surfaceId: tabManager.focusedSurfaceId(for: tab.id)
-            )
+        if isCommand || isShift {
+            tabManager.selectTab(tab)
+        } else {
+            tabManager.requestSidebarWorkspaceSelection(tab)
         }
         setSelectionToTabs()
     }
