@@ -1689,118 +1689,44 @@ struct BrowserPanelView: View {
     }
 
     private var emptyBrowserStateCardOverlay: some View {
-        VStack {
-            Spacer(minLength: 22)
-
-            browserImportHintBody
-            .padding(12)
-            .frame(maxWidth: 360, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.9))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(
-                    Color(nsColor: .separatorColor).opacity(0.45),
-                    lineWidth: 1
-                )
-            )
-            .shadow(color: Color.black.opacity(0.08), radius: 8, y: 3)
-
-            Spacer()
-        }
-        .padding(.horizontal, 18)
+        BrowserEmptyStateView(
+            placement: .floatingCard,
+            snapshot: browserImportHintSnapshot,
+            actions: browserImportHintActions
+        )
     }
 
     private var emptyBrowserStateInlineStrip: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            browserImportHintBody
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .frame(maxWidth: 520, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(nsColor: .windowBackgroundColor).opacity(0.84))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(
-                        Color(nsColor: .separatorColor).opacity(0.35),
-                        lineWidth: 1
-                    )
-                )
-                .shadow(color: Color.black.opacity(0.05), radius: 6, y: 2)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 14)
+        BrowserEmptyStateView(
+            placement: .inlineStrip,
+            snapshot: browserImportHintSnapshot,
+            actions: browserImportHintActions
+        )
     }
 
     private var browserImportHintPopover: some View {
-        browserImportHintBody
+        BrowserImportHintView(snapshot: browserImportHintSnapshot, actions: browserImportHintActions)
             .padding(12)
             .frame(width: 300, alignment: .leading)
     }
 
-    private var browserImportHintBody: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(String(localized: "browser.import.hint.title", defaultValue: "Import browser data"))
-                .font(.system(size: 12.5, weight: .semibold))
-
-            Text(browserImportHintSummary)
-                .font(.system(size: 11.5))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text(String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."))
-                .font(.system(size: 10.5))
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) {
-                    browserImportHintPrimaryButton
-                    browserImportHintSettingsButton
-                    browserImportHintDismissButton
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    browserImportHintPrimaryButton
-                    HStack(spacing: 10) {
-                        browserImportHintSettingsButton
-                        browserImportHintDismissButton
-                    }
-                }
-            }
-        }
-        .accessibilityElement(children: .contain)
+    private var browserImportHintSnapshot: BrowserImportHintSnapshot {
+        BrowserImportHintSnapshot(
+            title: String(localized: "browser.import.hint.title", defaultValue: "Import browser data"),
+            summary: browserImportHintSummary,
+            settingsFootnote: String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."),
+            primaryButtonTitle: String(localized: "browser.import.hint.import", defaultValue: "Import…"),
+            settingsButtonTitle: String(localized: "browser.import.hint.settings", defaultValue: "Browser Settings"),
+            dismissButtonTitle: String(localized: "browser.import.hint.dismiss", defaultValue: "Hide Hint")
+        )
     }
 
-    private var browserImportHintPrimaryButton: some View {
-        Button(String(localized: "browser.import.hint.import", defaultValue: "Import…")) {
-            presentImportDialogFromHint()
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .accessibilityIdentifier("BrowserImportHintImportButton")
-    }
-
-    private var browserImportHintSettingsButton: some View {
-        Button(String(localized: "browser.import.hint.settings", defaultValue: "Browser Settings")) {
-            openBrowserImportSettings()
-        }
-        .buttonStyle(.plain)
-        .controlSize(.small)
-        .accessibilityIdentifier("BrowserImportHintSettingsButton")
-    }
-
-    private var browserImportHintDismissButton: some View {
-        Button(String(localized: "browser.import.hint.dismiss", defaultValue: "Hide Hint")) {
-            dismissBrowserImportHint()
-        }
-        .buttonStyle(.plain)
-        .controlSize(.small)
-        .accessibilityIdentifier("BrowserImportHintDismissButton")
+    private var browserImportHintActions: BrowserImportHintActions {
+        BrowserImportHintActions(
+            onPresentImportFromHint: { presentImportDialogFromHint() },
+            onOpenImportSettings: { openBrowserImportSettings() },
+            onDismissImportHint: { dismissBrowserImportHint() }
+        )
     }
 
     private var shouldShowEmptyStateImportOverlay: Bool {
