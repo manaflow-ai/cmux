@@ -285,7 +285,7 @@ _cmux_install_cli_command_shim() {
         else
             printf 'exec "%s" "$@"\n' "$escaped_wrapper"
         fi
-    } >"$shim_path" 2>/dev/null || return 0
+    } >|"$shim_path" 2>/dev/null || return 0
     /bin/chmod 0700 "$shim_path" >/dev/null 2>&1 || return 0
 
     if [[ "$command_name" == "claude" ]]; then
