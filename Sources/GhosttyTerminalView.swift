@@ -3085,35 +3085,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         startRow: Int,
         lineCount: Int
     ) -> Bool {
-        let clampedCount = terminalKeyboardCopyModeClampCount(lineCount)
-        let rows = metrics.rows
-        let targetRow = max(0, min(rows - 1, startRow))
-        let endRow = min(rows - 1, targetRow + clampedCount - 1)
         _ = GhosttyRuntimeCInterop.clearSelection(surface)
 
-        let yMax = max(bounds.height - 1, 0)
-
-        let startRawY = metrics.topOriginRect(
-            for: TerminalKeyboardCopyModeCursor(row: targetRow, column: 0)
-        ).midY
-        let endRawY = metrics.topOriginRect(
-            for: TerminalKeyboardCopyModeCursor(row: endRow, column: max(metrics.columns - 1, 0))
-        ).midY
-        let startY = max(0, min(startRawY, yMax))
-        let endY = max(0, min(endRawY, yMax))
-        let xMax = max(bounds.width - 1, 0)
-        let startX = min(metrics.xInset + 0.5, xMax)
-        let endX = min(metrics.xInset + (CGFloat(metrics.columns) * metrics.cellWidth) - 0.5, xMax)
+        let geometry = TerminalCopyModeViewportSelectionGeometry(
+            metrics: metrics,
+            startRow: startRow,
+            lineCount: lineCount,
+            boundsSize: bounds.size
+        )
 
         let mods = GHOSTTY_MODS_NONE
-        ghostty_surface_mouse_pos(surface, Double(startX), Double(startY), mods)
+        ghostty_surface_mouse_pos(surface, Double(geometry.startPoint.x), Double(geometry.startPoint.y), mods)
         guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
             return false
         }
         defer {
             _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
         }
-        ghostty_surface_mouse_pos(surface, Double(endX), Double(endY), mods)
+        ghostty_surface_mouse_pos(surface, Double(geometry.endPoint.x), Double(geometry.endPoint.y), mods)
         guard ghostty_surface_has_selection(surface) else { return false }
 
         return performBindingAction("copy_to_clipboard")
