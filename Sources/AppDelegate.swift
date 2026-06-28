@@ -7464,7 +7464,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Routes first focus of a freshly created browser-initial workspace into
     /// the address bar so the user can type a URL immediately.
-    private func focusInitialBrowserAddressBar(in workspace: Workspace) {
+    func focusInitialBrowserAddressBar(in workspace: Workspace) {
         guard let browserPanel = workspace.focusedSurfaceId.flatMap({ workspace.browserPanel(for: $0) })
             ?? workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first else {
             return
@@ -15286,16 +15286,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 onExecuted?()
                 return true
             case .newBrowser:
-                // A mirror workspace is a 1:1 tmux view and refuses a local browser
-                // surface, so opening a browser tab there would no-op. Fall back to a
-                // NEW LOCAL browser workspace in the same window instead.
-                if context.tabManager.selectedTab?.isRemoteTmuxMirror == true {
-                    guard performNewBrowserWorkspaceAction(
-                        tabManager: context.tabManager, debugSource: "tabBar.newBrowser.mirrorFallback"
-                    ) else { return false }
-                    onExecuted?()
-                    return true
-                }
+                // Mirror-workspace handling is centralized in `newBrowserSurface`
+                // (which redirects to a new local browser workspace), so every browser
+                // entrypoint behaves the same — no per-entrypoint special-case here.
                 let previousTabManager = tabManager
                 tabManager = context.tabManager
                 defer { tabManager = previousTabManager }
