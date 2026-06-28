@@ -754,6 +754,13 @@ final class RemoteTmuxController {
             ?? linkedMirrors.values.first { $0.mirroredWorkspaceId == workspaceId }
     }
 
+    /// The remote host a mirrored workspace is mirroring, in either mode. Used by
+    /// the sidebar to color a per-origin rail by host; `nil` for a workspace that
+    /// is not a remote tmux mirror.
+    func remoteTmuxHost(forWorkspaceId workspaceId: UUID) -> RemoteTmuxHost? {
+        actionMirror(forWorkspaceId: workspaceId)?.host
+    }
+
     /// All action mirrors across both modes, for surface-based lookups.
     private var actionMirrors: [RemoteTmuxSessionMirror] {
         Array(sessionMirrors.values) + Array(linkedMirrors.values)

@@ -10047,6 +10047,7 @@ struct VerticalTabsSidebar: View {
     // row sitting behind the open menu. See `SidebarShortcutHintFreezePolicy`.
     @State private var frozenShortcutHintsTabId: UUID?
     @State private var frozenShortcutHintsValue: Bool = false
+    @Environment(\.colorScheme) private var colorScheme
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
@@ -10442,6 +10443,10 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
+        /// Per-origin rail color, keyed by workspace id. Empty when the window
+        /// contains <= 1 distinct origin (so no origin rail is drawn). An origin
+        /// is "Local" (a non-mirror workspace) or a specific remote tmux host.
+        let originColorByWorkspaceId: [UUID: Color]
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -10496,6 +10501,10 @@ struct VerticalTabsSidebar: View {
                 visibleWorkspaceRowIds: visibleWorkspaceRowIds
             )
         } ?? []
+        let originColorByWorkspaceId = Self.originColorByWorkspaceId(
+            tabs: tabs,
+            colorScheme: colorScheme
+        )
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
             tabIds: tabIds,
@@ -10516,7 +10525,8 @@ struct VerticalTabsSidebar: View {
             workspaceGroupById: workspaceGroupById,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            originColorByWorkspaceId: originColorByWorkspaceId
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -12326,6 +12336,126 @@ struct VerticalTabsSidebar: View {
         )
     }
 
+    /// Computes the per-origin rail color for every workspace in the window.
+    ///
+    /// Origin = "Local" (a workspace where `!isRemoteTmuxMirror`) OR a specific
+    /// remote tmux host. The rail is shown ONLY when the window contains MORE
+    /// THAN ONE distinct origin; otherwise this returns an empty map (no rail).
+    ///
+    /// Local origin renders a muted gray. Each remote host gets a palette color:
+    /// the distinct hosts are sorted lexicographically by `destination`
+    /// (`localizedStandardCompare`) and assigned `defaultPalette` entries in
+    /// order, skipping any palette entry whose color equals the app accent color
+    /// or any custom color a workspace in this window has explicitly chosen (the
+    /// per-workspace color used by the leftRail).
+    @MainActor
+    private static func originColorByWorkspaceId(
+        tabs: [Workspace],
+        colorScheme: ColorScheme
+    ) -> [UUID: Color] {
+        // Resolve each workspace's origin: nil destination → Local.
+        let controller = AppDelegate.shared?.remoteTmuxController
+        var hostByWorkspaceId: [UUID: RemoteTmuxHost] = [:]
+        var hasLocalOrigin = false
+        var distinctHostsByHash: [String: RemoteTmuxHost] = [:]
+        for tab in tabs {
+            if tab.isRemoteTmuxMirror, let host = controller?.remoteTmuxHost(forWorkspaceId: tab.id) {
+                hostByWorkspaceId[tab.id] = host
+                distinctHostsByHash[host.connectionHash] = host
+            } else {
+                hasLocalOrigin = true
+            }
+        }
+
+        // Distinct origins = Local (if present) + each distinct remote host.
+        let distinctOriginCount = distinctHostsByHash.count + (hasLocalOrigin ? 1 : 0)
+        guard distinctOriginCount > 1 else { return [:] }
+
+        // Colors already "claimed" so the host palette skips them: the app accent
+        // color plus every custom color a workspace in this window has chosen.
+        let accentColor = cmuxAccentNSColor()
+        var reservedRGB: Set<[Int]> = []
+        if let rgb = rgbKey(accentColor) {
+            reservedRGB.insert(rgb)
+        }
+        for tab in tabs {
+            guard let hex = tab.customColor,
+                  let nsColor = WorkspaceTabColorSettings.displayNSColor(
+                      hex: hex,
+                      colorScheme: colorScheme,
+                      forceBright: true
+                  ),
+                  let rgb = rgbKey(nsColor) else { continue }
+            reservedRGB.insert(rgb)
+        }
+
+        // Assign palette entries to hosts sorted by destination, skipping reserved.
+        let sortedHosts = distinctHostsByHash.values.sorted {
+            $0.destination.localizedStandardCompare($1.destination) == .orderedAscending
+        }
+        var colorByHash: [String: Color] = [:]
+        var paletteIndex = 0
+        let palette = WorkspaceTabColorSettings.defaultPalette
+        for host in sortedHosts {
+            var assigned: Color?
+            while paletteIndex < palette.count {
+                let entry = palette[paletteIndex]
+                paletteIndex += 1
+                guard let nsColor = WorkspaceTabColorSettings.displayNSColor(
+                    hex: entry.hex,
+                    colorScheme: colorScheme,
+                    forceBright: true
+                ) else { continue }
+                if let rgb = rgbKey(nsColor), reservedRGB.contains(rgb) { continue }
+                assigned = Color(nsColor: pastel(nsColor))
+                break
+            }
+            if let assigned {
+                colorByHash[host.connectionHash] = assigned
+            }
+        }
+
+        // Muted gray for the Local origin, matching the subtle rail rendering.
+        let localColor = Color(nsColor: NSColor.secondaryLabelColor)
+
+        var result: [UUID: Color] = [:]
+        for tab in tabs {
+            if let host = hostByWorkspaceId[tab.id] {
+                if let color = colorByHash[host.connectionHash] {
+                    result[tab.id] = color
+                }
+            } else {
+                result[tab.id] = localColor
+            }
+        }
+        return result
+    }
+
+    /// Softens a palette color toward a pastel tone by blending it part-way to
+    /// white, so the origin rails read as gentle accents rather than vivid bars.
+    private static func pastel(_ color: NSColor) -> NSColor {
+        guard let c = color.usingColorSpace(.sRGB) else { return color }
+        let blend: CGFloat = 0.4
+        return NSColor(
+            srgbRed: c.redComponent + (1 - c.redComponent) * blend,
+            green: c.greenComponent + (1 - c.greenComponent) * blend,
+            blue: c.blueComponent + (1 - c.blueComponent) * blend,
+            alpha: 1
+        )
+    }
+
+    /// A coarse RGB identity (0-255 per channel) for comparing two `NSColor`s by
+    /// appearance, used to skip palette entries that collide with the accent /
+    /// chosen colors.
+    private static func rgbKey(_ color: NSColor) -> [Int]? {
+        guard let rgb = color.usingColorSpace(.sRGB) else { return nil }
+        return [
+            Int((rgb.redComponent * 255).rounded()),
+            Int((rgb.greenComponent * 255).rounded()),
+            Int((rgb.blueComponent * 255).rounded()),
+        ]
+    }
+
     @ViewBuilder
     private func workspaceRow(
         _ tab: Workspace,
@@ -12460,6 +12590,7 @@ struct VerticalTabsSidebar: View {
             contextMenuPinState: contextMenuPinState,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
+            originColor: renderContext.originColorByWorkspaceId[tab.id],
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
         )
@@ -13294,6 +13425,7 @@ struct TabItemView: View, Equatable {
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
         lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible &&
         lhs.isBonsplitWorkspaceDropActive == rhs.isBonsplitWorkspaceDropActive &&
+        lhs.originColor == rhs.originColor &&
         lhs.settings == rhs.settings
     }
 
@@ -13347,6 +13479,10 @@ struct TabItemView: View, Equatable {
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
+    /// Immutable per-origin rail color for this row (nil when the window has a
+    /// single origin so no rail is shown). Passed in as a value snapshot to keep
+    /// the row's snapshot-boundary contract; never read from a store in the body.
+    let originColor: Color?
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents
     /// modifier-key transitions from flipping the badges on the row sitting
@@ -14056,11 +14192,24 @@ struct TabItemView: View, Equatable {
                         .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
                 }
                 .overlay(alignment: .leading) {
+                    // Origin rail sits at the very leading edge; when the custom
+                    // per-workspace rail is also shown it is nudged inward so the
+                    // two 3pt capsules sit side-by-side instead of overlapping.
+                    if let originColor {
+                        Capsule(style: .continuous)
+                            .fill(originColor.opacity(0.85))
+                            .frame(width: 3)
+                            .padding(.leading, 4)
+                            .padding(.vertical, 5)
+                            .offset(x: -1)
+                    }
+                }
+                .overlay(alignment: .leading) {
                     if showsLeadingRail {
                         Capsule(style: .continuous)
                             .fill(railColor)
                             .frame(width: 3)
-                            .padding(.leading, 4)
+                            .padding(.leading, originColor != nil ? 9 : 4)
                             .padding(.vertical, 5)
                             .offset(x: -1)
                     }
