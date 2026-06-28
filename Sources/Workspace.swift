@@ -2980,16 +2980,21 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         }
     }
 
-    // `isolated deinit` keeps teardown on the MainActor. As a plain
-    // `@MainActor ObservableObject` the deinit was implicitly MainActor-isolated;
-    // the `@Observable` macro rewrites the stored properties into accessors whose
-    // isolation would otherwise force a `nonisolated` deinit, which cannot touch
-    // this MainActor state or call the `@MainActor` `RemoteSessionCoordinator.stop()`.
-    // Isolating the deinit preserves the exact prior teardown semantics.
-    isolated deinit {
-        pendingTerminalInput.removeAllObserverTokens()
-        activeRemoteSessionControllerID = nil
-        remoteSessionController?.stop()
+    // Teardown must run on the MainActor: the `@Observable` macro rewrites these
+    // stored properties into MainActor-isolated accessors, and
+    // `PendingTerminalInputCoordinator.removeAllObserverTokens()` is `@MainActor`.
+    // `isolated deinit` would express this directly but is gated behind an
+    // experimental feature the production CI compiler (Swift 6.1) refuses to
+    // enable, so we use a plain nonisolated `deinit` and `MainActor.assumeIsolated`
+    // instead. The instance is being torn down with no concurrent access, and an
+    // `@MainActor` class is released on the main actor, so the assertion holds and
+    // the prior teardown semantics are preserved exactly.
+    deinit {
+        MainActor.assumeIsolated {
+            pendingTerminalInput.removeAllObserverTokens()
+            activeRemoteSessionControllerID = nil
+            remoteSessionController?.stop()
+        }
     }
 
     func refreshSplitButtonTooltips() {

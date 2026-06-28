@@ -5293,8 +5293,6 @@
 				OTHER_SWIFT_FLAGS = (
 					"-Xllvm",
 					"-global-isel=0",
-					"-enable-experimental-feature",
-					IsolatedDeinit,
 				);
 				SPARKLE_PUBLIC_KEY = "avjcgKibf1FTvhIjLBxhd+0HSpsXU4D0IGlVk8cgqRc=";
 				SWIFT_EMIT_LOC_STRINGS = YES;
