@@ -62,12 +62,19 @@ struct RemoteTmuxViewSession: Equatable {
         ]
     }
 
-    /// Format string for `list-sessions -F` that surfaces enough to classify each
-    /// session: the three (controlled, separator-free) ownership options first,
-    /// then the free-text `session_name` LAST so a separator inside a name can't
-    /// shift fields or drop the row.
+    /// Format string for `list-sessions -F`. Uses the printable `:` delimiter (the
+    /// same one ``RemoteTmuxSessionListParser`` uses) — NOT a control byte: when the
+    /// remote tmux client is not flagged UTF-8 (common on non-interactive SSH to a
+    /// non-UTF-8-locale host), tmux runs `-F` output through `utf8_sanitize()` which
+    /// rewrites every non-printable byte to `_`, which would collapse the fields and
+    /// drop every row. The controlled fields (`@cmux_view` = "1"/"" , owner =
+    /// colon-free id, version = int) come first; the free-text `session_name` is
+    /// LAST and is rejoined from the remainder, so a `:` in a name (tmux already
+    /// rewrites those to `_`) can't shift fields.
     static let listFormat =
-        "#{\(optView)}\u{1f}#{\(optOwner)}\u{1f}#{\(optVersion)}\u{1f}#{session_name}"
+        "#{\(optView)}:#{\(optOwner)}:#{\(optVersion)}:#{session_name}"
+
+    private static let fieldDelimiter = ":"
 
     /// One parsed `list-sessions` row (from ``listFormat``).
     struct SessionRow: Equatable {
@@ -78,15 +85,15 @@ struct RemoteTmuxViewSession: Equatable {
     }
 
     static func parseRows(_ output: String) -> [SessionRow] {
-        output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
-            // maxSplits=3 keeps the trailing (free-text) name intact even if it
-            // contains the unit separator.
-            let f = line.split(separator: "\u{1f}", maxSplits: 3, omittingEmptySubsequences: false)
-            guard f.count == 4 else { return nil }
+        output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { rawLine in
+            var line = String(rawLine)
+            if line.last == "\r" { line.removeLast() }
+            let f = line.components(separatedBy: fieldDelimiter)
+            guard f.count >= 4 else { return nil }
             return SessionRow(
-                name: String(f[3]),
+                name: f[3...].joined(separator: fieldDelimiter),  // free-text remainder
                 isView: f[0] == "1",
-                owner: String(f[1]),
+                owner: f[1],
                 version: Int(f[2])
             )
         }
@@ -131,22 +138,19 @@ struct RemoteTmuxViewSession: Equatable {
     /// an arbitrary owner id yields a valid, readable session-name fragment. Lossy
     /// on purpose (readability); uniqueness is restored by ``ownerHash(_:)``.
     static func sanitizeOwner(_ owner: String) -> String {
-        String(owner.unicodeScalars.map { s -> Character in
-            if s == "." || s == ":" || CharacterSet.whitespaces.contains(s) { return "-" }
+        let forbidden = CharacterSet.whitespacesAndNewlines.union(.controlCharacters)
+        return String(owner.unicodeScalars.map { s -> Character in
+            if s == "." || s == ":" || forbidden.contains(s) { return "-" }
             return Character(s)
         })
     }
 
     /// A short, stable, collision-resistant hex digest of the raw owner id
     /// (FNV-1a/64 → 16 hex chars), so two distinct owners can never share a view
-    /// session name even if their sanitized fragments collide.
+    /// session name even if their sanitized fragments collide. Reuses the shared
+    /// digest helper so the FNV algorithm isn't duplicated.
     static func ownerHash(_ owner: String) -> String {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in owner.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x0000_0100_0000_01b3
-        }
-        return String(format: "%016llx", hash)
+        RemoteTmuxHost.fnv1a64Hex(owner)
     }
 
     /// Single-quote for a control-mode command argument.

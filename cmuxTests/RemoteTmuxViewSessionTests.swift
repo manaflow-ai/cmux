@@ -15,9 +15,9 @@ import Testing
     private typealias Row = RemoteTmuxViewSession.SessionRow
     private func v(_ owner: String = "o1") -> VS { VS(ownerId: owner) }
 
-    // Build a list row string in the current format: view ⋮ owner ⋮ version ⋮ name
+    // Build a list row string in the current format: view : owner : version : name
     private func rowString(view: String, owner: String, version: String, name: String) -> String {
-        [view, owner, version, name].joined(separator: "\u{1f}")
+        [view, owner, version, name].joined(separator: ":")
     }
 
     @Test func sessionNameIsPrefixedSanitizedAndHashed() {
@@ -57,9 +57,17 @@ import Testing
         #expect(rows[2].owner == "o2")
     }
 
-    @Test func parsingKeepsSessionNameContainingSeparator() {
-        let out = rowString(view: "", owner: "", version: "", name: "we\u{1f}ird")
-        #expect(VS.parseRows(out) == [Row(name: "we\u{1f}ird", isView: false, owner: "", version: nil)])
+    @Test func parsingKeepsSessionNameContainingDelimiter() {
+        // A `:` in the (free-text, last) name is preserved via remainder-rejoin.
+        let out = rowString(view: "", owner: "", version: "", name: "we:ird:name")
+        #expect(VS.parseRows(out) == [Row(name: "we:ird:name", isView: false, owner: "", version: nil)])
+    }
+
+    @Test func usesPrintableDelimiterNotControlByte() {
+        // Guards the cross-host fix: the format must not embed a non-printable byte
+        // (tmux's utf8_sanitize would rewrite it to `_` on non-UTF-8 clients).
+        #expect(!VS.listFormat.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) })
+        #expect(VS.listFormat.contains(":"))
     }
 
     @Test func isAnyViewRequiresBothTagAndPrefix() {
