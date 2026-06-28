@@ -1,9 +1,18 @@
 import Foundation
 
-enum SidebarPathFormatter {
-    static let homeDirectoryPath: String = FileManager.default.homeDirectoryForCurrentUser.path
+/// Pure string/path math that canonicalizes and abbreviates a sidebar panel's
+/// working directory for display. Lifted byte-for-byte from the legacy
+/// app-target `Sidebar/SidebarPathFormatter.swift`; no AppKit/SwiftUI reach and
+/// no live workspace state, so the sidebar row leaf views and `TabItemView`
+/// directory projection call its static members directly.
+public enum SidebarPathFormatter {
+    /// The current user's home directory path, resolved once. Used as the
+    /// default canonicalization root for the abbreviation helpers.
+    public static let homeDirectoryPath: String = FileManager.default.homeDirectoryForCurrentUser.path
 
-    static func shortenedPath(
+    /// Abbreviates `path` to a `~`-prefixed form when it is at or under
+    /// `homeDirectoryPath`, otherwise returns the trimmed path unchanged.
+    public static func shortenedPath(
         _ path: String,
         homeDirectoryPath: String = Self.homeDirectoryPath
     ) -> String {
@@ -18,10 +27,10 @@ enum SidebarPathFormatter {
         return trimmed
     }
 
-    // The shortest single-string form. Falls back to the abbreviated path
-    // unchanged when there are no leading segments to drop, so `/tmp` stays
-    // `/tmp` rather than becoming `…/tmp`.
-    static func lastSegmentPath(
+    /// The shortest single-string form. Falls back to the abbreviated path
+    /// unchanged when there are no leading segments to drop, so `/tmp` stays
+    /// `/tmp` rather than becoming `…/tmp`.
+    public static func lastSegmentPath(
         _ path: String,
         homeDirectoryPath: String = Self.homeDirectoryPath
     ) -> String {
@@ -29,10 +38,10 @@ enum SidebarPathFormatter {
             ?? shortenedPath(path, homeDirectoryPath: homeDirectoryPath)
     }
 
-    // Ordered longest → shortest. The first entry is the full abbreviated path
-    // (with `~/` if applicable). Each subsequent entry drops one more leading
-    // segment and is prefixed with `…/`. Suitable as `ViewThatFits` candidates.
-    static func pathCandidates(
+    /// Ordered longest → shortest. The first entry is the full abbreviated path
+    /// (with `~/` if applicable). Each subsequent entry drops one more leading
+    /// segment and is prefixed with `…/`. Suitable as `ViewThatFits` candidates.
+    public static func pathCandidates(
         _ path: String,
         homeDirectoryPath: String = Self.homeDirectoryPath
     ) -> [String] {
