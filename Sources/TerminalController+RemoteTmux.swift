@@ -157,15 +157,26 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
         let activate = (params["activate"] as? Bool) ?? true
+        // Optional: aggregate this host into an existing linked-view window ("multiple
+        // servers in one window") instead of opening a new one. Accept the window id
+        // directly, or a workspace id (the CLI's `--into-window current` passes the
+        // caller's CMUX_WORKSPACE_ID, since surfaces don't export a window id).
+        // Ignored if it doesn't resolve to a current linked-view window.
+        let explicitIntoWindowId = (params["into_window"] as? String).flatMap(UUID.init(uuidString:))
+        let intoWorkspaceId = (params["into_workspace"] as? String).flatMap(UUID.init(uuidString:))
         // 60s (the CLI waits longer still) so a slow-but-valid BatchMode probe
         // completes instead of the app timing out first and turning an
         // auth-required result into an opaque timeout error.
         return v2VmCall(id: id, timeoutSeconds: 60) {
-            guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
-            else {
-                throw RemoteTmuxError.unreachable("app not ready")
+            let resolved: (controller: RemoteTmuxController, intoWindowId: UUID?)? = await MainActor.run {
+                guard let appDelegate = AppDelegate.shared else { return nil }
+                let intoWindowId = explicitIntoWindowId
+                    ?? intoWorkspaceId.flatMap { appDelegate.windowId(forWorkspaceId: $0) }
+                return (appDelegate.remoteTmuxController, intoWindowId)
             }
-            let outcome = try await controller.mirrorHostInNewWindow(host: host, activateWindow: activate)
+            guard let resolved else { throw RemoteTmuxError.unreachable("app not ready") }
+            let outcome = try await resolved.controller.mirrorHostInNewWindow(
+                host: host, activateWindow: activate, intoWindowId: resolved.intoWindowId)
             switch outcome {
             case .mirrored(let windowId):
                 return [

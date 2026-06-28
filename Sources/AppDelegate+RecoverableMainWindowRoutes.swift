@@ -196,6 +196,18 @@ extension AppDelegate {
         return recoverableMainWindowRouteSnapshots().first(where: { $0.tabManager === tabManager })?.windowId
     }
 
+    /// The id of the main window whose workspace list contains `workspaceId`, if any.
+    /// Lets the `cmux ssh-tmux --into-window current` flow resolve the caller's window
+    /// from its `CMUX_WORKSPACE_ID` (surfaces export the workspace id, not the window).
+    func windowId(forWorkspaceId workspaceId: UUID) -> UUID? {
+        if let context = mainWindowContexts.values.first(
+            where: { $0.tabManager.tabs.contains(where: { $0.id == workspaceId }) }) {
+            return context.windowId
+        }
+        return recoverableMainWindowRouteSnapshots()
+            .first(where: { $0.tabManager.tabs.contains(where: { $0.id == workspaceId }) })?.windowId
+    }
+
     func mainWindowContainingWorkspace(_ workspaceId: UUID) -> NSWindow? {
         for context in mainWindowContexts.values where context.tabManager.tabs.contains(where: { $0.id == workspaceId }) {
             if let window = context.window ?? windowForMainWindowId(context.windowId) {

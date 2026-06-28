@@ -1,22 +1,28 @@
 import Foundation
 
 /// Owns the dedicated-window bookkeeping ``RemoteTmuxController`` uses for the
-/// "one cmux window per remote endpoint" mirror mode (Option 1): the host↔window
-/// bindings and the in-flight-attach guard set.
+/// remote-tmux mirror mode: the host↔window bindings and the in-flight-attach
+/// guard set.
 ///
-/// Factored out of the controller so the two-way binding (and its always-paired
+/// Each host maps to exactly ONE window, but a window can mirror SEVERAL hosts —
+/// the linked-view "multiple servers in one window" mode aggregates more than one
+/// endpoint's sessions into a single cmux window. (Plain per-session mirror mode
+/// uses a single host per window.)
+///
+/// Factored out of the controller so the binding (and its always-paired
 /// insert/remove) plus the re-entrant-attach guard live behind one small
 /// `@MainActor` surface. ``beginAttach(hostHash:)`` is a synchronous
 /// check-and-insert so callers can guard an `await` gap without an extra
 /// suspension point.
 @MainActor
 final class RemoteTmuxWindowRegistry {
-    /// ``RemoteTmuxHost/connectionHash`` → the dedicated cmux window mirroring that
-    /// endpoint (Option 1).
+    /// ``RemoteTmuxHost/connectionHash`` → the cmux window mirroring that endpoint.
     private var windowIdByHost: [String: UUID] = [:]
-    /// Reverse map: cmux window id → the full host it mirrors (for window-close
-    /// detach and new-session-in-window, which need the endpoint's port/identity).
-    private var hostByWindowId: [UUID: RemoteTmuxHost] = [:]
+    /// Reverse map: cmux window id → the hosts it mirrors, in attach order (for
+    /// window-close detach and new-session-in-window, which need the endpoint's
+    /// port/identity). Usually one host; more than one in aggregated linked-view
+    /// windows.
+    private var hostsByWindowId: [UUID: [RemoteTmuxHost]] = [:]
     /// Endpoint ``RemoteTmuxHost/connectionHash`` values with an in-flight
     /// `mirrorHostInNewWindow(host:activateWindow:)`, so a re-entrant call across
     /// the `await` gap can't open a second window for the same endpoint.
@@ -33,23 +39,35 @@ final class RemoteTmuxWindowRegistry {
     /// Used by the session-snapshot path to exclude these windows: a mirror window
     /// needs a live SSH connection and can't be restored from a generic snapshot.
     func isDedicatedWindow(_ windowId: UUID) -> Bool {
-        hostByWindowId[windowId] != nil
+        !(hostsByWindowId[windowId]?.isEmpty ?? true)
     }
 
-    /// Binds `host` to its dedicated `windowId` (both directions).
+    /// Binds `host` to `windowId` (both directions). A window can hold several
+    /// hosts; re-binding the same host is idempotent.
     func bind(host: RemoteTmuxHost, windowId: UUID) {
         windowIdByHost[host.connectionHash] = windowId
-        hostByWindowId[windowId] = host
+        var hosts = hostsByWindowId[windowId] ?? []
+        if !hosts.contains(where: { $0.connectionHash == host.connectionHash }) {
+            hosts.append(host)
+        }
+        hostsByWindowId[windowId] = hosts
     }
 
-    /// The dedicated window currently bound to `hostHash`, if any (the reuse check).
+    /// The window currently bound to `hostHash`, if any (the reuse check).
     func windowId(forHostHash hostHash: String) -> UUID? {
         windowIdByHost[hostHash]
     }
 
-    /// The full host bound to `windowId`, if any (carries port/identity).
+    /// The first host bound to `windowId`, if any (carries port/identity). For
+    /// single-host (per-session) windows this is the only host; aggregated
+    /// linked-view windows should use ``hosts(forWindowId:)``.
     func host(forWindowId windowId: UUID) -> RemoteTmuxHost? {
-        hostByWindowId[windowId]
+        hostsByWindowId[windowId]?.first
+    }
+
+    /// All hosts bound to `windowId`, in attach order.
+    func hosts(forWindowId windowId: UUID) -> [RemoteTmuxHost] {
+        hostsByWindowId[windowId] ?? []
     }
 
     /// Atomically records an in-flight attach for `hostHash`; returns `false` if one
@@ -67,18 +85,22 @@ final class RemoteTmuxWindowRegistry {
     }
 
     /// Removes the binding for `hostHash` in BOTH directions, returning the window id
-    /// that was bound (if any).
+    /// that was bound (if any). Only this host is removed; other hosts aggregated in
+    /// the same window keep their bindings (the window entry is dropped once empty).
     @discardableResult
     func unbind(hostHash: String) -> UUID? {
         guard let windowId = windowIdByHost.removeValue(forKey: hostHash) else { return nil }
-        hostByWindowId.removeValue(forKey: windowId)
+        if var hosts = hostsByWindowId[windowId] {
+            hosts.removeAll { $0.connectionHash == hostHash }
+            hostsByWindowId[windowId] = hosts.isEmpty ? nil : hosts
+        }
         return windowId
     }
 
-    /// Removes the binding for `windowId` in BOTH directions.
+    /// Removes ALL host bindings for `windowId` in both directions.
     func unbind(windowId: UUID) {
-        guard let host = hostByWindowId.removeValue(forKey: windowId) else { return }
-        windowIdByHost.removeValue(forKey: host.connectionHash)
+        guard let hosts = hostsByWindowId.removeValue(forKey: windowId) else { return }
+        for host in hosts { windowIdByHost.removeValue(forKey: host.connectionHash) }
     }
 
     /// Marks `windowId`'s impending close as a tab/session close that should kill
