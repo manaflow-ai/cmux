@@ -2830,6 +2830,38 @@ struct ContentView: View {
             openCommandPaletteCommands()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: BoundCommandNotifications.execute)) { notification in
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            guard let commandId = notification.userInfo?[BoundCommandNotifications.commandIdKey] as? String else { return }
+            _ = executeBoundCommand(commandId: commandId)
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: BoundCommandNotifications.catalogRequest)) { notification in
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            guard let replyId = notification.userInfo?[BoundCommandNotifications.replyIdKey] as? String else { return }
+            let descriptors = bindableCommandDescriptors()
+            NotificationCenter.default.post(
+                name: BoundCommandNotifications.catalogReply,
+                object: nil,
+                userInfo: [
+                    BoundCommandNotifications.replyIdKey: replyId,
+                    BoundCommandNotifications.descriptorsKey: descriptors,
+                ]
+            )
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSwitcherRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
             guard Self.shouldHandleCommandPaletteRequest(
@@ -6049,6 +6081,60 @@ struct ContentView: View {
         }
 
         return commands
+    }
+
+    /// Runs the Command-Palette command identified by `commandId` outside the
+    /// palette UI (used by custom keyboard-shortcut dispatch). Honors the
+    /// command's `when`/`enablement` gates: a gated-out command is a no-op.
+    ///
+    /// - Returns: `true` if the command ran, `false` if no such command exists or
+    ///   it was gated out in the current context.
+    @discardableResult
+    func executeBoundCommand(commandId: String) -> Bool {
+        let context = commandPaletteCommandsContext(
+            terminalOpenTargets: TerminalDirectoryOpenTarget.availableTargets()
+        ).snapshot
+        let contributions = commandPaletteCommandContributions()
+        guard let contribution = contributions.first(where: { $0.commandId == commandId }) else {
+            return false
+        }
+        guard contribution.when(context), contribution.enablement(context) else {
+            return false
+        }
+        var handlerRegistry = CommandPaletteHandlerRegistry()
+        registerCommandPaletteHandlers(&handlerRegistry)
+        guard let action = handlerRegistry.handler(for: commandId) else {
+            return false
+        }
+        recordCommandPaletteUsage(commandId)
+        action()
+        return true
+    }
+
+    /// The commands a user may bind a custom shortcut to: every palette
+    /// contribution visible in the current context that does NOT already map to a
+    /// built-in keyboard-shortcut action (those are rebindable in the Actions
+    /// list). Titles are evaluated for the current context.
+    func bindableCommandDescriptors() -> [BindableCommandDescriptor] {
+        let context = commandPaletteCommandsContext(
+            terminalOpenTargets: TerminalDirectoryOpenTarget.availableTargets()
+        ).snapshot
+        var seen = Set<String>()
+        var result: [BindableCommandDescriptor] = []
+        for contribution in commandPaletteCommandContributions() {
+            guard Self.commandPaletteShortcutAction(forCommandID: contribution.commandId) == nil else {
+                continue
+            }
+            guard contribution.when(context) else { continue }
+            guard seen.insert(contribution.commandId).inserted else { continue }
+            result.append(
+                BindableCommandDescriptor(
+                    id: contribution.commandId,
+                    title: contribution.title(context)
+                )
+            )
+        }
+        return result
     }
 
     private func commandPaletteConfigActionID(for commandId: String) -> String? {

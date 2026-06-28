@@ -16,6 +16,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxSettings"),
+        .package(path: "../CmuxCommandPalette"),
     ],
     targets: [
         .target(
@@ -23,6 +24,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
+                .product(name: "CmuxCommandPalette", package: "CmuxCommandPalette"),
             ]
         ),
         .testTarget(

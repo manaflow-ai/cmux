@@ -28,6 +28,7 @@ public struct SettingsRuntime: @unchecked Sendable {
     public let accountFlow: AccountFlow?
     /// Host callbacks for actions the package cannot perform itself.
     public let hostActions: SettingsHostActions
+    public let bindableCommandCatalog: any BindableCommandCatalogProviding
 
     /// Creates the settings runtime bundle injected into the settings UI.
     ///
@@ -50,6 +51,7 @@ public struct SettingsRuntime: @unchecked Sendable {
         errorLog: SettingsErrorLog,
         accountFlow: AccountFlow? = nil,
         hostActions: SettingsHostActions = NoopSettingsHostActions(),
+        bindableCommandCatalog: any BindableCommandCatalogProviding = NoopBindableCommandCatalog(),
         searchIndex: SettingsSearchIndex? = nil
     ) {
         self.catalog = catalog
@@ -60,6 +62,7 @@ public struct SettingsRuntime: @unchecked Sendable {
         self.errorLog = errorLog
         self.accountFlow = accountFlow
         self.hostActions = hostActions
+        self.bindableCommandCatalog = bindableCommandCatalog
     }
 }
 

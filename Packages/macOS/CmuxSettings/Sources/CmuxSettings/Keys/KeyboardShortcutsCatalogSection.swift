@@ -35,5 +35,15 @@ public struct KeyboardShortcutsCatalogSection: SettingCatalogSection {
         defaultValue: [:]
     )
 
+    /// User-defined shortcuts bound to Command-Palette commands, keyed by the
+    /// command's stable id (for example `palette.triggerFlash`). Parallel to
+    /// ``bindings`` but addressed by command id rather than action id; the app
+    /// target matches these in its shortcut dispatch. ``StoredShortcut/unbound``
+    /// represents an explicit "no shortcut" entry.
+    public let commands = JSONKey<[String: StoredShortcut]>(
+        id: "shortcuts.commands",
+        defaultValue: [:]
+    )
+
     public init() {}
 }

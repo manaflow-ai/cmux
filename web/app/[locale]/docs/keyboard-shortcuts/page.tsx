@@ -21,6 +21,14 @@ const shortcutChordExample = `{
   }
 }`;
 
+const customCommandShortcutExample = `{
+  "shortcuts": {
+    "commands": {
+      "palette.triggerFlash": "cmd+shift+0"
+    }
+  }
+}`;
+
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "docs.keyboardShortcuts" });
@@ -54,6 +62,10 @@ export default function KeyboardShortcutsPage() {
         <li>{t("chordsRuleArray")}</li>
         <li>{t("chordsRuleSyntax")}</li>
       </ul>
+
+      <DocsHeading level={2} id="custom-command-shortcuts" className="scroll-mt-24">{t("customCommandsTitle")}</DocsHeading>
+      <p>{t("customCommandsIntro")}</p>
+      <CodeBlock title="cmux.json" lang="json">{customCommandShortcutExample}</CodeBlock>
 
       <KeyboardShortcuts />
     </>

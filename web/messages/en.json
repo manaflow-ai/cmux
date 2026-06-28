@@ -1053,7 +1053,9 @@
       "shortcutsWhenBooleanKeys": "boolean keys. An unknown or absent key reads as false; the literals true and false are also accepted.",
       "shortcutsWhenTypedKeys": "typed keys for comparisons: the right sidebar's active mode (a string) plus pane and workspace counts (integers).",
       "shortcutsWhenOperators": "boolean operators, typed comparisons, regex match, and list membership. Comparisons bind tighter than && and ||.",
-      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving Ctrl+1–5 free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
+      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving Ctrl+1–5 free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:",
+      "shortcutsCommandsIntro": "Bind a custom keyboard shortcut to any Command-Palette command that has no built-in action shortcut. Keys are command ids (for example palette.triggerFlash); values are a single-stroke shortcut string (such as cmd+shift+0) or null to unbind. Unlike shortcuts.bindings, command shortcuts are single-stroke only — tmux-style chords (the two-item array form) are not supported and are ignored.",
+      "shortcutsCommandsManaged": "These bindings can also be managed from <settings>Settings → Keyboard Shortcuts → Custom Commands</settings>. See the <link>keyboard shortcuts page</link> for more detail."
     },
     "customCommands": {
       "title": "Custom Commands",
@@ -1167,6 +1169,8 @@
       "chordsRuleSingle": "Use a plain string for a one-step shortcut.",
       "chordsRuleArray": "Use a two-item array for a chord. The first item is the prefix stroke, the second is the key that follows it.",
       "chordsRuleSyntax": "Each item uses the same syntax as regular bindings, for example cmd+b, ctrl+b, shift+/, or ctrl+1.",
+      "customCommandsTitle": "Custom command shortcuts",
+      "customCommandsIntro": "You can also assign shortcuts to any Command-Palette command that has no built-in action shortcut. Manage them from Settings → Keyboard Shortcuts → Custom Commands, or add them directly to ~/.config/cmux/cmux.json under shortcuts.commands. Keys are command ids; values are a single-stroke shortcut string or null to unbind. Unlike shortcuts.bindings, command shortcuts are single-stroke only — tmux-style chords are not supported.",
       "searchPlaceholder": "Search shortcuts...",
       "searchLabel": "Search keyboard shortcuts",
       "noResults": "No shortcuts found",

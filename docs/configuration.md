@@ -81,6 +81,26 @@ Opt-in AI auto-naming of workspaces and tabs from agent conversation content. Wh
 
 Default: `false`. Manual renames (sidebar, command palette, CLI, or `/rename`) always win: a workspace or tab you renamed yourself is never auto-named again until you clear its custom name. Enable it from **Settings > Automation > Workspace Auto-Naming**.
 
+## `shortcuts.commands`
+
+Bind custom keyboard shortcuts to Command-Palette commands that have no built-in
+shortcut. Keys are command ids (for example `palette.triggerFlash`); values are a
+single-stroke shortcut string like `"cmd+shift+1"`, or `null` to unbind. Unlike
+`shortcuts.bindings`, command shortcuts are single-stroke only — tmux-style chords
+(the two-item array form like `["ctrl+b", "o"]`) are not supported and are ignored.
+
+```json
+{
+  "shortcuts": {
+    "commands": {
+      "palette.triggerFlash": "cmd+shift+0"
+    }
+  }
+}
+```
+
+These can also be managed from **Settings → Keyboard Shortcuts → Custom Commands**.
+
 ## `diffViewer.defaultLayout`
 
 Controls the initial layout for newly opened diff viewers.

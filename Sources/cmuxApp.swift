@@ -175,7 +175,8 @@ struct cmuxApp: App {
                 coordinator: authComposition.coordinator,
                 browserSignIn: authComposition.browserSignIn
             ),
-            hostActions: HostSettingsActions(configFileURL: configFileURL)
+            hostActions: HostSettingsActions(configFileURL: configFileURL),
+            bindableCommandCatalog: HostBindableCommandCatalog()
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
 

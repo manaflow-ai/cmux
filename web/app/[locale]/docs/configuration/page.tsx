@@ -138,6 +138,9 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //     "toggleFileExplorer": "cmd+opt+b",
   //     "newTab": ["ctrl+b", "c"],
   //     "commandPalettePrevious": null
+  //   },
+  //   "commands": {
+  //     "palette.triggerFlash": "cmd+shift+0"
   //   }
   // },
 }`;
@@ -500,6 +503,26 @@ working-directory = ~/code`}</CodeBlock>
   }
 }`}</code>
       </pre>
+
+      <DocsHeading level={3} id="shortcuts-commands">
+        <code>shortcuts.commands</code>
+      </DocsHeading>
+      <p>{t("shortcutsCommandsIntro")}</p>
+      <pre className="not-prose overflow-x-auto rounded-xl border border-border/70 bg-background/40 p-4 text-sm">
+        <code>{`"shortcuts": {
+  "commands": {
+    "palette.triggerFlash": "cmd+shift+0"
+  }
+}`}</code>
+      </pre>
+      <p>
+        {t.rich("shortcutsCommandsManaged", {
+          settings: (chunks) => <strong>{chunks}</strong>,
+          link: (chunks) => (
+            <Link href="/docs/keyboard-shortcuts#custom-command-shortcuts">{chunks}</Link>
+          ),
+        })}
+      </p>
     </>
   );
 }

@@ -507,6 +507,14 @@ public struct SettingsWindowRoot: View {
         )
         .id(anchorID(for: .keyboardShortcuts))
 
+        CustomCommandShortcutsSection(
+            jsonStore: jsonStore,
+            catalog: catalog,
+            errorLog: runtime.errorLog,
+            bindableCommandCatalog: runtime.bindableCommandCatalog
+        )
+        .id(anchorID(for: .keyboardShortcuts))
+
         WorkspaceColorsSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,

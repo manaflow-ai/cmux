@@ -5945,6 +5945,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notifyMainWindowContextsDidChange()
     }
 
+    /// The window of the currently-active main terminal context, for auxiliary
+    /// requests (e.g. the Settings command picker) that have no originating event
+    /// and must not target the key window (which would be the Settings panel).
+    /// Falls back to any known main terminal window.
+    func activeMainTerminalWindow() -> NSWindow? {
+        if let activeManager = tabManager,
+           let context = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
+            return context.window
+        }
+        return mainWindowContexts.values.first?.window
+    }
+
     func contextForMainTerminalWindow(_ window: NSWindow, reindex: Bool = true) -> MainWindowContext? {
         guard isMainTerminalWindow(window) else { return nil }
 
@@ -13909,6 +13921,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             _ = reopenMostRecentlyClosedItem(preferredTabManager: routedManager)
             return true
+        }
+
+        let commandOverrides = KeyboardShortcutSettings.settingsFileStore.commandShortcutOverrides()
+        if !commandOverrides.isEmpty {
+            // Custom command shortcuts are single-stroke only. A hand-written
+            // chord in cmux.json is ignored here (and rejected at parse time).
+            for (commandId, shortcut) in commandOverrides
+            where !shortcut.hasChord && matchConfiguredShortcut(event: event, shortcut: shortcut) {
+                let targetWindow = preferredMainWindowContextForShortcutRouting(event: event)?.window
+                    ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+                NotificationCenter.default.post(
+                    name: BoundCommandNotifications.execute,
+                    object: targetWindow,
+                    userInfo: [BoundCommandNotifications.commandIdKey: commandId]
+                )
+#if DEBUG
+                cmuxDebugLog("shortcut.boundCommand commandId=\(commandId)")
+#endif
+                return true
+            }
         }
 
         return false
