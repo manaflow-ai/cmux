@@ -422,6 +422,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tracing: notificationOpenRoutingSeams
     )
 
+    /// Weak-owner adapter that satisfies the activation-unread seams
+    /// (``NotificationActivationUnreadHosting`` +
+    /// ``NotificationActivationFlashing``) by forwarding to the live
+    /// `notificationStore` / `tabManager`. Mirrors ``notificationOpenRoutingSeams``:
+    /// the reconciler strong-refs this adapter; the adapter weak-refs
+    /// `AppDelegate`. See `AppDelegate+NotificationActivationSeams.swift`.
+    lazy var notificationActivationSeams = NotificationActivationSeamAdapter(owner: self)
+
+    /// The extracted activation-driven unread-reconciliation decision. The live
+    /// store/tab/workspace effects stay app-side behind the two seams; this
+    /// reconciler only decides whether to flash the focused pane and mark read.
+    lazy var notificationActivationUnreadReconciler = NotificationActivationUnreadReconciler(
+        store: notificationActivationSeams,
+        flashing: notificationActivationSeams
+    )
+
     lazy var notificationNavigation: NotificationNavigationCoordinator =
         NotificationNavigationCoordinator(
             store: notificationNavSeams,
@@ -2203,14 +2219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let tabManager else { return }
         guard let tabId = tabManager.selectedTabId else { return }
         let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-        guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }
-
-        if let surfaceId,
-           let tab = tabManager.tabs.first(where: { $0.id == tabId }),
-           notificationStore.hasUnreadNotificationRequiringPaneFlash(forTabId: tabId, surfaceId: surfaceId) {
-            tab.triggerNotificationFocusFlash(panelId: surfaceId, requiresSplit: false, shouldFocus: false)
-        }
-        notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+        notificationActivationUnreadReconciler.reconcile(activeTabId: tabId, surfaceId: surfaceId)
     }
 
     /// Sole caller of `NSApp.reply(toApplicationShouldTerminate:)`.
