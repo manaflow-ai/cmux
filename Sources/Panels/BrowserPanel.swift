@@ -5697,9 +5697,21 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             "windowFeatures={\(windowFeaturesSummary)}"
         )
 #endif
+        let popupFeaturesWereSpecified = BrowserPopupWindowFeatures(windowFeatures: windowFeatures).wereSpecified
+        let decision = BrowserCreateWebViewDecision.resolve(
+            request: navigationAction.request,
+            openerURL: webView.url,
+            popupFeaturesWereSpecified: popupFeaturesWereSpecified,
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: CmuxWebView.hasRecentMiddleClickIntent(for: webView),
+            currentEventType: NSApp.currentEvent?.type,
+            currentEventButtonNumber: NSApp.currentEvent?.buttonNumber
+        )
+
         // External URL schemes → hand off to macOS, don't create a popup
-        if let url = navigationAction.request.url,
-           BrowserExternalNavigationAction.shouldRoute(url) {
+        if case .routeExternally(let url) = decision {
             browserHandleExternalNavigation(
                 url,
                 source: "uiDelegate",
@@ -5712,24 +5724,8 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             return nil
         }
 
-        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
-        let popupFeaturesWereSpecified = BrowserPopupWindowFeatures(windowFeatures: windowFeatures).wereSpecified
-        let shouldOpenSimpleUserGesturePopupInCurrentTab = BrowserUserGestureNavigation(
-            navigationType: navigationAction.navigationType,
-            modifierFlags: navigationAction.modifierFlags,
-            buttonNumber: navigationAction.buttonNumber,
-            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent,
-            currentEventType: NSApp.currentEvent?.type,
-            currentEventButtonNumber: NSApp.currentEvent?.buttonNumber
-        ).opensSimpleUserGesturePopupInCurrentTab(
-            requestMethod: navigationAction.request.httpMethod,
-            requestURL: navigationAction.request.url,
-            openerURL: webView.url,
-            popupFeaturesWereSpecified: popupFeaturesWereSpecified
-        )
-
-        if shouldOpenSimpleUserGesturePopupInCurrentTab {
-            if let url = navigationAction.request.url {
+        if case .openInCurrentTab(let request) = decision {
+            if let url = request.url {
 #if DEBUG
                 cmuxDebugLog(
                     "browser.nav.createWebView.action kind=requestNavigationSimpleUserGesture intent=currentTab " +
@@ -5737,33 +5733,23 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
                 )
 #endif
                 if let requestNavigation {
-                    requestNavigation(navigationAction.request, .currentTab)
+                    requestNavigation(request, .currentTab)
                 } else {
-                    webView.browserLoadRequest(navigationAction.request)
+                    webView.browserLoadRequest(request)
                 }
             }
             return nil
         }
 
-        // Only treat scripted `.other` requests as popups when WebKit surfaced
-        // explicit window features; bare `_blank` falls through to tabs.
-        let isScriptedPopup = BrowserUserGestureNavigation(
-            navigationType: navigationAction.navigationType,
-            modifierFlags: navigationAction.modifierFlags,
-            buttonNumber: navigationAction.buttonNumber,
-            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent,
-            currentEventType: NSApp.currentEvent?.type,
-            currentEventButtonNumber: NSApp.currentEvent?.buttonNumber
-        ).createsPopup(popupFeaturesWereSpecified: popupFeaturesWereSpecified)
-
-        if isScriptedPopup, let popupWebView = openPopup?(configuration, windowFeatures) {
+        if case .createPopup = decision, let popupWebView = openPopup?(configuration, windowFeatures) {
 #if DEBUG
             cmuxDebugLog("browser.nav.createWebView.action kind=popup")
 #endif
             return popupWebView
         }
 
-        // Fallback: open in new tab (no opener linkage)
+        // Fallback: open in new tab (no opener linkage). Covers .openInNewTab and
+        // a scripted popup whose openPopup closure was unavailable.
         if let url = navigationAction.request.url {
             if let requestNavigation {
                 let intent: BrowserInsecureHTTPNavigationIntent = .newTab

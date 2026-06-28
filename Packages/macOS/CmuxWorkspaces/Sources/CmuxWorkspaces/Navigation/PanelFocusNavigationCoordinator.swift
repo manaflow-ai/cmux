@@ -119,6 +119,64 @@ public final class PanelFocusNavigationCoordinator {
         }
     }
 
+    // MARK: - Panel focus decision
+
+    /// Computes the pure pane/convergence decision for one
+    /// `Workspace.focusPanel(_:trigger:focusIntent:)` turn (legacy
+    /// `focusPanel`'s `targetPaneId`/`selectionAlreadyConverged`/
+    /// `shouldSuppressReentrantRefocus` locals).
+    ///
+    /// The app-side `focusPanel` keeps every effect: the `PanelFocusIntent`
+    /// resolution (`focusIntent ?? panel.preferredFocusIntentForActivation()`),
+    /// the live `bonsplitController.focusPane`/`selectTab`, `applyTabSelection`,
+    /// the layout follow-up, browser address-bar autofocus, unread-badge sync,
+    /// and `markExplicitFocusIntent`. It calls this only to resolve which pane
+    /// owns `tabId` and whether the live selection has already converged, so the
+    /// split-tree scan and the convergence/suppression math live in one place.
+    ///
+    /// `isTerminalFirstResponderTrigger` and
+    /// `targetHasPendingReparentSuppression` are precomputed app-side (the latter
+    /// from the target terminal's AppKit hosted view) so no `FocusPanelTrigger`
+    /// or AppKit type crosses the seam. Returns a converged-`false`, `nil`-pane
+    /// decision when no host is attached, matching the legacy early reads against
+    /// an empty split tree.
+    public func panelFocusDecision(
+        forTabId tabId: TabID,
+        isTerminalFirstResponderTrigger: Bool,
+        targetHasPendingReparentSuppression: Bool
+    ) -> PanelFocusDecision {
+        guard let host else {
+            return PanelFocusDecision(
+                targetPaneId: nil,
+                selectionAlreadyConverged: false,
+                targetHasPendingReparentSuppression: targetHasPendingReparentSuppression,
+                shouldSuppressReentrantRefocus: false
+            )
+        }
+
+        // `selectTab` does not necessarily move bonsplit's focused pane. Resolve the pane that owns
+        // the target tab so the app-side `focusPanel` can make it focused if needed.
+        let targetPaneId = host.panelFocusNavAllPaneIds.first(where: { paneId in
+            host.panelFocusNavTabIds(inPane: paneId).contains(where: { $0 == tabId })
+        })
+        let selectionAlreadyConverged: Bool = {
+            guard let targetPaneId else { return false }
+            return host.panelFocusNavFocusedPaneId == targetPaneId &&
+                host.panelFocusNavSelectedTabId(inPane: targetPaneId) == tabId
+        }()
+        let shouldSuppressReentrantRefocus =
+            isTerminalFirstResponderTrigger &&
+            selectionAlreadyConverged &&
+            targetHasPendingReparentSuppression
+
+        return PanelFocusDecision(
+            targetPaneId: targetPaneId,
+            selectionAlreadyConverged: selectionAlreadyConverged,
+            targetHasPendingReparentSuppression: targetHasPendingReparentSuppression,
+            shouldSuppressReentrantRefocus: shouldSuppressReentrantRefocus
+        )
+    }
+
     // MARK: - Reconcile
 
     /// Re-reads the focused pane's selected tab and runs the `applyTabSelection`
