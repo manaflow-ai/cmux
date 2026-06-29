@@ -7,6 +7,7 @@ import SwiftUI
 import WebKit
 import AppKit
 import ObjectiveC
+import QuartzCore
 
 private var cmuxBrowserPanelNeedsRenderingStateReattachKey: UInt8 = 0
 let browserOmnibarTextFieldIdentifier = NSUserInterfaceItemIdentifier("cmux.browserOmnibarTextField")
@@ -29,6 +30,152 @@ private extension NSObject {
         let fn = unsafeBitCast(method(for: selector), to: Fn.self)
         fn(self, selector)
         return true
+    }
+}
+
+private struct BrowserLayerBackedSpinner: NSViewRepresentable {
+    let size: CGFloat
+    let color: NSColor
+    var opacity: CGFloat = 1
+
+    func makeNSView(context: Context) -> SpinnerView {
+        let view = SpinnerView(frame: NSRect(x: 0, y: 0, width: size, height: size))
+        view.configure(size: size, color: color, opacity: opacity)
+        return view
+    }
+
+    func updateNSView(_ nsView: SpinnerView, context: Context) {
+        nsView.configure(size: size, color: color, opacity: opacity)
+    }
+
+    final class SpinnerView: NSView {
+        private static let animationKey = "cmux.browserSpinner.rotation"
+        private let trackLayer = CAShapeLayer()
+        private let arcLayer = CAShapeLayer()
+        private var spinnerSize: CGFloat = 0
+        private var spinnerColor: NSColor = .secondaryLabelColor
+        private var spinnerOpacity: CGFloat = 1
+
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            wantsLayer = true
+            layer = CALayer()
+            layer?.masksToBounds = false
+
+            for shapeLayer in [trackLayer, arcLayer] {
+                shapeLayer.fillColor = NSColor.clear.cgColor
+                layer?.addSublayer(shapeLayer)
+            }
+            updateContentsScale()
+            arcLayer.lineCap = .round
+            arcLayer.strokeStart = 0
+            arcLayer.strokeEnd = 0.28
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override var intrinsicContentSize: NSSize {
+            NSSize(width: spinnerSize, height: spinnerSize)
+        }
+
+        func configure(size: CGFloat, color: NSColor, opacity: CGFloat) {
+            spinnerSize = size
+            spinnerColor = color
+            spinnerOpacity = opacity
+            invalidateIntrinsicContentSize()
+            updateLayerColors()
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+            if window != nil {
+                startAnimationIfNeeded()
+            }
+        }
+
+        override func layout() {
+            super.layout()
+            updateLayerGeometry()
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            updateContentsScale()
+            if window == nil {
+                stopAnimation()
+            } else {
+                startAnimationIfNeeded()
+            }
+        }
+
+        override func viewDidChangeBackingProperties() {
+            super.viewDidChangeBackingProperties()
+            updateContentsScale()
+        }
+
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            updateLayerColors()
+        }
+
+        private func updateContentsScale() {
+            let scale = window?.backingScaleFactor
+                ?? window?.screen?.backingScaleFactor
+                ?? NSScreen.main?.backingScaleFactor
+                ?? 2
+            for shapeLayer in [trackLayer, arcLayer] {
+                shapeLayer.contentsScale = scale
+                shapeLayer.setNeedsDisplay()
+            }
+            layer?.setNeedsDisplay()
+        }
+
+        private func updateLayerColors() {
+            var resolvedColor = spinnerColor
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                resolvedColor = spinnerColor.usingColorSpace(.deviceRGB) ?? spinnerColor
+            }
+            let baseAlpha = resolvedColor.alphaComponent
+            trackLayer.strokeColor = resolvedColor.withAlphaComponent(baseAlpha * spinnerOpacity * 0.20).cgColor
+            arcLayer.strokeColor = resolvedColor.withAlphaComponent(baseAlpha * spinnerOpacity).cgColor
+        }
+
+        private func updateLayerGeometry() {
+            let side = max(1, min(bounds.width, bounds.height, spinnerSize))
+            let origin = CGPoint(x: bounds.midX - side / 2, y: bounds.midY - side / 2)
+            let layerBounds = CGRect(origin: .zero, size: CGSize(width: side, height: side))
+            let frame = CGRect(origin: origin, size: layerBounds.size)
+            let lineWidth = max(1.6, side * 0.14)
+            let pathRect = layerBounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
+            let path = CGPath(ellipseIn: pathRect, transform: nil)
+
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            for shapeLayer in [trackLayer, arcLayer] {
+                shapeLayer.frame = frame
+                shapeLayer.bounds = layerBounds
+                shapeLayer.path = path
+                shapeLayer.lineWidth = lineWidth
+            }
+            CATransaction.commit()
+        }
+
+        private func startAnimationIfNeeded() {
+            guard arcLayer.animation(forKey: Self.animationKey) == nil else { return }
+            let animation = CABasicAnimation(keyPath: "transform.rotation.z")
+            animation.fromValue = 0
+            animation.toValue = CGFloat.pi * 2
+            animation.duration = 0.9
+            animation.repeatCount = .infinity
+            animation.timingFunction = CAMediaTimingFunction(name: .linear)
+            animation.isRemovedOnCompletion = false
+            arcLayer.add(animation, forKey: Self.animationKey)
+        }
+
+        private func stopAnimation() {
+            arcLayer.removeAnimation(forKey: Self.animationKey)
+        }
     }
 }
 
@@ -1375,8 +1522,12 @@ struct BrowserPanelView: View {
 
             if panel.isDownloading {
                 HStack(spacing: 4) {
-                    ProgressView()
-                        .controlSize(.small)
+                    BrowserLayerBackedSpinner(
+                        size: 12,
+                        color: .secondaryLabelColor,
+                        opacity: 0.75
+                    )
+                    .frame(width: 12, height: 12)
                     Text(String(localized: "browser.downloading", defaultValue: "Downloading..."))
                         .cmuxFont(size: 11)
                         .foregroundStyle(.secondary)
@@ -5390,8 +5541,11 @@ struct OmnibarSuggestionsView: View {
         .frame(height: popupHeight, alignment: .top)
         .overlay(alignment: .topTrailing) {
             if searchSuggestionsEnabled, isLoadingRemoteSuggestions {
-                ProgressView()
-                    .controlSize(.small)
+                BrowserLayerBackedSpinner(
+                    size: 13,
+                    color: .secondaryLabelColor
+                )
+                    .frame(width: 13, height: 13)
                     .padding(.top, 7)
                     .padding(.trailing, 14)
                     .opacity(0.75)
