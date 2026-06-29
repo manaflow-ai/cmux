@@ -354,6 +354,19 @@ func renderGridEventFrame(surfaceID: String, seq: UInt64, text: String) throws -
     return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
 }
 
+func terminalBytesEventFrame(surfaceID: String, seq: UInt64, text: String) throws -> Data {
+    let envelope: [String: Any] = [
+        "kind": "event",
+        "topic": "terminal.bytes",
+        "payload": [
+            "surface_id": surfaceID,
+            "seq": seq,
+            "data_b64": Data(text.utf8).base64EncodedString(),
+        ],
+    ]
+    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+}
+
 /// Poll until `condition` is true, bounded at `attempts` x 10ms. Returns the
 /// final value so tests can assert both presence and (bounded) absence.
 @MainActor

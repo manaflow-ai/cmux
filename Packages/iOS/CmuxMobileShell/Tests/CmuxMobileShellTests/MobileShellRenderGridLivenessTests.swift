@@ -67,6 +67,29 @@ import Testing
     collector.unmount()
 }
 
+@MainActor
+@Test func primaryRenderGridEventDoesNotPreemptRawBytes() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 3, text: "grid"))
+    let gridDelivered = try await pollUntil(attempts: 30) { collector.lines.contains { $0.contains("grid") } }
+    #expect(gridDelivered == false, "primary render-grid events are advisory in hybrid mode; raw bytes own full-height primary rendering")
+
+    await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 0, text: "raw"))
+    let rawDelivered = try await pollUntil { collector.lines.contains { $0.contains("raw") } }
+    #expect(rawDelivered, "advisory primary render-grid must not advance delivered seq and starve overlapping raw bytes")
+    collector.unmount()
+}
+
 /// A healthy idle stream produces zero events (the Mac dedupes unchanged
 /// frames), so silence alone must not tear the subscription down. The
 /// watchdog may verify the silence with a bounded idempotent re-subscribe
