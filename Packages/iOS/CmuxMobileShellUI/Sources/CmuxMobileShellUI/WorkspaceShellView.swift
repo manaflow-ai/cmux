@@ -92,7 +92,7 @@ struct WorkspaceShellView: View {
         NavigationStack(path: $compactNavigationPath) {
             WorkspaceSurfaceGridView(
                 workspaces: store.workspaces,
-                selectedWorkspaceID: store.selectedWorkspaceID,
+                selectedWorkspaceID: compactSurfaceGridSelectedWorkspaceID,
                 selectedTerminalID: store.selectedTerminalID,
                 host: store.connectedHostName,
                 connectionStatus: listConnectionStatus,
@@ -325,6 +325,14 @@ struct WorkspaceShellView: View {
 
     private var canCreateWorkspace: Bool {
         canCreateWorkspaceOnForegroundConnection
+    }
+
+    private var compactSurfaceGridSelectedWorkspaceID: MobileWorkspacePreview.ID? {
+        if let selectedWorkspaceID = store.selectedWorkspaceID,
+           store.workspaces.contains(where: { $0.id == selectedWorkspaceID }) {
+            return selectedWorkspaceID
+        }
+        return store.workspaces.first?.id
     }
 
     /// Group collapse/expand closure. Present when the Mac advertises

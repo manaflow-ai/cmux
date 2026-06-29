@@ -29,48 +29,53 @@ struct WorkspaceSurfaceGridCard: View {
     let close: () -> Void
 
     var body: some View {
-        Button(action: open) {
-            VStack(alignment: .leading, spacing: 10) {
-                preview
-                label
+        ZStack(alignment: .topTrailing) {
+            Button(action: open) {
+                VStack(alignment: .leading, spacing: 10) {
+                    preview
+                    label
+                }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .opacity(item.isDimmed ? 0.66 : 1)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("MobileSurfaceGridCard-\(item.id)")
+
+            if item.canClose {
+                closeButton
+                    .padding(8)
+            }
         }
-        .buttonStyle(.plain)
-        .opacity(item.isDimmed ? 0.66 : 1)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityIdentifier("MobileSurfaceGridCard-\(item.id)")
     }
 
     private var preview: some View {
-        ZStack(alignment: .topTrailing) {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(previewFill)
-                .overlay(previewOverlay)
-                .overlay(alignment: .center) {
-                    previewContent
-                }
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(item.isSelected ? Color.accentColor.opacity(0.78) : .white.opacity(0.10), lineWidth: item.isSelected ? 2 : 1)
-                )
-                .aspectRatio(0.84, contentMode: .fit)
-
-            if item.canClose {
-                Button(action: close) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .bold))
-                        .frame(width: 34, height: 34)
-                        .background(Color.black.opacity(0.48), in: Circle())
-                        .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
-                }
-                .foregroundStyle(.white)
-                .padding(8)
-                .accessibilityLabel(L10n.string("mobile.browser.close", defaultValue: "Close Browser"))
-                .accessibilityIdentifier("MobileSurfaceGridCloseButton-\(item.id)")
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .fill(previewFill)
+            .overlay(previewOverlay)
+            .overlay(alignment: .center) {
+                previewContent
             }
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(item.isSelected ? Color.accentColor.opacity(0.78) : .white.opacity(0.10), lineWidth: item.isSelected ? 2 : 1)
+            )
+            .aspectRatio(0.84, contentMode: .fit)
+    }
+
+    private var closeButton: some View {
+        Button(action: close) {
+            Image(systemName: "xmark")
+                .font(.system(size: 14, weight: .bold))
+                .frame(width: 34, height: 34)
+                .background(Color.black.opacity(0.48), in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
         }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .accessibilityLabel(L10n.string("mobile.browser.close", defaultValue: "Close Browser"))
+        .accessibilityIdentifier("MobileSurfaceGridCloseButton-\(item.id)")
     }
 
     private var previewFill: some ShapeStyle {

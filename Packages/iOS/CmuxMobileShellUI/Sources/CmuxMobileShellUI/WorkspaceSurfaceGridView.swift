@@ -33,7 +33,7 @@ struct WorkspaceSurfaceGridView: View {
            let workspace = workspaces.first(where: { $0.id == selectedWorkspaceID }) {
             return makeContent(for: workspace)
         }
-        return makeContent(for: workspaces.first)
+        return makeContent(for: nil)
     }
 
     private func makeContent(for workspace: MobileWorkspacePreview?) -> WorkspaceSurfaceGridContent {
