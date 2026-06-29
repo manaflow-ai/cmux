@@ -5525,8 +5525,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             var cursor: NSCursor { .resizeLeftRight }
         }
 
-        // Match bonsplit's effective divider grab expansion on pane edges.
-        private static let externalSplitDividerHitExpansion: CGFloat = 5
         private static let hostedInspectorDividerHitExpansion: CGFloat = 10
         private static let minimumHostedInspectorWidth: CGFloat = 120
         private static let minimumHostedInspectorPageWidthForSideDock: CGFloat = 240
@@ -6687,44 +6685,18 @@ struct WebViewRepresentable: NSViewRepresentable {
             dividerIndex: Int
         ) -> Bool {
             guard let window,
-                  dividerIndex >= 0,
-                  dividerIndex + 1 < splitView.arrangedSubviews.count,
-                  splitView.window === window else {
+                  splitView.window === window,
+                  let hitRect = PortalSplitDividerRegion.dividerHitRectInWindow(
+                      in: splitView,
+                      dividerIndex: dividerIndex
+                  ) else {
                 return false
             }
-
-            let first = splitView.arrangedSubviews[dividerIndex].frame
-            let second = splitView.arrangedSubviews[dividerIndex + 1].frame
-            let dividerRect: NSRect
-            if splitView.isVertical {
-                guard first.width > 1 || second.width > 1 else { return false }
-                dividerRect = NSRect(
-                    x: max(0, first.maxX),
-                    y: 0,
-                    width: splitView.dividerThickness,
-                    height: splitView.bounds.height
-                )
-            } else {
-                guard first.height > 1 || second.height > 1 else { return false }
-                dividerRect = NSRect(
-                    x: 0,
-                    y: max(0, first.maxY),
-                    width: splitView.bounds.width,
-                    height: splitView.dividerThickness
-                )
-            }
-
-            let hitRect = splitView.convert(dividerRect, to: nil)
-                .insetBy(
-                    dx: -Self.externalSplitDividerHitExpansion,
-                    dy: -Self.externalSplitDividerHitExpansion
-                )
-                .intersection(splitView.convert(splitView.bounds, to: nil))
-            return !hitRect.isNull && hitRect.contains(windowPoint)
+            return hitRect.contains(windowPoint)
         }
 
         private func isNearPaneEdge(_ point: NSPoint) -> Bool {
-            let expansion = Self.externalSplitDividerHitExpansion
+            let expansion = PortalSplitDividerRegion.dividerHitExpansion
             let nearVerticalEdge = point.x >= bounds.minX &&
                 point.x <= bounds.maxX &&
                 (point.x <= bounds.minX + expansion || point.x >= bounds.maxX - expansion)

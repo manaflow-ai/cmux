@@ -1155,11 +1155,9 @@ final class WindowBrowserHostView: NSView {
     }
 
     private static func dividerHit(at windowPoint: NSPoint, in regions: [DividerRegion], checkLiveness: Bool = true) -> DividerHit? {
-        let expansion: CGFloat = 5
         for region in regions.reversed() {
             if checkLiveness, !region.isLive { continue }
-            let hitRect = region.rectInWindow.insetBy(dx: -expansion, dy: -expansion)
-                .intersection(region.boundsInWindow)
+            let hitRect = region.hitRectInWindow
             if !hitRect.isNull, hitRect.contains(windowPoint) {
                 return DividerHit(
                     kind: region.isVertical ? .vertical : .horizontal,
@@ -1974,30 +1972,10 @@ final class WindowBrowserPortal: NSObject {
         guard splitView.arrangedSubviews.count >= 2 else { return }
 
         let location = splitView.convert(event.locationInWindow, from: nil)
-        let first = splitView.arrangedSubviews[0].frame
-        let second = splitView.arrangedSubviews[1].frame
-        let thickness = splitView.dividerThickness
-        let dividerRect: NSRect
-
-        if splitView.isVertical {
-            guard first.width > 1, second.width > 1 else { return }
-            dividerRect = NSRect(
-                x: max(0, first.maxX),
-                y: 0,
-                width: thickness,
-                height: splitView.bounds.height
-            )
-        } else {
-            guard first.height > 1, second.height > 1 else { return }
-            dividerRect = NSRect(
-                x: 0,
-                y: max(0, first.maxY),
-                width: splitView.bounds.width,
-                height: thickness
-            )
-        }
-
-        let hitRect = dividerRect.insetBy(dx: -5, dy: -5)
+        guard let hitRect = PortalSplitDividerRegion.dividerHitRect(
+            in: splitView,
+            dividerIndex: 0
+        ) else { return }
         if dividerHitRectContains(location, rect: hitRect) {
             window.browserPortalHasInteractiveSplitDividerDrag = true
         }
