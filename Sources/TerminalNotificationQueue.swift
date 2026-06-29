@@ -409,13 +409,13 @@ extension TerminalNotificationStore {
             return tabManager?.tabs.contains(where: { $0.id == notification.key.tabId }) == true
         }
 
-        guard let target = appDelegate.workspaceContainingPanel(
+        // The queued tabId may be stale if the pane moved to another workspace
+        // after the notification was enqueued; addNotification re-resolves the
+        // current owner, so deliver whenever the surface still exists somewhere.
+        return appDelegate.workspaceContainingPanel(
             panelId: surfaceId,
             preferredWorkspaceId: notification.key.tabId
-        ) else {
-            return false
-        }
-        return target.workspace.id == notification.key.tabId
+        ) != nil
     }
 
     static func cachedDeliveryAuthorizationDecision(

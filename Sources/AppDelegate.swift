@@ -5630,6 +5630,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    /// Like `locateSurface(surfaceId:)`, but for callers holding a bonsplit
+    /// surface UUID rather than a panel UUID. Resolves it to the workspace
+    /// that currently owns the matching panel.
+    func locateSurfaceTab(surfaceTabId: UUID) -> (workspaceId: UUID, panelId: UUID)? {
+        let bonsplitTabId = TabID(uuid: surfaceTabId)
+        for ctx in mainWindowContexts.values {
+            for ws in ctx.tabManager.tabs {
+                if let panelId = ws.panelIdFromSurfaceId(bonsplitTabId) {
+                    return (ws.id, panelId)
+                }
+            }
+        }
+        for route in recoverableMainWindowRoutes() {
+            guard let manager = route.tabManager else { continue }
+            for ws in manager.tabs {
+                if let panelId = ws.panelIdFromSurfaceId(bonsplitTabId) {
+                    return (ws.id, panelId)
+                }
+            }
+        }
+        return nil
+    }
+
     /// Resolve the workspace that currently owns a panel/surface ID.
     /// Prefer the provided workspace when available, then fall back to global lookup.
     func workspaceContainingPanel(
