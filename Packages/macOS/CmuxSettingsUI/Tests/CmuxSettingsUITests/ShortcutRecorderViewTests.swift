@@ -49,6 +49,21 @@ struct ShortcutRecorderViewTests {
         #expect(button.debugIsRecording)
     }
 
+    @Test func cancelRecordingIfActiveStopsRecording() throws {
+        // Reused-for-another-action cells must not stay armed; cancelRecordingIfActive must
+        // disarm an active recorder idempotently so Task 5 cell reuse is safe.
+        let button = RecorderHostButton(frame: .zero)
+        defer {
+            if button.debugIsRecording {
+                button.debugStopRecording()
+            }
+        }
+        button.debugStartRecording()
+        try #require(button.debugIsRecording)
+        button.cancelRecordingIfActive()
+        #expect(!button.debugIsRecording)
+    }
+
     private func keyDownEvent(key: String, keyCode: UInt16) throws -> NSEvent {
         try #require(
             NSEvent.keyEvent(

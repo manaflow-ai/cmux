@@ -115,6 +115,12 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         }
         nsView.refreshTitle()
     }
+
+    /// Deterministic teardown — stops any active recording when SwiftUI removes this view,
+    /// rather than relying on deinit timing. Required for safe cell reuse (Task 5).
+    public static func dismantleNSView(_ nsView: RecorderHostButton, coordinator: Void) {
+        nsView.cancelRecordingIfActive()
+    }
 }
 
 /// Focusable AppKit `NSButton` host for ``ShortcutRecorderView``.
@@ -299,6 +305,16 @@ public final class RecorderHostButton: NSButton {
         removeEventMonitor()
         refreshTitle()
         Self.postActiveRecordingDidChange()
+    }
+
+    /// Stops an active recording session idempotently. Safe to call on any recorder
+    /// regardless of whether it is currently recording — used by ``dismantleNSView``
+    /// so that a cell being torn down (or recycled for a different action in Task 5)
+    /// does not leave an armed recorder pointed at the wrong action.
+    public func cancelRecordingIfActive() {
+        guard isRecording else { return }
+        pendingFirst = nil  // explicit for clarity; stopRecording() nils it too
+        stopRecording()
     }
 
     private static func postActiveRecordingDidChange() {
