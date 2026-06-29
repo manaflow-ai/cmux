@@ -35,9 +35,7 @@ public struct WorkspaceColorsSection: View {
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
-        jsonStore: JSONConfigStore,
-        catalog: SettingCatalog,
-        errorLog: SettingsErrorLog
+        catalog: SettingCatalog
     ) {
         _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
     }

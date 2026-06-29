@@ -517,9 +517,7 @@ public struct SettingsWindowRoot: View {
 
         WorkspaceColorsSection(
             defaultsStore: defaultsStore,
-            jsonStore: jsonStore,
-            catalog: catalog,
-            errorLog: runtime.errorLog
+            catalog: catalog
         )
         .id(anchorID(for: .workspaceColors))
 

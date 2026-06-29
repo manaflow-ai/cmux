@@ -20,7 +20,8 @@ public struct AppearanceSection: View {
     @State private var terminalFontFamily: String
     @State private var terminalFontSize: SettingsFontSize
     @State private var terminalFontFamilies: [String]
-    @State private var terminalFontSaveFailed = false
+    @State private var terminalFontFamilySaveFailed = false
+    @State private var terminalFontSizeSaveFailed = false
     @State private var terminalFontFamilySaveGeneration = 0
     @State private var terminalFontSizeSaveGeneration = 0
     @State private var terminalFontFamilySaveTask: Task<Void, Never>?
@@ -93,6 +94,10 @@ public struct AppearanceSection: View {
         return choices
     }
 
+    private var terminalFontSaveFailed: Bool {
+        terminalFontFamilySaveFailed || terminalFontSizeSaveFailed
+    }
+
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
             appAppearance,
@@ -129,7 +134,7 @@ public struct AppearanceSection: View {
             await Task.yield()
             guard !Task.isCancelled, generation == terminalFontFamilySaveGeneration else { return }
             let saved = await hostActions.setTerminalFontFamily(family)
-            if !Task.isCancelled, generation == terminalFontFamilySaveGeneration { terminalFontSaveFailed = !saved }
+            if !Task.isCancelled, generation == terminalFontFamilySaveGeneration { terminalFontFamilySaveFailed = !saved }
         }
     }
 
@@ -141,7 +146,7 @@ public struct AppearanceSection: View {
             await Task.yield()
             guard !Task.isCancelled, generation == terminalFontSizeSaveGeneration else { return }
             let saved = await hostActions.setTerminalFontSize(points)
-            if !Task.isCancelled, generation == terminalFontSizeSaveGeneration { terminalFontSaveFailed = !saved }
+            if !Task.isCancelled, generation == terminalFontSizeSaveGeneration { terminalFontSizeSaveFailed = !saved }
         }
     }
 
