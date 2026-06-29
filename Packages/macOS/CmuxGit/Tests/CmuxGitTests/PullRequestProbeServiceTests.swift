@@ -217,11 +217,6 @@ import Testing
         #expect(statuses[7] == .success)
         #expect(statuses[8] == .failure)
         #expect(statuses[9] == .neutral)
-
-        let branchStatuses = PullRequestProbeService.checkStatusesByNormalizedBranch(from: response)
-        #expect(branchStatuses["feature/pass"] == .success)
-        #expect(branchStatuses["feature/fail"] == .failure)
-        #expect(branchStatuses["feature/pending"] == .neutral)
     }
 
     @Test func decodesAliasedGraphQLCheckRollupStatuses() throws {

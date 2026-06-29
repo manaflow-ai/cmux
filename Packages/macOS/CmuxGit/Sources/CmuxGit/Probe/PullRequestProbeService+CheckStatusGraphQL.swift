@@ -144,22 +144,6 @@ extension PullRequestProbeService {
         return statusesByNumber
     }
 
-    /// Reduces the GraphQL response to normalized-branch keyed rollup states.
-    nonisolated static func checkStatusesByNormalizedBranch(
-        from response: WorkspacePullRequestGraphQLResponse
-    ) -> [String: PullRequestCheckStatus] {
-        let nodes = response.data?.repository?.nodes ?? []
-        var statusesByBranch: [String: PullRequestCheckStatus] = [:]
-        for node in nodes {
-            guard let node,
-                  let normalizedBranch = GitMetadataService.normalizedBranchName(node.headRefName) else {
-                continue
-            }
-            statusesByBranch[normalizedBranch] = node.ciStatus
-        }
-        return statusesByBranch
-    }
-
     /// One POST against the GitHub GraphQL API; `nil` on transport or encode errors.
     nonisolated func performGraphQLRequest(
         session: URLSession,

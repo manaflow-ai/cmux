@@ -38,6 +38,9 @@ struct WorkspacePullRequestGraphQLRepository: Decodable, Sendable {
                   key.stringValue.dropFirst(2).allSatisfy(\.isNumber) else {
                 return nil
             }
+            // Tolerate a single malformed alias (e.g. a PR closed or renamed
+            // mid-fetch returns `null`) so one bad node doesn't drop CI status
+            // for the rest of the batch; the affected PR falls back to `.neutral`.
             return try? container.decodeIfPresent(
                 WorkspacePullRequestGraphQLPullRequestNode.self,
                 forKey: key
