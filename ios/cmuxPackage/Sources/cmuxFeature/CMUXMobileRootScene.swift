@@ -12,6 +12,7 @@ import OSLog
 import SwiftUI
 
 #if canImport(UIKit) && DEBUG
+import CmuxChatLab
 import CmuxMobileTerminal
 #endif
 
@@ -237,6 +238,8 @@ public struct CMUXMobileRootScene: View {
             WorkspaceListLayoutPreviewView()
         } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()
+        } else if ProcessInfo.processInfo.environment["CMUX_CHAT_LAB"] == "1" {
+            ChatLabView(fixture: ProcessInfo.processInfo.environment["CMUX_CHAT_FIXTURE"])
         } else {
             CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
         }

@@ -14,6 +14,7 @@
 		8B8A10032DF5000000A66F90 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A101A2DF5000000A66F90 /* InfoPlist.xcstrings */; };
 		8B8A10042DF5000000A66F90 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */; };
 		8B8A10052DF5000000A66F90 /* cmuxUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */; };
+		8B8A10062DF5000000A66F90 /* ChatLabUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A101D2DF5000000A66F90 /* ChatLabUITests.swift */; };
 		8B41F6832DEDD23B001A66F9 /* cmuxFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* cmuxFeature */; };
 		8B41F6852DEDD25C001A66F9 /* cmuxFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* cmuxFeature */; };
 		8B7E20012DF3A00100A66F90 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20032DF3A00100A66F90 /* CMUXMobileCore */; };
@@ -48,6 +49,7 @@
 		8B8A101A2DF5000000A66F90 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxUITests.swift; sourceTree = "<group>"; };
+		8B8A101D2DF5000000A66F90 /* ChatLabUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatLabUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -90,6 +92,7 @@
 			isa = PBXGroup;
 			children = (
 				8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */,
+				8B8A101D2DF5000000A66F90 /* ChatLabUITests.swift */,
 			);
 			path = cmuxUITests;
 			sourceTree = "<group>";
@@ -265,6 +268,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8B8A10052DF5000000A66F90 /* cmuxUITests.swift in Sources */,
+				8B8A10062DF5000000A66F90 /* ChatLabUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
