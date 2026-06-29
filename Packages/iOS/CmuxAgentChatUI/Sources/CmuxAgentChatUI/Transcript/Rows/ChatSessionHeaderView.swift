@@ -10,14 +10,6 @@ import SwiftUI
 /// spend its width on the names rather than on "needs input ·". VoiceOver
 /// still hears the full state via the accessibility value.
 public struct ChatSessionHeaderView: View {
-    /// Layout density for the session header.
-    public enum Style: Sendable {
-        /// Standard in-content header layout.
-        case regular
-        /// Compact two-line layout that fits inside iOS toolbar glass controls.
-        case toolbarCompact
-    }
-
     private let descriptor: ChatSessionDescriptor
     private let agentState: ChatAgentState
     private let isConnected: Bool
