@@ -88,7 +88,7 @@ public struct WorkspaceMountPlan: Equatable {
             ordered.removeAll { $0 == selected }
             ordered.insert(selected, at: 0)
         }
-        var pinnedInsertionIndex = (selected != nil) ? 1 : 0
+        var pinnedInsertionIndex = shouldKeepSelectedMounted ? 1 : 0
         for pinnedId in prioritizedPinnedIds {
             ordered.removeAll { $0 == pinnedId }
             let insertionIndex = min(pinnedInsertionIndex, ordered.count)

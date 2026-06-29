@@ -54,4 +54,22 @@ import Testing
 
         #expect(next == [other])
     }
+
+    @Test func pinnedWorkspaceKeepsPriorityWhenSelectedWorkspaceIsNotActive() {
+        let selected = UUID()
+        let other = UUID()
+        let pinned = UUID()
+
+        let next = WorkspaceMountPlan(
+            current: [other],
+            selected: selected,
+            pinnedIds: [pinned],
+            orderedTabIds: [other, pinned],
+            activeWorkspaceIds: [other, pinned],
+            isCycleHot: false,
+            maxMounted: WorkspaceMountPlan.maxMountedWorkspaces
+        ).mountedWorkspaceIds
+
+        #expect(next == [pinned])
+    }
 }

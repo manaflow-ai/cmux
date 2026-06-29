@@ -3247,6 +3247,7 @@ struct ContentView: View {
             .union(tabManager.debugPinnedWorkspaceLoadIds)
         var activeWorkspaceIds = Set(currentTabs.map(\.id))
             .union(pinnedIds)
+        var renderingSyncWorkspaces = currentTabs
         // Close clears ownership before removing from tabs; a selected workspace
         // still owned by this manager is live even if a transient order snapshot omits it.
         if let effectiveSelectedId,
@@ -3254,6 +3255,7 @@ struct ContentView: View {
            let selectedWorkspace = tabManager.tabs.first(where: { $0.id == effectiveSelectedId }),
            selectedWorkspace.owningTabManager === tabManager {
             activeWorkspaceIds.insert(effectiveSelectedId)
+            renderingSyncWorkspaces.append(selectedWorkspace)
         }
         let isCycleHot = tabManager.isWorkspaceCycleHot
         let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
@@ -3274,7 +3276,7 @@ struct ContentView: View {
         ).mountedWorkspaceIds
         let removedIds = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
         let mountedIdSet = Set(mountedWorkspaceIds)
-        for workspace in currentTabs {
+        for workspace in renderingSyncWorkspaces {
             workspace.setPortalRenderingEnabled(
                 mountedIdSet.contains(workspace.id),
                 reason: "workspaceMount"
