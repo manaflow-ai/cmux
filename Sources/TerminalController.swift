@@ -5575,76 +5575,7 @@ class TerminalController {
         timeout: TimeInterval,
         start: (@escaping (T) -> Void) -> Void
     ) -> T? {
-        if Thread.isMainThread {
-            let runLoop = CFRunLoopGetCurrent()
-            let lock = NSLock()
-            var resolved = false
-            var timedOut = false
-            var result: T?
-
-            let finish: (T) -> Void = { value in
-                lock.lock()
-                guard !resolved else {
-                    lock.unlock()
-                    return
-                }
-                resolved = true
-                result = value
-                lock.unlock()
-                CFRunLoopStop(runLoop)
-            }
-
-            guard let timeoutTimer = CFRunLoopTimerCreateWithHandler(
-                kCFAllocatorDefault,
-                CFAbsoluteTimeGetCurrent() + timeout,
-                0,
-                0,
-                0,
-                { _ in
-                    lock.lock()
-                    if !resolved {
-                        resolved = true
-                        timedOut = true
-                    }
-                    lock.unlock()
-                    CFRunLoopStop(runLoop)
-                }
-            ) else {
-                return nil
-            }
-            CFRunLoopAddTimer(runLoop, timeoutTimer, .defaultMode)
-            defer { CFRunLoopTimerInvalidate(timeoutTimer) }
-
-            start(finish)
-            while true {
-                lock.lock()
-                if resolved {
-                    let value = result
-                    let didTimeOut = timedOut
-                    lock.unlock()
-                    return didTimeOut ? nil : value
-                }
-                lock.unlock()
-
-                CFRunLoopRun()
-            }
-        }
-
-        let semaphore = DispatchSemaphore(value: 0)
-        let lock = NSLock()
-        var result: T?
-        start { value in
-            lock.lock()
-            result = value
-            lock.unlock()
-            semaphore.signal()
-        }
-        guard semaphore.wait(timeout: .now() + timeout) == .success else {
-            return nil
-        }
-        lock.lock()
-        defer { lock.unlock() }
-        return result
+        socketAwaitCallback(timeout: timeout, start: start)
     }
 
     private nonisolated func v2WaitForBrowserCondition(
