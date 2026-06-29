@@ -32,6 +32,22 @@ mock.module("@vercel/firewall", () => ({
   checkRateLimit,
 }));
 
+// The route reads `env.CMUX_ANALYTICS_RATE_LIMIT_ID` at request time, but the real
+// `env` object captures process.env at import. Wrap the real env in a proxy that
+// resolves this one key lazily so a test can toggle the configured/unconfigured
+// state via process.env while every other env value stays authentic.
+const { env: realEnv } = await import("../app/env");
+mock.module("../app/env", () => ({
+  env: new Proxy(realEnv as Record<string, unknown>, {
+    get(target, prop) {
+      if (prop === "CMUX_ANALYTICS_RATE_LIMIT_ID") {
+        return process.env.CMUX_ANALYTICS_RATE_LIMIT_ID;
+      }
+      return Reflect.get(target, prop);
+    },
+  }),
+}));
+
 const analyticsRoute = await import("../app/api/analytics/events/route");
 
 afterAll(() => {
@@ -167,6 +183,27 @@ describe("analytics events route", () => {
       const calls = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
       expect(calls[0]?.[0]).toBe("analytics.events.rate_limit_error");
       expect(calls[0]?.[1]).toBe(limiterError);
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
+  test("fails closed when the analytics limiter id is not configured", async () => {
+    const originalConsoleError = console.error;
+    console.error = mock(() => {}) as unknown as typeof console.error;
+    try {
+      delete process.env.CMUX_ANALYTICS_RATE_LIMIT_ID;
+
+      const response = await analyticsRoute.POST(invalidAnalyticsRequest());
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "rate_limit_unavailable" });
+      // The unconfigured guard short-circuits before the limiter, auth, or PostHog.
+      expect(checkRateLimit).not.toHaveBeenCalled();
+      expect(getUser).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+      const calls = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+      expect(calls[0]?.[0]).toBe("analytics.events.rate_limit_not_configured");
     } finally {
       console.error = originalConsoleError;
     }
