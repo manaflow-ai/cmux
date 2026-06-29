@@ -326,6 +326,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             transcriptOverlayGeometry.composerBottomInset = overlayBottomInset
         }
         updateTranscriptViewportInsets(
+            topChromeInset: topChromeOverlayInset(),
             adjustedBottomInset: overlayBottomInset,
             composerOverlayBottomInset: overlayBottomInset
         )
@@ -379,6 +380,15 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         return max(0, ceil(visibleComposerHeight + bottomSafeAreaUnderlap))
     }
 
+    private func topChromeOverlayInset() -> CGFloat {
+        guard #available(iOS 26.0, *) else { return 0 }
+        let safeTop = view.window?.safeAreaInsets.top ?? view.safeAreaInsets.top
+        // iOS 26's floating navigation chrome is intentionally translucent and
+        // the chat underlaps it, but transcript focus still needs a usable top
+        // edge below the pills instead of the raw table origin.
+        return max(132, ceil(safeTop + 72))
+    }
+
     private func updateConstraint(_ constraint: NSLayoutConstraint?, to constant: CGFloat) {
         guard let constraint, abs(constraint.constant - constant) > 0.5 else { return }
         constraint.constant = constant
@@ -405,13 +415,14 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     }
 
     private func updateTranscriptViewportInsets(
+        topChromeInset: CGFloat,
         adjustedBottomInset: CGFloat,
         composerOverlayBottomInset: CGFloat
     ) {
         let tables = trackedTranscriptTables(in: transcriptHostingController.view)
         for tableView in tables {
             tableView.applyTranscriptViewportInsets(
-                topChromeInset: 0,
+                topChromeInset: topChromeInset,
                 adjustedBottomInset: adjustedBottomInset,
                 composerOverlayBottomInset: composerOverlayBottomInset
             )

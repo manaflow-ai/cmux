@@ -245,13 +245,14 @@ final class ChatTranscriptUITableView: UITableView {
         )
     }
 
-    private func presentationFrameInWindow() -> CGRect? {
+    #endif
+
+    func presentationFrameInWindow() -> CGRect? {
         guard let window
         else { return nil }
         let sourceLayer = layer.presentation() ?? layer
         let targetLayer = window.layer.presentation() ?? window.layer
         return sourceLayer.convert(bounds, to: targetLayer)
     }
-    #endif
 }
 #endif

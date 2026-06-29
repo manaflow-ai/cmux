@@ -301,8 +301,17 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             let indexPath = IndexPath(row: row, section: 0)
             let rect = tableView.rectForRow(at: indexPath)
             let visibleTopPadding: CGFloat = 18
+            let tableFrameInWindow = tableView.window.map { tableView.convert(tableView.bounds, to: $0) }
+                ?? tableView.frame
+            let presentationMinY = (tableView as? ChatTranscriptUITableView)?
+                .presentationFrameInWindow()?
+                .minY
+                ?? tableFrameInWindow.minY
+            let insetTopY = tableFrameInWindow.minY + tableView.adjustedContentInset.top
+            let chromeTopY = (tableView as? ChatTranscriptUITableView)?.topChromeOverlayInset ?? 0
+            let visibleTopY = max(insetTopY, chromeTopY)
             let targetY = clampedOffsetY(
-                rect.minY - tableView.adjustedContentInset.top - visibleTopPadding,
+                rect.minY + presentationMinY - visibleTopY - visibleTopPadding,
                 in: tableView
             )
             tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: targetY), animated: animated)

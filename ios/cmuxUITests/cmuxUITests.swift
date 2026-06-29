@@ -651,18 +651,56 @@ final class cmuxUITests: XCTestCase {
         let sentText = app.staticTexts["focus proof"].firstMatch
         XCTAssertTrue(sentText.waitForExistence(timeout: 4))
         let focusedMetrics = try waitForTranscriptMetrics(table, timeout: 4) { metrics in
-            let visibleTopY = table.frame.minY + metrics.adjustedTopInset
+            let visibleTopY = table.frame.minY + max(metrics.adjustedTopInset, metrics.topChromeOverlayInset)
+            let visibleBottomY = min(
+                metrics.composerPresentationMinY,
+                table.frame.maxY - metrics.composerOverlayBottomInset
+            )
+            let focusBandHeight = max(1, visibleBottomY - visibleTopY)
             let sentTopOffset = sentText.frame.minY - visibleTopY
-            return sentTopOffset >= -6
-                && sentTopOffset <= 88
+            let sentBottomGap = visibleBottomY - sentText.frame.maxY
+            return metrics.topChromeOverlayInset > 100
+                && !metrics.keyboardAnimationActive
+                && metrics.keyboardAnimationProgress >= 0.99
+                && sentTopOffset >= 24
+                && sentTopOffset <= max(140, focusBandHeight * 0.72)
+                && sentBottomGap >= 24
                 && metrics.distanceFromBottom > 120
         }
-        let visibleTopY = table.frame.minY + focusedMetrics.adjustedTopInset
+        let visibleTopY = table.frame.minY + max(
+            focusedMetrics.adjustedTopInset,
+            focusedMetrics.topChromeOverlayInset
+        )
+        let visibleBottomY = min(
+            focusedMetrics.composerPresentationMinY,
+            table.frame.maxY - focusedMetrics.composerOverlayBottomInset
+        )
+        let focusBandHeight = max(1, visibleBottomY - visibleTopY)
         let sentTopOffset = sentText.frame.minY - visibleTopY
+        let sentBottomGap = visibleBottomY - sentText.frame.maxY
+        XCTAssertGreaterThan(
+            focusedMetrics.topChromeOverlayInset,
+            100,
+            "Sent bubble focus must account for floating top chrome. metrics=\(focusedMetrics)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            sentTopOffset,
+            24,
+            "Sent bubble should not hide under the floating top chrome. offset=\(sentTopOffset) metrics=\(focusedMetrics)"
+        )
+        XCTAssertFalse(
+            focusedMetrics.keyboardAnimationActive,
+            "Sent bubble focus should be verified after keyboard animation settles. metrics=\(focusedMetrics)"
+        )
         XCTAssertLessThanOrEqual(
             sentTopOffset,
-            88,
+            max(140, focusBandHeight * 0.72),
             "Sent bubble should be focused near the transcript top. offset=\(sentTopOffset) metrics=\(focusedMetrics)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            sentBottomGap,
+            24,
+            "Sent bubble should remain clear of the composer and keyboard. gap=\(sentBottomGap) metrics=\(focusedMetrics)"
         )
         XCTAssertGreaterThan(
             focusedMetrics.distanceFromBottom,
