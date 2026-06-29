@@ -93,6 +93,12 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       { id: "openFolder", combos: [["⌘", "O"]], description: { en: "Open folder", ja: "フォルダを開く" } },
       {
+        id: "openFolderInVSCodeInline",
+        combos: [],
+        description: { en: "Open folder in VS Code (Inline)", ja: "VS Code（インライン）でフォルダを開く" },
+        note: { en: "unbound by default", ja: "デフォルトでは未割り当て" },
+      },
+      {
         id: "goToWorkspace",
         combos: [["⌘", "P"]],
         description: { en: "Go to workspace", ja: "ワークスペースへ移動" },
