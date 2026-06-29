@@ -37,6 +37,8 @@ struct AgentLaunchCaptureTrustTests {
         #expect(trust.argvLooksLikeShellWrapper(["/bin/zsh", "-lc", "codex"]))
         #expect(trust.argvLooksLikeShellWrapper(["/bin/zsh", "-lic", "codex"]))
         #expect(trust.argvLooksLikeShellWrapper(["bash", "--noprofile", "--norc", "-c", "claude"]))
+        #expect(trust.argvLooksLikeShellWrapper(["bash", "-l", "-c", "exec codex"]))
+        #expect(trust.argvLooksLikeShellWrapper(["zsh", "-i", "-c", "exec claude"]))
         #expect(trust.argvLooksLikeShellWrapper(["bash", "--noprofile", "--norc"]))
         #expect(trust.argvLooksLikeShellWrapper(["bash", "-o", "pipefail", "-c", "exec claude"]))
         #expect(!trust.argvLooksLikeShellWrapper(["/usr/local/bin/codex", "--yolo"]))

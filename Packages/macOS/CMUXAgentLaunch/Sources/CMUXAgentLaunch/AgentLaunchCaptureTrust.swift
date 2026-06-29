@@ -132,7 +132,11 @@ public struct AgentLaunchCaptureTrust: Sendable, Equatable {
         case "--no-config", "--no-rcs", "--noprofile", "--norc":
             return true
         default:
-            return false
+            guard flag.hasPrefix("-"), !flag.hasPrefix("--") else { return false }
+            let letters = flag.dropFirst()
+            return !letters.isEmpty
+                && !letters.contains("c")
+                && letters.allSatisfy { "ilms".contains($0) }
         }
     }
 
