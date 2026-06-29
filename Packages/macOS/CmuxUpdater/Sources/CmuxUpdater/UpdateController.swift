@@ -25,6 +25,9 @@ public final class UpdateController {
     private let fileManager: FileManager
     private let hostBundle: Bundle
     private let backgroundProbeInterval: TimeInterval
+    /// Whether the running build is a cmux DEV/staging build that must never be compared against
+    /// the public release appcast. See ``isDevLikeBundleIdentifier(_:)``.
+    private let isDevLikeBundle: Bool
 
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
     public weak var actionDelegate: (any UpdateActionDelegate)? {
@@ -64,22 +67,38 @@ public final class UpdateController {
     ///   - defaults: The `UserDefaults` the settings are applied to.
     ///   - fileManager: Filesystem access for the Sparkle installation-cache workaround;
     ///     injectable so tests can avoid touching the real filesystem.
+    ///   - isDevLikeBundle: Overrides whether this is a DEV/staging build. Defaults to `nil`,
+    ///     which derives it from `hostBundle.bundleIdentifier` via ``isDevLikeBundleIdentifier(_:)``.
+    ///     Injectable because a `Bundle` with an arbitrary identifier cannot be constructed in tests.
     public init(log: any UpdateLogging,
                 clock: any UpdateClock = SystemUpdateClock(),
                 settings: UpdateSettings = UpdateSettings(),
                 hostBundle: Bundle = .main,
                 defaults: UserDefaults = .standard,
-                fileManager: FileManager = .default) {
+                fileManager: FileManager = .default,
+                isDevLikeBundle: Bool? = nil) {
         self.log = log
         self.clock = clock
         self.defaults = defaults
         self.fileManager = fileManager
         self.hostBundle = hostBundle
         self.backgroundProbeInterval = settings.scheduledCheckInterval
+        let isDevLikeBundle = isDevLikeBundle ?? Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier)
+        self.isDevLikeBundle = isDevLikeBundle
         settings.apply(to: defaults)
+        if isDevLikeBundle {
+            // DEV (`com.cmuxterm.app.debug[.<tag>]`) and staging (`com.cmuxterm.app.staging[.<tag>]`)
+            // builds are produced from local source and are not on the public release train, so
+            // they must never query the public appcast. Turning off Sparkle's automatic checks
+            // stops the passive vectors: Sparkle never schedules its own background checks, and
+            // cmux's launch/background probe is short-circuited by the `automaticallyChecksForUpdates`
+            // guard in `startLaunchUpdateProbeIfNeeded`. Manual "Check for Updates" is gated
+            // separately in `checkForUpdatesWhenReady`.
+            defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
+        }
 
         let model = UpdateStateModel()
-        let driver = UpdateDriver(model: model, log: log, clock: clock)
+        let driver = UpdateDriver(model: model, log: log, clock: clock, isDevLikeBundle: isDevLikeBundle)
         self.driver = driver
         self.updater = SPUUpdater(
             hostBundle: hostBundle,
@@ -210,6 +229,17 @@ public final class UpdateController {
 
     /// Check for updates once the updater reports it can.
     private func checkForUpdatesWhenReady() {
+        if isDevLikeBundle {
+            // DEV/staging builds are not on the public release train. A manual check (menu,
+            // custom UI, or attempt-and-install) must not query the public appcast or offer the
+            // public release for install over a locally-built app. Surface "No Updates Available"
+            // without contacting the appcast or starting Sparkle. This is the shared entrypoint
+            // for every manual check path (#6292).
+            log.append("manual update check suppressed (dev/staging build)")
+            cancelReadinessRetry()
+            model.setState(.notFound(.init(acknowledgement: {})))
+            return
+        }
         cancelReadinessRetry()
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
@@ -278,6 +308,13 @@ public final class UpdateController {
             log.append("reset sparkle permission defaults (ui test)")
         }
 #endif
+        if isDevLikeBundle {
+            // Re-assert the dev/staging auto-check override immediately before Sparkle starts.
+            // The init-time override can be cleared between construction and start — notably the
+            // DEBUG reset path above removes this key — and Sparkle reads it at `start()` to decide
+            // whether to schedule its own background checks against the public appcast (#6292).
+            defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
+        }
         do {
             try updater.start()
             didStartUpdater = true
@@ -302,6 +339,15 @@ public final class UpdateController {
     }
 
     private func startLaunchUpdateProbeIfNeeded() {
+        if isDevLikeBundle {
+            // DEV/staging builds are not on the public release train; never probe the public
+            // appcast (init also disables Sparkle's own scheduled checks). Tear down any probe a
+            // prior path may have started. See `isDevLikeBundleIdentifier(_:)` (#6292).
+            log.append("launch update probe skipped (dev/staging build)")
+            backgroundProbeTask?.cancel()
+            backgroundProbeTask = nil
+            return
+        }
         guard updater.automaticallyChecksForUpdates else {
             log.append("launch update probe skipped (automatic checks disabled)")
             return
@@ -379,5 +425,25 @@ public final class UpdateController {
         } catch {
             log.append("Failed creating Sparkle installation cache: \(error)")
         }
+    }
+}
+
+extension UpdateController {
+    /// Whether `bundleIdentifier` is a cmux DEV (`com.cmuxterm.app.debug[.<tag>]`) or staging
+    /// (`com.cmuxterm.app.staging[.<tag>]`) build.
+    ///
+    /// Such builds are produced from local source and are not on the public release train, so
+    /// they must never be compared against the public Sparkle appcast (#6292).
+    ///
+    /// Mirrors `SocketControlSettings.isDebugLikeBundleIdentifier` +
+    /// `isStagingBundleIdentifier` (in the CmuxSettings package). The classification is
+    /// duplicated here deliberately to avoid introducing a `CmuxUpdater → CmuxSettings` package
+    /// dependency edge for a small string check.
+    static func isDevLikeBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
+        guard let bundleIdentifier else { return false }
+        return bundleIdentifier == "com.cmuxterm.app.debug"
+            || bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.")
+            || bundleIdentifier == "com.cmuxterm.app.staging"
+            || bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.")
     }
 }
