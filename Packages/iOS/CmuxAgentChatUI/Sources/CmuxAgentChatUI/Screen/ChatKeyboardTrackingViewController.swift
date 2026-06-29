@@ -26,10 +26,12 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private let composerBackgroundView = UIVisualEffectView(effect: nil)
     let transcriptHostingController: UIHostingController<Transcript>
     let composerHostingController: UIHostingController<Composer>
+    weak var transcriptOverlayGeometry: ChatTranscriptOverlayGeometry?
     private var composerHeightConstraint: NSLayoutConstraint?
+    private var transcriptClipTopConstraint: NSLayoutConstraint?
+    private var transcriptClipBottomConstraint: NSLayoutConstraint?
     private var transcriptHeightConstraint: NSLayoutConstraint?
-    private var composerScrollEdgeInteraction: UIInteraction?
-    private weak var scrollEdgeInteractionTableView: ChatTranscriptUITableView?
+    private let scrollEdgeCoordinator = ChatScrollEdgeCoordinator()
 
     var keyboardOverlap: CGFloat = 0
     var keyboardTransitionID = 0
@@ -71,7 +73,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
-        view.clipsToBounds = true
+        view.clipsToBounds = false
 
         keyboardContentView.backgroundColor = .clear
         keyboardContentView.translatesAutoresizingMaskIntoConstraints = false
@@ -125,8 +127,12 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
     private func installLayoutConstraints() {
         let composerHeightConstraint = composerHostingController.view.heightAnchor.constraint(equalToConstant: 0)
+        let transcriptClipTopConstraint = transcriptClipView.topAnchor.constraint(equalTo: keyboardContentView.topAnchor)
+        let transcriptClipBottomConstraint = transcriptClipView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         let transcriptHeightConstraint = transcriptHostingController.view.heightAnchor.constraint(equalToConstant: 0)
         self.composerHeightConstraint = composerHeightConstraint
+        self.transcriptClipTopConstraint = transcriptClipTopConstraint
+        self.transcriptClipBottomConstraint = transcriptClipBottomConstraint
         self.transcriptHeightConstraint = transcriptHeightConstraint
 
         NSLayoutConstraint.activate([
@@ -135,10 +141,10 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             keyboardContentView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             keyboardContentView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            transcriptClipView.topAnchor.constraint(equalTo: keyboardContentView.topAnchor),
+            transcriptClipTopConstraint,
             transcriptClipView.leadingAnchor.constraint(equalTo: keyboardContentView.leadingAnchor),
             transcriptClipView.trailingAnchor.constraint(equalTo: keyboardContentView.trailingAnchor),
-            transcriptClipView.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor),
+            transcriptClipBottomConstraint,
 
             transcriptHostingController.view.leadingAnchor.constraint(equalTo: transcriptClipView.leadingAnchor),
             transcriptHostingController.view.trailingAnchor.constraint(equalTo: transcriptClipView.trailingAnchor),
@@ -176,6 +182,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         stopKeyboardAnimation(removeAnimations: true)
         installedWindow?.removeGestureRecognizer(dismissTapRecognizer)
         installedWindow = nil
+        scrollEdgeCoordinator.reset()
     }
 
     private func installDismissTapIfNeeded() {
@@ -302,11 +309,26 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
     private func updateMeasuredGeometryConstants() {
         let bounds = view.bounds
+        let safeAreaUnderlap = bottomSafeAreaUnderlap
+        let layoutHeight = bounds.height + safeAreaUnderlap
         let composerHeight = measuredComposerHeight(width: bounds.width)
-        let fullTranscriptHeight = max(0, bounds.height)
+        let overlayBottomInset = transcriptOverlayBottomInset(
+            composerHeight: composerHeight,
+            bottomSafeAreaUnderlap: safeAreaUnderlap
+        )
+        let fullTranscriptHeight = max(0, layoutHeight)
         updateConstraint(composerHeightConstraint, to: composerHeight)
+        updateConstraint(transcriptClipTopConstraint, to: 0)
+        updateConstraint(transcriptClipBottomConstraint, to: safeAreaUnderlap)
         updateConstraint(transcriptHeightConstraint, to: fullTranscriptHeight)
-        updateTranscriptOverlayBottomInset(composerHeight)
+        if let transcriptOverlayGeometry,
+           abs(transcriptOverlayGeometry.composerBottomInset - overlayBottomInset) > 0.5 {
+            transcriptOverlayGeometry.composerBottomInset = overlayBottomInset
+        }
+        updateTranscriptViewportInsets(
+            adjustedBottomInset: overlayBottomInset,
+            composerOverlayBottomInset: overlayBottomInset
+        )
     }
 
     private func applyKeyboardOverlap(_ overlap: CGFloat) {
@@ -345,6 +367,18 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         return keyboardOverlap
     }
 
+    private var bottomSafeAreaUnderlap: CGFloat {
+        max(0, view.window?.safeAreaInsets.bottom ?? view.safeAreaInsets.bottom)
+    }
+
+    private func transcriptOverlayBottomInset(
+        composerHeight: CGFloat,
+        bottomSafeAreaUnderlap: CGFloat
+    ) -> CGFloat {
+        let visibleComposerHeight = showsComposer ? composerHeight : 0
+        return max(0, ceil(visibleComposerHeight + bottomSafeAreaUnderlap))
+    }
+
     private func updateConstraint(_ constraint: NSLayoutConstraint?, to constant: CGFloat) {
         guard let constraint, abs(constraint.constant - constant) > 0.5 else { return }
         constraint.constant = constant
@@ -370,56 +404,23 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         }
     }
 
-    private func updateTranscriptOverlayBottomInset(_ inset: CGFloat) {
-        let bottomInset = showsComposer ? max(0, ceil(inset)) : 0
+    private func updateTranscriptViewportInsets(
+        adjustedBottomInset: CGFloat,
+        composerOverlayBottomInset: CGFloat
+    ) {
         let tables = trackedTranscriptTables(in: transcriptHostingController.view)
         for tableView in tables {
-            tableView.applyComposerOverlayBottomInset(bottomInset)
-            configureScrollEdgeEffect(for: tableView)
+            tableView.applyTranscriptViewportInsets(
+                topChromeInset: 0,
+                adjustedBottomInset: adjustedBottomInset,
+                composerOverlayBottomInset: composerOverlayBottomInset
+            )
         }
-        configureContentScrollView(for: tables.first)
-        configureComposerScrollEdgeInteraction(for: tables.first)
-    }
-
-    private func configureScrollEdgeEffect(for tableView: ChatTranscriptUITableView) {
-        if #available(iOS 26.0, *) {
-            tableView.topEdgeEffect.style = .soft
-            tableView.bottomEdgeEffect.style = .soft
-        }
-    }
-
-    private func configureContentScrollView(for tableView: ChatTranscriptUITableView?) {
-        if #available(iOS 26.0, *) {
-            setContentScrollView(tableView, for: [.top, .bottom])
-        }
-    }
-
-    private func configureComposerScrollEdgeInteraction(for tableView: ChatTranscriptUITableView?) {
-        if #available(iOS 26.0, *) {
-            guard let tableView else {
-                if let interaction = composerScrollEdgeInteraction {
-                    composerHostingController.view.removeInteraction(interaction)
-                    composerScrollEdgeInteraction = nil
-                    scrollEdgeInteractionTableView = nil
-                }
-                return
-            }
-
-            let interaction: UIScrollEdgeElementContainerInteraction
-            if let existing = composerScrollEdgeInteraction as? UIScrollEdgeElementContainerInteraction {
-                interaction = existing
-            } else {
-                interaction = UIScrollEdgeElementContainerInteraction()
-                interaction.edge = .bottom
-                composerHostingController.view.addInteraction(interaction)
-                composerScrollEdgeInteraction = interaction
-            }
-
-            if scrollEdgeInteractionTableView !== tableView {
-                interaction.scrollView = tableView
-                scrollEdgeInteractionTableView = tableView
-            }
-        }
+        scrollEdgeCoordinator.configure(
+            tableView: tables.first,
+            owner: self,
+            composerView: composerHostingController.view
+        )
     }
 
     private func updateComposerVisibility() {
@@ -438,10 +439,13 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     }
 
     func trackedTranscriptTables(in view: UIView) -> [ChatTranscriptUITableView] {
-        var tables: [ChatTranscriptUITableView] = []
         if let table = view as? ChatTranscriptUITableView {
-            tables.append(table)
+            // Stop at the transcript table itself; descending into its own
+            // cells/hosted row views would re-walk the entire transcript on
+            // every layout/keyboard geometry update.
+            return [table]
         }
+        var tables: [ChatTranscriptUITableView] = []
         for subview in view.subviews {
             tables.append(contentsOf: trackedTranscriptTables(in: subview))
         }
