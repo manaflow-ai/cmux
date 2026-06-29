@@ -1122,7 +1122,9 @@ struct cmuxApp: App {
     }
 
     private func bootstrapMainWindowScene() {
-        appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
+        if AppDelegate.shouldBootstrapInitialMainWindowForLaunch() {
+            appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
+        }
         appDelegate.installReloadConfigurationMenuItemAction()
         applyAppearance()
     }
