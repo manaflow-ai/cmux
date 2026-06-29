@@ -4617,6 +4617,9 @@ final class Workspace: Identifiable, ObservableObject {
                 shellState: state
             )
         }
+        if state == .promptIdle {
+            reconcileStuckAgentStatusOnPromptIdle(panelId: panelId)
+        }
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +

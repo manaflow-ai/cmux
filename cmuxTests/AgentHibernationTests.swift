@@ -284,6 +284,82 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: secondPanelId, fallback: nil), .running)
     }
 
+    /// Launch and reap a throwaway process so we get a PID that is guaranteed
+    /// dead by the time the test probes it.
+    private func deadProcessPID() throws -> pid_t {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try process.run()
+        process.waitUntilExit()
+        return process.processIdentifier
+    }
+
+    @MainActor
+    func testPromptIdleClearsStuckRunningStatusWhenAgentProcessDead() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let deadPID = try deadProcessPID()
+
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF"
+        )
+        workspace.recordAgentPID(key: "claude_code.session", pid: deadPID, panelId: panelId, refreshPorts: false)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+
+        XCTAssertNil(workspace.statusEntries["claude_code"], "stale Running pill should be cleared")
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .unknown)
+        XCTAssertNil(workspace.agentPIDs["claude_code.session"])
+    }
+
+    @MainActor
+    func testPromptIdleClearsOrphanedRunningStatusWithoutTrackedPID() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        // Status + lifecycle were reported but the set_agent_pid hook never
+        // recorded a PID, so there is no process to probe.
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF"
+        )
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+
+        XCTAssertNil(workspace.statusEntries["claude_code"])
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .unknown)
+    }
+
+    @MainActor
+    func testPromptIdleKeepsRunningStatusWhileAgentProcessAlive() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        // The test runner process is unambiguously alive.
+        let livePID = ProcessInfo.processInfo.processIdentifier
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF"
+        )
+        workspace.recordAgentPID(key: "claude_code.session", pid: livePID, panelId: panelId, refreshPorts: false)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+
+        XCTAssertNotNil(workspace.statusEntries["claude_code"], "a live agent's status must not be cleared")
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .running)
+        XCTAssertEqual(workspace.agentPIDs["claude_code.session"], livePID)
+    }
+
     func testSessionIndexLoadsAgentLifecycleFromHookStore() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-hibernation-index-\(UUID().uuidString)", isDirectory: true)
