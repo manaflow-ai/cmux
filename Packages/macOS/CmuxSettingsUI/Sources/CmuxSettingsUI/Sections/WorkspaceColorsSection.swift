@@ -8,6 +8,7 @@ import SwiftUI
 @MainActor
 public struct WorkspaceColorsSection: View {
     @State private var paletteModel: DefaultsValueModel<[String: String]>
+    @State private var paletteReconcileTracker = WorkspacePaletteColorReconcileTracker()
 
     /// Built-in palette order and default hexes. Mirrors
     /// `WorkspaceTabColorSettings.defaultPalette` in the legacy app target.
@@ -45,7 +46,13 @@ public struct WorkspaceColorsSection: View {
             SettingsSectionHeader(String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"), section: .workspaceColors)
             mainCard
         }
-        .task { startObservingSettings() }
+        .task {
+            startObservingSettings()
+            paletteReconcileTracker.startTracking(effectivePaletteMap(stored: paletteModel.current))
+        }
+        .onChange(of: paletteModel.current) { _, newPalette in
+            paletteReconcileTracker.reconcileExternalHexes(effectivePaletteMap(stored: newPalette))
+        }
     }
 
     private func startObservingSettings() {
@@ -84,6 +91,7 @@ public struct WorkspaceColorsSection: View {
             ) {
                 Button(String(localized: "settings.workspaceColors.resetPalette.button", defaultValue: "Reset")) {
                     paletteModel.reset()
+                    paletteReconcileTracker.recordPaletteReset(resultingHexes: effectivePaletteMap(stored: [:]))
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -109,20 +117,20 @@ public struct WorkspaceColorsSection: View {
             subtitle: subtitle
         ) {
             HStack(spacing: 8) {
-                ColorPicker("", selection: Binding(
-                    get: { Color(cmuxHex: entry.hex) ?? Color(nsColor: .systemBlue) },
-                    set: { newColor in
-                        // Legacy semantics: persist the full effective
-                        // palette (built-ins filled in at their default
-                        // hex when missing) so editing one entry never
-                        // drops the rest.
-                        var snapshot = effectivePaletteMap(stored: paletteModel.current)
-                        snapshot[entry.name] = newColor.cmuxHexString
-                        paletteModel.set(snapshot)
-                    }
-                ), supportsOpacity: false)
-                .labelsHidden()
-                .frame(width: 38)
+                HexColorPicker(
+                    storedHex: entry.hex,
+                    fallback: Color(nsColor: .systemBlue),
+                    reconcileRevision: paletteReconcileTracker.revision(for: entry.name)
+                ) { hex in
+                    // Legacy semantics: persist the full effective
+                    // palette (built-ins filled in at their default
+                    // hex when missing) so editing one entry never
+                    // drops the rest.
+                    var snapshot = effectivePaletteMap(stored: paletteModel.current)
+                    snapshot[entry.name] = hex
+                    paletteModel.set(snapshot)
+                    paletteReconcileTracker.recordPickerWrite(name: entry.name, resultingHexes: snapshot)
+                }
                 Text(entry.hex)
                     .cmuxFont(size: 12, weight: .medium, design: .monospaced)
                     .foregroundStyle(.secondary)
@@ -132,6 +140,7 @@ public struct WorkspaceColorsSection: View {
                         var snapshot = effectivePaletteMap(stored: paletteModel.current)
                         snapshot.removeValue(forKey: entry.name)
                         paletteModel.set(snapshot)
+                        paletteReconcileTracker.reconcileExternalHexes(snapshot)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
