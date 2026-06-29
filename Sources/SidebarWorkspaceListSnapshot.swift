@@ -32,34 +32,37 @@ final class SidebarWorkspaceListSnapshot {
         tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
             ($0.element.id, $0.offset)
         })
-        workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let workspacesById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        workspaceById = workspacesById
         workspaceGroupIdByWorkspaceId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
         self.workspaceGroups = workspaceGroups
-        workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
-        workspaceGroupByAnchorId = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) })
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        workspaceGroupById = groupsById
+        let groupsByAnchorId = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) })
+        workspaceGroupByAnchorId = groupsByAnchorId
         workspaceGroupAnchorIds = Set(workspaceGroups.map(\.anchorWorkspaceId))
         workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
             items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
         )
         workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
             tabs: tabs,
-            groupsById: workspaceGroupById
+            groupsById: groupsById
         )
         visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
         visibleWorkspaceRowIdSet = Set(visibleWorkspaceRowIds)
         pinResolutionContext = WorkspaceActionDispatcher.PinResolutionContext(
-            workspacesById: workspaceById,
+            workspacesById: workspacesById,
             liveWorkspaceIds: Set(tabIds)
         )
         topLevelWorkspaceIds = Self.makeTopLevelWorkspaceIds(
             tabs: tabs,
-            groupsById: workspaceGroupById
+            groupsById: groupsById
         )
         topLevelPinnedWorkspaceIds = Set(topLevelWorkspaceIds.filter { id in
-            if let group = workspaceGroupByAnchorId[id] {
+            if let group = groupsByAnchorId[id] {
                 return group.isPinned
             }
-            return workspaceById[id]?.isPinned == true
+            return workspacesById[id]?.isPinned == true
         })
         fullRowPinnedWorkspaceIds = Set(tabs.filter { $0.groupId == nil && $0.isPinned }.map(\.id))
     }
