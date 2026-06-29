@@ -1037,6 +1037,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return inputProxy
     }()
 
+    /// Creates the terminal surface view bound to `runtime` and `delegate`.
+    /// Attaches the C-surface ``bridge`` and configures the opaque container
+    /// (frame, background, accessibility); the underlying `ghostty_surface_t` is
+    /// created later, once the view joins a window.
     public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate, fontSize: Float32 = 10) {
         self.runtime = runtime
         self.delegate = delegate
@@ -2654,6 +2658,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return ghostty_surface_process_exited(surface)
     }
 
+    /// Tears the surface down: stops the display link, clears the local selection
+    /// overlay, unregisters and detaches the C surface, and frees it on the serial
+    /// `outputQueue` so queued libghostty work can never use-after-free.
     func disposeSurface() {
         stopDisplayLink()
         clearLocalSelectionOverlay()
@@ -2752,6 +2759,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         updateCursorOverlay()
     }
 
+    /// Per-frame `CADisplayLink` callback: advances the zoom-settle countdown and
+    /// keyboard-height animation, applies any pending geometry sync at most once
+    /// per frame, ticks the cursor blink, and requests a render plus cursor-overlay
+    /// update on content/cursor changes or during the bounded post-geometry draw
+    /// burst. iOS has no renderer vsync, so a frame is produced only when asked here.
     @objc func handleDisplayLinkFire() {
         guard let surface else { return }
         #if DEBUG
@@ -3003,6 +3015,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private(set) var configBackgroundColor: UIColor?
     private(set) var configCursorColor: UIColor?
 
+    /// Reads the resolved `background` color from the ghostty config and applies
+    /// it to the view, the snapshot-fallback view, and ``configBackgroundColor``
+    /// so the terminal backdrop matches the active theme.
     private func applyBackgroundColorFromConfig(_ config: ghostty_config_t) {
         var bgColor = ghostty_config_color_s()
         let bgKey = "background"
@@ -3751,6 +3766,11 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
 }
 
 extension GhosttySurfaceView: UIScrollViewDelegate {
+    /// `UIScrollViewDelegate` hook for the off-screen scroll-mechanics view:
+    /// converts content-offset deltas into terminal scroll
+    /// (``enqueueScrollMechanicsDelta(_:touchPoint:)``), clears the local
+    /// selection overlay on any real scroll (the highlight is viewport-anchored),
+    /// tracks the live touch point, and recenters the infinite-scroll surrogate.
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === scrollMechanicsView,
               !scrollMechanicsIsRecentering else {

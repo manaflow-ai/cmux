@@ -72,6 +72,9 @@ public final class GhosttyRuntime {
         return try result.get()
     }
 
+    /// Boots the libghostty backend (once per process), builds the iOS terminal
+    /// config, and creates the underlying `ghostty_app_t`. Throws a
+    /// vendor-neutral ``RuntimeError`` when the engine or app fails to start.
     init() throws {
         try Self.initializeBackendIfNeeded()
 
@@ -153,6 +156,9 @@ public final class GhosttyRuntime {
         ghostty_app_tick(app)
     }
 
+    /// One-time libghostty backend initialization (`ghostty_init`). Idempotent —
+    /// a call after a prior success returns immediately. Throws the neutral
+    /// ``RuntimeError/backendInitFailed`` while logging the raw code to diagnostics.
     private static func initializeBackendIfNeeded() throws {
         guard !backendInitialized else { return }
         let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
@@ -197,9 +203,15 @@ public final class GhosttyRuntime {
     /// `selection-background`, a `Color` that has a `cval`), and
     /// `ghostty_surface_size_s` carries no padding field. This Swift constant —
     /// which generates the config — is therefore the authoritative source.
+    ///
+    /// Horizontal glyph inset (`window-padding-x`), in points.
     static let windowPaddingXPoints = 2
+    /// Vertical glyph inset (`window-padding-y`), forced to `0` so the grid sits
+    /// flush with the top of the render rect.
     static let windowPaddingYPoints = 0
 
+    /// Applies the baseline iOS terminal settings (scrollback budget, Menlo font,
+    /// window padding, bar cursor, Monokai palette) onto a libghostty config handle.
     private static func applyiOSDefaults(_ config: ghostty_config_t) {
         // scrollback-limit: bound the mirror surface's local scrollback page
         // memory (ghostty defaults to 10MB per surface). On iOS the user-facing
@@ -256,6 +268,8 @@ public final class GhosttyRuntime {
         log.debug("applyiOSDefaults: bg get=\(hasBg, privacy: .public) r=\(bgColor.r, privacy: .public) g=\(bgColor.g, privacy: .public) b=\(bgColor.b, privacy: .public)")
     }
 
+    /// Writes a default ghostty config file into Application Support on first run
+    /// (only when none exists yet) so libghostty has an on-disk config to load.
     private static func ensureDefaultiOSConfig() {
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
         let configDir = appSupport.appendingPathComponent("ghostty", isDirectory: true)
