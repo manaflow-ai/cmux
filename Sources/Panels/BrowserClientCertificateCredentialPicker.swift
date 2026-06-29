@@ -15,13 +15,16 @@ private func browserDismissClientCertificateCredentialPicker(_ alert: NSAlert) {
 @MainActor struct BrowserClientCertificateCredentialPicker {
     private let webView: WKWebView
     private let presentAlert: BrowserAlertPresenter
+    private let textFormatter: BrowserAuthPromptTextFormatter
 
     init(
         webView: WKWebView,
-        presentAlert: @escaping BrowserAlertPresenter = browserPresentAlert
+        presentAlert: @escaping BrowserAlertPresenter = browserPresentAlert,
+        textFormatter: BrowserAuthPromptTextFormatter = BrowserAuthPromptTextFormatter()
     ) {
         self.webView = webView
         self.presentAlert = presentAlert
+        self.textFormatter = textFormatter
     }
 
     func selectCredential(
@@ -97,7 +100,7 @@ private func browserDismissClientCertificateCredentialPicker(_ alert: NSAlert) {
     }
 
     private func origin(for protectionSpace: URLProtectionSpace) -> String {
-        browserAuthPromptOrigin(
+        textFormatter.origin(
             protectionSpace: protectionSpace,
             unknownHost: String(
                 localized: "browser.dialog.clientCertificate.unknownHost",
@@ -112,7 +115,7 @@ private func browserDismissClientCertificateCredentialPicker(_ alert: NSAlert) {
     ) -> String {
         let displayTitle: String
         if let rawTitle = candidate.title,
-           case let title = browserAuthPromptMiddleElidedText(rawTitle),
+           case let title = textFormatter.middleElidedText(rawTitle),
            !title.isEmpty {
             displayTitle = title
         } else {
@@ -124,7 +127,7 @@ private func browserDismissClientCertificateCredentialPicker(_ alert: NSAlert) {
         }
 
         guard let rawSubtitle = candidate.subtitle,
-              case let subtitle = browserAuthPromptMiddleElidedText(rawSubtitle),
+              case let subtitle = textFormatter.middleElidedText(rawSubtitle),
               !subtitle.isEmpty else {
             return displayTitle
         }

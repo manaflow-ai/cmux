@@ -2,91 +2,103 @@ import AppKit
 import Foundation
 import WebKit
 
-let browserAuthPromptTextMaxLength = 240
+struct BrowserAuthPromptTextFormatter {
+    private static let defaultDangerousScalars: Set<Unicode.Scalar> = [
+        "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
+        "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
+        "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
+        "\u{FEFF}",
+    ]
 
-let browserAuthPromptDangerousScalars: Set<Unicode.Scalar> = [
-    "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
-    "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
-    "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
-    "\u{FEFF}",
-]
+    private let textMaxLength: Int
+    private let dangerousScalars: Set<Unicode.Scalar>
 
-func browserAuthPromptFilteredText(_ text: String) -> String {
-    let filtered = String(text.unicodeScalars.filter { scalar in
-        !browserAuthPromptDangerousScalars.contains(scalar)
-            && !CharacterSet.controlCharacters.contains(scalar)
-    })
-    return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
-}
-
-func browserAuthPromptSanitizedText(_ text: String) -> String {
-    let trimmed = browserAuthPromptFilteredText(text)
-    guard trimmed.count > browserAuthPromptTextMaxLength else {
-        return trimmed
-    }
-    return String(trimmed.prefix(browserAuthPromptTextMaxLength))
-}
-
-func browserAuthPromptMiddleElidedText(_ text: String) -> String {
-    let trimmed = browserAuthPromptFilteredText(text)
-    guard trimmed.count > browserAuthPromptTextMaxLength else {
-        return trimmed
+    init(
+        textMaxLength: Int = 240,
+        dangerousScalars: Set<Unicode.Scalar> = Self.defaultDangerousScalars
+    ) {
+        self.textMaxLength = textMaxLength
+        self.dangerousScalars = dangerousScalars
     }
 
-    let marker = "..."
-    let keptCharacterCount = browserAuthPromptTextMaxLength - marker.count
-    let prefixCount = min(48, max(16, keptCharacterCount / 3))
-    let suffixCount = max(0, keptCharacterCount - prefixCount)
-    return String(trimmed.prefix(prefixCount)) + marker + String(trimmed.suffix(suffixCount))
-}
-
-func browserAuthPromptDefaultPort(forProtocol protocolName: String?) -> Int? {
-    switch protocolName?.lowercased() {
-    case "http":
-        return 80
-    case "https":
-        return 443
-    default:
-        return nil
-    }
-}
-
-func browserAuthPromptOrigin(
-    protectionSpace: URLProtectionSpace,
-    unknownHost: String
-) -> String {
-    let host = browserAuthPromptFilteredText(protectionSpace.host)
-    guard !host.isEmpty else {
-        return unknownHost
+    func filteredText(_ text: String) -> String {
+        let filtered = String(text.unicodeScalars.filter { scalar in
+            !dangerousScalars.contains(scalar)
+                && !CharacterSet.controlCharacters.contains(scalar)
+        })
+        return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    let rawProtocol = protectionSpace.`protocol` ?? ""
-    let protocolName = browserAuthPromptFilteredText(rawProtocol).lowercased()
-    let defaultPort = browserAuthPromptDefaultPort(forProtocol: protocolName)
-
-    let displayHost: String
-    if host.contains(":") && !host.hasPrefix("[") && !host.hasSuffix("]") {
-        displayHost = "[\(host)]"
-    } else {
-        displayHost = host
+    func sanitizedText(_ text: String) -> String {
+        let trimmed = filteredText(text)
+        guard trimmed.count > textMaxLength else {
+            return trimmed
+        }
+        return String(trimmed.prefix(textMaxLength))
     }
 
-    let port = protectionSpace.port
-    let authority: String
-    if port > 0, port != defaultPort {
-        authority = "\(displayHost):\(port)"
-    } else {
-        authority = displayHost
+    func middleElidedText(_ text: String) -> String {
+        let trimmed = filteredText(text)
+        guard trimmed.count > textMaxLength else {
+            return trimmed
+        }
+
+        let marker = "..."
+        let keptCharacterCount = textMaxLength - marker.count
+        let prefixCount = min(48, max(16, keptCharacterCount / 3))
+        let suffixCount = max(0, keptCharacterCount - prefixCount)
+        return String(trimmed.prefix(prefixCount)) + marker + String(trimmed.suffix(suffixCount))
     }
 
-    let origin = protocolName.isEmpty ? authority : "\(protocolName)://\(authority)"
-    return browserAuthPromptMiddleElidedText(origin)
+    func defaultPort(forProtocol protocolName: String?) -> Int? {
+        switch protocolName?.lowercased() {
+        case "http":
+            return 80
+        case "https":
+            return 443
+        default:
+            return nil
+        }
+    }
+
+    func origin(
+        protectionSpace: URLProtectionSpace,
+        unknownHost: String
+    ) -> String {
+        let host = filteredText(protectionSpace.host)
+        guard !host.isEmpty else {
+            return unknownHost
+        }
+
+        let rawProtocol = protectionSpace.`protocol` ?? ""
+        let protocolName = filteredText(rawProtocol).lowercased()
+        let defaultPort = defaultPort(forProtocol: protocolName)
+
+        let displayHost: String
+        if host.contains(":") && !host.hasPrefix("[") && !host.hasSuffix("]") {
+            displayHost = "[\(host)]"
+        } else {
+            displayHost = host
+        }
+
+        let port = protectionSpace.port
+        let authority: String
+        if port > 0, port != defaultPort {
+            authority = "\(displayHost):\(port)"
+        } else {
+            authority = displayHost
+        }
+
+        let origin = protocolName.isEmpty ? authority : "\(protocolName)://\(authority)"
+        return middleElidedText(origin)
+    }
 }
 
 private func browserHTTPBasicAuthPromptMessage(
-    challenge: URLAuthenticationChallenge
+    challenge: URLAuthenticationChallenge,
+    textFormatter: BrowserAuthPromptTextFormatter
 ) -> String {
-    let origin = browserAuthPromptOrigin(
+    let origin = textFormatter.origin(
         protectionSpace: challenge.protectionSpace,
         unknownHost: String(
             localized: "browser.dialog.auth.basic.unknownHost",
@@ -94,7 +106,7 @@ private func browserHTTPBasicAuthPromptMessage(
         )
     )
     if let rawRealm = challenge.protectionSpace.realm {
-        let realm = browserAuthPromptSanitizedText(rawRealm)
+        let realm = textFormatter.sanitizedText(rawRealm)
         guard !realm.isEmpty else {
             let format = String(
                 localized: "browser.dialog.auth.basic.messageHost",
@@ -141,13 +153,17 @@ func browserHandleHTTPBasicAuthenticationChallenge(
     }
 
     let presentPrompt = {
+        let textFormatter = BrowserAuthPromptTextFormatter()
         let alert = alertFactory()
         alert.alertStyle = .informational
         alert.messageText = String(
             localized: "browser.dialog.auth.basic.title",
             defaultValue: "Authentication Required"
         )
-        let promptMessage = browserHTTPBasicAuthPromptMessage(challenge: challenge)
+        let promptMessage = browserHTTPBasicAuthPromptMessage(
+            challenge: challenge,
+            textFormatter: textFormatter
+        )
         let accessoryMessage: String
         if challenge.previousFailureCount > 0 {
             let failureMessage = String(
