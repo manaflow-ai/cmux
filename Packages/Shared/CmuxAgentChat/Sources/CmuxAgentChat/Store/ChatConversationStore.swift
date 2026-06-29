@@ -108,7 +108,7 @@ public final class ChatConversationStore {
         pageSize: Int = 100,
         maxWindowCount: Int = 600,
         now: @escaping @Sendable () -> Date = { Date() },
-        idleSleep: @escaping (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+        idleSleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
     ) {
         self.descriptor = descriptor
         self.agentState = descriptor.state
@@ -124,9 +124,8 @@ public final class ChatConversationStore {
     @ObservationIgnored private let lastReadSeqAtActivation: Int?
     /// Cancellable reconnect-backoff sleep; injectable for deterministic
     /// tests.
-    @ObservationIgnored private let idleSleep: (Duration) async -> Void
-    @ObservationIgnored private var backoffSleepTask: Task<Void, Never>?
-    @ObservationIgnored private var backoffSleepID: UUID?
+    @ObservationIgnored private let idleSleep: @Sendable (Duration) async -> Void
+    @ObservationIgnored private var backoffWakeContinuation: AsyncStream<Void>.Continuation?
 
     /// Follows the live event stream until cancelled, loading history
     /// inside each subscription so no event falls into a fetch/subscribe
@@ -180,17 +179,34 @@ public final class ChatConversationStore {
                 backoff = .zero
             } else {
                 backoff = min(max(backoff * 2, .milliseconds(500)), .seconds(16))
-                let sleepID = UUID()
-                let sleepTask = Task { await idleSleep(backoff) }
-                backoffSleepID = sleepID
-                backoffSleepTask = sleepTask
-                await sleepTask.value
-                if backoffSleepID == sleepID {
-                    backoffSleepID = nil
-                    backoffSleepTask = nil
-                }
+                await waitForBackoffOrSourceReplacement(backoff)
             }
         }
+    }
+
+    private func waitForBackoffOrSourceReplacement(_ backoff: Duration) async {
+        let idleSleep = idleSleep
+        let wakeStream = AsyncStream<Void> { continuation in
+            wakeBackoff()
+            backoffWakeContinuation = continuation
+        }
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await idleSleep(backoff)
+            }
+            group.addTask {
+                for await _ in wakeStream { break }
+            }
+            await group.next()
+            wakeBackoff()
+            group.cancelAll()
+        }
+    }
+
+    private func wakeBackoff() {
+        backoffWakeContinuation?.yield(())
+        backoffWakeContinuation?.finish()
+        backoffWakeContinuation = nil
     }
 
     /// Fetches one older page and prepends it to the window.
@@ -407,9 +423,7 @@ public final class ChatConversationStore {
     /// Rebinds this conversation to the current Mac transport after reconnect.
     public func replaceSource(_ source: any ChatEventSource, descriptor: ChatSessionDescriptor) {
         self.source = source
-        backoffSleepTask?.cancel()
-        backoffSleepTask = nil
-        backoffSleepID = nil
+        wakeBackoff()
         applyDescriptorSnapshot(descriptor)
     }
 
