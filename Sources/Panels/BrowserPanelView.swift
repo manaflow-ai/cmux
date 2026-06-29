@@ -412,6 +412,11 @@ struct BrowserPanelView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
+    /// Explicit pane-ownership signal for hosts whose panels are not registered
+    /// in the main `Workspace` tree (e.g. the right-sidebar Dock, which owns its
+    /// panels in `DockSplitStore`). When set, it overrides the workspace lookup
+    /// in `isCurrentPaneOwner`; `nil` preserves the main-area behavior.
+    let paneOwnershipOverride: Bool?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.openWindow) private var openWindow
@@ -505,6 +510,7 @@ struct BrowserPanelView: View {
         isFocused: Bool,
         isVisibleInUI: Bool,
         portalPriority: Int,
+        paneOwnershipOverride: Bool? = nil,
         onRequestPanelFocus: @escaping () -> Void
     ) {
         self.panel = panel
@@ -512,6 +518,7 @@ struct BrowserPanelView: View {
         self.isFocused = isFocused
         self.isVisibleInUI = isVisibleInUI
         self.portalPriority = portalPriority
+        self.paneOwnershipOverride = paneOwnershipOverride
         self.onRequestPanelFocus = onRequestPanelFocus
         self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
             for: .light,
@@ -679,6 +686,11 @@ struct BrowserPanelView: View {
     }
 
     private var isCurrentPaneOwner: Bool {
+        // Dock (and other non-Workspace hosts) inject ownership explicitly, since
+        // their panels are not registered in the main Workspace tree.
+        if let paneOwnershipOverride {
+            return paneOwnershipOverride
+        }
         guard let currentPaneId = owningWorkspace?.paneId(forPanelId: panel.id) else {
             return false
         }
@@ -1834,6 +1846,7 @@ struct BrowserPanelView: View {
                     isPanelFocused: isFocused,
                     portalZPriority: portalPriority,
                     paneDropZone: paneDropZone,
+                    paneOwnershipOverride: paneOwnershipOverride,
                     searchOverlay: panel.searchState.map { searchState in
                         BrowserPortalSearchOverlayConfiguration(
                             panelId: panel.id,
@@ -2039,12 +2052,11 @@ struct BrowserPanelView: View {
     }
 
     private func isPanelFocusedInModel() -> Bool {
+        if let paneOwnershipOverride { return paneOwnershipOverride && isFocused }
         guard let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: panel.workspaceId),
               manager.selectedTabId == panel.workspaceId,
-              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }) else {
-            return false
-        }
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }) else { return false }
         return workspace.focusedPanelId == panel.id
     }
 
@@ -4776,6 +4788,19 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 )
             }
 #endif
+            // #6250: AppKit invokes `performKeyEquivalent` across the entire
+            // window view hierarchy, so this coordinator runs even while web
+            // content (the WKWebView) — not the omnibar — owns first responder.
+            // In that state the omnibar field has no field editor, so `editor`
+            // is nil. Treating Return/Escape/arrows (and Ctrl+N/P, Shift+Delete)
+            // as omnibar input there makes an *unfocused* omnibar submit and
+            // hard-navigate the pane on a physical Enter that belongs to the
+            // page — a spurious reload that aborts in-flight `fetch`/XHR in SPAs.
+            // Only act on these keys while the field is actually being edited.
+            // This mirrors the `currentEditor()`-gated `insertNewline:` path in
+            // `control(_:textView:doCommandBy:)`, which only runs for the live
+            // field editor.
+            guard editor != nil else { return false }
             guard editor?.hasMarkedText() != true else { return false }
             let keyCode = event.keyCode
             let modifiers = event.modifierFlags.intersection([.command, .control, .shift, .option, .function])
@@ -5431,6 +5456,10 @@ struct WebViewRepresentable: NSViewRepresentable {
     let isPanelFocused: Bool
     let portalZPriority: Int
     let paneDropZone: DropZone?
+    /// Explicit pane-ownership for hosts (the Dock) whose panels are not in the
+    /// main `Workspace` tree, so the portal-visibility gate can resolve ownership
+    /// without `Workspace.paneId(forPanelId:)`. `nil` keeps the main-area path.
+    var paneOwnershipOverride: Bool? = nil
     let searchOverlay: BrowserPortalSearchOverlayConfiguration?
     let omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
     let paneTopChromeHeight: CGFloat
@@ -6473,6 +6502,12 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 return nil
             }
+            if shouldPassThroughToExternalSplitDivider(at: point, hostedInspectorHit: hostedInspectorHit) {
+#if DEBUG
+                debugLogHitTest(stage: "hitTest.splitPass", point: point, passThrough: true, hitView: nil)
+#endif
+                return nil
+            }
             if let hostedInspectorHit {
                 if let nativeHit = nativeHostedInspectorHit(at: point, hostedInspectorHit: hostedInspectorHit) {
 #if DEBUG
@@ -6630,12 +6665,70 @@ struct WebViewRepresentable: NSViewRepresentable {
             return contentView.bounds.maxX - hostRectInContent.maxX > 24
         }
 
+        private func shouldPassThroughToExternalSplitDivider(
+            at point: NSPoint,
+            hostedInspectorHit: HostedInspectorDividerHit? = nil
+        ) -> Bool {
+            guard hostedInspectorHit == nil else { return false }
+            guard isNearPaneEdge(point) else { return false }
+            guard window != nil else { return false }
+
+            let windowPoint = convert(point, to: nil)
+            var ancestor = superview
+            while let currentAncestor = ancestor {
+                if let splitView = currentAncestor as? NSSplitView,
+                   let arrangedIndex = splitView.arrangedSubviews.firstIndex(where: { arrangedSubview in
+                       self === arrangedSubview || self.isDescendant(of: arrangedSubview)
+                   }) {
+                    if externalSplitDividerHit(at: windowPoint, in: splitView, dividerIndex: arrangedIndex - 1) {
+                        return true
+                    }
+                    if externalSplitDividerHit(at: windowPoint, in: splitView, dividerIndex: arrangedIndex) {
+                        return true
+                    }
+                }
+                ancestor = currentAncestor.superview
+            }
+            return false
+        }
+
+        private func externalSplitDividerHit(
+            at windowPoint: NSPoint,
+            in splitView: NSSplitView,
+            dividerIndex: Int
+        ) -> Bool {
+            guard let window,
+                  splitView.window === window,
+                  let hitRect = PortalSplitDividerRegion.dividerHitRectInWindow(
+                      in: splitView,
+                      dividerIndex: dividerIndex
+                  ) else {
+                return false
+            }
+            return hitRect.contains(windowPoint)
+        }
+
+        private func isNearPaneEdge(_ point: NSPoint) -> Bool {
+            // hitTest and cursor tracking call this with points in this view's bounds coordinates.
+            guard bounds.contains(point) else { return false }
+            let expansion = PortalSplitDividerRegion.dividerHitExpansion
+            let nearVerticalEdge = point.x <= bounds.minX + expansion ||
+                point.x >= bounds.maxX - expansion
+            let nearHorizontalEdge = point.y <= bounds.minY + expansion ||
+                point.y >= bounds.maxY - expansion
+            return nearVerticalEdge || nearHorizontalEdge
+        }
+
         private func updateDividerCursor(
             at point: NSPoint,
             hostedInspectorHit: HostedInspectorDividerHit? = nil
         ) {
             let resolvedHostedInspectorHit = hostedInspectorHit ?? hostedInspectorDividerHit(at: point)
             if shouldPassThroughToSidebarResizer(at: point, hostedInspectorHit: resolvedHostedInspectorHit) {
+                clearActiveDividerCursor(restoreArrow: false)
+                return
+            }
+            if shouldPassThroughToExternalSplitDivider(at: point, hostedInspectorHit: resolvedHostedInspectorHit) {
                 clearActiveDividerCursor(restoreArrow: false)
                 return
             }
@@ -7937,16 +8030,30 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     private func currentPaneDropContext() -> BrowserPaneDropContext? {
+        // Dock-hosted browsers are not registered in the Workspace tree, so the
+        // workspace lookup below can't resolve their pane. `paneId` is already the
+        // Dock's own Bonsplit pane id, so the drop target diverts live-surface tab
+        // drops to the Dock via `dockForPane`/`performPortalPaneDrop` (mirroring
+        // the terminal pane drop target). A browser filling the Dock now accepts
+        // drops instead of rejecting them.
+        if let paneOwnershipOverride {
+            guard paneOwnershipOverride else { return nil }
+            return BrowserPaneDropContext(
+                workspaceId: panel.workspaceId,
+                panelId: panel.id,
+                paneId: paneId
+            )
+        }
         guard let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: panel.workspaceId),
               let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
-              let paneId = workspace.paneId(forPanelId: panel.id) else {
+              let resolvedPaneId = workspace.paneId(forPanelId: panel.id) else {
             return nil
         }
         return BrowserPaneDropContext(
             workspaceId: panel.workspaceId,
             panelId: panel.id,
-            paneId: paneId
+            paneId: resolvedPaneId
         )
     }
 }
