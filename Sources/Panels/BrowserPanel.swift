@@ -1037,6 +1037,7 @@ private let browserEmbeddedNavigationSchemes: Set<String> = [
     "applewebdata",
     "blob",
     "cmux-diff-viewer",
+    "cmux-webview",
     "data",
     "file",
     "http",
@@ -3651,10 +3652,17 @@ final class BrowserPanel: Panel, ObservableObject {
                 forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
             )
         }
+        if configuration.urlSchemeHandler(forURLScheme: CmuxBundledWebViewURLSchemeHandler.scheme) == nil {
+            configuration.setURLSchemeHandler(
+                CmuxBundledWebViewURLSchemeHandler.shared,
+                forURLScheme: CmuxBundledWebViewURLSchemeHandler.scheme
+            )
+        }
         // Review-comment persistence + TextBox attach for diff viewer pages.
         // The handler itself rejects every frame that is not a registered diff
         // viewer session, so installing it on all browser webviews is safe.
         DiffCommentsBridge.installIfNeeded(on: configuration.userContentController)
+        HomeWebViewBridge.installIfNeeded(on: configuration.userContentController)
 
         // Enable developer extras (DevTools)
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -3734,6 +3742,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func bindWebView(_ webView: CmuxWebView) {
         DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
+        HomeWebViewBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
         webView.onMouseBackButton = { [weak self] in
             self?.goBack()
         }

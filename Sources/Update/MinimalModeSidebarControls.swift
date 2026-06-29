@@ -195,6 +195,8 @@ final class MinimalModeSidebarControlActionView: NSView {
             return
         }
         switch slot {
+        case .home:
+            super.rightMouseDown(with: event)
         case .toggleSidebar:
             CmuxExtensionSidebarSelection.showMenu(anchorView: self, event: event)
         case .newTab:

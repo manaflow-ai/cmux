@@ -1683,6 +1683,9 @@ class TerminalController {
 
 
 #if DEBUG
+        case "show_home":
+            return showHome()
+
         case "send_workspace":
             return sendInputToWorkspace(args)
 
@@ -10497,6 +10500,14 @@ class TerminalController {
             _ = AppDelegate.shared?.activateMainWindowFromSocket()
         }
         return "OK"
+    }
+
+    func showHome() -> String {
+        var didShow = false
+        v2MainSync {
+            didShow = AppDelegate.shared?.showHomeInActiveMainWindow() == true
+        }
+        return didShow ? "OK" : "ERROR: No main window"
     }
 
     private func simulateType(_ args: String) -> String {

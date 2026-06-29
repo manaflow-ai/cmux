@@ -337,6 +337,8 @@ final class WindowDecorationsController {
         Task { @MainActor [weak window] in
             guard let window else { return }
             switch slot {
+            case .home:
+                _ = AppDelegate.shared?.showHomeInActiveMainWindow(preferredWindow: window)
             case .toggleSidebar:
                 _ = AppDelegate.shared?.toggleSidebarInActiveMainWindow(preferredWindow: window)
             case .showNotifications:

@@ -6669,6 +6669,105 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    func showHomeInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        func showHome(_ context: MainWindowContext) -> Bool {
+            guard let window = resolvedWindow(for: context) else {
+                discardOrphanedMainWindowContext(context)
+                return false
+            }
+            guard BrowserAvailabilitySettings.isEnabled(),
+                  let homeURL = Self.homeWebViewURL() else {
+                NSSound.beep()
+                return false
+            }
+            setActiveMainWindow(window)
+            context.sidebarSelectionState.selection = .tabs
+            ensureHomeWorkspace(in: context.tabManager, homeURL: homeURL)
+            return true
+        }
+
+        if let preferredWindow,
+           let preferredContext = contextForMainTerminalWindow(preferredWindow),
+           showHome(preferredContext) {
+            return true
+        }
+        if let keyWindow = shortcutRoutingKeyWindow,
+           let keyContext = contextForMainTerminalWindow(keyWindow),
+           showHome(keyContext) {
+            return true
+        }
+        if let mainWindow = NSApp.mainWindow,
+           let mainContext = contextForMainTerminalWindow(mainWindow),
+           showHome(mainContext) {
+            return true
+        }
+        if let activeManager = tabManager,
+           let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }),
+           showHome(activeContext) {
+            return true
+        }
+        for fallbackContext in Array(mainWindowContexts.values) where showHome(fallbackContext) {
+            return true
+        }
+        return false
+    }
+
+    private static func homeWebViewURL() -> URL? {
+        CmuxBundledWebViewURLSchemeHandler.homeURL()
+    }
+
+    @discardableResult
+    func ensureHomeWorkspace(in tabManager: TabManager, homeURL: URL) -> Workspace {
+        let title = String(localized: "home.workspace.title", defaultValue: "Home")
+        let workspace = tabManager.tabs.first { workspace in
+            workspace.customTitle == title || workspace.title == title
+        } ?? tabManager.addWorkspace(
+            title: title,
+            workingDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+            initialSurface: .browser,
+            initialBrowserURL: homeURL,
+            initialBrowserOmnibarVisible: false,
+            initialBrowserTransparentBackground: true,
+            initialBrowserBypassRemoteProxy: true,
+            inheritWorkingDirectory: false,
+            select: false,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false
+        )
+        workspace.setCustomTitle(title)
+        if !workspace.isPinned {
+            tabManager.setPinned(workspace, pinned: true)
+        }
+        _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: 0)
+        ensureHomeBrowserSurface(in: workspace, homeURL: homeURL)
+        tabManager.selectedTabId = workspace.id
+        return workspace
+    }
+
+    private func ensureHomeBrowserSurface(in workspace: Workspace, homeURL: URL) {
+        let browserPanel = workspace.panels.values
+            .compactMap { $0 as? BrowserPanel }
+            .first ?? workspace.bonsplitController.allPaneIds.first.flatMap { paneId in
+                workspace.newBrowserSurface(
+                    inPane: paneId,
+                    url: homeURL,
+                    focus: true,
+                    creationPolicy: .automationPreload,
+                    omnibarVisible: false,
+                    transparentBackground: true,
+                    bypassRemoteProxy: true
+                )
+            }
+        guard let browserPanel else { return }
+        browserPanel.setOmnibarVisible(false)
+        let currentURL = browserPanel.currentURLForTabDuplication ?? browserPanel.webView.url
+        if currentURL?.absoluteString != homeURL.absoluteString {
+            browserPanel.navigate(to: homeURL)
+        }
+        workspace.focusPanel(browserPanel.id)
+    }
+
+    @discardableResult
     func toggleRightSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
         guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
             if let fileExplorerState {
