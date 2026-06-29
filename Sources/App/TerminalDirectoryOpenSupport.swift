@@ -70,6 +70,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     case cursor
     case devin
     case finder
+    case fork
     case ghostty
     case intellij
     case iterm2
@@ -120,6 +121,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return String(localized: "menu.openInDevin", defaultValue: "Open Current Directory in Devin")
         case .finder:
             return String(localized: "menu.openInFinder", defaultValue: "Open Current Directory in Finder")
+        case .fork:
+            return String(localized: "menu.openInFork", defaultValue: "Open Current Directory in Fork")
         case .ghostty:
             return String(localized: "menu.openInGhostty", defaultValue: "Open Current Directory in Ghostty")
         case .intellij:
@@ -158,6 +161,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return common + ["devin", "cognition"]
         case .finder:
             return common + ["finder", "file", "manager", "reveal"]
+        case .fork:
+            return common + ["fork", "git", "client"]
         case .ghostty:
             return common + ["ghostty", "terminal", "shell"]
         case .intellij:
@@ -256,6 +261,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return ["/Applications/Devin.app"]
         case .finder:
             return ["/System/Library/CoreServices/Finder.app"]
+        case .fork:
+            return ["/Applications/Fork.app"]
         case .ghostty:
             return ["/Applications/Ghostty.app"]
         case .intellij:
