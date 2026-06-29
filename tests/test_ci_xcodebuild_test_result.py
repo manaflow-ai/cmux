@@ -72,14 +72,48 @@ Test Suite 'LaterSuite' passed
     )
 
 
-def test_accepts_post_summary_timeout_when_tests_ran_without_unexpected_failures() -> None:
-    expect_pass(
+def test_rejects_timeout_without_terminal_completion_even_when_partial_summaries_are_clean() -> None:
+    # Exit 124 means a watchdog killed xcodebuild. Without a terminal completion
+    # marker we cannot tell whether every selected suite ran, so an early clean
+    # summary must not mask a hang that skipped the rest of the shard (#5641).
+    expect_fail(
         124,
         """
 xcodebuild unit test timeout after 900s; terminating
 Test Suite 'AppHostCleanupSensitiveTests' failed
     Executed 2 tests, with 1 failure (0 unexpected) in 0.125 seconds
 Test Suite 'LaterSuite' passed
+    Executed 1 test, with 0 failures (0 unexpected) in 0.010 seconds
+""",
+    )
+
+
+def test_accepts_timeout_after_terminal_completion_with_zero_unexpected() -> None:
+    # The legitimate tolerance: xcodebuild reached its terminal summary (so every
+    # selected suite ran) and only the app-host cleanup hung afterward, tripping
+    # the idle watchdog. Proof of completion makes the non-zero exit safe to accept.
+    expect_pass(
+        124,
+        """
+Test Suite 'AppHostCleanupSensitiveTests' passed
+    Executed 2 tests, with 0 failures (0 unexpected) in 0.125 seconds
+Test Suite 'Selected tests' passed at 2026-06-29 00:00:00.000
+    Executed 2 tests, with 0 failures (0 unexpected) in 0.130 seconds
+** TEST SUCCEEDED **
+Idle timed out after 300s: xcodebuild -scheme cmux-unit test
+""",
+    )
+
+
+def test_rejects_timeout_marker_without_completion_even_with_nonstandard_exit_code() -> None:
+    # Defense in depth: if an intermediate shell normalizes the watchdog exit
+    # code, the watchdog's own marker line still proves the run was killed before
+    # completing, so a clean partial summary must not be accepted.
+    expect_fail(
+        1,
+        """
+Idle timed out after 300s: xcodebuild -scheme cmux-unit test
+Test Suite 'EarlySuite' passed
     Executed 1 test, with 0 failures (0 unexpected) in 0.010 seconds
 """,
     )
@@ -130,7 +164,9 @@ xcodebuild: error: Failed to build project cmux with scheme cmux-unit.
 def main() -> int:
     test_accepts_nonzero_runner_cleanup_after_zero_unexpected_summaries()
     test_accepts_zero_unexpected_failures_when_all_summaries_report_zero_unexpected()
-    test_accepts_post_summary_timeout_when_tests_ran_without_unexpected_failures()
+    test_rejects_timeout_without_terminal_completion_even_when_partial_summaries_are_clean()
+    test_accepts_timeout_after_terminal_completion_with_zero_unexpected()
+    test_rejects_timeout_marker_without_completion_even_with_nonstandard_exit_code()
     test_rejects_timeout_when_xcodebuild_prints_only_zero_test_summaries()
     test_rejects_unexpected_failure_even_when_last_suite_is_clean()
     test_rejects_zero_test_summaries_without_any_executed_tests()
