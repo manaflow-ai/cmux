@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import tempfile
 from pathlib import Path
@@ -185,29 +186,33 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
 
         surface_id = "surface-path-test"
         shim_root = tmpdir / "cmux-cli-shims" / surface_id
+        input_path = f":{first}::{shim_root}:{last}:"
         expected_path = f"{shim_root}::{first}::{last}:"
 
         base_env = dict(os.environ)
         base_env["CMUX_SHELL_INTEGRATION_DIR"] = str(SHELL_INTEGRATION_DIR)
         base_env["CMUX_SURFACE_ID"] = surface_id
         base_env["TMPDIR"] = str(tmpdir)
-        base_env["PATH"] = f":{first}::{shim_root}:{last}:"
+        base_env.pop("PATH", None)
         base_env.pop("CMUX_SOCKET_PATH", None)
         base_env.pop("GHOSTTY_BIN_DIR", None)
 
+        path_setup = f"PATH={shlex.quote(input_path)}; export PATH; "
         shell_commands = [
             [
                 "/bin/bash",
                 "--noprofile",
                 "--norc",
                 "-c",
-                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; printf "%s\\n" "$PATH"',
+                path_setup
+                + 'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; printf "%s\\n" "$PATH"',
             ],
             [
                 "/bin/zsh",
                 "-f",
                 "-c",
-                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; printf "%s\\n" "$PATH"',
+                path_setup
+                + 'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; printf "%s\\n" "$PATH"',
             ],
         ]
         for argv in shell_commands:
