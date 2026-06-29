@@ -128,7 +128,8 @@ struct DockTerminalReattachTests {
         let store = workspace.dockSplit
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
-        let panel = try #require(store.panel(forPanelId: panelId) as? TerminalPanel)
+        let tabId = try #require(store.surfaceId(forPanelId: panelId))
+        let panel = try #require(store.panel(for: tabId) as? TerminalPanel)
         store.setVisibleInUI(true)
         panel.hostedView.setVisibleInUI(true)
         TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
@@ -150,7 +151,8 @@ struct DockTerminalReattachTests {
         let store = workspace.dockSplit
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
-        let panel = try #require(store.panel(forPanelId: panelId) as? TerminalPanel)
+        let tabId = try #require(store.surfaceId(forPanelId: panelId))
+        let panel = try #require(store.panel(for: tabId) as? TerminalPanel)
         store.setVisibleInUI(true)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
