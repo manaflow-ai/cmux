@@ -1999,6 +1999,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // method, so the primary arm above is what bounds #6758; this only
         // widens coverage to other entrypoints.
         isTerminatingApp = true
+        // Give live agents (Copilot CLI) a chance to save state and leave the
+        // terminal alternate screen before we snapshot scrollback (#2436).
+        gracefullyTerminateLiveAgentsForAppExit()
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
         terminationWatchdog.arm()
@@ -3871,6 +3874,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
+                // Mirror quit: let agents (Copilot CLI) save state and leave the
+                // alternate screen before the scrollback snapshot (#2436).
+                self.gracefullyTerminateLiveAgentsForAppExit()
                 _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                 ClosedItemHistoryStore.shared.flushPendingSaves()
             }

@@ -365,11 +365,17 @@ final class AgentHibernationController {
         )
     }
 
-    private func terminateScopedProcessesForHibernation(record: AgentHibernationRecord) {
-        guard !record.processIDs.isEmpty else { return }
+    /// SIGTERMs the cmux-scoped processes (and their process groups) backing one
+    /// restorable-agent panel, so the agent catches the signal and saves state
+    /// before exiting. Shared by idle hibernation and app-exit graceful shutdown.
+    /// Returns the individual PIDs signaled so callers can bound-wait for exit.
+    @discardableResult
+    func terminateScopedProcessesForHibernation(record: AgentHibernationRecord) -> Set<pid_t> {
+        guard !record.processIDs.isEmpty else { return [] }
         let currentProcessID = getpid()
         let currentProcessGroupID = getpgrp()
         var signaledProcessGroups: Set<pid_t> = []
+        var signaledPIDs: Set<pid_t> = []
         for rawPID in record.processIDs.sorted(by: >) {
             guard rawPID > 0, rawPID <= Int(Int32.max) else { continue }
             let pid = pid_t(rawPID)
@@ -385,7 +391,35 @@ final class AgentHibernationController {
                 _ = kill(-processGroupID, SIGTERM)
             }
             _ = kill(pid, SIGTERM)
+            signaledPIDs.insert(pid)
         }
+        return signaledPIDs
+    }
+
+    /// Gracefully SIGTERMs every live restorable-agent panel on app exit / power-off
+    /// so agents (Copilot CLI first) save state and leave the terminal's alternate
+    /// screen before cmux tears down. Returns the PIDs signaled. `kinds == nil`
+    /// signals all restorable agents; the default targets only Copilot CLI.
+    @discardableResult
+    func terminateLiveRestorableAgentsForAppExit(
+        kinds: Set<RestorableAgentKind>? = [.copilot]
+    ) -> Set<pid_t> {
+        guard let appDelegate = AppDelegate.shared else { return [] }
+        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+        let records = appDelegate.agentHibernationRecords(
+            index: resumeIndexes.restorableAgentIndex,
+            activityByPanel: [:],
+            terminalInputByPanel: [:],
+            lifecycleChangeByPanel: [:]
+        )
+        var signaled: Set<pid_t> = []
+        for record in records {
+            if let kinds, !kinds.contains(record.agent.kind) { continue }
+            let isLive = record.terminalPanel.surface.hasLiveSurface || record.hasLiveProcess
+            guard isLive, !record.terminalPanel.isAgentHibernated else { continue }
+            signaled.formUnion(terminateScopedProcessesForHibernation(record: record))
+        }
+        return signaled
     }
 
     private func clearTrackingState() {
@@ -472,5 +506,55 @@ extension AppDelegate {
         }
 
         return records
+    }
+
+    /// Gracefully terminates live restorable-agent processes (Copilot CLI first) on
+    /// app quit / power-off, then bound-waits for them to exit so they leave the
+    /// terminal's alternate screen before the scrollback snapshot is taken. Bounded
+    /// and best-effort: the wait is self-limited and runs before the termination
+    /// watchdog, so a slow agent can never stall quit past `deadline`.
+    @MainActor
+    func gracefullyTerminateLiveAgentsForAppExit(
+        kinds: Set<RestorableAgentKind>? = [.copilot],
+        deadline: TimeInterval = 2.0
+    ) {
+        let pids = AgentHibernationController.shared.terminateLiveRestorableAgentsForAppExit(kinds: kinds)
+        AppExitAgentGracefulShutdown.waitForExit(
+            pids: pids,
+            deadline: deadline,
+            isAlive: AppExitAgentGracefulShutdown.processIsAlive,
+            now: { ProcessInfo.processInfo.systemUptime },
+            sleep: { Thread.sleep(forTimeInterval: $0) }
+        )
+    }
+}
+
+/// Bounded wait for signaled agent processes to exit during app teardown. Pure and
+/// injectable so the loop is unit-testable without real processes or sleeping.
+enum AppExitAgentGracefulShutdown {
+    static func waitForExit(
+        pids: Set<pid_t>,
+        deadline: TimeInterval,
+        pollInterval: TimeInterval = 0.05,
+        isAlive: (pid_t) -> Bool,
+        now: () -> TimeInterval,
+        sleep: (TimeInterval) -> Void
+    ) {
+        guard !pids.isEmpty, deadline > 0 else { return }
+        let start = now()
+        var remaining = pids
+        while true {
+            remaining = remaining.filter(isAlive)
+            if remaining.isEmpty { return }
+            if now() - start >= deadline { return }
+            sleep(pollInterval)
+        }
+    }
+
+    /// True while `pid` still exists. `kill(pid, 0)` fails with ESRCH once reaped;
+    /// EPERM means it exists but we lack permission (treated as alive).
+    static func processIsAlive(_ pid: pid_t) -> Bool {
+        if kill(pid, 0) == 0 { return true }
+        return errno == EPERM
     }
 }

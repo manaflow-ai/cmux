@@ -10,6 +10,54 @@ import CmuxTerminal
 #endif
 
 final class AgentHibernationTests: XCTestCase {
+    func testAppExitWaitReturnsOnceAllProcessesExit() {
+        var clock: TimeInterval = 0
+        var slept: [TimeInterval] = []
+        // Processes are "alive" until the clock passes 0.1s, then all exit.
+        AppExitAgentGracefulShutdown.waitForExit(
+            pids: [101, 102, 103],
+            deadline: 5,
+            pollInterval: 0.05,
+            isAlive: { _ in clock < 0.1 },
+            now: { clock },
+            sleep: { interval in
+                slept.append(interval)
+                clock += interval
+            }
+        )
+        XCTAssertEqual(slept.count, 2, "Two 0.05s polls reach 0.1s; the next poll sees all processes exited.")
+        XCTAssertEqual(clock, 0.1, accuracy: 1e-9)
+    }
+
+    func testAppExitWaitStopsAtDeadlineWhenProcessNeverExits() {
+        var clock: TimeInterval = 0
+        var sleeps = 0
+        AppExitAgentGracefulShutdown.waitForExit(
+            pids: [42],
+            deadline: 0.2,
+            pollInterval: 0.05,
+            isAlive: { _ in true },
+            now: { clock },
+            sleep: { interval in
+                sleeps += 1
+                clock += interval
+            }
+        )
+        XCTAssertEqual(sleeps, 4, "Bounded by deadline (0.2s / 0.05s), never loops forever on a stuck agent.")
+    }
+
+    func testAppExitWaitNoopsWithoutPids() {
+        var sleeps = 0
+        AppExitAgentGracefulShutdown.waitForExit(
+            pids: [],
+            deadline: 5,
+            isAlive: { _ in true },
+            now: { 0 },
+            sleep: { _ in sleeps += 1 }
+        )
+        XCTAssertEqual(sleeps, 0)
+    }
+
     func testLifecycleStateParsingAcceptsShellFriendlyAliases() throws {
         XCTAssertEqual(AgentHibernationLifecycleState.parseCLIValue("IDLE"), .idle)
         XCTAssertEqual(AgentHibernationLifecycleState.parseCLIValue("needsInput"), .needsInput)
