@@ -28,6 +28,8 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    let backAction: (() -> Void)?
+    let backUnreadCount: Int
     let signOut: (() -> Void)?
     /// Phone-local browser surfaces, injected from the app root. When this
     /// workspace has an active browser surface the detail view presents a
@@ -50,7 +52,7 @@ struct WorkspaceDetailView: View {
     @State var renameText = ""
     /// Live pane width, used to width-cap the centered glass title pill so a long
     /// workspace name truncates instead of underlapping the toolbar buttons.
-    @State private var contentWidth: CGFloat = 0
+    @State var contentWidth: CGFloat = 0
     /// Captured at the moment the "View as Text" action is tapped so the
     /// sheet keeps showing the terminal the user asked about even if the
     /// workspace selection changes underneath it (e.g. Mac-side sync) while
@@ -92,7 +94,7 @@ struct WorkspaceDetailView: View {
     /// a hairline so the first row is not jammed against the bar's bottom edge.
     var terminalTopPadding: CGFloat { 4 }
     /// The active browser surface for this workspace, when a browser pane is open.
-    private var activeBrowser: BrowserSurfaceState? {
+    var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
     }
 
@@ -101,6 +103,10 @@ struct WorkspaceDetailView: View {
             detailSurfaceContent
         }
         #if os(iOS)
+        .toolbar(.hidden, for: .navigationBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            workspaceTopChrome
+        }
         .task(id: chatConversationWarmKey) {
             await runWarmChatConversation()
         }
@@ -144,15 +150,6 @@ struct WorkspaceDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
         .navigationTitle(browser.title ?? workspace.name)
-        .mobileTerminalNavigationChrome()
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                glassTitle(browser.title ?? workspace.name)
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                toolbarTrailingCluster
-            }
-        }
         .task(id: chatRefreshKey) { await refreshChatSessions() }
         .closeWorkspaceConfirmation(
             isPresented: $isConfirmingClose,
@@ -291,24 +288,9 @@ struct WorkspaceDetailView: View {
         .background(TerminalPalette.background)
         #endif
         .navigationTitle(workspace.name)
-        .mobileTerminalNavigationChrome()
         #if os(iOS)
         .task(id: chatRefreshKey) { await refreshChatSessions() }
         #endif
-        .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .principal) {
-                glassTitle(workspace.name)
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                toolbarTrailingCluster
-            }
-            #else
-            ToolbarItem {
-                terminalToolbarButtons
-            }
-        #endif
-        }
         .closeWorkspaceConfirmation(
             isPresented: $isConfirmingClose,
             confirm: confirmCloseWorkspaceFromMenu
@@ -339,7 +321,7 @@ struct WorkspaceDetailView: View {
     /// readable over the pane showing through the cleared header bar. On iOS 18
     /// the bar keeps a material background, so `mobileGlassNavigationTitle` is a
     /// no-op and this renders as plain text.
-    private func glassTitle(_ text: String) -> some View {
+    func glassTitle(_ text: String) -> some View {
         Text(text)
             .font(.headline)
             .lineLimit(1)

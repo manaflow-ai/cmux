@@ -108,12 +108,6 @@ extension WorkspaceDetailView {
             .id(session.id)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .mobileChatTopScrollEdgeLayout(legacyTopPadding: terminalTopPadding)
-            .mobileTerminalNavigationChrome()
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    toolbarTrailingCluster
-                }
-            }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
@@ -134,12 +128,15 @@ extension WorkspaceDetailView {
             ZStack {
                 if shouldShowChatToggle {
                     chatToggleButton
+                        .frame(width: 44, height: 44)
+                        .mobileGlassCircle()
                         .transition(.scale(scale: 0.82, anchor: .trailing).combined(with: .opacity))
                 }
             }
             .frame(width: 44, height: 44)
             terminalPickerToolbarButton
                 .frame(width: 44, height: 44)
+                .mobileGlassCircle()
         }
         .frame(width: 96, height: 44, alignment: .trailing)
         .animation(.snappy(duration: 0.25), value: shouldShowChatToggle)
@@ -151,6 +148,7 @@ extension WorkspaceDetailView {
                 ? "bubble.left.and.bubble.right.fill"
                 : "bubble.left.and.bubble.right")
         }
+        .foregroundStyle(TerminalPalette.foreground)
         .accessibilityLabel(L10n.string("mobile.workspace.agentChat", defaultValue: "Agent Chat"))
         .accessibilityIdentifier("MobileWorkspaceAgentChatButton")
         .disabled(!isChatMode && chatToggleSession == nil)
@@ -297,7 +295,7 @@ extension WorkspaceDetailView {
     }
 
     /// The tab/terminal name for a session, for the chat header subtitle.
-    private func tabName(for session: ChatSessionDescriptor) -> String? {
+    func tabName(for session: ChatSessionDescriptor) -> String? {
         workspace.terminals.first { $0.id.rawValue == session.terminalID }?.name
     }
 }
