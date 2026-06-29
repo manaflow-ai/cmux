@@ -1196,7 +1196,7 @@ class TerminalController {
             if let pid {
                 guard isDescendant(pid) else {
                     _ = writeSocketResponse(
-                        "ERROR: Access denied — only processes started inside cmux can connect",
+                        "ERROR: Access denied — only processes started inside cmux can connect. To let external automation clients (e.g. editor/agent hooks) control cmux, set Settings → Automation → Socket control mode to \"Automation mode\", or set automation.socketControlMode to \"automation\" in ~/.config/cmux/cmux.json.",
                         to: socket
                     )
                     return
@@ -1212,7 +1212,7 @@ class TerminalController {
             if pid == nil {
                 guard transport.peerHasSameUID(socket) else {
                     _ = writeSocketResponse(
-                        "ERROR: Unable to verify client process",
+                        "ERROR: Unable to verify client process. To let external automation clients (e.g. editor/agent hooks) control cmux, set Settings → Automation → Socket control mode to \"Automation mode\", or set automation.socketControlMode to \"automation\" in ~/.config/cmux/cmux.json.",
                         to: socket
                     )
                     return
