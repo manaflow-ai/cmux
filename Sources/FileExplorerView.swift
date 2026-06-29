@@ -36,6 +36,7 @@ enum FileExplorerPanelPlacement: Equatable {
 /// Contains the header bar (path + controls) and NSOutlineView, with no SwiftUI intermediaries.
 struct FileExplorerPanelView: NSViewRepresentable {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @ObservedObject var store: FileExplorerStore
     @ObservedObject var state: FileExplorerState
     let onOpenFilePreview: (String) -> Void
@@ -58,7 +59,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     func makeNSView(context: Context) -> FileExplorerContainerView {
         let container = FileExplorerContainerView(coordinator: context.coordinator, presentation: presentation)
         context.coordinator.containerView = container
-        container.updateContentColorScheme(colorScheme)
+        container.updateContentColorScheme(colorScheme, contrast: colorSchemeContrast)
         context.coordinator.onContainerChange?(container)
         return container
     }
@@ -72,7 +73,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         context.coordinator.onContainerChange = onContainerChange
         context.coordinator.onContainerChange?(container)
         container.updateShortcutPlacement(placement)
-        container.updateContentColorScheme(colorScheme)
+        container.updateContentColorScheme(colorScheme, contrast: colorSchemeContrast)
         container.updateHeader(store: store)
         container.updatePresentation(presentation)
         context.coordinator.reloadIfNeeded()
@@ -672,6 +673,7 @@ final class FileExplorerContainerView: NSView {
     private let coordinator: FileExplorerPanelView.Coordinator
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
     private var contentColorScheme: ColorScheme?
+    private var contentHighContrast: Bool?
     private let searchDebounceDelayMilliseconds = 200
     private var searchBarVisibleHeight: CGFloat { max(48, GlobalFontMagnification.scaled(48)) }
     private var searchFieldVisibleHeight: CGFloat { max(24, GlobalFontMagnification.scaled(24)) }
@@ -927,10 +929,19 @@ final class FileExplorerContainerView: NSView {
         searchResultsView.setNeedsDisplay(searchResultsView.bounds)
     }
 
-    func updateContentColorScheme(_ colorScheme: ColorScheme) {
-        guard contentColorScheme != colorScheme else { return }
+    func updateContentColorScheme(_ colorScheme: ColorScheme, contrast: ColorSchemeContrast) {
+        let highContrast = contrast == .increased
+        guard contentColorScheme != colorScheme || contentHighContrast != highContrast else { return }
         contentColorScheme = colorScheme
-        let name: NSAppearance.Name = colorScheme == .dark ? .darkAqua : .aqua
+        contentHighContrast = highContrast
+        // Map to the matching high-contrast accessibility appearance when the user has
+        // "Increase contrast" enabled so forcing light/dark does not drop their preference.
+        let name: NSAppearance.Name
+        if colorScheme == .dark {
+            name = highContrast ? .accessibilityHighContrastDarkAqua : .darkAqua
+        } else {
+            name = highContrast ? .accessibilityHighContrastAqua : .aqua
+        }
         let appKitAppearance = NSAppearance(named: name)
         appearance = appKitAppearance
         headerView.appearance = appKitAppearance
