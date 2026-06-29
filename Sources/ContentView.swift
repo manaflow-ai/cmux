@@ -13705,6 +13705,21 @@ struct TabItemView: View, Equatable {
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
+                // Muted-workspace glyph: when "Mute Notifications" is on for this
+                // workspace, surface a small bell-slash on the row (styled like the
+                // pin indicator) so the silenced state is visible at a glance, not
+                // only via the context-menu label.
+                if workspaceSnapshot.notificationsMuted {
+                    let notificationsMutedTooltip = String(
+                        localized: "sidebar.notificationsMuted.tooltip",
+                        defaultValue: "Notifications muted"
+                    )
+                    CmuxSystemSymbolImage(magnified: "bell.slash.fill", pointSize: scaledFontSize(9), weight: .semibold)
+                        .foregroundColor(activeSecondaryColor(0.8))
+                        .safeHelp(notificationsMutedTooltip)
+                        .accessibilityLabel(notificationsMutedTooltip)
+                }
+
                 // Chrome-style media-activity glyphs: a noisy or capturing
                 // background browser pane is surfaced on its workspace row,
                 // styled like the pin indicator. Audio is the must-have signal;
