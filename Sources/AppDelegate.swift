@@ -1475,6 +1475,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
         } else {
             StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.skipped", fields: ["reason": "appHostUnitTests"])
+            bootstrapAppHostUnitTestSocketListenerIfNeeded()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.complete")
 #if DEBUG
@@ -7256,6 +7257,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             openPreferencesWindow(debugSource: "uiTestShowSettings.\(debugSource)")
         }
         return windowId
+    }
+
+    private func bootstrapAppHostUnitTestSocketListenerIfNeeded() {
+        reserveInitialSocketPathIfNeeded()
+        if let tabManager {
+            startSocketListenerIfEnabled(
+                tabManager: tabManager,
+                source: "bootstrapInitialMainWindow.appHostUnitTests"
+            )
+        }
     }
 
     @discardableResult
