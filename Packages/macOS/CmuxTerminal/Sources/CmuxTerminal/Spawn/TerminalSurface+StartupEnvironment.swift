@@ -125,9 +125,8 @@ extension TerminalSurface {
                 [[ -n "${CMUX_SURFACE_ID:-}" ]] || return 0
                 [[ "${CMUX_CLAUDE_TERMINAL_PREPARED:-}" != "1" ]] || return 0
                 [[ -t 1 ]] || return 0
-                if [[ -x "$cmux_wrapper" ]]; then
-                    "$cmux_wrapper" __cmux-should-prepare-terminal-for-tui "$@" >/dev/null 2>&1 || return 0
-                fi
+                [[ -x "$cmux_wrapper" ]] || return 0
+                "$cmux_wrapper" __cmux-should-prepare-terminal-for-tui "$@" >/dev/null 2>&1 || return 0
                 printf '\\033[H\\033[2J'
                 export CMUX_CLAUDE_TERMINAL_PREPARED=1
             }

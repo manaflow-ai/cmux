@@ -163,9 +163,8 @@ if test "$_cmux_integration_enabled" != 0
                 printf '%s\n' '    [[ -n "${CMUX_SURFACE_ID:-}" ]] || return 0'
                 printf '%s\n' '    [[ "${CMUX_CLAUDE_TERMINAL_PREPARED:-}" != "1" ]] || return 0'
                 printf '%s\n' '    [[ -t 1 ]] || return 0'
-                printf '%s\n' '    if [[ -x "$cmux_wrapper" ]]; then'
-                printf '%s\n' '        "$cmux_wrapper" __cmux-should-prepare-terminal-for-tui "$@" >/dev/null 2>&1 || return 0'
-                printf '%s\n' '    fi'
+                printf '%s\n' '    [[ -x "$cmux_wrapper" ]] || return 0'
+                printf '%s\n' '    "$cmux_wrapper" __cmux-should-prepare-terminal-for-tui "$@" >/dev/null 2>&1 || return 0'
                 printf '%s\n' "    printf '\\033[H\\033[2J'"
                 printf '%s\n' '    export CMUX_CLAUDE_TERMINAL_PREPARED=1'
                 printf '%s\n' '}'
