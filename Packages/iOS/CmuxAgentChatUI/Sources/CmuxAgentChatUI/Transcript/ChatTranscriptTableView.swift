@@ -45,7 +45,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         tableView.allowsSelection = false
         tableView.accessibilityIdentifier = "ChatTranscriptTableView"
         if #available(iOS 26.0, *) {
-            tableView.topEdgeEffect.style = .soft
+            tableView.topEdgeEffect.style = .automatic
             tableView.bottomEdgeEffect.style = .soft
         }
         tableView.dataSource = context.coordinator

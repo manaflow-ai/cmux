@@ -10,9 +10,10 @@ final class ChatScrollEdgeCoordinator {
     func configure(
         tableView: ChatTranscriptUITableView?,
         owner: UIViewController,
-        composerView: UIView
+        composerView: UIView,
+        suppressTopEdgeEffect: Bool
     ) {
-        configureEdgeEffect(for: tableView)
+        configureEdgeEffect(for: tableView, suppressTopEdgeEffect: suppressTopEdgeEffect)
         configureContentScrollView(tableView, owner: owner)
         configureBottomInteraction(tableView, composerView: composerView)
     }
@@ -22,10 +23,13 @@ final class ChatScrollEdgeCoordinator {
         clearTopContentScrollViewController()
     }
 
-    private func configureEdgeEffect(for tableView: ChatTranscriptUITableView?) {
+    private func configureEdgeEffect(
+        for tableView: ChatTranscriptUITableView?,
+        suppressTopEdgeEffect: Bool
+    ) {
         guard let tableView else { return }
         if #available(iOS 26.0, *) {
-            tableView.topEdgeEffect.style = .soft
+            tableView.topEdgeEffect.style = suppressTopEdgeEffect ? .automatic : .soft
             tableView.bottomEdgeEffect.style = .soft
         }
     }
