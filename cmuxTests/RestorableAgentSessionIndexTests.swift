@@ -1285,3 +1285,84 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 }
+
+/// Regression for the Vault search SIGABRT crash (crash IDs 6f9d0e76 and
+/// 93dbe39c, May 2026). Rapid typing in the Vault sidebar cancelled in-flight
+/// `SessionIndexStore.ripgrepMatchingPaths` tasks before the underlying NSTask
+/// had launched; the old `onCancel` handler called `process.terminate()`
+/// unconditionally, which raises NSInvalidArgumentException ("task not
+/// launched") on a never-launched NSTask. Swift cannot catch ObjC exceptions,
+/// so the process died via std::terminate. This test class lives in
+/// RestorableAgentSessionIndexTests.swift because SessionIndexViewTests.swift
+/// is not wired into the cmuxTests target (#TODO: add it to pbxproj separately).
+final class SessionIndexRipgrepCancellationTests: XCTestCase {
+    func testConcurrentCancellationDoesNotCrash() async throws {
+        guard let rgPath = Self.resolveRipgrep() else {
+            throw XCTSkip(
+                "rg not on PATH; ripgrepMatchingPaths short-circuits before the cancellation race window"
+            )
+        }
+        // Sanity log so a CI maintainer can confirm the test actually exercised
+        // the race instead of silently skipping.
+        print("[SessionIndexRipgrepCancellationTests] using rg at \(rgPath)")
+
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory.appendingPathComponent(
+            "cmux-vault-cancel-\(UUID().uuidString)"
+        )
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        for i in 0..<8 {
+            let url = tmp.appendingPathComponent("file-\(i).jsonl")
+            try Data("needle present here \(i)".utf8).write(to: url)
+        }
+
+        let root = tmp.path
+        // The standalone repro for this crash hits the race within ~50 of
+        // (30 concurrent × random 0..3 ms cancel). 100 iterations × 32 concurrent
+        // gives ~6.6x headroom so a slow or jittery CI runner still triggers
+        // the bug before the fix.
+        for _ in 0..<100 {
+            await withTaskGroup(of: Void.self) { group in
+                for _ in 0..<32 {
+                    group.addTask {
+                        _ = await SessionIndexStore.ripgrepMatchingPaths(
+                            needle: "needle",
+                            root: root,
+                            fileGlob: "*.jsonl"
+                        )
+                    }
+                }
+                try? await Task.sleep(nanoseconds: UInt64.random(in: 0...3_000_000))
+                group.cancelAll()
+            }
+        }
+    }
+
+    private static func resolveRipgrep() -> String? {
+        let candidates = [
+            "/opt/homebrew/bin/rg",
+            "/usr/local/bin/rg",
+            "/usr/bin/rg",
+            "/run/current-system/sw/bin/rg",
+        ]
+        let fm = FileManager.default
+        if let hit = candidates.first(where: fm.isExecutableFile(atPath:)) {
+            return hit
+        }
+        // Fall back to `command -v rg` so the test runs on any builder that
+        // has rg on PATH at an unexpected location (e.g. WarpBuild runners).
+        let which = Process()
+        which.executableURL = URL(fileURLWithPath: "/bin/sh")
+        which.arguments = ["-c", "command -v rg"]
+        let out = Pipe()
+        which.standardOutput = out
+        which.standardError = FileHandle(forWritingAtPath: "/dev/null")
+        do { try which.run() } catch { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        which.waitUntilExit()
+        guard which.terminationStatus == 0 else { return nil }
+        let path = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? nil : path
+    }
+}
