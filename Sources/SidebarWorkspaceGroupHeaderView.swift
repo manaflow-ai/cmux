@@ -149,6 +149,17 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 )
 
             HStack(spacing: 6) {
+                if isPinned {
+                    CmuxSystemSymbolImage(
+                        magnified: "pin.fill",
+                        pointSize: metrics.pinnedIconFontSize,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(Color.secondary.opacity(0.8))
+                    .frame(width: metrics.iconFrame, height: metrics.iconFrame)
+                    .safeHelp(pinnedGroupTooltip)
+                    .accessibilityLabel(Text(pinnedGroupTooltip))
+                }
                 CmuxSystemSymbolImage(
                     systemName: displayedIconSymbol,
                     pointSize: metrics.iconFontSize,
@@ -158,16 +169,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .foregroundStyle(iconColor)
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
-                if isPinned {
-                    CmuxSystemSymbolImage(
-                        magnified: "pin.fill",
-                        pointSize: metrics.pinnedIconFontSize,
-                        weight: .semibold
-                    )
-                    .foregroundStyle(Color.secondary.opacity(0.8))
-                    .safeHelp(pinnedGroupTooltip)
-                    .accessibilityLabel(Text(pinnedGroupTooltip))
-                }
                 Text(name)
                     .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
