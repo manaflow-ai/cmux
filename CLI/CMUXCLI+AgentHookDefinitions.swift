@@ -248,7 +248,7 @@ extension CMUXCLI {
                 .init(agentEvent: "AfterAgent", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["PreToolUse"]
+            feedHookEvents: ["BeforeTool"]
         ),
         AgentHookDef(
             name: "kiro", displayName: "Kiro", statusKey: "kiro",
