@@ -1,5 +1,6 @@
 import Foundation
 import CmuxSettings
+import OSLog
 
 /// Coordinates cmux's mirroring of remote tmux servers.
 ///
@@ -16,6 +17,10 @@ import CmuxSettings
 final class RemoteTmuxController {
     typealias MirrorTabActivity = RemoteTmuxMirrorTabActivity
     typealias SessionEndAction = RemoteTmuxSessionEndAction
+
+    /// Diagnostic logger (not user-facing) for mirror lifecycle events such as a
+    /// ControlMaster that couldn't be confirmed ready before the attach burst.
+    nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app", category: "RemoteTmux")
 
     /// Per-endpoint SSH transports (keyed by ``RemoteTmuxHost/connectionHash``),
     /// owned by ``RemoteTmuxController`` and delegated to for discovery + master teardown.
@@ -52,6 +57,34 @@ final class RemoteTmuxController {
     /// Tears down a host's shared SSH master (used when removing a host).
     func disconnect(host: RemoteTmuxHost) async {
         await transportRegistry.disconnectMaster(host: host)
+    }
+
+    /// Warms and confirms the host's shared SSH ControlMaster before a per-session
+    /// `tmux -CC attach` burst (the single shared gate for every bulk-mirror
+    /// entrypoint), so the `ControlMaster=auto` attaches ride a ready master instead
+    /// of racing to create it on a cold first attach (#6732).
+    ///
+    /// Fails closed: an unconfirmed master throws rather than firing the burst into
+    /// the exact cold-master race the gate prevents. Callers invoke this *before*
+    /// creating the dedicated window, so a throw needs no teardown and the user can
+    /// re-attach once the master is warm. The common cold start still returns `true`
+    /// (the warmup's single-creator open succeeds), so only the genuinely-unready
+    /// case is blocked.
+    private func ensureControlMasterReadyForBurst(host: RemoteTmuxHost) async throws {
+        let ready = try await transport(for: host).ensureMasterReady()
+        // The warmup's SSH work runs in a shared unstructured task and isn't
+        // cancellation-aware, so a caller cancelled meanwhile (e.g. a v2VmCall
+        // timeout) only learns of it here — bail before treating not-ready as a hard
+        // failure and before the caller's next irreversible step.
+        try Task.checkCancellation()
+        guard ready else {
+            // Log the non-sensitive connection hash, not the SSH destination (which
+            // can carry a username / internal host / IP) — keeps collected diagnostics clean.
+            Self.logger.warning("remote-tmux: ControlMaster not confirmed ready [\(host.connectionHash, privacy: .public)]; aborting attach burst")
+            // `.unreachable` already means "the SSH master could not be opened"; its
+            // localized "host unreachable: %@" message takes the destination as detail.
+            throw RemoteTmuxError.unreachable(host.destination)
+        }
     }
 
     // MARK: - Control connections (tmux -CC mirroring)
@@ -342,6 +375,11 @@ final class RemoteTmuxController {
         // and open an orphaned dedicated window (with live SSH/tmux behind it).
         try Task.checkCancellation()
 
+        // Warm + confirm the shared ControlMaster before creating the window and
+        // firing the attach burst below. Doing it pre-window means a not-ready
+        // failure (or cancellation) throws here and leaks no orphaned window.
+        try await ensureControlMasterReadyForBurst(host: host)
+
         let windowId = appDelegate.createMainWindow(shouldActivate: activateWindow)
         guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
             throw RemoteTmuxError.unreachable("could not create window")
@@ -392,6 +430,9 @@ final class RemoteTmuxController {
             throw RemoteTmuxError.unreachable("app not ready")
         }
         let sessions = try await transport(for: host).discoverMirrorSessions(createIfEmpty: false)
+        // Confirm the shared ControlMaster before the per-session attach burst, so
+        // concurrent `ControlMaster=auto` attaches don't race to create it (#6732).
+        try await ensureControlMasterReadyForBurst(host: host)
         for session in sessions {
             // One session failing to attach must not abort mirroring the rest.
             do {
