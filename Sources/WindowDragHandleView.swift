@@ -145,6 +145,79 @@ private func windowDragHandleShouldResolveActiveHitCapture(
     return eventWindow === dragHandleWindow
 }
 
+struct WindowDragHandleEventDispatchToken: Equatable {
+    fileprivate let id: Int
+}
+
+private struct WindowDragHandleEventDispatchFrame {
+    let token: WindowDragHandleEventDispatchToken
+    weak var window: NSWindow?
+    let windowNumber: Int
+    let eventType: NSEvent.EventType
+}
+
+private enum WindowDragHandleEventDispatchState {
+    // AppKit event dispatch is main-thread only. This stack lets drag-handle
+    // NSViews distinguish real event delivery from stale NSApp.currentEvent reads
+    // during SwiftUI/AppKit layout hit-testing.
+    private nonisolated(unsafe) static var nextTokenId = 0
+    private nonisolated(unsafe) static var frames: [WindowDragHandleEventDispatchFrame] = []
+
+    static func begin(window: NSWindow, event: NSEvent) -> WindowDragHandleEventDispatchToken {
+        nextTokenId += 1
+        let token = WindowDragHandleEventDispatchToken(id: nextTokenId)
+        frames.append(
+            WindowDragHandleEventDispatchFrame(
+                token: token,
+                window: window,
+                windowNumber: window.windowNumber,
+                eventType: event.type
+            )
+        )
+        return token
+    }
+
+    static func end(_ token: WindowDragHandleEventDispatchToken) {
+        if let index = frames.lastIndex(where: { $0.token == token }) {
+            frames.remove(at: index)
+        }
+    }
+
+    static func containsActiveDispatch(for event: NSEvent) -> Bool {
+        frames.contains { frame in
+            guard frame.eventType == event.type,
+                  frame.windowNumber == event.windowNumber else {
+                return false
+            }
+            if let eventWindow = event.window {
+                return frame.window === eventWindow
+            }
+            return true
+        }
+    }
+}
+
+func beginWindowDragHandleEventDispatch(
+    window: NSWindow,
+    event: NSEvent
+) -> WindowDragHandleEventDispatchToken {
+    dispatchPrecondition(condition: .onQueue(.main))
+    return WindowDragHandleEventDispatchState.begin(window: window, event: event)
+}
+
+func endWindowDragHandleEventDispatch(_ token: WindowDragHandleEventDispatchToken) {
+    dispatchPrecondition(condition: .onQueue(.main))
+    WindowDragHandleEventDispatchState.end(token)
+}
+
+func windowDragHandleViewHitTestingAllowsCurrentEvent(_ event: NSEvent?) -> Bool {
+    dispatchPrecondition(condition: .onQueue(.main))
+    guard let event, event.type == .leftMouseDown else {
+        return false
+    }
+    return WindowDragHandleEventDispatchState.containsActiveDispatch(for: event)
+}
+
 /// Runs the same action macOS titlebars use for double-click:
 /// zoom by default, or minimize when the user preference is set.
 enum StandardTitlebarDoubleClickAction: Equatable {
@@ -1285,11 +1358,7 @@ struct WindowDragHandleView: NSViewRepresentable {
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             let currentEvent = NSApp.currentEvent
-            // Fast bail-out: only claim hits for left-mouse-down events.
-            // For mouseMoved / mouseEntered / etc., return nil immediately
-            // to avoid re-entering SwiftUI view state during layout passes,
-            // which causes exclusive-access crashes.
-            guard currentEvent?.type == .leftMouseDown else {
+            guard windowDragHandleViewHitTestingAllowsCurrentEvent(currentEvent) else {
                 return nil
             }
             let shouldCapture = windowDragHandleShouldCaptureHit(

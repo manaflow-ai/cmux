@@ -16928,6 +16928,10 @@ private extension NSWindow {
             CmuxTypingTiming.logEventDelay(path: "window.sendEvent", event: event)
         }
 #endif
+        let dragHandleDispatchToken = beginWindowDragHandleEventDispatch(window: self, event: event)
+        defer {
+            endWindowDragHandleEventDispatch(dragHandleDispatchToken)
+        }
         // recordTypingActivity must run in all builds so runSessionAutosaveTick
         // can honor the typing quiet period in release.
         if event.type == .keyDown, let app = AppDelegate.shared, cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: app) { return }

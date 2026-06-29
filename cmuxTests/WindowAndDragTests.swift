@@ -850,6 +850,35 @@ final class WindowDragHandleHitTests: XCTestCase {
         return nil
     }
 
+    private static func makeMouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        window: NSWindow
+    ) -> NSEvent {
+        let isButtonEvent: Bool
+        switch type {
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
+            isButtonEvent = true
+        default:
+            isButtonEvent = false
+        }
+
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: isButtonEvent ? 1 : 0,
+            pressure: isButtonEvent ? 1.0 : 0.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
+
     func testDragHandleCapturesHitWhenNoSiblingClaimsPoint() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
         let dragHandle = NSView(frame: container.bounds)
@@ -1153,6 +1182,50 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .cursorUpdate))
         XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: nil))
         XCTAssertTrue(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown))
+    }
+
+    func testDragHandleViewHitTestingRequiresActiveWindowEventDispatch() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 36),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let event = Self.makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 180, y: 18), window: window)
+
+        XCTAssertFalse(
+            windowDragHandleViewHitTestingAllowsCurrentEvent(event),
+            "A stale leftMouseDown in NSApp.currentEvent must not make layout/passive hit-testing enter the drag handle."
+        )
+
+        let token = beginWindowDragHandleEventDispatch(window: window, event: event)
+        defer { endWindowDragHandleEventDispatch(token) }
+
+        XCTAssertTrue(
+            windowDragHandleViewHitTestingAllowsCurrentEvent(event),
+            "A real leftMouseDown may resolve drag-handle hits while AppKit is dispatching that window event."
+        )
+    }
+
+    func testDragHandleViewHitTestingStillRejectsPassiveEventsDuringDispatch() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 36),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let event = Self.makeMouseEvent(type: .mouseMoved, location: NSPoint(x: 180, y: 18), window: window)
+        let token = beginWindowDragHandleEventDispatch(window: window, event: event)
+        defer { endWindowDragHandleEventDispatch(token) }
+
+        XCTAssertFalse(
+            windowDragHandleViewHitTestingAllowsCurrentEvent(event),
+            "Hover dispatch must stay transparent to the titlebar drag handle."
+        )
     }
 
     func testDragHandleNeverCapturesRegisteredBonsplitPaneTab() {
