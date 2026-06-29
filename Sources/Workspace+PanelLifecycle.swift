@@ -10,6 +10,26 @@ extension Workspace {
     private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
     private static let truthyStartupEnvironmentValues: Set<String> = ["1", "true", "yes", "on", "enabled"]
 
+    var agentPIDs: [String: pid_t] {
+        get { sidebarAgentRuntimeObservation.agentPIDs }
+        set { sidebarAgentRuntimeObservation.setAgentPIDs(newValue) }
+    }
+
+    var agentPIDPanelIdsByKey: [String: UUID] {
+        get { sidebarAgentRuntimeObservation.agentPIDPanelIdsByKey }
+        set { sidebarAgentRuntimeObservation.setAgentPIDPanelIdsByKey(newValue) }
+    }
+
+    var agentPIDKeysByPanelId: [UUID: Set<String>] {
+        get { sidebarAgentRuntimeObservation.agentPIDKeysByPanelId }
+        set { sidebarAgentRuntimeObservation.setAgentPIDKeysByPanelId(newValue) }
+    }
+
+    var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
+        get { sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId }
+        set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
+    }
+
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
