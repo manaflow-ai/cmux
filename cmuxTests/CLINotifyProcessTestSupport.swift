@@ -379,6 +379,37 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? stdinPipe.fileHandleForWriting.close()
         }
 
+        final class PipeReadResult: @unchecked Sendable {
+            private let lock = NSLock()
+            private var data = Data()
+
+            func store(_ value: Data) {
+                lock.lock()
+                data = value
+                lock.unlock()
+            }
+
+            func snapshot() -> Data {
+                lock.lock()
+                let value = data
+                lock.unlock()
+                return value
+            }
+        }
+
+        let stdoutResult = PipeReadResult()
+        let stderrResult = PipeReadResult()
+        let stdoutSignal = DispatchSemaphore(value: 0)
+        let stderrSignal = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            stdoutResult.store(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+            stdoutSignal.signal()
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            stderrResult.store(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+            stderrSignal.signal()
+        }
+
         let exitSignal = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
             process.waitUntilExit()
@@ -394,8 +425,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        _ = stdoutSignal.wait(timeout: .now() + 1)
+        _ = stderrSignal.wait(timeout: .now() + 1)
+        let stdout = String(data: stdoutResult.snapshot(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrResult.snapshot(), encoding: .utf8) ?? ""
         return ProcessRunResult(
             status: process.isRunning ? SIGKILL : process.terminationStatus,
             stdout: stdout,
