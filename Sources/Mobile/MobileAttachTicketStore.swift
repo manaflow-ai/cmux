@@ -20,6 +20,8 @@ final class MobileAttachTicketStore {
         var createdTerminalIDs: Set<String> = []
     }
 
+    // Synchronous socket authorization calls this store from non-async paths;
+    // keep the locked section tiny until the host service moves to actor isolation.
     private let lock = NSLock()
     private var recordsByAuthToken: [String: Record] = [:]
     private var authTokensByTicketRef: [String: String] = [:]

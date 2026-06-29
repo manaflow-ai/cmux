@@ -308,6 +308,11 @@ import Testing
 
     @Test func versionedURLDetectionDistinguishesGrammars() throws {
         #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=3&tr=ticket-ref-123&r=100.64.0.5:58465"))
+        #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=3&tr=ticket-ref-123"))
+        #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=3&tr=&r=100.64.0.5:58465"))
+        #expect(!CmxPairingQRCode().isPairingCodeURLString(
+            "cmux-ios://attach?v=3&tr=ticket-ref-123&payload=abc&r=100.64.0.5:58465"
+        ))
         #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&payload=abc"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=1&payload=abc"))

@@ -45,7 +45,11 @@ import Testing
     }
 
     @Test func timedOutTicketReferenceRedemptionKeepsCooldownAfterTaskCompletes() async throws {
-        let gate = MobileCoreRPCTicketRedemptionGate(timedOutResetNanoseconds: 30 * 1_000_000_000)
+        let clock = ManualNanosecondClock()
+        let gate = MobileCoreRPCTicketRedemptionGate(
+            timedOutResetNanoseconds: 30 * 1_000_000_000,
+            nowNanoseconds: clock.now
+        )
         let providerStarted = AsyncFlag()
         let providerFinished = AsyncFlag()
         let releaseProvider = AsyncReleaseGate()
@@ -92,7 +96,11 @@ import Testing
     }
 
     @Test func repeatedTimedOutTicketReferenceRedemptionsDoNotWedgeRetry() async throws {
-        let gate = MobileCoreRPCTicketRedemptionGate(timedOutResetNanoseconds: 10_000_000)
+        let clock = ManualNanosecondClock()
+        let gate = MobileCoreRPCTicketRedemptionGate(
+            timedOutResetNanoseconds: 10_000_000,
+            nowNanoseconds: clock.now
+        )
         let firstStarted = AsyncFlag()
         let secondStarted = AsyncFlag()
         let neverReleaseProvider = AsyncReleaseGate()
@@ -124,7 +132,7 @@ import Testing
             Issue.record(error)
         }
 
-        try await Task.sleep(nanoseconds: 20_000_000)
+        clock.advance(by: 20_000_000)
         let secondTimedOut = Task {
             try await gate.ticket(timeoutNanoseconds: 1_000_000) {
                 await secondStarted.set()
@@ -141,12 +149,30 @@ import Testing
             Issue.record(error)
         }
 
-        try await Task.sleep(nanoseconds: 20_000_000)
+        clock.advance(by: 20_000_000)
         let retry = try await gate.ticket(timeoutNanoseconds: 60 * 1_000_000_000) {
             redeemedTicket
         }
         #expect(retry.authToken == "ticket-secret")
         #expect(retry.ticketRef == "ticket-ref-123")
         await neverReleaseProvider.release()
+    }
+}
+
+// Protects test-clock state behind short synchronous critical sections because the gate reads time while actor-isolated.
+private final class ManualNanosecondClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: UInt64 = 0
+
+    func now() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func advance(by nanoseconds: UInt64) {
+        lock.lock()
+        value &+= nanoseconds
+        lock.unlock()
     }
 }

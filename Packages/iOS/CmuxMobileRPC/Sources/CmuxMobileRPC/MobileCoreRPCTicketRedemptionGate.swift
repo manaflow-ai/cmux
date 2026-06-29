@@ -20,9 +20,14 @@ actor MobileCoreRPCTicketRedemptionGate {
     private var abandoned: [UUID: Abandoned] = [:]
     private let taskTimeout = RPCTaskTimeout()
     private let timedOutResetNanoseconds: UInt64
+    private let nowNanoseconds: @Sendable () -> UInt64
 
-    init(timedOutResetNanoseconds: UInt64 = 30_000_000_000) {
+    init(
+        timedOutResetNanoseconds: UInt64 = 30_000_000_000,
+        nowNanoseconds: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
+    ) {
         self.timedOutResetNanoseconds = timedOutResetNanoseconds
+        self.nowNanoseconds = nowNanoseconds
     }
 
     var waiterCount: Int {
@@ -36,11 +41,11 @@ actor MobileCoreRPCTicketRedemptionGate {
         let id: UUID
         let task: Task<CmxAttachTicket, any Error>
         if let existing = current, let timedOutUntil = existing.timedOutUntil {
-            guard DispatchTime.now().uptimeNanoseconds >= timedOutUntil else {
+            guard nowNanoseconds() >= timedOutUntil else {
                 throw MobileShellConnectionError.requestTimedOut
             }
             if !existing.isCompleted {
-                replaceAbandoned(with: existing)
+                abandon(existing, cancelTask: true)
             }
             current = nil
         }
@@ -93,7 +98,7 @@ actor MobileCoreRPCTicketRedemptionGate {
             task: task,
             completionObserver: current?.completionObserver,
             waiters: 0,
-            timedOutUntil: DispatchTime.now().uptimeNanoseconds &+ timedOutResetNanoseconds,
+            timedOutUntil: nowNanoseconds() &+ timedOutResetNanoseconds,
             isCompleted: false
         )
         task.cancel()
@@ -105,7 +110,10 @@ actor MobileCoreRPCTicketRedemptionGate {
         guard let waiters = current?.waiters, waiters <= 0 else {
             return
         }
-        clear(id: id)
+        if let existing = current {
+            abandon(existing, cancelTask: true)
+        }
+        current = nil
         task.cancel()
     }
 
@@ -114,9 +122,7 @@ actor MobileCoreRPCTicketRedemptionGate {
             current?.completionObserver?.cancel()
             current = nil
         }
-        if let abandonedWork = abandoned.removeValue(forKey: id) {
-            abandonedWork.completionObserver?.cancel()
-        }
+        abandoned[id] = nil
     }
 
     private func complete(id: UUID) {
@@ -131,16 +137,16 @@ actor MobileCoreRPCTicketRedemptionGate {
         abandoned[id] = nil
     }
 
-    private func replaceAbandoned(with existing: Current) {
+    private func abandon(_ existing: Current, cancelTask: Bool) {
         for (_, abandonedWork) in abandoned {
             abandonedWork.task.cancel()
-            abandonedWork.completionObserver?.cancel()
         }
-        abandoned = [
-            existing.id: Abandoned(
-                task: existing.task,
-                completionObserver: existing.completionObserver
-            ),
-        ]
+        if cancelTask {
+            existing.task.cancel()
+        }
+        abandoned[existing.id] = Abandoned(
+            task: existing.task,
+            completionObserver: existing.completionObserver
+        )
     }
 }

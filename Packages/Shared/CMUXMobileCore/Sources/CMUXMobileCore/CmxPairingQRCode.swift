@@ -153,7 +153,9 @@ public struct CmxPairingQRCode: Sendable {
             return queryValue(named: "payload", in: components) == nil
                 && !queryValues(named: "r", in: components).isEmpty
         case Self.version:
-            return queryValue(named: "tr", in: components) != nil
+            return queryValue(named: "payload", in: components) == nil
+                && queryValue(named: "tr", in: components) != nil
+                && !queryValues(named: "r", in: components).isEmpty
         default:
             return false
         }
