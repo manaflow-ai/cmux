@@ -197,7 +197,7 @@ public struct WorkspaceColorsSection: View {
         let currentHex = stateColors.current[row.rawValue]
         SettingsCardRow(
             configurationReview: .json("workspaceColors.stateColors"),
-            searchAnchorID: "setting:workspaceColors:state-colors",
+            searchAnchorID: "setting:workspaceColors:state-colors-\(row.rawValue)",
             row.title
         ) {
             HStack(spacing: 8) {
