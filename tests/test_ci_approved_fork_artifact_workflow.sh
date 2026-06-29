@@ -34,8 +34,10 @@ for needle in \
   "BUILD_TAG: pr-\${{ needs.resolve-pr.outputs.pr_number }}-\${{ needs.resolve-pr.outputs.short_sha }}" \
   "persist-credentials: false" \
   "CMUX_RELOAD_APP_PATH_OUTPUT=\"\$app_path_file\"" \
-  "./scripts/reload.sh --tag \"\$BUILD_TAG\" --swift-frontend-workaround" \
-  "reload.sh did not write app path" \
+  "CMUX_SWIFT_FRONTEND_WORKAROUND" \
+  "./scripts/reload.sh --tag \"\$BUILD_TAG\"" \
+  "App path:" \
+  "could not locate built app" \
   "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1" \
   "artifact/provenance.json" \
   "rm -rf \"\$artifact_dir\"" \
@@ -47,6 +49,13 @@ done
 
 if grep -Eq 'secrets\.|secrets:[[:space:]]*inherit|id-token:[[:space:]]*write|contents:[[:space:]]*write|pull-requests:[[:space:]]*write' "$WORKFLOW_FILE"; then
   fail "approved fork artifact workflow must not request write permissions or repository secrets"
+fi
+
+# The build runs the fork's own reload.sh, which hard-fails on unknown options.
+# Requesting the Swift frontend workaround must go through the CMUX_SWIFT_FRONTEND_WORKAROUND
+# env var (ignored by older forks), never the --swift-frontend-workaround flag.
+if grep -Fq -- '--swift-frontend-workaround' "$WORKFLOW_FILE"; then
+  fail "approved fork artifact workflow must not pass --swift-frontend-workaround (older fork reload.sh hard-fails on unknown flags; use CMUX_SWIFT_FRONTEND_WORKAROUND)"
 fi
 
 if ! grep -Fq 'CMUX_RELOAD_APP_PATH_OUTPUT' "$RELOAD_FILE"; then

@@ -103,6 +103,11 @@ jobs:
       APPROVED_PR_NUMBER: ${{ needs.resolve-pr.outputs.pr_number }}
       BUILD_TAG: pr-${{ needs.resolve-pr.outputs.pr_number }}-${{ needs.resolve-pr.outputs.short_sha }}
       CMUX_SKIP_ZIG_BUILD: "1"
+      # Request the Swift arm64 frontend workaround through this env var rather
+      # than the matching reload.sh CLI flag. This workflow builds arbitrary
+      # reviewed fork heads, and a fork whose reload.sh predates that flag would
+      # hard-fail on an unknown option; an unrecognized env var is ignored instead.
+      CMUX_SWIFT_FRONTEND_WORKAROUND: "1"
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
     steps:
       - name: Clear stale git locks
@@ -139,9 +144,15 @@ jobs:
           log="$RUNNER_TEMP/approved-fork-artifact.log"
           app_path_file="$RUNNER_TEMP/approved-fork-app-path.txt"
           CMUX_RELOAD_APP_PATH_OUTPUT="$app_path_file" \
-            ./scripts/reload.sh --tag "$BUILD_TAG" --swift-frontend-workaround 2>&1 | tee "$log"
-          [ -s "$app_path_file" ] || { echo "reload.sh did not write app path" >&2; exit 1; }
-          app_path="$(tr -d '\n' < "$app_path_file")"
+            ./scripts/reload.sh --tag "$BUILD_TAG" 2>&1 | tee "$log"
+          # Prefer the machine-readable app-path file, but fall back to the
+          # long-stable "App path:" log line for fork heads whose reload.sh
+          # predates the CMUX_RELOAD_APP_PATH_OUTPUT contract added by this PR.
+          if [ -s "$app_path_file" ]; then
+            app_path="$(tr -d '\n' < "$app_path_file")"
+          else
+            app_path="$(awk '/^App path:/{getline; sub(/^[[:space:]]+/, ""); print; exit}' "$log")"
+          fi
           [ -n "$app_path" ] && [ -d "$app_path" ] || { echo "could not locate built app" >&2; exit 1; }
 
           # The fork controls the checked-out workspace, so artifact/ may
