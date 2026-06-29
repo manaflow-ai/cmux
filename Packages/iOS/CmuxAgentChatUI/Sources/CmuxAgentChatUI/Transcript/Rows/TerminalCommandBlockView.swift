@@ -74,6 +74,7 @@ public struct TerminalCommandBlockView: View {
             }
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("TerminalCommandBlock-\(block.id)")
         .accessibilityLabel(accessibilityLabel)
         // `.combine` absorbs the inline "more lines" button, so expose the
         // toggle as a VoiceOver custom action when the output is collapsible.

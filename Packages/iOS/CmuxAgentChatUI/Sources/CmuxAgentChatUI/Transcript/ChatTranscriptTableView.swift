@@ -85,6 +85,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         private var lastScrollToBottomRequest = 0
         private var isHandlingLayout = false
         private var isApplyingDataUpdate = false
+        private var pendingContentUpdateAnchor: ChatTranscriptTableAnchor?
         private weak var tableView: ChatTranscriptUITableView?
         private var isAtBottom: Binding<Bool>
         #if DEBUG
@@ -131,6 +132,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
             guard shouldReload else {
                 if shouldScrollToBottom {
+                    pendingContentUpdateAnchor = nil
                     scrollToBottom(in: tableView, animated: true)
                 }
                 updateBottomState(from: tableView)
@@ -147,9 +149,11 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             tableView.layoutIfNeeded()
 
             if shouldScrollToBottom || wasAtBottom {
+                pendingContentUpdateAnchor = nil
                 scrollToBottom(in: tableView, animated: false)
             } else if let anchor {
                 restore(anchor, in: tableView)
+                pendingContentUpdateAnchor = anchor
             }
             #if DEBUG
             applyDebugInitialScrollIfNeeded(in: tableView)
@@ -216,6 +220,9 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
             if boundsChanged, let oldViewport {
                 restoreKeyboardViewport(snapshot: oldViewport, in: tableView)
+            } else if contentChanged, let pendingContentUpdateAnchor {
+                restore(pendingContentUpdateAnchor, in: tableView)
+                self.pendingContentUpdateAnchor = nil
             } else if oldViewport?.wasAtBottom == true {
                 scrollToBottom(in: tableView, animated: false)
             } else if contentChanged, let oldAnchor {

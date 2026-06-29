@@ -79,6 +79,19 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the standalone terminal-log preview is enabled.
+    ///
+    /// When `CMUX_UITEST_TERMINAL_LOG_PREVIEW=1`, the root view renders a
+    /// terminal-kind chat fixture whose transcript rows are parsed command
+    /// blocks. DEBUG-only; bypasses sign-in and Mac pairing.
+    public static var terminalLogPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_LOG_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the standalone workspace-list layout preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a
