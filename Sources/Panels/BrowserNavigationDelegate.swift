@@ -21,6 +21,7 @@ import WebKit
     var lastAttemptedURL: URL?
     private(set) var activeErrorPageDisplayURL: URL?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
+    private let clientCertificatePromptCoordinator = BrowserClientCertificatePromptCoordinator()
     private let clientCertificateAuthenticationHandler = BrowserClientCertificateAuthenticationHandler(
         candidateProvider: BrowserClientCertificateCredentialStore().candidates(for:)
     )
@@ -32,8 +33,9 @@ import WebKit
     private var activeSSLTrustBypassReplayRequest: URLRequest?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
 
-    func cancelPendingHTTPBasicAuthPrompts(allowFuturePrompts: Bool = false) {
+    func cancelPendingAuthenticationPrompts(allowFuturePrompts: Bool = false) {
         basicAuthPromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
+        clientCertificatePromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
     }
 
     func recordAttemptedRequest(_ request: URLRequest, displayURL: URL? = nil) {
@@ -164,16 +166,24 @@ import WebKit
             return
         }
 
-        if clientCertificateAuthenticationHandler.handle(
+        if clientCertificatePromptCoordinator.handle(
             challenge: challenge,
-            candidatePicker: { [presentAlert] protectionSpace, candidates, completion in
-                BrowserClientCertificateCredentialPicker(
-                    webView: webView,
-                    presentAlert: presentAlert
-                ).selectCredential(
-                    for: protectionSpace,
-                    candidates: candidates,
-                    completion: completion
+            startPrompt: { [clientCertificateAuthenticationHandler, presentAlert] finishPrompt, registerCancelPrompt in
+                clientCertificateAuthenticationHandler.handle(
+                    challenge: challenge,
+                    candidatePicker: { [presentAlert] protectionSpace, candidates, completion, registerCancelPrompt in
+                        BrowserClientCertificateCredentialPicker(
+                            webView: webView,
+                            presentAlert: presentAlert
+                        ).selectCredential(
+                            for: protectionSpace,
+                            candidates: candidates,
+                            registerCancelPrompt: registerCancelPrompt,
+                            completion: completion
+                        )
+                    },
+                    registerCancelPrompt: registerCancelPrompt,
+                    completionHandler: finishPrompt
                 )
             },
             completionHandler: completionHandler

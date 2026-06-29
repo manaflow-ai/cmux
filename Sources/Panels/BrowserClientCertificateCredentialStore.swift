@@ -7,6 +7,61 @@ nonisolated private let browserClientCertificateLogger = Logger(
     category: "BrowserClientCertificate"
 )
 
+private let browserClientCertificateTLSClientAuthenticationEKU = Data([
+    0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x02,
+])
+
+private let browserClientCertificateAnyExtendedKeyUsageEKU = Data([
+    0x55, 0x1D, 0x25, 0x00,
+])
+
+func browserClientCertificateExtendedKeyUsageAllowsTLSClientAuthentication(_ value: Any?) -> Bool {
+    guard let value else {
+        return true
+    }
+
+    var foundExtendedKeyUsage = false
+    var allowsTLSClientAuthentication = false
+
+    func collectOIDValues(from value: Any) {
+        if let data = value as? Data {
+            foundExtendedKeyUsage = true
+            if data == browserClientCertificateTLSClientAuthenticationEKU
+                || data == browserClientCertificateAnyExtendedKeyUsageEKU {
+                allowsTLSClientAuthentication = true
+            }
+            return
+        }
+
+        if let string = value as? String {
+            foundExtendedKeyUsage = true
+            switch string {
+            case "1.3.6.1.5.5.7.3.2", "2.5.29.37.0":
+                allowsTLSClientAuthentication = true
+            default:
+                break
+            }
+            return
+        }
+
+        if let dictionary = value as? [String: Any] {
+            if let nestedValue = dictionary[kSecPropertyKeyValue as String] {
+                collectOIDValues(from: nestedValue)
+            }
+            return
+        }
+
+        if let array = value as? [Any] {
+            for nestedValue in array {
+                collectOIDValues(from: nestedValue)
+            }
+        }
+    }
+
+    collectOIDValues(from: value)
+    return foundExtendedKeyUsage && allowsTLSClientAuthentication
+}
+
 struct BrowserClientCertificateCredentialStore {
     func candidates(for protectionSpace: URLProtectionSpace) -> [BrowserClientCertificateCredentialCandidate] {
         var query: [String: Any] = [
@@ -59,6 +114,13 @@ struct BrowserClientCertificateCredentialStore {
             return nil
         }
 
+        guard certificateAllowsTLSClientAuthentication(certificate) else {
+            browserClientCertificateLogger.info(
+                "browser.clientCertificate.identityFiltered reason=extendedKeyUsage"
+            )
+            return nil
+        }
+
         let credential = URLCredential(
             identity: identity,
             certificates: [certificate],
@@ -69,6 +131,33 @@ struct BrowserClientCertificateCredentialStore {
             subtitle: certificateSerialNumberSubtitle(for: certificate),
             credential: credential
         )
+    }
+
+    private func certificateAllowsTLSClientAuthentication(_ certificate: SecCertificate) -> Bool {
+        var error: Unmanaged<CFError>?
+        guard let values = SecCertificateCopyValues(
+            certificate,
+            [kSecOIDExtendedKeyUsage] as CFArray,
+            &error
+        ) as? [String: Any] else {
+            if let error {
+                browserClientCertificateLogger.error(
+                    "browser.clientCertificate.copyExtendedKeyUsage error=\((error.takeRetainedValue() as Error).localizedDescription, privacy: .public)"
+                )
+            }
+            return false
+        }
+
+        guard let extendedKeyUsage = values[kSecOIDExtendedKeyUsage as String] else {
+            return true
+        }
+
+        if let dictionary = extendedKeyUsage as? [String: Any],
+           let value = dictionary[kSecPropertyKeyValue as String] {
+            return browserClientCertificateExtendedKeyUsageAllowsTLSClientAuthentication(value)
+        }
+
+        return browserClientCertificateExtendedKeyUsageAllowsTLSClientAuthentication(extendedKeyUsage)
     }
 
     private func certificateSerialNumberSubtitle(for certificate: SecCertificate) -> String? {

@@ -2,6 +2,16 @@ import AppKit
 import Foundation
 import WebKit
 
+private func browserDismissClientCertificateCredentialPicker(_ alert: NSAlert) {
+    let window = alert.window
+    if let sheetParent = window.sheetParent {
+        sheetParent.endSheet(window, returnCode: .alertSecondButtonReturn)
+    } else if window.isVisible {
+        NSApp.stopModal(withCode: .alertSecondButtonReturn)
+        window.close()
+    }
+}
+
 @MainActor struct BrowserClientCertificateCredentialPicker {
     private let webView: WKWebView
     private let presentAlert: BrowserAlertPresenter
@@ -17,6 +27,7 @@ import WebKit
     func selectCredential(
         for protectionSpace: URLProtectionSpace,
         candidates: [BrowserClientCertificateCredentialCandidate],
+        registerCancelPrompt: ((@escaping () -> Void) -> Void)? = nil,
         completion: @escaping (BrowserClientCertificateCredentialCandidate?) -> Void
     ) {
         guard !candidates.isEmpty else {
@@ -44,7 +55,10 @@ import WebKit
         popup.selectItem(at: 0)
         alert.accessoryView = popup
 
+        var didComplete = false
         let finish: (BrowserClientCertificateCredentialCandidate?) -> Void = { selectedCandidate in
+            guard !didComplete else { return }
+            didComplete = true
             completion(selectedCandidate)
         }
         let handleResponse: (NSApplication.ModalResponse) -> Void = { response in
@@ -60,8 +74,17 @@ import WebKit
             finish(candidates[selectedIndex])
         }
 
-        presentAlert(alert, webView, handleResponse) {
+        let handleCancel = {
             finish(nil)
+        }
+
+        registerCancelPrompt? {
+            browserDismissClientCertificateCredentialPicker(alert)
+            handleCancel()
+        }
+
+        presentAlert(alert, webView, handleResponse) {
+            handleCancel()
         }
     }
 
@@ -74,42 +97,13 @@ import WebKit
     }
 
     private func origin(for protectionSpace: URLProtectionSpace) -> String {
-        let host = protectionSpace.host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayHost: String
-        if host.isEmpty {
-            displayHost = String(
+        browserAuthPromptOrigin(
+            protectionSpace: protectionSpace,
+            unknownHost: String(
                 localized: "browser.dialog.clientCertificate.unknownHost",
                 defaultValue: "This site"
             )
-        } else if host.contains(":") && !host.hasPrefix("[") && !host.hasSuffix("]") {
-            displayHost = "[\(host)]"
-        } else {
-            displayHost = host
-        }
-
-        let protocolName = protectionSpace.`protocol`?.lowercased()
-        let defaultPort: Int?
-        switch protocolName {
-        case "http":
-            defaultPort = 80
-        case "https":
-            defaultPort = 443
-        default:
-            defaultPort = nil
-        }
-
-        let port = protectionSpace.port
-        let authority: String
-        if port > 0, port != defaultPort {
-            authority = "\(displayHost):\(port)"
-        } else {
-            authority = displayHost
-        }
-
-        guard let protocolName, !protocolName.isEmpty else {
-            return authority
-        }
-        return "\(protocolName)://\(authority)"
+        )
     }
 
     private func title(
