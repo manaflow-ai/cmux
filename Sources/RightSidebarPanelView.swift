@@ -171,14 +171,13 @@ struct RightSidebarPanelView: View {
             return
         }
         if commandHoldHintsEnabled {
-            modeShortcutHintMonitor.start()
             focusShortcutHintMonitor.start()
             closeShortcutHintMonitor.start()
         } else {
-            modeShortcutHintMonitor.stop()
             focusShortcutHintMonitor.stop()
             closeShortcutHintMonitor.stop()
         }
+        modeShortcutHintMonitor.start()
     }
 
     private func stopShortcutHintMonitors() {
@@ -203,7 +202,7 @@ struct RightSidebarPanelView: View {
         .background(
             WindowAccessor(refreshID: shortcutHintMonitorRefreshID) { window in
                 let commandHintWindow = commandHoldHintsEnabled ? window : nil
-                modeShortcutHintMonitor.setHostWindow(commandHintWindow)
+                modeShortcutHintMonitor.setHostWindow(showModifierHoldHints ? window : nil)
                 focusShortcutHintMonitor.setHostWindow(commandHintWindow)
                 closeShortcutHintMonitor.setHostWindow(commandHintWindow)
             }
@@ -249,8 +248,8 @@ struct RightSidebarPanelView: View {
                         showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
                             shortcut: shortcut,
                             alwaysShowShortcutHints: alwaysShowShortcutHints,
-                            modifierPressed: modeShortcutHintMonitor.isModifierPressed,
-                            modifierHoldHintsEnabled: commandHoldHintsEnabled
+                            modifierFlags: modeShortcutHintMonitor.activeModifierFlags,
+                            modifierHoldHintsEnabled: showModifierHoldHints
                         )
                     ) {
                         let mode = item.mode

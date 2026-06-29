@@ -30,6 +30,37 @@ struct ShortcutHintModifierHoldPolicyTests {
     }
 
     @Test
+    func titlebarPolicyMatchesHeldModifierToShortcutModifier() {
+        let commandShortcut = StoredShortcut(key: "R", command: true, shift: false, option: false, control: false)
+        let controlShortcut = StoredShortcut(key: "R", command: false, shift: false, option: false, control: true)
+
+        #expect(ShortcutHintTitlebarPolicy.shouldShow(
+            shortcut: commandShortcut,
+            alwaysShowShortcutHints: false,
+            modifierFlags: [.command],
+            modifierHoldHintsEnabled: true
+        ))
+        #expect(!ShortcutHintTitlebarPolicy.shouldShow(
+            shortcut: commandShortcut,
+            alwaysShowShortcutHints: false,
+            modifierFlags: [.control],
+            modifierHoldHintsEnabled: true
+        ))
+        #expect(ShortcutHintTitlebarPolicy.shouldShow(
+            shortcut: controlShortcut,
+            alwaysShowShortcutHints: false,
+            modifierFlags: [.control],
+            modifierHoldHintsEnabled: true
+        ))
+        #expect(!ShortcutHintTitlebarPolicy.shouldShow(
+            shortcut: controlShortcut,
+            alwaysShowShortcutHints: false,
+            modifierFlags: [.command],
+            modifierHoldHintsEnabled: true
+        ))
+    }
+
+    @Test
     func modifierHoldHintsSettingSuppressesCommandAndControlHintActivation() throws {
         try withDefaultsSuite { defaults in
             defaults.set(false, forKey: ShortcutHintDebugSettings.showModifierHoldHintsKey)

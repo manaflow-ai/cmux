@@ -32,6 +32,7 @@ struct CommandHoldHintsSettingsRow: View {
     var body: some View {
         SettingsCardRow(
             configurationReview: .json("shortcuts.showCommandHoldHints"),
+            searchAnchorID: "setting:keyboardShortcuts:command-hold-hints",
             title,
             subtitle: subtitle
         ) {

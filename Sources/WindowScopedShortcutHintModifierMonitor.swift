@@ -6,6 +6,7 @@ import Observation
 @Observable
 final class WindowScopedShortcutHintModifierMonitor {
     private(set) var isModifierPressed = false
+    private(set) var activeModifierFlags: NSEvent.ModifierFlags = []
 
     private let activation: ShortcutHintModifierActivation
     private let allowsHintsForWindow: (NSWindow) -> Bool
@@ -140,8 +141,13 @@ final class WindowScopedShortcutHintModifierMonitor {
         pendingShowGeneration &+= 1
         pendingShowTimer?.cancel()
         pendingShowTimer = nil
-        if resetVisible, isModifierPressed {
-            isModifierPressed = false
+        if resetVisible {
+            if isModifierPressed {
+                isModifierPressed = false
+            }
+            if !activeModifierFlags.isEmpty {
+                activeModifierFlags = []
+            }
         }
     }
 
@@ -149,12 +155,14 @@ final class WindowScopedShortcutHintModifierMonitor {
         guard pendingShowGeneration == generation else { return }
         pendingShowTimer?.cancel()
         pendingShowTimer = nil
+        let modifierFlags = NSEvent.modifierFlags
         guard let hostWindow,
               isCurrentWindow(eventWindow: nil),
               allowsHintsForWindow(hostWindow),
-              activation.shouldShowHints(for: NSEvent.modifierFlags) else {
+              activation.shouldShowHints(for: modifierFlags) else {
             return
         }
+        activeModifierFlags = modifierFlags
         isModifierPressed = true
     }
 
