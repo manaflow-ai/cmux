@@ -9,6 +9,90 @@ extension Workspace {
     private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
     private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
     private static let truthyStartupEnvironmentValues: Set<String> = ["1", "true", "yes", "on", "enabled"]
+    private static let restoredAgentRunningStatusIcon = "bolt.fill"
+    private static let restoredAgentRunningStatusColor = "#4C8DFF"
+
+    private static func restoredAgentStatusKey(for kind: RestorableAgentKind) -> String {
+        switch kind {
+        case .claude:
+            return "claude_code"
+        default:
+            return kind.rawValue
+        }
+    }
+
+    private static func restoredAgentRuntimeKey(for agent: SessionRestorableAgentSnapshot) -> String {
+        let statusKey = restoredAgentStatusKey(for: agent.kind)
+        let sessionId = agent.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sessionId.isEmpty else {
+            return statusKey
+        }
+        return "\(statusKey).\(sessionId)"
+    }
+
+    func restoreVisibleRuntimeStatusForAutoResumedAgents() {
+        let panelIds = restoredAgentSnapshotsByPanelId.keys.sorted { $0.uuidString < $1.uuidString }
+        for panelId in panelIds {
+            guard panels[panelId] != nil,
+                  let agent = restoredAgentSnapshotsByPanelId[panelId] else {
+                continue
+            }
+            switch restoredAgentResumeStatesByPanelId[panelId] {
+            case .some(.awaitingAutoResumeCommand), .some(.autoResumeCommandRunning):
+                recordRestoredAgentRuntimeStatus(agent: agent, panelId: panelId)
+            case .some(.manualResumeAvailable), .some(.observedAgentCommandRunning), .none:
+                break
+            }
+        }
+    }
+
+    @discardableResult
+    func recordRestoredAgentRuntimeStatus(
+        agent: SessionRestorableAgentSnapshot,
+        panelId: UUID
+    ) -> Bool {
+        guard panels[panelId] != nil else { return false }
+
+        let statusKey = Self.restoredAgentStatusKey(for: agent.kind)
+        let runtimeKey = Self.restoredAgentRuntimeKey(for: agent)
+        var didChange = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: runtimeKey)
+
+        if agentPIDPanelIdsByKey[runtimeKey] != panelId ||
+            agentPIDKeysByPanelId[panelId]?.contains(runtimeKey) != true {
+            recordAgentPIDOwnership(key: runtimeKey, panelId: panelId)
+            didChange = true
+        }
+
+        if agentLifecycleStatesByPanelId[panelId]?[statusKey] != .running {
+            setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .running)
+            didChange = true
+        }
+
+        let statusEntry = SidebarStatusEntry(
+            key: statusKey,
+            value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
+            icon: Self.restoredAgentRunningStatusIcon,
+            color: Self.restoredAgentRunningStatusColor,
+            timestamp: Date()
+        )
+        if statusEntries[statusKey] != statusEntry {
+            statusEntries[statusKey] = statusEntry
+            didChange = true
+        }
+        return didChange
+    }
+
+    @discardableResult
+    func clearRestoredAgentRuntimeStatus(
+        agent: SessionRestorableAgentSnapshot,
+        panelId: UUID
+    ) -> Bool {
+        clearAgentPID(
+            key: Self.restoredAgentRuntimeKey(for: agent),
+            panelId: panelId,
+            clearStatus: true
+        )
+    }
 
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
