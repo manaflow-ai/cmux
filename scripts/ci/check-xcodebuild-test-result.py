@@ -6,6 +6,17 @@ terminal summaries, usually from app-host cleanup on shared macOS runners.
 The legacy workflow accepted that shape when the final summary had
 ``(0 unexpected)``. Keep that contract, but inspect every summary so an earlier
 suite with unexpected failures cannot be hidden by a later clean summary.
+
+A timeout is not cleanup noise. The CI watchdogs
+(``scripts/ci/xcodebuild_noninteractive.py`` and ci.yml's ``run_unit_tests``)
+return exit code 124 when they kill xcodebuild. If that kill landed before
+xcodebuild reached a terminal completion marker, the run was still executing
+(or hung) and an arbitrary subset of suites never ran, so an early clean
+summary would re-mask exactly the partial/hung runs this gate exists to catch
+(#5641). A timeout is therefore only tolerated with proof that xcodebuild
+reached its terminal summary first -- the genuine "tests finished, app-host
+cleanup lingered" case, which the inner wrapper already converts to exit 0/125
+when ``POST_TEST_TIMEOUT`` is set but which surfaces as a raw 124 elsewhere.
 """
 
 from __future__ import annotations
@@ -20,6 +31,36 @@ SUMMARY_RE = re.compile(
     r"Executed\s+(\d+)\s+tests?,\s+with\s+(\d+)\s+failures?\s+\((\d+)\s+unexpected\)"
 )
 
+# Exit code both CI watchdogs use when they kill xcodebuild.
+TIMEOUT_EXIT_CODE = 124
+
+# Distinctive lines the watchdogs print right before the kill. Matching them is
+# a backstop for the case where an intermediate shell normalizes the timeout
+# exit code away.
+TIMEOUT_MARKERS = (
+    "xcodebuild unit test timeout after",  # ci.yml run_unit_tests outer watchdog
+    "Idle timed out after",  # xcodebuild_noninteractive.py idle watchdog
+)
+
+# xcodebuild prints one of these only once the test action runs to completion.
+# Their presence proves every selected suite finished, so a post-completion
+# cleanup timeout is safe to accept; their absence after a kill means the run
+# was truncated.
+COMPLETION_MARKERS = (
+    "** TEST SUCCEEDED **",
+    "** TEST FAILED **",
+)
+COMPLETION_RE = re.compile(
+    r"Test Suite '(?:Selected tests|All tests)' (?:passed|failed) at "
+)
+
+
+def reached_terminal_completion(output: str) -> bool:
+    if any(marker in output for marker in COMPLETION_MARKERS):
+        return True
+    return COMPLETION_RE.search(output) is not None
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exit-code", required=True, type=int)
@@ -33,6 +74,16 @@ def main(argv: list[str]) -> int:
         return 0
 
     output = args.log_path.read_text(encoding="utf-8", errors="replace")
+
+    timed_out = args.exit_code == TIMEOUT_EXIT_CODE or any(
+        marker in output for marker in TIMEOUT_MARKERS
+    )
+    if timed_out and not reached_terminal_completion(output):
+        print(
+            "Unexpected test failures detected: xcodebuild was killed by a timeout "
+            "watchdog before reaching a terminal test summary"
+        )
+        return 1
 
     summaries: list[tuple[int, int, int, str]] = []
     for line in output.splitlines():
