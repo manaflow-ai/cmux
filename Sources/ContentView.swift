@@ -10075,7 +10075,7 @@ struct VerticalTabsSidebar: View {
     @State private var anchorCwdRevision: Int = 0
     /// Bumped when a workspace agent lifecycle changes so group headers can
     /// refresh their state-derived color even when no member row is mounted.
-    @State private var groupAgentLifecycleRevision: Int = 0
+    @State var groupAgentLifecycleRevision: Int = 0
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
