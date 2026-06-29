@@ -820,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt.",
           "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Når dette er på, trekkes et varselbanner bare automatisk tilbake når overflaten er nøyaktig den fokuserte overflaten. Et banner levert for en ikke-fokusert overflate i det for øyeblikket synlige workspace blir værende til du fokuserer den overflaten (eller klikker/avviser det), i stedet for å bli trukket tilbake når workspace blir synlig. Av beholder den gamle tilbaketrekkingen basert på workspace-synlighet."
+        },
         "browser": {
           "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
           "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
@@ -1068,7 +1071,8 @@
       "closeWorkspaceDesc": "Lukk et arbeidsområde.",
       "splitCommands": "Delingskommandoer",
       "newSplitDesc": "Opprett et nytt delt panel. Retninger: left, right, up, down.",
-      "listSurfacesDesc": "List alle overflater i det gjeldende arbeidsområdet.",
+      "listPanelsDesc": "List alle overflater i det gjeldende arbeidsområdet.",
+      "listPaneSurfacesDesc": "List overflater i det fokuserte panelet.",
       "focusSurfaceDesc": "Fokuser en spesifikk overflate.",
       "inputCommands": "Inndatakommandoer",
       "sendDesc": "Send tekstinndata til den fokuserte terminalen.",
