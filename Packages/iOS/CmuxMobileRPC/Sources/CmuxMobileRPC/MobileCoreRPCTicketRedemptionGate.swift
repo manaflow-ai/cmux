@@ -78,12 +78,7 @@ actor MobileCoreRPCTicketRedemptionGate {
         guard let waiters = current?.waiters, waiters <= 0 else {
             return
         }
-        current = (
-            id: id,
-            task: task,
-            waiters: 0,
-            timedOutUntil: DispatchTime.now().uptimeNanoseconds &+ timedOutResetNanoseconds
-        )
+        clear(id: id)
         task.cancel()
     }
 
