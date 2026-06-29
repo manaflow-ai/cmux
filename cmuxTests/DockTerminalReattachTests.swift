@@ -8,8 +8,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Dock terminal reattach", .serialized)
-struct DockTerminalReattachTests {
+extension DockSocketLifecycleTests {
     @MainActor
     private func detachedTerminalTransfer(
         panel: TerminalPanel,
