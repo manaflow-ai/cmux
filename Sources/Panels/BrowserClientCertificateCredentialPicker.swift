@@ -116,15 +116,27 @@ import WebKit
         for candidate: BrowserClientCertificateCredentialCandidate,
         at index: Int
     ) -> String {
+        let displayTitle: String
         if let title = candidate.title?.trimmingCharacters(in: .whitespacesAndNewlines),
            !title.isEmpty {
-            return title
+            displayTitle = title
+        } else {
+            let format = String(
+                localized: "browser.dialog.clientCertificate.fallbackCertificateName",
+                defaultValue: "Certificate %d"
+            )
+            displayTitle = String(format: format, locale: Locale.current, index + 1)
+        }
+
+        guard let subtitle = candidate.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !subtitle.isEmpty else {
+            return displayTitle
         }
 
         let format = String(
-            localized: "browser.dialog.clientCertificate.fallbackCertificateName",
-            defaultValue: "Certificate %d"
+            localized: "browser.dialog.clientCertificate.titleWithSubtitle",
+            defaultValue: "%@ (%@)"
         )
-        return String(format: format, locale: Locale.current, index + 1)
+        return String(format: format, locale: Locale.current, displayTitle, subtitle)
     }
 }

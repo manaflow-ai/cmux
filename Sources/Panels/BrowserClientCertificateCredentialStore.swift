@@ -66,8 +66,35 @@ struct BrowserClientCertificateCredentialStore {
         )
         return BrowserClientCertificateCredentialCandidate(
             title: SecCertificateCopySubjectSummary(certificate) as String?,
-            subtitle: nil,
+            subtitle: certificateSerialNumberSubtitle(for: certificate),
             credential: credential
         )
+    }
+
+    private func certificateSerialNumberSubtitle(for certificate: SecCertificate) -> String? {
+        var error: Unmanaged<CFError>?
+        guard let serialNumberData = SecCertificateCopySerialNumberData(certificate, &error) as Data? else {
+            return nil
+        }
+
+        let serialNumber = hexString(for: serialNumberData)
+        guard !serialNumber.isEmpty else { return nil }
+
+        let format = String(
+            localized: "browser.dialog.clientCertificate.serialNumber",
+            defaultValue: "Serial %@"
+        )
+        return String(format: format, locale: Locale.current, serialNumber)
+    }
+
+    private func hexString(for data: Data) -> String {
+        let digits = Array("0123456789ABCDEF".utf8)
+        var output = [UInt8]()
+        output.reserveCapacity(data.count * 2)
+        for byte in data {
+            output.append(digits[Int(byte >> 4)])
+            output.append(digits[Int(byte & 0x0F)])
+        }
+        return String(decoding: output, as: UTF8.self)
     }
 }
