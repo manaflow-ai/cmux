@@ -4788,6 +4788,19 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 )
             }
 #endif
+            // #6250: AppKit invokes `performKeyEquivalent` across the entire
+            // window view hierarchy, so this coordinator runs even while web
+            // content (the WKWebView) — not the omnibar — owns first responder.
+            // In that state the omnibar field has no field editor, so `editor`
+            // is nil. Treating Return/Escape/arrows (and Ctrl+N/P, Shift+Delete)
+            // as omnibar input there makes an *unfocused* omnibar submit and
+            // hard-navigate the pane on a physical Enter that belongs to the
+            // page — a spurious reload that aborts in-flight `fetch`/XHR in SPAs.
+            // Only act on these keys while the field is actually being edited.
+            // This mirrors the `currentEditor()`-gated `insertNewline:` path in
+            // `control(_:textView:doCommandBy:)`, which only runs for the live
+            // field editor.
+            guard editor != nil else { return false }
             guard editor?.hasMarkedText() != true else { return false }
             let keyCode = event.keyCode
             let modifiers = event.modifierFlags.intersection([.command, .control, .shift, .option, .function])
@@ -6489,6 +6502,12 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 return nil
             }
+            if shouldPassThroughToExternalSplitDivider(at: point, hostedInspectorHit: hostedInspectorHit) {
+#if DEBUG
+                debugLogHitTest(stage: "hitTest.splitPass", point: point, passThrough: true, hitView: nil)
+#endif
+                return nil
+            }
             if let hostedInspectorHit {
                 if let nativeHit = nativeHostedInspectorHit(at: point, hostedInspectorHit: hostedInspectorHit) {
 #if DEBUG
@@ -6646,12 +6665,70 @@ struct WebViewRepresentable: NSViewRepresentable {
             return contentView.bounds.maxX - hostRectInContent.maxX > 24
         }
 
+        private func shouldPassThroughToExternalSplitDivider(
+            at point: NSPoint,
+            hostedInspectorHit: HostedInspectorDividerHit? = nil
+        ) -> Bool {
+            guard hostedInspectorHit == nil else { return false }
+            guard isNearPaneEdge(point) else { return false }
+            guard window != nil else { return false }
+
+            let windowPoint = convert(point, to: nil)
+            var ancestor = superview
+            while let currentAncestor = ancestor {
+                if let splitView = currentAncestor as? NSSplitView,
+                   let arrangedIndex = splitView.arrangedSubviews.firstIndex(where: { arrangedSubview in
+                       self === arrangedSubview || self.isDescendant(of: arrangedSubview)
+                   }) {
+                    if externalSplitDividerHit(at: windowPoint, in: splitView, dividerIndex: arrangedIndex - 1) {
+                        return true
+                    }
+                    if externalSplitDividerHit(at: windowPoint, in: splitView, dividerIndex: arrangedIndex) {
+                        return true
+                    }
+                }
+                ancestor = currentAncestor.superview
+            }
+            return false
+        }
+
+        private func externalSplitDividerHit(
+            at windowPoint: NSPoint,
+            in splitView: NSSplitView,
+            dividerIndex: Int
+        ) -> Bool {
+            guard let window,
+                  splitView.window === window,
+                  let hitRect = PortalSplitDividerRegion.dividerHitRectInWindow(
+                      in: splitView,
+                      dividerIndex: dividerIndex
+                  ) else {
+                return false
+            }
+            return hitRect.contains(windowPoint)
+        }
+
+        private func isNearPaneEdge(_ point: NSPoint) -> Bool {
+            // hitTest and cursor tracking call this with points in this view's bounds coordinates.
+            guard bounds.contains(point) else { return false }
+            let expansion = PortalSplitDividerRegion.dividerHitExpansion
+            let nearVerticalEdge = point.x <= bounds.minX + expansion ||
+                point.x >= bounds.maxX - expansion
+            let nearHorizontalEdge = point.y <= bounds.minY + expansion ||
+                point.y >= bounds.maxY - expansion
+            return nearVerticalEdge || nearHorizontalEdge
+        }
+
         private func updateDividerCursor(
             at point: NSPoint,
             hostedInspectorHit: HostedInspectorDividerHit? = nil
         ) {
             let resolvedHostedInspectorHit = hostedInspectorHit ?? hostedInspectorDividerHit(at: point)
             if shouldPassThroughToSidebarResizer(at: point, hostedInspectorHit: resolvedHostedInspectorHit) {
+                clearActiveDividerCursor(restoreArrow: false)
+                return
+            }
+            if shouldPassThroughToExternalSplitDivider(at: point, hostedInspectorHit: resolvedHostedInspectorHit) {
                 clearActiveDividerCursor(restoreArrow: false)
                 return
             }
