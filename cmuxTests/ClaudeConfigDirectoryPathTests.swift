@@ -140,7 +140,8 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
             specifics: .claude(
                 model: "claude-opus-4-7",
                 permissionMode: "default",
-                configDirectoryForResume: configDirectoryForResume
+                configDirectoryForResume: configDirectoryForResume,
+                resumeWorkingDirectory: nil
             )
         )
     }

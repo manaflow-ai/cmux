@@ -119,6 +119,179 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    func testClaudeResumeCommandUsesTranscriptStartCwdWhenSessionCwdDrifts() async throws {
+        let fixture = try makeClaudeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let startCwd = fixture.root.appendingPathComponent("startcwd", isDirectory: true)
+        let worktreeCwd = startCwd
+            .appendingPathComponent("worktrees", isDirectory: true)
+            .appendingPathComponent("featx", isDirectory: true)
+        try FileManager.default.createDirectory(at: worktreeCwd, withIntermediateDirectories: true)
+
+        let sessionId = "session-cwd-drift"
+        try writeClaudeTranscript(
+            projectsRoot: fixture.projectsRoot,
+            sessionId: sessionId,
+            projectCwd: startCwd.path,
+            cwdLines: [startCwd.path, worktreeCwd.path]
+        )
+
+        let entry = try await loadSingleClaudeEntry(from: fixture.projectsRoot)
+
+        XCTAssertEqual(entry.cwd, worktreeCwd.path)
+        XCTAssertEqual(
+            entry.resumeCommandWithCwd,
+            "cd \(SessionEntry.shellQuote(startCwd.path)) && "
+                + posixShWrappedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)")
+        )
+    }
+
+    func testClaudeResumeCommandPreservesSameCwdSessions() async throws {
+        let fixture = try makeClaudeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let startCwd = fixture.root.appendingPathComponent("samecwd", isDirectory: true)
+        try FileManager.default.createDirectory(at: startCwd, withIntermediateDirectories: true)
+
+        let sessionId = "session-same-cwd"
+        try writeClaudeTranscript(
+            projectsRoot: fixture.projectsRoot,
+            sessionId: sessionId,
+            projectCwd: startCwd.path,
+            cwdLines: [startCwd.path, startCwd.path]
+        )
+
+        let entry = try await loadSingleClaudeEntry(from: fixture.projectsRoot)
+
+        XCTAssertEqual(entry.cwd, startCwd.path)
+        XCTAssertEqual(
+            entry.resumeCommandWithCwd,
+            "cd \(SessionEntry.shellQuote(startCwd.path)) && "
+                + posixShWrappedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)")
+        )
+    }
+
+    func testClaudeResumeCommandFallsBackToFirstCwdWhenProjectDirDecodeIsLossy() async throws {
+        let fixture = try makeClaudeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let startCwd = fixture.root.appendingPathComponent("my-cool-proj", isDirectory: true)
+        let laterCwd = startCwd.appendingPathComponent("featureworktree", isDirectory: true)
+        try FileManager.default.createDirectory(at: laterCwd, withIntermediateDirectories: true)
+
+        let sessionId = "session-lossy-cwd"
+        try writeClaudeTranscript(
+            projectsRoot: fixture.projectsRoot,
+            sessionId: sessionId,
+            projectCwd: startCwd.path,
+            cwdLines: [startCwd.path, laterCwd.path]
+        )
+
+        let entry = try await loadSingleClaudeEntry(from: fixture.projectsRoot)
+
+        XCTAssertEqual(entry.cwd, laterCwd.path)
+        XCTAssertEqual(
+            entry.resumeCommandWithCwd,
+            "cd \(SessionEntry.shellQuote(startCwd.path)) && "
+                + posixShWrappedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)")
+        )
+    }
+
+    func testClaudeResumeCommandPrefersTranscriptCwdWhenDecodedProjectDirAlsoExists() async throws {
+        let fixture = try makeClaudeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let startCwd = fixture.root.appendingPathComponent("ambiguous-project", isDirectory: true)
+        let laterCwd = startCwd.appendingPathComponent("featureworktree", isDirectory: true)
+        let slashDecodedAlternative = fixture.root
+            .appendingPathComponent("ambiguous", isDirectory: true)
+            .appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: laterCwd, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: slashDecodedAlternative, withIntermediateDirectories: true)
+
+        let sessionId = "session-ambiguous-cwd"
+        try writeClaudeTranscript(
+            projectsRoot: fixture.projectsRoot,
+            sessionId: sessionId,
+            projectCwd: startCwd.path,
+            cwdLines: [startCwd.path, laterCwd.path]
+        )
+
+        let entry = try await loadSingleClaudeEntry(from: fixture.projectsRoot)
+
+        XCTAssertEqual(entry.cwd, laterCwd.path)
+        XCTAssertEqual(
+            entry.resumeCommandWithCwd,
+            "cd \(SessionEntry.shellQuote(startCwd.path)) && "
+                + posixShWrappedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)")
+        )
+    }
+
+    func testClaudeResumeCommandReadsOversizedInitialRecordBeforeDecodeFallback() async throws {
+        let fixture = try makeClaudeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let startCwd = fixture.root.appendingPathComponent("oversized-start-project", isDirectory: true)
+        let laterCwd = startCwd.appendingPathComponent("featureworktree", isDirectory: true)
+        let slashDecodedAlternative = fixture.root
+            .appendingPathComponent("oversized", isDirectory: true)
+            .appendingPathComponent("start", isDirectory: true)
+            .appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: laterCwd, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: slashDecodedAlternative, withIntermediateDirectories: true)
+
+        let sessionId = "session-oversized-initial-record"
+        try writeClaudeTranscript(
+            projectsRoot: fixture.projectsRoot,
+            sessionId: sessionId,
+            projectCwd: startCwd.path,
+            cwdLines: [startCwd.path, laterCwd.path],
+            firstContent: String(repeating: "x", count: SessionIndexStore.headByteCap + 1024)
+        )
+
+        let entry = try await loadSingleClaudeEntry(from: fixture.projectsRoot)
+
+        XCTAssertEqual(entry.cwd, laterCwd.path)
+        XCTAssertEqual(
+            entry.resumeCommandWithCwd,
+            "cd \(SessionEntry.shellQuote(startCwd.path)) && "
+                + posixShWrappedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)")
+        )
+    }
+
+    func testClaudeResumeCommandUsesTranscriptCwdBeforeAmbiguousDecodeWhenInitialRecordExceedsRescueCap() async throws {
+        let fixture = try makeClaudeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let startCwd = fixture.root.appendingPathComponent("huge-start-project", isDirectory: true)
+        let laterCwd = startCwd.appendingPathComponent("featureworktree", isDirectory: true)
+        let slashDecodedAlternative = fixture.root
+            .appendingPathComponent("huge", isDirectory: true)
+            .appendingPathComponent("start", isDirectory: true)
+            .appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: laterCwd, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: slashDecodedAlternative, withIntermediateDirectories: true)
+
+        let sessionId = "session-huge-initial-record"
+        try writeClaudeTranscript(
+            projectsRoot: fixture.projectsRoot,
+            sessionId: sessionId,
+            projectCwd: startCwd.path,
+            cwdLines: [startCwd.path, laterCwd.path],
+            firstContent: String(repeating: "x", count: SessionIndexStore.firstCompleteClaudeCwdByteCap + 1024)
+        )
+
+        let entry = try await loadSingleClaudeEntry(from: fixture.projectsRoot)
+
+        XCTAssertEqual(entry.cwd, laterCwd.path)
+        XCTAssertEqual(
+            entry.resumeCommandWithCwd,
+            "cd \(SessionEntry.shellQuote(laterCwd.path)) && "
+                + posixShWrappedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)")
+        )
+    }
+
     func testGrokResumeCommandPreservesSpecifics() {
         let entry = makeEntry(
             agent: .grok,
@@ -567,6 +740,64 @@ final class SessionIndexViewTests: XCTestCase {
         body()
     }
 
+    private func makeClaudeFixture() throws -> ClaudeFixture {
+        let suffix = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmuxsessionindex\(suffix)", isDirectory: true)
+        let configDir = root.appendingPathComponent("claudeconfig", isDirectory: true)
+        let projectsRoot = configDir.appendingPathComponent("projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectsRoot, withIntermediateDirectories: true)
+        return ClaudeFixture(root: root, projectsRoot: projectsRoot)
+    }
+
+    private func writeClaudeTranscript(
+        projectsRoot: URL,
+        sessionId: String,
+        projectCwd: String,
+        cwdLines: [String],
+        firstContent: String = "hi"
+    ) throws {
+        let projectDir = projectsRoot.appendingPathComponent(
+            claudeProjectDirectoryName(for: projectCwd),
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let lines = try cwdLines.enumerated().map { index, cwd in
+            try claudeTranscriptLine(cwd: cwd, content: index == 0 ? firstContent : "continue")
+        }
+        let transcript = lines.joined(separator: "\n") + "\n"
+        try transcript.write(
+            to: projectDir.appendingPathComponent("\(sessionId).jsonl", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    private func claudeTranscriptLine(cwd: String, content: String) throws -> String {
+        let object: [String: Any] = [
+            "type": "user",
+            "cwd": cwd,
+            "message": [
+                "role": "user",
+                "content": content
+            ]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private func claudeProjectDirectoryName(for cwd: String) -> String {
+        cwd
+            .replacingOccurrences(of: "/", with: "-")
+    }
+
+    private func loadSingleClaudeEntry(from projectsRoot: URL) async throws -> SessionEntry {
+        let entries = await SessionIndexStore.loadClaudeEntriesForTesting(projectsRoot: projectsRoot.path)
+        XCTAssertEqual(entries.count, 1)
+        return try XCTUnwrap(entries.first)
+    }
+
     private func makeCodexStateDatabase(
         at url: URL,
         rolloutURL: URL,
@@ -657,7 +888,8 @@ private extension SessionAgent {
             return .claude(
                 model: nil,
                 permissionMode: nil,
-                configDirectoryForResume: claudeConfigDirectoryForResume
+                configDirectoryForResume: claudeConfigDirectoryForResume,
+                resumeWorkingDirectory: nil
             )
         case .codex:
             return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
@@ -683,6 +915,11 @@ private struct SessionPopoverHarness {
     let section: IndexSection
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
+}
+
+private struct ClaudeFixture {
+    let root: URL
+    let projectsRoot: URL
 }
 
 private struct SQLiteTestError: Error {
