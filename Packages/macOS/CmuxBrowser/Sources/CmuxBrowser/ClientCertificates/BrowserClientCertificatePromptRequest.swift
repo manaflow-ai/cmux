@@ -4,15 +4,25 @@ import Foundation
     typealias Completion = BrowserClientCertificateAuthenticationHandler.Completion
     typealias PromptCancellation = () -> Void
     typealias PromptCancellationRegistration = BrowserClientCertificateAuthenticationHandler.PromptCancellationRegistration
+    typealias PromptCancellationCheck = BrowserClientCertificateAuthenticationHandler.PromptCancellationCheck
 
     let key: BrowserClientCertificateProtectionSpaceKey
-    let startPrompt: (@escaping Completion, @escaping PromptCancellationRegistration) -> Bool
+    let startPrompt: (
+        @escaping Completion,
+        @escaping PromptCancellationRegistration,
+        @escaping PromptCancellationCheck
+    ) -> Bool
     private var completions: [Completion]
-    private var cancelPrompt: PromptCancellation?
+    private var cancelPrompts: [PromptCancellation] = []
+    private(set) var isCancelled = false
 
     init(
         key: BrowserClientCertificateProtectionSpaceKey,
-        startPrompt: @escaping (@escaping Completion, @escaping PromptCancellationRegistration) -> Bool,
+        startPrompt: @escaping (
+            @escaping Completion,
+            @escaping PromptCancellationRegistration,
+            @escaping PromptCancellationCheck
+        ) -> Bool,
         completion: @escaping Completion
     ) {
         self.key = key
@@ -29,13 +39,14 @@ import Foundation
     }
 
     func setCancelPrompt(_ cancelPrompt: @escaping PromptCancellation) {
-        self.cancelPrompt = cancelPrompt
+        cancelPrompts.append(cancelPrompt)
     }
 
     func cancelPromptIfNeeded() {
-        let cancelPrompt = cancelPrompt
-        self.cancelPrompt = nil
-        cancelPrompt?()
+        isCancelled = true
+        let cancelPrompts = cancelPrompts
+        self.cancelPrompts.removeAll()
+        cancelPrompts.forEach { $0() }
     }
 
     func complete(

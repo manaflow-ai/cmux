@@ -28,7 +28,7 @@ import WebKit
     ) -> Bool {
         promptCoordinator.handle(
             challenge: challenge,
-            startPrompt: { [authenticationHandler, presentAlert] finishPrompt, registerCancelPrompt in
+            startPrompt: { [authenticationHandler, presentAlert] finishPrompt, registerCancelPrompt, isCancelled in
                 authenticationHandler.handle(
                     challenge: challenge,
                     candidatePicker: { [presentAlert] protectionSpace, candidates, completion, registerCancelPrompt in
@@ -43,6 +43,7 @@ import WebKit
                         )
                     },
                     registerCancelPrompt: registerCancelPrompt,
+                    isCancelled: isCancelled,
                     completionHandler: finishPrompt
                 )
             },

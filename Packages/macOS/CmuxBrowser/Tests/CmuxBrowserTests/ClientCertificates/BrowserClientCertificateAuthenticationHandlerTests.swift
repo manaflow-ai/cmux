@@ -79,7 +79,7 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
     }
 
     @Test
-    func automaticallyUsesCredentialWhenOneClientCertificateCandidateExists() throws {
+    func usesPickerSelectionWhenOneClientCertificateCandidateExists() throws {
         let expectedCredential = URLCredential(
             user: "client-cert",
             password: "unused",
@@ -99,9 +99,9 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
 
         let handled = handler.handle(
             challenge: makeChallenge(),
-            candidatePicker: { _, _, completion, _ in
+            candidatePicker: { _, candidates, completion, _ in
                 pickerWasPresented = true
-                completion(nil)
+                completion(candidates[0])
             }
         ) { returnedDisposition, returnedCredential in
             disposition = returnedDisposition
@@ -109,7 +109,7 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
         }
 
         #expect(handled)
-        #expect(!pickerWasPresented)
+        #expect(pickerWasPresented)
         #expect(disposition == .useCredential)
         let returnedCredential = try #require(credential)
         #expect(returnedCredential === expectedCredential)
@@ -226,7 +226,7 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
 
         let handledFirstChallenge = coordinator.handle(
             challenge: challenge,
-            startPrompt: { finishPrompt, _ in
+            startPrompt: { finishPrompt, _, _ in
                 promptCompletions.append(finishPrompt)
                 return true
             }
@@ -238,7 +238,7 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
 
         let handledSecondChallenge = coordinator.handle(
             challenge: challenge,
-            startPrompt: { finishPrompt, _ in
+            startPrompt: { finishPrompt, _, _ in
                 promptCompletions.append(finishPrompt)
                 return true
             }
@@ -266,10 +266,12 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
 
         func startPrompt(
             _ finishPrompt: @escaping BrowserClientCertificatePromptCoordinator.Completion,
-            _ registerCancelPrompt: @escaping BrowserClientCertificatePromptCoordinator.PromptCancellationRegistration
+            _ registerCancelPrompt: @escaping BrowserClientCertificatePromptCoordinator.PromptCancellationRegistration,
+            _ isCancelled: @escaping BrowserClientCertificatePromptCoordinator.PromptCancellationCheck
         ) -> Bool {
             _ = finishPrompt
             _ = registerCancelPrompt
+            _ = isCancelled
             promptStartCount += 1
             return true
         }
@@ -307,7 +309,7 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
 
         let handledChallenge = coordinator.handle(
             challenge: makeChallenge(),
-            startPrompt: { finishPrompt, registerCancelPrompt in
+            startPrompt: { finishPrompt, registerCancelPrompt, _ in
                 registerCancelPrompt {
                     cancelPromptCalled = true
                     finishPrompt(.cancelAuthenticationChallenge, nil)
@@ -323,6 +325,53 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
         coordinator.cancelAll()
 
         #expect(cancelPromptCalled)
+        #expect(completionCount == 1)
+        #expect(disposition == .cancelAuthenticationChallenge)
+    }
+
+    @Test
+    func cancelledLookupDoesNotPresentStalePicker() {
+        let coordinator = BrowserClientCertificatePromptCoordinator()
+        var lookupCompletion: (@MainActor @Sendable ([BrowserClientCertificateCredentialCandidate]) -> Void)?
+        let handler = BrowserClientCertificateAuthenticationHandler { _, completion in
+            lookupCompletion = completion
+        }
+        var pickerWasPresented = false
+        var completionCount = 0
+        var disposition: URLSession.AuthChallengeDisposition?
+
+        let challenge = makeChallenge()
+        let handled = coordinator.handle(
+            challenge: challenge,
+            startPrompt: { finishPrompt, registerCancelPrompt, isCancelled in
+                handler.handle(
+                    challenge: challenge,
+                    candidatePicker: { _, candidates, completion, _ in
+                        pickerWasPresented = true
+                        completion(candidates.first)
+                    },
+                    registerCancelPrompt: registerCancelPrompt,
+                    isCancelled: isCancelled,
+                    completionHandler: finishPrompt
+                )
+            }
+        ) { returnedDisposition, _ in
+            completionCount += 1
+            disposition = returnedDisposition
+        }
+        #expect(handled)
+
+        coordinator.cancelAll()
+        lookupCompletion?([
+            BrowserClientCertificateCredentialCandidate(
+                credential: URLCredential(user: "first", password: "unused", persistence: .forSession)
+            ),
+            BrowserClientCertificateCredentialCandidate(
+                credential: URLCredential(user: "second", password: "unused", persistence: .forSession)
+            ),
+        ])
+
+        #expect(!pickerWasPresented)
         #expect(completionCount == 1)
         #expect(disposition == .cancelAuthenticationChallenge)
     }

@@ -9,6 +9,10 @@ public import Foundation
     public typealias PromptCancellationRegistration =
         BrowserClientCertificateAuthenticationHandler.PromptCancellationRegistration
 
+    /// Returns whether the prompt request was canceled while lookup work was in flight.
+    public typealias PromptCancellationCheck =
+        BrowserClientCertificateAuthenticationHandler.PromptCancellationCheck
+
     private static let maxQueuedProtectionSpaces = 4
     private static let maxCompletionsPerProtectionSpace = 8
 
@@ -28,7 +32,11 @@ public import Foundation
     @discardableResult
     public func handle(
         challenge: URLAuthenticationChallenge,
-        startPrompt: @escaping (@escaping Completion, @escaping PromptCancellationRegistration) -> Bool,
+        startPrompt: @escaping (
+            @escaping Completion,
+            @escaping PromptCancellationRegistration,
+            @escaping PromptCancellationCheck
+        ) -> Bool,
         completionHandler: @escaping Completion
     ) -> Bool {
         guard BrowserClientCertificateAuthenticationHandler.shouldHandle(challenge: challenge) else {
@@ -114,6 +122,9 @@ public import Foundation
             },
             { [weak request] cancelPrompt in
                 request?.setCancelPrompt(cancelPrompt)
+            },
+            { [weak request] in
+                request?.isCancelled ?? true
             }
         )
 

@@ -19,6 +19,9 @@ public import Foundation
         _ registerCancelPrompt: @escaping PromptCancellationRegistration
     ) -> Void
 
+    /// Returns whether the prompt request was canceled while lookup work was in flight.
+    public typealias PromptCancellationCheck = @MainActor () -> Bool
+
     /// The completion shape expected by WebKit authentication-challenge delegates.
     public typealias Completion = (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
 
@@ -42,6 +45,7 @@ public import Foundation
         challenge: URLAuthenticationChallenge,
         candidatePicker: CandidatePicker? = nil,
         registerCancelPrompt: @escaping PromptCancellationRegistration = { _ in },
+        isCancelled: @escaping PromptCancellationCheck = { false },
         completionHandler: @escaping Completion
     ) -> Bool {
         guard Self.shouldHandle(challenge: challenge) else {
@@ -49,6 +53,7 @@ public import Foundation
         }
 
         candidateProvider(challenge.protectionSpace) { candidates in
+            guard !isCancelled() else { return }
             complete(
                 candidates: candidates,
                 protectionSpace: challenge.protectionSpace,
@@ -91,8 +96,6 @@ public import Foundation
         switch candidates.count {
         case 0:
             completionHandler(.performDefaultHandling, nil)
-        case 1:
-            completionHandler(.useCredential, candidates[0].credential)
         default:
             guard let candidatePicker else {
                 completionHandler(.performDefaultHandling, nil)
