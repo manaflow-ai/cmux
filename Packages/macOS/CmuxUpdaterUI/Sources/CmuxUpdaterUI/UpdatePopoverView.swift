@@ -43,7 +43,7 @@ public struct UpdatePopoverView: View {
                 CheckingView(checking: checking, dismiss: dismiss)
 
             case .updateAvailable(let update):
-                UpdateAvailableView(update: update, dismiss: dismiss)
+                UpdateAvailableView(update: update, actions: actions, dismiss: dismiss)
 
             case .downloading(let download):
                 DownloadingView(download: download, dismiss: dismiss)
@@ -273,6 +273,7 @@ private struct CheckingView: View {
 
 private struct UpdateAvailableView: View {
     let update: UpdateState.UpdateAvailable
+    let actions: any UpdateActionsHost
     let dismiss: () -> Void
 
     private let labelWidth: CGFloat = 60
@@ -304,7 +305,10 @@ private struct UpdateAvailableView: View {
                     Spacer()
 
                     Button(String(localized: "common.installAndRelaunch", defaultValue: "Install and Relaunch")) {
-                        update.reply(.install)
+                        // Re-resolve to the latest available version at install time instead of
+                        // installing the version captured when this prompt was generated, so a
+                        // newer release published in the meantime is installed directly (#6366).
+                        actions.attemptUpdate()
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
