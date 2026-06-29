@@ -2299,6 +2299,22 @@ final class BrowserNewTabNavigationSeedTests: XCTestCase {
     }
 }
 
+final class BrowserNavigableURLResolverTests: XCTestCase {
+    func testAbsoluteFilePathResolvesToFileURL() throws {
+        let url = try XCTUnwrap(resolveBrowserNavigableURL("/Users/example/Desktop/report.html"))
+
+        XCTAssertTrue(url.isFileURL)
+        XCTAssertEqual(url.path, "/Users/example/Desktop/report.html")
+    }
+
+    func testAbsoluteFilePathWithSpacesResolvesToFileURL() throws {
+        let url = try XCTUnwrap(resolveBrowserNavigableURL("/Users/example/Desktop/disk cleanup report.html"))
+
+        XCTAssertTrue(url.isFileURL)
+        XCTAssertEqual(url.path, "/Users/example/Desktop/disk cleanup report.html")
+    }
+}
+
 @MainActor
 final class BrowserPanelRemoteStoreTests: XCTestCase {
     func testRemoteWorkspacePanelsShareWorkspaceScopedWebsiteDataStore() {
