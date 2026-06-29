@@ -2641,7 +2641,11 @@ struct BrowserPanelView: View {
 
     private func handleInlineDeleteWordBackward() {
         guard let completion = inlineCompletion else { return }
-        let updated = omnibarPrefixAfterDeletingTrailingWord(from: completion.typedText)
+        let typedRange = NSRange(location: completion.typedText.utf16.count, length: 0)
+        let updated = omnibarTextAfterDeletingURLWordBackward(
+            text: completion.typedText,
+            selectedRange: typedRange
+        )?.text ?? omnibarPrefixAfterDeletingTrailingWord(from: completion.typedText)
         // Modified Backspace dismisses the current inline suggestion instead of
         // refetching suggestions for the shorter prefix.
         _ = omnibarReduce(state: &omnibarState, event: .bufferChanged(updated))
@@ -3623,6 +3627,109 @@ func omnibarPrefixAfterDeletingTrailingWord(from text: String) -> String {
         stop.pointee = true
     }
     return nsText.substring(to: deletionStart)
+}
+
+struct OmnibarURLWordDeletion: Equatable {
+    let text: String
+    let deletedRange: NSRange
+    let selectedRange: NSRange
+}
+
+private let omnibarURLWordBoundaryCharacterSet = CharacterSet.whitespacesAndNewlines
+    .union(CharacterSet(charactersIn: ".:/?#&=@"))
+private let omnibarURLStructuralBoundaryCharacterSet = CharacterSet(charactersIn: ".:/?#&=@")
+
+func omnibarTextAfterDeletingURLWordBackward(
+    text: String,
+    selectedRange: NSRange
+) -> OmnibarURLWordDeletion? {
+    guard text.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+        return nil
+    }
+
+    let nsText = text as NSString
+    let textLength = nsText.length
+    guard selectedRange.location != NSNotFound,
+          selectedRange.length == 0,
+          selectedRange.location <= textLength,
+          selectedRange.location > 0 else {
+        return nil
+    }
+
+    let caret = selectedRange.location
+    var scanEnd = caret
+    while scanEnd > 0,
+          omnibarURLWordBoundaryCharacter(in: nsText, at: scanEnd - 1) {
+        scanEnd -= 1
+    }
+    guard scanEnd > 0 else { return nil }
+
+    var deletionStart = scanEnd
+    while deletionStart > 0,
+          !omnibarURLWordBoundaryCharacter(in: nsText, at: deletionStart - 1) {
+        deletionStart -= 1
+    }
+
+    guard deletionStart < scanEnd else { return nil }
+
+    var deletionEnd = scanEnd == caret ? scanEnd : caret
+    if scanEnd == caret,
+       scanEnd < textLength,
+       omnibarURLWordBoundaryCharacter(in: nsText, at: scanEnd),
+       (deletionStart == 0 || omnibarURLWordBoundaryCharacter(in: nsText, at: deletionStart - 1)) {
+        while deletionEnd < textLength,
+              omnibarURLWordBoundaryCharacter(in: nsText, at: deletionEnd) {
+            deletionEnd += 1
+        }
+    }
+
+    guard omnibarURLDeletionTouchesStructuralBoundary(
+        in: nsText,
+        deletionStart: deletionStart,
+        deletionEnd: deletionEnd
+    ) else {
+        return nil
+    }
+
+    let deletionRange = NSRange(location: deletionStart, length: deletionEnd - deletionStart)
+    let updated = nsText.replacingCharacters(in: deletionRange, with: "")
+    return OmnibarURLWordDeletion(
+        text: updated,
+        deletedRange: deletionRange,
+        selectedRange: NSRange(location: deletionStart, length: 0)
+    )
+}
+
+private func omnibarURLWordBoundaryCharacter(in text: NSString, at index: Int) -> Bool {
+    guard index >= 0, index < text.length else { return true }
+    guard let scalar = UnicodeScalar(Int(text.character(at: index))) else { return false }
+    return omnibarURLWordBoundaryCharacterSet.contains(scalar)
+}
+
+private func omnibarURLStructuralBoundaryCharacter(in text: NSString, at index: Int) -> Bool {
+    guard index >= 0, index < text.length else { return false }
+    guard let scalar = UnicodeScalar(Int(text.character(at: index))) else { return false }
+    return omnibarURLStructuralBoundaryCharacterSet.contains(scalar)
+}
+
+private func omnibarURLDeletionTouchesStructuralBoundary(
+    in text: NSString,
+    deletionStart: Int,
+    deletionEnd: Int
+) -> Bool {
+    if omnibarURLStructuralBoundaryCharacter(in: text, at: deletionStart - 1) {
+        return true
+    }
+
+    var index = deletionStart
+    while index < deletionEnd {
+        if omnibarURLStructuralBoundaryCharacter(in: text, at: index) {
+            return true
+        }
+        index += 1
+    }
+
+    return omnibarURLStructuralBoundaryCharacter(in: text, at: deletionEnd)
 }
 
 private func typedQueryHasExplicitPathOrQuery(_ typedQuery: String) -> Bool {
@@ -4655,6 +4762,12 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 #endif
                     return true
                 }
+                if handleOptionDeleteBackward(editor: textView) {
+#if DEBUG
+                    handled = true
+#endif
+                    return true
+                }
                 return false
             default:
                 return false
@@ -4861,6 +4974,14 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                     return true
                 }
             case 51: // Backspace
+                if modifiers == [.option],
+                   let editor,
+                   handleOptionDeleteBackward(editor: editor) {
+#if DEBUG
+                    handled = true
+#endif
+                    return true
+                }
                 if modifiers.contains(.command) || modifiers.contains(.option) {
                     return false
                 }
@@ -4877,6 +4998,33 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             }
 
             return false
+        }
+
+        private func handleOptionDeleteBackward(editor: NSTextView) -> Bool {
+            guard parent.inlineCompletion == nil else { return false }
+            guard let deletion = omnibarTextAfterDeletingURLWordBackward(
+                text: editor.string,
+                selectedRange: editor.selectedRange()
+            ) else {
+                return false
+            }
+
+            guard editor.shouldChangeText(in: deletion.deletedRange, replacementString: "") else {
+                return false
+            }
+            guard let textStorage = editor.textStorage else { return false }
+
+            isProgrammaticMutation = true
+            defer { isProgrammaticMutation = false }
+            textStorage.replaceCharacters(in: deletion.deletedRange, with: "")
+            editor.didChangeText()
+            editor.setSelectedRange(deletion.selectedRange)
+
+            parent.text = deletion.text
+            parent.onSelectionChanged(deletion.selectedRange, false)
+            lastPublishedSelection = deletion.selectedRange
+            lastPublishedHasMarkedText = false
+            return true
         }
     }
 
