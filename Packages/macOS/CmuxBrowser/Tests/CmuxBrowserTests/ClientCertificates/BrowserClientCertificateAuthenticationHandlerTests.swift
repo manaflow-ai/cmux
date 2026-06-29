@@ -79,6 +79,28 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
     }
 
     @Test
+    func protectionSpaceKeyTreatsNilAndEmptyIssuersAsEquivalent() {
+        let nilIssuerKey = BrowserClientCertificateProtectionSpaceKey(
+            host: "mtls.example",
+            port: 443,
+            protocolName: "https",
+            distinguishedNames: nil,
+            authenticationMethod: NSURLAuthenticationMethodClientCertificate
+        )
+        let emptyIssuerKey = BrowserClientCertificateProtectionSpaceKey(
+            host: "mtls.example",
+            port: 443,
+            protocolName: "https",
+            distinguishedNames: [],
+            authenticationMethod: NSURLAuthenticationMethodClientCertificate
+        )
+
+        #expect(nilIssuerKey == emptyIssuerKey)
+        #expect(nilIssuerKey.distinguishedNames == nil)
+        #expect(emptyIssuerKey.distinguishedNames == nil)
+    }
+
+    @Test
     func usesPickerSelectionWhenOneClientCertificateCandidateExists() throws {
         let expectedCredential = URLCredential(
             user: "client-cert",
@@ -92,6 +114,7 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
                     credential: expectedCredential
                 ),
             ])
+            return nil
         }
         var disposition: URLSession.AuthChallengeDisposition?
         var credential: URLCredential?
@@ -127,6 +150,7 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
         ]
         let handler = BrowserClientCertificateAuthenticationHandler { _, completion in
             completion(candidates)
+            return nil
         }
         var disposition: URLSession.AuthChallengeDisposition?
         var credential: URLCredential?
@@ -145,6 +169,7 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
     func performsDefaultHandlingWhenNoClientCertificateCandidateExists() {
         let handler = BrowserClientCertificateAuthenticationHandler { _, completion in
             completion([])
+            return nil
         }
         var disposition: URLSession.AuthChallengeDisposition?
         var credential: URLCredential?
@@ -167,6 +192,7 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
                     credential: URLCredential(user: "user", password: "password", persistence: .forSession)
                 ),
             ])
+            return nil
         }
         var completionCalled = false
 
@@ -190,6 +216,7 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
         ]
         let handler = BrowserClientCertificateAuthenticationHandler { _, completion in
             completion(candidates)
+            return nil
         }
         var pickerCandidateCount: Int?
         var disposition: URLSession.AuthChallengeDisposition?
@@ -333,8 +360,12 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
     func cancelledLookupDoesNotPresentStalePicker() {
         let coordinator = BrowserClientCertificatePromptCoordinator()
         var lookupCompletion: (@MainActor @Sendable ([BrowserClientCertificateCredentialCandidate]) -> Void)?
+        var lookupCancelled = false
         let handler = BrowserClientCertificateAuthenticationHandler { _, completion in
             lookupCompletion = completion
+            return {
+                lookupCancelled = true
+            }
         }
         var pickerWasPresented = false
         var completionCount = 0
@@ -362,6 +393,7 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
         #expect(handled)
 
         coordinator.cancelAll()
+        #expect(lookupCancelled)
         lookupCompletion?([
             BrowserClientCertificateCredentialCandidate(
                 credential: URLCredential(user: "first", password: "unused", persistence: .forSession)

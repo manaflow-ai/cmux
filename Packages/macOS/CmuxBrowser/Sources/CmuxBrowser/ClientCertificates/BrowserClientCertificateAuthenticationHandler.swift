@@ -2,11 +2,17 @@ public import Foundation
 
 /// Resolves a WebKit client-certificate challenge into a challenge disposition.
 @MainActor public struct BrowserClientCertificateAuthenticationHandler {
+    /// Cancels an in-flight client-certificate candidate lookup.
+    public typealias CandidateLookupCancellation = @MainActor @Sendable () -> Void
+
     /// Asynchronously provides Keychain credential candidates for a protection space.
+    ///
+    /// Return a cancellation closure when the lookup starts work that can outlive
+    /// the prompt request.
     public typealias CandidateProvider = @MainActor @Sendable (
         _ protectionSpace: URLProtectionSpace,
         _ completion: @escaping @MainActor @Sendable ([BrowserClientCertificateCredentialCandidate]) -> Void
-    ) -> Void
+    ) -> CandidateLookupCancellation?
 
     /// Registers a callback that dismisses any in-flight certificate picker.
     public typealias PromptCancellationRegistration = (@escaping () -> Void) -> Void
@@ -52,7 +58,7 @@ public import Foundation
             return false
         }
 
-        candidateProvider(challenge.protectionSpace) { candidates in
+        let cancelLookup = candidateProvider(challenge.protectionSpace) { candidates in
             guard !isCancelled() else { return }
             complete(
                 candidates: candidates,
@@ -61,6 +67,9 @@ public import Foundation
                 registerCancelPrompt: registerCancelPrompt,
                 completionHandler: completionHandler
             )
+        }
+        if let cancelLookup {
+            registerCancelPrompt(cancelLookup)
         }
         return true
     }
@@ -72,13 +81,18 @@ public import Foundation
     public static func keychainCandidateProvider(
         protectionSpace: URLProtectionSpace,
         completion: @escaping @MainActor @Sendable ([BrowserClientCertificateCredentialCandidate]) -> Void
-    ) {
+    ) -> CandidateLookupCancellation? {
         let acceptedIssuers = protectionSpace.distinguishedNames
-        Task.detached(priority: .userInitiated) {
+        let lookupTask = Task.detached(priority: .userInitiated) {
             let candidates = BrowserClientCertificateCredentialStore().candidates(acceptedIssuers: acceptedIssuers)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 completion(candidates)
             }
+        }
+        return {
+            lookupTask.cancel()
         }
     }
 
