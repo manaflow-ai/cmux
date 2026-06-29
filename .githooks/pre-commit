@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+if ! git diff --cached --quiet -- .github/swift-file-length-budget.tsv; then
+  staged_budget="$(mktemp)"
+  trap 'rm -f "$staged_budget"' EXIT
+  git show :.github/swift-file-length-budget.tsv >"$staged_budget"
+  python3 scripts/swift_file_length_budget.py --budget "$staged_budget" --index
+fi
+
+python3 scripts/swift_file_length_budget.py \
+  --budget .github/swift-file-length-budget.tsv \
+  --staged
