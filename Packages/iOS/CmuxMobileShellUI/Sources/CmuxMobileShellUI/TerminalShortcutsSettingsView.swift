@@ -86,8 +86,8 @@ struct TerminalShortcutsSettingsView: View {
     @ViewBuilder
     private func row(for item: ResolvedToolbarItem) -> some View {
         Toggle(isOn: binding(for: item.id)) {
-            if item.isCustom {
-                Label(item.settingsDisplayName, systemImage: "character.cursor.ibeam")
+            if let custom = item.customAction {
+                Label(item.settingsDisplayName, systemImage: custom.payload.settingsRowSystemImage)
             } else {
                 Text(item.settingsDisplayName)
             }
