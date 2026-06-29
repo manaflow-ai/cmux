@@ -69,13 +69,18 @@ nonisolated struct BrowserClientCertificateResolver: Sendable {
         // 1. A host-specific keychain identity preference (the user's explicit
         //    choice for this host, what a system browser records on first use),
         //    constrained to the server's acceptable issuers so a stale preference
-        //    can't present a certificate the server never asked for. Try the bare
-        //    host and the URL forms a browser typically records.
-        let host = protectionSpace.host
-        let candidates = [host, "https://\(host)", "https://\(host):\(protectionSpace.port)"]
-        for name in candidates {
-            if let preferred = SecIdentityCopyPreferred(name as CFString, nil, issuerFilter) {
-                return preferred
+        //    can't present a certificate the server never asked for. Only consult
+        //    the preference when the server advertised acceptable issuers — with no
+        //    issuer constraint a stale preference would be presented unconditionally,
+        //    so we fail closed (defer to the system) instead. Try the bare host and
+        //    the URL forms a browser typically records.
+        if let issuerFilter {
+            let host = protectionSpace.host
+            let candidates = [host, "https://\(host)", "https://\(host):\(protectionSpace.port)"]
+            for name in candidates {
+                if let preferred = SecIdentityCopyPreferred(name as CFString, nil, issuerFilter) {
+                    return preferred
+                }
             }
         }
 
