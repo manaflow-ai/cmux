@@ -161,6 +161,10 @@ struct RightSidebarPanelView: View {
         showModifierHoldHints && showCommandHoldHints
     }
 
+    private var shortcutHintMonitorRefreshID: Int {
+        (showModifierHoldHints ? 1 : 0) + (showCommandHoldHints ? 2 : 0)
+    }
+
     private func startShortcutHintMonitorsIfNeeded() {
         guard showModifierHoldHints else {
             stopShortcutHintMonitors()
@@ -197,7 +201,7 @@ struct RightSidebarPanelView: View {
             .frame(width: 1, height: 1)
         )
         .background(
-            WindowAccessor(refreshID: "\(showModifierHoldHints)-\(showCommandHoldHints)") { window in
+            WindowAccessor(refreshID: shortcutHintMonitorRefreshID) { window in
                 let commandHintWindow = commandHoldHintsEnabled ? window : nil
                 modeShortcutHintMonitor.setHostWindow(commandHintWindow)
                 focusShortcutHintMonitor.setHostWindow(commandHintWindow)
