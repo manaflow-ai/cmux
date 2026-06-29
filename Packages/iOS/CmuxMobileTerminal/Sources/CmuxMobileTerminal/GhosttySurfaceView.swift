@@ -2552,12 +2552,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         runtime?.tick()
     }
 
-    func simulateInputProxyTextChangeForTesting(_ text: String, isComposing: Bool) {
-        setFocus(true)
-        inputProxy.simulateTextChangeForTesting(text, isComposing: isComposing)
-        runtime?.tick()
-    }
-
     func renderedTextForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {
         guard let surface else { return nil }
 

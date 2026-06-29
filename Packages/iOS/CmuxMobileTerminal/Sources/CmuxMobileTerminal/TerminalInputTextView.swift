@@ -66,7 +66,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// ``TerminalInputModifierState`` reducer. This view is now a dumb
     /// first-responder that forwards taps into the reducer and reads its state
     /// back for byte encoding and button styling.
-    private var modifierState = TerminalInputModifierState()
+    ///
+    /// `internal` (not `private`) so `@testable` accessory tests can clear the
+    /// sticky double-tap window between synthesized taps that land microseconds
+    /// apart — real taps are seconds apart — without a production test seam.
+    var modifierState = TerminalInputModifierState()
     /// Factory for hardware-key hold-to-repeat timers, injected so tests drive the
     /// cadence with a deterministic fake. Production uses the
     /// `DispatchSourceTimer`-backed default; consumed by ``hardwareKeyCapture``.
@@ -677,42 +681,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         onBackspace?()
     }
 
-    /// Test seam standing in for an IME/dictation/commit cycle.
-    ///
-    /// Drives the same path the keyboard would: composing text marks it (so
-    /// ``markedText`` is held and the anchor is suppressed), while a
-    /// non-composing change commits it. Mirrors the real
-    /// ``setMarkedText(_:selectedRange:)`` → ``insertText(_:)`` flow so tests can
-    /// assert routing without a live keyboard.
-    func simulateTextChangeForTesting(_ text: String, isComposing: Bool) {
-        if isComposing {
-            setMarkedText(text, selectedRange: NSRange(location: text.count, length: 0))
-        } else {
-            if markedText != nil {
-                withMarkedTextChange { markedText = nil }
-            }
-            guard !text.isEmpty else { return }
-            emitCommittedText(text, source: "textChange")
-        }
-    }
-
-    func simulateAccessoryActionForTesting(_ action: TerminalInputAccessoryAction) {
-        resetStickyTapTimeForTesting(action)
-        handleAccessoryAction(action)
-    }
-
-    func simulateNubArrowForTesting(_ action: TerminalInputAccessoryAction) {
-        handleNubArrow(action)
-    }
-
-    private func resetStickyTapTimeForTesting(_ action: TerminalInputAccessoryAction) {
-        guard action.isModifier else { return }
-        modifierState.clearDoubleTapWindow()
-    }
-
     /// Route a directional-nub arrow through the same modifier-aware path as the
     /// toolbar arrow buttons.
-    private func handleNubArrow(_ action: TerminalInputAccessoryAction) {
+    ///
+    /// `internal` (not `private`) so `@testable` accessory tests can drive the
+    /// real nub path directly instead of through a production test seam.
+    func handleNubArrow(_ action: TerminalInputAccessoryAction) {
         handleAccessoryAction(action)
     }
 
@@ -948,7 +922,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         return config
     }
 
-    private func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {
+    /// `internal` (not `private`) so `@testable` accessory tests can drive this
+    /// real toolbar-accessory path directly instead of through a test seam.
+    func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {
         if action == .composer {
             // Opening the composer moves first responder off this proxy, so clear
             // any armed modifier first (like Paste/Zoom do); otherwise a

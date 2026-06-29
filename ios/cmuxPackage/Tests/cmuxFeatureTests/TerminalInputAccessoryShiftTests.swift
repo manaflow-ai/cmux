@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CmuxMobileTerminalKit
 import Foundation
 import Testing
 import UIKit
@@ -12,8 +13,10 @@ import UIKit
 /// arming ⇧ and tapping Tab sends back-tab (CSI Z) — the sequence agents and TUIs
 /// read to cycle backward — and a one-shot ⇧ applies to exactly one key.
 ///
-/// Drives the view directly through its `simulate*ForTesting` hooks so no live
-/// keyboard / first-responder is required.
+/// Drives the REAL accessory/nub handlers (`handleAccessoryAction` /
+/// `handleNubArrow`) via `@testable import` — through the `tapAccessory` /
+/// `tapNub` test-target helpers below — so no live keyboard / first-responder
+/// and no production test seam is required.
 @MainActor
 @Suite("Terminal input accessory ⇧ modifier")
 struct TerminalInputAccessoryShiftTests {
@@ -26,8 +29,8 @@ struct TerminalInputAccessoryShiftTests {
         var sequences: [Data] = []
         view.onEscapeSequence = { sequences.append($0) }
 
-        view.simulateAccessoryActionForTesting(.shift) // arm ⇧
-        view.simulateAccessoryActionForTesting(.tab) // ⇧ + Tab
+        view.tapAccessory(.shift) // arm ⇧
+        view.tapAccessory(.tab) // ⇧ + Tab
 
         #expect(sequences == [backTab])
     }
@@ -38,9 +41,9 @@ struct TerminalInputAccessoryShiftTests {
         var sequences: [Data] = []
         view.onEscapeSequence = { sequences.append($0) }
 
-        view.simulateAccessoryActionForTesting(.shift) // arm ⇧ (one-shot)
-        view.simulateAccessoryActionForTesting(.tab) // consumes ⇧ → back-tab
-        view.simulateAccessoryActionForTesting(.tab) // ⇧ already spent → plain Tab
+        view.tapAccessory(.shift) // arm ⇧ (one-shot)
+        view.tapAccessory(.tab) // consumes ⇧ → back-tab
+        view.tapAccessory(.tab) // ⇧ already spent → plain Tab
 
         #expect(sequences == [backTab, tab])
     }
@@ -53,7 +56,7 @@ struct TerminalInputAccessoryShiftTests {
         view.onText = { text.append($0) }
         view.onEscapeSequence = { sequences.append($0) }
 
-        view.simulateAccessoryActionForTesting(.shift) // arm ⇧
+        view.tapAccessory(.shift) // arm ⇧
         view.insertText("a") // commit a typed character with ⇧ armed
 
         #expect(text == ["A"])
@@ -70,9 +73,9 @@ struct TerminalInputAccessoryShiftTests {
         var sequences: [Data] = []
         view.onEscapeSequence = { sequences.append($0) }
 
-        view.simulateAccessoryActionForTesting(.shift) // arm ⇧
-        view.simulateAccessoryActionForTesting(.shift) // tap again → off
-        view.simulateAccessoryActionForTesting(.tab) // no modifier → plain Tab
+        view.tapAccessory(.shift) // arm ⇧
+        view.tapAccessory(.shift) // tap again → off
+        view.tapAccessory(.tab) // no modifier → plain Tab
 
         #expect(sequences == [tab])
     }
@@ -85,7 +88,7 @@ struct TerminalInputAccessoryShiftTests {
         view.onBackspace = { backspaces += 1 }
         view.onText = { text.append($0) }
 
-        view.simulateAccessoryActionForTesting(.shift) // arm ⇧ (one-shot)
+        view.tapAccessory(.shift) // arm ⇧ (one-shot)
         view.deleteBackward() // Backspace consumes ⇧, sends a normal backspace
         view.insertText("a") // ⇧ already spent → lowercase, not "A"
 
@@ -102,8 +105,8 @@ struct TerminalInputAccessoryShiftTests {
         view.onText = { text.append($0) }
 
         let up = Data([0x1B, 0x5B, 0x41]) // ESC [ A
-        view.simulateAccessoryActionForTesting(.shift) // arm ⇧ (one-shot)
-        view.simulateNubArrowForTesting(.upArrow) // nub sends a raw arrow, consumes ⇧
+        view.tapAccessory(.shift) // arm ⇧ (one-shot)
+        view.tapNub(.upArrow) // nub sends a raw arrow, consumes ⇧
         view.insertText("a") // ⇧ already spent → lowercase, not "A"
 
         #expect(sequences == [up]) // arrow forwarded unmodified
@@ -116,9 +119,9 @@ struct TerminalInputAccessoryShiftTests {
         var sequences: [Data] = []
         view.onEscapeSequence = { sequences.append($0) }
 
-        view.simulateAccessoryActionForTesting(.alternate) // arm ⌥ (one-shot)
-        view.simulateNubArrowForTesting(.leftArrow) // ⌥ + ← = word-left
-        view.simulateNubArrowForTesting(.leftArrow) // ⌥ already spent → plain ←
+        view.tapAccessory(.alternate) // arm ⌥ (one-shot)
+        view.tapNub(.leftArrow) // ⌥ + ← = word-left
+        view.tapNub(.leftArrow) // ⌥ already spent → plain ←
 
         #expect(sequences == [
             Data([0x1B, 0x62]), // ESC b
@@ -132,14 +135,36 @@ struct TerminalInputAccessoryShiftTests {
         var sequences: [Data] = []
         view.onEscapeSequence = { sequences.append($0) }
 
-        view.simulateAccessoryActionForTesting(.command) // arm ⌘ (one-shot)
-        view.simulateNubArrowForTesting(.leftArrow) // ⌘ + ← = start of line
-        view.simulateNubArrowForTesting(.leftArrow) // ⌘ already spent → plain ←
+        view.tapAccessory(.command) // arm ⌘ (one-shot)
+        view.tapNub(.leftArrow) // ⌘ + ← = start of line
+        view.tapNub(.leftArrow) // ⌘ already spent → plain ←
 
         #expect(sequences == [
             Data([0x01]), // Ctrl+A
             Data([0x1B, 0x5B, 0x44]), // ESC [ D
         ])
+    }
+}
+
+private extension TerminalInputTextView {
+    /// Test-target stand-in for a toolbar accessory tap.
+    ///
+    /// Clears the sticky double-tap window first: synthesized taps land
+    /// microseconds apart and would otherwise read as the sticky-promotion
+    /// double-tap (real taps are seconds apart). Then drives the REAL
+    /// ``TerminalInputTextView/handleAccessoryAction(_:)`` path via
+    /// `@testable import`. Lives in the test target so production source ships
+    /// no test seam.
+    func tapAccessory(_ action: TerminalInputAccessoryAction) {
+        modifierState.clearDoubleTapWindow()
+        handleAccessoryAction(action)
+    }
+
+    /// Test-target stand-in for an arrow-nub press: drives the REAL
+    /// ``TerminalInputTextView/handleNubArrow(_:)`` path the production nub
+    /// callback uses.
+    func tapNub(_ action: TerminalInputAccessoryAction) {
+        handleNubArrow(action)
     }
 }
 #endif
