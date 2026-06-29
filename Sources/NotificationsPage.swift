@@ -24,31 +24,7 @@ struct NotificationsPage: View {
             } else if notificationStore.notifications.isEmpty {
                 workspaceUnreadIndicatorState
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(notificationStore.notifications) { notification in
-                            NotificationRow(
-                                notification: notification,
-                                tabTitle: tabTitle(for: notification.tabId),
-                                onOpen: {
-                                    // SwiftUI action closures are not guaranteed to run on the main actor.
-                                    // Ensure window focus + tab selection happens on the main thread.
-                                    DispatchQueue.main.async {
-                                        _ = AppDelegate.shared?.openTerminalNotification(notification)
-                                        if notification.clickAction == nil {
-                                            selection = .tabs
-                                        }
-                                    }
-                                },
-                                onClear: {
-                                    notificationStore.remove(id: notification.id)
-                                },
-                                focusedNotificationId: $focusedNotificationId
-                            )
-                        }
-                    }
-                    .padding(16)
-                }
+                notificationsList
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -56,6 +32,46 @@ struct NotificationsPage: View {
         .onAppear(perform: setInitialFocus)
         .onChange(of: notificationStore.notifications.first?.id) { _ in
             setInitialFocus()
+        }
+    }
+
+    private var notificationsList: some View {
+        // Build one tabId -> title index per render instead of an O(tabs) lookup
+        // for every notification row. Constructing the ForEach then costs
+        // O(rows + tabs) rather than O(rows × tabs), which matters when many
+        // notifications accumulate (issue #5794).
+        let tabTitles = AppDelegate.shared?.tabTitlesByTabId() ?? [:]
+        return ScrollView {
+            LazyVStack(spacing: 8) {
+                ForEach(notificationStore.notifications) { notification in
+                    NotificationRow(
+                        notification: notification,
+                        tabTitle: tabTitle(for: notification.tabId, in: tabTitles),
+                        isFocused: focusedNotificationId == notification.id,
+                        onOpen: {
+                            // SwiftUI action closures aren't guaranteed to be main-actor
+                            // isolated; hop to the main actor for window focus + tab selection.
+                            Task { @MainActor in
+                                _ = AppDelegate.shared?.openTerminalNotification(notification)
+                                if notification.clickAction == nil {
+                                    selection = .tabs
+                                }
+                            }
+                        },
+                        onClear: {
+                            notificationStore.remove(id: notification.id)
+                        },
+                        focusedNotificationId: $focusedNotificationId
+                    )
+                    // Each NotificationRow renders heavily-modified nested stacks.
+                    // Equatable + .equatable() lets a NotificationStore publish that
+                    // touches one notification skip body re-evaluation for the other
+                    // rows, instead of re-laying out the whole LazyVStack on every
+                    // publish (issue #5794, same class as #2586 / #5752).
+                    .equatable()
+                }
+            }
+            .padding(16)
         }
     }
 
@@ -203,8 +219,8 @@ struct NotificationsPage: View {
         return KeyboardShortcutSettings.shortcut(for: .jumpToUnread)
     }
 
-    private func tabTitle(for tabId: UUID) -> String? {
-        AppDelegate.shared?.tabTitle(for: tabId) ?? tabManager.tabs.first(where: { $0.id == tabId })?.title
+    private func tabTitle(for tabId: UUID, in tabTitles: [UUID: String]) -> String? {
+        tabTitles[tabId] ?? tabManager.tabs.first(where: { $0.id == tabId })?.title
     }
 
     private var hasUnreadNotifications: Bool {
@@ -238,9 +254,23 @@ struct ShortcutAnnotation: View {
     }
 }
 
-private struct NotificationRow: View {
+struct NotificationRow: View, Equatable {
+    // Closures and the focus binding are recreated by the parent on every render
+    // and excluded from ==. Equality compares only the value snapshot the row
+    // actually renders, so `.equatable()` can suppress body re-evaluation for
+    // rows whose snapshot is unchanged (snapshot-boundary rule, CLAUDE.md /
+    // issue #2586). `isFocused` is passed in (rather than read from the binding
+    // inside the row) precisely so it participates in equality — otherwise a
+    // focus change would leave the default-action shortcut on a stale row.
+    nonisolated static func == (lhs: NotificationRow, rhs: NotificationRow) -> Bool {
+        lhs.notification == rhs.notification &&
+            lhs.tabTitle == rhs.tabTitle &&
+            lhs.isFocused == rhs.isFocused
+    }
+
     let notification: TerminalNotification
     let tabTitle: String?
+    let isFocused: Bool
     let onOpen: () -> Void
     let onClear: () -> Void
     let focusedNotificationId: FocusState<UUID?>.Binding
@@ -293,7 +323,7 @@ private struct NotificationRow: View {
             .accessibilityIdentifier("NotificationRow.\(notification.id.uuidString)")
             .focusable()
             .focused(focusedNotificationId, equals: notification.id)
-            .modifier(DefaultActionModifier(isActive: focusedNotificationId.wrappedValue == notification.id))
+            .modifier(DefaultActionModifier(isActive: isFocused))
 
             Button(action: onClear) {
                 Image(systemName: "xmark.circle.fill")
