@@ -104,6 +104,26 @@ final class RemoteTmuxWindowMirror {
 
     @ObservationIgnored private var lastClientSize: (cols: Int, rows: Int)?
 
+    /// Composes the tmux client grid from the per-pane rendered grids by walking
+    /// the layout tree and summing grid dimensions along each split axis (+1 per
+    /// tmux divider between children), taking the max on the cross axis.
+    ///
+    /// This is a pure function with no side effects, testable without a live
+    /// Ghostty surface or window.
+    ///
+    /// - Parameters:
+    ///   - node: The layout subtree to compose.
+    ///   - gridForPane: Returns the rendered `(cols, rows)` for a leaf pane id,
+    ///     or `nil` if the surface is not yet live.
+    /// - Returns: The composed client grid, or `nil` when any leaf surface is not
+    ///   yet live (caller should retry).
+    nonisolated static func composeClientGrid(
+        _ node: RemoteTmuxLayoutNode,
+        gridForPane: (Int) -> (cols: Int, rows: Int)?
+    ) -> (cols: Int, rows: Int)? {
+        nil
+    }
+
     /// Tells tmux to size this session's windows to the rendered cmux area, so
     /// captured/live pane content matches the on-screen grid. Derives cols/rows
     /// from the content pixel area and a live pane's cell size; sends
