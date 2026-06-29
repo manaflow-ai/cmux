@@ -1546,6 +1546,8 @@ jobs:
           DISPLAY_START="/tmp/cmux-ui-test-display-${TOKEN}.start"
           DISPLAY_DONE="/tmp/cmux-ui-test-display-${TOKEN}.done"
           HELPER_LOG="/tmp/cmux-ui-test-display-${TOKEN}-helper.log"
+          XCODEBUILD_LOG="/tmp/cmux-ui-test-display-${TOKEN}-xcodebuild.log"
+          BASELINE_READY_MARKER="CMUX_DISPLAY_CHURN_BASELINE_READY_${TOKEN}"
           HELPER_PID=""
           START_SIGNAL_PID=""
           DISPLAY_LOCK_DIR=""
@@ -1582,7 +1584,7 @@ jobs:
             fi
             release_display_lock
             pkill -x "cmux DEV" 2>/dev/null || true
-            rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG"
+            rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG" "$XCODEBUILD_LOG"
             rm -f /tmp/cmux-ui-test-prelaunch.json /tmp/cmux-ui-test-display-harness.json
           }
 
@@ -1616,8 +1618,8 @@ jobs:
 
             # Launch display helper from shell (non-sandboxed).
             # The shell owns the /tmp start signal because the XCTest runner is
-            # sandboxed. Start after xcodebuild is running so the test captures
-            # render stats before the display churn begins.
+            # sandboxed. xcodebuild output carries the baseline-ready marker, and
+            # the shell writes startPath only after the test captures render stats.
             "$HELPER_PATH" \
               --modes "1920x1080,1728x1117,1600x900,1440x810" \
               --ready-path "$DISPLAY_READY" \
@@ -1739,18 +1741,42 @@ jobs:
 
             # Run test — app is already launched from shell
             (
-              sleep 20
-              printf 'start\n' > "$DISPLAY_START"
+              for _ in $(seq 1 480); do
+                if grep -Fq "$BASELINE_READY_MARKER" "$XCODEBUILD_LOG" 2>/dev/null; then
+                  echo "XCTest baseline marker observed; starting display churn"
+                  printf 'start\n' > "$DISPLAY_START"
+                  exit 0
+                fi
+                sleep 0.25
+              done
+              echo "ERROR: XCTest baseline marker not observed before display-churn start timeout" >&2
+              echo "--- xcodebuild log tail ---" >&2
+              tail -80 "$XCODEBUILD_LOG" >&2 2>/dev/null || true
+              echo "--- diagnostics ---" >&2
+              cat "$DIAG_PATH" >&2 2>/dev/null || true
+              exit 1
             ) &
             START_SIGNAL_PID=$!
 
-            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            XCODEBUILD_OK=false
+            if CMUX_UI_TEST_DISPLAY_BASELINE_READY_MARKER="$BASELINE_READY_MARKER" \
+              xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
-              test-without-building; then
+              test-without-building 2>&1 | tee "$XCODEBUILD_LOG"; then
+              XCODEBUILD_OK=true
+            fi
+
+            if [ -n "${START_SIGNAL_PID:-}" ]; then
+              kill "$START_SIGNAL_PID" 2>/dev/null || true
+              wait "$START_SIGNAL_PID" 2>/dev/null || true
+              START_SIGNAL_PID=""
+            fi
+
+            if [ "$XCODEBUILD_OK" = "true" ]; then
               cleanup_attempt
               exit 0
             fi

@@ -82,16 +82,16 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         var maxDiagnosticsUpdatedAt = baselineStats.diagnosticsUpdatedAt
         var lastStats = baselineStats
 
-        // When pre-launched from CI, the shell owns the /tmp/ start signal
-        // because the XCTest runner is sandboxed. displayStartPath is empty
-        // when the harness manifest omits startPath.
-        if prelaunch == nil && !displayStartPath.isEmpty {
-            do {
-                try Data("start\n".utf8).write(to: URL(fileURLWithPath: displayStartPath), options: .atomic)
-            } catch {
-                XCTFail("Expected start signal file to be created at \(displayStartPath): \(error)")
-                return
-            }
+        if !displayStartPath.isEmpty, prelaunch == nil {
+            try Data("start\n".utf8).write(to: URL(fileURLWithPath: displayStartPath), options: .atomic)
+        } else if !displayStartPath.isEmpty,
+                  let marker = ProcessInfo.processInfo.environment["CMUX_UI_TEST_DISPLAY_BASELINE_READY_MARKER"], !marker.isEmpty {
+            let data = Data("\(marker)\n".utf8)
+            FileHandle.standardOutput.write(data)
+            FileHandle.standardError.write(data)
+        } else if !displayStartPath.isEmpty {
+            XCTFail("Prelaunched display harness requires CMUX_UI_TEST_DISPLAY_BASELINE_READY_MARKER")
+            return
         }
 
         let deadline = Date().addingTimeInterval(30.0)
