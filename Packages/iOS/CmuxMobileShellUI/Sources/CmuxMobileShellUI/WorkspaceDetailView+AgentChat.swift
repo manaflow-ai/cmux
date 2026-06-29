@@ -15,7 +15,7 @@ extension WorkspaceDetailView {
     /// workspace. Use that immediately so the toolbar does not flicker while the
     /// refresh task reconnects.
     private var visibleChatSessions: [ChatSessionDescriptor] {
-        if !chatSessions.isEmpty {
+        if chatSessionsWorkspaceID == workspace.id.rawValue {
             return chatSessions
         }
         return store.cachedChatSessions(workspaceID: workspace.id.rawValue)
@@ -162,30 +162,35 @@ extension WorkspaceDetailView {
     /// descriptor/state change; we register the push stream first, seed the list
     /// once, then fold each subsequent frame in.
     func refreshChatSessions() async {
+        let workspaceID = workspace.id.rawValue
         guard let source = store.makeChatEventSource() else {
             applyChatModeFallback(canInvalidateSelection: false)
             return
         }
-        let reducer = ChatSessionListReducer(workspaceID: workspace.id.rawValue)
+        let reducer = ChatSessionListReducer(workspaceID: workspaceID)
         let stream = await source.sessionEvents()
         let seedOutcome: WorkspaceChatSessionRefreshOutcome
         do {
-            seedOutcome = .authoritative(try await source.sessions(workspaceID: workspace.id.rawValue))
+            seedOutcome = .authoritative(try await source.sessions(workspaceID: workspaceID))
         } catch {
             seedOutcome = .unavailable
         }
         let nextSessions = seedOutcome.applying(to: visibleChatSessions)
         withAnimation(.snappy(duration: 0.25)) {
+            chatSessionsWorkspaceID = workspaceID
             chatSessions = nextSessions
         }
         if seedOutcome.canInvalidateSelection {
-            store.rememberChatSessions(nextSessions, workspaceID: workspace.id.rawValue)
+            store.rememberChatSessions(nextSessions, workspaceID: workspaceID)
         }
         reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: seedOutcome.canInvalidateSelection)
         for await frame in stream {
             let next = reducer.applying(frame, to: visibleChatSessions)
-            withAnimation(.snappy(duration: 0.25)) { chatSessions = next }
-            store.rememberChatSessions(next, workspaceID: workspace.id.rawValue)
+            withAnimation(.snappy(duration: 0.25)) {
+                chatSessionsWorkspaceID = workspaceID
+                chatSessions = next
+            }
+            store.rememberChatSessions(next, workspaceID: workspaceID)
             reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: false)
         }
     }

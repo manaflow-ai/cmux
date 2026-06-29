@@ -65,6 +65,7 @@ struct WorkspaceDetailView: View {
     /// mid-read. Cleared when chat mode turns off.
     @State var pinnedChatSessionID: String?
     @State var chatSessions: [ChatSessionDescriptor] = []
+    @State var chatSessionsWorkspaceID: String?
     /// Last terminal id whose cached snapshot said it had a chat session. This
     /// keeps the toolbar affordance and title spacing stable while SwiftUI
     /// swaps between terminal and chat mode, or while transport is reconnecting.
