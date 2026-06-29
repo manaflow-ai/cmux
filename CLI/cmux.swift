@@ -8480,8 +8480,9 @@ struct CMUXCLI {
         )
     }
 
-    /// `cmux ssh-tmux <destination>` — open a dedicated cmux window mirroring a remote
-    /// host's tmux sessions over `tmux -CC` (the remote-tmux beta).
+    /// `cmux ssh-tmux <destination>` — mirror a remote host's tmux sessions over
+    /// `tmux -CC` (the remote-tmux beta). Aggregates into the caller's current window
+    /// by default; `--new-window`/`--into-window` override the target.
     ///
     /// Unlike `cmux ssh`, this carries no cmuxd-remote/relay bootstrap: it only
     /// drives the SSH ControlMaster the mirror multiplexes over. The app's mirror
@@ -8500,6 +8501,7 @@ struct CMUXCLI {
         var identityFile: String?
         var noFocus = false
         var intoWindow: String?
+        var newWindow = false
 
         // Intentional subset of parseSSHCommandOptions: the mirror verb has a
         // different pipeline (no relay/cmuxd bootstrap, no `--` passthrough, no
@@ -8533,6 +8535,9 @@ struct CMUXCLI {
                 }
                 intoWindow = commandArgs[index + 1]
                 index += 2
+            case "--new-window":
+                newWindow = true
+                index += 1
             default:
                 if arg.hasPrefix("-") {
                     throw CLIError(
@@ -8556,10 +8561,15 @@ struct CMUXCLI {
         if let port { params["port"] = port }
         if let identityFile, !identityFile.isEmpty { params["identity_file"] = identityFile }
         if noFocus { params["activate"] = false }
-        // Aggregate into an existing linked-view window ("multiple servers in one
-        // window"). `current` resolves the caller's window from CMUX_WORKSPACE_ID
-        // (surfaces export the workspace id, not the window id); otherwise pass a
-        // window id (e.g. from a prior `ssh-tmux` JSON result or `list-windows`).
+        // Window targeting. By DEFAULT, aggregate the host into the caller's current
+        // window ("multiple servers in one window") so `cmux ssh-tmux <host>` run from
+        // inside a cmux surface reuses that window instead of spawning a new dedicated
+        // one. `--into-window <id|current>` targets a window explicitly; `--new-window`
+        // forces a fresh dedicated window. Surfaces export CMUX_WORKSPACE_ID (the
+        // workspace id, not the window id), which the app maps to the host window.
+        if intoWindow != nil && newWindow {
+            throw CLIError(message: "ssh-tmux: pass only one of --into-window or --new-window")
+        }
         if let intoWindow {
             if intoWindow == "current" {
                 guard let workspaceId = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
@@ -8570,6 +8580,12 @@ struct CMUXCLI {
             } else {
                 params["into_window"] = intoWindow
             }
+        } else if !newWindow,
+                  let workspaceId = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
+                  !workspaceId.isEmpty {
+            // Default: reuse the caller's window. Outside a cmux surface (no
+            // CMUX_WORKSPACE_ID) this falls through to a new window, as does --new-window.
+            params["into_workspace"] = workspaceId
         }
 
         // The first call runs a non-interactive (BatchMode) discovery in the app,
@@ -14946,11 +14962,17 @@ struct CMUXCLI {
         case "ssh-tmux":
             return String(localized: "cli.help.ssh-tmux", defaultValue: """
             Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
+                                  [--into-window <id|current>] [--new-window]
 
-            Open a dedicated cmux window that mirrors a remote host's tmux sessions over
-            tmux control mode (tmux -CC) via SSH: each tmux session becomes a workspace,
-            each window a tab, and a multi-pane window a native split. Requires the
-            "Remote tmux" beta to be enabled in Settings.
+            Mirror a remote host's tmux sessions over tmux control mode (tmux -CC) via
+            SSH: each tmux session becomes a workspace, each window a tab, and a
+            multi-pane window a native split. Requires the "Remote tmux" beta to be
+            enabled in Settings.
+
+            Run from inside a cmux surface, this aggregates the host into your CURRENT
+            window by default (multiple servers, plus local, in one window). Pass
+            --new-window to open a fresh dedicated window instead, or --into-window to
+            target a specific window. Outside a cmux surface it opens a new window.
 
             If the host needs interactive authentication (password, host-key confirmation,
             MFA, or a security-key touch), cmux runs ssh inline in this terminal so you can
@@ -14960,13 +14982,15 @@ struct CMUXCLI {
             settings are honored.
 
             Flags:
-              --port <n>          SSH port
-              --identity <path>   SSH identity file path
-              --no-focus          Open the mirror window without activating it
+              --port <n>                SSH port
+              --identity <path>         SSH identity file path
+              --no-focus                Mirror without activating the window
+              --into-window <id|current>  Aggregate into a specific window (or the caller's)
+              --new-window              Open a new dedicated window instead of reusing the current one
 
             Example:
-              cmux ssh-tmux dev@my-host
-              cmux ssh-tmux my-ssh-alias
+              cmux ssh-tmux dev@my-host                 # aggregate into the current window
+              cmux ssh-tmux my-ssh-alias --new-window   # open a separate window
               cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519
             """)
         case "ssh-session-list":
