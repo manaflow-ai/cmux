@@ -86,10 +86,7 @@ public struct PreferredEditorService: FileOpening {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", "\(command) \(path.posixShellSingleQuoted)"]
-        process.environment = Self.launchEnvironment(
-            base: environment,
-            fallbackSearchDirectories: fallbackSearchDirectories
-        )
+        process.environment = launchEnvironment()
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
 
@@ -125,12 +122,12 @@ public struct PreferredEditorService: FileOpening {
         }
     }
 
-    private static func launchEnvironment(
-        base: [String: String],
-        fallbackSearchDirectories: [String]
-    ) -> [String: String] {
-        var result = base
-        var pathEntries = base["PATH"]?
+    /// Builds the editor process environment from ``environment``, appending
+    /// ``fallbackSearchDirectories`` to `PATH` so bare editor commands resolve
+    /// even when the app launched without the user's shell `PATH`.
+    private func launchEnvironment() -> [String: String] {
+        var result = environment
+        var pathEntries = environment["PATH"]?
             .split(separator: ":", omittingEmptySubsequences: true)
             .map(String.init) ?? []
         var seenPathEntries = Set(pathEntries)
