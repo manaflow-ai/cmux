@@ -4957,6 +4957,264 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertTrue(log.contains("set-environment -gu CMUX_PANEL_ID"), log)
     }
 
+    // Eager bootstrap publish must refresh the tmux GLOBAL env with the FULL
+    // current-instance identity (not a torn subset) and clear surface-scoped keys,
+    // so a session seeded by another instance stops feeding stale identity to the
+    // in-tmux pull. $TMUX is unset here (app-spawned shell, pre-tmux).
+    func testBootstrapEagerPublishWritesFullWorkspaceIdentityAndClearsSurfaceScope() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-eager-publish-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("tmux.log", isDirectory: false)
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("tmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            if [ "$1" = "show-environment" ] && [ "$2" = "-g" ]; then
+              exit 0
+            fi
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: "_cmux_tmux_publish_cmux_environment_eager; print -r -- DONE",
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-current-instance.sock",
+                "CMUX_TAG": "current-instance",
+                "CMUX_BUNDLE_ID": "com.cmux.current",
+                "CMUX_BUNDLED_CLI_PATH": "/current/cmux",
+                // CMUX_SHELL_INTEGRATION_DIR is intentionally NOT overridden here: the
+                // harness .zshenv sources the integration from it, so a fake value would
+                // stop the integration (and the eager helper) from loading at all. It
+                // defaults to the real Resources/shell-integration dir and is asserted
+                // value-agnostically below.
+                "CMUXD_UNIX_PATH": "/tmp/cmuxd-current.sock",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        let log = (try? String(contentsOf: logPath, encoding: .utf8)) ?? ""
+        XCTAssertTrue(log.contains("set-environment -g CMUX_TAG current-instance"), log)
+        XCTAssertTrue(log.contains("set-environment -g CMUX_BUNDLE_ID com.cmux.current"), log)
+        XCTAssertTrue(log.contains("set-environment -g CMUX_SOCKET_PATH /tmp/cmux-current-instance.sock"), log)
+        XCTAssertTrue(log.contains("set-environment -g CMUX_BUNDLED_CLI_PATH /current/cmux"), log)
+        XCTAssertTrue(log.contains("set-environment -g CMUX_SHELL_INTEGRATION_DIR "), log)
+        XCTAssertTrue(log.contains("set-environment -g CMUXD_UNIX_PATH /tmp/cmuxd-current.sock"), log)
+        XCTAssertTrue(log.contains("set-environment -g CMUX_WORKSPACE_ID 11111111-1111-1111-1111-111111111111"), log)
+        XCTAssertTrue(log.contains("set-environment -g CMUX_TAB_ID 11111111-1111-1111-1111-111111111111"), log)
+        // Surface-scoped keys cleared in global; never published -g (attempt-#1 failure mode).
+        XCTAssertTrue(log.contains("set-environment -gu CMUX_SURFACE_ID"), log)
+        XCTAssertTrue(log.contains("set-environment -gu CMUX_PANEL_ID"), log)
+        XCTAssertFalse(log.contains("set-environment -g CMUX_SURFACE_ID "), log)
+        XCTAssertFalse(log.contains("set-environment -g CMUX_PANEL_ID "), log)
+        XCTAssertEqual(output, "DONE")
+    }
+
+    // With TMUX set the eager publish must be a no-op (the shared helper's guard),
+    // so a nested surface never clobbers the session and the in-tmux pull still owns.
+    func testBootstrapEagerPublishIsNoOpInsideTmux() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-eager-noop-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("tmux.log", isDirectory: false)
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("tmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        // Print HASFUNC only when the eager wrapper is actually defined, so this
+        // test fails (rather than trivially passing on an undefined function that
+        // emits nothing) if the wrapper is missing — making it a genuine red at
+        // the pre-fix commit and a real guard against deletion of the wrapper.
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: ": > \"\(logPath.path)\"; typeset -f _cmux_tmux_publish_cmux_environment_eager >/dev/null && print -r -- HASFUNC; _cmux_tmux_publish_cmux_environment_eager; print -r -- DONE",
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMUX": "/tmp/tmux-current,123,0",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-current-instance.sock",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+            ]
+        )
+
+        let log = (try? String(contentsOf: logPath, encoding: .utf8)) ?? ""
+        XCTAssertFalse(log.contains("set-environment"), log)
+        XCTAssertEqual(output, "HASFUNC\nDONE")
+    }
+
+    // The remote bootstrap must run the eager publish BEFORE exec'ing the login
+    // shell, in BOTH the zsh and bash branches. Running before exec is the
+    // load-bearing property: an rc / user dotfile that auto-attaches tmux runs
+    // inside the exec'd shell, so a publish placed after exec (e.g. appended to
+    // the generated rc) could be pre-empted by that attach and feed stale
+    // identity to the surface. Asserting the one-shot precedes exec — not merely
+    // that it appears somewhere — pins that ordering against regression.
+    func testRemoteBootstrapPublishesTmuxIdentityBeforeExecingLoginShell() {
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 5123,
+            shellFeatures: "ssh-env,ssh-terminfo",
+            bundledZshIntegration: "# zsh",
+            bundledBashIntegration: "# bash"
+        )
+        XCTAssertTrue(script.contains("_cmux_tmux_publish_cmux_environment_eager"), script)
+
+        let zshEager = script.range(
+            of: #"cmux-zsh-integration.zsh" >/dev/null 2>&1; command -v _cmux_tmux_publish_cmux_environment_eager"#
+        )
+        let zshExec = script.range(of: #"exec "$CMUX_LOGIN_SHELL" -il"#)
+        XCTAssertNotNil(zshEager, "zsh eager publish one-shot missing\n\(script)")
+        XCTAssertNotNil(zshExec, "zsh exec line missing\n\(script)")
+        if let zshEager, let zshExec {
+            XCTAssertTrue(zshEager.lowerBound < zshExec.lowerBound, "zsh eager publish must precede exec\n\(script)")
+        }
+
+        let bashEager = script.range(
+            of: #"cmux-bash-integration.bash" >/dev/null 2>&1; command -v _cmux_tmux_publish_cmux_environment_eager"#
+        )
+        let bashExec = script.range(of: #"exec "$CMUX_LOGIN_SHELL" --rcfile"#)
+        XCTAssertNotNil(bashEager, "bash eager publish one-shot missing\n\(script)")
+        XCTAssertNotNil(bashExec, "bash exec line missing\n\(script)")
+        if let bashEager, let bashExec {
+            XCTAssertTrue(bashEager.lowerBound < bashExec.lowerBound, "bash eager publish must precede exec\n\(script)")
+        }
+
+        // The one-shot must be HERMETIC — running the login shell with startup
+        // files disabled — so the user's own startup files cannot run before the
+        // publish. A plain `"$CMUX_LOGIN_SHELL" -c` would still source zsh's
+        // $ZDOTDIR/.zshenv (which chains to the user's ~/.zshenv) / bash's
+        // $BASH_ENV, defeating the "before any user dotfile" guarantee. zsh uses
+        // -f (NO_RCS); bash uses BASH_ENV= … --noprofile --norc.
+        XCTAssertTrue(
+            script.contains(#""$CMUX_LOGIN_SHELL" -f -c '. "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh""#),
+            "zsh one-shot must run hermetically with -f\n\(script)"
+        )
+        XCTAssertTrue(
+            script.contains(#"BASH_ENV= "$CMUX_LOGIN_SHELL" --noprofile --norc -c '. "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash""#),
+            "bash one-shot must run hermetically with BASH_ENV= --noprofile --norc\n\(script)"
+        )
+    }
+
+    // The eager publish must be AUTHORITATIVE: a managed workspace-scoped key that
+    // THIS instance does not have set must be CLEARED (-gu) from the tmux global
+    // env, not silently skipped — otherwise a value seeded by a DIFFERENT instance
+    // (e.g. a stale CMUX_TAG from a tagged debug build that an untagged/prod
+    // instance lacks) survives in the session and the in-tmux pull feeds it back.
+    // $TMUX is unset here (app-spawned shell, pre-tmux).
+    func testEagerPublishClearsManagedWorkspaceKeyUnsetByThisInstance() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-eager-clear-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("tmux.log", isDirectory: false)
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("tmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            if [ "$1" = "show-environment" ] && [ "$2" = "-g" ]; then
+              exit 0
+            fi
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        // CMUX_TAG intentionally NOT set: this instance is untagged, but a prior
+        // instance may have seeded CMUX_TAG into the session's global env.
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: "_cmux_tmux_publish_cmux_environment_eager; print -r -- DONE",
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-current-instance.sock",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+            ]
+        )
+
+        let log = (try? String(contentsOf: logPath, encoding: .utf8)) ?? ""
+        // A key this instance HAS is still published with its value...
+        XCTAssertTrue(log.contains("set-environment -g CMUX_SOCKET_PATH /tmp/cmux-current-instance.sock"), log)
+        // ...and a managed key this instance does NOT have is cleared, not skipped.
+        XCTAssertTrue(log.contains("set-environment -gu CMUX_TAG"), log)
+        XCTAssertFalse(log.contains("set-environment -g CMUX_TAG "), log)
+        XCTAssertEqual(output, "DONE")
+    }
+
+    // Bash executable twin of the eager publish: the zsh tests above exercise the
+    // zsh integration, but the bash integration carries an identical
+    // _cmux_tmux_publish_cmux_environment_eager + authoritative-clear that must be
+    // covered by a RUNNING test (not just the generated-script-text assertion in
+    // testRemoteBootstrapPublishesTmuxIdentityBeforeExecingLoginShell). Asserts the
+    // bash eager entrypoint exists, publishes a key this instance has (-g), and
+    // clears a managed key it lacks (-gu). The signature cache is reset so the
+    // publish runs regardless of any earlier hook firing in the interactive shell.
+    func testEagerPublishBashPublishesIdentityAndClearsUnsetKey() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-eager-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("tmux.log", isDirectory: false)
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("tmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            if [ "$1" = "show-environment" ] && [ "$2" = "-g" ]; then
+              exit 0
+            fi
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        // CMUX_TAG intentionally unset; CMUX_SOCKET_PATH set to a known value.
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: ": > \"\(logPath.path)\"; unset _CMUX_TMUX_PUSH_SIGNATURE; "
+                + "typeset -F _cmux_tmux_publish_cmux_environment_eager >/dev/null 2>&1 && printf 'HASFUNC\\n'; "
+                + "_cmux_tmux_publish_cmux_environment_eager; printf 'DONE\\n'",
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-bash-instance.sock",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+            ]
+        )
+
+        let log = (try? String(contentsOf: logPath, encoding: .utf8)) ?? ""
+        XCTAssertTrue(result.stdout.contains("HASFUNC"), "bash eager entrypoint missing\n\(result.stdout)\n\(result.stderr)")
+        XCTAssertTrue(log.contains("set-environment -g CMUX_SOCKET_PATH /tmp/cmux-bash-instance.sock"), log)
+        XCTAssertTrue(log.contains("set-environment -gu CMUX_TAG"), log)
+        XCTAssertFalse(log.contains("set-environment -g CMUX_TAG "), log)
+        XCTAssertTrue(result.stdout.contains("DONE"), result.stdout)
+    }
+
     func testShellIntegrationRefreshesWorkspaceScopedCmuxEnvironmentFromTmuxWithoutOverwritingSurfaceScope() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
