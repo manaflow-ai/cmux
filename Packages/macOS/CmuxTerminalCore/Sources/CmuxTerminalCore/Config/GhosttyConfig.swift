@@ -946,10 +946,10 @@ public struct GhosttyConfig {
         bundleResourceURL: URL?,
         preferredColorScheme: ColorSchemePreference? = nil
     ) {
-        let resolvedThemeName = Self.resolveThemeName(
+        guard let resolvedThemeName = Self.appliedThemeName(
             from: name,
             preferredColorScheme: preferredColorScheme ?? Self.currentColorSchemePreference()
-        )
+        ) else { return }
         let expandedThemePath = NSString(string: resolvedThemeName).expandingTildeInPath
         if (expandedThemePath as NSString).isAbsolutePath,
            let contents = try? String(contentsOfFile: expandedThemePath, encoding: .utf8) {
