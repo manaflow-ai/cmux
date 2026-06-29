@@ -113,9 +113,8 @@ extension MarkdownPanel {
     }
 
     private static func textFinderBarIsVisible(for textView: NSTextView) -> Bool {
-        guard let container = textView.enclosingScrollView as? any NSTextFinderBarContainer else {
-            return false
-        }
+        guard let scrollView = textView.enclosingScrollView else { return false }
+        let container = scrollView as any NSTextFinderBarContainer
         return container.isFindBarVisible
     }
 
@@ -138,8 +137,8 @@ extension MarkdownPanel {
         }
 
         if let textView = owner as? NSTextView,
-           let container = textView.enclosingScrollView as? any NSTextFinderBarContainer,
-           let findBarView = container.findBarView {
+           let scrollView = textView.enclosingScrollView,
+           let findBarView = (scrollView as any NSTextFinderBarContainer).findBarView {
             return responderView.isDescendant(of: findBarView)
         }
 
