@@ -45,7 +45,7 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
         /// reads main-actor-isolated `NSWindow` properties.
         @MainActor
         public init(windows: [NSWindow]) {
-            self.windows = windows.filter(AccessibilityWindowCache.isPublishableAXWindow).map {
+            self.windows = windows.filter(isPublishableAXWindow).map {
                 WindowToken(
                     identity: ObjectIdentifier($0),
                     windowNumber: $0.windowNumber,
@@ -64,7 +64,7 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
         /// main-actor-isolated accessibility roles from `NSWindow`.
         @MainActor
         public init(windows: [NSWindow]) {
-            self.windows = windows.filter(AccessibilityWindowCache.isPublishableAXWindow)
+            self.windows = windows.filter(isPublishableAXWindow)
         }
     }
 
@@ -141,9 +141,12 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
     private static func supportsCaching(_ attribute: NSAccessibility.Attribute) -> Bool {
         attribute.rawValue == NSAccessibility.Attribute.windows.rawValue
     }
+}
 
-    @MainActor
-    private static func isPublishableAXWindow(_ window: NSWindow) -> Bool {
-        window.accessibilityRole() != .helpTag
-    }
+/// Help-tag tooltip windows are excluded from `AXWindows` because AX clients
+/// expect every element in `AXWindows` to behave like a window. `@MainActor`
+/// because it reads the main-actor-isolated accessibility role from `NSWindow`.
+@MainActor
+private func isPublishableAXWindow(_ window: NSWindow) -> Bool {
+    window.accessibilityRole() != .helpTag
 }
