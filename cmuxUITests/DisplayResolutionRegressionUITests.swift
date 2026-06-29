@@ -118,7 +118,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             }
             let livenessReferenceUptime = doneObservedUptime ?? maxDiagnosticsUpdatedAt
             let presentAdvancedNearChurnEnd = latestPresentAdvanceStats.map {
-                livenessReferenceUptime - $0.lastPresentTime <= maximumSecondsSinceLastPresentAdvance
+                abs(livenessReferenceUptime - $0.lastPresentTime) <= maximumSecondsSinceLastPresentAdvance
             } ?? false
             if doneMarker == "done" &&
                 maxPresentCount >= baselinePresentCount + minimumPresentAdvanceForLiveness &&
@@ -150,8 +150,8 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         recordObservedStats(finalStats)
         let finalStatsDescription = String(describing: finalStats)
         let livenessReferenceUptime = doneObservedUptime ?? maxDiagnosticsUpdatedAt
-        let secondsSinceLastPresentAdvance = latestPresentAdvanceStats.map {
-            livenessReferenceUptime - $0.lastPresentTime
+        let secondsBetweenChurnEndAndLastPresentAdvance = latestPresentAdvanceStats.map {
+            abs(livenessReferenceUptime - $0.lastPresentTime)
         } ?? Double.greatestFiniteMagnitude
         let latestPresentDescription = latestPresentAdvanceStats.map { String(describing: $0) } ?? "<none>"
 
@@ -164,9 +164,9 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             "Expected terminal presents to keep advancing during display churn. baseline=\(baselineStats) latestPresent=\(latestPresentDescription) last=\(lastStats) final=\(finalStatsDescription)"
         )
         XCTAssertLessThanOrEqual(
-            secondsSinceLastPresentAdvance,
+            secondsBetweenChurnEndAndLastPresentAdvance,
             maximumSecondsSinceLastPresentAdvance,
-            "Expected terminal presents to advance near the end of display churn. secondsSinceLastPresentAdvance=\(secondsSinceLastPresentAdvance) livenessReferenceUptime=\(livenessReferenceUptime) baseline=\(baselineStats) latestPresent=\(latestPresentDescription) last=\(lastStats) final=\(finalStatsDescription)"
+            "Expected terminal presents to advance near the end of display churn. secondsBetweenChurnEndAndLastPresentAdvance=\(secondsBetweenChurnEndAndLastPresentAdvance) livenessReferenceUptime=\(livenessReferenceUptime) baseline=\(baselineStats) latestPresent=\(latestPresentDescription) last=\(lastStats) final=\(finalStatsDescription)"
         )
         XCTAssertGreaterThan(
             maxDiagnosticsUpdatedAt,
