@@ -834,7 +834,7 @@ final class TerminalOutputCollector {
 @MainActor
 @Test func expiredLegacyTicketWhileOfflineReportsOfflineNotExpired() async throws {
     // Inline expiry no longer classifies pairing inputs before routing: current
-    // QR codes carry a host-side ticket reference whose record owns expiry, v2
+    // QR codes carry a host-side ticket reference whose record owns expiry, v3
     // codes carry no inline expiry, and legacy `e=` values are dropped on
     // decode. A legacy ticket whose `expiresAt` has passed is still a valid
     // structural input.
@@ -1457,7 +1457,7 @@ final class TerminalOutputCollector {
         ticketRef: "qr-ticket-ref",
         authToken: "minted-but-never-in-the-qr"
     )
-    // Encode exactly what the Mac's pairing window renders: the v2 QR grammar,
+    // Encode exactly what the Mac's pairing window renders: the v3 QR grammar,
     // which drops the token, the display name, and the expiry.
     let url = try #require(CmxPairingQRCode().encode(ticket))
     let responses = ScriptedTransportResponses([
@@ -1491,7 +1491,7 @@ final class TerminalOutputCollector {
 
 @MainActor
 @Test func minimalPairingCodeConnectsAndAdoptsHostReportedIdentity() async throws {
-    // The minimal v2 pairing code carries only Tailscale routes: no device
+    // The minimal v3 pairing code carries only Tailscale routes: no device
     // id, no display name. Both must be adopted post-handshake from
     // `mobile.host.status` so the connection becomes a persisted, named,
     // reconnectable paired Mac.
@@ -1531,7 +1531,7 @@ final class TerminalOutputCollector {
 
     #expect(store.connectionState == .connected)
     // Until the status reply lands, the dialed Tailscale host stands in for
-    // the name (the v2 ticket has neither name nor device id); the status
+    // the name (the v3 ticket has neither name nor device id); the status
     // read runs on the event-listener task, so poll briefly instead of
     // racing it. The adoption lands in steps (ticket id, identity upsert,
     // then the display-name upsert on the serialized write chain), so poll
@@ -1798,7 +1798,7 @@ final class TerminalOutputCollector {
 
 @MainActor
 @Test func minimalPairingCodePersistsPairedMacWithoutServerPushEvents() async throws {
-    // Identity recovery for an anonymous v2 ticket must not be coupled to
+    // Identity recovery for an anonymous v3 ticket must not be coupled to
     // the push-event listener: on a runtime without server-push events the
     // listener (whose status probe normally performs the recovery) never
     // starts, and before the connect-seam scheduling a QR pair connected
@@ -1860,7 +1860,7 @@ final class TerminalOutputCollector {
 
 @MainActor
 @Test func scannedLoopbackPairingCodeIsRejectedWithGuidance() async throws {
-    // "QR shouldn't work for localhost": a scanned/pasted v2 code whose
+    // "QR shouldn't work for localhost": a scanned/pasted v3 code whose
     // routes point at the phone itself fails closed with copy that names the
     // actual fix (Tailscale), instead of dialing 127.0.0.1 and burning the
     // whole request timeout before a generic connect error.
@@ -2739,7 +2739,7 @@ private func minimalPairingURL(
     port: Int = CmxMobileDefaults.defaultHostPort
 ) -> String {
     var items = [
-        "v=2",
+        "v=3",
         "tr=\(ticketRef)",
     ]
     if let userID {

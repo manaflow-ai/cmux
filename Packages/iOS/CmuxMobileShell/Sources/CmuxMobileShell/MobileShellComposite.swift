@@ -9,7 +9,7 @@ public import Foundation
 import Observation
 internal import OSLog
 
-private let mobileShellLog = Logger(
+nonisolated private let mobileShellLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
     category: "mobile-shell"
 )
@@ -603,7 +603,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
     /// Recovers the Mac's identity post-handshake for tickets that arrived
-    /// without one (the minimal v2 pairing QR). Owned separately from the
+    /// without one (the minimal v3 pairing QR). Owned separately from the
     /// short capability probe; see ``scheduleHostIdentityAdoptionIfNeeded(client:)``.
     /// Cancelled on disconnect via ``cancelRemoteOperationTasks()``.
     private var hostIdentityAdoptionTask: Task<Void, Never>?
@@ -2598,7 +2598,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Recovers the Mac's identity for a connection whose ticket arrived
-    /// without a device id (the minimal v2 pairing QR), as its own
+    /// without a device id (the minimal v3 pairing QR), as its own
     /// `mobile.host.status` request with the default RPC timeout.
     ///
     /// Identity recovery must not depend on the terminal-output capability
@@ -4589,7 +4589,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
                     // The connect seam guarantees identity recovery for an
-                    // anonymous (v2 QR) ticket on every supported runtime, not
+                    // anonymous (v3 QR) ticket on every supported runtime, not
                     // just push-event ones: when the event-listener task starts,
                     // its status probe performs the recovery (one shared status
                     // request); when the runtime has no server-push events that
@@ -5727,7 +5727,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             // A decoded status can still be identity-free: the probe's token
             // attach is best-effort, and the host withholds identity from an
-            // unverified caller. If the v2 QR ticket is still anonymous after
+            // unverified caller. If the v3 QR ticket is still anonymous after
             // applying, run the dedicated recovery (it re-asks the token
             // provider and no-ops once an identity is adopted).
             scheduleHostIdentityAdoptionIfNeeded(client: client)
@@ -6880,7 +6880,7 @@ private extension MobileWorkspacePreview {
 private extension MobileShellComposite {
     /// The name shown for the Mac until `mobile.host.status` reports the real
     /// one: the ticket's display name, then its device id, then the dialed
-    /// route's host (a minimal v2 pairing code carries neither name nor id,
+    /// route's host (a minimal v3 pairing code carries neither name nor id,
     /// so the Tailscale hostname is the best available placeholder).
     func placeholderHostName(
         for ticket: CmxAttachTicket,

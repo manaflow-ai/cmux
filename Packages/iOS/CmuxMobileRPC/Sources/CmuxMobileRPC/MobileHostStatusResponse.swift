@@ -16,7 +16,7 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     /// so this is where a freshly paired phone learns what to call the Mac.
     /// `nil` from older Macs that predate the field.
     public let macDisplayName: String?
-    /// The Mac's stable pairing device id. The minimal v2 pairing QR no
+    /// The Mac's stable pairing device id. The minimal v3 pairing QR no
     /// longer carries it, so this is where a freshly paired phone learns
     /// which paired-Mac record the connection belongs to (reconnect-on-launch
     /// and the host switcher key on it). `nil` from older Macs.

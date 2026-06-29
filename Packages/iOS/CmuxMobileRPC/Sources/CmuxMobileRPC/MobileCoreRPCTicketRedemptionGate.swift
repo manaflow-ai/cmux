@@ -5,13 +5,19 @@ actor MobileCoreRPCTicketRedemptionGate {
     private struct Current {
         var id: UUID
         var task: Task<CmxAttachTicket, any Error>
+        var completionObserver: Task<Void, Never>?
         var waiters: Int
         var timedOutUntil: UInt64?
         var isCompleted: Bool
     }
 
+    private struct Abandoned {
+        var task: Task<CmxAttachTicket, any Error>
+        var completionObserver: Task<Void, Never>?
+    }
+
     private var current: Current?
-    private var abandoned: [UUID: Task<CmxAttachTicket, any Error>] = [:]
+    private var abandoned: [UUID: Abandoned] = [:]
     private let taskTimeout = RPCTaskTimeout()
     private let timedOutResetNanoseconds: UInt64
 
@@ -34,10 +40,7 @@ actor MobileCoreRPCTicketRedemptionGate {
                 throw MobileShellConnectionError.requestTimedOut
             }
             if !existing.isCompleted {
-                guard abandoned.isEmpty else {
-                    throw MobileShellConnectionError.requestTimedOut
-                }
-                abandoned[existing.id] = existing.task
+                replaceAbandoned(with: existing)
             }
             current = nil
         }
@@ -48,11 +51,19 @@ actor MobileCoreRPCTicketRedemptionGate {
         } else {
             id = UUID()
             task = Task { try await provider() }
-            current = Current(id: id, task: task, waiters: 1, timedOutUntil: nil, isCompleted: false)
-            Task.detached { [weak self] in
+            current = Current(
+                id: id,
+                task: task,
+                completionObserver: nil,
+                waiters: 1,
+                timedOutUntil: nil,
+                isCompleted: false
+            )
+            let completionObserver = Task { [weak self] in
                 _ = await task.result
                 await self?.complete(id: id)
             }
+            current?.completionObserver = completionObserver
         }
 
         do {
@@ -80,6 +91,7 @@ actor MobileCoreRPCTicketRedemptionGate {
         current = Current(
             id: id,
             task: task,
+            completionObserver: current?.completionObserver,
             waiters: 0,
             timedOutUntil: DispatchTime.now().uptimeNanoseconds &+ timedOutResetNanoseconds,
             isCompleted: false
@@ -99,9 +111,12 @@ actor MobileCoreRPCTicketRedemptionGate {
 
     private func clear(id: UUID) {
         if current?.id == id {
+            current?.completionObserver?.cancel()
             current = nil
         }
-        abandoned[id] = nil
+        if let abandonedWork = abandoned.removeValue(forKey: id) {
+            abandonedWork.completionObserver?.cancel()
+        }
     }
 
     private func complete(id: UUID) {
@@ -114,5 +129,18 @@ actor MobileCoreRPCTicketRedemptionGate {
             }
         }
         abandoned[id] = nil
+    }
+
+    private func replaceAbandoned(with existing: Current) {
+        for (_, abandonedWork) in abandoned {
+            abandonedWork.task.cancel()
+            abandonedWork.completionObserver?.cancel()
+        }
+        abandoned = [
+            existing.id: Abandoned(
+                task: existing.task,
+                completionObserver: existing.completionObserver
+            ),
+        ]
     }
 }

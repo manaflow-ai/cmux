@@ -75,7 +75,7 @@ final class MobilePairingModel {
     ///     default argument, since default args are evaluated nonisolated and
     ///     `MobileHostService.shared` is main-actor isolated.)
     ///   - ticketTTL: Lifetime of the minted attach token/reference in seconds.
-    ///     Defaults to 600. The displayed v2 pairing QR carries only the ticket
+    ///     Defaults to 600. The displayed v3 pairing QR carries only the ticket
     ///     reference, while the host-side record owns expiry.
     init(host: MobileHostService? = nil, ticketTTL: TimeInterval = 600) {
         self.host = host ?? .shared
@@ -147,7 +147,7 @@ final class MobilePairingModel {
                 )
                 return
             }
-            // Only the minimal v2 grammar (Tailscale routes only, no loopback,
+            // Only the minimal v3 grammar (Tailscale routes only, no loopback,
             // no token) may ever be displayed as a scannable code. If the mint
             // raced a Tailscale route loss and fell back to the v1 payload,
             // show the Tailscale guidance rather than a weak QR.

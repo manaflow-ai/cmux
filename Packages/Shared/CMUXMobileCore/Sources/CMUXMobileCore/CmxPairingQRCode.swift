@@ -3,7 +3,7 @@ import Foundation
 /// The compact pairing-QR grammar: a non-secret ticket reference, expected Mac
 /// account/build metadata, plus plain `host:port` routes in the URL query.
 ///
-/// `cmux-ios://attach?v=2&tr=<ticket-ref>&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`
+/// `cmux-ios://attach?v=3&tr=<ticket-ref>&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`
 ///
 /// A pairing QR needs to tell the phone where to dial and which non-secret
 /// ticket/account/build context to check before dialing. The account value is
@@ -39,8 +39,11 @@ import Foundation
 public struct CmxPairingQRCode: Sendable {
     /// The grammar version carried in the URL's `v` query item. Distinct from
     /// ``CmxAttachTicket/currentVersion`` (the ticket *structure* version):
-    /// `v=1` URLs carry a base64 JSON `payload`, `v=2` URLs carry bare routes.
-    public static let version = 2
+    /// `v=1` URLs carry a base64 JSON `payload`, `v=2` URLs carry legacy bare
+    /// routes, and `v=3` URLs carry bare routes plus a ticket reference.
+    public static let version = 3
+
+    private static let legacyBareRouteVersion = 2
 
     /// Defensive cap on routes accepted from a scanned code. The Mac's route
     /// resolver emits at most a couple (MagicDNS name + Tailscale IP); a QR
@@ -52,7 +55,7 @@ public struct CmxPairingQRCode: Sendable {
     /// site; every instance speaks the same grammar version.
     public init() {}
 
-    /// Encode `ticket` as a v2 pairing URL, or `nil` when the ticket does not
+    /// Encode `ticket` as a v3 pairing URL, or `nil` when the ticket does not
     /// qualify (see ``canEncode(_:)``); callers fall back to the compact v1
     /// payload so every ticket still has an attach URL.
     ///
@@ -99,7 +102,7 @@ public struct CmxPairingQRCode: Sendable {
         normalizedNonEmpty(ticket.ticketRef) != nil && encodableRoutes(of: ticket) != nil
     }
 
-    /// The route subsequence a v2 pairing URL would carry for `ticket`, or
+    /// The route subsequence a v3 pairing URL would carry for `ticket`, or
     /// `nil` when the ticket is not expressible in the minimal grammar.
     ///
     /// Expressible means: an unscoped pairing ticket with a ticket reference,
@@ -139,10 +142,21 @@ public struct CmxPairingQRCode: Sendable {
     }
 
     /// Whether `components` (an already-parsed `cmux-ios://attach` URL) speaks
-    /// this grammar. v1 URLs carry the base64 `payload` item instead.
+    /// the bare-route pairing grammar. v1 URLs carry the base64 `payload` item
+    /// instead; v2 is accepted only for backwards-compatible route-only codes.
     public func isPairingCodeURL(_ components: URLComponents) -> Bool {
-        components.queryItems?.first(where: { $0.name == "v" })?.value == "\(Self.version)"
-            && queryValue(named: "tr", in: components) != nil
+        guard let version = Self.attachURLVersion(components) else {
+            return false
+        }
+        switch version {
+        case Self.legacyBareRouteVersion:
+            return queryValue(named: "payload", in: components) == nil
+                && !queryValues(named: "r", in: components).isEmpty
+        case Self.version:
+            return queryValue(named: "tr", in: components) != nil
+        default:
+            return false
+        }
     }
 
     /// The integer grammar version declared by an attach URL's `v` query item,
@@ -156,7 +170,7 @@ public struct CmxPairingQRCode: Sendable {
         return Int(raw)
     }
 
-    /// Whether `rawValue` is a v2 pairing URL. String-level convenience for
+    /// Whether `rawValue` is a bare-route pairing URL. String-level convenience for
     /// callers that hold the encoded URL (the Mac's pairing window asserting
     /// the code it is about to display speaks the minimal grammar).
     public func isPairingCodeURLString(_ rawValue: String) -> Bool {
@@ -169,22 +183,24 @@ public struct CmxPairingQRCode: Sendable {
         return isPairingCodeURL(components)
     }
 
-    /// Decode a v2 pairing URL into a validated ``CmxAttachTicket``.
+    /// Decode a bare-route pairing URL into a validated ``CmxAttachTicket``.
     ///
     /// The ticket comes back unscoped with an empty `macDeviceID`; the shell
     /// recovers the Mac's identity post-handshake from `mobile.host.status`.
-    /// The `tr` ticket reference is mandatory; without it the phone has nothing
-    /// to redeem after Stack auth.
-    /// - Parameter components: The parsed `cmux-ios://attach?v=2&...` URL.
+    /// The `tr` ticket reference is mandatory for the current v3 grammar;
+    /// legacy v2 route-only URLs still decode without one for compatibility.
+    /// - Parameter components: The parsed `cmux-ios://attach?v=3&...` URL.
     /// - Throws: ``MobileSyncPairingPayloadError/invalidURL`` for malformed
     ///   input and ``MobileSyncPairingPayloadError/loopbackRouteRejected``
     ///   when any route names a loopback host (a scanned code must never
     ///   point the phone at itself).
     public func decode(_ components: URLComponents) throws -> CmxAttachTicket {
+        let grammarVersion = Self.attachURLVersion(components)
         guard isPairingCodeURL(components) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
-        guard let ticketRef = queryValue(named: "tr", in: components) else {
+        let ticketRef = queryValue(named: "tr", in: components)
+        if grammarVersion == Self.version, ticketRef == nil {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         let rawRoutes = (components.queryItems ?? [])
@@ -291,6 +307,12 @@ private extension CmxPairingQRCode {
 
     func queryValue(named name: String, in components: URLComponents) -> String? {
         normalizedNonEmpty(components.queryItems?.first(where: { $0.name == name })?.value)
+    }
+
+    func queryValues(named name: String, in components: URLComponents) -> [String] {
+        (components.queryItems ?? [])
+            .filter { $0.name == name }
+            .compactMap { normalizedNonEmpty($0.value) }
     }
 
     func queryInt(named name: String, in components: URLComponents) -> Int? {

@@ -163,7 +163,7 @@ final class MobileAttachTicketStore {
     }
 
     private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
-        // Preferred form: the compact v2 pairing-code grammar — a non-secret
+        // Preferred form: the compact v3 pairing-code grammar — a non-secret
         // ticket reference plus bare Tailscale `host:port` routes in the URL
         // query. Everything the older grammars carried has a better channel:
         // the auth token is resolved from the reference only after Stack auth,

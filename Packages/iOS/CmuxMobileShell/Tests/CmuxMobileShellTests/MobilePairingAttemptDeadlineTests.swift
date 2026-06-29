@@ -82,7 +82,7 @@ import Testing
         #expect(store.selectedWorkspace?.id.rawValue == "live-workspace")
     }
 
-    private static let qrURL = "cmux-ios://attach?v=2&tr=ticket-ref-123&pc=1&r=100.64.0.5:58465"
+    private static let qrURL = "cmux-ios://attach?v=3&tr=ticket-ref-123&pc=1&r=100.64.0.5:58465"
 
     private func makeStore(
         runtime: any MobileSyncRuntime = PairingDeadlineRuntime(),

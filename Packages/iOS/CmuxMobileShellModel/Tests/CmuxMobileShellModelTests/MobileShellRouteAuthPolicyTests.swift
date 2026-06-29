@@ -81,7 +81,7 @@ import Testing
     }
 
     @Test func physicalDeviceRejectsLoopbackTicketsInEveryGrammar() throws {
-        // The v2 QR decoder rejects loopback itself; this policy is what stops
+        // The v3 QR decoder rejects loopback itself; this policy is what stops
         // the LEGACY payload grammars from being a bypass on a physical phone,
         // where a loopback route dials the phone itself and loopback's
         // Stack-auth trust would hand the bearer token to a local listener.

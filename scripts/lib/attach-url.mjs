@@ -82,7 +82,7 @@ export function buildAttachURL(payload, filter = {}) {
 
   // Newer Mac builds return the canonical pairing URL from the Swift ticket
   // store. Prefer it when the caller did not narrow the route set locally:
-  // the Swift path may emit the v2 bare-route QR grammar, while this JS module
+  // the Swift path may emit the v3 bare-route QR grammar, while this JS module
   // can only reconstruct the older v1 JSON payload. If a caller filters an
   // unfiltered payload locally, the canonical URL may point at a different
   // route set, so fall through to the lossless v1 reconstruction.
@@ -123,7 +123,7 @@ function isCanonicalAttachURL(value, expectedRouteCount) {
   const params = url.searchParams;
   const ticketRef = params.get("tr")?.trim() ?? "";
   return (
-    params.get("v") === "2" &&
+    params.get("v") === "3" &&
     ticketRef.length > 0 &&
     !params.has("payload") &&
     params.getAll("r").length === expectedRouteCount

@@ -29,7 +29,7 @@ function samplePayload() {
 function samplePayloadWithCanonicalURL() {
   return {
     ...samplePayload(),
-    attach_url: "cmux-ios://attach?v=2&tr=ticket-ref-123&r=100.1.2.3:8080",
+    attach_url: "cmux-ios://attach?v=3&tr=ticket-ref-123&r=100.1.2.3:8080",
   };
 }
 
@@ -99,7 +99,7 @@ test("defaults version to 1 when the ticket omits it", () => {
 
 test("prefers the canonical attach_url returned by the Mac RPC", () => {
   const { attachURL, routes, payload } = buildAttachURL(samplePayloadWithCanonicalURL());
-  assert.equal(attachURL, "cmux-ios://attach?v=2&tr=ticket-ref-123&r=100.1.2.3:8080");
+  assert.equal(attachURL, "cmux-ios://attach?v=3&tr=ticket-ref-123&r=100.1.2.3:8080");
   assert.equal(payload.attach_url, attachURL);
   assert.equal(routes.length, 2);
 });
@@ -107,7 +107,7 @@ test("prefers the canonical attach_url returned by the Mac RPC", () => {
 test("prefers dev-scheme canonical attach_url returned by debug Mac builds", () => {
   const payload = {
     ...samplePayloadWithCanonicalURL(),
-    attach_url: "cmux-ios-dev://attach?v=2&tr=ticket-ref-123&r=100.1.2.3:8080",
+    attach_url: "cmux-ios-dev://attach?v=3&tr=ticket-ref-123&r=100.1.2.3:8080",
   };
   const { attachURL } = buildAttachURL(payload);
   assert.equal(attachURL, payload.attach_url);

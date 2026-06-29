@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxMobileRPC
 
-/// URL-level coverage for ``CmxAttachTicketInput`` across the bare v2 pairing
+/// URL-level coverage for ``CmxAttachTicketInput`` across the bare-route pairing
 /// URL and the two attach payload grammars: the compact short-key form and the
 /// legacy full-key form older Macs and stored fixtures still produce.
 @Suite struct CmxAttachTicketInputTests {
@@ -154,11 +154,11 @@ import Testing
     }
 
     @Test func decodesMinimalPairingCodeURL() throws {
-        // New-phone-scans-new-QR: the minimal v2 grammar (bare routes, no
+        // New-phone-scans-new-QR: the minimal v3 grammar (bare routes, no
         // payload blob) routes through the same input decoder as everything
         // else the scanner or a deep link can hand us.
         let decoded = try CmxAttachTicketInput.decode(
-            "cmux-ios://attach?v=2&tr=ticket-ref-123&ub=user_mac_123&pc=1&av=0.64.15&ab=42&r=lawrences-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
+            "cmux-ios://attach?v=3&tr=ticket-ref-123&ub=user_mac_123&pc=1&av=0.64.15&ab=42&r=lawrences-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
         )
         #expect(decoded.workspaceID == "")
         #expect(decoded.macDeviceID == "")
@@ -177,21 +177,28 @@ import Testing
     }
 
     @Test func minimalPairingCodeRejectsLoopback() {
-        // A scanned v2 code must never point the phone at itself. The legacy
+        // A scanned bare-route code must never point the phone at itself. The legacy
         // v1 payload grammar is intentionally NOT gated: the dev/simulator
         // auto-pair flow injects loopback attach URLs in that grammar.
         #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
-            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&tr=ticket-ref-123&r=127.0.0.1:58465")
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=3&tr=ticket-ref-123&r=127.0.0.1:58465")
         }
         #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
-            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&tr=ticket-ref-123&r=localhost:58465")
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=3&tr=ticket-ref-123&r=localhost:58465")
         }
     }
 
     @Test func minimalPairingCodeRequiresTicketReference() {
         #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
-            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&r=100.64.0.5:58465")
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=3&r=100.64.0.5:58465")
         }
+    }
+
+    @Test func legacyV2PairingCodeDecodesWithoutTicketReference() throws {
+        let decoded = try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&r=100.64.0.5:58465")
+        #expect(decoded.routes.count == 1)
+        #expect(decoded.ticketRef == nil)
+        #expect(decoded.authToken == nil)
     }
 
     @Test func legacyPairURLDecodesCompatibilityAsUnknown() throws {
@@ -238,7 +245,7 @@ import Testing
         // phone on either channel pairs from a QR minted by either channel.
         for scheme in CmxPairingURLScheme.all {
             let decoded = try CmxAttachTicketInput.decode(
-                "\(scheme)://attach?v=2&tr=ticket-ref-123&r=100.64.0.5:58465"
+                "\(scheme)://attach?v=3&tr=ticket-ref-123&r=100.64.0.5:58465"
             )
             #expect(decoded.routes.count == 1)
             #expect(decoded.routes.first?.kind == .tailscale)
@@ -248,7 +255,7 @@ import Testing
 
     @Test func newerGrammarVersionThrowsUnrecognizedVersion() {
         // A QR minted by a newer cmux whose grammar version this build predates
-        // (the field report: beta 1.0.2 scanned a v2 QR a newer Mac emitted).
+        // (the field report: beta 1.0.2 scanned a newer QR a newer Mac emitted).
         // It must surface distinctly so the UI says "update the app" instead of
         // the generic invalid-code copy. Use one past the build's known version
         // so the test tracks the constant rather than hardcoding 3.

@@ -11,6 +11,15 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostAuthorizationTests {
+    #if DEBUG
+    private func withDebugStackAuthToken<T>(_ token: String, _ body: (MobileHostService) async -> T) async -> T {
+        let service = MobileHostService.shared
+        service.debugConfigureAcceptedStackAuthTokenForTesting(token)
+        defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
+        return await body(service)
+    }
+    #endif
+
     @Test func testAttachTicketStoreKeepsMultipleTicketsForSameTerminal() throws {
         let store = MobileAttachTicketStore()
         let route = try CmxAttachRoute(
@@ -137,12 +146,6 @@ struct MobileHostAuthorizationTests {
         ))
     }
     @Test func testDebugConfiguredStackAuthTokenAuthorizesBroadWorkspaceList() async {
-        let service = MobileHostService.shared
-        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
-        defer {
-            service.debugConfigureAcceptedStackAuthTokenForTesting(nil)
-        }
-
         let request = MobileHostRPCRequest(
             id: "workspace-list",
             method: "workspace.list",
@@ -153,7 +156,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let result = await service.debugAuthorizationError(for: request)
+        let result = await withDebugStackAuthToken("cmux-dev-token") { await $0.debugAuthorizationError(for: request) }
 
         #expect(result == nil)
     }
@@ -399,11 +402,6 @@ struct MobileHostAuthorizationTests {
     }
     #if DEBUG
     @Test func testDebugConfiguredStackAuthTokenAuthorizesAttachTicketRedeem() async {
-        let service = MobileHostService.shared
-        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
-        defer {
-            service.debugConfigureAcceptedStackAuthTokenForTesting(nil)
-        }
         let request = MobileHostRPCRequest(
             id: "attach-ticket-redeem",
             method: "mobile.attach_ticket.redeem",
@@ -414,7 +412,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let result = await service.debugAuthorizationError(for: request)
+        let result = await withDebugStackAuthToken("cmux-dev-token") { await $0.debugAuthorizationError(for: request) }
 
         #expect(result == nil)
     }

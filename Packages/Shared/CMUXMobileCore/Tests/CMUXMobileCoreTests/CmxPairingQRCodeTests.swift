@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CMUXMobileCore
 
-/// Coverage for the v2 pairing-QR grammar: a ticket reference plus bare
+/// Coverage for the v3 pairing-QR grammar: a ticket reference plus bare
 /// Tailscale `host:port` routes in the URL query, with no bearer token.
 @Suite struct CmxPairingQRCodeTests {
     private func tailscaleRoute(
@@ -46,7 +46,7 @@ import Testing
         // The scheme is channel-specific: a release Mac emits cmux-ios, a dev
         // Mac emits cmux-ios-dev, so the system camera routes each channel's QR
         // to its build. The rest of the URL is identical across channels.
-        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&tr=ticket-ref-123&r=100.64.0.5:58465")
+        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=3&tr=ticket-ref-123&r=100.64.0.5:58465")
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == ticket.routes)
@@ -139,7 +139,7 @@ import Testing
         let ticket = try pairingTicket(routes: [loopback, tailscale])
 
         let url = try #require(CmxPairingQRCode().encode(ticket))
-        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&tr=ticket-ref-123&r=100.64.0.5:58465")
+        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=3&tr=ticket-ref-123&r=100.64.0.5:58465")
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == [tailscale])
         #expect(decoded.ticketRef == "ticket-ref-123")
@@ -250,7 +250,7 @@ import Testing
     ])
     func decodeRejectsLoopbackHosts(host: String) throws {
         let encodedHost = host.contains(":") ? "[\(host)]" : host
-        let url = "cmux-ios://attach?v=2&tr=ticket-ref-123&r=\(encodedHost):58465"
+        let url = "cmux-ios://attach?v=3&tr=ticket-ref-123&r=\(encodedHost):58465"
         #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
             try CmxPairingQRCode().decode(try components(url))
         }
@@ -258,7 +258,7 @@ import Testing
 
     @Test func decodeRejectsLoopbackEvenWhenARealRouteIsPresent() throws {
         // Hostile half-and-half codes fail closed, not "dial the good half".
-        let url = "cmux-ios://attach?v=2&tr=ticket-ref-123&r=100.64.0.5:58465&r=127.0.0.1:58465"
+        let url = "cmux-ios://attach?v=3&tr=ticket-ref-123&r=100.64.0.5:58465&r=127.0.0.1:58465"
         #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
             try CmxPairingQRCode().decode(try components(url))
         }
@@ -266,13 +266,13 @@ import Testing
 
     @Test func decodeRejectsMalformedRoutes() throws {
         let malformed = [
-            "cmux-ios://attach?v=2&tr=ticket-ref-123",
-            "cmux-ios://attach?v=2&tr=ticket-ref-123&r=",
-            "cmux-ios://attach?v=2&tr=ticket-ref-123&r=hostonly",
-            "cmux-ios://attach?v=2&tr=ticket-ref-123&r=host:0",
-            "cmux-ios://attach?v=2&tr=ticket-ref-123&r=host:99999",
-            "cmux-ios://attach?v=2&tr=ticket-ref-123&r=host:not-a-port",
-            "cmux-ios://attach?v=2&tr=ticket-ref-123&r=[::1:58465",
+            "cmux-ios://attach?v=3&tr=ticket-ref-123",
+            "cmux-ios://attach?v=3&tr=ticket-ref-123&r=",
+            "cmux-ios://attach?v=3&tr=ticket-ref-123&r=hostonly",
+            "cmux-ios://attach?v=3&tr=ticket-ref-123&r=host:0",
+            "cmux-ios://attach?v=3&tr=ticket-ref-123&r=host:99999",
+            "cmux-ios://attach?v=3&tr=ticket-ref-123&r=host:not-a-port",
+            "cmux-ios://attach?v=3&tr=ticket-ref-123&r=[::1:58465",
         ]
         for url in malformed {
             #expect(throws: (any Error).self, "\(url) should not decode") {
@@ -283,8 +283,18 @@ import Testing
 
     @Test func decodeRejectsMissingTicketReference() throws {
         #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
-            try CmxPairingQRCode().decode(try components("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
+            try CmxPairingQRCode().decode(try components("cmux-ios://attach?v=3&r=100.64.0.5:58465"))
         }
+    }
+
+    @Test func decodeAcceptsLegacyV2RouteOnlyURL() throws {
+        let decoded = try CmxPairingQRCode().decode(
+            try components("cmux-ios://attach?v=2&r=100.64.0.5:58465")
+        )
+        #expect(decoded.routes.count == 1)
+        #expect(decoded.routes.first?.kind == .tailscale)
+        #expect(decoded.ticketRef == nil)
+        #expect(decoded.authToken == nil)
     }
 
     @Test func decodeCapsHostileRouteCounts() throws {
@@ -292,13 +302,14 @@ import Testing
             .map { "r=100.64.0.\($0 + 1):58465" }
             .joined(separator: "&")
         #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
-            try CmxPairingQRCode().decode(try components("cmux-ios://attach?v=2&tr=ticket-ref-123&\(routes)"))
+            try CmxPairingQRCode().decode(try components("cmux-ios://attach?v=3&tr=ticket-ref-123&\(routes)"))
         }
     }
 
     @Test func versionedURLDetectionDistinguishesGrammars() throws {
-        #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&tr=ticket-ref-123&r=100.64.0.5:58465"))
-        #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
+        #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=3&tr=ticket-ref-123&r=100.64.0.5:58465"))
+        #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
+        #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&payload=abc"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=1&payload=abc"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://pair?v=1&payload=abc"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("https://example.com?v=2"))
@@ -308,7 +319,7 @@ import Testing
     @Test func decodedTicketHasNoInlineExpiry() throws {
         // The URL grammar has no inline expiry field at all; the host-side
         // ticket reference record owns expiry when the phone redeems it.
-        let url = "cmux-ios://attach?v=2&tr=ticket-ref-123&r=100.64.0.5:58465"
+        let url = "cmux-ios://attach?v=3&tr=ticket-ref-123&r=100.64.0.5:58465"
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.expiresAt == nil)
         // validate() is structural only; re-running it later cannot fail.
