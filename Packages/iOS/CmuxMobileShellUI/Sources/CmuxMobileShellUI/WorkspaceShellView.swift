@@ -1,4 +1,5 @@
 import Foundation
+import CmuxMobileBrowser
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileWorkspace
@@ -19,10 +20,13 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(BrowserSurfaceStore.self) private var browserStore
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var showingCompactSettings = false
+    @State private var showingCompactDeviceTree = false
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -86,35 +90,23 @@ struct WorkspaceShellView: View {
 
     private var stackLayout: some View {
         NavigationStack(path: $compactNavigationPath) {
-            WorkspaceListView(
+            WorkspaceSurfaceGridView(
                 workspaces: store.workspaces,
-                groups: store.workspaceGroups,
                 selectedWorkspaceID: store.selectedWorkspaceID,
+                selectedTerminalID: store.selectedTerminalID,
                 host: store.connectedHostName,
                 connectionStatus: listConnectionStatus,
-                navigationStyle: .push,
-                wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
-                previewLineLimit: displaySettings.workspacePreviewLineCount,
-                unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
-                profilePictureLeftShift: displaySettings.profilePictureLeftShift,
-                profilePictureSize: displaySettings.profilePictureSize,
-                selectWorkspace: selectWorkspace,
-                createWorkspace: createWorkspaceInCompactStack,
                 canCreateWorkspace: canCreateWorkspace,
-                refresh: refreshWorkspacesClosure,
-                rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: signOut,
-                reconnect: reconnectClosure,
-                showAddDevice: showAddDevice,
-                store: store,
-                renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure,
-                setUnread: setWorkspaceUnreadClosure,
-                closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure,
-                isInitialConnectionLoading: isInitialConnectionLoading,
-                initialConnectionTimedOut: initialConnectionTimedOut,
-                retryInitialConnection: retryInitialConnection
+                canCreateTerminal: canCreateWorkspace,
+                selectWorkspace: selectWorkspaceFromSurfaceGrid,
+                openTerminal: openTerminalFromSurfaceGrid,
+                openBrowser: openBrowserFromSurfaceGrid,
+                closeBrowser: closeBrowserFromSurfaceGrid,
+                createWorkspace: createWorkspaceInCompactStack,
+                createTerminal: createTerminalFromSurfaceGrid,
+                showSettings: { showingCompactSettings = true },
+                showDevices: { showingCompactDeviceTree = true },
+                reconnect: reconnectClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -135,6 +127,17 @@ struct WorkspaceShellView: View {
                     }
                     .background(InteractiveSwipeBackEnabler())
             }
+        }
+        .sheet(isPresented: $showingCompactSettings) {
+            MobileSettingsView(
+                connectedHostName: store.connectedHostName,
+                rescanQR: { store.disconnectAndForgetActiveMac() },
+                signOut: signOut,
+                store: store
+            )
+        }
+        .sheet(isPresented: $showingCompactDeviceTree) {
+            DeviceTreeView(store: store, selectWorkspace: openWorkspaceFromDeviceTree, showAddDevice: showAddDevice)
         }
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
             if let createdPath = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
@@ -237,6 +240,43 @@ struct WorkspaceShellView: View {
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
         }
+    }
+
+    private func selectWorkspaceFromSurfaceGrid(_ id: MobileWorkspacePreview.ID) {
+        pendingCompactCreateNavigationWorkspaceIDs = nil
+        store.selectedWorkspaceID = id
+        compactNavigationPath = []
+    }
+
+    private func openWorkspaceFromDeviceTree(_ id: MobileWorkspacePreview.ID) {
+        showingCompactDeviceTree = false
+        selectWorkspace(id)
+    }
+
+    private func openTerminalFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID, terminalID: MobileTerminalPreview.ID) {
+        pendingCompactCreateNavigationWorkspaceIDs = nil
+        browserStore.closeBrowser(for: workspaceID.rawValue)
+        store.selectedWorkspaceID = workspaceID
+        store.selectTerminalFromChrome(terminalID)
+        compactNavigationPath = [workspaceID]
+    }
+
+    private func openBrowserFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
+        pendingCompactCreateNavigationWorkspaceIDs = nil
+        store.selectedWorkspaceID = workspaceID
+        browserStore.openBrowser(for: workspaceID.rawValue)
+        compactNavigationPath = [workspaceID]
+    }
+
+    private func closeBrowserFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
+        browserStore.closeBrowser(for: workspaceID.rawValue)
+    }
+
+    private func createTerminalFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
+        pendingCompactCreateNavigationWorkspaceIDs = nil
+        browserStore.closeBrowser(for: workspaceID.rawValue)
+        store.createTerminal(in: workspaceID)
+        compactNavigationPath = [workspaceID]
     }
 
     /// Workspace action closures, always present for the real store. Row and
