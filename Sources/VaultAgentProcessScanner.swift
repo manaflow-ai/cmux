@@ -80,12 +80,21 @@ extension RestorableAgentSessionIndex {
         // Several hermes panes/gateways in the same cwd resolve to one query per
         // scan instead of one per process. The value is the resolved session id
         // (or nil for "looked up, none found" — cached either way).
+        //
+        // The stored value is `String?`, so a "no match" result is a *stored nil*
+        // that must still count as a cache hit (otherwise an unresolved cwd would
+        // re-query state.db every scan on the main-queue save path). Assigning a
+        // typed `String?` value via subscript already stores nil correctly and
+        // preserves the key; updateValue(_:forKey:) + an `if case .some` read are
+        // used to make that intent explicit and immune to a future refactor that
+        // assigns a bare `nil` literal (`dict[key] = nil` on [String: String?]
+        // *removes* the key — the footgun this guards against).
         var hermesSessionIDByKey: [String: String?] = [:]
         func latestHermesSessionID(stateDBPath: String, cwd: String) -> String? {
             let key = stateDBPath + "\u{1f}" + cwd
-            if let cached = hermesSessionIDByKey[key] { return cached }
+            if case .some(let cached) = hermesSessionIDByKey[key] { return cached }
             let resolvedId = HermesAgentIndex.latestSessionID(cwdFilter: cwd, stateDBPath: stateDBPath)
-            hermesSessionIDByKey[key] = resolvedId
+            hermesSessionIDByKey.updateValue(resolvedId, forKey: key)
             return resolvedId
         }
 
