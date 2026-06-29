@@ -100,9 +100,15 @@ public enum HermesAgentIndex {
         cwdFilter: String?,
         stateDBPath: String = Self.defaultStateDBPath()
     ) -> String? {
-        guard let normalizedCwd = normalized(cwdFilter).map({ ($0 as NSString).standardizingPath }) else {
-            return nil
-        }
+        guard let rawCwd = normalized(cwdFilter) else { return nil }
+        // Match the stored cwd against BOTH the standardized path (~ expanded,
+        // ./.. collapsed) and the symlink-resolved realpath. `standardizingPath`
+        // does NOT resolve symlinks, so a pane whose PWD is a symlink (e.g.
+        // /tmp/x) would otherwise never match a session hermes stored under the
+        // real path (/private/tmp/x), silently skipping the resume binding. We
+        // also resolve the symlink because hermes is observed to store realpaths.
+        let cwdCandidates = Self.cwdMatchCandidates(rawCwd)
+        guard !cwdCandidates.isEmpty else { return nil }
         guard FileManager.default.fileExists(atPath: stateDBPath) else { return nil }
 
         var db: OpaquePointer?
@@ -114,11 +120,12 @@ public enum HermesAgentIndex {
         defer { sqlite3_close(db) }
         _ = sqlite3_busy_timeout(db, 50)
 
+        let placeholders = cwdCandidates.map { _ in "?" }.joined(separator: ", ")
         let sql = """
             SELECT s.id
             FROM sessions s
             WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
-              AND s.cwd = ?
+              AND s.cwd IN (\(placeholders))
             ORDER BY s.started_at DESC
             LIMIT 1
             """
@@ -130,11 +137,30 @@ public enum HermesAgentIndex {
         defer { sqlite3_finalize(stmt) }
 
         let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        guard sqlite3_bind_text(stmt, 1, normalizedCwd, -1, transient) == SQLITE_OK else { return nil }
+        for (offset, candidate) in cwdCandidates.enumerated() {
+            guard sqlite3_bind_text(stmt, Int32(offset + 1), candidate, -1, transient) == SQLITE_OK else {
+                return nil
+            }
+        }
 
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
         let id = sqliteText(stmt, 0)
         return (id?.isEmpty == false) ? id : nil
+    }
+
+    /// The set of cwd strings a stored `sessions.cwd` may equal for a given raw
+    /// working directory: the standardized path and its symlink-resolved
+    /// realpath (deduplicated, order-stable). Used to match a pane's cwd against
+    /// however hermes recorded it, regardless of symlink spelling.
+    static func cwdMatchCandidates(_ rawCwd: String) -> [String] {
+        let standardized = (rawCwd as NSString).standardizingPath
+        var candidates: [String] = []
+        var seen = Set<String>()
+        for path in [standardized, (standardized as NSString).resolvingSymlinksInPath] {
+            guard !path.isEmpty, seen.insert(path).inserted else { continue }
+            candidates.append(path)
+        }
+        return candidates
     }
 
     /// Loads Hermes sessions from state.db, newest first.

@@ -176,6 +176,56 @@ struct HermesAgentIndexTests {
         #expect(turns[1].content.contains("pwd"))
     }
 
+    // latestSessionID is the copy-free, read-only fast path the resume scanner
+    // actually calls (loadSessions, with its state.db snapshot copy, is the
+    // session-browser path). These cover it directly.
+    @Test("latestSessionID resolves newest-per-cwd, excludes gateways and no-match")
+    func latestSessionIDNewestPerCwd() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, title, cwd)
+        VALUES
+          ('a-old', 'cli', 'm', 10, NULL, '/repo/alpha'),
+          ('a-new', 'cli', 'm', 30, NULL, '/repo/alpha'),
+          ('b-new', 'cli', 'm', 40, NULL, '/repo/beta'),
+          ('gw',    'gateway', 'm', 99, NULL, '/repo/alpha');
+        """)
+
+        #expect(HermesAgentIndex.latestSessionID(cwdFilter: "/repo/alpha", stateDBPath: dbURL.path) == "a-new")  // not b-new (global newest), not gw (gateway)
+        #expect(HermesAgentIndex.latestSessionID(cwdFilter: "/repo/beta", stateDBPath: dbURL.path) == "b-new")
+        #expect(HermesAgentIndex.latestSessionID(cwdFilter: "/repo/none", stateDBPath: dbURL.path) == nil)      // no match → no binding
+        #expect(HermesAgentIndex.latestSessionID(cwdFilter: nil, stateDBPath: dbURL.path) == nil)               // nil cwd → no binding
+    }
+
+    // Regression: a pane whose PWD is a symlink (e.g. /tmp/x) must still match a
+    // session hermes recorded under the realpath (/private/tmp/x). Before the
+    // symlink-aware fix, standardizingPath left the symlink unresolved and the
+    // lookup silently skipped the binding.
+    @Test("latestSessionID matches a session stored under the cwd's realpath via a symlink path")
+    func latestSessionIDResolvesSymlinkedCwd() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+
+        let realDir = root.appendingPathComponent("realrepo", isDirectory: true)
+        try FileManager.default.createDirectory(at: realDir, withIntermediateDirectories: true)
+        let linkDir = root.appendingPathComponent("linkrepo", isDirectory: true).path
+        try FileManager.default.createSymbolicLink(atPath: linkDir, withDestinationPath: realDir.path)
+        let storedCwd = (realDir.path as NSString).resolvingSymlinksInPath  // what hermes stores
+
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, title, cwd)
+        VALUES ('sym-sess', 'cli', 'm', 50, NULL, '\(storedCwd)');
+        """)
+
+        // Look up via the SYMLINK path (a pane's PWD) — must resolve to the realpath-stored row.
+        #expect(HermesAgentIndex.latestSessionID(cwdFilter: linkDir, stateDBPath: dbURL.path) == "sym-sess")
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hermes-index-\(UUID().uuidString)", isDirectory: true)

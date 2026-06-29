@@ -1131,9 +1131,18 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(reg.sessionIdSource, .stateDB)
     }
 
-    func testBuiltInHermesIsRegisteredByDefault() {
+    func testBuiltInHermesIsRegisteredByDefault() throws {
+        // Use an isolated, empty home so the assertion reflects only the built-in
+        // registration set — never whatever vault config happens to exist on the
+        // machine running the suite (which would make this pass/fail for the
+        // wrong reason).
+        let isolatedHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-registry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: isolatedHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: isolatedHome) }
+
         let registry = CmuxVaultAgentRegistry.load(
-            homeDirectory: NSHomeDirectory(),
+            homeDirectory: isolatedHome.path,
             workingDirectory: nil,
             environment: [:],
             fileManager: .default
