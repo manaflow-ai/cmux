@@ -14,10 +14,16 @@ struct RendererRealizationPlannerInput: Sendable {
 /// the rest only when they are offscreen and have been idle past `idleSeconds`.
 /// A currently-visible surface is never selected.
 enum RendererRealizationPlanner {
+    enum ReclaimTrigger: Sendable {
+        case scheduled
+        case systemMemoryPressure
+    }
+
     static func selectedSurfaceIds(
         inputs: [RendererRealizationPlannerInput],
         settings: RendererRealizationSettings.Values,
-        now: TimeInterval
+        now: TimeInterval,
+        trigger: ReclaimTrigger = .scheduled
     ) -> Set<UUID> {
         guard settings.enabled else { return [] }
 
@@ -32,6 +38,8 @@ enum RendererRealizationPlanner {
                 }
                 return lhs.lastVisibleAt > rhs.lastVisibleAt
             }
+
+        _ = trigger
 
         let warmCap = max(1, settings.maxWarmRenderers)
         var selected: Set<UUID> = []
