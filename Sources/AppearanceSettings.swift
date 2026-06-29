@@ -288,11 +288,33 @@ final class AppearanceSettingsUserDefaultsObserver {
         if let source {
             self.source = source
         }
-        lastObservedRawValue = environment.currentRawValue()
-        guard defaultsObserver == nil else { return }
+        let initialRawValue = environment.currentRawValue()
+        guard defaultsObserver == nil else {
+            // Already observing — keep the change-detection baseline
+            // accurate without re-applying.
+            lastObservedRawValue = initialRawValue
+            return
+        }
         defaultsObserver = environment.addDefaultsObserver { [weak self] in
             self?.applyIfChanged()
         }
+        // After commit 70bcbda2 (PR #4415) the settings-file store no
+        // longer applies appearance as a side-effect during launch —
+        // that responsibility was delegated to this observer to avoid
+        // re-entering Ghostty while the file store initializes. The
+        // observer's `applyIfChanged` only fires on *changes* to
+        // `appearanceMode`, so in the steady-state case (UserDefaults
+        // already has the imported value), no change event ever fires
+        // and the launch-time apply is missed.
+        //
+        // The early `Self.applyAppearance(_, duringLaunch: true)` in
+        // `cmuxApp.init()` does set `NSApplication.shared.appearance`
+        // but runs before `NSApp` is fully initialized, so the value
+        // can fail to stick to the first `NSWindow`. Re-apply once
+        // here, from `applicationDidFinishLaunching`, to guarantee
+        // the stored mode reaches the main WindowGroup window.
+        let appliedMode = environment.applyStoredMode(initialRawValue, self.source)
+        lastObservedRawValue = appliedMode.rawValue
     }
 
     func stopObserving() {
