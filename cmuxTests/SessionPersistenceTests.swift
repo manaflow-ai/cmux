@@ -1271,6 +1271,66 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNotEqual(restored.minY, -90, "Changed display geometry should clamp/remap frame")
     }
 
+    func testWakeWindowFrameRestoreDetectsDisplaySleepShrinkByRatio() {
+        let target = CGRect(x: 0, y: 0, width: 1_600, height: 1_000)
+        let shrunkenByWake = CGRect(x: 350, y: 250, width: 800, height: 500)
+
+        XCTAssertTrue(
+            AppDelegate.shouldRestoreWindowFrameAfterWake(
+                currentFrame: shrunkenByWake,
+                targetFrame: target
+            )
+        )
+    }
+
+    func testWakeWindowFrameRestoreIgnoresAlreadyRestoredFrame() {
+        let target = CGRect(x: 0, y: 0, width: 1_600, height: 1_000)
+        let nearlyEqual = CGRect(x: 4, y: 3, width: 1_596, height: 998)
+
+        XCTAssertFalse(
+            AppDelegate.shouldRestoreWindowFrameAfterWake(
+                currentFrame: nearlyEqual,
+                targetFrame: target
+            )
+        )
+    }
+
+    func testWakeWindowFrameRestoreRejectsInvalidTinyFrame() {
+        let target = CGRect(x: 0, y: 0, width: 1_600, height: 1_000)
+        let invalid = CGRect(x: 10, y: 10, width: 120, height: 90)
+
+        XCTAssertFalse(
+            AppDelegate.shouldRestoreWindowFrameAfterWake(
+                currentFrame: invalid,
+                targetFrame: target
+            )
+        )
+    }
+
+    func testWakeWindowFrameRestoreDetectsStableSizeMovedBySystem() {
+        let target = CGRect(x: 100, y: 120, width: 1_000, height: 700)
+        let movedByWake = CGRect(x: 420, y: 320, width: 1_000, height: 700)
+
+        XCTAssertTrue(
+            AppDelegate.shouldRestoreWindowFrameAfterWake(
+                currentFrame: movedByWake,
+                targetFrame: target
+            )
+        )
+    }
+
+    func testWakeWindowFrameRestoreDoesNotFightLargerCurrentFrame() {
+        let target = CGRect(x: 100, y: 120, width: 1_000, height: 700)
+        let largerCurrent = CGRect(x: 100, y: 120, width: 1_120, height: 760)
+
+        XCTAssertFalse(
+            AppDelegate.shouldRestoreWindowFrameAfterWake(
+                currentFrame: largerCurrent,
+                targetFrame: target
+            )
+        )
+    }
+
     func testResolvedSnapshotTerminalScrollbackPrefersCaptured() {
         let resolved = Workspace.resolvedSnapshotTerminalScrollback(
             capturedScrollback: "captured-value",
