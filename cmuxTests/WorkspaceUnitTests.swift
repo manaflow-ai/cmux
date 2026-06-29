@@ -5884,6 +5884,49 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testForkAgentConversationUsesLaunchDirectoryBeforeLivePanelDirectory() throws {
+        let workspace = Workspace()
+        workspace.currentDirectory = "/Users/lawrence/fun/cmuxterm-hq/worktrees/feat-ios-swift-mobile-core"
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.updatePanelDirectory(
+            panelId: sourcePanelId,
+            directory: "/Users/lawrence/fun/cmuxterm-hq/worktrees/feat-ios-swift-mobile-core"
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "a1fcdb44-3fe9-4045-98bf-256e21051de3",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/Users/lawrence/.local/bin/claude",
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--dangerously-skip-permissions"
+                ],
+                workingDirectory: "/Users/lawrence/fun/cmuxterm-hq",
+                environment: [
+                    "CLAUDE_CONFIG_DIR": "/Users/lawrence/.codex-accounts/claude/_p1775010019397"
+                ],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        let forkPanel = try XCTUnwrap(
+            workspace.forkAgentConversation(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot,
+                direction: .right
+            )
+        )
+
+        XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/Users/lawrence/fun/cmuxterm-hq")
+        XCTAssertEqual(
+            forkPanel.surface.initialInput,
+            "{ cd -- '/Users/lawrence/fun/cmuxterm-hq' 2>/dev/null || [ ! -d '/Users/lawrence/fun/cmuxterm-hq' ]; } && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/Users/lawrence/.local/bin/claude' '--resume' 'a1fcdb44-3fe9-4045-98bf-256e21051de3' '--fork-session' '--dangerously-skip-permissions'\n"
+        )
+    }
+
     func testForkAgentConversationInRemoteWorkspaceUsesRemoteStartupCommand() throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(
