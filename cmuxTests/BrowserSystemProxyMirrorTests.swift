@@ -83,9 +83,18 @@ import Testing
 
     // MARK: - Mirrored proxy mapping
 
-    @Test("A matched HTTP+HTTPS web proxy is not mirrored as HTTP CONNECT")
-    func matchedWebProxyIsNotMirroredAsHTTPCONNECT() {
-        #expect(BrowserSystemProxyMirror(systemProxySettings: webProxySettings()) == nil)
+    // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5703:
+    // macOS bypasses the system proxy for `localhost` but NOT for `*.localhost`
+    // subdomains, so a matched HTTP+HTTPS system web proxy (the common
+    // Clash/Surge/mihomo mixed-port setup) leaves `tenant.localhost:PORT` dev
+    // servers unreachable in the browser pane. A matched web proxy is now
+    // mirrored as a single CONNECT proxy with the loopback family excluded.
+    @Test("A matched HTTP+HTTPS web proxy mirrors as CONNECT with loopback excluded (#5703)")
+    func matchedWebProxyMirrorsAsHTTPCONNECT() throws {
+        let mirror = try #require(
+            BrowserSystemProxyMirror(systemProxySettings: webProxySettings())
+        )
+        #expect(mirror.excludedDomains == BrowserSystemProxyMirror.implicitExclusions)
     }
 
     @Test("A SOCKS proxy with no web proxy mirrors to a SOCKSv5 proxy")
@@ -96,11 +105,12 @@ import Testing
         #expect(mirror.proxy == .socksV5(host: "socks.example.com", port: 1080))
     }
 
-    @Test("SOCKS is not mirrored while a matched web proxy is active")
-    func matchedWebProxyDeclinesEvenWithSOCKS() {
+    @Test("A matched web proxy mirrors (as CONNECT) even while SOCKS is also active")
+    func matchedWebProxyMirrorsEvenWithSOCKS() throws {
         var settings = webProxySettings()
         settings.merge(socksProxySettings()) { current, _ in current }
-        #expect(BrowserSystemProxyMirror(systemProxySettings: settings) == nil)
+        let mirror = try #require(BrowserSystemProxyMirror(systemProxySettings: settings))
+        #expect(mirror.excludedDomains == BrowserSystemProxyMirror.implicitExclusions)
     }
 
     @Test("SOCKS host is trimmed and accepts the highest port")
