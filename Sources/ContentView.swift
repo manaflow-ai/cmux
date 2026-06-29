@@ -10728,9 +10728,6 @@ struct VerticalTabsSidebar: View {
                     // unrelated sidebar event fires.
                     anchorCwdRevision &+= 1
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .workspaceAgentLifecycleDidChange)) { notification in
-                    if let workspace = notification.object as? Workspace, renderContext.workspaceById[workspace.id] != nil { groupAgentLifecycleRevision &+= 1 }
-                }
                 .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionDidHideEvent.notificationName)) { notification in
                     // Group collapse hides some workspaces without changing
                     // focus or wiping the rest of the multi-selection. Strip
@@ -10811,6 +10808,7 @@ struct VerticalTabsSidebar: View {
             }
             .onReceive(extensionSidebarDebouncedObservationPublisher) { _ in
                 refreshExtensionSidebarSnapshot()
+                groupAgentLifecycleRevision &+= 1
             }
             // Fade the extension's content out at the bottom so it dissolves behind the
             // sidebar footer instead of overlapping it sharply, matching the default
@@ -10976,6 +10974,7 @@ struct VerticalTabsSidebar: View {
             }
             .onReceive(extensionSidebarDebouncedObservationPublisher) { _ in
                 refreshExtensionSidebarSnapshot()
+                groupAgentLifecycleRevision &+= 1
             }
             .onReceive(
                 NotificationCenter.default.publisher(for: BrowserStackSidebar.stateDidLoadNotification)

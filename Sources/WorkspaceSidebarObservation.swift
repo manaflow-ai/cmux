@@ -101,10 +101,10 @@ extension Workspace {
             $activeRemoteTerminalSessionCount
         )
 
-        let workspaceLifecycleFields = Publishers.CombineLatest(
-            $listeningPorts,
-            agentLifecycleStatesPublisher
-        )
+        let agentLifecycleStates = objectWillChange
+            .prepend(())
+            .map { [weak self] _ in self?.agentLifecycleStatesByPanelId ?? [:] }
+        let workspaceLifecycleFields = Publishers.CombineLatest($listeningPorts, agentLifecycleStates)
 
         return Publishers.CombineLatest4(
             workspaceFields,
