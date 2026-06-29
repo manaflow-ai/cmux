@@ -3044,8 +3044,7 @@ struct ContentView: View {
         // resync each tick. Without this the Dock's surfaces miss the
         // interactive-resize flush path and the width drag renders laggily
         // compared to a native Bonsplit divider drag.
-        view = AnyView(view.onChange(of: fileExplorerWidth) { _ in
-            guard rightSidebarVisible else { return }
+        view = AnyView(view.onChange(of: rightSidebarWidth) { _ in
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
         })
