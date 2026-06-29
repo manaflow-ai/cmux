@@ -145,6 +145,33 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     }
 }
 
+extension WorkstreamEvent {
+    /// True when this `PermissionRequest` is a Codex app-server (Teams)
+    /// approval that cmux owns and resolves through a blocking Feed decision,
+    /// as opposed to a Codex CLI hook `PermissionRequest` — which is
+    /// non-blocking telemetry that Codex resolves with its own approval
+    /// reviewer (see `FeedEventClassifier`'s `permissionTelemetry` mapping).
+    ///
+    /// Both producers emit `hook_event_name == "PermissionRequest"` with
+    /// `_source == "codex"`, so source alone cannot tell them apart. The
+    /// codex-teams approval bridge tags every app-server approval with an
+    /// `app_server_method` field in `tool_input` (the same marker
+    /// `FeedPermissionActionPolicy` keys off); the hook telemetry path never
+    /// sets it. Used to keep app-server approvals on the actionable, blocking
+    /// path while routing hook telemetry to non-blocking tool-use.
+    public var isCodexAppServerApproval: Bool {
+        guard source == WorkstreamSource.codex.rawValue,
+              hookEventName == .permissionRequest,
+              let toolInputJSON,
+              let data = toolInputJSON.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else {
+            return false
+        }
+        return (object["app_server_method"] as? String) != nil
+    }
+}
+
 private struct JSONDynamicKey: CodingKey {
     let stringValue: String
     init?(stringValue: String) { self.stringValue = stringValue }
