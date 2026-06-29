@@ -343,6 +343,14 @@ public final class UpdateController {
             return
         }
 
+        let bundleIdentifier = Bundle.main.bundleIdentifier
+        if Self.isDevLikeBundleIdentifier(bundleIdentifier) {
+            log.append("launch update probe skipped (dev build, bundle=\(bundleIdentifier ?? "nil"))")
+            backgroundProbeTask?.cancel()
+            backgroundProbeTask = nil
+            return
+        }
+
         // Probe immediately on launch so the sidebar can surface a passive update indicator
         // without waiting for Sparkle's scheduled check or opening interactive update UI.
         log.append("starting launch update probe")
@@ -415,5 +423,21 @@ public final class UpdateController {
         } catch {
             log.append("Failed creating Sparkle installation cache: \(error)")
         }
+    }
+
+    /// Returns `true` when the running bundle is a debug or staging build rather
+    /// than the public release. Such builds are produced locally (e.g. via
+    /// `./scripts/reload.sh --tag <tag>`) and should not surface the Sparkle
+    /// "Update Available" pill — the user explicitly built from local source and
+    /// the public appcast will always report a version mismatch.
+    ///
+    /// Mirrors `SocketControlSettings.isDebugLikeBundleIdentifier` /
+    /// `isStagingBundleIdentifier` without taking a cross-package dependency.
+    static func isDevLikeBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
+        guard let bundleIdentifier else { return false }
+        return bundleIdentifier == "com.cmuxterm.app.debug"
+            || bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.")
+            || bundleIdentifier == "com.cmuxterm.app.staging"
+            || bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.")
     }
 }
