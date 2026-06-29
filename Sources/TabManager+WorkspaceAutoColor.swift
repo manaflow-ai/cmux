@@ -6,7 +6,7 @@ extension TabManager {
         workingDirectory: String?
     ) {
         guard newWorkspace.customColor == nil,
-              settings.value(for: settingsCatalog.workspaceColors.autoColorFromCwd) else {
+              shouldAutoColorWorkspaceFromCwd else {
             return
         }
         let directory = workingDirectory ?? newWorkspace.currentDirectory

@@ -392,6 +392,10 @@ class TabManager: ObservableObject {
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
 
+    var shouldAutoColorWorkspaceFromCwd: Bool {
+        settings.value(for: settingsCatalog.workspaceColors.autoColorFromCwd)
+    }
+
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
             guard focusHistoryRevision != oldValue else { return }
