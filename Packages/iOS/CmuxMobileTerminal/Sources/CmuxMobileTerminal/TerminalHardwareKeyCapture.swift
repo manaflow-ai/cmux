@@ -299,7 +299,19 @@ final class TerminalHardwareKeyCapture {
             // is unaffected — `shouldConsume` only routes here for special keys or
             // Control/Alt chords, never a bare letter.
             if let letter = Self.letter(forKeyCode: key.keyCode) { return letter }
-            return key.charactersIgnoringModifiers
+            // A bare modifier press (Option or Control held with NO base key) still
+            // arrives as a UIPress whose `modifierFlags` carries the modifier, so
+            // `shouldConsume` already matched it — but its
+            // `charactersIgnoringModifiers` is empty. An empty base is NOT an
+            // encodable chord: feeding "" to the meta path degenerates to ESC + ""
+            // (a stray `ESC`, streamed at the repeat cadence while the modifier is
+            // held). Return `nil` so the `handleHardwarePress` input-guard forwards
+            // the lone modifier to `super` ("not ours" — nothing to send, nothing
+            // to consume) instead of claiming it. This uniformly covers
+            // Option-alone and Control-alone, the only bare modifiers routed here
+            // (Cmd/Shift/fn alone are rejected upstream by `shouldConsume`).
+            let base = key.charactersIgnoringModifiers
+            return base.isEmpty ? nil : base
         }
     }
 

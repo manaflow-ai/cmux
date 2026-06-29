@@ -281,6 +281,57 @@ struct TerminalHardwareKeyPressIntegrationTests {
         #expect(outcome.emitted.isEmpty, "a plain 'a' must not emit terminal bytes")
     }
 
+    // MARK: Bare modifier press (Option-alone / Control-alone) — silent, forwarded
+
+    @Test("a bare modifier press (Option alone, Control alone) emits zero bytes and forwards to super")
+    func bareModifierEmitsNothingAndForwards() {
+        // A modifier key pressed on its own still arrives as a UIPress whose
+        // `modifierFlags` carries that modifier, so `shouldConsume` matches it —
+        // but its `charactersIgnoringModifiers` is empty. An empty base is NOT an
+        // encodable chord (feeding "" to the meta path would ESC-prefix nothing
+        // into a stray `ESC`, and a held modifier would stream it at the repeat
+        // cadence), so the capture must claim nothing: emit ZERO bytes (no 0x1B)
+        // AND forward the lone modifier to `super` — it is "not ours" (nothing to
+        // send, nothing to consume), unlike Option+Up which is a claimed special
+        // chord consumed silently. Covers Option-alone and Control-alone uniformly.
+        for (label, keyCode, mods) in [
+            ("Option alone", UIKeyboardHIDUsage.keyboardLeftAlt, UIKeyModifierFlags.alternate),
+            ("Control alone", UIKeyboardHIDUsage.keyboardLeftControl, UIKeyModifierFlags.control),
+        ] {
+            let outcome = captureOutcome(keyCode: keyCode, modifiers: mods, characters: "")
+            #expect(
+                outcome.emitted.isEmpty,
+                "\(label) emitted bytes (stray ESC?): \(outcome.emitted.map(hexString))"
+            )
+            #expect(
+                outcome.forwardedToSuper,
+                "\(label) must forward the lone modifier to super, not silently consume it"
+            )
+        }
+    }
+
+    @Test("the bare-modifier guard does not regress Option+letter / Option+arrow / Option+Up")
+    func bareModifierGuardKeepsOptionChordsIntact() {
+        // The empty-base guard must fire ONLY for a lone modifier. Every Option
+        // chord with a real base key still resolves and stays CONSUMED (kept from
+        // super) exactly as before:
+        //  - Option+b   → meta back-word `ESC b` (1B 62);
+        //  - Option+Left → readline back-word `ESC b` (1B 62);
+        //  - Option+Up  → no META vertical word-move, so zero bytes but still
+        //    consumed silently (never forwarded to super).
+        let optionB = captureOutcome(keyCode: .keyboardB, modifiers: [.alternate], characters: "b")
+        #expect(optionB.emitted == [Data([0x1B, 0x62])], "Option+b must still emit ESC b, got \(optionB.emitted.map(hexString))")
+        #expect(!optionB.forwardedToSuper, "Option+b must stay consumed, not forwarded")
+
+        let optionLeft = captureOutcome(keyCode: .keyboardLeftArrow, modifiers: [.alternate], characters: "\u{F702}")
+        #expect(optionLeft.emitted == [Data([0x1B, 0x62])], "Option+Left must still emit ESC b, got \(optionLeft.emitted.map(hexString))")
+        #expect(!optionLeft.forwardedToSuper, "Option+Left must stay consumed, not forwarded")
+
+        let optionUp = captureOutcome(keyCode: .keyboardUpArrow, modifiers: [.alternate], characters: "\u{F700}")
+        #expect(optionUp.emitted.isEmpty, "Option+Up must still emit nothing, got \(optionUp.emitted.map(hexString))")
+        #expect(!optionUp.forwardedToSuper, "Option+Up must stay consumed silently, not forwarded")
+    }
+
     // MARK: Hold-to-repeat cadence (deterministic, fake-timer driven)
 
     @Test("a held key emits immediately on press, then re-emits the same bytes on each repeat tick")
