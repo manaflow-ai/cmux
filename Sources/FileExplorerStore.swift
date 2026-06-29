@@ -884,6 +884,10 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
               if [ -d "$entry" ]; then kind=d; else kind=f; fi
               mtime=$(stat -c %Y "$entry" 2>/dev/null || stat -f %m "$entry" 2>/dev/null || printf '')
               btime=$(stat -c %W "$entry" 2>/dev/null || stat -f %B "$entry" 2>/dev/null || printf '')
+              case "$btime" in
+                ''|*[!0-9]*) btime='' ;;
+                *) if [ "$btime" -lt 100000000 ]; then btime=''; fi ;;
+              esac
               printf '%s\\t%s\\t%s\\t%s\\n' "$kind" "$mtime" "$btime" "$name"
             done
             """
