@@ -51,7 +51,7 @@
 1900	cmuxTests/NotificationAndMenuBarTests.swift
 1866	Sources/Panels/BrowserWebAuthnSupport.swift
 1810	Sources/SessionIndexStore.swift
-1763	cmuxTests/MarkdownPanelTests.swift
+1769	cmuxTests/MarkdownPanelTests.swift
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1680	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
@@ -102,7 +102,7 @@
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 914	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 905	Sources/CmuxSSHURLRequest.swift
-900	Sources/Panels/MarkdownWebRenderer.swift
+901	Sources/Panels/MarkdownWebRenderer.swift
 885	Sources/Panels/TerminalPanel.swift
 885	cmuxTests/SidebarWorkspaceDropPlannerTests.swift
 881	Sources/DockSplitStore.swift

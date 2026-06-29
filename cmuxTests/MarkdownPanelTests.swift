@@ -318,8 +318,13 @@ final class MarkdownPanelTests: XCTestCase {
     ) throws {
         let webView = MarkdownWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480), configuration: WKWebViewConfiguration())
         var capturedEvents: [NSEvent] = []
+        var didCancelFind = false
         webView.performKeyEquivalentHandler = { event in
             capturedEvents.append(event)
+            return true
+        }
+        webView.cancelOperationHandler = {
+            didCancelFind = true
             return true
         }
         panel.rendererSession
@@ -374,6 +379,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(previousEvent.modifierFlags.contains(.shift))
 
         manager.hideFind()
+        XCTAssertTrue(didCancelFind)
         XCTAssertFalse(manager.isFindVisible)
     }
 
