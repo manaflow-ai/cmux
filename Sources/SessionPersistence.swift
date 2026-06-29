@@ -1949,7 +1949,15 @@ enum SessionScrollbackReplayStore {
         // (issue #5165). Strip them before replay.
         let themePortable = strippingTerminalColorOSCSequences(scrollback)
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(themePortable) else { return nil }
-        return ansiSafeReplayText(truncated)
+        // The captured scrollback ends at the prompt line where the cursor sat,
+        // which has no trailing newline; a bare replay would glue the freshly-
+        // restored live prompt onto that line ("…$ …$"). Add the newline BEFORE
+        // ansiSafeReplayText so the (cursor-neutral) ANSI reset wraps the content
+        // and we never emit two newlines. Appending it AFTER would let the trailing
+        // reset defeat a hasSuffix("\n") check and insert a blank line when the
+        // captured buffer already ended in a newline (issue #2823, PR #5853).
+        let withTrailingNewline = truncated.hasSuffix("\n") ? truncated : truncated + "\n"
+        return ansiSafeReplayText(withTrailingNewline)
     }
 
     /// Preserve ANSI color state safely across replay boundaries.
