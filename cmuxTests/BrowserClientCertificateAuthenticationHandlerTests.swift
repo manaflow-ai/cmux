@@ -56,15 +56,27 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
     }
 
     @Test
-    func identityLookupQueryDisallowsKeychainAuthenticationUI() throws {
+    func identityLookupQueryRequiresAcceptedCertificateIssuers() {
         let query = BrowserClientCertificateCredentialStore().identityLookupQuery(
             for: makeProtectionSpace(host: "mtls.example")
         )
+
+        #expect(query == nil)
+    }
+
+    @Test
+    func identityLookupQueryDisallowsKeychainAuthenticationUI() throws {
+        let acceptedIssuer = Data([0x30, 0x03, 0x31, 0x01, 0x30])
+        let query = try #require(BrowserClientCertificateCredentialStore().identityLookupQuery(
+            acceptedIssuers: [acceptedIssuer]
+        ))
         let context = try #require(query[kSecUseAuthenticationContext as String] as? LAContext)
+        let issuers = try #require(query[kSecMatchIssuers as String] as? [Data])
 
         #expect(query[kSecClass as String] as? String == kSecClassIdentity as String)
         #expect(query[kSecReturnRef as String] as? Bool == true)
         #expect(query[kSecMatchLimit as String] as? String == kSecMatchLimitAll as String)
+        #expect(issuers == [acceptedIssuer])
         #expect(context.interactionNotAllowed)
         #expect(query[kSecUseAuthenticationUI as String] == nil)
     }
