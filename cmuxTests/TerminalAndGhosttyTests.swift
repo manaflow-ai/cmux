@@ -2630,7 +2630,7 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
         config.backgroundBlur = .disabled
 
         let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
-        let expectedBackground = WindowAppearanceSnapshot.compositedTerminalColor(
+        let expectedBackground = GhosttyBackgroundTheme.color(
             backgroundColor: config.backgroundColor,
             opacity: config.backgroundOpacity
         )
