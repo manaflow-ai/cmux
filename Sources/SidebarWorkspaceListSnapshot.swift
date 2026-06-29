@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxWorkspaces
 import Foundation
 
@@ -22,6 +23,7 @@ final class SidebarWorkspaceListSnapshot {
     private let topLevelWorkspaceIds: [UUID]
     private let topLevelPinnedWorkspaceIds: Set<UUID>
     private let fullRowPinnedWorkspaceIds: Set<UUID>
+    private let visibleWorkspaceRowIdSet: Set<UUID>
 
     init(tabs: [Workspace], workspaceGroups: [WorkspaceGroup]) {
         self.tabs = tabs
@@ -44,6 +46,7 @@ final class SidebarWorkspaceListSnapshot {
             groupsById: workspaceGroupById
         )
         visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
+        visibleWorkspaceRowIdSet = Set(visibleWorkspaceRowIds)
         pinResolutionContext = WorkspaceActionDispatcher.PinResolutionContext(
             workspacesById: workspaceById,
             liveWorkspaceIds: Set(tabIds)
@@ -96,6 +99,23 @@ final class SidebarWorkspaceListSnapshot {
             return fullRowPinnedWorkspaceIds
         }
         return topLevelPinnedWorkspaceIds
+    }
+
+    func sidebarDropIndicatorRowIds(
+        draggedWorkspaceId: UUID,
+        scope: SidebarWorkspaceReorderDropIndicatorScope
+    ) -> [UUID] {
+        switch scope {
+        case .raw:
+            return tabIds
+        case .topLevel:
+            return topLevelWorkspaceIdsForReorder(promotingWorkspaceId: draggedWorkspaceId)
+        case .group(let groupId):
+            guard workspaceGroupById[groupId] != nil else { return [] }
+            return tabs.compactMap { tab in
+                tab.groupId == groupId && visibleWorkspaceRowIdSet.contains(tab.id) ? tab.id : nil
+            }
+        }
     }
 
     func sidebarReorderUsesTopLevelRows(
