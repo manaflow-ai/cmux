@@ -2,6 +2,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
     struct ContextMenuImmediateFields: Equatable {
         let title: String
         let customDescription: String?
+        let customTags: [String]
         let isPinned: Bool
         let customColorHex: String?
         let finderDirectoryPath: String?
@@ -12,6 +13,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         ContextMenuImmediateFields(
             title: title,
             customDescription: customDescription,
+            customTags: customTags,
             isPinned: isPinned,
             customColorHex: customColorHex,
             finderDirectoryPath: finderDirectoryPath,
@@ -25,6 +27,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             presentationKey: snapshot.presentationKey,
             title: snapshot.title,
             customDescription: snapshot.customDescription,
+            customTags: snapshot.customTags,
             isPinned: snapshot.isPinned,
             customColorHex: snapshot.customColorHex,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,

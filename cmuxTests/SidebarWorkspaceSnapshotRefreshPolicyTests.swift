@@ -54,6 +54,7 @@ import Testing
         let current = Self.snapshot(
             title: "old",
             customDescription: nil,
+            customTags: [],
             isPinned: false,
             customColorHex: nil,
             finderDirectoryPath: nil
@@ -61,6 +62,7 @@ import Testing
         let next = Self.snapshot(
             title: "new",
             customDescription: "description",
+            customTags: ["prod", "api"],
             isPinned: true,
             customColorHex: "#C0392B",
             finderDirectoryPath: "/tmp/workspace"
@@ -127,6 +129,7 @@ import Testing
         presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
         title: String = "workspace",
         customDescription: String? = nil,
+        customTags: [String] = [],
         isPinned: Bool = false,
         customColorHex: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
@@ -139,6 +142,7 @@ import Testing
             presentationKey: presentationKey ?? Self.presentationKey(),
             title: title,
             customDescription: customDescription,
+            customTags: customTags,
             isPinned: isPinned,
             customColorHex: customColorHex,
             remoteWorkspaceSidebarText: nil,
