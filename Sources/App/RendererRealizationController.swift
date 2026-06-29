@@ -92,7 +92,7 @@ final class RendererRealizationController {
         evaluate(now: now, trigger: .scheduled)
     }
 
-    private func evaluate(now: Date, trigger: RendererRealizationPlanner.ReclaimTrigger) {
+    private func evaluate(now: Date, trigger: RendererRealizationReclaimTrigger) {
         let settings = RendererRealizationSettings.values()
         guard settings.enabled else { return }
 

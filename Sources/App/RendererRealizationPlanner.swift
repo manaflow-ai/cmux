@@ -14,16 +14,11 @@ struct RendererRealizationPlannerInput: Sendable {
 /// the rest only when they are offscreen and have been idle past `idleSeconds`.
 /// A currently-visible surface is never selected.
 enum RendererRealizationPlanner {
-    enum ReclaimTrigger: Equatable, Sendable {
-        case scheduled
-        case systemMemoryPressure
-    }
-
     static func selectedSurfaceIds(
         inputs: [RendererRealizationPlannerInput],
         settings: RendererRealizationSettings.Values,
         now: TimeInterval,
-        trigger: ReclaimTrigger = .scheduled
+        trigger: RendererRealizationReclaimTrigger = .scheduled
     ) -> Set<UUID> {
         guard settings.enabled else { return [] }
 
