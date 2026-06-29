@@ -1605,7 +1605,7 @@ class TabManager: ObservableObject {
                 targetWorkspaceId: targetWorkspaceId
             )
         )
-        workspaceReordering.sidebarReorderLegalInsertionRange(
+        return workspaceReordering.sidebarReorderLegalInsertionRange(
             forDraggedWorkspaceId: draggedWorkspaceId,
             targetWorkspaceId: targetWorkspaceId,
             usesTopLevelRows: resolvedUsesTopLevelRows,
