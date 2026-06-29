@@ -21,6 +21,15 @@ private struct SidebarImmediateObservationState: Equatable {
     let latestSubmittedAt: Date?
 }
 
+private struct SidebarRootObservationState: Equatable {
+    let currentDirectory: String
+    let remoteConfiguration: WorkspaceRemoteConfiguration?
+    let remoteConnectionState: WorkspaceRemoteConnectionState
+    let remoteConnectionDetail: String?
+    let remoteDaemonStatus: WorkspaceRemoteDaemonStatus
+    let activeRemoteTerminalSessionCount: Int
+}
+
 private struct SidebarObservationState: Equatable {
     let currentDirectory: String
     let extensionSidebarProjectRootPath: String?
@@ -68,6 +77,34 @@ extension Workspace {
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
                     latestSubmittedAt: conversationFields.2
+                )
+            }
+            .removeDuplicates()
+            .map { _ in () }
+            .eraseToAnyPublisher()
+    }
+
+    func makeSidebarRootObservationPublisher() -> AnyPublisher<Void, Never> {
+        let remoteFields = Publishers.CombineLatest4(
+            $remoteConfiguration,
+            $remoteConnectionState,
+            $remoteConnectionDetail,
+            $remoteDaemonStatus
+        )
+        .combineLatest(
+            $activeRemoteTerminalSessionCount
+        )
+
+        return $currentDirectory
+            .combineLatest(remoteFields)
+            .map { currentDirectory, remoteFields in
+                SidebarRootObservationState(
+                    currentDirectory: currentDirectory,
+                    remoteConfiguration: remoteFields.0.0,
+                    remoteConnectionState: remoteFields.0.1,
+                    remoteConnectionDetail: remoteFields.0.2,
+                    remoteDaemonStatus: remoteFields.0.3,
+                    activeRemoteTerminalSessionCount: remoteFields.1
                 )
             }
             .removeDuplicates()

@@ -921,6 +921,9 @@ struct ContentView: View {
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
+    @State private var selectedWorkspaceSidebarRootObservationWorkspaceId: UUID?
+    @State private var selectedWorkspaceSidebarRootObservationPublisher: AnyPublisher<Void, Never> =
+        Empty().eraseToAnyPublisher()
     @State private var fileExplorerWidth: CGFloat = 220
     @State private var fileExplorerDragStartWidth: CGFloat?
     @State private var previousSelectedWorkspaceId: UUID?
@@ -2263,12 +2266,15 @@ struct ContentView: View {
         )
     }
 
-    private var selectedWorkspaceSidebarObservationPublisher: AnyPublisher<Void, Never> {
-        guard let selectedId = tabManager.selectedTabId,
+    private func refreshSelectedWorkspaceSidebarRootObservationPublisher(selectedId: UUID?) {
+        guard selectedWorkspaceSidebarRootObservationWorkspaceId != selectedId else { return }
+        selectedWorkspaceSidebarRootObservationWorkspaceId = selectedId
+        guard let selectedId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
-            return Empty().eraseToAnyPublisher()
+            selectedWorkspaceSidebarRootObservationPublisher = Empty().eraseToAnyPublisher()
+            return
         }
-        return tab.sidebarObservationPublisher
+        selectedWorkspaceSidebarRootObservationPublisher = tab.sidebarRootObservationPublisher
             .receive(on: RunLoop.main)
             .eraseToAnyPublisher()
     }
@@ -2442,6 +2448,7 @@ struct ContentView: View {
         )
 
         view = AnyView(view.onAppear {
+            refreshSelectedWorkspaceSidebarRootObservationPublisher(selectedId: tabManager.selectedTabId)
             tabManager.applyWindowBackgroundForSelectedTab()
             reconcileMountedWorkspaceIds()
             previousSelectedWorkspaceId = tabManager.selectedTabId
@@ -2525,6 +2532,7 @@ struct ContentView: View {
             startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
             reconcileMountedWorkspaceIds(selectedId: newValue)
             AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
+            refreshSelectedWorkspaceSidebarRootObservationPublisher(selectedId: newValue)
             syncFileExplorerDirectory()
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
@@ -2542,7 +2550,7 @@ struct ContentView: View {
             syncSidebarSelectedWorkspaceIds()
         })
 
-        view = AnyView(view.onReceive(selectedWorkspaceSidebarObservationPublisher) { _ in
+        view = AnyView(view.onReceive(selectedWorkspaceSidebarRootObservationPublisher) { _ in
             syncFileExplorerDirectory()
         })
 

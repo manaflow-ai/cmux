@@ -167,20 +167,13 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
-        workspaceObservationCancellable = Publishers.MergeMany(
-            workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$activeRemoteTerminalSessionCount.map { _ in () }.eraseToAnyPublisher()
-        )
-        .sink { [weak self, weak workspace] _ in
-            Task { @MainActor in
-                guard let self, let workspace else { return }
-                self.syncWorkspaceRoot(from: workspace)
+        workspaceObservationCancellable = workspace.sidebarRootObservationPublisher
+            .sink { [weak self, weak workspace] _ in
+                Task { @MainActor in
+                    guard let self, let workspace else { return }
+                    self.syncWorkspaceRoot(from: workspace)
+                }
             }
-        }
     }
 
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
