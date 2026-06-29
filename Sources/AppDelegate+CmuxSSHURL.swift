@@ -827,19 +827,21 @@ extension AppDelegate {
             target: gate,
             action: #selector(CmuxSSHURLConfirmationGate.checkboxChanged(_:))
         )
+        checkbox.state = .off
         checkbox.lineBreakMode = .byWordWrapping
         stack.addArrangedSubview(checkbox)
 
+        let accessoryLeadingInset: CGFloat = 12
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 156))
         container.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: accessoryLeadingInset),
             stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             stack.topAnchor.constraint(equalTo: container.topAnchor),
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            targetLabel.widthAnchor.constraint(equalTo: container.widthAnchor),
-            commandScrollView.widthAnchor.constraint(equalTo: container.widthAnchor),
-            checkbox.widthAnchor.constraint(equalTo: container.widthAnchor)
+            targetLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            commandScrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            checkbox.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
         return container
     }
