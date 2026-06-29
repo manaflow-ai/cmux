@@ -2898,6 +2898,12 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Published download state for browser downloads (navigation + context menu).
     @Published private(set) var isDownloading: Bool = false
 
+    /// Recent downloads for this pane, newest first, surfaced in the downloads
+    /// toolbar popover (Safari/Chrome-style). Capped at `maxRecentDownloads`.
+    @Published private(set) var recentDownloads: [BrowserDownloadRecord] = []
+
+    private static let maxRecentDownloads = 25
+
     @Published private(set) var renderedPDFDocumentURL: URL?
 
     /// Per-pane browser audio mute intent. BrowserPanel owns this so the state
@@ -3749,6 +3755,12 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         webView.onSessionDownloadEvent = { [weak self] event in
             guard let self else { return }
+            self.applyBrowserDownloadEvent(
+                type: event["type"] as? String ?? "",
+                downloadID: event["download_id"] as? String,
+                filename: event["filename"] as? String,
+                path: event["path"] as? String
+            )
             NotificationCenter.default.post(
                 name: .browserDownloadEventDidArrive,
                 object: self,
@@ -4044,6 +4056,7 @@ final class BrowserPanel: Panel, ObservableObject {
         dlDelegate.onDownloadStarted = { [weak self] filename, downloadID in
             guard let self else { return }
             self.beginDownloadActivity()
+            self.applyBrowserDownloadEvent(type: "started", downloadID: downloadID, filename: filename, path: nil)
             NotificationCenter.default.post(
                 name: .browserDownloadEventDidArrive,
                 object: self,
@@ -4078,6 +4091,7 @@ final class BrowserPanel: Panel, ObservableObject {
         dlDelegate.onDownloadSaved = { [weak self] filename, destinationURL, shouldEndActivity, downloadID in
             guard let self else { return }
             if shouldEndActivity { self.endDownloadActivity() }
+            self.applyBrowserDownloadEvent(type: "saved", downloadID: downloadID, filename: filename, path: destinationURL.path)
             NotificationCenter.default.post(
                 name: .browserDownloadEventDidArrive,
                 object: self,
@@ -4096,6 +4110,7 @@ final class BrowserPanel: Panel, ObservableObject {
         dlDelegate.onDownloadCancelled = { [weak self] filename, shouldEndActivity, downloadID in
             guard let self else { return }
             if shouldEndActivity { self.endDownloadActivity() }
+            self.applyBrowserDownloadEvent(type: "cancelled", downloadID: downloadID, filename: filename, path: nil)
             NotificationCenter.default.post(
                 name: .browserDownloadEventDidArrive,
                 object: self,
@@ -4113,6 +4128,7 @@ final class BrowserPanel: Panel, ObservableObject {
         dlDelegate.onDownloadFailed = { [weak self] _, shouldEndActivity, downloadID in
             guard let self else { return }
             if shouldEndActivity { self.endDownloadActivity() }
+            self.applyBrowserDownloadEvent(type: "failed", downloadID: downloadID, filename: nil, path: nil)
             var event: [String: Any] = [
                 "type": "failed",
                 "error": String(localized: "browser.download.error.generic", defaultValue: "Download failed")
@@ -4423,6 +4439,86 @@ final class BrowserPanel: Panel, ObservableObject {
         } else {
             DispatchQueue.main.async(execute: apply)
         }
+    }
+
+    /// Fold a browser download event (from either the WKDownload path or the
+    /// session/context-menu path) into `recentDownloads` for the toolbar popover.
+    /// Mirrors the same event vocabulary posted on `.browserDownloadEventDidArrive`.
+    func applyBrowserDownloadEvent(type: String, downloadID: String?, filename: String?, path: String?) {
+        let apply = {
+            guard let downloadID else { return }
+            switch type {
+            case "started":
+                guard let filename, !filename.isEmpty else { return }
+                self.upsertRecentDownload(
+                    BrowserDownloadRecord(id: downloadID, filename: filename, fileURL: nil, state: .downloading, byteCount: nil)
+                )
+            case "saved":
+                let url = path.map { URL(fileURLWithPath: $0) }
+                let resolvedName = (filename?.isEmpty == false ? filename : nil) ?? url?.lastPathComponent
+                guard let resolvedName else { return }
+                let size = url.flatMap { u in
+                    ((try? FileManager.default.attributesOfItem(atPath: u.path))?[.size] as? NSNumber)?.intValue
+                }
+                self.upsertRecentDownload(
+                    BrowserDownloadRecord(id: downloadID, filename: resolvedName, fileURL: url, state: .saved, byteCount: size)
+                )
+            case "failed":
+                self.markRecentDownloadFailed(id: downloadID, filename: filename)
+            case "cancelled":
+                self.recentDownloads.removeAll { $0.id == downloadID }
+            default:
+                break
+            }
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
+        }
+    }
+
+    private func upsertRecentDownload(_ record: BrowserDownloadRecord) {
+        if let idx = recentDownloads.firstIndex(where: { $0.id == record.id }) {
+            recentDownloads.remove(at: idx)
+        }
+        recentDownloads.insert(record, at: 0)
+        if recentDownloads.count > Self.maxRecentDownloads {
+            recentDownloads.removeLast(recentDownloads.count - Self.maxRecentDownloads)
+        }
+    }
+
+    private func markRecentDownloadFailed(id: String, filename: String?) {
+        if let idx = recentDownloads.firstIndex(where: { $0.id == id }) {
+            recentDownloads[idx].state = .failed
+        } else if let filename, !filename.isEmpty {
+            recentDownloads.insert(
+                BrowserDownloadRecord(id: id, filename: filename, fileURL: nil, state: .failed, byteCount: nil),
+                at: 0
+            )
+        }
+    }
+
+    /// Open a completed download with the default app (Finder/Launch Services).
+    func openDownload(_ record: BrowserDownloadRecord) {
+        guard let url = record.fileURL, FileManager.default.fileExists(atPath: url.path) else {
+            NSSound.beep()
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    /// Reveal a completed download in Finder (Safari/Chrome "Show in Finder").
+    func revealDownloadInFinder(_ record: BrowserDownloadRecord) {
+        guard let url = record.fileURL, FileManager.default.fileExists(atPath: url.path) else {
+            NSSound.beep()
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    func clearRecentDownloads() {
+        recentDownloads.removeAll()
     }
 
     func noteRenderedPDFDocument(_ url: URL, isMainFrame: Bool) {

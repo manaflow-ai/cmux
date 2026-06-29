@@ -1346,16 +1346,16 @@ struct BrowserPanelView: View {
                 hitSize: addressBarButtonHitSize
             )
 
-            if panel.isDownloading {
-                HStack(spacing: 4) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(String(localized: "browser.downloading", defaultValue: "Downloading..."))
-                        .cmuxFont(size: 11)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.leading, 6)
-                .safeHelp(String(localized: "browser.downloadInProgress", defaultValue: "Download in progress"))
+            if panel.isDownloading || !panel.recentDownloads.isEmpty {
+                BrowserDownloadsToolbarButton(
+                    downloads: panel.recentDownloads,
+                    isDownloading: panel.isDownloading,
+                    iconPointSize: chromeMetrics.navigationIconFontSize,
+                    hitSize: addressBarButtonHitSize,
+                    onOpen: { panel.openDownload($0) },
+                    onReveal: { panel.revealDownloadInFinder($0) },
+                    onClear: { panel.clearRecentDownloads() }
+                )
             }
         }
     }
