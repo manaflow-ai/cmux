@@ -9409,7 +9409,12 @@ struct CMUXCLI {
         shellFeatures: String,
         terminfoSource: String? = nil
     ) -> String {
-        let remoteTerminalLines = interactiveRemoteTerminalSetupLines(terminfoSource: terminfoSource)
+        // Share the single terminfo-install implementation with the app-side SSH
+        // PTY bootstrap so the two entrypoints can never drift (the synchronous
+        // install that fixes #6352 lives only in the builder).
+        let remoteTerminalLines = RemoteInteractiveShellBootstrapBuilder.terminalSetupLines(
+            terminfoSource: terminfoSource
+        )
         let remoteLocaleLines = RemoteShellEnvironment.utf8LocaleSetupLines()
         let remoteEnvExportLines = interactiveRemoteShellExportLines(shellFeatures: shellFeatures)
         let shellStateDir = shellStateDirForRemoteRelayPort(remoteRelayPort)
@@ -9600,31 +9605,6 @@ struct CMUXCLI {
             terminfoSource: terminfoSource
         )
         return posixShellCommand(script)
-    }
-
-    private func interactiveRemoteTerminalSetupLines(terminfoSource: String?) -> [String] {
-        var lines: [String] = [
-            "cmux_term='xterm-256color'",
-            "if command -v infocmp >/dev/null 2>&1 && infocmp xterm-ghostty >/dev/null 2>&1; then",
-            "  cmux_term='xterm-ghostty'",
-            "fi",
-            "export TERM=\"$cmux_term\"",
-        ]
-        guard let terminfoSource else { return lines }
-        let trimmedTerminfoSource = terminfoSource.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTerminfoSource.isEmpty else { return lines }
-        lines += [
-            "if [ \"$cmux_term\" != 'xterm-ghostty' ]; then",
-            "  (",
-            "    command -v tic >/dev/null 2>&1 || exit 0",
-            "    mkdir -p \"$HOME/.terminfo\" 2>/dev/null || exit 0",
-            "    cat <<'CMUXTERMINFO' | tic -x - >/dev/null 2>&1",
-            trimmedTerminfoSource,
-            "CMUXTERMINFO",
-            "  ) </dev/null >/dev/null 2>&1 &",
-            "fi",
-        ]
-        return lines
     }
 
     private func interactiveRemoteShellExportLines(shellFeatures: String) -> [String] {
