@@ -98,7 +98,7 @@ final class SidebarWorkspaceListSnapshot {
         ) else {
             return fullRowPinnedWorkspaceIds
         }
-        return topLevelPinnedWorkspaceIds
+        return topLevelPinnedWorkspaceIdsForReorder(promotingWorkspaceId: draggedWorkspaceId)
     }
 
     func sidebarDropIndicatorRowIds(
@@ -148,8 +148,43 @@ final class SidebarWorkspaceListSnapshot {
             return topLevelWorkspaceIds
         }
         var ids = topLevelWorkspaceIds
-        ids.insert(promotedWorkspaceId, at: min(groupIndex + 1, ids.count))
+        ids.insert(
+            promotedWorkspaceId,
+            at: promotedTopLevelInsertionIndex(
+                ids: ids,
+                groupIndex: groupIndex,
+                promotedIsPinned: tab.isPinned
+            )
+        )
         return ids
+    }
+
+    private func topLevelPinnedWorkspaceIdsForReorder(promotingWorkspaceId promotedWorkspaceId: UUID?) -> Set<UUID> {
+        guard promotedWorkspaceId != nil else { return topLevelPinnedWorkspaceIds }
+        return Set(topLevelWorkspaceIdsForReorder(promotingWorkspaceId: promotedWorkspaceId).filter {
+            topLevelWorkspaceIdIsPinned($0)
+        })
+    }
+
+    private func promotedTopLevelInsertionIndex(
+        ids: [UUID],
+        groupIndex: Int,
+        promotedIsPinned: Bool
+    ) -> Int {
+        let desiredIndex = min(groupIndex + 1, ids.count)
+        let pinnedCount = ids.reduce(into: 0) { count, id in
+            if topLevelWorkspaceIdIsPinned(id) {
+                count += 1
+            }
+        }
+        return promotedIsPinned ? min(desiredIndex, pinnedCount) : max(desiredIndex, pinnedCount)
+    }
+
+    private func topLevelWorkspaceIdIsPinned(_ id: UUID) -> Bool {
+        if let group = workspaceGroupByAnchorId[id] {
+            return group.isPinned
+        }
+        return workspaceById[id]?.isPinned == true
     }
 
     private static func makeTopLevelWorkspaceIds(
