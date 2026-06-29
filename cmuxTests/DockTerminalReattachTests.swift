@@ -93,6 +93,29 @@ struct DockTerminalReattachTests {
         #expect(panel.viewReattachToken == reattachTokenBefore + 1)
     }
 
+    @Test("Visible detached Dock terminal requests a view reattach")
+    @MainActor
+    func visibleDetachedDockTerminalRequestsViewReattach() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.tabs.first)
+        let store = workspace.dockSplit
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+        let panel = try #require(store.panel(forPanelId: panelId) as? TerminalPanel)
+        store.setVisibleInUI(true)
+        panel.hostedView.setVisibleInUI(true)
+        TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
+        #expect(!panel.hostedView.isHidden)
+        #expect(panel.hostedView.window == nil)
+        #expect(panel.hostedView.superview == nil)
+        let reattachTokenBefore = panel.viewReattachToken
+
+        store.focusPanel(panelId)
+
+        #expect(panel.viewReattachToken == reattachTokenBefore + 1)
+    }
+
     @Test("Dock terminal reveal requests a view reattach")
     @MainActor
     func dockTerminalRevealRequestsViewReattach() throws {

@@ -114,10 +114,10 @@ extension DockSplitStore {
         }
         installSubscription(for: panel, tracksTerminalTitle: true)
         let terminal = panel as? TerminalPanel
-        let wasHidden = terminal?.hostedView.isHidden ?? false
+        let reattachTokenBefore = terminal?.viewReattachToken
         applyVisibility(to: panel)
-        // `applyVisibility` already requests reattach when it reveals a hidden terminal.
-        if let terminal, !(wasHidden && !terminal.hostedView.isHidden) {
+        // Surface transfer must force a portal reattach unless visibility recovery already did.
+        if let terminal, let reattachTokenBefore, terminal.viewReattachToken == reattachTokenBefore {
             terminal.requestViewReattach()
         }
         recordExplicitPanelCreation()

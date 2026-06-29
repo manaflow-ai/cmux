@@ -161,10 +161,13 @@ extension DockSplitStore {
         if let terminal = panel as? TerminalPanel {
             if shouldBeVisible {
                 let wasHidden = terminal.hostedView.isHidden
+                let wasDetachedFromPortal =
+                    terminal.hostedView.window == nil ||
+                    terminal.hostedView.superview == nil
                 terminal.hostedView.setVisibleInUI(true)
                 terminal.hostedView.setActive(shouldBeActive)
                 TerminalWindowPortalRegistry.updateEntryVisibility(for: terminal.hostedView, visibleInUI: true)
-                if wasHidden {
+                if wasHidden || wasDetachedFromPortal {
                     terminal.requestViewReattach()
                 }
             } else {
