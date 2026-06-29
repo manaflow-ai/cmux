@@ -142,8 +142,9 @@ final class TerminalHardwareKeyCapture {
 
     /// Active hold-to-repeat timers, keyed by physical key code. Independent per
     /// key so overlapping holds each repeat and releasing one key stops only its
-    /// own timer. `private(set)` for `@testable` assertions on lifecycle.
-    private(set) var repeatTimers: [UIKeyboardHIDUsage: any TerminalKeyRepeatTimer] = [:]
+    /// own timer. Fully `private`: tests assert repeat-timer lifecycle through
+    /// the injected timer factory's fakes, never by reading this state.
+    private var repeatTimers: [UIKeyboardHIDUsage: any TerminalKeyRepeatTimer] = [:]
 
     /// Delay before a held key starts repeating (a standard keyboard's typematic
     /// "hold before repeat" pause).
