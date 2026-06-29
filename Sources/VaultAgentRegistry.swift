@@ -3,9 +3,39 @@ import OSLog
 
 struct CmuxVaultConfigDefinition: Codable, Hashable, Sendable {
     var agents: [CmuxVaultAgentRegistration]
+    /// Per-built-in-agent overrides keyed by canonical id (see `CmuxVaultBuiltInAgentID`).
+    /// Missing keys fall back to each built-in's defaults.
+    var builtIns: [String: CmuxVaultBuiltInAgentConfig]
 
-    init(agents: [CmuxVaultAgentRegistration] = []) {
+    init(
+        agents: [CmuxVaultAgentRegistration] = [],
+        builtIns: [String: CmuxVaultBuiltInAgentConfig] = [:]
+    ) {
         self.agents = agents
+        self.builtIns = builtIns
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.agents = try container.decodeIfPresent([CmuxVaultAgentRegistration].self, forKey: .agents) ?? []
+        let rawBuiltIns = try container.decodeIfPresent([String: CmuxVaultBuiltInAgentConfig].self, forKey: .builtIns) ?? [:]
+        var normalized: [String: CmuxVaultBuiltInAgentConfig] = [:]
+        for (rawKey, value) in rawBuiltIns {
+            guard let canonical = cmuxVaultBuiltInAgentID(forConfigKey: rawKey) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .builtIns,
+                    in: container,
+                    debugDescription: "Unknown built-in agent key '\(rawKey)'"
+                )
+            }
+            normalized[canonical] = value
+        }
+        self.builtIns = normalized
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case agents
+        case builtIns
     }
 }
 
@@ -353,6 +383,67 @@ enum CmuxVaultAgentCWDPolicy: String, Codable, Hashable, Sendable {
     }
 }
 
+enum CmuxVaultSessionTitlePolicy: String, Codable, Hashable, Sendable {
+    /// User `/name` wins, then agent-generated title (e.g. Claude Code `ai-title`),
+    /// then first user message.
+    case renameable
+    /// Always use the first user message; ignore agent rename signals.
+    case firstMessageOnly
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        switch value {
+        case "renameable": self = .renameable
+        case "firstMessageOnly", "firstMessage": self = .firstMessageOnly
+        default:
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unknown Vault session title policy '\(value)'")
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
+struct CmuxVaultBuiltInAgentConfig: Codable, Hashable, Sendable {
+    var sessionTitlePolicy: CmuxVaultSessionTitlePolicy
+
+    init(sessionTitlePolicy: CmuxVaultSessionTitlePolicy = .renameable) {
+        self.sessionTitlePolicy = sessionTitlePolicy
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let policy = try container.decodeIfPresent(CmuxVaultSessionTitlePolicy.self, forKey: .sessionTitlePolicy)
+        self.sessionTitlePolicy = policy ?? .renameable
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionTitlePolicy
+    }
+}
+
+/// Canonical id strings for cmux-shipped agents referenced from `vault.builtIns`.
+enum CmuxVaultBuiltInAgentID {
+    static let claudeCode = "claude"
+}
+
+/// Normalize a built-in agent key as written in cmux.json to its canonical id.
+/// Mirrors `CmuxConfigAgentKind`'s tolerant decoder for Claude Code.
+func cmuxVaultBuiltInAgentID(forConfigKey key: String) -> String? {
+    let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+    switch trimmed {
+    case "claude", "claude-code", "claudeCode":
+        return CmuxVaultBuiltInAgentID.claudeCode
+    default:
+        return nil
+    }
+}
+
 struct CmuxVaultAgentRegistry: Sendable {
     private static let logger = Logger(subsystem: "ai.manaflow.cmux", category: "VaultAgentRegistry")
 
@@ -408,6 +499,25 @@ struct CmuxVaultAgentRegistry: Sendable {
             registrations.append(contentsOf: config.vault?.agents ?? [])
         }
         return CmuxVaultAgentRegistry(registrations: registrations)
+    }
+
+    /// Merged `vault.builtIns` map across global + local cmux.json. Local entries win.
+    /// Returns canonical ids (see `CmuxVaultBuiltInAgentID`).
+    static func loadBuiltInAgentConfigs(
+        homeDirectory: String = NSHomeDirectory(),
+        workingDirectory: String? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) -> [String: CmuxVaultBuiltInAgentConfig] {
+        var merged: [String: CmuxVaultBuiltInAgentConfig] = [:]
+        for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
+            guard let config = decodeConfig(at: path, fileManager: fileManager),
+                  let builtIns = config.vault?.builtIns else { continue }
+            for (key, value) in builtIns {
+                merged[key] = value
+            }
+        }
+        return merged
     }
 
     private static func configPaths(
