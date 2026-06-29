@@ -1,15 +1,9 @@
-import AppKit
 import Foundation
 import LocalAuthentication
 import Security
 import Testing
-import WebKit
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxBrowser
 
 @MainActor @Suite
 struct BrowserClientCertificateAuthenticationHandlerTests {
@@ -56,20 +50,23 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
     }
 
     @Test
-    func identityLookupQueryRequiresAcceptedCertificateIssuers() {
+    func identityLookupQueryAllowsMissingAcceptedCertificateIssuers() {
         let query = BrowserClientCertificateCredentialStore().identityLookupQuery(
             for: makeProtectionSpace(host: "mtls.example")
         )
 
-        #expect(query == nil)
+        #expect(query[kSecClass as String] as? String == kSecClassIdentity as String)
+        #expect(query[kSecReturnRef as String] as? Bool == true)
+        #expect(query[kSecMatchLimit as String] as? String == kSecMatchLimitAll as String)
+        #expect(query[kSecMatchIssuers as String] == nil)
     }
 
     @Test
     func identityLookupQueryDisallowsKeychainAuthenticationUI() throws {
         let acceptedIssuer = Data([0x30, 0x03, 0x31, 0x01, 0x30])
-        let query = try #require(BrowserClientCertificateCredentialStore().identityLookupQuery(
+        let query = BrowserClientCertificateCredentialStore().identityLookupQuery(
             acceptedIssuers: [acceptedIssuer]
-        ))
+        )
         let context = try #require(query[kSecUseAuthenticationContext as String] as? LAContext)
         let issuers = try #require(query[kSecMatchIssuers as String] as? [Data])
 
@@ -82,7 +79,7 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
     }
 
     @Test
-    func usesPickerSelectionWhenOneClientCertificateCandidateExists() throws {
+    func automaticallyUsesCredentialWhenOneClientCertificateCandidateExists() throws {
         let expectedCredential = URLCredential(
             user: "client-cert",
             password: "unused",
@@ -98,13 +95,13 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
         }
         var disposition: URLSession.AuthChallengeDisposition?
         var credential: URLCredential?
-        var pickerCandidateCount: Int?
+        var pickerWasPresented = false
 
         let handled = handler.handle(
             challenge: makeChallenge(),
-            candidatePicker: { _, presentedCandidates, completion, _ in
-                pickerCandidateCount = presentedCandidates.count
-                completion(presentedCandidates[0])
+            candidatePicker: { _, _, completion, _ in
+                pickerWasPresented = true
+                completion(nil)
             }
         ) { returnedDisposition, returnedCredential in
             disposition = returnedDisposition
@@ -112,7 +109,7 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
         }
 
         #expect(handled)
-        #expect(pickerCandidateCount == 1)
+        #expect(!pickerWasPresented)
         #expect(disposition == .useCredential)
         let returnedCredential = try #require(credential)
         #expect(returnedCredential === expectedCredential)
@@ -120,12 +117,16 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
 
     @Test
     func performsDefaultHandlingWhenCandidatesExistWithoutPicker() {
+        let candidates = [
+            BrowserClientCertificateCredentialCandidate(
+                credential: URLCredential(user: "first", password: "password", persistence: .forSession)
+            ),
+            BrowserClientCertificateCredentialCandidate(
+                credential: URLCredential(user: "second", password: "password", persistence: .forSession)
+            ),
+        ]
         let handler = BrowserClientCertificateAuthenticationHandler { _, completion in
-            completion([
-                BrowserClientCertificateCredentialCandidate(
-                    credential: URLCredential(user: "user", password: "password", persistence: .forSession)
-                ),
-            ])
+            completion(candidates)
         }
         var disposition: URLSession.AuthChallengeDisposition?
         var credential: URLCredential?
@@ -210,42 +211,6 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
         #expect(disposition == .useCredential)
         let returnedCredential = try #require(credential)
         #expect(returnedCredential === secondCredential)
-    }
-
-    @Test
-    func pickerSanitizesCredentialReleaseOrigin() {
-        let webView = WKWebView(frame: .zero)
-        let candidate = BrowserClientCertificateCredentialCandidate(
-            title: "Client\u{202E}\n",
-            subtitle: "Serial \u{202E}\n123",
-            credential: URLCredential(user: "client-cert", password: "unused", persistence: .forSession)
-        )
-        let picker = BrowserClientCertificateCredentialPicker(
-            webView: webView,
-            presentAlert: { alert, presentedWebView, completion, _ in
-                #expect(presentedWebView === webView)
-                #expect(alert.informativeText.contains("https://mtls.example:8443"))
-                #expect(alert.informativeText.contains("\u{202E}") == false)
-                #expect(alert.informativeText.contains("\n") == false)
-                let popup = alert.accessoryView as? NSPopUpButton
-                let popupTitle = popup?.itemTitles.first ?? ""
-                #expect(popupTitle.contains("Client"))
-                #expect(popupTitle.contains("Serial 123"))
-                #expect(popupTitle.contains("\u{202E}") == false)
-                #expect(popupTitle.contains("\n") == false)
-                completion(.alertSecondButtonReturn)
-            }
-        )
-        var selectedCandidate: BrowserClientCertificateCredentialCandidate?
-
-        picker.selectCredential(
-            for: makeProtectionSpace(host: "mtls\u{202E}.example\n", port: 8443),
-            candidates: [candidate]
-        ) { selection in
-            selectedCandidate = selection
-        }
-
-        #expect(selectedCandidate == nil)
     }
 
     @Test

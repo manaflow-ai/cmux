@@ -1,22 +1,77 @@
-import Foundation
+public import Foundation
+
 import LocalAuthentication
 import OSLog
 import Security
 
-nonisolated private let browserClientCertificateLogger = Logger(
-    subsystem: "com.cmuxterm.app",
-    category: "BrowserClientCertificate"
-)
+/// Looks up macOS Keychain identities that can answer browser client-certificate challenges.
+public struct BrowserClientCertificateCredentialStore {
+    private static let tlsClientAuthenticationEKU = Data([
+        0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x02,
+    ])
 
-private let browserClientCertificateTLSClientAuthenticationEKU = Data([
-    0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x02,
-])
+    private static let anyExtendedKeyUsageEKU = Data([
+        0x55, 0x1D, 0x25, 0x00,
+    ])
 
-private let browserClientCertificateAnyExtendedKeyUsageEKU = Data([
-    0x55, 0x1D, 0x25, 0x00,
-])
+    private let logger = Logger(
+        subsystem: "com.cmuxterm.app",
+        category: "BrowserClientCertificate"
+    )
 
-struct BrowserClientCertificateCredentialStore {
+    /// Creates a Keychain-backed credential store.
+    public init() {}
+
+    /// Returns credential candidates matching the server's accepted issuers.
+    /// - Parameter protectionSpace: The WebKit protection space from the client-certificate challenge.
+    /// - Returns: Client-certificate candidates, or an empty array when none can be used.
+    public func candidates(for protectionSpace: URLProtectionSpace) -> [BrowserClientCertificateCredentialCandidate] {
+        candidates(acceptedIssuers: protectionSpace.distinguishedNames)
+    }
+
+    /// Returns credential candidates for the accepted issuer distinguished names.
+    /// - Parameter acceptedIssuers: DER-encoded issuer names advertised by the server, or `nil`/empty when omitted.
+    /// - Returns: Client-certificate candidates, or an empty array when none can be used.
+    public func candidates(acceptedIssuers: [Data]?) -> [BrowserClientCertificateCredentialCandidate] {
+        let query = identityLookupQuery(acceptedIssuers: acceptedIssuers)
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let result else {
+            if status == errSecInteractionNotAllowed {
+                logger.info(
+                    "browser.clientCertificate.identityLookupSkipped reason=interactionNotAllowed"
+                )
+            } else if status != errSecItemNotFound {
+                logger.error(
+                    "browser.clientCertificate.identityLookup status=\(status, privacy: .public)"
+                )
+            }
+            return []
+        }
+
+        return identities(from: result).compactMap(candidate(for:))
+    }
+
+    func identityLookupQuery(for protectionSpace: URLProtectionSpace) -> [String: Any] {
+        identityLookupQuery(acceptedIssuers: protectionSpace.distinguishedNames)
+    }
+
+    func identityLookupQuery(acceptedIssuers: [Data]?) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassIdentity,
+            kSecReturnRef as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecUseAuthenticationContext as String: noninteractiveAuthenticationContext(),
+        ]
+
+        if let acceptedIssuers, !acceptedIssuers.isEmpty {
+            query[kSecMatchIssuers as String] = acceptedIssuers as CFArray
+        }
+
+        return query
+    }
+
     static func extendedKeyUsageAllowsTLSClientAuthentication(_ value: Any?) -> Bool {
         guard let value else {
             return true
@@ -28,8 +83,8 @@ struct BrowserClientCertificateCredentialStore {
         func collectOIDValues(from value: Any) {
             if let data = value as? Data {
                 foundExtendedKeyUsage = true
-                if data == browserClientCertificateTLSClientAuthenticationEKU
-                    || data == browserClientCertificateAnyExtendedKeyUsageEKU {
+                if data == Self.tlsClientAuthenticationEKU
+                    || data == Self.anyExtendedKeyUsageEKU {
                     allowsTLSClientAuthentication = true
                 }
                 return
@@ -64,58 +119,6 @@ struct BrowserClientCertificateCredentialStore {
         return foundExtendedKeyUsage && allowsTLSClientAuthentication
     }
 
-    func candidates(for protectionSpace: URLProtectionSpace) -> [BrowserClientCertificateCredentialCandidate] {
-        candidates(acceptedIssuers: protectionSpace.distinguishedNames)
-    }
-
-    func candidates(acceptedIssuers: [Data]?) -> [BrowserClientCertificateCredentialCandidate] {
-        guard let query = identityLookupQuery(acceptedIssuers: acceptedIssuers) else {
-            browserClientCertificateLogger.info(
-                "browser.clientCertificate.identityLookupSkipped reason=missingAcceptedIssuers"
-            )
-            return []
-        }
-
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let result else {
-            if status == errSecInteractionNotAllowed {
-                browserClientCertificateLogger.info(
-                    "browser.clientCertificate.identityLookupSkipped reason=interactionNotAllowed"
-                )
-            } else if status != errSecItemNotFound {
-                browserClientCertificateLogger.error(
-                    "browser.clientCertificate.identityLookup status=\(status, privacy: .public)"
-                )
-            }
-            return []
-        }
-
-        return identities(from: result).compactMap(candidate(for:))
-    }
-
-    func identityLookupQuery(for protectionSpace: URLProtectionSpace) -> [String: Any]? {
-        identityLookupQuery(acceptedIssuers: protectionSpace.distinguishedNames)
-    }
-
-    func identityLookupQuery(acceptedIssuers: [Data]?) -> [String: Any]? {
-        guard let acceptedIssuers, !acceptedIssuers.isEmpty else {
-            // Without server-advertised issuers, any client-auth identity can match.
-            // Let WebKit keep its default handling instead of presenting unrelated Keychain identities.
-            return nil
-        }
-
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassIdentity,
-            kSecReturnRef as String: true,
-            kSecMatchLimit as String: kSecMatchLimitAll,
-            kSecUseAuthenticationContext as String: noninteractiveAuthenticationContext(),
-        ]
-        query[kSecMatchIssuers as String] = acceptedIssuers as CFArray
-
-        return query
-    }
-
     private func noninteractiveAuthenticationContext() -> LAContext {
         let context = LAContext()
         context.interactionNotAllowed = true
@@ -141,14 +144,14 @@ struct BrowserClientCertificateCredentialStore {
         var certificate: SecCertificate?
         let status = SecIdentityCopyCertificate(identity, &certificate)
         guard status == errSecSuccess, let certificate else {
-            browserClientCertificateLogger.error(
+            logger.error(
                 "browser.clientCertificate.copyCertificate status=\(status, privacy: .public)"
             )
             return nil
         }
 
         guard certificateAllowsTLSClientAuthentication(certificate) else {
-            browserClientCertificateLogger.info(
+            logger.info(
                 "browser.clientCertificate.identityFiltered reason=extendedKeyUsage"
             )
             return nil
@@ -161,7 +164,7 @@ struct BrowserClientCertificateCredentialStore {
         )
         return BrowserClientCertificateCredentialCandidate(
             title: SecCertificateCopySubjectSummary(certificate) as String?,
-            subtitle: certificateSerialNumberSubtitle(for: certificate),
+            serialNumber: certificateSerialNumber(for: certificate),
             credential: credential
         )
     }
@@ -174,8 +177,8 @@ struct BrowserClientCertificateCredentialStore {
             &error
         ) as? [String: Any] else {
             if let error {
-                browserClientCertificateLogger.error(
-                    "browser.clientCertificate.copyExtendedKeyUsage error=\((error.takeRetainedValue() as Error).localizedDescription, privacy: .public)"
+                logger.error(
+                    "browser.clientCertificate.copyExtendedKeyUsage error=\((error.takeRetainedValue() as any Error).localizedDescription, privacy: .public)"
                 )
             }
             return false
@@ -193,20 +196,14 @@ struct BrowserClientCertificateCredentialStore {
         return Self.extendedKeyUsageAllowsTLSClientAuthentication(extendedKeyUsage)
     }
 
-    private func certificateSerialNumberSubtitle(for certificate: SecCertificate) -> String? {
+    private func certificateSerialNumber(for certificate: SecCertificate) -> String? {
         var error: Unmanaged<CFError>?
         guard let serialNumberData = SecCertificateCopySerialNumberData(certificate, &error) as Data? else {
             return nil
         }
 
         let serialNumber = hexString(for: serialNumberData)
-        guard !serialNumber.isEmpty else { return nil }
-
-        let format = String(
-            localized: "browser.dialog.clientCertificate.serialNumber",
-            defaultValue: "Serial %@"
-        )
-        return String(format: format, locale: Locale.current, serialNumber)
+        return serialNumber.isEmpty ? nil : serialNumber
     }
 
     private func hexString(for data: Data) -> String {

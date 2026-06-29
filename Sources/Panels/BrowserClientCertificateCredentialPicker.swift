@@ -1,16 +1,7 @@
 import AppKit
+import CmuxBrowser
 import Foundation
 import WebKit
-
-private func browserDismissClientCertificateCredentialPicker(_ alert: NSAlert) {
-    let window = alert.window
-    if let sheetParent = window.sheetParent {
-        sheetParent.endSheet(window, returnCode: .alertSecondButtonReturn)
-    } else if window.isVisible {
-        NSApp.stopModal(withCode: .alertSecondButtonReturn)
-        window.close()
-    }
-}
 
 @MainActor struct BrowserClientCertificateCredentialPicker {
     private let webView: WKWebView
@@ -82,7 +73,7 @@ private func browserDismissClientCertificateCredentialPicker(_ alert: NSAlert) {
         }
 
         registerCancelPrompt? {
-            browserDismissClientCertificateCredentialPicker(alert)
+            Self.dismiss(alert)
             handleCancel()
         }
 
@@ -126,9 +117,7 @@ private func browserDismissClientCertificateCredentialPicker(_ alert: NSAlert) {
             displayTitle = String(format: format, locale: Locale.current, index + 1)
         }
 
-        guard let rawSubtitle = candidate.subtitle,
-              case let subtitle = textFormatter.middleElidedText(rawSubtitle),
-              !subtitle.isEmpty else {
+        guard let subtitle = serialNumberSubtitle(for: candidate) else {
             return displayTitle
         }
 
@@ -137,5 +126,29 @@ private func browserDismissClientCertificateCredentialPicker(_ alert: NSAlert) {
             defaultValue: "%@ (%@)"
         )
         return String(format: format, locale: Locale.current, displayTitle, subtitle)
+    }
+
+    private func serialNumberSubtitle(for candidate: BrowserClientCertificateCredentialCandidate) -> String? {
+        guard let rawSerialNumber = candidate.serialNumber,
+              case let serialNumber = textFormatter.middleElidedText(rawSerialNumber),
+              !serialNumber.isEmpty else {
+            return nil
+        }
+
+        let format = String(
+            localized: "browser.dialog.clientCertificate.serialNumber",
+            defaultValue: "Serial %@"
+        )
+        return String(format: format, locale: Locale.current, serialNumber)
+    }
+
+    private static func dismiss(_ alert: NSAlert) {
+        let window = alert.window
+        if let sheetParent = window.sheetParent {
+            sheetParent.endSheet(window, returnCode: .alertSecondButtonReturn)
+        } else if window.isVisible {
+            NSApp.stopModal(withCode: .alertSecondButtonReturn)
+            window.close()
+        }
     }
 }
