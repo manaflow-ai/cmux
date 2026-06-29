@@ -6,7 +6,11 @@ extension MobileShellComposite {
     /// Yield a raw PTY byte chunk to the surface stream, if one is attached.
     func deliverTerminalBytes(_ bytes: Data, surfaceID: String) {
         deliverTerminalOutput(
-            TerminalOutputDelivery(bytes: bytes, replaceable: false),
+            TerminalOutputDelivery(
+                bytes: bytes,
+                replaceable: false,
+                viewportPolicy: .natural
+            ),
             surfaceID: surfaceID
         )
     }
@@ -15,7 +19,8 @@ extension MobileShellComposite {
         deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,
-                replaceable: frame.isReplaceableViewportPatchForMobileDelivery
+                replaceable: frame.isReplaceableViewportPatchForMobileDelivery,
+                viewportPolicy: frame.mobileViewportPolicy
             ),
             surfaceID: surfaceID
         )
@@ -29,7 +34,11 @@ extension MobileShellComposite {
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
         if let immediate {
             continuation.yield(
-                MobileTerminalOutputChunk(data: immediate.bytes, streamToken: streamToken)
+                MobileTerminalOutputChunk(
+                    data: immediate.bytes,
+                    streamToken: streamToken,
+                    viewportPolicy: immediate.viewportPolicy
+                )
             )
         }
     }
@@ -45,6 +54,10 @@ extension MobileShellComposite {
               terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
             return
         }
-        continuation.yield(MobileTerminalOutputChunk(data: next.bytes, streamToken: streamToken))
+        continuation.yield(MobileTerminalOutputChunk(
+            data: next.bytes,
+            streamToken: streamToken,
+            viewportPolicy: next.viewportPolicy
+        ))
     }
 }

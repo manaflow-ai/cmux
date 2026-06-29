@@ -93,12 +93,11 @@ protocol TerminalSurfaceHosting: AnyObject {
     var currentGridSize: TerminalGridSize { get }
     func processOutput(_ data: Data)
     func focusInput()
-    /// Apply the daemon's authoritative rendering grid. Unconditional —
-    /// implementations render at exactly cols × rows and letterbox any
-    /// remaining container area. The daemon broadcasts this on every
-    /// attach/resize/detach/open, plus inlined in RPC responses, so
-    /// every attached device converges on the same grid.
+    /// Apply the daemon's authoritative rendering grid for modes that cannot
+    /// reflow independently on the phone, such as alternate-screen TUIs.
     func applyViewSize(cols: Int, rows: Int)
+    /// Return to the phone's natural viewport capacity.
+    func useNaturalViewSize()
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)? { get set }
     func accessibilityRenderedTextForTesting() -> String?
@@ -108,6 +107,7 @@ protocol TerminalSurfaceHosting: AnyObject {
 extension TerminalSurfaceHosting {
     func focusInput() {}
     func applyViewSize(cols _: Int, rows _: Int) {}
+    func useNaturalViewSize() {}
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)? {
         get { nil }
@@ -816,10 +816,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// 120Hz / 0.13s at 60Hz.
     private static let viewportReportSettleThreshold = 8
     private var lastSnapshotFallbackHTML: String?
-    /// Daemon-authoritative effective grid (min across attached devices). When
-    /// set, the Ghostty surface is pinned to this cols×rows inside the
-    /// container so every attached device renders at the same grid. When
-    /// nil, the surface fills the container's natural capacity.
+    /// Daemon-authoritative grid used for modes that need exact remote-cell
+    /// replay. When nil, the surface fills the phone's natural capacity.
     private var effectiveGrid: (cols: Int, rows: Int)?
     /// Cached cell metrics derived from the most recent
     /// `ghostty_surface_size` measurement. Used to translate an effective
@@ -2989,6 +2987,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // storm of set_size calls + viewport RPCs. Geometry now settles once
         // per frame, and reassert=false avoids re-reporting the unchanged
         // natural grid back through the round trip.
+        setNeedsGeometrySync(reassertNaturalSize: false)
+    }
+
+    public func useNaturalViewSize() {
+        // A value came back from the Mac, so the round-trip recovered.
+        viewportReportRetries = 0
+        guard effectiveGrid != nil else { return }
+        MobileDebugLog.anchormux("zoom.useNaturalViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->nil")
+        effectiveGrid = nil
         setNeedsGeometrySync(reassertNaturalSize: false)
     }
 

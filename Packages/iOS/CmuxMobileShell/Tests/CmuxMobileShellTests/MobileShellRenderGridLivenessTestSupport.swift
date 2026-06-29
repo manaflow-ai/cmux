@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -73,6 +74,13 @@ actor LivenessHostRouter {
 
     func count(of method: String) -> Int {
         recorded.filter { $0.method == method }.count
+    }
+
+    func topics(for method: String) -> [[String]] {
+        recorded.compactMap { request in
+            guard request.method == method else { return nil }
+            return request.topics
+        }
     }
 
     func setCapabilities(_ capabilities: [String]) {
@@ -290,12 +298,14 @@ actor LivenessTransport: CmxByteTransport {
 @MainActor
 final class OutputCollector {
     private(set) var lines: [String] = []
+    private(set) var viewportPolicies: [MobileTerminalOutputViewportPolicy?] = []
     private var task: Task<Void, Never>?
 
     func mount(store: MobileShellComposite, surfaceID: String) {
         task = Task { @MainActor [weak self] in
             for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                 self?.lines.append(String(decoding: chunk.data, as: UTF8.self))
+                self?.viewportPolicies.append(chunk.viewportPolicy)
                 store.terminalOutputDidProcess(
                     surfaceID: surfaceID,
                     streamToken: chunk.streamToken
@@ -338,13 +348,26 @@ func attachURL(for ticket: CmxAttachTicket) throws -> String {
     return "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"
 }
 
-func renderGridEventFrame(surfaceID: String, seq: UInt64, text: String) throws -> Data {
-    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+func renderGridEventFrame(
+    surfaceID: String,
+    seq: UInt64,
+    text: String,
+    activeScreen: MobileTerminalRenderGridFrame.Screen = .primary
+) throws -> Data {
+    let frame = try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
         stateSeq: seq,
         columns: 16,
         rows: 4,
-        text: text
+        rowSpans: [
+            MobileTerminalRenderGridFrame.RowSpan(
+                row: 0,
+                column: 0,
+                styleID: 0,
+                text: text
+            ),
+        ],
+        activeScreen: activeScreen
     )
     let envelope: [String: Any] = [
         "kind": "event",

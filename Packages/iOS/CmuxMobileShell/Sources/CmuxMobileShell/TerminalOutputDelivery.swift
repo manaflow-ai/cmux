@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShellModel
 import Foundation
 
 /// One terminal-output chunk waiting to be applied by a mounted mobile surface.
@@ -10,15 +11,26 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 
     private var payload: Payload
     var replaceable: Bool
+    var viewportPolicy: MobileTerminalOutputViewportPolicy?
 
-    init(bytes: Data, replaceable: Bool) {
+    init(
+        bytes: Data,
+        replaceable: Bool,
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
+    ) {
         self.payload = .bytes(bytes)
         self.replaceable = replaceable
+        self.viewportPolicy = viewportPolicy
     }
 
-    init(renderGrid frame: MobileTerminalRenderGridFrame, replaceable: Bool) {
+    init(
+        renderGrid frame: MobileTerminalRenderGridFrame,
+        replaceable: Bool,
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
+    ) {
         self.payload = .renderGrid(frame)
         self.replaceable = replaceable
+        self.viewportPolicy = viewportPolicy
     }
 
     var bytes: Data {

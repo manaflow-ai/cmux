@@ -52,7 +52,12 @@ import Testing
     // still pending (the server-side subscription from a previous generation
     // keeps pushing across re-subscribes; the ack is an enable handshake,
     // not a delivery precondition).
-    let event = try renderGridEventFrame(surfaceID: "live-terminal", seq: 5, text: "live")
+    let event = try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 5,
+        text: "live",
+        activeScreen: .alternate
+    )
     let transport = try #require(box.get())
     await transport.deliver(event)
 
@@ -65,6 +70,21 @@ import Testing
 
     await router.releaseAllHeld()
     collector.unmount()
+}
+
+@MainActor
+@Test func renderGridCapableHostUsesHybridTerminalOutputSubscription() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    #expect(store.connectionState == .connected)
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must request the server-side subscription")
+    let topics = await router.topics(for: "mobile.events.subscribe").last ?? []
+    #expect(topics.contains("terminal.bytes"))
+    #expect(topics.contains("terminal.render_grid"))
 }
 
 @MainActor
@@ -87,6 +107,66 @@ import Testing
     await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 0, text: "raw"))
     let rawDelivered = try await pollUntil { collector.lines.contains { $0.contains("raw") } }
     #expect(rawDelivered, "advisory primary render-grid must not advance delivered seq and starve overlapping raw bytes")
+    #expect(collector.viewportPolicies.last == .natural)
+    collector.unmount()
+}
+
+@MainActor
+@Test func alternateRenderGridPinsGridAndSuppressesRawBytes() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 3,
+        text: "alt",
+        activeScreen: .alternate
+    ))
+    let altDelivered = try await pollUntil { collector.lines.contains { $0.contains("alt") } }
+    #expect(altDelivered, "alternate-screen frames must still render through authoritative render-grid replay")
+    #expect(collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4))
+
+    let deliveredCount = collector.lines.count
+    await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 3, text: "dup"))
+    let duplicateDelivered = try await pollUntil(attempts: 30) { collector.lines.count > deliveredCount }
+    #expect(duplicateDelivered == false, "raw bytes are suppressed while the authoritative screen is alternate")
+    collector.unmount()
+}
+
+@MainActor
+@Test func primaryRenderGridAfterAlternateClearsRemoteGrid() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 3,
+        text: "alt",
+        activeScreen: .alternate
+    ))
+    let altDelivered = try await pollUntil { collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4) }
+    #expect(altDelivered)
+
+    await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 6, text: "shell"))
+    let primaryDelivered = try await pollUntil { collector.lines.contains { $0.contains("shell") } }
+    #expect(primaryDelivered, "the first primary frame after alternate must restore the primary screen")
+    #expect(collector.viewportPolicies.last == .natural)
     collector.unmount()
 }
 
@@ -138,7 +218,12 @@ import Testing
 
     // The stream was never restarted: the original subscription still
     // delivers straight into the mounted sink.
-    let event = try renderGridEventFrame(surfaceID: "live-terminal", seq: 9, text: "still-alive")
+    let event = try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 9,
+        text: "still-alive",
+        activeScreen: .alternate
+    )
     let transport = try #require(box.get())
     await transport.deliver(event)
     let delivered = try await pollUntil { collector.lines.isEmpty == false }
@@ -191,7 +276,12 @@ import Testing
     #expect(workspaceRefetched, "the repaired subscription also carries workspace.updated, so the workspace list must be re-fetched")
 
     // The repaired stream delivers straight into the still-mounted sink.
-    let event = try renderGridEventFrame(surfaceID: "live-terminal", seq: 11, text: "repaired")
+    let event = try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 11,
+        text: "repaired",
+        activeScreen: .alternate
+    )
     let transport = try #require(box.get())
     await transport.deliver(event)
     let delivered = try await pollUntil { collector.lines.contains { $0.contains("repaired") } }
