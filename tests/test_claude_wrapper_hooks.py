@@ -1622,29 +1622,34 @@ def test_live_socket_preserves_plain_anthropic_model_on_default_path(failures: l
 
 def test_live_socket_strips_backend_qualified_model_on_default_path(failures: list[str]) -> None:
     # Guard for the #7047 fix: preserving plain ids must NOT reintroduce the leak
-    # the scrub was added to prevent. When no Vertex/Bedrock backend is active, a
-    # stale backend-qualified id (Vertex `<model>@<date>`, Bedrock
-    # `<region>.anthropic.<model>-v1:0`) is invalid on the Anthropic API and must
-    # still be stripped so it cannot silently mis-route the default path.
-    inherited = {
-        "ANTHROPIC_MODEL": "claude-sonnet-4-5@20250929",
-        "ANTHROPIC_SMALL_FAST_MODEL": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-    }
-    code, auth_env, _, stderr = run_wrapper_auth_env(
-        argv=["hello"],
-        inherited_env=inherited,
-    )
-    expect(code == 0, f"backend-qualified default path: wrapper exited {code}: {stderr}", failures)
-    expect(
-        auth_env.get("ANTHROPIC_MODEL") == "__UNSET__",
-        f"backend-qualified default path: expected Vertex-shaped ANTHROPIC_MODEL stripped, got {auth_env.get('ANTHROPIC_MODEL')!r}",
-        failures,
-    )
-    expect(
-        auth_env.get("ANTHROPIC_SMALL_FAST_MODEL") == "__UNSET__",
-        f"backend-qualified default path: expected Bedrock-shaped ANTHROPIC_SMALL_FAST_MODEL stripped, got {auth_env.get('ANTHROPIC_SMALL_FAST_MODEL')!r}",
-        failures,
-    )
+    # the scrub was added to prevent. A stale backend-qualified id is invalid on
+    # the default Anthropic API and must still be stripped when no Vertex/Bedrock
+    # backend is active. Each value isolates a distinct marker in
+    # claude_model_id_is_backend_qualified so every arm is proven independently.
+    # In particular `anthropic.claude-3-haiku-20240307` carries the Bedrock vendor
+    # namespace with no `@`/`:`/`/`, so it exercises the `*anthropic.*` arm alone:
+    # dropping that arm would leave only this case failing.
+    backend_qualified_ids = [
+        "claude-sonnet-4-5@20250929",                     # Vertex: '@' publisher-date pin
+        "anthropic.claude-3-haiku-20240307",              # Bedrock vendor namespace, no ':' suffix
+        "us.anthropic.claude-haiku-4-5-20251001-v1:0",    # Bedrock cross-region inference profile
+        "arn:aws:bedrock:us-east-1:1:inference-profile/p",  # Bedrock application-inference-profile ARN
+    ]
+    for model_id in backend_qualified_ids:
+        code, auth_env, _, stderr = run_wrapper_auth_env(
+            argv=["hello"],
+            inherited_env={"ANTHROPIC_MODEL": model_id},
+        )
+        expect(
+            code == 0,
+            f"backend-qualified default path ({model_id!r}): wrapper exited {code}: {stderr}",
+            failures,
+        )
+        expect(
+            auth_env.get("ANTHROPIC_MODEL") == "__UNSET__",
+            f"backend-qualified default path: expected {model_id!r} stripped on the default Anthropic path, got {auth_env.get('ANTHROPIC_MODEL')!r}",
+            failures,
+        )
 
 
 def test_live_socket_auto_preserve_accepts_all_documented_truthy_variants(failures: list[str]) -> None:
