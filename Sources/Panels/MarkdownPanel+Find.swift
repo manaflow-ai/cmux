@@ -5,11 +5,7 @@ import WebKit
 extension MarkdownPanel {
     @discardableResult
     func startFind() -> Bool {
-        let handled = performFindAction(.showFindInterface)
-        if handled {
-            isFindVisible = true
-        }
-        return handled
+        performFindAction(.showFindInterface)
     }
 
     @discardableResult
@@ -24,12 +20,21 @@ extension MarkdownPanel {
 
     @discardableResult
     func hideFind() -> Bool {
+        let wasVisible = isFindVisible
         let handled = performFindAction(.hideFindInterface)
-        if handled || isFindVisible {
-            isFindVisible = false
-            return true
+        return handled || wasVisible
+    }
+
+    var isFindVisible: Bool {
+        switch displayMode {
+        case .preview:
+            guard let webView = rendererSession.webView else { return false }
+            return Self.isNativeFindInterfaceFocused(for: webView)
+        case .text:
+            guard let textView = attachedTextViewForFind else { return false }
+            return Self.textFinderBarIsVisible(for: textView) ||
+                Self.isNativeFindInterfaceFocused(for: textView)
         }
-        return false
     }
 
     var canUseSelectionForFind: Bool {
@@ -66,9 +71,6 @@ extension MarkdownPanel {
             textView.window?.makeFirstResponder(textView)
             let setSearchString = Self.sendTextFinderAction(.setSearchString, to: textView)
             let showFind = Self.sendTextFinderAction(.showFindInterface, to: textView)
-            if setSearchString || showFind {
-                isFindVisible = true
-            }
             return setSearchString || showFind
         }
     }
@@ -79,6 +81,12 @@ extension MarkdownPanel {
             guard let webView = rendererSession.webView,
                   let window = webView.window else {
                 return false
+            }
+            if action == .hideFindInterface {
+                if Self.sendCancelOperation(to: window.firstResponder ?? webView) {
+                    return true
+                }
+                return Self.sendTextFinderAction(action, to: webView)
             }
             window.makeFirstResponder(webView)
             if Self.performWebViewFindKeyEquivalent(action, in: webView, windowNumber: window.windowNumber) {
@@ -98,6 +106,44 @@ extension MarkdownPanel {
         let item = NSMenuItem(title: "", action: selector, keyEquivalent: "")
         item.tag = action.rawValue
         return NSApp.sendAction(selector, to: responder, from: item)
+    }
+
+    private static func sendCancelOperation(to responder: NSResponder) -> Bool {
+        NSApp.sendAction(#selector(NSResponder.cancelOperation(_:)), to: responder, from: nil)
+    }
+
+    private static func textFinderBarIsVisible(for textView: NSTextView) -> Bool {
+        guard let container = textView.enclosingScrollView as? any NSTextFinderBarContainer else {
+            return false
+        }
+        return container.isFindBarVisible
+    }
+
+    private static func isNativeFindInterfaceFocused(for owner: NSView) -> Bool {
+        guard let window = owner.window,
+              let firstResponder = window.firstResponder else {
+            return false
+        }
+
+        if firstResponder === owner {
+            return false
+        }
+
+        guard let responderView = firstResponder as? NSView else {
+            return false
+        }
+
+        if responderView.isDescendant(of: owner) {
+            return true
+        }
+
+        if let textView = owner as? NSTextView,
+           let container = textView.enclosingScrollView as? any NSTextFinderBarContainer,
+           let findBarView = container.findBarView {
+            return responderView.isDescendant(of: findBarView)
+        }
+
+        return false
     }
 
     private static func performWebViewFindKeyEquivalent(

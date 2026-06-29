@@ -340,14 +340,15 @@ final class MarkdownPanelTests: XCTestCase {
 
         XCTAssertEqual(workspace.focusedPanelId, panel.id)
         XCTAssertEqual(panel.displayMode, .preview)
-        XCTAssertFalse(panel.isFindVisible)
         XCTAssertFalse(manager.isFindVisible)
         XCTAssertTrue(
             manager.startSearch(),
             "Cmd+F should be handled by the focused Markdown preview panel instead of being dropped."
         )
-        XCTAssertTrue(panel.isFindVisible)
-        XCTAssertTrue(manager.isFindVisible)
+        XCTAssertFalse(
+            manager.isFindVisible,
+            "The test double handles Cmd+F but does not create WebKit's native find UI."
+        )
         let event = try XCTUnwrap(capturedEvents.last)
         XCTAssertEqual(event.charactersIgnoringModifiers, "f")
         XCTAssertEqual(event.keyCode, UInt16(kVK_ANSI_F))
@@ -374,10 +375,6 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(previousEvent.keyCode, UInt16(kVK_ANSI_G))
         XCTAssertTrue(previousEvent.modifierFlags.contains(.command))
         XCTAssertTrue(previousEvent.modifierFlags.contains(.shift))
-
-        manager.hideFind()
-        XCTAssertFalse(panel.isFindVisible)
-        XCTAssertFalse(manager.isFindVisible)
     }
 
     func testOpenMarkdownPanelReloadsWhenFileChangesOnDisk() async throws {
