@@ -29907,11 +29907,23 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: currentPID, env: env) else {
                     return false
                 }
-                let blocked = (try? store.surfaceHasDifferentLiveOwner(
-                    workspaceId: target.workspaceId,
-                    surfaceId: target.surfaceId,
-                    incomingSessionId: sessionId
-                )) != false
+                let blocked: Bool
+                do {
+                    blocked = try store.surfaceHasDifferentLiveOwner(
+                        workspaceId: target.workspaceId,
+                        surfaceId: target.surfaceId,
+                        incomingSessionId: sessionId
+                    )
+                } catch {
+#if DEBUG
+                    agentHookDebugLog(
+                        "agentHook.target.ownerCheckFailed agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId))",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+#endif
+                    blocked = false
+                }
 #if DEBUG
                 if blocked {
                     agentHookDebugLog(
