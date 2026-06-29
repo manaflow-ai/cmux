@@ -6696,13 +6696,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         private func isNearPaneEdge(_ point: NSPoint) -> Bool {
+            // hitTest and cursor tracking call this with points in this view's bounds coordinates.
+            guard bounds.contains(point) else { return false }
             let expansion = PortalSplitDividerRegion.dividerHitExpansion
-            let nearVerticalEdge = point.x >= bounds.minX &&
-                point.x <= bounds.maxX &&
-                (point.x <= bounds.minX + expansion || point.x >= bounds.maxX - expansion)
-            let nearHorizontalEdge = point.y >= bounds.minY &&
-                point.y <= bounds.maxY &&
-                (point.y <= bounds.minY + expansion || point.y >= bounds.maxY - expansion)
+            let nearVerticalEdge = point.x <= bounds.minX + expansion ||
+                point.x >= bounds.maxX - expansion
+            let nearHorizontalEdge = point.y <= bounds.minY + expansion ||
+                point.y >= bounds.maxY - expansion
             return nearVerticalEdge || nearHorizontalEdge
         }
 
@@ -6712,6 +6712,10 @@ struct WebViewRepresentable: NSViewRepresentable {
         ) {
             let resolvedHostedInspectorHit = hostedInspectorHit ?? hostedInspectorDividerHit(at: point)
             if shouldPassThroughToSidebarResizer(at: point, hostedInspectorHit: resolvedHostedInspectorHit) {
+                clearActiveDividerCursor(restoreArrow: false)
+                return
+            }
+            if shouldPassThroughToExternalSplitDivider(at: point, hostedInspectorHit: resolvedHostedInspectorHit) {
                 clearActiveDividerCursor(restoreArrow: false)
                 return
             }
