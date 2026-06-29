@@ -37,6 +37,34 @@ sha256_check() {
   fi
 }
 
+sha256_sum() {
+  local target="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$target"
+  else
+    shasum -a 256 "$target"
+  fi
+}
+
+# Resolve the per-user cache directory for the pinned gitleaks binary. The base
+# is a user-private location (XDG_CACHE_HOME or ~/.cache), never a world-writable
+# shared temp dir, so another local user cannot pre-seed this predictable path
+# with an attacker-controlled executable.
+gitleaks_cache_dir() {
+  local os="$1" arch="$2" base
+  if [[ -n "${CMUX_GITLEAKS_CACHE_DIR:-}" ]]; then
+    base="$CMUX_GITLEAKS_CACHE_DIR"
+  elif [[ -n "${XDG_CACHE_HOME:-}" ]]; then
+    base="$XDG_CACHE_HOME/cmux-gitleaks"
+  elif [[ -n "${HOME:-}" ]]; then
+    base="$HOME/.cache/cmux-gitleaks"
+  else
+    # No user-private base available; fall back to an unpredictable private dir.
+    base="$(mktemp -d)"
+  fi
+  printf '%s/%s-%s-%s\n' "$base" "$GITLEAKS_VERSION" "$os" "$arch"
+}
+
 ensure_gitleaks() {
   if [[ -n "${GITLEAKS_BIN:-}" ]]; then
     printf '%s\n' "$GITLEAKS_BIN"
@@ -55,30 +83,54 @@ ensure_gitleaks() {
     echo "Ignoring system gitleaks ${installed_version:-unknown}; using pinned ${GITLEAKS_VERSION}" >&2
   fi
 
-  local os arch cache_dir asset archive checksum selected_checksum base_url
+  local os arch cache_dir bin
   os="$(platform_name)"
   arch="$(arch_name)"
-  cache_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cmux-gitleaks-${GITLEAKS_VERSION}-${os}-${arch}"
-  asset="gitleaks_${GITLEAKS_VERSION}_${os}_${arch}.tar.gz"
-  archive="$cache_dir/$asset"
-  checksum="$cache_dir/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
-  selected_checksum="$cache_dir/$asset.sha256"
-  base_url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+  cache_dir="$(gitleaks_cache_dir "$os" "$arch")"
+  bin="$cache_dir/gitleaks"
 
-  mkdir -p "$cache_dir"
-  if [[ ! -x "$cache_dir/gitleaks" ]]; then
-    curl -fsSL --connect-timeout 20 --max-time 120 "$base_url/$asset" --output "$archive"
-    curl -fsSL --connect-timeout 20 --max-time 120 "$base_url/gitleaks_${GITLEAKS_VERSION}_checksums.txt" --output "$checksum"
-    grep "  ${asset}$" "$checksum" > "$selected_checksum"
-    (
-      cd "$cache_dir"
-      sha256_check "$selected_checksum" >&2
-    )
-    tar -xzf "$archive" -C "$cache_dir" gitleaks
-    chmod 0755 "$cache_dir/gitleaks"
+  # Reuse a cached binary only after re-verifying its recorded checksum, so a
+  # tampered or corrupted file at this path is never executed without validation.
+  if [[ -x "$bin" && -f "$cache_dir/gitleaks.sha256" ]] \
+    && (cd "$cache_dir" && sha256_check gitleaks.sha256 >/dev/null 2>&1); then
+    printf '%s\n' "$bin"
+    return
   fi
 
-  printf '%s\n' "$cache_dir/gitleaks"
+  # Download and verify into a private, unpredictable work dir (mktemp -d is
+  # mode 0700), then install atomically into the cache. Nothing is executed from
+  # a shared or attacker-writable location, and the upstream archive checksum is
+  # always verified before extraction.
+  local work asset archive checksum selected_checksum base_url
+  work="$(mktemp -d)"
+  asset="gitleaks_${GITLEAKS_VERSION}_${os}_${arch}.tar.gz"
+  archive="$work/$asset"
+  checksum="$work/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+  selected_checksum="$work/$asset.sha256"
+  base_url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+
+  curl -fsSL --connect-timeout 20 --max-time 120 "$base_url/$asset" --output "$archive"
+  curl -fsSL --connect-timeout 20 --max-time 120 "$base_url/gitleaks_${GITLEAKS_VERSION}_checksums.txt" --output "$checksum"
+  grep "  ${asset}$" "$checksum" > "$selected_checksum"
+  (
+    cd "$work"
+    sha256_check "$selected_checksum" >&2
+  )
+  tar -xzf "$archive" -C "$work" gitleaks
+  chmod 0755 "$work/gitleaks"
+  # Record the verified binary's own checksum so future runs can re-verify it.
+  (
+    cd "$work"
+    sha256_sum gitleaks > gitleaks.sha256
+  )
+
+  mkdir -p "$cache_dir"
+  chmod 0700 "$cache_dir" 2>/dev/null || true
+  mv -f "$work/gitleaks" "$bin"
+  mv -f "$work/gitleaks.sha256" "$cache_dir/gitleaks.sha256"
+  rm -rf "$work"
+
+  printf '%s\n' "$bin"
 }
 
 scan_dir() {
