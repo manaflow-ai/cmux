@@ -4252,8 +4252,8 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    private func cancelPendingInteractiveBrowserPrompts(reason: String, cancelHTTPBasicAuthPrompts: Bool = true) {
-        if cancelHTTPBasicAuthPrompts { navigationDelegate?.cancelPendingHTTPBasicAuthPrompts(allowFuturePrompts: true) }
+    private func cancelPendingInteractiveBrowserPrompts(reason: String, cancelAuthenticationPrompts: Bool = true) {
+        if cancelAuthenticationPrompts { navigationDelegate?.cancelPendingAuthenticationPrompts(allowFuturePrompts: true) }
         guard !pendingInteractiveBrowserPrompts.isEmpty else { return }
         let prompts = pendingInteractiveBrowserPrompts
         pendingInteractiveBrowserPrompts.removeAll()
@@ -5195,8 +5195,8 @@ final class BrowserPanel: Panel, ObservableObject {
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         closeDeveloperToolsForTeardown()
         unfocus()
-        navigationDelegate?.cancelPendingHTTPBasicAuthPrompts()
-        cancelPendingInteractiveBrowserPrompts(reason: "close", cancelHTTPBasicAuthPrompts: false)
+        navigationDelegate?.cancelPendingAuthenticationPrompts()
+        cancelPendingInteractiveBrowserPrompts(reason: "close", cancelAuthenticationPrompts: false)
         closeBackgroundPreloadHost(reason: "close")
 
         // Snapshot first: popup close unregisters itself from popupControllers.
