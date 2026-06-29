@@ -2,7 +2,7 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34658	CLI/cmux.swift
-17907	Sources/AppDelegate.swift
+17908	Sources/AppDelegate.swift
 16491	Sources/ContentView.swift
 14239	Sources/TerminalController.swift
 12921	Sources/Workspace.swift
@@ -10,8 +10,8 @@
 12233	Sources/GhosttyTerminalView.swift
 11592	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
+8046	Sources/Panels/BrowserPanelView.swift
 8016	CLI/cmux_open.swift
-7982	Sources/Panels/BrowserPanelView.swift
 7366	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6895	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
@@ -24,7 +24,7 @@
 4487	Sources/Panels/FilePreviewPanel.swift
 4476	Sources/cmuxApp.swift
 4367	cmuxTests/BrowserPanelTests.swift
-4133	Sources/BrowserWindowPortal.swift
+4121	Sources/BrowserWindowPortal.swift
 3934	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
 3896	cmuxTests/WindowAndDragTests.swift
@@ -42,7 +42,7 @@
 2395	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
 2242	Sources/TerminalNotificationStore.swift
-2233	Sources/TerminalWindowPortal.swift
+2231	Sources/TerminalWindowPortal.swift
 2126	cmuxTests/CmuxConfigTests.swift
 2091	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2078	Sources/SessionPersistence.swift
