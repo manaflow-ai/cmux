@@ -67,6 +67,7 @@ final class AgentUsageStore: ObservableObject {
     func refresh() {
         guard refreshTask == nil else { return }
         isLoading = true
+        openRouterError = nil
         // Clear any prior OpenRouter error so a stale failure banner doesn't
         // linger across a fresh scan; it is repopulated only if this fetch fails.
         openRouterError = nil
