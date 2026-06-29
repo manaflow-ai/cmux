@@ -18,9 +18,9 @@ import Testing
 // fail closed (keep the system proxy) whenever the system policy cannot be
 // represented faithfully.
 @Suite struct BrowserSystemProxyMirrorTests {
-    /// A matched HTTP + HTTPS system web-proxy pair. This is deliberately not
-    /// mirrored because Network.framework's HTTP CONNECT proxy is not the same
-    /// policy as a system forward proxy.
+    /// A matched HTTP + HTTPS system web-proxy pair (both enabled, one
+    /// endpoint) — the common Clash/Surge/mihomo mixed-port setup. It is
+    /// mirrored as a single CONNECT proxy with loopback excluded (#5703).
     private func webProxySettings(
         host: String = "proxy.example.com",
         port: Any = 8888,
@@ -94,6 +94,7 @@ import Testing
         let mirror = try #require(
             BrowserSystemProxyMirror(systemProxySettings: webProxySettings())
         )
+        #expect(mirror.proxy == .httpCONNECT(host: "proxy.example.com", port: 8888))
         #expect(mirror.excludedDomains == BrowserSystemProxyMirror.implicitExclusions)
     }
 
@@ -110,6 +111,7 @@ import Testing
         var settings = webProxySettings()
         settings.merge(socksProxySettings()) { current, _ in current }
         let mirror = try #require(BrowserSystemProxyMirror(systemProxySettings: settings))
+        #expect(mirror.proxy == .httpCONNECT(host: "proxy.example.com", port: 8888))
         #expect(mirror.excludedDomains == BrowserSystemProxyMirror.implicitExclusions)
     }
 
@@ -371,6 +373,25 @@ import Testing
             BrowserSystemProxyMirror(
                 systemProxySettings: socksProxySettings(bypassList: ["intranet.corp.example"])
             )
+        )
+        let configurations = mirror.proxyConfigurations()
+        #expect(configurations.count == 1)
+        let configuration = try #require(configurations.first)
+        #expect(enumeratedExcludedDomains(configuration) == mirror.excludedDomains)
+        #expect(configuration.allowFailover == false)
+    }
+
+    @Test("A matched web-proxy mirror produces one CONNECT configuration carrying the exclusions")
+    func webProxyMirrorProducesConfigurationWithExclusions() throws {
+        let mirror = try #require(
+            BrowserSystemProxyMirror(
+                systemProxySettings: webProxySettings(bypassList: ["intranet.corp.example"])
+            )
+        )
+        #expect(mirror.proxy == .httpCONNECT(host: "proxy.example.com", port: 8888))
+        #expect(
+            mirror.excludedDomains ==
+                BrowserSystemProxyMirror.implicitExclusions + ["intranet.corp.example"]
         )
         let configurations = mirror.proxyConfigurations()
         #expect(configurations.count == 1)
