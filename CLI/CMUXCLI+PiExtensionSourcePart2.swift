@@ -254,18 +254,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     const sessionId = sessionIdFrom(ctx);
     const turnId = sessionId ? finishTurn(sessionId, event) : undefined;
     const message = lastAssistantMessage(event);
-    sendHook("stop", ctx, {
-      last_assistant_message: message,
-      turn_id: turnId,
-      cmux_notification_routed: true,
-    });
-    sendHook("notification", ctx, {
+    const notificationRouted = sendHook("notification", ctx, {
       message: message || "Task completed",
       turn_id: turnId,
       notification: {
         type: firstString(objectValue(event, ["stopReason", "reason", "terminationReason"])) || "completed",
       },
     });
+    const stopPayload: HookExtra = {
+      last_assistant_message: message,
+      turn_id: turnId,
+    };
+    if (notificationRouted) stopPayload.cmux_notification_routed = true;
+    sendHook("stop", ctx, stopPayload);
   });
 
   pi.on("session_shutdown", async (event, ctx) => {

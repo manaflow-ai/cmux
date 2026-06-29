@@ -131,6 +131,13 @@ printf '\n---\n' >> "$CMUX_TEST_PI_STDIN_LOG"
   if [ -n "${CMUX_TEST_PI_TOKEN-}" ]; then printf 'CMUX_TEST_PI_TOKEN=present\n'; fi
 } >> "$CMUX_TEST_PI_ENV_LOG"
 case "$*" in
+  *"hooks pi notification"*)
+    if printf '%s' "$payload" | grep -q 'pi-session-notification-fails'; then
+      printf 'forced notification failure\n' >&2
+      exit 42
+    fi
+    printf '{}\n'
+    ;;
   *"surface resume get"*)
     if [ -f "$CMUX_TEST_PI_BINDING_FILE" ]; then
       cat "$CMUX_TEST_PI_BINDING_FILE"
@@ -260,6 +267,22 @@ const disabledCtx = {
 };
 await handlers.get("session_start")({}, disabledCtx);
 await handlers.get("session_shutdown")({ reason: "disabled" }, disabledCtx);
+delete process.env.CMUX_PI_HOOKS_DISABLED;
+const notificationFailureCtx = {
+  cwd: "/tmp/pi-project",
+  sessionManager: {
+    getSessionId() { return "pi-session-notification-fails"; }
+  }
+};
+await handlers.get("session_start")({}, notificationFailureCtx);
+await handlers.get("before_agent_start")({ prompt: "finish without routed notification" }, notificationFailureCtx);
+await handlers.get("agent_end")({
+  messages: [
+    { role: "user", content: "finish without routed notification" },
+    { role: "assistant", content: "notification should fail" }
+  ],
+  stopReason: "completed"
+}, notificationFailureCtx);
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -277,9 +300,9 @@ await handlers.get("session_shutdown")({ reason: "disabled" }, disabledCtx);
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = wait_for_text(fake_args_log, 15, timeout=20.0)
-        stdin_log = wait_for_text(fake_stdin_log, 24, timeout=20.0)
-        env_log = wait_for_text(fake_env_log, 15 * 3, timeout=20.0)
+        args_log = wait_for_text(fake_args_log, 21, timeout=20.0)
+        stdin_log = wait_for_text(fake_stdin_log, 34, timeout=20.0)
+        env_log = wait_for_text(fake_env_log, 21 * 3, timeout=20.0)
         for expected in [
             "hooks pi session-start",
             "hooks pi prompt-submit",
@@ -304,9 +327,27 @@ await handlers.get("session_shutdown")({ reason: "disabled" }, disabledCtx);
                 resume_ops.append("set")
             elif "surface resume clear" in line:
                 resume_ops.append("clear")
-        expected_resume_ops = ["set", "get", "clear", "set", "get", "clear"]
+        expected_resume_ops = ["set", "get", "clear", "set", "get", "clear", "set", "get"]
         if resume_ops != expected_resume_ops:
             print(f"FAIL: extension did not verify resume binding after set, got {resume_ops!r}")
+            return 1
+        stop_notification_ops = []
+        for line in arg_lines:
+            if "hooks pi notification" in line:
+                stop_notification_ops.append("notification")
+            elif "hooks pi stop" in line:
+                stop_notification_ops.append("stop")
+        if stop_notification_ops[:2] != ["notification", "stop"]:
+            print(
+                "FAIL: Pi completion stop suppressed native fallback before custom notification, "
+                f"got {stop_notification_ops!r}"
+            )
+            return 1
+        if stop_notification_ops[-2:] != ["notification", "stop"]:
+            print(
+                "FAIL: Pi notification failure path did not attempt custom notification before stop, "
+                f"got {stop_notification_ops!r}"
+            )
             return 1
 
         payloads = payloads_from_log(stdin_log)
@@ -324,6 +365,27 @@ await handlers.get("session_shutdown")({ reason: "disabled" }, disabledCtx);
             return 1
         if stop_payload.get("turn_id") != prompt_turn_id:
             print(f"FAIL: stop payload did not reuse prompt turn_id, prompt={prompt_payload!r}, stop={stop_payload!r}")
+            return 1
+        if stop_payload.get("cmux_notification_routed") is not True:
+            print(f"FAIL: successful Pi completion notification did not mark stop as routed: {stop_payload!r}")
+            return 1
+        fallback_stop_payload = next(
+            (
+                payload
+                for payload in payloads
+                if payload.get("session_id") == "pi-session-notification-fails"
+                and payload.get("hook_event_name") == "Stop"
+            ),
+            None,
+        )
+        if fallback_stop_payload is None:
+            print(f"FAIL: notification failure session did not send a stop payload, got {payloads!r}")
+            return 1
+        if fallback_stop_payload.get("cmux_notification_routed") is True:
+            print(
+                "FAIL: failed Pi completion notification still suppressed native notification fallback, "
+                f"got {fallback_stop_payload!r}"
+            )
             return 1
         interrupted_stop_payload = next(
             (payload for payload in payloads if payload.get("terminationReason") == "terminated"),
