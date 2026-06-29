@@ -263,6 +263,24 @@ case "${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV:-}" in
     1|true|TRUE|yes|YES) PRESERVE_CLAUDE_AUTH_SELECTION_ENV=true ;;
 esac
 
+# Return 0 when an ANTHROPIC_MODEL / ANTHROPIC_SMALL_FAST_MODEL value carries a
+# Vertex/Bedrock-specific shape that is only valid against those backends and
+# would mis-route (or be rejected) on the default Anthropic API:
+#   - Vertex pins the publisher date with '@', e.g. claude-sonnet-4-5@20250929
+#   - Bedrock uses the dotted vendor namespace + version/profile suffix, e.g.
+#     us.anthropic.claude-sonnet-4-5-20250929-v1:0 (and regional eu./apac./
+#     us-gov. variants), bare anthropic.<model>-v1:0, or an arn:aws:bedrock ARN.
+# Plain ids such as claude-opus-4-8 or claude-opus-4-8[1m] carry none of these
+# markers and are valid on the default Anthropic path, so they are NOT
+# backend-qualified. https://github.com/manaflow-ai/cmux/issues/7047
+claude_model_id_is_backend_qualified() {
+    case "$1" in
+        *@*|*:*|*/*) return 0 ;;
+        *anthropic.*) return 0 ;;
+    esac
+    return 1
+}
+
 should_preserve_claude_auth_selection_key() {
     if [[ "$PRESERVE_CLAUDE_AUTH_SELECTION_ENV" == true ]]; then
         local configured_keys="${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS:-}"
@@ -307,10 +325,22 @@ should_preserve_claude_auth_selection_key() {
             # Vertex and Bedrock require backend-specific full model ids
             # (e.g. "claude-sonnet-4-5@20250929" for Vertex,
             # "us.anthropic.claude-sonnet-4-5-20250929-v1:0" for Bedrock).
-            # Preserve the user's selection only when one of those
-            # backends is active; otherwise stale ids would leak into the
-            # default Anthropic API path.
+            # Preserve the user's selection when one of those backends is
+            # active.
             if [[ "$vertex_on" == true || "$bedrock_on" == true ]]; then
+                return 0
+            fi
+            # Default Anthropic API path (no Vertex/Bedrock backend active):
+            # preserve a user-pinned PLAIN model id (e.g. "claude-opus-4-8[1m]")
+            # so cmux behaves like a plain Terminal and a Max-plan 1M context
+            # window selection survives every new pane/reboot. Still strip
+            # backend-qualified ids: a stale "...@<date>" / "...anthropic...:..."
+            # value is invalid on the Anthropic path and is exactly the leak the
+            # scrub guards against. https://github.com/manaflow-ai/cmux/issues/7047
+            local model_key="$1"
+            local model_value="${!model_key-}"
+            if [[ -n "$model_value" ]] &&
+               ! claude_model_id_is_backend_qualified "$model_value"; then
                 return 0
             fi
             ;;
