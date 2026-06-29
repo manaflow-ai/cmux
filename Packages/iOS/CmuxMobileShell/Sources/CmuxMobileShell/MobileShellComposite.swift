@@ -219,10 +219,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
-    /// Last known chat-session descriptors per workspace. This is UI cache, not
-    /// source-of-truth data: reconnect/unavailable states keep it so workspace
-    /// re-entry can still show a GUI-history toggle immediately, while
-    /// authoritative session refreshes replace it.
     public internal(set) var chatSessionSnapshotsByWorkspaceID: [String: [ChatSessionDescriptor]] = [:]
     /// The group sections the UI renders. A materialized derivation of
     /// ``workspacesByMac`` (currently the foreground Mac's groups). Each group's

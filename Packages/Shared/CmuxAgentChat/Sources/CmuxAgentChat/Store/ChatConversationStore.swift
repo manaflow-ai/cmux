@@ -385,12 +385,6 @@ public final class ChatConversationStore {
     }
 
     /// Reconciles a fresh session-list descriptor into this conversation cache.
-    ///
-    /// The workspace detail keeps a conversation store warm while terminal mode
-    /// is visible. A session-list pull can therefore produce a newer descriptor
-    /// before this store sees the matching live event; apply that snapshot so
-    /// reopening chat shows the freshest header/state without waiting for
-    /// another push.
     public func applyDescriptorSnapshot(_ descriptor: ChatSessionDescriptor) {
         guard descriptor.id == self.descriptor.id else { return }
         guard descriptor.version >= self.descriptor.version else { return }
