@@ -4,14 +4,16 @@ import Foundation
 
 /// A coding-agent session discovered by observing the process table, with no
 /// dependency on hooks firing. Identity (and, for codex, the transcript path)
-/// comes from the agent's own argv or open transcript file, so a session
-/// launched through any indirection (a subrouter, a wrapper) is still found.
+/// comes from the agent's own argv, environment, or open transcript file, so a
+/// session launched through any indirection (a subrouter, a wrapper) is still
+/// found.
 nonisolated struct ObservedAgentSession: Sendable {
     let sessionID: String
     let agentKind: ChatAgentKind
     let surfaceID: String
     let workspaceID: String?
     let pid: Int
+    let workingDirectory: String?
     let transcriptPath: String?
 }
 
@@ -130,11 +132,9 @@ final class AgentChatSessionRegistry {
         let wantedID = kind.sourceName
         for pid in snapshot.expandedPIDs(rootPIDs: rootPIDs).sorted() {
             guard let info = snapshot.process(pid: pid),
-                  let def = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
-                      processName: info.name,
-                      processPath: info.path,
-                      arguments: [],
-                      environment: [:]
+                  let def = codingAgentDefinition(
+                      for: info,
+                      processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:)
                   ),
                   def.id == wantedID else { continue }
             return pid
@@ -147,8 +147,9 @@ final class AgentChatSessionRegistry {
     /// Off-main scan + main-actor apply: discover live codex/claude sessions by
     /// observing the process table, with no dependency on hooks firing. Resolves
     /// identity from the agent's own state (codex: the rollout file it holds
-    /// open; claude: its `--session-id`/`--resume` argv), so a session launched
-    /// through any indirection (a subrouter, a wrapper) is still found and bound.
+    /// open; claude: `CLAUDE_CODE_SESSION_ID` or `--session-id`/`--resume`),
+    /// so a session launched through any indirection (a subrouter, a wrapper)
+    /// is still found and bound.
     /// Throttled; safe to call coarsely (e.g. on the iOS list pull). The snapshot
     /// is captured off the main actor.
     private var observeThrottle: Date?
@@ -182,7 +183,7 @@ final class AgentChatSessionRegistry {
                     agentKind: session.agentKind,
                     workspaceID: session.workspaceID,
                     surfaceID: session.surfaceID,
-                    workingDirectory: nil,
+                    workingDirectory: session.workingDirectory,
                     transcriptPath: session.transcriptPath,
                     state: .idle,
                     lastActivityAt: now,
@@ -198,6 +199,7 @@ final class AgentChatSessionRegistry {
                 update(sessionID: session.sessionID) { rec in
                     if rec.surfaceID == nil { rec.surfaceID = session.surfaceID }
                     if rec.workspaceID == nil { rec.workspaceID = session.workspaceID }
+                    if rec.workingDirectory == nil { rec.workingDirectory = session.workingDirectory }
                     if rec.transcriptPath == nil { rec.transcriptPath = session.transcriptPath }
                     if rec.pid == nil { rec.pid = session.pid }
                 }
@@ -212,25 +214,41 @@ final class AgentChatSessionRegistry {
             includeProcessDetails: true,
             includeCMUXScope: true
         )
+        return scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:),
+            codexRolloutPath: openCodexRolloutPath(pid:)
+        )
+    }
+
+    nonisolated static func scanObservedAgentSessions(
+        in snapshot: CmuxTopProcessSnapshot,
+        processArgumentsAndEnvironment: (Int) -> CmuxTopProcessArguments?,
+        codexRolloutPath: (Int) -> String?
+    ) -> [ObservedAgentSession] {
         var result: [ObservedAgentSession] = []
         var seen = Set<String>()
         for process in snapshot.cmuxScopedProcesses() {
+            let details = processArgumentsAndEnvironment(process.pid)
             guard let surfaceID = process.cmuxSurfaceID,
-                  let def = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
-                      processName: process.name,
-                      processPath: process.path,
-                      arguments: [],
-                      environment: [:]
+                  let def = codingAgentDefinition(
+                      for: process,
+                      processArgumentsAndEnvironment: { _ in details }
                   ),
                   def.id == "codex" || def.id == "claude" else { continue }
             var sessionID: String?
             var transcriptPath: String?
-            if def.id == "codex", let rollout = openCodexRolloutPath(pid: process.pid) {
+            if def.id == "codex", let rollout = codexRolloutPath(process.pid) {
                 transcriptPath = rollout
                 sessionID = firstUUIDLike(in: (rollout as NSString).lastPathComponent)
             }
+            if def.id == "claude",
+               let envSessionID = details?.environment["CLAUDE_CODE_SESSION_ID"],
+               let id = firstUUIDLike(in: envSessionID) {
+                sessionID = id
+            }
             if sessionID == nil,
-               let argv = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid)?.arguments {
+               let argv = details?.arguments {
                 sessionID = sessionIDFromArguments(argv)
             }
             guard let resolved = sessionID, !seen.contains(resolved) else { continue }
@@ -241,10 +259,54 @@ final class AgentChatSessionRegistry {
                 surfaceID: surfaceID.uuidString,
                 workspaceID: process.cmuxWorkspaceID?.uuidString,
                 pid: process.pid,
+                workingDirectory: observedWorkingDirectory(details?.environment),
                 transcriptPath: transcriptPath
             ))
         }
         return result
+    }
+
+    private nonisolated static func codingAgentDefinition(
+        for process: CmuxTopProcessInfo,
+        processArgumentsAndEnvironment: (Int) -> CmuxTopProcessArguments?
+    ) -> CmuxTaskManagerCodingAgentDefinition? {
+        let shouldReadDetails = CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
+            processName: process.name,
+            processPath: process.path
+        )
+        if let direct = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: process.name,
+            processPath: process.path,
+            arguments: [],
+            environment: [:]
+        ), !shouldReadDetails {
+            return direct
+        }
+        guard let details = processArgumentsAndEnvironment(process.pid) else {
+            return CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: process.name,
+                processPath: process.path,
+                arguments: [],
+                environment: [:]
+            )
+        }
+        return CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: process.name,
+            processPath: process.path,
+            arguments: details.arguments,
+            environment: details.environment
+        )
+    }
+
+    private nonisolated static func observedWorkingDirectory(_ environment: [String: String]?) -> String? {
+        guard let environment else { return nil }
+        for key in ["CMUX_AGENT_LAUNCH_CWD", "PWD"] {
+            if let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !value.isEmpty {
+                return value
+            }
+        }
+        return nil
     }
 
     /// libproc: the path of a `~/.codex/sessions/**/rollout-*.jsonl` the process
