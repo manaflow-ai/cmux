@@ -40,7 +40,7 @@ import WebKit
         ))
     }
 
-    @Test func navigationResponseClassifiesExplicitSubframeDownloads() {
+    @Test func navigationResponseClassifiesExplicitSubframeDownloadsWithRecordedIntent() {
         #expect(resolver.navigationResponseDownloadReason(
             mimeType: "text/html",
             canShowMIMEType: true,
@@ -57,19 +57,19 @@ import WebKit
         ) == "forceDownloadMIME")
     }
 
-    @Test func navigationResponseRejectsUnactivatedSubframeDownloads() {
+    @Test func navigationResponseClassifiesExplicitSubframeDownloadsWithoutRecordedIntent() {
         #expect(resolver.navigationResponseDownloadReason(
             mimeType: "text/html",
             canShowMIMEType: true,
             contentDisposition: "attachment; filename=index.html",
             isForMainFrame: false
-        ) == nil)
+        ) == "content-disposition")
         #expect(resolver.navigationResponseDownloadReason(
             mimeType: "text/csv",
             canShowMIMEType: true,
             contentDisposition: nil,
             isForMainFrame: false
-        ) == nil)
+        ) == "forceDownloadMIME")
     }
 
     @Test func navigationResponseKeepsUnshowableSubframesInlineWithoutExplicitDownloadSignal() {

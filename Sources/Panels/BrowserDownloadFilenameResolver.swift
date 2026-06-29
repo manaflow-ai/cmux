@@ -28,19 +28,16 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         allowsSubframeDownload: Bool = false,
         isUserActivatedPreviouslyRenderedSubframePDF: Bool = false
     ) -> String? {
+        if shouldForceDownload(mimeType: nil, contentDisposition: contentDisposition) {
+            return "content-disposition"
+        }
+        if shouldForceDownload(mimeType: mimeType, contentDisposition: nil) {
+            return "forceDownloadMIME"
+        }
         if !isForMainFrame,
            isUserActivatedPreviouslyRenderedSubframePDF,
            isPDFMIMEType(mimeType) {
             return "subframePDFUserAction"
-        }
-        let canUseExplicitDownloadSignals = isForMainFrame || allowsSubframeDownload
-        if canUseExplicitDownloadSignals,
-           shouldForceDownload(mimeType: nil, contentDisposition: contentDisposition) {
-            return "content-disposition"
-        }
-        if canUseExplicitDownloadSignals,
-           shouldForceDownload(mimeType: mimeType, contentDisposition: nil) {
-            return "forceDownloadMIME"
         }
         guard isForMainFrame else { return nil }
         return canShowMIMEType ? nil : "cannotShowMIME"

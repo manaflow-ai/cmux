@@ -632,13 +632,6 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         let allowsSubframeDownload = navigationResponse.isForMainFrame
             || subframeDownloadIntents.consume(for: navigationResponse.response.url)
             || isUserActivatedPreviouslyRenderedSubframePDF
-        if !navigationResponse.isForMainFrame,
-           allowsSubframeDownload,
-           let url = navigationResponse.response.url,
-           browserShouldBlockInsecureHTTPURL(url) {
-            decisionHandler(.cancel)
-            return
-        }
         if filenameResolver.navigationResponseDownloadReason(
             mimeType: navigationResponse.response.mimeType,
             canShowMIMEType: navigationResponse.canShowMIMEType,
@@ -647,6 +640,12 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             allowsSubframeDownload: allowsSubframeDownload,
             isUserActivatedPreviouslyRenderedSubframePDF: isUserActivatedPreviouslyRenderedSubframePDF
         ) != nil {
+            if !navigationResponse.isForMainFrame,
+               let url = navigationResponse.response.url,
+               browserShouldBlockInsecureHTTPURL(url) {
+                decisionHandler(.cancel)
+                return
+            }
             decisionHandler(.download)
             return
         }

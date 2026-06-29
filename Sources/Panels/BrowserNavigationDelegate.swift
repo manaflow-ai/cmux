@@ -17,6 +17,8 @@ import WebKit
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var didRenderPDFDocument: ((URL, Bool) -> Void)?
+    var didClearPDFDocument: (() -> Void)?
     /// Direct reference to the download delegate - must be set synchronously in didBecome callbacks.
     var downloadDelegate: WKDownloadDelegate?
     /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
@@ -31,6 +33,7 @@ import WebKit
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         lastAttemptedURL = lastAttemptedURL ?? webView.url
         shouldPrintAfterCurrentNavigationFinishes = false
+        didClearPDFDocument?()
         didStartProvisionalNavigation?(webView)
     }
 
@@ -394,16 +397,6 @@ import WebKit
         let allowsSubframeDownload = navigationResponse.isForMainFrame
             || subframeDownloadIntents.consume(for: navigationResponse.response.url)
             || isUserActivatedPreviouslyRenderedSubframePDF
-        if !navigationResponse.isForMainFrame,
-           allowsSubframeDownload,
-           let url = navigationResponse.response.url,
-           shouldBlockInsecureHTTPSubframeDownload?(url) == true {
-            #if DEBUG
-            cmuxDebugLog("download.policy=cancel reason=insecureHTTPSubframe url=\(url.absoluteString)")
-            #endif
-            decisionHandler(.cancel)
-            return
-        }
         if let reason = filenameResolver.navigationResponseDownloadReason(
             mimeType: mime,
             canShowMIMEType: canShow,
@@ -412,6 +405,15 @@ import WebKit
             allowsSubframeDownload: allowsSubframeDownload,
             isUserActivatedPreviouslyRenderedSubframePDF: isUserActivatedPreviouslyRenderedSubframePDF
         ) {
+            if !navigationResponse.isForMainFrame,
+               let url = navigationResponse.response.url,
+               shouldBlockInsecureHTTPSubframeDownload?(url) == true {
+                #if DEBUG
+                cmuxDebugLog("download.policy=cancel reason=insecureHTTPSubframe url=\(url.absoluteString)")
+                #endif
+                decisionHandler(.cancel)
+                return
+            }
             #if DEBUG
             cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime) mainFrame=\(navigationResponse.isForMainFrame ? 1 : 0)")
             #endif
@@ -424,6 +426,11 @@ import WebKit
             mimeType: mime,
             isForMainFrame: navigationResponse.isForMainFrame
         )
+        if isPDFMIMEType(mime), let url = navigationResponse.response.url {
+            didRenderPDFDocument?(url, navigationResponse.isForMainFrame)
+        } else if navigationResponse.isForMainFrame {
+            didClearPDFDocument?()
+        }
         decisionHandler(.allow)
     }
 
@@ -442,6 +449,12 @@ import WebKit
             sourceFrameURL: sourceFrame?.request.url,
             sourceIsMainFrame: sourceFrame?.isMainFrame ?? true
         )
+    }
+
+    private func isPDFMIMEType(_ mimeType: String?) -> Bool {
+        mimeType?.split(separator: ";", maxSplits: 1).first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare("application/pdf") == .orderedSame
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
