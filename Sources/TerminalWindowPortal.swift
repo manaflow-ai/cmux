@@ -1100,11 +1100,14 @@ final class WindowTerminalPortal: NSObject {
     /// Update the visibleInUI flag on an existing entry without rebinding.
     /// Used when a deferred bind is pending — this ensures synchronizeHostedView
     /// won't hide a view that updateNSView has already marked as visible.
-    func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) {
-        guard var entry = entriesByHostedId[hostedId] else { return }
+    @discardableResult
+    func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) -> Bool {
+        let needsReattach = visibleInUI && hostedViewNeedsPortalReattachForVisiblePresentation(withId: hostedId)
+        guard var entry = entriesByHostedId[hostedId] else { return needsReattach }
         entry.visibleInUI = visibleInUI
         if !visibleInUI { entry.transientRecoveryRetriesRemaining = 0 }
         entriesByHostedId[hostedId] = entry
+        return needsReattach
     }
 
     func isHostedViewBoundToAnchor(withId hostedId: ObjectIdentifier, anchorView: NSView) -> Bool {
@@ -2118,16 +2121,11 @@ enum TerminalWindowPortalRegistry {
     }
 
     /// Update visibleInUI on an existing portal entry without rebinding.
-    static func updateEntryVisibility(for hostedView: GhosttySurfaceScrollView, visibleInUI: Bool) {
+    @discardableResult
+    static func updateEntryVisibility(for hostedView: GhosttySurfaceScrollView, visibleInUI: Bool) -> Bool {
         let hostedId = ObjectIdentifier(hostedView)
-        guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return }
-        portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
-    }
-
-    static func hostedViewNeedsPortalReattachForVisiblePresentation(_ hostedView: GhosttySurfaceScrollView) -> Bool {
-        let hostedId = ObjectIdentifier(hostedView)
-        guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return true }
-        return portal.hostedViewNeedsPortalReattachForVisiblePresentation(withId: hostedId)
+        guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return visibleInUI }
+        return portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
     }
 
     static func isHostedView(_ hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {

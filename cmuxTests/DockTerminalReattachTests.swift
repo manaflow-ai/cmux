@@ -133,7 +133,7 @@ struct DockTerminalReattachTests {
         panel.hostedView.setVisibleInUI(true)
         TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
         #expect(!panel.hostedView.isHidden)
-        #expect(TerminalWindowPortalRegistry.hostedViewNeedsPortalReattachForVisiblePresentation(panel.hostedView))
+        #expect(TerminalWindowPortalRegistry.updateEntryVisibility(for: panel.hostedView, visibleInUI: true))
         let reattachTokenBefore = panel.viewReattachToken
 
         store.focusPanel(panelId)
@@ -172,9 +172,9 @@ struct DockTerminalReattachTests {
             expectedSurfaceId: panel.surface.id,
             expectedGeneration: panel.surface.portalBindingGeneration()
         )
-        #expect(!TerminalWindowPortalRegistry.hostedViewNeedsPortalReattachForVisiblePresentation(panel.hostedView))
+        #expect(!TerminalWindowPortalRegistry.updateEntryVisibility(for: panel.hostedView, visibleInUI: true))
         anchor.removeFromSuperview()
-        #expect(TerminalWindowPortalRegistry.hostedViewNeedsPortalReattachForVisiblePresentation(panel.hostedView))
+        #expect(TerminalWindowPortalRegistry.updateEntryVisibility(for: panel.hostedView, visibleInUI: true))
         let reattachTokenBefore = panel.viewReattachToken
 
         store.focusPanel(panelId)

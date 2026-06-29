@@ -69,11 +69,12 @@ extension DockSplitStore {
         terminalViewReattachCoalescingDepth += 1
         defer {
             terminalViewReattachCoalescingDepth -= 1
-            guard terminalViewReattachCoalescingDepth == 0 else { return }
-            let pendingPanelIds = pendingTerminalViewReattachPanelIds
-            pendingTerminalViewReattachPanelIds.removeAll()
-            for panelId in pendingPanelIds {
-                (panels[panelId] as? TerminalPanel)?.requestViewReattach()
+            if terminalViewReattachCoalescingDepth == 0 {
+                let pendingPanelIds = pendingTerminalViewReattachPanelIds
+                pendingTerminalViewReattachPanelIds.removeAll()
+                for panelId in pendingPanelIds {
+                    (panels[panelId] as? TerminalPanel)?.requestViewReattach()
+                }
             }
         }
         body()
@@ -182,11 +183,10 @@ extension DockSplitStore {
         let shouldBeActive = panelIsActiveInVisibleDockPane(panel.id)
         if let terminal = panel as? TerminalPanel {
             if shouldBeVisible {
-                let needsPortalReattach = TerminalWindowPortalRegistry
-                    .hostedViewNeedsPortalReattachForVisiblePresentation(terminal.hostedView)
                 terminal.hostedView.setVisibleInUI(true)
                 terminal.hostedView.setActive(shouldBeActive)
-                TerminalWindowPortalRegistry.updateEntryVisibility(for: terminal.hostedView, visibleInUI: true)
+                let needsPortalReattach = TerminalWindowPortalRegistry
+                    .updateEntryVisibility(for: terminal.hostedView, visibleInUI: true)
                 if needsPortalReattach {
                     requestTerminalViewReattach(terminal)
                 }
