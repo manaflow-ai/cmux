@@ -634,7 +634,7 @@ struct AgentSessionAutoResumeSwiftTests {
         expectedResumeToken: String,
         inputContains needles: [String] = [],
         inputDoesNotContain excludedNeedles: [String] = [],
-        expectedResumeState: RestoredAgentResumeState? = .awaitingAutoResumeCommand
+        expectedResumeState: Workspace.RestoredAgentResumeState? = .awaitingAutoResumeCommand
     ) throws {
         workspace.focusPanel(panelId)
         let panel = try #require(workspace.terminalPanel(for: panelId))
