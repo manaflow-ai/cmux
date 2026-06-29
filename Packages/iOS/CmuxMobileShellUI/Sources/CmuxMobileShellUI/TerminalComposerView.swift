@@ -163,6 +163,18 @@ struct TerminalComposerView: View {
         .onChange(of: store.terminalInputText) { _, _ in
             requestHeightRemeasure()
         }
+        // The chip row's presence is the OTHER driver of this view's height, and
+        // unlike the text it had no content-change remeasure trigger: an image-only
+        // send clears the staged attachments without touching `terminalInputText`,
+        // so the text trigger above never fires and the band was left reserved tall
+        // around the now-empty field. Remeasure whenever the chip row appears or
+        // disappears (its height is constant for any non-zero count, so the
+        // empty/non-empty edge is the only height-relevant transition); this action
+        // runs after SwiftUI commits the change, so the host measures the collapsed
+        // (chip-less) layout rather than the stale tall one.
+        .onChange(of: pendingAttachments.isEmpty) { _, _ in
+            requestHeightRemeasure()
+        }
         .onAppear {
             recordComposerEvent(.composerViewAppear)
             // Focus only when an explicit request preceded this mount (an
