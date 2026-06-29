@@ -4221,6 +4221,7 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let direction = optionValue(commandArgs, name: "--direction") ?? "right"
             let url = optionValue(commandArgs, name: "--url")
+            let placement = optionValue(commandArgs, name: "--placement")
             let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = ["direction": direction]
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
@@ -4229,10 +4230,10 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let placement { params["placement"] = placement }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "pane.create", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
-
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "dock_surface", "dock_pane", "workspace"]))
         case "new-surface":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             let type = optionValue(commandArgs, name: "--type")
@@ -4241,16 +4242,19 @@ struct CMUXCLI {
             let provider = optionValue(commandArgs, name: "--provider") ?? optionValue(commandArgs, name: "--provider-id")
             let renderer = optionValue(commandArgs, name: "--renderer") ?? optionValue(commandArgs, name: "--renderer-kind")
             let workingDirectory = optionValue(commandArgs, name: "--working-directory") ?? optionValue(commandArgs, name: "--cwd")
+            let placement = optionValue(commandArgs, name: "--placement")
             let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
-            let paneId = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
+            let dockPaneId = paneRaw?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let paneId = (placement?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "dock" && dockPaneId.map(isUUID) == true) ? dockPaneId : try normalizePaneHandle(paneRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let paneId { params["pane_id"] = paneId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let placement { params["placement"] = placement }
             if let provider { params["provider_id"] = provider }
             if let renderer { params["renderer_kind"] = renderer }
             if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -4259,7 +4263,7 @@ struct CMUXCLI {
             }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.create", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "dock_surface", "dock_pane", "workspace"]))
 
         case "surface":
             try runSurfaceCommand(
@@ -15177,6 +15181,8 @@ struct CMUXCLI {
             Flags:
               --type <terminal|browser>           Pane type (default: terminal)
               --direction <left|right|up|down>    Split direction (default: right)
+              --placement <workspace|dock>        Target container (default: workspace).
+                                                  dock splits the right-sidebar Dock.
               --workspace <id|ref|index>          Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>             Window context for workspace refs and indexes
               --url <url>                         URL for browser panes
@@ -15185,6 +15191,7 @@ struct CMUXCLI {
             Example:
               cmux new-pane
               cmux new-pane --type browser --direction down --url https://example.com
+              cmux new-pane --type browser --placement dock --url https://example.com
             """
         case "new-surface":
             return """
@@ -15195,6 +15202,9 @@ struct CMUXCLI {
             Flags:
               --type <terminal|browser|agent-session>   Surface type (default: terminal)
               --pane <id|ref|index>       Target pane
+              --placement <workspace|dock>  Target container (default: workspace).
+                                           dock adds the surface to the right-sidebar Dock
+                                           (terminal and browser only).
               --workspace <id|ref|index>  Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>     Window context for workspace/pane refs and indexes
               --url <url>                 URL for browser surfaces
@@ -15208,6 +15218,7 @@ struct CMUXCLI {
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
               cmux new-surface --type agent-session --provider claude --renderer solid --focus true
+              cmux new-surface --type browser --placement dock --url https://example.com
             """
         case "close-surface":
             return """
@@ -26896,7 +26907,11 @@ struct CMUXCLI {
         }
         if let cwd {
             let quotedCwd = cliShellQuote(cwd)
-            return "{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } && \(command)"
+            // No POSIX `{ …; }` grouping: the binding runs verbatim in the login shell,
+            // which may be fish (no brace grouping — issue #6285). `&&`/`||` are an
+            // equal-precedence left-associative AND-OR list in sh/bash/zsh/fish, so this
+            // is equivalent to the braced form in every shell.
+            return "cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ] && \(command)"
         }
         return command
     }
