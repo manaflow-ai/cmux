@@ -3583,6 +3583,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
     }()
     @MainActor static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
+    @MainActor static var debugGhosttySurfaceTextObserver: ((Data) -> Void)?
     @MainActor static var debugTextInputEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
 #endif
     private var eventMonitor: Any?
@@ -11254,11 +11255,20 @@ extension GhosttyNSView: NSTextInputClient {
     /// Deliver committed text using typed-input semantics so shells and editors
     /// keep their normal interactive behaviors (autosuggestions, Return
     /// execution, etc.). Programmatic callers can preserve literal ESC bytes so
-    /// automation payloads remain byte-for-byte stable.
+    /// automation payloads remain byte-for-byte stable. Programmatic escape
+    /// sequence payloads use Ghostty's raw text path so the control introducer
+    /// stays attached to the bytes that follow it.
     fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
         guard let surface = surface else { return }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
+        defer {
+            CmuxTypingTiming.logDuration(
+                path: "terminal.sendTextToSurface",
+                startedAt: typingTimingStart,
+                extra: "textBytes=\(chars.utf8.count)"
+            )
+        }
 #endif
 #if DEBUG
         TerminalChildExitProbe().write(
@@ -11269,6 +11279,11 @@ extension GhosttyNSView: NSTextInputClient {
             increments: ["probeInsertTextCount": 1]
         )
 #endif
+
+        if preserveLiteralEscape, Self.shouldSendAsRawTextPayload(chars) {
+            sendRawTextPayload(chars, to: surface)
+            return
+        }
 
         var bufferedText = ""
         var previousWasCR = false
@@ -11331,13 +11346,24 @@ extension GhosttyNSView: NSTextInputClient {
             }
         }
         flushBufferedText()
+    }
+
+    private static func shouldSendAsRawTextPayload(_ text: String) -> Bool {
+        guard let first = text.unicodeScalars.first else { return false }
+        return first.value == 0x1B || first.value == 0x9B
+    }
+
+    private func sendRawTextPayload(_ text: String, to surface: ghostty_surface_t) {
+        guard let data = text.data(using: .utf8), !data.isEmpty else { return }
 #if DEBUG
-        CmuxTypingTiming.logDuration(
-            path: "terminal.sendTextToSurface",
-            startedAt: typingTimingStart,
-            extra: "textBytes=\(chars.utf8.count)"
-        )
+        Self.debugGhosttySurfaceTextObserver?(data)
 #endif
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                return
+            }
+            ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
+        }
     }
 
     /// External accessibility/dictation tools should commit plain text, but
