@@ -37,7 +37,7 @@ is_allowed_binary_name() {
   case "$1" in
     # `grok` is cmux's checked-in wrapper script, not the xAI provider binary;
     # it still goes through the Bun-standalone signature scan below.
-    cmux|ghostty|cmux-claude-wrapper|grok|open|start-cmux-profiling|submit-cmux-profile)
+    cmux|ghostty|cmux-claude-wrapper|cmux-codex-wrapper|grok|open|start-cmux-profiling|submit-cmux-profile)
       return 0
       ;;
     *)
