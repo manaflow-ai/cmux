@@ -17,6 +17,7 @@ final class RendererRealizationController {
     static let shared = RendererRealizationController()
 
     private let timerQueue = DispatchQueue(label: "com.cmux.renderer-realization", qos: .utility)
+    private let systemMemoryPressureRetryPasses = 2
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
 
@@ -83,7 +84,11 @@ final class RendererRealizationController {
     }
 
     func reclaimForSystemMemoryPressure(now: Date) {
-        evaluate(now: now, trigger: .systemMemoryPressure)
+        evaluate(
+            now: now,
+            trigger: .systemMemoryPressure,
+            remainingSystemMemoryPressureRetries: systemMemoryPressureRetryPasses
+        )
     }
 
     /// Run one reclamation pass. Internal so a unit/integration test can drive it
@@ -92,7 +97,11 @@ final class RendererRealizationController {
         evaluate(now: now, trigger: .scheduled)
     }
 
-    private func evaluate(now: Date, trigger: RendererRealizationReclaimTrigger) {
+    private func evaluate(
+        now: Date,
+        trigger: RendererRealizationReclaimTrigger,
+        remainingSystemMemoryPressureRetries: Int = 0
+    ) {
         let settings = RendererRealizationSettings.values()
         guard settings.enabled else { return }
 
@@ -132,8 +141,27 @@ final class RendererRealizationController {
             trigger: trigger
         )
         guard !selected.isEmpty else { return }
+        var needsSystemMemoryPressureRetry = false
         for surface in surfaces where selected.contains(surface.id) {
             surface.releaseRenderer()
+            // A dropped Ghostty mailbox enqueue leaves the renderer realized.
+            // Retry with the pressure policy; scheduled policy may keep recent
+            // hidden surfaces warm and skip the exact surface pressure selected.
+            if trigger == .systemMemoryPressure,
+               !surface.isRendererPortalVisible,
+               surface.isRendererRealized {
+                needsSystemMemoryPressureRetry = true
+            }
+        }
+
+        if needsSystemMemoryPressureRetry, remainingSystemMemoryPressureRetries > 0 {
+            Task { @MainActor in
+                RendererRealizationController.shared.evaluate(
+                    now: Date(),
+                    trigger: .systemMemoryPressure,
+                    remainingSystemMemoryPressureRetries: remainingSystemMemoryPressureRetries - 1
+                )
+            }
         }
     }
 }
