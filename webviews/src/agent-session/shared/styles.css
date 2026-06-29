@@ -445,11 +445,11 @@ select {
   font-style: italic;
 }
 
-.codex-assistant-message :where(pre code.hljs .hljs-keyword, pre code.hljs .hljs-selector-tag, pre code.hljs .hljs-subst) {
+.codex-assistant-message :where(pre code.hljs .hljs-keyword, pre code.hljs .hljs-selector-tag) {
   color: var(--color-token-terminal-ansi-bright-magenta);
 }
 
-.codex-assistant-message :where(pre code.hljs .hljs-built_in, pre code.hljs .hljs-type, pre code.hljs .hljs-class .hljs-title) {
+.codex-assistant-message :where(pre code.hljs .hljs-built_in, pre code.hljs .hljs-type, pre code.hljs .hljs-title.class_, pre code.hljs .hljs-title.class_.inherited__) {
   color: var(--color-token-terminal-ansi-bright-cyan);
 }
 
