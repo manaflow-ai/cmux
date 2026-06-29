@@ -407,14 +407,6 @@ final class FileExplorerNode: Identifiable {
     }
 
     var isExpandable: Bool { isDirectory }
-
-    var sortedChildren: [FileExplorerNode]? {
-        sortedChildren(using: .defaultValue)
-    }
-
-    func sortedChildren(using options: FileExplorerSortOptions) -> [FileExplorerNode]? {
-        children.map { FileExplorerNodeSorter(options: options).sorted($0) }
-    }
 }
 
 // MARK: - Root Resolver
@@ -1394,7 +1386,6 @@ final class FileExplorerStore: ObservableObject {
         if persist {
             sortSettings.setOptions(options)
         }
-        objectWillChange.send()
     }
 
     private func resortLoadedNodes() {
