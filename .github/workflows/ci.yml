@@ -1736,7 +1736,7 @@ jobs:
 
             PRELAUNCH_PATH="/tmp/cmux-ui-test-prelaunch.json"
             cat >"$PRELAUNCH_PATH" <<PRELAUNCH_EOF
-          {"diagnosticsPath":"$DIAG_PATH"}
+          {"diagnosticsPath":"$DIAG_PATH","baselineReadyMarker":"$BASELINE_READY_MARKER"}
           PRELAUNCH_EOF
 
             # Run test — app is already launched from shell
@@ -1759,8 +1759,7 @@ jobs:
             START_SIGNAL_PID=$!
 
             XCODEBUILD_OK=false
-            if CMUX_UI_TEST_DISPLAY_BASELINE_READY_MARKER="$BASELINE_READY_MARKER" \
-              xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \

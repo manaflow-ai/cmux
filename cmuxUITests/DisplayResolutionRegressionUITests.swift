@@ -84,8 +84,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
 
         if !displayStartPath.isEmpty, prelaunch == nil {
             try Data("start\n".utf8).write(to: URL(fileURLWithPath: displayStartPath), options: .atomic)
-        } else if !displayStartPath.isEmpty,
-                  let marker = ProcessInfo.processInfo.environment["CMUX_UI_TEST_DISPLAY_BASELINE_READY_MARKER"], !marker.isEmpty {
+        } else if !displayStartPath.isEmpty, let marker = prelaunch?.baselineReadyMarker, !marker.isEmpty {
             let data = Data("\(marker)\n".utf8)
             FileHandle.standardOutput.write(data)
             FileHandle.standardError.write(data)
@@ -495,6 +494,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
 
     private struct PrelaunchManifest: Decodable {
         let diagnosticsPath: String?
+        let baselineReadyMarker: String?
     }
 
     private func loadPrelaunchManifest() -> PrelaunchManifest? {
