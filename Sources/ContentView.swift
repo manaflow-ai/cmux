@@ -3147,6 +3147,7 @@ struct ContentView: View {
 
         let commandPaletteOverlayView = AnyView(commandPaletteOverlay)
         let appKitWindowMutationID = appearance.appKitWindowMutationID(
+            glassEffectAvailable: windowChrome.glassEffect.isAvailable,
             windowBackgroundPolicy: windowChrome.windowBackgroundPolicy
         )
         let mainWindowAccessor = WindowAccessor(refreshID: appKitWindowMutationID) { [appearance, commandPaletteOverlayView] window in
