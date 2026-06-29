@@ -818,11 +818,18 @@ final class WindowBrowserHostView: NSView {
         at point: NSPoint,
         visibleSlots: [WindowBrowserSlotView]
     ) -> Bool {
-        let contentSlots = visibleSlots.filter { !$0.isRightSidebarDockSlot }
-        guard let rightMostEdge = contentSlots.map(\.frame.maxX).max() else { return false }
-        let trailingGap = bounds.maxX - rightMostEdge
+        let dockDividerX = visibleSlots
+            .filter { $0.isRightSidebarDockSlot }
+            .map(\.frame.minX)
+            .min()
+        let contentRightEdge = visibleSlots
+            .filter { !$0.isRightSidebarDockSlot }
+            .map(\.frame.maxX)
+            .max()
+        guard let dividerX = dockDividerX ?? contentRightEdge else { return false }
+        let trailingGap = bounds.maxX - dividerX
         guard trailingGap > Self.minimumVisibleLeadingContentWidth else { return false }
-        return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightMostEdge).contains(point.x)
+        return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: dividerX).contains(point.x)
     }
 
     private func updateDividerCursor(
