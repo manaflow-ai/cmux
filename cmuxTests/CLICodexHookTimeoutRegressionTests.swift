@@ -430,6 +430,7 @@ struct CLICodexHookTimeoutRegressionTests {
         }
 
         let now = Date().timeIntervalSince1970
+        let previousPidCapturedAt = now - 3_600
         let store: [String: Any] = [
             "version": 1,
             "sessions": [
@@ -439,6 +440,7 @@ struct CLICodexHookTimeoutRegressionTests {
                     "surfaceId": surfaceId,
                     "cwd": root.path,
                     "pid": 4242,
+                    "pidCapturedAt": previousPidCapturedAt,
                     "agentLifecycle": "idle",
                     "runtimeStatus": "idle",
                     "terminalPromptTurnIds": ["turn-done"],
@@ -491,6 +493,8 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["agentLifecycle"] as? String == "idle")
         #expect(session["runtimeStatus"] as? String == "idle")
         #expect(session["terminalPromptTurnIds"] as? [String] == ["turn-done"])
+        let pidCapturedAt = try #require(session["pidCapturedAt"] as? TimeInterval)
+        #expect(pidCapturedAt > previousPidCapturedAt)
     }
 
     /// https://github.com/manaflow-ai/cmux/issues/5676: remote/no-TTY Codex hooks can inherit another

@@ -1102,9 +1102,7 @@ final class ClaudeHookSessionStore {
             record.transcriptPath = transcriptPath
         }
         if let pid {
-            if record.pid != pid || record.pidCapturedAt == nil {
-                record.pidCapturedAt = now
-            }
+            record.pidCapturedAt = now
             record.pid = pid
         }
         if let launchCommand {
