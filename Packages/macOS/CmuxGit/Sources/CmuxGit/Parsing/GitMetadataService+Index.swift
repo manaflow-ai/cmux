@@ -3,56 +3,79 @@ import Foundation
 extension GitMetadataService {
     private nonisolated static let gitIndexHexAlphabet = Array("0123456789abcdef".utf8)
 
-    /// Compares the working tree against the parsed index to decide dirtiness,
-    /// returning the index signatures alongside.
+    /// Compares the working tree against the parsed index to decide dirtiness.
     ///
-    /// Mirrors git's stat-based dirty check: for each tracked entry it `lstat`s
-    /// the file and compares size, mode, and mtime; gitlink (submodule) entries
-    /// are dirty when the submodule's checked-out commit differs from the
-    /// recorded object ID. A missing/unreadable file marks the tree dirty.
-    nonisolated static func gitTrackedChangesSnapshot(
-        repository: ResolvedGitRepository
-    ) -> (isDirty: Bool, indexSignature: String?, indexContentSignature: String?) {
+    /// Mirrors git's stat-based dirty check: for each tracked entry it reads the
+    /// file status and compares size, mode, and mtime. Gitlink entries are dirty
+    /// when the submodule's checked-out commit differs from the index object ID.
+    nonisolated func gitTrackedChangesSnapshot(repository: ResolvedGitRepository) -> GitTrackedChangesSnapshot {
         let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
-        guard let indexSnapshot = gitIndexSnapshot(indexURL: indexURL) else {
-            return (false, gitIndexFileSignature(indexURL: indexURL), nil)
+        guard let indexSnapshot = Self.gitIndexSnapshot(indexURL: indexURL) else {
+            return GitTrackedChangesSnapshot(
+                isDirty: false,
+                indexSignature: Self.gitIndexFileSignature(indexURL: indexURL),
+                indexContentSignature: nil
+            )
         }
 
         for entry in indexSnapshot.entries {
             let fileURL = URL(fileURLWithPath: repository.workTreeRoot).appendingPathComponent(entry.path)
             let gitlinkMode: UInt32 = 0o160000
             if (entry.mode & 0o170000) == gitlinkMode {
-                guard let submoduleCommit = gitlinkWorktreeCommit(
+                guard let submoduleCommit = Self.gitlinkWorktreeCommit(
                     parentRepository: repository,
                     gitlinkPath: entry.path
                 ) else {
-                    return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
+                    return GitTrackedChangesSnapshot(
+                        isDirty: true,
+                        indexSignature: indexSnapshot.signature,
+                        indexContentSignature: indexSnapshot.contentSignature
+                    )
                 }
                 if submoduleCommit.caseInsensitiveCompare(entry.objectID) != .orderedSame {
-                    return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
+                    return GitTrackedChangesSnapshot(
+                        isDirty: true,
+                        indexSignature: indexSnapshot.signature,
+                        indexContentSignature: indexSnapshot.contentSignature
+                    )
                 }
                 continue
             }
 
-            var statValue = stat()
-            guard lstat(fileURL.path, &statValue) == 0 else {
-                return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
+            guard let fileStatus = fileStatusReader.status(atPath: fileURL.path) else {
+                return GitTrackedChangesSnapshot(
+                    isDirty: true,
+                    indexSignature: indexSnapshot.signature,
+                    indexContentSignature: indexSnapshot.contentSignature
+                )
             }
-            let size = gitIndexUInt32Field(statValue.st_size)
-            let mtimeSeconds = gitIndexUInt32Field(statValue.st_mtimespec.tv_sec)
-            let mtimeNanoseconds = gitIndexUInt32Field(statValue.st_mtimespec.tv_nsec)
-            guard let mode = gitIndexComparableMode(for: statValue.st_mode) else {
-                return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
+            let size = Self.gitIndexUInt32Field(fileStatus.size)
+            let mtimeSeconds = Self.gitIndexUInt32Field(fileStatus.mtimeSeconds)
+            let mtimeNanoseconds = Self.gitIndexUInt32Field(fileStatus.mtimeNanoseconds)
+            guard let mode = Self.gitIndexComparableMode(for: mode_t(fileStatus.mode)) else {
+                return GitTrackedChangesSnapshot(
+                    isDirty: true,
+                    indexSignature: indexSnapshot.signature,
+                    indexContentSignature: indexSnapshot.contentSignature
+                )
             }
             if size != entry.size ||
                 mode != entry.mode ||
                 mtimeSeconds != entry.mtimeSeconds ||
                 mtimeNanoseconds != entry.mtimeNanoseconds {
-                return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
+                return GitTrackedChangesSnapshot(
+                    isDirty: true,
+                    indexSignature: indexSnapshot.signature,
+                    indexContentSignature: indexSnapshot.contentSignature
+                )
             }
         }
 
-        return (false, indexSnapshot.signature, indexSnapshot.contentSignature)
+        return GitTrackedChangesSnapshot(
+            isDirty: false,
+            indexSignature: indexSnapshot.signature,
+            indexContentSignature: indexSnapshot.contentSignature
+        )
     }
 
     /// Parses a git `index` file (versions 2, 3, and 4) into a snapshot.
