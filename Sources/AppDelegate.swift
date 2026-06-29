@@ -1870,10 +1870,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func prepareForConfirmedAppTermination() {
+    private func saveFinalAppTerminationState() {
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
+    }
+
+    private func prepareForConfirmedAppTermination() {
+        saveFinalAppTerminationState()
         // Quit is committed and the critical state is now on disk. Bound the
         // remainder of the terminate sequence so a blocked Apple will-terminate
         // observer (e.g. CFPasteboardResolveAllPromisedData, #6758) can't hang
@@ -1998,17 +2002,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Apple's promised-pasteboard observer can fire before this delegate
         // method, so the primary arm above is what bounds #6758; this only
         // widens coverage to other entrypoints.
+        saveFinalAppTerminationState()
         terminationWatchdog.arm()
         sentryStopMemoryContextRefresh()
-        isTerminatingApp = true
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
         remoteTmuxController.detachAll()
         // Best-effort presence goodbye; unclean exits are covered by the
         // service's missed-heartbeat timeout.
         PresenceHeartbeatClient.shared.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-        ClosedItemHistoryStore.shared.flushPendingSaves()
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
