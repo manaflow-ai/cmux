@@ -8,6 +8,7 @@ public import SwiftUI
 /// each row to its own slot keeps the toolbar height native and prevents tall
 /// glyphs from bleeding into the neighboring row.
 public struct MobileCompactToolbarTitleStack: View {
+    /// Additional horizontal breathing room inside the compact glass title pill.
     public static let horizontalContentPadding: CGFloat = 3
 
     private let title: String
@@ -15,6 +16,13 @@ public struct MobileCompactToolbarTitleStack: View {
     private let titleFont: Font
     private let subtitleFont: Font
 
+    /// Creates a compact two-line title stack.
+    ///
+    /// - Parameters:
+    ///   - title: Primary title text.
+    ///   - subtitle: Optional secondary text shown below the title.
+    ///   - titleFont: Font for the primary title row.
+    ///   - subtitleFont: Font for the subtitle row.
     public init(
         title: String,
         subtitle: String?,
@@ -27,6 +35,7 @@ public struct MobileCompactToolbarTitleStack: View {
         self.subtitleFont = subtitleFont
     }
 
+    /// The rendered compact title stack.
     public var body: some View {
         VStack(alignment: .leading, spacing: Self.rowSpacing) {
             line(title, font: titleFont, height: Self.titleRowHeight)

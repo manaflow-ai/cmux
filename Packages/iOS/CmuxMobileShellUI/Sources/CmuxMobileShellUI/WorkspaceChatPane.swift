@@ -80,11 +80,11 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
                             )
                             .frame(
                                 minWidth: MobileNavTitleWidth.floor,
-                                maxWidth: MobileNavTitleWidth.leadingCap(
+                                maxWidth: MobileNavTitleWidth(
                                     contentWidth: contentWidth,
                                     hasBackButton: backButtonConfiguration != nil,
                                     hasChatToggle: true
-                                ),
+                                ).leadingCap,
                                 alignment: .leading
                             )
                             .layoutPriority(1)

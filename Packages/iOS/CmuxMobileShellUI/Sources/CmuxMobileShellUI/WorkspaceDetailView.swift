@@ -570,11 +570,11 @@ struct WorkspaceDetailView: View {
             label()
                 .frame(
                     minWidth: MobileNavTitleWidth.floor,
-                    maxWidth: MobileNavTitleWidth.leadingCap(
+                    maxWidth: MobileNavTitleWidth(
                         contentWidth: contentWidth,
                         hasBackButton: backButtonConfiguration != nil,
                         hasChatToggle: isChatMode || sessionForSelectedTerminal != nil
-                    ),
+                    ).leadingCap,
                     alignment: .leading
                 )
                 .layoutPriority(1)

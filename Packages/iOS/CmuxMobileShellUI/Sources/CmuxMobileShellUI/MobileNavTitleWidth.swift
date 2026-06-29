@@ -8,7 +8,9 @@ import CoreGraphics
 /// title's maximum width; the toolbar and glass button style keep their natural
 /// height.
 struct MobileNavTitleWidth {
-    private init() {}
+    let contentWidth: CGFloat
+    let hasBackButton: Bool
+    let hasChatToggle: Bool
 
     /// Reserved width of the leading cluster: the custom back button (chevron +
     /// optional unread-count pill) plus the bar's leading margin.
@@ -23,15 +25,10 @@ struct MobileNavTitleWidth {
     static let floor: CGFloat = 96
 
     /// Max width for the leading title pill.
-    /// - Parameters:
-    ///   - contentWidth: Measured pane width (0 before first layout).
-    ///   - hasBackButton: Whether the leading cluster includes the compact
-    ///     workspace back button.
-    ///   - hasChatToggle: Whether the trailing cluster includes the chat toggle.
-    static func leadingCap(contentWidth: CGFloat, hasBackButton: Bool, hasChatToggle: Bool) -> CGFloat {
-        guard contentWidth > 0 else { return unmeasuredFallback }
-        let leading = hasBackButton ? leadingReserve : 0
-        let trailing = trailingReserveBase + (hasChatToggle ? chatToggleReserve : 0)
-        return max(floor, contentWidth - leading - trailing)
+    var leadingCap: CGFloat {
+        guard contentWidth > 0 else { return Self.unmeasuredFallback }
+        let leading = hasBackButton ? Self.leadingReserve : 0
+        let trailing = Self.trailingReserveBase + (hasChatToggle ? Self.chatToggleReserve : 0)
+        return max(Self.floor, contentWidth - leading - trailing)
     }
 }

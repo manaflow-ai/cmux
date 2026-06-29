@@ -79,11 +79,11 @@ struct AgentChatDemoScreen: View {
                             header(for: stack)
                                 .frame(
                                     minWidth: MobileNavTitleWidth.floor,
-                                    maxWidth: MobileNavTitleWidth.leadingCap(
+                                    maxWidth: MobileNavTitleWidth(
                                         contentWidth: contentWidth,
                                         hasBackButton: true,
                                         hasChatToggle: true
-                                    ),
+                                    ).leadingCap,
                                     alignment: .leading
                                 )
                                 .layoutPriority(1)

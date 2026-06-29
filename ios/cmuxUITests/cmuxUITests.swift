@@ -1957,7 +1957,10 @@ final class cmuxUITests: XCTestCase {
             lastBackFrame = backButton.frame
             lastPickerFrame = surfacePicker.frame
             let nearbyToolbarHeight = max(lastBackFrame.height, lastPickerFrame.height)
-            if abs(lastTitleFrame.height - nearbyToolbarHeight) <= tolerance {
+            if lastTitleFrame.midY > 60,
+               lastBackFrame.midY > 60,
+               lastPickerFrame.midY > 60,
+               abs(lastTitleFrame.height - nearbyToolbarHeight) <= tolerance {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -1981,13 +1984,26 @@ final class cmuxUITests: XCTestCase {
     ) {
         XCTAssertTrue(titleMenu.waitForExistence(timeout: 4), file: file, line: line)
         dismissKeyboard(in: app)
-        guard let frame = waitForUsableFrame(of: titleMenu, timeout: 4) else {
+        guard let frame = waitForToolbarFrame(of: titleMenu, timeout: 4) else {
             XCTFail("Title menu has no usable frame: \(titleMenu.debugDescription)", file: file, line: line)
             return
         }
         app.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: frame.minX + min(24, frame.width / 2), dy: frame.midY))
             .tap()
+    }
+
+    @MainActor
+    private func waitForToolbarFrame(of element: XCUIElement, timeout: TimeInterval) -> CGRect? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let frame = waitForUsableFrame(of: element, timeout: 0.1),
+               frame.midY > 60 {
+                return frame
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return waitForUsableFrame(of: element, timeout: 0.1)
     }
 
     private struct ChatTranscriptMetrics: CustomStringConvertible {
