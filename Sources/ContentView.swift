@@ -7600,6 +7600,9 @@ struct ContentView: View {
                 panel.canChooseFiles = false
                 panel.canChooseDirectories = true
                 panel.allowsMultipleSelection = false
+                // Surface the system "New Folder" button so the user can create a
+                // directory and immediately open it as a workspace.
+                panel.canCreateDirectories = true
                 panel.title = String(localized: "panel.openFolder.title", defaultValue: "Open Folder")
                 panel.prompt = String(localized: "panel.openFolder.prompt", defaultValue: "Open")
                 if panel.runModal() == .OK, let url = panel.url {
