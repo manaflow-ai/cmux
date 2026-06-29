@@ -67,6 +67,9 @@ final class AgentUsageStore: ObservableObject {
     func refresh() {
         guard refreshTask == nil else { return }
         isLoading = true
+        // Clear any prior OpenRouter error so a stale failure banner doesn't
+        // linger across a fresh scan; it is repopulated only if this fetch fails.
+        openRouterError = nil
         let scanner = self.scanner
         let client = self.openRouterClient
         let keyReader = self.openRouterKeyReader
