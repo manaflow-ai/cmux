@@ -1,3 +1,5 @@
+import CmuxMobileDiagnostics
+import CmuxMobileTerminalKit
 import GhosttyKit
 import UIKit
 
@@ -85,23 +87,60 @@ extension GhosttySurfaceView {
         // sheet's honest empty state over silently copying that stale text.
         // If the same terminal is mounted in several scenes the contents are
         // identical, so the lowest-keyed visible match keeps the pick
-        // deterministic.
-        let matchingView = registeredSurfaceViews
+        // deterministic. The eligibility rule itself lives in
+        // `CopyableTerminalTextSelection` so it is host-testable without UIKit;
+        // this just maps the live registry onto that pure predicate.
+        //
+        // The resolve happens on the main actor at the call site (the menu tap),
+        // BEFORE the sheet finishes presenting, so the surface is still
+        // window-attached and visible when the predicate runs — a sheet
+        // presentation that briefly drops the presenter's window/alpha can no
+        // longer turn the live surface into a miss.
+        let orderedViews = registeredSurfaceViews
             .sorted { $0.key < $1.key }
             .compactMap(\.value.value)
-            .first { candidate in
-                candidate.hostSurfaceID == surfaceID && candidate.surface != nil
-                    && candidate.window != nil && !candidate.isHidden
-                    && candidate.alpha > 0.01
-            }
-        guard let surface = matchingView?.surface else { return nil }
+        let candidates = orderedViews.map { view in
+            CopyableTerminalTextSelection.Candidate(
+                hostSurfaceID: view.hostSurfaceID,
+                hasSurface: view.surface != nil,
+                hasWindow: view.window != nil,
+                isHidden: view.isHidden,
+                alpha: Double(view.alpha)
+            )
+        }
+        let chosen = CopyableTerminalTextSelection.chosenIndex(from: candidates, for: surfaceID)
+            .map { orderedViews[$0] }
+
+        #if DEBUG
+        let candidateSummary = candidates
+            .map { "[id=\($0.hostSurfaceID ?? "nil") surf=\($0.hasSurface) win=\($0.hasWindow) hidden=\($0.isHidden) a=\(String(format: "%.2f", $0.alpha))]" }
+            .joined(separator: " ")
+        MobileDebugLog.anchormux(
+            "viewAsText.pick want=\(surfaceID) count=\(candidates.count) chosen=\(chosen == nil ? "none" : "yes") \(candidateSummary)"
+        )
+        #endif
+
+        guard let surface = chosen?.surface else { return nil }
         let handle = CopyableTextSurfaceHandle(surface: surface)
         return await withCheckedContinuation { continuation in
             outputQueue.async {
-                // SCREEN = scrollback + all written rows. Fall back to the
-                // viewport-only read if the screen read fails outright.
-                let text = surfaceText(handle.surface, pointTag: GHOSTTY_POINT_SCREEN)
-                    ?? surfaceText(handle.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
+                // SCREEN = scrollback + all written rows. `surfaceText` returns a
+                // non-nil empty string for a zero-byte range, so a plain `??`
+                // never fell back when SCREEN read empty-but-ok. Route both reads
+                // through the pure decision so a nil OR empty SCREEN still tries
+                // VIEWPORT before the sheet gives up.
+                let screen = surfaceText(handle.surface, pointTag: GHOSTTY_POINT_SCREEN)
+                let viewport = surfaceText(handle.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
+                let text = CopyableTerminalTextSelection.resolvedText(screen: screen, viewport: viewport)
+                #if DEBUG
+                func describe(_ value: String?) -> String {
+                    guard let value else { return "nil" }
+                    return value.isEmpty ? "empty" : "\(value.count)chars"
+                }
+                MobileDebugLog.anchormux(
+                    "viewAsText.read screen=\(describe(screen)) viewport=\(describe(viewport)) resolved=\(describe(text))"
+                )
+                #endif
                 continuation.resume(returning: text)
             }
         }

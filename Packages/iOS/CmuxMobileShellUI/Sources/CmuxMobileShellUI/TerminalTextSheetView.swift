@@ -21,6 +21,16 @@ struct TerminalTextSheetView: View {
     /// workspace has no terminal; the sheet then shows its empty state.
     let surfaceID: String?
 
+    /// The capture started by `openTextSheetFromMenu` the instant the menu item
+    /// was tapped, while the terminal surface was still fully window-attached.
+    /// Preferred over re-resolving from the registry inside `.task`: by the time
+    /// the sheet's `.task` runs the presenter's window/alpha may have dropped,
+    /// and the registry pick is visibility-scoped, so a late resolve could miss
+    /// the live surface and show the empty state. The sheet just awaits this.
+    /// Nil falls back to a fresh resolve so the path still works if the capture
+    /// was never armed.
+    let capture: Task<String?, Never>?
+
     @Environment(\.dismiss) private var dismiss
 
     /// Loaded once per presentation in `.task`; nil while the off-main surface
@@ -107,11 +117,20 @@ struct TerminalTextSheetView: View {
     }
 
     private func loadSnapshot() async {
-        guard let surfaceID else {
-            isLoading = false
-            return
+        // Prefer the capture armed at tap time (surface still fully on screen).
+        // Only fall back to a fresh resolve when no capture was provided, which
+        // re-resolves from the registry and can miss the live surface if the
+        // sheet's presentation dropped the presenter's window/alpha.
+        let fullText: String?
+        if let capture {
+            fullText = await capture.value
+        } else {
+            guard let surfaceID else {
+                isLoading = false
+                return
+            }
+            fullText = await GhosttySurfaceView.copyableTerminalText(surfaceID: surfaceID)
         }
-        let fullText = await GhosttySurfaceView.copyableTerminalText(surfaceID: surfaceID)
         // Cap off the main actor: the capture is bounded by the iOS surface's
         // scrollback-limit (~2MB, see applyiOSDefaults), but splitting and
         // rejoining even that much text is O(content) string work that would

@@ -56,6 +56,15 @@ struct WorkspaceDetailView: View {
     /// workspace selection changes underneath it (e.g. Mac-side sync) while
     /// the sheet is open; the sheet loads its snapshot once per presentation.
     @State private var textSheetSurfaceID: String?
+    /// The "View as Text" capture, kicked off the instant the menu item is
+    /// tapped — while the terminal surface is still fully window-attached and
+    /// visible — rather than from the sheet's own `.task`. Presenting a sheet
+    /// can briefly drop the presenter's window/alpha, and the registry pick is
+    /// visibility-scoped, so re-resolving the surface after presentation could
+    /// miss the one live surface and show the empty state. Resolving at tap time
+    /// captures the surface (and FIFO-orders its queued read) before any of that
+    /// can happen; the sheet just awaits the result.
+    @State private var textSheetCapture: Task<String?, Never>?
     /// Chat-mode toggle: when on (and a session exists) the detail renders
     /// the agent chat inline in place of the terminal. The toolbar button
     /// flips this; there is no cover and no Done button.
@@ -477,8 +486,8 @@ struct WorkspaceDetailView: View {
         .sheet(isPresented: $isFeedbackComposerPresented) {
             feedbackComposer
         }
-        .sheet(isPresented: $isTextSheetPresented) {
-            TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+        .sheet(isPresented: $isTextSheetPresented, onDismiss: { textSheetCapture = nil }) {
+            TerminalTextSheetView(surfaceID: textSheetSurfaceID, capture: textSheetCapture)
         }
         .workspaceRenameDialog(
             isPresented: $isRenamePresented,
@@ -685,7 +694,16 @@ struct WorkspaceDetailView: View {
     /// Opens the "View as Text" sheet: the terminal's content as selectable
     /// plain text, because the render surface itself has no copy affordance.
     private func openTextSheetFromMenu() {
-        textSheetSurfaceID = selectedTerminal?.id.rawValue
+        let surfaceID = selectedTerminal?.id.rawValue
+        textSheetSurfaceID = surfaceID
+        // Resolve + read NOW, on the main actor, while the terminal surface is
+        // still fully on screen. `copyableTerminalText` does its visibility-scoped
+        // registry pick and FIFO-enqueues the off-main read synchronously before
+        // returning the awaitable, so the surface can never be filtered out by a
+        // window/alpha drop that the sheet's own presentation would cause.
+        textSheetCapture = surfaceID.map { id in
+            Task { await GhosttySurfaceView.copyableTerminalText(surfaceID: id) }
+        }
         isTextSheetPresented = true
     }
 
