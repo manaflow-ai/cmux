@@ -64,16 +64,7 @@ func browserClientCertificateExtendedKeyUsageAllowsTLSClientAuthentication(_ val
 
 struct BrowserClientCertificateCredentialStore {
     func candidates(for protectionSpace: URLProtectionSpace) -> [BrowserClientCertificateCredentialCandidate] {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassIdentity,
-            kSecReturnRef as String: true,
-            kSecMatchLimit as String: kSecMatchLimitAll,
-        ]
-
-        if let distinguishedNames = protectionSpace.distinguishedNames,
-           !distinguishedNames.isEmpty {
-            query[kSecMatchIssuers as String] = distinguishedNames as CFArray
-        }
+        let query = identityLookupQuery(for: protectionSpace)
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -87,6 +78,22 @@ struct BrowserClientCertificateCredentialStore {
         }
 
         return identities(from: result).compactMap(candidate(for:))
+    }
+
+    func identityLookupQuery(for protectionSpace: URLProtectionSpace) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassIdentity,
+            kSecReturnRef as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUISkip,
+        ]
+
+        if let distinguishedNames = protectionSpace.distinguishedNames,
+           !distinguishedNames.isEmpty {
+            query[kSecMatchIssuers as String] = distinguishedNames as CFArray
+        }
+
+        return query
     }
 
     private func identities(from result: CFTypeRef) -> [SecIdentity] {

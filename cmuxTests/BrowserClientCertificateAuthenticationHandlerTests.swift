@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Security
 import Testing
 import WebKit
 
@@ -51,6 +52,18 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
             realm: nil,
             authenticationMethod: NSURLAuthenticationMethodClientCertificate
         )
+    }
+
+    @Test
+    func identityLookupQuerySkipsKeychainAuthenticationUI() {
+        let query = BrowserClientCertificateCredentialStore().identityLookupQuery(
+            for: makeProtectionSpace(host: "mtls.example")
+        )
+
+        #expect(query[kSecClass as String] as? String == kSecClassIdentity as String)
+        #expect(query[kSecReturnRef as String] as? Bool == true)
+        #expect(query[kSecMatchLimit as String] as? String == kSecMatchLimitAll as String)
+        #expect(query[kSecUseAuthenticationUI as String] as? String == kSecUseAuthenticationUISkip as String)
     }
 
     @Test
