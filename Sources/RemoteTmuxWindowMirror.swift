@@ -121,24 +121,44 @@ final class RemoteTmuxWindowMirror {
         _ node: RemoteTmuxLayoutNode,
         gridForPane: (Int) -> (cols: Int, rows: Int)?
     ) -> (cols: Int, rows: Int)? {
-        nil
+        switch node.content {
+        case let .pane(id):
+            return gridForPane(id)
+        case let .horizontal(children):
+            let grids = children.compactMap { composeClientGrid($0, gridForPane: gridForPane) }
+            guard grids.count == children.count, !grids.isEmpty else { return nil }
+            // Sum cols along the split axis (+1 per tmux divider between children),
+            // take max rows on the cross axis.
+            return (grids.reduce(0) { $0 + $1.cols } + (grids.count - 1), grids.map(\.rows).max() ?? 0)
+        case let .vertical(children):
+            let grids = children.compactMap { composeClientGrid($0, gridForPane: gridForPane) }
+            guard grids.count == children.count, !grids.isEmpty else { return nil }
+            // Sum rows along the split axis (+1 per tmux divider), take max cols.
+            return (grids.map(\.cols).max() ?? 0, grids.reduce(0) { $0 + $1.rows } + (grids.count - 1))
+        }
     }
 
     /// Tells tmux to size this session's windows to the rendered cmux area, so
     /// captured/live pane content matches the on-screen grid. Derives cols/rows
-    /// from the content pixel area and a live pane's cell size; sends
-    /// `refresh-client -C` only when the grid actually changes (no feedback loop:
-    /// the cmux area doesn't change when tmux reflows).
-    /// Returns `true` once the pane surface is live and the size was applied (sent, or
-    /// already current via the `lastClientSize` dedup); `false` when no pane has
-    /// reported its cell size yet, so the caller should retry. Idempotent.
+    /// from each pane's actual rendered grid via ``composeClientGrid(_:gridForPane:)``
+    /// — this correctly excludes pane chrome (the 24+1pt ``RemoteTmuxPaneHeader``)
+    /// that the pixel-divide approach over-counted, which was the root cause of the
+    /// top-clip on in-tab splits (issue #7053).
+    ///
+    /// `contentSizePoints` is the container size that triggered the call (via
+    /// `onChange(of: geo.size)`) and is no longer used in the grid calculation;
+    /// the parameter is kept so the call site stays unchanged.
+    ///
+    /// Returns `true` once all pane surfaces are live and the size was applied (sent,
+    /// or already current via the `lastClientSize` dedup); `false` when any pane has
+    /// not yet reported its rendered grid, so the caller should retry. Idempotent.
     @discardableResult
     func updateClientSize(contentSizePoints: CGSize) -> Bool {
-        guard contentSizePoints.width > 1, contentSizePoints.height > 1,
-              let cell = panelsByPaneId.values.lazy.compactMap({ $0.surface.cellSizePoints() }).first,
-              cell.width > 1, cell.height > 1 else { return false }
-        let cols = max(20, Int(contentSizePoints.width / cell.width))
-        let rows = max(5, Int(contentSizePoints.height / cell.height))
+        guard let grid = Self.composeClientGrid(layout, gridForPane: { paneId in
+            panelsByPaneId[paneId]?.surface.renderedGridCells().map { ($0.columns, $0.rows) }
+        }) else { return false }
+        let cols = max(20, grid.cols)
+        let rows = max(5, grid.rows)
         guard lastClientSize?.cols != cols || lastClientSize?.rows != rows else { return true }
         lastClientSize = (cols, rows)
         connection?.setClientSize(columns: cols, rows: rows)
