@@ -163,10 +163,16 @@ struct TerminalComposerView: View {
         .onChange(of: store.terminalInputText) { _, _ in
             requestHeightRemeasure()
         }
-        // Attachments are the other height driver: the chip row appearing/clearing
-        // changes the bubble's ideal height, so remeasure off the count itself — any
-        // staging route grows the band, not just paths that call the remeasure.
-        .onChange(of: pendingAttachments.count) { _, _ in
+        // The chip row's presence is the OTHER driver of this view's height, and
+        // unlike the text it had no content-change remeasure trigger: an image-only
+        // send clears the staged attachments without touching `terminalInputText`,
+        // so the text trigger above never fires and the band was left reserved tall
+        // around the now-empty field. Remeasure whenever the chip row appears or
+        // disappears (its height is constant for any non-zero count, so the
+        // empty/non-empty edge is the only height-relevant transition); this action
+        // runs after SwiftUI commits the change, so the host measures the collapsed
+        // (chip-less) layout rather than the stale tall one.
+        .onChange(of: pendingAttachments.isEmpty) { _, _ in
             requestHeightRemeasure()
         }
         .onAppear {
@@ -281,17 +287,14 @@ struct TerminalComposerView: View {
 
             micButton
 
-            // The staged-attachment thumbnails, the field, and its send button
-            // share ONE rounded glass container, rendered through the same support
-            // component as GUI chat. iMessage-style: the thumbnails nest INSIDE the
-            // bubble above the text (sharing the field's leading inset, the bubble
-            // growing to wrap them) rather than floating as a detached chip row, and
-            // `.bottom` alignment pins the attach/mic buttons and the send button to
-            // the field's last line as the bubble grows.
+            // Thumbnails, field, and send button share ONE rounded glass container
+            // (the same support component as GUI chat): iMessage-style, the thumbnails
+            // nest INSIDE the bubble above the text at the field's leading inset rather
+            // than floating as a detached chip row, and `.bottom` alignment keeps the
+            // attach/mic and send buttons on the field's last line as the bubble grows.
             MobileComposerFieldContainer(minHeight: composerFieldMinHeight) {
-                // Header: staged image attachments, nested at the top of the bubble.
-                // Shown only when something is staged so the empty composer keeps its
-                // compact one-line height (and the host's measurement).
+                // Header: staged image attachments nested at the top of the bubble,
+                // shown only when staged so the empty composer keeps its 1-line height.
                 if !pendingAttachments.isEmpty {
                     attachmentChipRow
                 }
@@ -400,13 +403,11 @@ struct TerminalComposerView: View {
         }
     }
 
-    /// Horizontal, removable thumbnail chips for the staged attachments, rendered
-    /// as the field container's header so they nest INSIDE the rounded bubble above
-    /// the text (iMessage-style). The container supplies the shared leading text
-    /// inset, so the chips line up with the message text rather than carrying a
-    /// hand-tuned inset of their own. Each chip shows the picked image with an x to
-    /// remove it. `fixedSize` vertical keeps the horizontal scroll view hugging the
-    /// chip height so the bubble grows by exactly the chip row, not greedily.
+    /// Horizontal, removable thumbnail chips for the staged attachments, rendered as
+    /// the field container's header so they nest inside the bubble above the text at
+    /// the field's shared leading inset (iMessage-style), instead of a detached row
+    /// with a hand-tuned inset. `fixedSize` vertical hugs the horizontal scroll view
+    /// to the chip height so the bubble grows by exactly the chip row, not greedily.
     private var attachmentChipRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {

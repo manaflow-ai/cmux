@@ -43,7 +43,11 @@ struct WorkspaceShellView: View {
         if isInitialConnectionLoading || initialConnectionTimedOut {
             return .reconnecting
         }
-        return store.macConnectionStatus
+        return store.workspaceListConnectionStatus
+    }
+
+    private var canCreateWorkspaceOnForegroundConnection: Bool {
+        store.connectionState == .connected
     }
 
     var body: some View {
@@ -96,6 +100,7 @@ struct WorkspaceShellView: View {
                 profilePictureSize: displaySettings.profilePictureSize,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
+                canCreateWorkspace: canCreateWorkspace,
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
@@ -183,6 +188,7 @@ struct WorkspaceShellView: View {
                 profilePictureSize: displaySettings.profilePictureSize,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceIfConnected,
+                canCreateWorkspace: canCreateWorkspace,
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
@@ -266,7 +272,8 @@ struct WorkspaceShellView: View {
     private var refreshWorkspacesClosure: @Sendable () async -> Void {
         let store = store
         // Reconnect-or-refresh: when offline, pull-to-refresh re-attempts the saved
-        // active Mac instead of no-opping, so the offline list can recover itself.
+        // active Mac or the visible unavailable workspace owner instead of
+        // no-opping, so the offline list can recover itself.
         return { await store.reconnectOrRefresh() }
     }
 
@@ -277,7 +284,7 @@ struct WorkspaceShellView: View {
     }
 
     private var canCreateWorkspace: Bool {
-        listConnectionStatus == .connected
+        canCreateWorkspaceOnForegroundConnection
     }
 
     /// Group collapse/expand closure. Present when the Mac advertises
@@ -362,7 +369,9 @@ struct WorkspaceShellView: View {
 /// that to fold the unread count into the back control). Owns the pop gesture's
 /// delegate and only lets it begin when there is actually a screen to pop, so it
 /// never fires on the root list.
-private struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
+/// `internal` (not `private`) so `cmuxFeatureTests` can drive
+/// `GestureHostController`'s delegate decisions directly.
+struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController { GestureHostController() }
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
 
@@ -374,6 +383,22 @@ private struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             (navigationController?.viewControllers.count ?? 0) > 1
+        }
+
+        // The pushed workspace detail hosts surfaces with their own pan/scroll
+        // gesture recognizers — the terminal's full-bounds scroll-mechanics
+        // `UIScrollView` and the browser's `WKWebView` scroll view. Taking over
+        // the navigation controller's `interactivePopGestureRecognizer` delegate
+        // (above, so the custom back button can re-enable the swipe) drops
+        // UIKit's built-in rule that lets the edge swipe-back coexist with scroll
+        // views, so the swipe stopped popping back to the workspace list over a
+        // terminal or browser (issue #6634). Allow the pop gesture to recognize
+        // simultaneously with those surface gestures to restore it.
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            gestureRecognizer == navigationController?.interactivePopGestureRecognizer
         }
     }
 }
