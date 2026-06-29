@@ -831,6 +831,9 @@
             "newWorkspacePlacement": "تجاوز لكل cwd لمكان وضع مساحة العمل الجديدة عند استخدام Cmd-N داخل المجموعة أو زر + في رأس المجموعة أو إجراءات المجموعة المضبوطة: `afterCurrent` (بعد مساحة العمل النشطة داخل المجموعة، مع الرجوع إلى top)، أو `top` (الموضع الثاني بعد المرساة مباشرة)، أو `end` (بعد آخر عضو). عند الحذف، يتم الرجوع إلى الإعداد الافتراضي العام."
           }
         },
+        "workspaceColors": {
+          "autoColorFromCwd": "عند التفعيل، تحصل مساحات العمل الجديدة التي لا تحتوي على لون تبويب صريح على لون حتمي من cwd أو مستودع Git الحاوي. تظل ألوان مساحات العمل اليدوية هي الأولوية."
+        },
         "markdown": {
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",

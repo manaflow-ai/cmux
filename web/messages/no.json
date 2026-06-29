@@ -831,6 +831,9 @@
             "newWorkspacePlacement": "Cwd-spesifikk overstyring for hvor Cmd-N i gruppen, + knappen i gruppehodet og konfigurerte gruppehandlinger plasserer det nye workspace: `afterCurrent` (etter aktivt workspace i gruppen, med top som fallback), `top` (andre plass, rett etter ankeret) eller `end` (etter siste medlem). Hvis utelatt brukes global standard."
           }
         },
+        "workspaceColors": {
+          "autoColorFromCwd": "Når aktivert får nye arbeidsområder uten en eksplisitt fanefarge en deterministisk farge fra sin cwd eller det omsluttende Git-repositoriet. Manuelle arbeidsområdefarger har fortsatt prioritet."
+        },
         "markdown": {
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
