@@ -1391,11 +1391,9 @@ struct cmuxApp: App {
     }
 
     private func closePanelOrWindow() {
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow,
-           cmuxWindowShouldOwnCloseShortcut(window) {
-            window.performClose(nil)
-            return
-        }
+        let window = NSApp.keyWindow ?? NSApp.mainWindow
+        if let window, cmuxWindowShouldOwnCloseShortcut(window) { window.performClose(nil); return }
+        if appDelegate.closeFocusedDockPanelForCommand(preferredWindow: window) { return }
         activeTabManager.closeCurrentPanelWithConfirmation()
     }
 
