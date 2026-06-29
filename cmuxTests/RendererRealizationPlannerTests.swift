@@ -137,4 +137,41 @@ struct RendererRealizationPlannerTests {
         #expect(selected.contains(b))
         #expect(!selected.contains(a))
     }
+
+    @Test func systemMemoryPressureReclaimsAllHiddenRealizedRenderers() {
+        let now: TimeInterval = 1000
+        let visible = UUID()
+        let recentHidden = UUID()
+        let oldHidden = UUID()
+        let alreadyReleased = UUID()
+        let selected = RendererRealizationPlanner.selectedSurfaceIds(
+            inputs: [
+                input(visible, visible: true, lastVisibleAt: now),
+                input(recentHidden, lastVisibleAt: now - 1),
+                input(oldHidden, lastVisibleAt: now - 100),
+                input(alreadyReleased, realized: false, lastVisibleAt: now - 100),
+            ],
+            settings: settings(idle: 600, warm: 12),
+            now: now,
+            trigger: .systemMemoryPressure
+        )
+
+        #expect(!selected.contains(visible))
+        #expect(selected.contains(recentHidden))
+        #expect(selected.contains(oldHidden))
+        #expect(!selected.contains(alreadyReleased))
+    }
+
+    @Test func systemMemoryPressureRespectsDisabledSetting() {
+        let now: TimeInterval = 1000
+        let hidden = UUID()
+        let selected = RendererRealizationPlanner.selectedSurfaceIds(
+            inputs: [input(hidden, lastVisibleAt: now - 1)],
+            settings: settings(enabled: false, idle: 600, warm: 12),
+            now: now,
+            trigger: .systemMemoryPressure
+        )
+
+        #expect(selected.isEmpty)
+    }
 }
