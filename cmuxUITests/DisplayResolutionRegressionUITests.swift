@@ -116,7 +116,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             if doneMarker == "done", doneObservedUptime == nil {
                 doneObservedUptime = ProcessInfo.processInfo.systemUptime
             }
-            let livenessReferenceUptime = max(maxDiagnosticsUpdatedAt, doneObservedUptime ?? maxDiagnosticsUpdatedAt)
+            let livenessReferenceUptime = doneObservedUptime ?? maxDiagnosticsUpdatedAt
             let presentAdvancedNearChurnEnd = latestPresentAdvanceStats.map {
                 livenessReferenceUptime - $0.diagnosticsUpdatedAt <= maximumSecondsSinceLastPresentAdvance
             } ?? false
@@ -151,7 +151,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         }
         let finalStatsDescription = finalStats.map { String(describing: $0) } ??
             "<unavailable diagnostics=\(loadDiagnostics() ?? [:])>"
-        let livenessReferenceUptime = max(maxDiagnosticsUpdatedAt, doneObservedUptime ?? maxDiagnosticsUpdatedAt)
+        let livenessReferenceUptime = doneObservedUptime ?? maxDiagnosticsUpdatedAt
         let secondsSinceLastPresentAdvance = latestPresentAdvanceStats.map {
             livenessReferenceUptime - $0.diagnosticsUpdatedAt
         } ?? Double.greatestFiniteMagnitude
