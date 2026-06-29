@@ -2,12 +2,28 @@ import Combine
 import CmuxCore
 import Foundation
 import CmuxSidebar
+import SwiftUI
 
 private struct SidebarPanelObservationState: Equatable {
     let panelIds: [UUID]
 
     init(panels: [UUID: any Panel]) {
         panelIds = panels.keys.sorted { $0.uuidString < $1.uuidString }
+    }
+}
+
+extension View {
+    func sidebarAgentRuntimeObservation(
+        id: UUID,
+        model: WorkspaceSidebarAgentRuntimeObservationModel,
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: id) { @MainActor in
+            for await _ in model.changes() {
+                if Task.isCancelled { break }
+                onChange()
+            }
+        }
     }
 }
 
@@ -102,7 +118,6 @@ extension Workspace {
             $remoteConnectionDetail,
             $activeRemoteTerminalSessionCount
         )
-
         return Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,
