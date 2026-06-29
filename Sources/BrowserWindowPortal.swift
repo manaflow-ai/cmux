@@ -1247,6 +1247,11 @@ struct BrowserPortalOmnibarSuggestionsConfiguration {
     let onHighlight: (Int) -> Void
 }
 
+struct BrowserPortalFocusFlashConfiguration {
+    let panelId: UUID
+    let opacity: Double
+}
+
 private struct BrowserPortalOmnibarSuggestionsOverlay: View {
     let configuration: BrowserPortalOmnibarSuggestionsConfiguration
 
@@ -1267,6 +1272,31 @@ private struct BrowserPortalOmnibarSuggestionsOverlay: View {
                 .environment(\.colorScheme, configuration.colorScheme)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct BrowserPortalFocusFlashOverlay: View {
+    let configuration: BrowserPortalFocusFlashConfiguration
+
+    var body: some View {
+        Color.clear
+            .overlay {
+                RoundedRectangle(cornerRadius: CGFloat(FocusFlashPattern.ringCornerRadius))
+                    .stroke(cmuxAccentColor().opacity(configuration.opacity), lineWidth: 3)
+                    .shadow(
+                        color: cmuxAccentColor().opacity(configuration.opacity * 0.35),
+                        radius: 10
+                    )
+                    .padding(CGFloat(FocusFlashPattern.ringInset))
+                    .allowsHitTesting(false)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private final class BrowserPortalFocusFlashHostingView: NSHostingView<BrowserPortalFocusFlashOverlay> {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 }
 
@@ -1303,6 +1333,7 @@ final class WindowBrowserSlotView: NSView {
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
     private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
+    private var focusFlashHostingView: BrowserPortalFocusFlashHostingView?
     private weak var hostedWebView: WKWebView?
     private var hostedWebViewConstraints: [NSLayoutConstraint] = []
     private var forwardedDropZone: DropZone?
@@ -1577,6 +1608,43 @@ final class WindowBrowserSlotView: NSView {
         bringInteractionLayersToFrontIfNeeded()
     }
 
+    func setFocusFlash(_ configuration: BrowserPortalFocusFlashConfiguration?) {
+        guard let configuration, configuration.opacity > 0 else {
+            focusFlashHostingView?.removeFromSuperview()
+            focusFlashHostingView = nil
+            return
+        }
+
+        let rootView = BrowserPortalFocusFlashOverlay(configuration: configuration)
+        if let overlay = focusFlashHostingView {
+            overlay.rootView = rootView
+            if overlay.superview !== self {
+                overlay.removeFromSuperview()
+                addSubview(overlay)
+                NSLayoutConstraint.activate([
+                    overlay.topAnchor.constraint(equalTo: topAnchor),
+                    overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
+                    overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
+                    overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
+                ])
+            }
+            bringInteractionLayersToFrontIfNeeded()
+            return
+        }
+
+        let overlay = BrowserPortalFocusFlashHostingView(rootView: rootView)
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(overlay)
+        NSLayoutConstraint.activate([
+            overlay.topAnchor.constraint(equalTo: topAnchor),
+            overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
+            overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+        focusFlashHostingView = overlay
+        bringInteractionLayersToFrontIfNeeded()
+    }
+
     private func searchOverlayOwnsFieldEditor(_ fieldEditor: NSTextView, in root: NSView) -> Bool {
         guard fieldEditor.isFieldEditor else { return false }
 
@@ -1807,9 +1875,10 @@ final class WindowBrowserSlotView: NSView {
     }
 
     private func interactionLayerPriority(of view: NSView) -> Int {
-        if view === paneDropTargetView { return 3 }
-        if view === omnibarSuggestionsHostingView { return 2 }
-        if view === searchOverlayHostingView { return 1 }
+        if view === paneDropTargetView { return 4 }
+        if view === omnibarSuggestionsHostingView { return 3 }
+        if view === searchOverlayHostingView { return 2 }
+        if view === focusFlashHostingView { return 1 }
         return 0
     }
 
@@ -1898,6 +1967,7 @@ final class WindowBrowserPortal: NSObject {
         var paneDropContext: BrowserPaneDropContext?
         var searchOverlay: BrowserPortalSearchOverlayConfiguration?
         var omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
+        var focusFlash: BrowserPortalFocusFlashConfiguration?
         var paneTopChromeHeight: CGFloat
         var transientRecoveryReason: String?
         var transientRecoveryRetriesRemaining: Int
@@ -2250,6 +2320,21 @@ final class WindowBrowserPortal: NSObject {
         }
     }
 
+    private static func focusFlashConfigurationsEquivalent(
+        _ lhs: BrowserPortalFocusFlashConfiguration?,
+        _ rhs: BrowserPortalFocusFlashConfiguration?
+    ) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case let (lhs?, rhs?):
+            return lhs.panelId == rhs.panelId &&
+                abs(lhs.opacity - rhs.opacity) <= 0.001
+        default:
+            return false
+        }
+    }
+
     /// Convert an anchor view's bounds to window coordinates while honoring ancestor clipping.
     /// SwiftUI/AppKit hosting layers can briefly report an anchor bounds rect larger than the
     /// visible split pane during rearrangement; intersecting through ancestor bounds keeps the
@@ -2497,6 +2582,7 @@ final class WindowBrowserPortal: NSObject {
             existing.setPaneDropContext(entry.paneDropContext)
             existing.setSearchOverlay(entry.searchOverlay)
             existing.setOmnibarSuggestions(entry.omnibarSuggestions)
+            existing.setFocusFlash(entry.focusFlash)
             existing.setPaneTopChromeHeight(entry.paneTopChromeHeight)
             return existing
         }
@@ -2504,6 +2590,7 @@ final class WindowBrowserPortal: NSObject {
         created.setPaneDropContext(entry.paneDropContext)
         created.setSearchOverlay(entry.searchOverlay)
         created.setOmnibarSuggestions(entry.omnibarSuggestions)
+        created.setFocusFlash(entry.focusFlash)
         created.setPaneTopChromeHeight(entry.paneTopChromeHeight)
 #if DEBUG
         cmuxDebugLog(
@@ -2942,6 +3029,17 @@ final class WindowBrowserPortal: NSObject {
         entry.containerView?.setOmnibarSuggestions(configuration)
     }
 
+    func updateFocusFlash(
+        forWebViewId webViewId: ObjectIdentifier,
+        configuration: BrowserPortalFocusFlashConfiguration?
+    ) {
+        guard var entry = entriesByWebViewId[webViewId] else { return }
+        guard !Self.focusFlashConfigurationsEquivalent(entry.focusFlash, configuration) else { return }
+        entry.focusFlash = configuration
+        entriesByWebViewId[webViewId] = entry
+        entry.containerView?.setFocusFlash(configuration)
+    }
+
     func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
         // Drive the lookup off the live slot view hierarchy rather than copying
         // Entry structs out of entriesByWebViewId. Each Entry copy performs 3
@@ -3025,6 +3123,7 @@ final class WindowBrowserPortal: NSObject {
                 paneDropContext: nil,
                 searchOverlay: nil,
                 omnibarSuggestions: nil,
+                focusFlash: nil,
                 paneTopChromeHeight: 0,
                 transientRecoveryReason: nil,
                 transientRecoveryRetriesRemaining: 0
@@ -3062,6 +3161,7 @@ final class WindowBrowserPortal: NSObject {
             paneDropContext: previousEntry?.paneDropContext,
             searchOverlay: previousEntry?.searchOverlay,
             omnibarSuggestions: previousEntry?.omnibarSuggestions,
+            focusFlash: previousEntry?.focusFlash,
             paneTopChromeHeight: previousEntry?.paneTopChromeHeight ?? 0,
             transientRecoveryReason: previousEntry?.transientRecoveryReason,
             transientRecoveryRetriesRemaining: previousEntry?.transientRecoveryRetriesRemaining ?? 0
@@ -3258,6 +3358,7 @@ final class WindowBrowserPortal: NSObject {
             containerView.setPaneTopChromeHeight(0)
             containerView.setSearchOverlay(nil)
             containerView.setOmnibarSuggestions(nil)
+            containerView.setFocusFlash(nil)
             containerView.setPaneDropContext(nil)
             containerView.setPortalDragDropZone(nil)
             containerView.setDropZoneOverlay(zone: nil)
@@ -3677,6 +3778,7 @@ final class WindowBrowserPortal: NSObject {
         containerView.setPaneTopChromeHeight(shouldHide ? 0 : entry.paneTopChromeHeight)
         containerView.setSearchOverlay(shouldHide ? nil : entry.searchOverlay)
         containerView.setOmnibarSuggestions(shouldHide ? nil : entry.omnibarSuggestions)
+        containerView.setFocusFlash(shouldHide ? nil : entry.focusFlash)
         containerView.setPaneDropContext(containerView.isHidden ? nil : entry.paneDropContext)
         containerView.setDropZoneOverlay(zone: containerView.isHidden ? nil : entry.dropZone)
         if revealedForDisplay {
@@ -4053,6 +4155,16 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.updateOmnibarSuggestions(forWebViewId: webViewId, configuration: configuration)
+    }
+
+    static func updateFocusFlash(
+        for webView: WKWebView,
+        configuration: BrowserPortalFocusFlashConfiguration?
+    ) {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.updateFocusFlash(forWebViewId: webViewId, configuration: configuration)
     }
 
     static func searchOverlayPanelId(for responder: NSResponder, in window: NSWindow) -> UUID? {
