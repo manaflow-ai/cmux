@@ -26908,7 +26908,11 @@ struct CMUXCLI {
         }
         if let cwd {
             let quotedCwd = cliShellQuote(cwd)
-            return "{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } && \(command)"
+            // No POSIX `{ …; }` grouping: the binding runs verbatim in the login shell,
+            // which may be fish (no brace grouping — issue #6285). `&&`/`||` are an
+            // equal-precedence left-associative AND-OR list in sh/bash/zsh/fish, so this
+            // is equivalent to the braced form in every shell.
+            return "cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ] && \(command)"
         }
         return command
     }
