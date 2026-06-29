@@ -140,12 +140,9 @@ struct MacComputerRow: View {
                 defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
             )
         }
-        return String(
-            format: L10n.string(
-                "mobile.computers.removeMessageRepresentativeFormat",
-                defaultValue: "This removes paired record %@. Other matching records may still appear."
-            ),
-            computer.deviceId
+        return L10n.string(
+            "mobile.computers.removeMessageRepresentativeFormat",
+            defaultValue: "This removes this computer and its matching paired records. Its workspaces stop appearing here. Pair it again to add it back."
         )
     }
 
