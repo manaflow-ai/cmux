@@ -467,10 +467,20 @@ final class RemoteTmuxControlConnection {
 
     /// Sends `resize-window` for every window whose desired size differs from what we
     /// last applied (skipping no-ops). Used by the debounce and by reconnect reseed.
+    ///
+    /// Only sizes windows that currently exist (`windowsByID`): a window can leave the
+    /// topology (closed, or unlinked from the view) while a size lingers in
+    /// `pendingWindowSizes` — and reconnect reseed clears `appliedWindowSizes` and
+    /// resends everything. Targeting a vanished id raises tmux `can't find window: @N`
+    /// (e.g. `@0`) and aborts the rest of the flush, leaving live windows the wrong
+    /// size. `windowsByID` is freshly repopulated before reseed runs, so this skips
+    /// only genuinely-gone windows; their pending entries are kept (harmless) in case
+    /// the id reappears.
     private func flushWindowResizes() {
         for (windowId, size) in pendingWindowSizes
-        where appliedWindowSizes[windowId]?.columns != size.columns
-            || appliedWindowSizes[windowId]?.rows != size.rows {
+        where windowsByID[windowId] != nil
+            && (appliedWindowSizes[windowId]?.columns != size.columns
+                || appliedWindowSizes[windowId]?.rows != size.rows) {
             if send("resize-window -t @\(windowId) -x \(size.columns) -y \(size.rows)") {
                 appliedWindowSizes[windowId] = size
             }
@@ -1242,6 +1252,11 @@ final class RemoteTmuxControlConnection {
             activePaneByWindow[id] = nil
             windowsByID[id] = nil
             windowOrder.removeAll { $0 == id }
+            // Drop the closed window's recorded sizes so a later reseed (which clears
+            // appliedWindowSizes and resends every pending entry) can't issue
+            // `resize-window -t @id` for a window that no longer exists.
+            pendingWindowSizes[id] = nil
+            appliedWindowSizes[id] = nil
             record("window-close @\(id)")
             observers.notifyTopologyChanged()
         case let .windowRenamed(id, name):

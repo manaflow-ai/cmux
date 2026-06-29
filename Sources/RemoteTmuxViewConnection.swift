@@ -188,11 +188,17 @@ final class RemoteTmuxViewConnection {
                 }
             case let .unlinkFromView(windowId):
                 // Unlink the view's COPY (by its index in the view), so the real
-                // session keeps the window.
+                // session keeps the window. `-k` is required for the case where the
+                // home session has since died and the view is the window's ONLY
+                // remaining link: tmux refuses a plain `unlink-window` there ("window
+                // only linked to one session") and logs a commandError. With `-k` tmux
+                // unlinks normally when other links exist, and unlinks+destroys the
+                // already-orphaned window when the view is the last link — the correct
+                // cleanup either way.
                 if let idx = snapshot.windows.first(where: {
                     $0.sessionName == view.sessionName && $0.windowId == windowId
                 })?.windowIndex {
-                    _ = conn.send("unlink-window -t \(quoted(view.sessionName)):\(idx)")
+                    _ = conn.send("unlink-window -k -t \(quoted(view.sessionName)):\(idx)")
                 }
                 ownedWindowIds.remove(windowId)
             }
