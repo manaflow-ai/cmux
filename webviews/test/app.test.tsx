@@ -2,17 +2,19 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { App } from "../src/App";
-import { createDiffViewerStatus } from "../src/status";
 
 type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response;
 
 let root: Root | null = null;
 let dom: JSDOM | null = null;
 const originalGlobals = new Map<string, any>();
-for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "HTMLStyleElement", "customElements", "fetch"]) {
+for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "HTMLStyleElement", "customElements", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame", "fetch"]) {
   originalGlobals.set(key, (globalThis as any)[key]);
 }
+
+installBootstrapDom();
+const { App } = await import("../src/App");
+const { createDiffViewerStatus } = await import("../src/status");
 
 afterEach(async () => {
   if (root) {
@@ -30,6 +32,21 @@ afterEach(async () => {
     }
   }
 });
+
+function installBootstrapDom(): void {
+  const bootstrapDom = createDom();
+  (globalThis as any).window = bootstrapDom.window;
+  (globalThis as any).document = bootstrapDom.window.document;
+  (globalThis as any).navigator = bootstrapDom.window.navigator;
+  (globalThis as any).Element = bootstrapDom.window.Element;
+  (globalThis as any).Node = bootstrapDom.window.Node;
+  (globalThis as any).HTMLElement = bootstrapDom.window.HTMLElement;
+  (globalThis as any).HTMLStyleElement = bootstrapDom.window.HTMLStyleElement;
+  (globalThis as any).customElements = bootstrapDom.window.customElements;
+  (globalThis as any).getComputedStyle = bootstrapDom.window.getComputedStyle.bind(bootstrapDom.window);
+  (globalThis as any).requestAnimationFrame = bootstrapDom.window.requestAnimationFrame.bind(bootstrapDom.window);
+  (globalThis as any).cancelAnimationFrame = bootstrapDom.window.cancelAnimationFrame.bind(bootstrapDom.window);
+}
 
 test("App renders the React-owned shell without starting a patch fetch for status-only payloads", async () => {
   dom = createDom();
@@ -197,6 +214,7 @@ test("layout toggle persists user choice while explicit payload layout wins", as
 
 function createDom(): JSDOM {
   return new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
+    pretendToBeVisual: true,
     url: "http://127.0.0.1/diff",
   });
 }
@@ -210,6 +228,9 @@ function installDomGlobals(nextDom: JSDOM, fetchImpl: FetchMock): void {
   (globalThis as any).HTMLElement = nextDom.window.HTMLElement;
   (globalThis as any).HTMLStyleElement = nextDom.window.HTMLStyleElement;
   (globalThis as any).customElements = nextDom.window.customElements;
+  (globalThis as any).getComputedStyle = nextDom.window.getComputedStyle.bind(nextDom.window);
+  (globalThis as any).requestAnimationFrame = nextDom.window.requestAnimationFrame.bind(nextDom.window);
+  (globalThis as any).cancelAnimationFrame = nextDom.window.cancelAnimationFrame.bind(nextDom.window);
   (globalThis as any).fetch = fetchImpl;
 }
 

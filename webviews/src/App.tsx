@@ -3,6 +3,7 @@ import { getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, processFi
 import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
+import { Menu } from "@base-ui-components/react/menu";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
@@ -636,18 +637,39 @@ function Toolbar({
             <Icon name={state.options.layout} />
           </button>
         ) : null}
-        <button
-          id="options-button"
-          className="toolbar-icon"
-          type="button"
-          title={label("options")}
-          aria-label={label("options")}
-          aria-expanded={state.optionsOpen}
-          aria-controls="options-menu"
-          onClick={() => dispatch({ type: "set-options-open", open: !state.optionsOpen })}
+        <Menu.Root
+          open={state.optionsOpen}
+          triggerId="options-button"
+          onOpenChange={(open) => dispatch({ type: "set-options-open", open })}
         >
-          <Icon name="dots" />
-        </button>
+          <Menu.Trigger
+            id="options-button"
+            className="toolbar-icon"
+            title={label("options")}
+            aria-label={label("options")}
+          >
+            <Icon name="dots" />
+          </Menu.Trigger>
+          <Menu.Portal>
+            <Menu.Positioner
+              side="bottom"
+              align="end"
+              sideOffset={7}
+              collisionPadding={8}
+              positionMethod="fixed"
+            >
+              <OptionsMenu
+                dispatch={dispatch}
+                externalURL={externalURL}
+                label={label}
+                onCopyGitApply={onCopyGitApply}
+                onReload={onReload}
+                onSetLayout={onSetLayout}
+                state={state}
+              />
+            </Menu.Positioner>
+          </Menu.Portal>
+        </Menu.Root>
         {showFilesToggle ? (
           <button
             id="files-toggle"
@@ -665,17 +687,6 @@ function Toolbar({
           {state.copyFeedback}
         </span>
       </div>
-      {state.optionsOpen ? (
-        <OptionsMenu
-          dispatch={dispatch}
-          externalURL={externalURL}
-          label={label}
-          onCopyGitApply={onCopyGitApply}
-          onReload={onReload}
-          onSetLayout={onSetLayout}
-          state={state}
-        />
-      ) : null}
     </header>
   );
 }
@@ -927,8 +938,8 @@ function OptionsMenu({
 }) {
   const toggle = (key: keyof DiffViewerOptions) => dispatch({ type: "set-option", key, value: !state.options[key] });
   return (
-    <div id="options-menu" aria-label={label("options")}>
-      <MenuButton icon="refresh" label={label("refresh")} onClick={onReload} />
+    <Menu.Popup id="options-menu" aria-label={label("options")}>
+      <MenuButton icon="refresh" label={label("refresh")} onClick={onReload} closeOnClick />
       <MenuButton checked={state.options.wordWrap} icon="wrap" label={state.options.wordWrap ? label("disableWordWrap") : label("enableWordWrap")} onClick={() => toggle("wordWrap")} />
       <MenuButton checked={state.options.collapsed} icon={state.options.collapsed ? "expand" : "collapse"} label={state.options.collapsed ? label("expandAllDiffs") : label("collapseAllDiffs")} onClick={() => toggle("collapsed")} />
       <div className="menu-separator" />
@@ -936,9 +947,9 @@ function OptionsMenu({
           always listed here so they stay reachable regardless of what the bar
           decided to drop. The bar hides its duplicate icon button when it
           overflows; the menu copy is the canonical fallback. */}
-      <MenuButton icon={state.options.layout} label={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")} onClick={() => onSetLayout(state.options.layout === "split" ? "unified" : "split")} />
+      <MenuButton icon={state.options.layout} label={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")} onClick={() => onSetLayout(state.options.layout === "split" ? "unified" : "split")} closeOnClick />
       {externalURL ? (
-        <MenuButton icon="external" label={label("openSourceURL")} onClick={() => window.open(externalURL, "_blank", "noreferrer")} />
+        <MenuButton icon="external" label={label("openSourceURL")} onClick={() => window.open(externalURL, "_blank", "noreferrer")} closeOnClick />
       ) : null}
       <MenuButton checked={state.filesVisible} icon="files" label={state.filesVisible ? label("hideFiles") : label("showFiles")} onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })} />
       <MenuButton checked={state.options.expandUnchanged} icon="document" label={state.options.expandUnchanged ? label("collapseUnchangedContext") : label("expandUnchangedContext")} onClick={() => toggle("expandUnchanged")} />
@@ -948,54 +959,71 @@ function OptionsMenu({
       <div className="menu-item menu-segment">
         <Icon name="bars" />
         <span className="menu-label">{label("indicatorStyle")}</span>
-        <span className="menu-segment-controls">
+        <Menu.RadioGroup
+          className="menu-segment-controls"
+          aria-label={label("indicatorStyle")}
+          value={state.options.diffIndicators}
+          onValueChange={(value) => dispatch({ type: "set-option", key: "diffIndicators", value })}
+        >
           {[
             { value: "bars", icon: "bars", label: label("bars") },
             { value: "classic", icon: "classic", label: label("classic") },
             { value: "none", icon: "eye", label: label("none") },
           ].map((option) => (
-            <button
+            <Menu.RadioItem
               key={option.value}
-              type="button"
+              value={option.value}
               className="segment-button"
               title={option.label}
               aria-label={option.label}
-              aria-pressed={state.options.diffIndicators === option.value}
-              onClick={() => dispatch({ type: "set-option", key: "diffIndicators", value: option.value })}
             >
               <Icon name={option.icon as IconName} />
-            </button>
+            </Menu.RadioItem>
           ))}
-        </span>
+        </Menu.RadioGroup>
       </div>
       <div className="menu-separator" />
-      <MenuButton icon="clipboard" label={label("copyGitApplyCommand")} onClick={onCopyGitApply} />
-    </div>
+      <MenuButton icon="clipboard" label={label("copyGitApplyCommand")} onClick={onCopyGitApply} closeOnClick />
+    </Menu.Popup>
   );
 }
 
 function MenuButton({
   checked,
+  closeOnClick = false,
   icon,
   label,
   onClick,
 }: {
   checked?: boolean;
+  closeOnClick?: boolean;
   icon: Parameters<typeof Icon>[0]["name"];
   label: string;
   onClick: () => void;
 }) {
-  return (
-    <button
-      type="button"
-      className="menu-item"
-      aria-pressed={checked == null ? undefined : checked}
-      onClick={onClick}
-    >
+  const contents = (
+    <>
       <Icon name={icon} />
       <span className="menu-label">{label}</span>
       <span className="menu-check">{checked ? <Icon name="check" /> : null}</span>
-    </button>
+    </>
+  );
+  if (checked == null) {
+    return (
+      <Menu.Item className="menu-item" onClick={onClick} closeOnClick={closeOnClick}>
+        {contents}
+      </Menu.Item>
+    );
+  }
+  return (
+    <Menu.CheckboxItem
+      className="menu-item"
+      checked={checked}
+      onCheckedChange={onClick}
+      closeOnClick={closeOnClick}
+    >
+      {contents}
+    </Menu.CheckboxItem>
   );
 }
 
