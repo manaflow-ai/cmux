@@ -77,12 +77,37 @@ final class ShortcutListScrollDiagnosticsView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // Deferred one main-actor hop so the view hierarchy settles before
-        // enclosingScrollView is resolved — mirrors SidebarScrollViewResolverView.
+        // Deferred one main-actor hop so the view hierarchy settles before the
+        // scroll view is resolved — mirrors SidebarScrollViewResolverView.
         Task { @MainActor [weak self] in
-            guard let self, self.window != nil else { return }
-            self.attach(to: self.enclosingScrollView)
+            guard let self, let window = self.window else { return }
+            // This view backs the OUTER ScrollView, so it is NOT a descendant of
+            // the page scroll's clip view — `enclosingScrollView` is nil here.
+            // Resolve by walking the window for the tallest NSScrollView (the
+            // Settings page scroll, far taller than the inner shortcut table).
+            // Placement-independent on purpose: keeps the seam off the scroll
+            // content (which destabilizes the Settings scene).
+            let resolved = self.enclosingScrollView
+                ?? Self.tallestScrollView(in: window.contentView)
+            self.attach(to: resolved)
         }
+    }
+
+    /// The `NSScrollView` with the tallest documentView in the subtree — the
+    /// tall Settings page scroll (far taller than the inner shortcut table).
+    private static func tallestScrollView(in root: NSView?) -> NSScrollView? {
+        guard let root else { return nil }
+        var best: NSScrollView?
+        var bestHeight: CGFloat = -1
+        func walk(_ view: NSView) {
+            if let scroll = view as? NSScrollView {
+                let height = scroll.documentView?.frame.height ?? 0
+                if height > bestHeight { bestHeight = height; best = scroll }
+            }
+            for sub in view.subviews { walk(sub) }
+        }
+        walk(root)
+        return best
     }
 
     // MARK: - Attach / Detach
