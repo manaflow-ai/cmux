@@ -633,6 +633,45 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentChatSendFocusesOutgoingBubbleNearTop() throws {
+        let app = launchAgentChatInlinePreviewApp()
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        let composerBar = app.otherElements["ChatComposerBar"]
+        XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
+        let composerField = chatComposerField(in: app)
+        XCTAssertTrue(composerField.waitForExistence(timeout: 8))
+
+        XCTAssertTrue(tapChatComposerField(composerField, composerBar: composerBar, in: app))
+        composerField.typeText("focus proof")
+        let sendButton = app.buttons["ChatComposerSend"]
+        XCTAssertTrue(sendButton.waitForExistence(timeout: 4))
+        sendButton.tap()
+
+        let sentText = app.staticTexts["focus proof"].firstMatch
+        XCTAssertTrue(sentText.waitForExistence(timeout: 4))
+        let focusedMetrics = try waitForTranscriptMetrics(table, timeout: 4) { metrics in
+            let visibleTopY = table.frame.minY + metrics.adjustedTopInset
+            let sentTopOffset = sentText.frame.minY - visibleTopY
+            return sentTopOffset >= -6
+                && sentTopOffset <= 88
+                && metrics.distanceFromBottom > 120
+        }
+        let visibleTopY = table.frame.minY + focusedMetrics.adjustedTopInset
+        let sentTopOffset = sentText.frame.minY - visibleTopY
+        XCTAssertLessThanOrEqual(
+            sentTopOffset,
+            88,
+            "Sent bubble should be focused near the transcript top. offset=\(sentTopOffset) metrics=\(focusedMetrics)"
+        )
+        XCTAssertGreaterThan(
+            focusedMetrics.distanceFromBottom,
+            120,
+            "Sent bubble focus should leave breathing room below the outgoing message. metrics=\(focusedMetrics)"
+        )
+    }
+
+    @MainActor
     func testAgentChatMiddleKeyboardVideoEvidence() throws {
         let app = launchAgentChatInlinePreviewApp(environment: [
             "CMUX_UITEST_CHAT_AUTOFOCUS_DELAY": "14.0",

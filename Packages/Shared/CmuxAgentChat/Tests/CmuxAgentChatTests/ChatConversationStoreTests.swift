@@ -412,6 +412,8 @@ struct ChatConversationStoreTests {
             }
         )
         #expect(Self.pendingItems(store.rows).first?.text == "gated prompt")
+        let focusedPendingID = Self.pendingItems(store.rows).first.map { ChatTranscriptRow.pendingOutbound($0).id }
+        #expect(store.latestOutboundFocusRowID == focusedPendingID)
 
         await source.release()
         await sendTask.value
@@ -434,6 +436,12 @@ struct ChatConversationStoreTests {
                     && Self.userProseTexts(store.rows) == ["hello agent"]
             }
         )
+        let userMessageID = Self.snapshots(store.rows)
+            .first { $0.message.role == .user }?
+            .message
+            .id
+        #expect(userMessageID != nil)
+        #expect(store.latestOutboundFocusRowID == userMessageID.map(ChatTranscriptRow.messageRowID(for:)))
     }
 
     @Test("send failure marks the pending row failed; retry delivers it")

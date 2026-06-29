@@ -12,6 +12,7 @@ struct AgentChatDemoScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var stack: DemoStack?
+    @State private var draft = ""
     @State private var contentWidth: CGFloat = 0
 
     init(style: AgentChatDemoScreenStyle = .standalone) {
@@ -88,6 +89,7 @@ struct AgentChatDemoScreen: View {
     private func baseChatScreen(for stack: DemoStack) -> some View {
         ChatScreen(
             store: stack.store,
+            draft: $draft,
             providesOwnChrome: false,
             onOpenTerminal: {}
         )

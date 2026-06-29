@@ -143,6 +143,7 @@ public struct ChatScreen: View {
             hasLoadedInitialHistory: store.hasLoadedInitialHistory,
             initialLoadFailed: store.initialLoadFailed,
             historyTruncatedAtHead: store.historyTruncatedAtHead,
+            outboundFocusRowID: store.latestOutboundFocusRowID,
             actions: rowActions,
             onReachTop: { Task { await store.loadOlder() } },
             onRetryInitialLoad: { Task { await store.retryInitialLoad() } }

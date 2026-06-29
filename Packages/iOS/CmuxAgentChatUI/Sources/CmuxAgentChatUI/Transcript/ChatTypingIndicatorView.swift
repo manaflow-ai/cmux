@@ -1,16 +1,13 @@
 import CmuxAgentChat
 import SwiftUI
 
-/// The single in-place "agent is working" indicator: three animated dots
-/// plus live elapsed time.
+/// The single in-place "agent is working" indicator: a small breathing trace
+/// at the transcript tail.
 ///
 /// Exactly one instance renders at the transcript tail while the agent
 /// works (product rule: working state never spams transcript rows).
 public struct ChatTypingIndicatorView: View {
     private let agentState: ChatAgentState
-
-    @Environment(\.chatTheme) private var theme
-    @Environment(\.chatBubbleMaxWidth) private var bubbleMaxWidth
 
     /// Creates the indicator.
     ///
@@ -21,25 +18,11 @@ public struct ChatTypingIndicatorView: View {
     }
 
     public var body: some View {
-        if case .working(let since) = agentState {
-            HStack(spacing: 8) {
-                ChatTypingDotsView()
-                TimelineView(.periodic(from: since, by: 1)) { context in
-                    Text(
-                        Self.elapsedLabel(
-                            seconds: max(0, Int(context.date.timeIntervalSince(since)))
-                        )
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(theme.incomingBubbleFill, in: .rect(cornerRadius: theme.bubbleCornerRadius))
-            .frame(maxWidth: typingBubbleMaxWidth, alignment: .leading)
+        if case .working = agentState {
+            ChatThinkingTraceView()
+                .frame(width: 34, height: 34)
+                .padding(.leading, 2)
+                .padding(.vertical, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityLabel(
                 String(
@@ -50,48 +33,48 @@ public struct ChatTypingIndicatorView: View {
             )
         }
     }
-
-    private var typingBubbleMaxWidth: CGFloat {
-        bubbleMaxWidth.isFinite ? min(bubbleMaxWidth, 200) : 200
-    }
-
-    /// Formats elapsed working time compactly ("5s", "1m 23s", "1h 2m"),
-    /// localized through `Duration`'s units format style.
-    static func elapsedLabel(seconds: Int) -> String {
-        let duration = Duration.seconds(seconds)
-        if seconds < 60 {
-            return duration.formatted(.units(allowed: [.seconds], width: .narrow))
-        }
-        if seconds < 3600 {
-            return duration.formatted(.units(allowed: [.minutes, .seconds], width: .narrow))
-        }
-        return duration.formatted(.units(allowed: [.hours, .minutes], width: .narrow))
-    }
 }
 
-/// The three-dot pulse animation inside the typing indicator.
-struct ChatTypingDotsView: View {
-    @State private var animating = false
+/// A compact original progress mark for the transcript tail.
+struct ChatThinkingTraceView: View {
+    @State private var rotating = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.chatTheme) private var theme
 
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<3, id: \.self) { index in
-                Circle()
-                    .fill(.secondary)
-                    .frame(width: 7, height: 7)
-                    .opacity(reduceMotion || animating ? 1 : 0.3)
-                    .animation(
-                        reduceMotion
-                            ? nil
-                            : .easeInOut(duration: 0.6)
-                                .repeatForever(autoreverses: true)
-                                .delay(Double(index) * 0.2),
-                        value: animating
-                    )
-            }
+        ZStack {
+            Circle()
+                .stroke(.secondary.opacity(0.16), lineWidth: 1.5)
+                .frame(width: 18, height: 18)
+            Circle()
+                .trim(from: 0.10, to: 0.52)
+                .stroke(
+                    AngularGradient(
+                        colors: [
+                            theme.accent.opacity(0.18),
+                            theme.accent.opacity(0.95),
+                            .white.opacity(0.66),
+                        ],
+                        center: .center
+                    ),
+                    style: StrokeStyle(lineWidth: 2.4, lineCap: .round)
+                )
+                .frame(width: 18, height: 18)
+                .rotationEffect(.degrees(rotating ? 360 : 0))
+            Circle()
+                .trim(from: 0.68, to: 0.80)
+                .stroke(
+                    .secondary.opacity(reduceMotion ? 0.42 : (rotating ? 0.18 : 0.52)),
+                    style: StrokeStyle(lineWidth: 1.6, lineCap: .round)
+                )
+                .frame(width: 24, height: 24)
+                .rotationEffect(.degrees(rotating ? -240 : 0))
         }
-        .onAppear { animating = true }
+        .animation(
+            reduceMotion ? nil : .linear(duration: 1.45).repeatForever(autoreverses: false),
+            value: rotating
+        )
+        .onAppear { rotating = true }
     }
 }

@@ -26,11 +26,19 @@ public enum ChatTranscriptRow: Identifiable, Sendable, Equatable {
         case .unreadSeparator:
             return "unread-separator"
         case .message(let snapshot):
-            return "msg-\(snapshot.message.id)"
+            return Self.messageRowID(for: snapshot.message.id)
         case .pendingOutbound(let pending):
-            return "pending-\(pending.id)"
+            return Self.pendingOutboundRowID(for: pending.id)
         case .terminalCommand(let block):
             return "term-\(block.id)"
         }
+    }
+
+    public static func messageRowID(for messageID: String) -> String {
+        "msg-\(messageID)"
+    }
+
+    public static func pendingOutboundRowID(for pendingID: String) -> String {
+        "pending-\(pendingID)"
     }
 }
