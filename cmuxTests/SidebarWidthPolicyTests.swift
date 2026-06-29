@@ -2,6 +2,7 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import SwiftUI
+import Testing
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -488,6 +489,101 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
             green,
             blue,
             alpha
+        )
+    }
+}
+
+// Guards the predicate that decides when a sidebar row paints the faint
+// secondary "also-selected" background. The user-visible bug it protects against
+// is the transient "two workspaces look selected (one half blue)" flash on
+// Cmd+N / workspace switch: the active selection moves immediately but the
+// sidebar's `selectedTabIds` set lags one render, so a stale single-element set
+// must not paint a second faint row. (The one-frame flash itself is a SwiftUI
+// render-timing artifact and is verified by dogfood, not here; this test pins
+// the rule that makes the stale frame paint identically to the settled one.)
+@Suite("Sidebar workspace multi-select highlight")
+struct SidebarWorkspaceMultiSelectHighlightTests {
+    @Test("A lone selected id never paints the faint secondary highlight")
+    func loneSelectedIdNeverPaintsSecondaryHighlight() {
+        let onlySelected = UUID()
+        #expect(
+            !sidebarWorkspaceRowShowsMultiSelectHighlight(
+                tabId: onlySelected,
+                selectedTabIds: [onlySelected]
+            ),
+            "A single selected id is the active workspace and must not also paint the faint multi-select background"
+        )
+
+        // The non-active row of a stale single-element selection must look
+        // identical to an unselected row (clear), not a faint second selection.
+        let style = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: false,
+            isMultiSelected: sidebarWorkspaceRowShowsMultiSelectHighlight(
+                tabId: onlySelected,
+                selectedTabIds: [onlySelected]
+            ),
+            customColorHex: nil,
+            colorScheme: .dark,
+            sidebarSelectionColorHex: nil
+        )
+        #expect(style.color == nil)
+        #expect(abs(style.opacity - 0) < 0.001)
+    }
+
+    @Test("A genuine multi-selection still paints the faint accent on non-active members")
+    func genuineMultiSelectionStillPaintsFaintAccentOnNonActiveMembers() {
+        let active = UUID()
+        let other = UUID()
+        let selection: Set<UUID> = [active, other]
+
+        #expect(
+            sidebarWorkspaceRowShowsMultiSelectHighlight(
+                tabId: other,
+                selectedTabIds: selection
+            )
+        )
+
+        let style = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: false,
+            isMultiSelected: sidebarWorkspaceRowShowsMultiSelectHighlight(
+                tabId: other,
+                selectedTabIds: selection
+            ),
+            customColorHex: nil,
+            colorScheme: .dark,
+            sidebarSelectionColorHex: nil
+        )
+        #expect(style.color != nil)
+        #expect(abs(style.opacity - 0.25) < 0.001)
+    }
+
+    @Test(
+        "The active row always paints full strength, with or without a multi-selection",
+        arguments: [1, 2]
+    )
+    func activeRowPaintsFullStrengthWhetherOrNotMultiSelected(selectionCount: Int) {
+        let active = UUID()
+        var selection: Set<UUID> = [active]
+        if selectionCount > 1 {
+            selection.insert(UUID())
+        }
+
+        let style = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: true,
+            isMultiSelected: sidebarWorkspaceRowShowsMultiSelectHighlight(
+                tabId: active,
+                selectedTabIds: selection
+            ),
+            customColorHex: nil,
+            colorScheme: .dark,
+            sidebarSelectionColorHex: nil
+        )
+        #expect(
+            abs(style.opacity - 1) < 0.001,
+            "Active row always uses the full-strength selection background"
         )
     }
 }
