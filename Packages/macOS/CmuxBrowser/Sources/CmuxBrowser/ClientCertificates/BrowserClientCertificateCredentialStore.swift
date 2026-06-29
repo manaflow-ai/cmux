@@ -203,8 +203,9 @@ public struct BrowserClientCertificateCredentialStore {
                 logger.error(
                     "browser.clientCertificate.copyExtendedKeyUsage error=\((error.takeRetainedValue() as any Error).localizedDescription, privacy: .public)"
                 )
+                return false
             }
-            return false
+            return true
         }
 
         guard let extendedKeyUsage = values[kSecOIDExtendedKeyUsage as String] else {
