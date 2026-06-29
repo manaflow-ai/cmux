@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import WebKit
 import XCTest
 
@@ -26,6 +27,11 @@ final class MarkdownPanelFindTests: XCTestCase {
         defer { panel.close() }
 
         let webView = MarkdownWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480), configuration: WKWebViewConfiguration())
+        var capturedEvent: NSEvent?
+        webView.performKeyEquivalentHandler = { event in
+            capturedEvent = event
+            return true
+        }
         panel.rendererSession
             .coordinator(panelId: panel.id, workspaceId: workspace.id, filePath: fileURL.path)
             .webView = webView
@@ -48,5 +54,10 @@ final class MarkdownPanelFindTests: XCTestCase {
             manager.startSearch(),
             "Cmd+F should be handled by the focused Markdown preview panel instead of being dropped."
         )
+        let event = try XCTUnwrap(capturedEvent)
+        XCTAssertEqual(event.charactersIgnoringModifiers, "f")
+        XCTAssertEqual(event.keyCode, UInt16(kVK_ANSI_F))
+        XCTAssertTrue(event.modifierFlags.contains(.command))
+        XCTAssertFalse(event.modifierFlags.contains(.shift))
     }
 }

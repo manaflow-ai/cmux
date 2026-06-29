@@ -259,6 +259,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.navigationDelegate = nil
                 webView.uiDelegate = nil
                 webView.onPointerDown = nil
+                webView.performKeyEquivalentHandler = nil
                 webView.onLeaveWindow = nil
                 webView.onReenterWindow = nil
             }

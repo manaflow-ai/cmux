@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import WebKit
 
 extension MarkdownPanel {
@@ -59,21 +60,23 @@ extension MarkdownPanel {
         let keyCode: UInt16
         let modifiers: NSEvent.ModifierFlags
 
+        // WKWebView exposes its native find UI through key-equivalent handling,
+        // so route the same menu chords a user would press.
         switch action {
         case .showFindInterface:
             key = "f"
             characters = "f"
-            keyCode = 3
+            keyCode = UInt16(kVK_ANSI_F)
             modifiers = [.command]
         case .nextMatch:
             key = "g"
             characters = "g"
-            keyCode = 5
+            keyCode = UInt16(kVK_ANSI_G)
             modifiers = [.command]
         case .previousMatch:
             key = "g"
             characters = "G"
-            keyCode = 5
+            keyCode = UInt16(kVK_ANSI_G)
             modifiers = [.command, .shift]
         default:
             return nil

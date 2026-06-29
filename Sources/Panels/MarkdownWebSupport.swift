@@ -21,6 +21,7 @@ final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
 @MainActor
 final class MarkdownWebView: WKWebView {
     var onPointerDown: (() -> Void)?
+    var performKeyEquivalentHandler: ((NSEvent) -> Bool)?
     /// Invoked when the view leaves its window (the detach half of a pane
     /// re-parent). Lets the renderer coordinator record whether the document
     /// was healthy at detach time so re-entry recovery can tell a detach
@@ -40,6 +41,13 @@ final class MarkdownWebView: WKWebView {
     override func mouseDown(with event: NSEvent) {
         onPointerDown?()
         super.mouseDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let performKeyEquivalentHandler {
+            return performKeyEquivalentHandler(event)
+        }
+        return super.performKeyEquivalent(with: event)
     }
 
     override func viewDidMoveToWindow() {
