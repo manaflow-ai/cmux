@@ -85,6 +85,14 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines += [
             "    export CMUX_REAL_ZDOTDIR=\"${ZDOTDIR:-$HOME}\"",
             "    export ZDOTDIR=\"$cmux_shell_dir\"",
+            // Authoritatively refresh the tmux session's full cmux identity with THIS
+            // instance's values BEFORE exec'ing the login shell (see
+            // eagerIdentityPublishLine). Without this, a tmux session seeded by a
+            // different cmux instance feeds stale identity to this surface.
+            eagerIdentityPublishLine(
+                integrationFileName: "cmux-zsh-integration.zsh",
+                hermeticInterpreter: #""$CMUX_LOGIN_SHELL" -f"#
+            ),
             "    exec \"$CMUX_LOGIN_SHELL\" -il",
             "    ;;",
             "  bash)",
@@ -106,6 +114,11 @@ enum RemoteInteractiveShellBootstrapBuilder {
         ]
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
         outerLines += [
+            // Same pre-exec identity refresh as the zsh branch (see above).
+            eagerIdentityPublishLine(
+                integrationFileName: "cmux-bash-integration.bash",
+                hermeticInterpreter: #"BASH_ENV= "$CMUX_LOGIN_SHELL" --noprofile --norc"#
+            ),
             "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
             "    ;;",
             "  fish)",
@@ -126,6 +139,32 @@ enum RemoteInteractiveShellBootstrapBuilder {
         ]
 
         return outerLines.joined(separator: "\n")
+    }
+
+    /// One-shot, pre-`exec` bootstrap line: sources the bundled shell integration
+    /// in a throwaway subshell and runs the eager tmux identity publish, so THIS
+    /// instance authoritatively refreshes the tmux session's global CMUX_* env
+    /// before the login shell is exec'd — i.e. before any rc / user dotfile that
+    /// might auto-attach tmux, and before the in-tmux pull.
+    ///
+    /// The subshell MUST be hermetic: a plain `"$CMUX_LOGIN_SHELL" -c` still runs
+    /// the user's startup files before the `-c` body — zsh reads `$ZDOTDIR/.zshenv`
+    /// (the generated one chains to the user's `~/.zshenv`), and bash reads
+    /// `$BASH_ENV`. A user startup file that auto-attaches tmux, hangs, or mutates
+    /// `CMUX_SHELL_INTEGRATION_DIR` would then run BEFORE the publish, defeating
+    /// its purpose. So callers pass a hermetic interpreter: zsh `-f` (NO_RCS, skips
+    /// `.zshenv`/`.zprofile`/`.zshrc`/`.zlogin`) and bash `BASH_ENV= … --noprofile
+    /// --norc`. The integration is then sourced explicitly inside the `-c` body and
+    /// inherits this instance's already-exported CMUX_* identity from the parent.
+    ///
+    /// The `-r` guard checks the just-written file under `$cmux_shell_dir`; the
+    /// source path uses the exported `$CMUX_SHELL_INTEGRATION_DIR` (same dir).
+    /// Single-sourced so the zsh and bash branches can't drift.
+    private static func eagerIdentityPublishLine(
+        integrationFileName: String,
+        hermeticInterpreter: String
+    ) -> String {
+        #"    if [ "${CMUX_SHELL_INTEGRATION:-1}" != "0" ] && [ -r "$cmux_shell_dir/\#(integrationFileName)" ]; then \#(hermeticInterpreter) -c '. "$CMUX_SHELL_INTEGRATION_DIR/\#(integrationFileName)" >/dev/null 2>&1; command -v _cmux_tmux_publish_cmux_environment_eager >/dev/null 2>&1 && _cmux_tmux_publish_cmux_environment_eager >/dev/null 2>&1' >/dev/null 2>&1 || true; fi"#
     }
 
     static func shellFeatures(

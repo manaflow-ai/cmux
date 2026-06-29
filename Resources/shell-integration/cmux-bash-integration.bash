@@ -433,8 +433,15 @@ _cmux_tmux_publish_cmux_environment() {
     local key value
     for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
         value="${!key}"
-        [[ -n "$value" ]] || continue
-        tmux set-environment -g "$key" "$value" >/dev/null 2>&1 || return 0
+        if [[ -n "$value" ]]; then
+            tmux set-environment -g "$key" "$value" >/dev/null 2>&1 || return 0
+        else
+            # Authoritative: clear a managed key THIS instance does not have, so a
+            # value seeded by a DIFFERENT instance (e.g. a stale CMUX_TAG from a
+            # tagged debug build) can't survive in the session and feed back via
+            # the in-tmux pull. Skipping it (the old behavior) left it stale.
+            tmux set-environment -gu "$key" >/dev/null 2>&1 || return 0
+        fi
     done
 
     for key in "${_CMUX_TMUX_SURFACE_SCOPED_KEYS[@]}"; do
@@ -493,6 +500,14 @@ _cmux_tmux_sync_cmux_environment() {
     else
         _cmux_tmux_publish_cmux_environment
     fi
+}
+
+# Twin of the zsh eager entrypoint; see cmux-zsh-integration.zsh for the rationale.
+# Invoked once by the app-generated bootstrap, in a one-shot subshell before the
+# login shell is exec'd, to refresh the tmux session's global env with this
+# instance's FULL identity. No-op inside tmux (the shared helper's guard).
+_cmux_tmux_publish_cmux_environment_eager() {
+    _cmux_tmux_publish_cmux_environment
 }
 
 _cmux_git_resolve_head_path() {

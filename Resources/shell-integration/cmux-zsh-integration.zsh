@@ -461,8 +461,15 @@ _cmux_tmux_publish_cmux_environment() {
     local key value
     for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
         value="${(P)key}"
-        [[ -n "$value" ]] || continue
-        tmux set-environment -g "$key" "$value" >/dev/null 2>&1 || return 0
+        if [[ -n "$value" ]]; then
+            tmux set-environment -g "$key" "$value" >/dev/null 2>&1 || return 0
+        else
+            # Authoritative: clear a managed key THIS instance does not have, so a
+            # value seeded by a DIFFERENT instance (e.g. a stale CMUX_TAG from a
+            # tagged debug build) can't survive in the session and feed back via
+            # the in-tmux pull. Skipping it (the old behavior) left it stale.
+            tmux set-environment -gu "$key" >/dev/null 2>&1 || return 0
+        fi
     done
 
     for key in "${_CMUX_TMUX_SURFACE_SCOPED_KEYS[@]}"; do
@@ -524,6 +531,22 @@ _cmux_tmux_sync_cmux_environment() {
     else
         _cmux_tmux_publish_cmux_environment
     fi
+}
+
+# Eager, authoritative publish: invoked once by the app-generated bootstrap, in a
+# one-shot subshell AFTER this instance's CMUX_* identity is exported but BEFORE
+# the login shell is exec'd (so before any rc / user dotfile that might auto-attach
+# tmux). Refreshes the tmux GLOBAL env with the current instance's FULL
+# workspace-scoped identity — authoritatively: managed keys this instance has are
+# published, managed keys it lacks are cleared, and surface-scoped keys are always
+# cleared — so a tmux session whose global env was seeded by a DIFFERENT cmux
+# instance (an older launch, or a separate production app) no longer feeds stale
+# identity to the in-tmux pull (_cmux_tmux_refresh_cmux_environment). No-op inside tmux — the
+# shared helper's `[[ -z "$TMUX" ]]` guard — so a nested surface never clobbers
+# the session. Reuses _cmux_tmux_publish_cmux_environment, so the published key
+# set stays single-sourced (no torn-identity subset).
+_cmux_tmux_publish_cmux_environment_eager() {
+    _cmux_tmux_publish_cmux_environment
 }
 
 _cmux_ensure_ghostty_preexec_strips_both_marks() {
