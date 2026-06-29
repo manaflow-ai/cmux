@@ -548,6 +548,50 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
     }
 
+    @MainActor
+    func testInlineWorkspaceTitleMenuShowsWorkspaceActions() throws {
+        let app = launchAgentChatInlinePreviewApp()
+        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 8))
+
+        titleMenu.tap()
+
+        XCTAssertTrue(app.buttons["Rename Workspace"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["Mark as Read"].exists)
+        XCTAssertFalse(app.buttons["New Terminal"].exists)
+    }
+
+    @MainActor
+    func testInlineWorkspaceTitleKeepsCompactHeightWithTallGlyphs() throws {
+        let app = launchAgentChatInlinePreviewApp(environment: [
+            "CMUX_UITEST_INLINE_WORKSPACE_TITLE": "✳️ Claude Code",
+            "CMUX_UITEST_INLINE_WORKSPACE_SUBTITLE": "🧑🏽‍💻 Claude Code",
+        ])
+        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
+
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 8))
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
+
+        let nearbyToolbarHeight = max(backButton.frame.height, surfacePicker.frame.height)
+        XCTAssertLessThanOrEqual(
+            abs(titleMenu.frame.height - nearbyToolbarHeight),
+            2,
+            "Tall glyphs must not make the compact title glass taller than nearby toolbar controls. title=\(titleMenu.frame), back=\(backButton.frame), picker=\(surfacePicker.frame)"
+        )
+
+        let screenshotAttachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshotAttachment.name = "inline-title-tall-glyph-compact-height"
+        screenshotAttachment.lifetime = .keepAlways
+        add(screenshotAttachment)
+
+        titleMenu.tap()
+        XCTAssertTrue(app.buttons["Rename Workspace"].waitForExistence(timeout: 4))
+        XCTAssertFalse(app.buttons["New Terminal"].exists)
+    }
+
     /// Regression for WhatsApp-style chat keyboard tracking: focusing the chat
     /// composer must translate the actual transcript table frame upward with the
     /// composer while preserving the table's own bottom-visible content. The table

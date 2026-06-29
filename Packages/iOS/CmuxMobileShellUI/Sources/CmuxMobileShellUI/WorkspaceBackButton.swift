@@ -1,6 +1,12 @@
 import CmuxMobileSupport
 import SwiftUI
 
+struct WorkspaceBackButtonConfiguration {
+    let unreadCount: Int
+    let badgeContrast: WorkspaceBackButtonBadgeContrast
+    let action: () -> Void
+}
+
 /// Custom back control for the workspace detail that folds the unread-workspace
 /// count INTO the back button itself (one button), instead of a separate pill.
 /// When other workspaces are unread it reads as "‹ 3"; otherwise it is just the

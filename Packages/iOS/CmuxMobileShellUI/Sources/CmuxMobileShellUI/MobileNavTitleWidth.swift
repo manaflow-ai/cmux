@@ -1,14 +1,12 @@
 import CoreGraphics
 
-/// Width math for the centered glass nav-bar title pill, factored out so the
-/// "grow the middle as much as possible" rule is pure and testable.
+/// Width math for the leading glass nav-bar title pill, factored out so the
+/// "use the available row without underlapping toolbar controls" rule is pure.
 ///
-/// The title is a screen-centered `.principal` toolbar item, so it is bound by
-/// TWICE the wider of the two side clusters (it grows symmetrically and hits the
-/// nearer side first): the leading custom back button vs the trailing terminal
-/// picker plus, when the visible tab has an agent session, the chat toggle.
-/// Reserving only that (instead of a flat, over-large constant) lets a long
-/// title use as much of the center as it safely can before truncating.
+/// Workspace detail titles live in `.topBarLeading` beside the back button for
+/// consistent placement between terminal and GUI modes. The cap only limits the
+/// title's maximum width; the toolbar and glass button style keep their natural
+/// height.
 struct MobileNavTitleWidth {
     private init() {}
 
@@ -24,14 +22,16 @@ struct MobileNavTitleWidth {
     /// Never shrink the pill below this, so a tiny pane still shows some title.
     static let floor: CGFloat = 96
 
-    /// Max width for the centered title pill.
+    /// Max width for the leading title pill.
     /// - Parameters:
     ///   - contentWidth: Measured pane width (0 before first layout).
+    ///   - hasBackButton: Whether the leading cluster includes the compact
+    ///     workspace back button.
     ///   - hasChatToggle: Whether the trailing cluster includes the chat toggle.
-    static func cap(contentWidth: CGFloat, hasChatToggle: Bool) -> CGFloat {
+    static func leadingCap(contentWidth: CGFloat, hasBackButton: Bool, hasChatToggle: Bool) -> CGFloat {
         guard contentWidth > 0 else { return unmeasuredFallback }
+        let leading = hasBackButton ? leadingReserve : 0
         let trailing = trailingReserveBase + (hasChatToggle ? chatToggleReserve : 0)
-        let widerSide = max(leadingReserve, trailing)
-        return max(floor, contentWidth - 2 * widerSide)
+        return max(floor, contentWidth - leading - trailing)
     }
 }
