@@ -92,6 +92,8 @@ struct SettingCatalogTests {
         #expect(ids.contains("mobile.iOSPairingHost.enabled"))
         #expect(ids.contains("automation.socketControlMode"))
         #expect(ids.contains("automation.socketPassword"))
+        #expect(ids.contains("vault.claudeSessionRoots"))
+        #expect(ids.contains("vault.pathMappings"))
     }
 
     @Test func keyIdsMatchTheirSectionPrefix() {
@@ -101,5 +103,6 @@ struct SettingCatalogTests {
         for key in catalog.app.all { #expect(key.id.hasPrefix("app.")) }
         for key in catalog.mobile.all { #expect(key.id.hasPrefix("mobile.")) }
         for key in catalog.automation.all { #expect(key.id.hasPrefix("automation.")) }
+        for key in catalog.vault.all { #expect(key.id.hasPrefix("vault.")) }
     }
 }

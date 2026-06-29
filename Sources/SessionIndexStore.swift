@@ -2,6 +2,7 @@ import CmuxFoundation
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxSettings
 import Combine
 import Darwin
 import Foundation
@@ -267,8 +268,13 @@ final class SessionIndexStore: ObservableObject {
     private var sectionsCacheRevision: UInt64 = 0
     private var cachedSectionsRevision: UInt64?
     private var cachedSections: [IndexSection] = []
+    private let vaultConfigStore: JSONConfigStore
+    private var vaultPathMappings: [VaultPathMapping] = []
 
-    init() {
+    init(
+        vaultConfigStore: JSONConfigStore = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+    ) {
+        self.vaultConfigStore = vaultConfigStore
         self.agentOrder = Self.loadAgentOrder()
         self.directoryOrder = Self.loadDirectoryOrder()
         let storedGrouping = UserDefaults.standard.string(forKey: Self.groupingKey)
@@ -414,8 +420,7 @@ final class SessionIndexStore: ObservableObject {
             return entries
         }
         return entries.filter { entry in
-            guard let cwd = normalizedDirectory(entry.cwd) else { return false }
-            return cwd == dir || cwd.hasPrefix(dir + "/")
+            Self.vaultPath(entry.cwd, isEqualToOrDescendantOf: dir, mappings: vaultPathMappings)
         }
     }
 
@@ -536,14 +541,25 @@ final class SessionIndexStore: ObservableObject {
 
     func reload() {
         loadTask?.cancel()
+        let vaultConfigStore = self.vaultConfigStore
+        let workingDirectory = normalizedDirectory(currentDirectory)
         isLoading = true
         directorySnapshotGeneration += 1
         invalidateDirectorySnapshots()
-        loadTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let scanned = await Self.scanAll()
+        loadTask = Task.detached(priority: .userInitiated) { [weak self, vaultConfigStore] in
+            let baseClaudeVaultConfiguration = await Self.claudeVaultConfiguration(store: vaultConfigStore)
+            if Task.isCancelled { return }
+            let order = await Self.defaultAgentOrder(workingDirectory: workingDirectory)
+            let claudeVaultConfiguration = baseClaudeVaultConfiguration.merging(registry: order.registry)
+            if Task.isCancelled { return }
+            let scanned = await Self.scanAll(
+                order: order,
+                claudeVaultConfiguration: claudeVaultConfiguration
+            )
             await MainActor.run {
                 guard let self else { return }
                 if Task.isCancelled { return }
+                self.refreshVaultPathMappings(claudeVaultConfiguration.pathMappings)
                 self.entries = scanned
                 self.isLoading = false
                 self.backfillAgentOrderFromEntries()
@@ -596,7 +612,10 @@ final class SessionIndexStore: ObservableObject {
         // Claude's `searchMaxFiles` cap still applies (currently 1500); if
         // anyone has more Claude sessions in a single cwd we'll bump it.
         let bigLimit = 10_000
+        let baseClaudeVaultConfiguration = await claudeVaultConfiguration()
         let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
+        let claudeVaultConfiguration = baseClaudeVaultConfiguration.merging(registry: order.registry)
+        refreshVaultPathMappings(claudeVaultConfiguration.pathMappings)
         var merged = await Self.loadAgents(
             order.agents,
             registry: order.registry,
@@ -604,7 +623,8 @@ final class SessionIndexStore: ObservableObject {
             cwdFilter: cwdFilter,
             offset: 0,
             limit: bigLimit,
-            errorBag: bag
+            errorBag: bag,
+            claudeVaultConfiguration: claudeVaultConfiguration
         )
         if Task.isCancelled {
             return DirectorySnapshot(cwd: key, entries: [], errors: [])
@@ -651,6 +671,13 @@ final class SessionIndexStore: ObservableObject {
         directorySnapshotLRU.removeAll()
     }
 
+    private func refreshVaultPathMappings(_ mappings: [VaultPathMapping]) {
+        guard vaultPathMappings != mappings else { return }
+        vaultPathMappings = mappings
+        invalidateSectionsCache()
+        invalidateDirectorySnapshots()
+    }
+
     private func normalizedDirectory(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }
         var path = (value as NSString).standardizingPath
@@ -658,6 +685,78 @@ final class SessionIndexStore: ObservableObject {
             path.removeLast()
         }
         return path
+    }
+
+    nonisolated private static func normalizedVaultPath(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        var path = ((trimmed as NSString).expandingTildeInPath as NSString).standardizingPath
+        if path.count > 1 && path.hasSuffix("/") {
+            path.removeLast()
+        }
+        return path
+    }
+
+    nonisolated private static func vaultPathVariants(
+        _ path: String?,
+        mappings: [VaultPathMapping]
+    ) -> [String] {
+        guard let normalized = normalizedVaultPath(path) else { return [] }
+        var variants = [normalized]
+        var seen = Set(variants)
+        for mapping in mappings {
+            guard let remotePrefix = normalizedVaultPath(mapping.remotePrefix),
+                  let localPrefix = normalizedVaultPath(mapping.localPrefix),
+                  remotePrefix != localPrefix else {
+                continue
+            }
+            for variant in [
+                replacingVaultPathPrefix(normalized, from: localPrefix, to: remotePrefix),
+                replacingVaultPathPrefix(normalized, from: remotePrefix, to: localPrefix),
+            ].compactMap({ $0 }) where seen.insert(variant).inserted {
+                variants.append(variant)
+            }
+        }
+        return variants
+    }
+
+    nonisolated private static func replacingVaultPathPrefix(
+        _ path: String,
+        from prefix: String,
+        to replacement: String
+    ) -> String? {
+        guard path == prefix || path.hasPrefix(prefix + "/") else { return nil }
+        let suffix = String(path.dropFirst(prefix.count))
+        if suffix.isEmpty {
+            return replacement
+        }
+        return replacement + suffix
+    }
+
+    nonisolated private static func vaultPath(
+        _ candidate: String?,
+        matches filter: String,
+        mappings: [VaultPathMapping]
+    ) -> Bool {
+        let candidateVariants = Set(vaultPathVariants(candidate, mappings: mappings))
+        guard !candidateVariants.isEmpty else { return false }
+        return !candidateVariants.isDisjoint(with: vaultPathVariants(filter, mappings: mappings))
+    }
+
+    nonisolated private static func vaultPath(
+        _ candidate: String?,
+        isEqualToOrDescendantOf directory: String,
+        mappings: [VaultPathMapping]
+    ) -> Bool {
+        let candidateVariants = vaultPathVariants(candidate, mappings: mappings)
+        guard !candidateVariants.isEmpty else { return false }
+        let directoryVariants = vaultPathVariants(directory, mappings: mappings)
+        return candidateVariants.contains { candidate in
+            directoryVariants.contains { directory in
+                candidate == directory || candidate.hasPrefix(directory + "/")
+            }
+        }
     }
 
     // MARK: - Scanning
@@ -668,12 +767,14 @@ final class SessionIndexStore: ObservableObject {
     /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
     nonisolated static let searchMaxFiles = 1500
 
-    private static func scanAll() async -> [SessionEntry] {
+    private static func scanAll(
+        order: LoadedAgentOrder,
+        claudeVaultConfiguration: ClaudeVaultConfiguration
+    ) async -> [SessionEntry] {
         // Initial scan errors are silently ignored — UI just shows the cached
         // entries we did get. Errors get surfaced when the user actively
         // searches via the popover.
         let bag = ErrorBag()
-        let order = await defaultAgentOrder(workingDirectory: nil)
         let combined = await loadAgents(
             order.agents,
             registry: order.registry,
@@ -681,7 +782,8 @@ final class SessionIndexStore: ObservableObject {
             cwdFilter: nil,
             offset: 0,
             limit: perAgentLimit,
-            errorBag: bag
+            errorBag: bag,
+            claudeVaultConfiguration: claudeVaultConfiguration
         )
         return combined.sorted { $0.modified > $1.modified }
     }
@@ -695,7 +797,7 @@ final class SessionIndexStore: ObservableObject {
         var permissionMode: String?
     }
 
-    private struct ClaudeSessionRoot: Hashable {
+    struct ClaudeSessionRoot: Hashable {
         let configDir: String
         let resumeConfigDirectory: String?
 
@@ -712,7 +814,42 @@ final class SessionIndexStore: ObservableObject {
         let prefilteredByRipgrep: Bool
     }
 
-    nonisolated private static func claudeSessionRoots() -> [ClaudeSessionRoot] {
+    struct ClaudeVaultConfiguration: Sendable, Equatable {
+        let extraSessionRoots: [String]
+        let pathMappings: [VaultPathMapping]
+
+        func merging(registry: CmuxVaultAgentRegistry) -> ClaudeVaultConfiguration {
+            ClaudeVaultConfiguration(
+                extraSessionRoots: Self.unique(extraSessionRoots + registry.claudeSessionRoots),
+                pathMappings: Self.unique(pathMappings + registry.pathMappings)
+            )
+        }
+
+        private static func unique<Value: Hashable>(_ values: [Value]) -> [Value] {
+            var seen = Set<Value>()
+            return values.filter { seen.insert($0).inserted }
+        }
+    }
+
+    nonisolated private static func claudeVaultConfiguration(
+        store: JSONConfigStore
+    ) async -> ClaudeVaultConfiguration {
+        let catalog = SettingCatalog()
+        let extraSessionRoots = await store.value(for: catalog.vault.claudeSessionRoots)
+        let pathMappings = await store.value(for: catalog.vault.pathMappings)
+        return ClaudeVaultConfiguration(
+            extraSessionRoots: extraSessionRoots,
+            pathMappings: pathMappings
+        )
+    }
+
+    private func claudeVaultConfiguration() async -> ClaudeVaultConfiguration {
+        await Self.claudeVaultConfiguration(store: vaultConfigStore)
+    }
+
+    nonisolated private static func claudeSessionRoots(
+        configuration: ClaudeVaultConfiguration
+    ) -> [ClaudeSessionRoot] {
         let fm = FileManager.default
         var roots: [ClaudeSessionRoot] = []
         var seen: Set<String> = []
@@ -722,11 +859,18 @@ final class SessionIndexStore: ObservableObject {
             let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
             let configDir = (trimmed as NSString).expandingTildeInPath
-            let standardized = ClaudeConfigDirectoryPath.preferredPath(configDir)
-            let projectsRoot = (standardized as NSString).appendingPathComponent("projects")
+            let preferred = ClaudeConfigDirectoryPath.preferredPath(configDir)
+            let standardized: String
+            let projectsRoot = (preferred as NSString).appendingPathComponent("projects")
             var isDirectory: ObjCBool = false
-            guard fm.fileExists(atPath: projectsRoot, isDirectory: &isDirectory),
-                  isDirectory.boolValue else {
+            if fm.fileExists(atPath: projectsRoot, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                standardized = preferred
+            } else if (preferred as NSString).lastPathComponent == "projects",
+                      fm.fileExists(atPath: preferred, isDirectory: &isDirectory),
+                      isDirectory.boolValue {
+                standardized = (preferred as NSString).deletingLastPathComponent
+            } else {
                 return
             }
             let resumeConfigDirectory = ClaudeConfigurationRoot.configuredResumeDirectory(
@@ -743,6 +887,10 @@ final class SessionIndexStore: ObservableObject {
                     resumeConfigDirectory: resumeConfigDirectory
                 )
             )
+        }
+
+        for root in configuration.extraSessionRoots {
+            appendRoot(root, requireConfigured: false)
         }
 
         let environmentConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
@@ -892,6 +1040,7 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func enumerateClaudeJSONLCandidates(
         root: ClaudeSessionRoot,
         cwdFilter: String?,
+        pathMappings: [VaultPathMapping],
         prefilteredByRipgrep: Bool
     ) -> [ClaudeSessionCandidate] {
         let fm = FileManager.default
@@ -919,11 +1068,15 @@ final class SessionIndexStore: ObservableObject {
         if let cwdFilter {
             // Single-sourced with RestorableAgentSessionIndex so this fast-path cwd filter
             // encodes dotted paths ("." -> "-") identically to the transcript-discovery path.
-            let dirName = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwdFilter)
-            let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
-                appendJSONLFiles(in: dirPath, dirName: dirName)
+            var seenDirNames = Set<String>()
+            for cwdVariant in vaultPathVariants(cwdFilter, mappings: pathMappings) {
+                let dirName = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwdVariant)
+                guard seenDirNames.insert(dirName).inserted else { continue }
+                let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
+                var isDir: ObjCBool = false
+                if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
+                    appendJSONLFiles(in: dirPath, dirName: dirName)
+                }
             }
             return candidates
         }
@@ -1163,6 +1316,7 @@ final class SessionIndexStore: ObservableObject {
         }
         #endif
         let entries: [SessionEntry]
+        let baseClaudeVaultConfiguration = await claudeVaultConfiguration()
         switch scope {
         case .agent(let a):
             let registry: CmuxVaultAgentRegistry
@@ -1181,9 +1335,12 @@ final class SessionIndexStore: ObservableObject {
                 cwdFilter = nil
                 registry = CmuxVaultAgentRegistry(registrations: [])
             }
+            let claudeVaultConfiguration = baseClaudeVaultConfiguration.merging(registry: registry)
+            refreshVaultPathMappings(claudeVaultConfiguration.pathMappings)
             entries = await Self.searchAgent(
                 needle: needle, agent: a, cwdFilter: cwdFilter,
-                offset: offset, limit: limit, errorBag: bag, registry: registry
+                offset: offset, limit: limit, errorBag: bag, registry: registry,
+                claudeVaultConfiguration: claudeVaultConfiguration
             )
         case .directory(let path):
             let noFolderScope = (path == nil) || ((path ?? "").isEmpty)
@@ -1192,6 +1349,8 @@ final class SessionIndexStore: ObservableObject {
             // merge-sort can produce a stable global ordering, then slice.
             let target = offset + limit
             let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
+            let claudeVaultConfiguration = baseClaudeVaultConfiguration.merging(registry: order.registry)
+            refreshVaultPathMappings(claudeVaultConfiguration.pathMappings)
             var merged = await Self.loadAgents(
                 order.agents,
                 registry: order.registry,
@@ -1199,7 +1358,8 @@ final class SessionIndexStore: ObservableObject {
                 cwdFilter: cwdFilter,
                 offset: 0,
                 limit: target,
-                errorBag: bag
+                errorBag: bag,
+                claudeVaultConfiguration: claudeVaultConfiguration
             )
             if noFolderScope {
                 merged = merged.filter { ($0.cwd ?? "").isEmpty }
@@ -1217,7 +1377,8 @@ final class SessionIndexStore: ObservableObject {
         cwdFilter: String?,
         offset: Int,
         limit: Int,
-        errorBag: ErrorBag
+        errorBag: ErrorBag,
+        claudeVaultConfiguration: ClaudeVaultConfiguration
     ) async -> [SessionEntry] {
         await withTaskGroup(of: [SessionEntry].self) { group in
             for agent in agents {
@@ -1229,7 +1390,8 @@ final class SessionIndexStore: ObservableObject {
                         offset: offset,
                         limit: limit,
                         errorBag: errorBag,
-                        registry: registry
+                        registry: registry,
+                        claudeVaultConfiguration: claudeVaultConfiguration
                     )
                 }
             }
@@ -1244,7 +1406,8 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func timedAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
         offset: Int, limit: Int, errorBag: ErrorBag,
-        registry: CmuxVaultAgentRegistry
+        registry: CmuxVaultAgentRegistry,
+        claudeVaultConfiguration: ClaudeVaultConfiguration
     ) async -> [SessionEntry] {
         #if DEBUG
         let start = ProcessInfo.processInfo.systemUptime
@@ -1255,7 +1418,8 @@ final class SessionIndexStore: ObservableObject {
             offset: offset,
             limit: limit,
             errorBag: errorBag,
-            registry: registry
+            registry: registry,
+            claudeVaultConfiguration: claudeVaultConfiguration
         )
         let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
         cmuxDebugLog("session.search.agent agent=\(agent.rawValue) ms=\(String(format: "%.0f", ms)) results=\(result.count) cwd=\(cwdFilter?.suffix(40) ?? "nil")")
@@ -1268,7 +1432,8 @@ final class SessionIndexStore: ObservableObject {
             offset: offset,
             limit: limit,
             errorBag: errorBag,
-            registry: registry
+            registry: registry,
+            claudeVaultConfiguration: claudeVaultConfiguration
         )
         #endif
     }
@@ -1276,10 +1441,18 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func searchAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
         offset: Int, limit: Int, errorBag: ErrorBag,
-        registry: CmuxVaultAgentRegistry
+        registry: CmuxVaultAgentRegistry,
+        claudeVaultConfiguration: ClaudeVaultConfiguration
     ) async -> [SessionEntry] {
         switch agent {
-        case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
+        case .claude:
+            return await loadClaudeEntries(
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit,
+                configuration: claudeVaultConfiguration
+            )
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .grok:
             return await loadGrokEntries(
@@ -1408,10 +1581,14 @@ final class SessionIndexStore: ObservableObject {
     ///   set; we only parse files that actually contain the needle.
     /// - When `needle` is non-empty and rg is missing/failed: falls back to the
     ///   Foundation enumeration + 64 KB head + 32 KB tail substring scan.
-    nonisolated private static func loadClaudeEntries(
-        needle: String, cwdFilter: String?, offset: Int, limit: Int
+    nonisolated static func loadClaudeEntries(
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int,
+        configuration: ClaudeVaultConfiguration
     ) async -> [SessionEntry] {
-        let roots = claudeSessionRoots()
+        let roots = claudeSessionRoots(configuration: configuration)
         guard !roots.isEmpty else { return [] }
         let fm = FileManager.default
 
@@ -1430,6 +1607,7 @@ final class SessionIndexStore: ObservableObject {
                         contentsOf: enumerateClaudeJSONLCandidates(
                             root: root,
                             cwdFilter: cwdFilter,
+                            pathMappings: configuration.pathMappings,
                             prefilteredByRipgrep: false
                         )
                     )
@@ -1458,6 +1636,7 @@ final class SessionIndexStore: ObservableObject {
                     contentsOf: enumerateClaudeJSONLCandidates(
                         root: root,
                         cwdFilter: cwdFilter,
+                        pathMappings: configuration.pathMappings,
                         prefilteredByRipgrep: false
                     )
                 )
@@ -1468,6 +1647,7 @@ final class SessionIndexStore: ObservableObject {
                     contentsOf: enumerateClaudeJSONLCandidates(
                         root: root,
                         cwdFilter: nil,
+                        pathMappings: configuration.pathMappings,
                         prefilteredByRipgrep: false
                     )
                 )
@@ -1497,7 +1677,10 @@ final class SessionIndexStore: ObservableObject {
                     // Cache hit
                     let cached = ClaudeMetadataCache.shared.get(url: candidate.url, mtime: candidate.mtime)
                     if let cached, needle.isEmpty || candidate.prefilteredByRipgrep {
-                        if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
+                        if let cwdFilter,
+                           !vaultPath(cached.cwd, matches: cwdFilter, mappings: configuration.pathMappings) {
+                            return (idx, nil, true)
+                        }
                         return (
                             idx,
                             cached.withClaudeConfigDirectoryForResume(candidate.resumeConfigDirectory),
@@ -1513,7 +1696,10 @@ final class SessionIndexStore: ObservableObject {
                         }
                     }
                     if let cached {
-                        if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
+                        if let cwdFilter,
+                           !vaultPath(cached.cwd, matches: cwdFilter, mappings: configuration.pathMappings) {
+                            return (idx, nil, true)
+                        }
                         return (
                             idx,
                             cached.withClaudeConfigDirectoryForResume(candidate.resumeConfigDirectory),
@@ -1521,7 +1707,10 @@ final class SessionIndexStore: ObservableObject {
                         )
                     }
                     let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
-                    if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
+                    if let cwdFilter,
+                       !vaultPath(parsed.cwd, matches: cwdFilter, mappings: configuration.pathMappings) {
+                        return (idx, nil, false)
+                    }
                     let sid = candidate.url.deletingPathExtension().lastPathComponent
                     let entry = SessionEntry(
                         id: "claude:" + candidate.url.path,

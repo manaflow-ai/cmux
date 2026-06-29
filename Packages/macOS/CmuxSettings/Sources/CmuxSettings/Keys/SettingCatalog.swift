@@ -46,6 +46,8 @@ public struct SettingCatalog: SettingCatalogSection {
     public let shortcuts = KeyboardShortcutsCatalogSection()
     public let integrations = IntegrationsCatalogSection()
     public let account = AccountCatalogSection()
+    /// Settings for Vault session discovery and filtering.
+    public let vault = VaultCatalogSection()
 
     public init() {}
 }

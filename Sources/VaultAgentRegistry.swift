@@ -1,11 +1,33 @@
 import Foundation
+import CmuxSettings
 import OSLog
 
 struct CmuxVaultConfigDefinition: Codable, Hashable, Sendable {
     var agents: [CmuxVaultAgentRegistration]
+    var claudeSessionRoots: [String]
+    var pathMappings: [VaultPathMapping]
 
-    init(agents: [CmuxVaultAgentRegistration] = []) {
+    private enum CodingKeys: String, CodingKey {
+        case agents
+        case claudeSessionRoots
+        case pathMappings
+    }
+
+    init(
+        agents: [CmuxVaultAgentRegistration] = [],
+        claudeSessionRoots: [String] = [],
+        pathMappings: [VaultPathMapping] = []
+    ) {
         self.agents = agents
+        self.claudeSessionRoots = claudeSessionRoots
+        self.pathMappings = pathMappings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        agents = try container.decodeIfPresent([CmuxVaultAgentRegistration].self, forKey: .agents) ?? []
+        claudeSessionRoots = try container.decodeIfPresent([String].self, forKey: .claudeSessionRoots) ?? []
+        pathMappings = try container.decodeIfPresent([VaultPathMapping].self, forKey: .pathMappings) ?? []
     }
 }
 
@@ -357,8 +379,14 @@ struct CmuxVaultAgentRegistry: Sendable {
     private static let logger = Logger(subsystem: "ai.manaflow.cmux", category: "VaultAgentRegistry")
 
     var registrations: [CmuxVaultAgentRegistration]
+    var claudeSessionRoots: [String]
+    var pathMappings: [VaultPathMapping]
 
-    init(registrations: [CmuxVaultAgentRegistration]) {
+    init(
+        registrations: [CmuxVaultAgentRegistration],
+        claudeSessionRoots: [String] = [],
+        pathMappings: [VaultPathMapping] = []
+    ) {
         var ordered: [CmuxVaultAgentRegistration] = []
         var indexesByID: [String: Int] = [:]
         for registration in registrations {
@@ -370,6 +398,12 @@ struct CmuxVaultAgentRegistry: Sendable {
             }
         }
         self.registrations = ordered
+        self.claudeSessionRoots = Self.unique(
+            claudeSessionRoots
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+        self.pathMappings = Self.unique(pathMappings)
     }
 
     func registration(id: String) -> CmuxVaultAgentRegistration? {
@@ -384,11 +418,14 @@ struct CmuxVaultAgentRegistry: Sendable {
               !workingDirectory.isEmpty,
               let path = Self.findLocalConfig(startingAt: workingDirectory, fileManager: fileManager),
               let config = Self.decodeConfig(at: path, fileManager: fileManager),
-              let agents = config.vault?.agents,
-              !agents.isEmpty else {
+              let vault = config.vault else {
             return self
         }
-        return CmuxVaultAgentRegistry(registrations: registrations + agents)
+        return CmuxVaultAgentRegistry(
+            registrations: registrations + vault.agents,
+            claudeSessionRoots: claudeSessionRoots + vault.claudeSessionRoots,
+            pathMappings: pathMappings + vault.pathMappings
+        )
     }
 
     static func load(
@@ -403,11 +440,25 @@ struct CmuxVaultAgentRegistry: Sendable {
             CmuxVaultAgentRegistration.builtInAntigravity,
             CmuxVaultAgentRegistration.builtInGrok,
         ]
+        var claudeSessionRoots: [String] = []
+        var pathMappings: [VaultPathMapping] = []
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
             guard let config = decodeConfig(at: path, fileManager: fileManager) else { continue }
-            registrations.append(contentsOf: config.vault?.agents ?? [])
+            guard let vault = config.vault else { continue }
+            registrations.append(contentsOf: vault.agents)
+            claudeSessionRoots.append(contentsOf: vault.claudeSessionRoots)
+            pathMappings.append(contentsOf: vault.pathMappings)
         }
-        return CmuxVaultAgentRegistry(registrations: registrations)
+        return CmuxVaultAgentRegistry(
+            registrations: registrations,
+            claudeSessionRoots: claudeSessionRoots,
+            pathMappings: pathMappings
+        )
+    }
+
+    private static func unique<Value: Hashable>(_ values: [Value]) -> [Value] {
+        var seen = Set<Value>()
+        return values.filter { seen.insert($0).inserted }
     }
 
     private static func configPaths(

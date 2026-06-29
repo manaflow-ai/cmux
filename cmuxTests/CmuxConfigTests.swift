@@ -1,4 +1,6 @@
 import Combine
+import CmuxSettings
+import Foundation
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -83,6 +85,120 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let config = try decode(json)
         XCTAssertEqual(config.commands.count, 3)
         XCTAssertEqual(config.commands.map(\.name), ["Build", "Test", "Lint"])
+    }
+
+    func testDecodeVaultClaudeDiscoveryConfigWithoutAgents() throws {
+        let json = """
+        {
+          "vault": {
+            "claudeSessionRoots": ["~/mounted-claude"],
+            "pathMappings": [
+              { "remotePrefix": "/workspace", "localPrefix": "/Users/alice" }
+            ]
+          }
+        }
+        """
+
+        let config = try decode(json)
+
+        XCTAssertEqual(config.vault?.agents, [])
+        XCTAssertEqual(config.vault?.claudeSessionRoots, ["~/mounted-claude"])
+        XCTAssertEqual(config.vault?.pathMappings, [
+            VaultPathMapping(remotePrefix: "/workspace", localPrefix: "/Users/alice")
+        ])
+    }
+
+    func testVaultRegistryLoadsClaudeDiscoveryConfigWithoutAgents() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-vault-registry-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let homeConfig = root
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("cmux.json", isDirectory: false)
+        try fm.createDirectory(at: homeConfig.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {
+          "vault": {
+            "claudeSessionRoots": ["/home-mounted-claude"],
+            "pathMappings": [
+              { "remotePrefix": "/home-remote", "localPrefix": "/home-local" }
+            ]
+          }
+        }
+        """.write(to: homeConfig, atomically: true, encoding: .utf8)
+
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        let child = repo.appendingPathComponent("src", isDirectory: true)
+        try fm.createDirectory(at: child, withIntermediateDirectories: true)
+        try """
+        {
+          "vault": {
+            "claudeSessionRoots": ["/project-mounted-claude"],
+            "pathMappings": [
+              { "remotePrefix": "/project-remote", "localPrefix": "/project-local" }
+            ]
+          }
+        }
+        """.write(to: repo.appendingPathComponent("cmux.json"), atomically: true, encoding: .utf8)
+
+        let registry = CmuxVaultAgentRegistry.load(
+            homeDirectory: root.path,
+            workingDirectory: child.path,
+            environment: [:],
+            fileManager: fm
+        )
+
+        XCTAssertEqual(registry.claudeSessionRoots, [
+            "/home-mounted-claude",
+            "/project-mounted-claude",
+        ])
+        XCTAssertEqual(registry.pathMappings, [
+            VaultPathMapping(remotePrefix: "/home-remote", localPrefix: "/home-local"),
+            VaultPathMapping(remotePrefix: "/project-remote", localPrefix: "/project-local"),
+        ])
+    }
+
+    func testVaultRegistryMergesProjectClaudeDiscoveryConfigWithoutAgents() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-vault-project-registry-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        let child = repo.appendingPathComponent("src", isDirectory: true)
+        try fm.createDirectory(at: child, withIntermediateDirectories: true)
+        try """
+        {
+          "vault": {
+            "claudeSessionRoots": ["/project-mounted-claude"],
+            "pathMappings": [
+              { "remotePrefix": "/project-remote", "localPrefix": "/project-local" }
+            ]
+          }
+        }
+        """.write(to: repo.appendingPathComponent("cmux.json"), atomically: true, encoding: .utf8)
+
+        let registry = CmuxVaultAgentRegistry(
+            registrations: [],
+            claudeSessionRoots: ["/base-mounted-claude"],
+            pathMappings: [
+                VaultPathMapping(remotePrefix: "/base-remote", localPrefix: "/base-local"),
+            ]
+        )
+        let merged = registry.mergingProjectConfig(workingDirectory: child.path, fileManager: fm)
+
+        XCTAssertEqual(merged.registrations, [])
+        XCTAssertEqual(merged.claudeSessionRoots, [
+            "/base-mounted-claude",
+            "/project-mounted-claude",
+        ])
+        XCTAssertEqual(merged.pathMappings, [
+            VaultPathMapping(remotePrefix: "/base-remote", localPrefix: "/base-local"),
+            VaultPathMapping(remotePrefix: "/project-remote", localPrefix: "/project-local"),
+        ])
     }
 
     func testDecodeNewWorkspaceCommand() throws {

@@ -81,6 +81,13 @@ Opt-in AI auto-naming of workspaces and tabs from agent conversation content. Wh
 
 Default: `false`. Manual renames (sidebar, command palette, CLI, or `/rename`) always win: a workspace or tab you renamed yourself is never auto-named again until you clear its custom name. Enable it from **Settings > Automation > Workspace Auto-Naming**.
 
+## `vault.claudeSessionRoots` and `vault.pathMappings`
+
+Additional Claude transcript roots and remote/local path-prefix mappings for the
+Vault. These are useful when Claude Code runs in a container or remote shell
+whose filesystem is mounted on the Mac. See [vault.md](vault.md#mounted-claude-code-transcripts)
+for examples.
+
 ## `diffViewer.defaultLayout`
 
 Controls the initial layout for newly opened diff viewers.
