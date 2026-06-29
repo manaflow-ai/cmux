@@ -2,21 +2,13 @@ import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
-/// **Sidebar** section — mirrors the legacy in-app section
-/// row-for-row. Single card containing match-terminal-background
-/// followed by every workspace-row detail toggle. Rows that depend
-/// on a parent toggle (`hideAllDetails`, PR visibility, PR
-/// clickability) are disabled accordingly.
+/// **Sidebar** section — mirrors the legacy workspace-row detail
+/// toggles. Rows that depend on a parent toggle (`hideAllDetails`, PR
+/// visibility, PR clickability) are disabled accordingly.
 @MainActor
 public struct SidebarSection: View {
-    private let catalog: SettingCatalog
-    private let hostActions: SettingsHostActions
     private let rightSidebarWidthSettings = RightSidebarWidthSettings()
 
-    @State private var sidebarFont: SettingsFontSize
-    @State private var fontSaveFailed = false
-    @State private var fontSaveTask: Task<Void, Never>?
-    @State private var matchTerminal: DefaultsValueModel<Bool>
     @State private var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
     @State private var showDesc: DefaultsValueModel<Bool>
@@ -38,11 +30,7 @@ public struct SidebarSection: View {
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
 
-    public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
-        self.catalog = catalog
-        self.hostActions = hostActions
-        _sidebarFont = State(initialValue: hostActions.sidebarFontSize())
-        _matchTerminal = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.matchTerminalBackground))
+    public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _hideAll = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails))
         _wrapTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles))
         _showDesc = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showWorkspaceDescription))
@@ -75,7 +63,6 @@ public struct SidebarSection: View {
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
-            matchTerminal,
             hideAll,
             wrapTitles,
             showDesc,
@@ -98,17 +85,6 @@ public struct SidebarSection: View {
             rememberedRightMaxWidth,
         ]
         models.forEach { $0.startObserving() }
-    }
-
-    /// Persists a new sidebar font size, cancelling any in-flight save so a
-    /// rapid sequence of slider releases only reflects the latest value (the
-    /// host serializes the underlying writes; this keeps the UI state in step).
-    private func saveSidebarFontSize(_ points: Double) {
-        fontSaveTask?.cancel()
-        fontSaveTask = Task {
-            let saved = await hostActions.setSidebarFontSize(points)
-            if !Task.isCancelled { fontSaveFailed = !saved }
-        }
     }
 
     private var rightMaxWidthOverrideEnabled: Bool {
@@ -170,61 +146,6 @@ public struct SidebarSection: View {
     @ViewBuilder
     private var mainCard: some View {
         SettingsCard {
-            SettingsCardRow(
-                configurationReview: .json("sidebarAppearance.matchTerminalBackground"),
-                String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"),
-                subtitle: String(localized: "settings.sidebarAppearance.matchTerminalBackground.subtitle", defaultValue: "Use the same background color and transparency as the terminal.")
-            ) {
-                Toggle("", isOn: Binding(get: { matchTerminal.current }, set: { matchTerminal.set($0) }))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-            }
-            SettingsCardDivider()
-
-            SettingsCardRow(
-                configurationReview: .settingsOnly,
-                String(localized: "settings.sidebarAppearance.fontSize", defaultValue: "Sidebar Font Size"),
-                subtitle: String(localized: "settings.sidebarAppearance.fontSize.subtitle", defaultValue: "Controls workspace titles, metadata, badges, and shortcut hints in the left sidebar."),
-                controlWidth: 250
-            ) {
-                VStack(alignment: .trailing, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Slider(
-                            value: Binding(get: { sidebarFont.points }, set: { sidebarFont.points = $0 }),
-                            in: sidebarFont.minimum...sidebarFont.maximum,
-                            step: 0.5
-                        ) { editing in
-                            if !editing { saveSidebarFontSize(sidebarFont.points) }
-                        }
-                        .frame(width: 130)
-                        .accessibilityIdentifier("SettingsSidebarFontSizeSlider")
-
-                        Text(String.localizedStringWithFormat(String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"), hostActions.formattedFontSize(sidebarFont.points)))
-                            .cmuxFont(size: 12, weight: .medium, design: .rounded)
-                            .monospacedDigit()
-                            .frame(width: 44, alignment: .trailing)
-
-                        Button(String(localized: "settings.sidebarAppearance.fontSize.reset", defaultValue: "Reset")) {
-                            sidebarFont.points = sidebarFont.defaultValue
-                            saveSidebarFontSize(sidebarFont.points)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled(sidebarFont.isDefault)
-                    }
-
-                    if fontSaveFailed {
-                        Text(String(localized: "settings.sidebarAppearance.fontSize.saveFailed", defaultValue: "Couldn't save sidebar font size. Please try again."))
-                            .cmuxFont(.caption)
-                            .foregroundStyle(.red)
-                            .multilineTextAlignment(.trailing)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-            SettingsCardDivider()
-
             SettingsCardRow(
                 configurationReview: .json("sidebar.rightMaxWidth"),
                 String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"),

@@ -98,13 +98,13 @@
 945	Sources/SessionIndexRegisteredAgents.swift
 937	Sources/Panels/BrowserPopupWindowController.swift
 937	Sources/TextBoxMentionIndexStore.swift
-928	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 914	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 905	Sources/CmuxSSHURLRequest.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
 885	Sources/Panels/TerminalPanel.swift
 885	cmuxTests/SidebarWorkspaceDropPlannerTests.swift
+883	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 881	Sources/DockSplitStore.swift
 871	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
@@ -165,9 +165,9 @@
 632	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 627	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
+622	Sources/SettingsNavigation.swift
 620	cmuxTests/FinderFileDropRegressionTests.swift
 620	cmuxTests/TerminalNotificationQueueTests.swift
-613	Sources/SettingsNavigation.swift
 608	cmuxUITests/FeedSidebarUITests.swift
 607	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface.swift
 607	Sources/SessionIndexModels.swift
@@ -205,9 +205,9 @@
 539	CLI/CMUXCLI+Themes.swift
 539	CLI/CodexTeamsApprovalBridge.swift
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
+538	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift
 534	Sources/TerminalController+ControlSurfaceContext2.swift
-532	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
 531	Sources/App/WorkspaceRuntimeSettings.swift
 530	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift
 530	Sources/BrowserPaneDropTargetView.swift

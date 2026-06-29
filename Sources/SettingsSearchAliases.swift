@@ -5,6 +5,8 @@ enum SettingsSearchAliasIndex {
         switch target {
         case .account:
             return localized("settings.search.alias.section.account", defaultValue: "auth authentication login logout sign in sign out email user profile team")
+        case .appearance:
+            return localized("settings.search.alias.section.appearance", defaultValue: "appearance theme fonts font size terminal sidebar workspace colors ui scale light dark")
         case .app:
             return localized("settings.search.alias.section.app", defaultValue: "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry")
         case .terminal:
@@ -50,8 +52,16 @@ enum SettingsSearchAliasIndex {
 
     private static let settingAliases: [String: String] = [
         "account:account": localized("settings.search.alias.setting.account.account", defaultValue: "auth authentication login logout signin sign-in signout sign-out email user profile stack team"),
+        "appearance:appearance": localized("settings.search.alias.setting.appearance.appearance", defaultValue: "app.appearance theme color scheme light mode dark mode system mode app appearance"),
+        "appearance:terminal-font": localized("settings.search.alias.setting.appearance.terminal-font", defaultValue: "font-family font-size terminal font monospace typeface family size points ghostty config text bigger smaller"),
+        "appearance:global-font-magnification": localized("settings.search.alias.setting.appearance.global-font-magnification", defaultValue: "app.globalFontMagnification global font magnification scale text zoom terminals tabs chrome sidebar workspace bigger smaller accessibility ui scale"),
+        "appearance:sidebar-font-size": localized("settings.search.alias.setting.appearance.sidebar-font-size", defaultValue: "sidebar-font-size sidebar font size text scale workspace title badge metadata shortcut hint"),
+        "appearance:tab-bar-font-size": localized("settings.search.alias.setting.appearance.tab-bar-font-size", defaultValue: "surface-tab-bar-font-size tab bar font size text scale terminal browser pane tab title workspace title"),
+        "appearance:match-terminal": localized("settings.search.alias.setting.appearance.match-terminal", defaultValue: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
+        "appearance:workspace-color-indicator": localized("settings.search.alias.setting.appearance.workspace-color-indicator", defaultValue: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
+        "appearance:workspace-selection-highlight": localized("settings.search.alias.setting.appearance.workspace-selection-highlight", defaultValue: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
+        "appearance:workspace-notification-badge": localized("settings.search.alias.setting.appearance.workspace-notification-badge", defaultValue: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
         "app:language": localized("settings.search.alias.setting.app.language", defaultValue: "app.language locale l10n localization translation japanese english ja en nihongo restart"),
-        "app:appearance": localized("settings.search.alias.setting.app.appearance", defaultValue: "app.appearance theme color scheme light mode dark mode system mode"),
         "app:app-icon": localized("settings.search.alias.setting.app.app-icon", defaultValue: "app.appIcon dock icon application icon app switcher alternate icon"),
         "app:default-terminal": localized("settings.search.alias.setting.app.default-terminal", defaultValue: "app.defaultTerminal default terminal ssh links command tool unix executable launch services handler"),
         "app:new-workspace-placement": localized("settings.search.alias.setting.app.new-workspace-placement", defaultValue: "app.newWorkspacePlacement new tab insert position order top bottom end"),
@@ -96,13 +106,10 @@ enum SettingsSearchAliasIndex {
         "app:canvas-snapping": localized("settings.search.alias.setting.app.canvas-snapping", defaultValue: "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
         "terminal:scrollbar": localized("settings.search.alias.setting.terminal.scrollbar", defaultValue: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
         "terminal:copy-on-select": localized("settings.search.alias.setting.terminal.copy-on-select", defaultValue: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
-        "terminal:tab-bar-font-size": localized("settings.search.alias.setting.terminal.tab-bar-font-size", defaultValue: "surface-tab-bar-font-size tab bar font size text scale terminal browser pane tab title"),
         "terminal:resume-commands": localized("settings.search.alias.setting.terminal.resume-commands", defaultValue: "surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"),
         "textBox:show-textbox-new-terminals": localized("settings.search.alias.setting.textBox.show-textbox-new-terminals", defaultValue: "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta"),
         "textBox:focus-textbox-new-terminals": localized("settings.search.alias.setting.textBox.focus-textbox-new-terminals", defaultValue: "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta"),
         "textBox:textbox-max-lines": localized("settings.search.alias.setting.textBox.textbox-max-lines", defaultValue: "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta"),
-        "sidebarAppearance:match-terminal": localized("settings.search.alias.setting.sidebarAppearance.match-terminal", defaultValue: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
-        "sidebarAppearance:font-size": localized("settings.search.alias.setting.sidebarAppearance.font-size", defaultValue: "sidebar-font-size sidebar font size text scale workspace title badge metadata shortcut hint"),
         "sidebarAppearance:hide-sidebar-details": localized("settings.search.alias.setting.app.hide-sidebar-details", defaultValue: "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),
         "sidebarAppearance:wrap-workspace-titles": localized("settings.search.alias.setting.app.wrap-workspace-titles", defaultValue: "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request"),
         "sidebarAppearance:show-workspace-description": localized("settings.search.alias.setting.app.show-workspace-description", defaultValue: "sidebar.showWorkspaceDescription workspace description notes markdown sidebar"),

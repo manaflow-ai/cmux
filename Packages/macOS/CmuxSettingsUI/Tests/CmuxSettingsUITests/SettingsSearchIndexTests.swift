@@ -99,6 +99,9 @@ struct SettingsSearchIndexTests {
         ("option as alt", "setting:app:terminal-config"),
         ("option", "setting:app:terminal-config"),
         ("environment variables", "setting:app:notification-command"),
+        ("terminal font", "setting:appearance:terminal-font"),
+        ("sidebar font size", "setting:appearance:sidebar-font-size"),
+        ("tab bar font", "setting:appearance:tab-bar-font-size"),
     ])
     func searchesFindRealSettingsRows(query: String, expectedID: String) {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
@@ -164,6 +167,17 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let anchor = index.anchorID(forSettingsPath: "sidebar.showBranchDirectory")
         #expect(anchor == "setting:sidebarAppearance:show-branch-directory")
+    }
+
+    @Test func appearancePathsResolveToAppearanceRows() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+
+        #expect(index.anchorID(forSettingsPath: "app.appearance") == "setting:appearance:appearance")
+        #expect(index.anchorID(forSettingsPath: "app.globalFontMagnification") == "setting:appearance:global-font-magnification")
+        #expect(index.anchorID(forSettingsPath: "sidebarAppearance.matchTerminalBackground") == "setting:appearance:match-terminal")
+        #expect(index.anchorID(forSettingsPath: "workspaceColors.indicatorStyle") == "setting:appearance:workspace-color-indicator")
+        #expect(index.anchorID(forSettingsPath: "workspaceColors.selectionColor") == "setting:appearance:workspace-selection-highlight")
+        #expect(index.anchorID(forSettingsPath: "workspaceColors.notificationBadgeColor") == "setting:appearance:workspace-notification-badge")
     }
 
     @Test func conditionalAutoNamingAgentSearchUsesVisibleWorkspaceAutoNamingRow() throws {
