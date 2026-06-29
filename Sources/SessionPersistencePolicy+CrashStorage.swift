@@ -44,6 +44,24 @@ extension SessionPersistencePolicy {
         )
     }
 
+    static func isCmuxCrashStorageURLOrSymlink(
+        _ url: URL,
+        resolvedURL: URL,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        if isCmuxCrashStorageURL(url, homeDirectory: homeDirectory, environment: environment) {
+            return true
+        }
+        if isCmuxCrashStorageURL(resolvedURL, homeDirectory: homeDirectory, environment: environment) {
+            return true
+        }
+        guard let destinationURL = symbolicLinkDestinationURL(for: url) else {
+            return false
+        }
+        return isCmuxCrashStorageURL(destinationURL, homeDirectory: homeDirectory, environment: environment)
+    }
+
     static func isCmuxCrashStoragePath(
         _ path: String,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -59,6 +77,18 @@ extension SessionPersistencePolicy {
             crashDirectoryComponents: crashDirectoryComponents,
             pathCache: &pathCache
         )
+    }
+
+    private static func symbolicLinkDestinationURL(for url: URL) -> URL? {
+        let path = url.path(percentEncoded: false)
+        guard let destinationPath = try? FileManager.default.destinationOfSymbolicLink(atPath: path),
+              !destinationPath.isEmpty else {
+            return nil
+        }
+        if destinationPath.hasPrefix("/") {
+            return URL(fileURLWithPath: destinationPath).standardizedFileURL
+        }
+        return URL(fileURLWithPath: destinationPath, relativeTo: url.deletingLastPathComponent()).standardizedFileURL
     }
 
     static func pruningCmuxCrashDiagnosticWindows(
