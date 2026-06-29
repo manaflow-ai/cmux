@@ -142,15 +142,13 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             "Expected display churn to finish. helperLog=\(readTrimmedFile(atPath: helperLogPath) ?? "<missing>")"
         )
 
-        // Display/window notifications can briefly overwrite diagnostics with
-        // renderStatsAvailable=0 while the window hierarchy settles after churn.
-        // The liveness assertions below use the last valid render-stat sample.
-        let finalStats = waitForRenderStats(timeout: 6.0)
-        if let finalStats {
-            recordObservedStats(finalStats)
+        guard let finalStats = waitForRenderStats(timeout: 6.0) else {
+            XCTFail("Expected render stats after display churn. lastValid=\(lastStats) diagnostics=\(loadDiagnostics() ?? [:])")
+            return
         }
-        let finalStatsDescription = finalStats.map { String(describing: $0) } ??
-            "<unavailable diagnostics=\(loadDiagnostics() ?? [:])>"
+
+        recordObservedStats(finalStats)
+        let finalStatsDescription = String(describing: finalStats)
         let livenessReferenceUptime = doneObservedUptime ?? maxDiagnosticsUpdatedAt
         let secondsSinceLastPresentAdvance = latestPresentAdvanceStats.map {
             livenessReferenceUptime - $0.diagnosticsUpdatedAt
