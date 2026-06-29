@@ -14122,6 +14122,7 @@ struct TabItemView: View, Equatable {
             guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
             workspaceFinderDirectoryOpenRequest = nil
         }
+        .sidebarAgentRuntimeObservation(id: tab.id, model: tab.sidebarAgentRuntimeObservation) { refreshWorkspaceSnapshot() }
         .onReceive(
             tab.sidebarImmediateObservationPublisher
                 .receive(on: RunLoop.main)
@@ -14342,7 +14343,6 @@ struct TabItemView: View, Equatable {
                     tabManager.clearCustomDescription(tabId: tab.id)
                 }
             }
-
         }
 
         if !remoteContextMenuWorkspaceIds.isEmpty {
