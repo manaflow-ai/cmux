@@ -35,6 +35,7 @@ All notable changes to cmux are documented here.
 - iOS (beta): collapse workspace folders per device ([#6666](https://github.com/manaflow-ai/cmux/pull/6666))
 
 ### Fixed
+- Open Settings > Account sign-in in the user's default browser instead of the Safari-backed auth sheet.
 - Fix a sidebar lag regression from v0.64.16 by cutting per-row font-modifier and pin-state work ([#6613](https://github.com/manaflow-ai/cmux/pull/6613))
 - Fix the Codex sidebar status lifecycle and stale Claude notification sidebar status ([#6609](https://github.com/manaflow-ai/cmux/pull/6609), [#6473](https://github.com/manaflow-ai/cmux/pull/6473))
 - Fix sidebar tab selection highlight timing ([#6627](https://github.com/manaflow-ai/cmux/pull/6627))

@@ -122,7 +122,7 @@ struct MacAuthComposition {
         self.browserSignIn = HostBrowserSignInFlow(
             coordinator: coordinator,
             tokenStore: tokenStore,
-            sessionFactory: ASWebBrowserAuthSessionFactory(anchor: anchor),
+            sessionFactory: DefaultBrowserAuthSessionFactory(),
             callbackRouter: callbackRouter,
             makeSignInURL: { AuthEnvironment.signInURL(callbackState: $0) },
             callbackScheme: { AuthEnvironment.callbackScheme }

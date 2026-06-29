@@ -409,6 +409,8 @@
 		DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */; };
 		DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */; };
 		A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */; };
+		E36170000000000000000001 /* DefaultBrowserAuthSessionFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = E36170000000000000000002 /* DefaultBrowserAuthSessionFactory.swift */; };
+		E36170000000000000000003 /* DefaultBrowserAuthSessionFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E36170000000000000000004 /* DefaultBrowserAuthSessionFactoryTests.swift */; };
 		A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001F000000000000000002 /* DetachedFolderDragIcon.swift */; };
 		B05553C10000000000000001 /* DetachedFolderPathLookupCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B05553C10000000000000002 /* DetachedFolderPathLookupCache.swift */; };
 		B0555303B0555303B0555303 /* DetachedFolderPathLookupCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0555304B0555304B0555304 /* DetachedFolderPathLookupCacheTests.swift */; };
@@ -1591,6 +1593,8 @@
 		DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolver.swift; sourceTree = "<group>"; };
 		DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolverTests.swift; sourceTree = "<group>"; };
 		A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DebugLogging.swift; sourceTree = "<group>"; };
+		E36170000000000000000002 /* DefaultBrowserAuthSessionFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DefaultBrowserAuthSessionFactory.swift; sourceTree = "<group>"; };
+		E36170000000000000000004 /* DefaultBrowserAuthSessionFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DefaultBrowserAuthSessionFactoryTests.swift; sourceTree = "<group>"; };
 		A5001F000000000000000002 /* DetachedFolderDragIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderDragIcon.swift; sourceTree = "<group>"; };
 		B05553C10000000000000002 /* DetachedFolderPathLookupCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderPathLookupCache.swift; sourceTree = "<group>"; };
 		B0555304B0555304B0555304 /* DetachedFolderPathLookupCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderPathLookupCacheTests.swift; sourceTree = "<group>"; };
@@ -2464,6 +2468,7 @@
 			isa = PBXGroup;
 			children = (
 				43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */,
+				E36170000000000000000002 /* DefaultBrowserAuthSessionFactory.swift */,
 				DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */,
 				53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */,
 				CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */,
@@ -3343,6 +3348,7 @@
 				BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */,
 				BCBC0A0E0000000000000E12 /* BrowserMediaActivityAggregationTests.swift */,
 				BCBC0A0E0000000000000E22 /* BrowserMediaPlaybackAudioActivityTests.swift */,
+				E36170000000000000000004 /* DefaultBrowserAuthSessionFactoryTests.swift */,
 				A11EB0000000000000000001 /* GhosttyConfigPathResolverTests.swift */,
 				C13519000000000000000004 /* GhosttyTerminalStartupEnvironmentTests.swift */,
 				C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */,
@@ -4248,6 +4254,7 @@
 				C57B00090000000000000001 /* CustomSidebarPanelView.swift in Sources */,
 				DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */,
 				A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */,
+				E36170000000000000000001 /* DefaultBrowserAuthSessionFactory.swift in Sources */,
 				A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */,
 				B05553C10000000000000001 /* DetachedFolderPathLookupCache.swift in Sources */,
 				DE71CE000000000000000004 /* DeviceRegistryClient.swift in Sources */,
@@ -4955,6 +4962,7 @@
 				C1713006C1713006C1713006 /* CommandPaletteShortcutCustomizationTests.swift in Sources */,
 				C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */,
 				DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */,
+				E36170000000000000000003 /* DefaultBrowserAuthSessionFactoryTests.swift in Sources */,
 				B0555303B0555303B0555303 /* DetachedFolderPathLookupCacheTests.swift in Sources */,
 				DE71CE000000000000000002 /* DeviceRegistryClientTests.swift in Sources */,
 				D1FFC0DE000000000000C002 /* DiffCommentStoreTests.swift in Sources */,
