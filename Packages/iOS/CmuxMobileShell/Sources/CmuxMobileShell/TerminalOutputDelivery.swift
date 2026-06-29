@@ -29,6 +29,40 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             frame.vtPatchBytes()
         }
     }
+
+    /// The authoritative grid hash the producer stamped on this render-grid
+    /// frame, if any. `nil` for raw-byte deliveries and for frames from a
+    /// producer that predates the hash. The consumer uses it to verify its
+    /// applied grid and request a keyframe on divergence.
+    var expectedGridHash: UInt64? {
+        switch payload {
+        case .bytes:
+            nil
+        case .renderGrid(let frame):
+            frame.gridHash
+        }
+    }
+
+    /// Whether this delivery is a full snapshot (lands the viewport at the live
+    /// bottom). `false` for raw bytes and delta frames.
+    var isFullFrame: Bool {
+        switch payload {
+        case .bytes:
+            false
+        case .renderGrid(let frame):
+            frame.full
+        }
+    }
+
+    /// Whether the source frame is on the alternate screen. `false` for raw bytes.
+    var isAlternateScreen: Bool {
+        switch payload {
+        case .bytes:
+            false
+        case .renderGrid(let frame):
+            frame.activeScreen == .alternate
+        }
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.

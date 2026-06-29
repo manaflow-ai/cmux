@@ -641,6 +641,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastAppliedContentScale: CGFloat = 0
     private var surfaceHasReceivedOutput: Bool = false
     private var shouldScrollInitialOutputToBottom = true
+    /// Throttled decision policy for verifying the applied grid against the
+    /// producer's stamped hash. Throttled because the read-back walks the whole
+    /// grid under the surface lock; running it per frame would load the
+    /// typing-latency render path.
+    private var gridDivergenceChecker = MobileTerminalRenderGridDivergenceChecker()
+    /// Per-surface gate for the grid-hash divergence repair. When the applied
+    /// grid diverges from the producer's stamped hash (checked only at the live
+    /// bottom, throttled), the consumer requests a full-snapshot resync so a
+    /// stale/blank row self-heals instead of persisting. The read-back cost
+    /// (`render_grid_json` + decode on `outputQueue`) is bounded by the throttle
+    /// and the at-bottom gate, and is justified by the recovery it provides.
+    /// Instance-owned (not ambient global state); promote to an injected
+    /// parameter if a real per-surface opt-out policy ever appears.
+    private let gridDivergenceRepairEnabled = true
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
     /// main thread hangs the app until the scene-update watchdog kills it.
@@ -655,6 +669,36 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
+    /// Approximate distance the local mirror is scrolled up into scrollback, in
+    /// lines (0 = pinned at the live bottom). On the primary screen,
+    /// `applyLocalScrollbackScroll` sums its signed `lines` (positive = into
+    /// history) here, clamped at 0. To keep this from drifting when a scroll does
+    /// not actually move the viewport (alt-screen wheel-to-mouse, or clamped
+    /// overscroll), it is reset to 0 on every full-frame application (which lands
+    /// the viewport at the live bottom) and is ignored entirely on the alternate
+    /// screen. Only suppresses a divergence check, never forces a false positive.
+    var localScrollbackPositionLines: Double = 0
+    /// Whether the last applied render-grid frame was on the alternate screen,
+    /// which has no scrollback, so its viewport is always the live grid.
+    var currentFrameIsAlternateScreen = false
+    /// Whether the local mirror is currently showing the live bottom viewport.
+    /// The alternate screen has no scrollback, so it is always "at bottom".
+    var isAtLiveBottom: Bool {
+        currentFrameIsAlternateScreen || localScrollbackPositionLines <= 0.5
+    }
+
+    /// Update scroll/screen tracking from a just-applied output chunk. A full
+    /// frame repaints the whole grid and lands the viewport at the live bottom,
+    /// so it resets the scrolled-into-history counter; this bounds any drift in
+    /// the requested-delta accumulation. The alternate-screen flag makes
+    /// ``isAtLiveBottom`` always true while a TUI owns the screen.
+    @MainActor
+    public func noteAppliedRenderChunk(isFullFrame: Bool, isAlternateScreen: Bool) {
+        currentFrameIsAlternateScreen = isAlternateScreen
+        if isFullFrame {
+            localScrollbackPositionLines = 0
+        }
+    }
     private lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear
@@ -2365,6 +2409,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func scrollInitialOutputToBottomIfNeeded() {
         guard shouldScrollInitialOutputToBottom, let surface else { return }
         shouldScrollInitialOutputToBottom = false
+        localScrollbackPositionLines = 0
         // `ghostty_surface_binding_action` takes the same internal surface lock
         // as `process_output`/`render_now`. This runs on the MAIN thread (inside
         // the `processOutput` completion hop), so calling it inline would contend
@@ -2555,6 +2600,85 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         defer { ghostty_surface_free_text(surface, &text) }
         guard let ptr = text.text, text.text_len > 0 else { return "" }
         return String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
+    }
+
+    /// Hash of the surface's CURRENT applied viewport grid, computed the same way
+    /// the Mac producer hashes its authoritative grid
+    /// (``MobileTerminalRenderGridFrame/gridContentHash()``). The consumer
+    /// compares this against the ``MobileTerminalRenderGridFrame/gridHash``
+    /// stamped on the frame it just applied; a mismatch means a delta silently
+    /// failed to reproduce the authoritative grid (the stale/blank-row class),
+    /// which the consumer records as a diagnostic.
+    ///
+    /// Pure libghostty C calls on the raw handle, so (like ``surfaceText(_:pointTag:)``)
+    /// it MUST run on the serial ``outputQueue`` — `ghostty_surface_render_grid_json`
+    /// takes the same surface lock as `process_output`; reading it on main during
+    /// a render storm contends that lock and blanks the terminal.
+    nonisolated static func appliedGridContentHash(
+        _ surface: ghostty_surface_t,
+        surfaceID: String
+    ) -> UInt64? {
+        let exported = surfaceID.withCString { ptr in
+            ghostty_surface_render_grid_json(
+                surface,
+                ptr,
+                UInt(surfaceID.utf8.count),
+                0,
+                0
+            )
+        }
+        defer { ghostty_string_free(exported) }
+        guard let ptr = exported.ptr, exported.len > 0 else { return nil }
+        let data = Data(bytes: ptr, count: Int(exported.len))
+        guard let frame = try? MobileTerminalRenderGridFrame.decode(data) else { return nil }
+        return frame.gridContentHash()
+    }
+
+    /// After applying a render-grid frame, verify (throttled) that the resulting
+    /// grid matches the producer's stamped `expectedHash`, returning `true` when
+    /// it diverges so the caller can request a keyframe.
+    ///
+    /// A mismatch means a delta silently failed to reproduce the authoritative
+    /// grid (the "row blanks and stays blank" class). The check runs ONLY while
+    /// the surface is at the live bottom: there the read-back reflects the live
+    /// grid the producer stamped (not scrollback), and the full-snapshot repair
+    /// the caller triggers resets scroll harmlessly because the user is already
+    /// at the bottom. While scrolled up the check is skipped entirely.
+    ///
+    /// The read-back runs on the serial ``outputQueue`` (the only place that may
+    /// take the surface lock without contending `process_output`), and only when
+    /// the throttle allows it, so it never adds a per-frame cost on the render
+    /// path, and the throttle also bounds how often a repair can be requested.
+    @MainActor
+    public func appliedGridDivergesFromExpected(_ expectedHash: UInt64?, surfaceID: String) async -> Bool {
+        guard gridDivergenceRepairEnabled else { return false }
+        // Only compare while showing the live bottom. When scrolled up, the
+        // read-back hashes scrollback history, not the live grid the producer
+        // stamped, so a check there would report a false divergence.
+        guard isAtLiveBottom else { return false }
+        guard gridDivergenceChecker.shouldVerify(
+            expectedHash: expectedHash,
+            now: CACurrentMediaTime()
+        ) else { return false }
+        guard let surface else { return false }
+        let appliedHash: UInt64? = await withCheckedContinuation { continuation in
+            Self.outputQueue.async {
+                continuation.resume(
+                    returning: Self.appliedGridContentHash(surface, surfaceID: surfaceID)
+                )
+            }
+        }
+        // The await released the main actor: if the user scrolled into history
+        // while the read-back was pending, it hashed a now-stale viewport and a
+        // repair would yank them. Re-check at-bottom before reporting divergence.
+        guard isAtLiveBottom else { return false }
+        guard gridDivergenceChecker.diverges(expectedHash: expectedHash, appliedHash: appliedHash) else {
+            return false
+        }
+        log.warning(
+            "render-grid divergence surface=\(surfaceID, privacy: .public) expected=\(expectedHash ?? 0, privacy: .public) applied=\(appliedHash ?? 0, privacy: .public)"
+        )
+        return true
     }
 
     func renderedHTMLForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {

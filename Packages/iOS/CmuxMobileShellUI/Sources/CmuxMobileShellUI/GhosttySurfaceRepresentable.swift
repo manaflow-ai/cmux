@@ -143,6 +143,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         surfaceID: surfaceID,
                         streamToken: chunk.streamToken
                     )
+                    surfaceView.noteAppliedRenderChunk(
+                        isFullFrame: chunk.isFullFrame,
+                        isAlternateScreen: chunk.isAlternateScreen
+                    )
+                    // When the applied grid diverges from the producer's stamped
+                    // hash (the "row blanks and stays blank" class), request a
+                    // full-snapshot resync so it self-heals. The check runs only
+                    // at the live bottom and is throttled inside the surface, so
+                    // the repair never disturbs a scrolled-up reader and cannot
+                    // fire faster than the throttle.
+                    if await surfaceView.appliedGridDivergesFromExpected(
+                        chunk.expectedGridHash,
+                        surfaceID: surfaceID
+                    ) {
+                        store.requestTerminalRenderGridResync(surfaceID: surfaceID)
+                    }
                 }
             }
             // Drive Mac-pushed live font-size changes (`terminal.set_font`) into

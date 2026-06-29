@@ -43,6 +43,13 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// Styled spans for the scrollback lines, row index `0..<scrollbackRows`
     /// (oldest first). Reuses ``styles`` by `styleID`.
     public var scrollbackSpans: [RowSpan]
+    /// Process-stable hash of the **complete** resulting viewport grid, stamped
+    /// by the producer onto every emitted frame (full or delta). The consumer
+    /// recomputes ``gridContentHash()`` from its own applied grid and requests a
+    /// full keyframe when it disagrees, so a delta that silently misses a
+    /// cleared/changed row self-corrects within one frame instead of staying
+    /// stale forever. `nil` on frames from a producer that predates this field.
+    public var gridHash: UInt64?
 
     public init(
         format: String = Self.currentFormat,
@@ -61,7 +68,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         terminalBackground: String? = nil,
         terminalCursorColor: String? = nil,
         scrollbackRows: Int = 0,
-        scrollbackSpans: [RowSpan] = []
+        scrollbackSpans: [RowSpan] = [],
+        gridHash: UInt64? = nil
     ) throws {
         guard format == Self.currentFormat else {
             throw MobileTerminalRenderGridError.invalidFormat(format)
@@ -138,6 +146,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.terminalCursorColor = terminalCursorColor
         self.scrollbackRows = full ? resolvedScrollbackRows : 0
         self.scrollbackSpans = full ? scrollbackSpans : []
+        self.gridHash = gridHash
     }
 
     public init(from decoder: Decoder) throws {
@@ -159,6 +168,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let terminalCursorColor = try container.decodeIfPresent(String.self, forKey: .terminalCursorColor)
         let scrollbackRows = try container.decodeIfPresent(Int.self, forKey: .scrollbackRows) ?? 0
         let scrollbackSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollbackSpans) ?? []
+        let gridHash = try container.decodeIfPresent(UInt64.self, forKey: .gridHash)
         try self.init(
             format: format,
             surfaceID: surfaceID,
@@ -176,7 +186,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalBackground: terminalBackground,
             terminalCursorColor: terminalCursorColor,
             scrollbackRows: scrollbackRows,
-            scrollbackSpans: scrollbackSpans
+            scrollbackSpans: scrollbackSpans,
+            gridHash: gridHash
         )
     }
 
@@ -273,6 +284,49 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             style.inverse, style.invisible, style.strikethrough, style.overline,
         ].map { $0 ? "1" : "0" }.joined()
         return "\(style.foreground ?? "-")/\(style.background ?? "-")/\(flags)"
+    }
+
+    /// A process-stable FNV-1a-64 hash of the **complete** viewport grid content
+    /// (dimensions plus every row's resolved text and styling). Unlike Swift's
+    /// `Hasher` (randomly seeded per process), this is deterministic across
+    /// processes and devices, so the producer's hash of its authoritative grid
+    /// and the consumer's hash of its applied grid are directly comparable.
+    ///
+    /// Computed from ``rowSignatures()``, so it is only meaningful on a **full**
+    /// frame describing the whole viewport. Cursor position and scrollback are
+    /// intentionally excluded: this detects *content* divergence (stale or blank
+    /// cells), not cursor movement.
+    public func gridContentHash() -> UInt64 {
+        gridContentHash(rowSignatures: rowSignatures())
+    }
+
+    /// Same as ``gridContentHash()`` but reuses already-computed
+    /// ``rowSignatures()``. The producer computes the signatures once per
+    /// emission to diff changed rows, so it passes them here instead of walking
+    /// and formatting the whole grid a second time on the render hot path. The
+    /// signatures must be this frame's own ``rowSignatures()`` (one per row).
+    public func gridContentHash(rowSignatures signatures: [String]) -> UInt64 {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        let prime: UInt64 = 0x0000_0100_0000_01b3
+        func feed(_ byte: UInt8) {
+            hash ^= UInt64(byte)
+            hash = hash &* prime
+        }
+        for byte in "\(columns)x\(rows)".utf8 { feed(byte) }
+        for signature in signatures {
+            feed(0x0A)
+            for byte in signature.utf8 { feed(byte) }
+        }
+        return hash
+    }
+
+    /// Returns a copy of this frame stamped with `hash` as its ``gridHash``. The
+    /// producer computes ``gridContentHash()`` on its authoritative full
+    /// snapshot and stamps it onto the frame it actually emits (full or delta).
+    public func stampingGridHash(_ hash: UInt64) -> MobileTerminalRenderGridFrame {
+        var copy = self
+        copy.gridHash = hash
+        return copy
     }
 
     public func filteredRows(_ includedRows: Set<Int>, full: Bool) throws -> MobileTerminalRenderGridFrame {
@@ -405,6 +459,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         case terminalCursorColor = "terminal_cursor_color"
         case scrollbackRows = "scrollback_rows"
         case scrollbackSpans = "scrollback_spans"
+        case gridHash = "grid_hash"
     }
 
     /// Which terminal screen a full snapshot represents.
