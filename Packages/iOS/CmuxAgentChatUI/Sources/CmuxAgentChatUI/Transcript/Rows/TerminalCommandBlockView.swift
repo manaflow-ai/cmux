@@ -139,6 +139,7 @@ public struct TerminalCommandBlockView: View {
             .padding(.vertical, 1)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("TerminalCommandBlockToggle-\(block.id)")
         outputText(Array(lines.suffix(Self.collapsedTailCount)))
             .opacity(0.55)
     }
