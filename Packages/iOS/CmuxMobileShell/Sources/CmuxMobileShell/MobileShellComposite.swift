@@ -956,6 +956,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // store we are about to empty wholesale.
         isLoadingDraft = true
         terminalInputText = ""
+        chatSessionSnapshotsByWorkspaceID = [:]
         // Enqueued on the FIFO draft pipeline so every save issued before this
         // point is applied first and then wiped; a pending keystroke save can
         // never land after the wipe and leak into the next account's session.
@@ -3622,7 +3623,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func dropStalePreviousForeground(_ previousKey: String) {
         guard previousKey != foregroundMacKey,
               secondaryMacSubscriptions[previousKey] == nil else { return }
+        let removedWorkspaceIDs = Set(workspacesByMac[previousKey]?.workspaces.map { $0.id.rawValue } ?? [])
         workspacesByMac[previousKey] = nil
+        for workspaceID in removedWorkspaceIDs {
+            chatSessionSnapshotsByWorkspaceID[workspaceID] = nil
+        }
     }
 
     /// Adopt a host-reported real device id as the foreground Mac's aggregate key.

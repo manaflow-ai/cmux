@@ -73,16 +73,16 @@ extension WorkspaceDetailView {
         return "\(workspace.id.rawValue)#\(connected)#\(foreground)"
     }
 
-    /// Identity for warming the selected chat model. Includes descriptor version
-    /// so an authoritative session-list refresh reconciles header/state metadata
-    /// even before a live conversation event arrives.
+    /// Identity for the selected chat model's event stream. Descriptor updates
+    /// reconcile through `applyDescriptorSnapshot`, so list refreshes do not
+    /// restart the same long-lived subscription.
     var chatConversationWarmKey: String {
         let connected = store.connectionState == .connected ? 1 : 0
         let foreground = scenePhase == .background ? 0 : 1
         guard let session = warmChatSession else {
             return "\(workspace.id.rawValue)#none#\(connected)#\(foreground)"
         }
-        return "\(workspace.id.rawValue)#\(session.id)#\(session.version)#\(connected)#\(foreground)"
+        return "\(workspace.id.rawValue)#\(session.id)#\(connected)#\(foreground)"
     }
 
     @ViewBuilder
