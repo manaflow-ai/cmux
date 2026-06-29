@@ -25,6 +25,7 @@ extension DockSplitStore {
         let browser = panel as? BrowserPanel
         let iconImageData = browser?.faviconPNGData
         let isLoading = browser?.isLoading ?? false
+        let preservedTransfer = detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
@@ -39,6 +40,9 @@ extension DockSplitStore {
             // Close rejected: re-take ownership so the Dock stays consistent.
             panels[panelId] = panel
             surfaceIdToPanelId[tabId] = panelId
+            if let preservedTransfer {
+                detachedSurfaceTransfersByPanelId[panelId] = preservedTransfer
+            }
             installSubscription(for: panel, tracksTerminalTitle: true)
             return nil
         }
@@ -52,22 +56,23 @@ extension DockSplitStore {
             iconImageData: iconImageData,
             kind: kind,
             isLoading: isLoading,
-            isPinned: false,
-            directory: nil,
-            ttyName: nil,
-            cachedTitle: nil,
-            customTitle: nil,
-            customTitleSource: nil,
-            manuallyUnread: false,
-            restoredUnreadIndicator: nil,
-            restorableAgent: nil,
-            restorableAgentResumeState: nil,
-            resumeBinding: nil,
-            agentRuntime: nil,
-            isRemoteTerminal: false,
-            remoteRelayPort: nil,
-            remotePTYSessionID: nil,
-            remoteCleanupConfiguration: nil
+            isPinned: preservedTransfer?.isPinned ?? false,
+            directory: preservedTransfer?.directory,
+            ttyName: preservedTransfer?.ttyName,
+            cachedTitle: preservedTransfer?.cachedTitle,
+            customTitle: preservedTransfer?.customTitle,
+            customTitleSource: preservedTransfer?.customTitleSource,
+            manuallyUnread: preservedTransfer?.manuallyUnread ?? false,
+            restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
+            restorableAgent: preservedTransfer?.restorableAgent,
+            restorableAgentResumeState: preservedTransfer?.restorableAgentResumeState,
+            restorableAgentAutoResumeOnVisit: preservedTransfer?.restorableAgentAutoResumeOnVisit ?? false,
+            resumeBinding: preservedTransfer?.resumeBinding,
+            agentRuntime: preservedTransfer?.agentRuntime,
+            isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
+            remoteRelayPort: preservedTransfer?.remoteRelayPort,
+            remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
+            remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
     }
 
@@ -113,6 +118,7 @@ extension DockSplitStore {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
         installSubscription(for: panel, tracksTerminalTitle: true)
+        detachedSurfaceTransfersByPanelId[detached.panelId] = detached
         applyVisibility(to: panel)
         recordExplicitPanelCreation()
         if focus {

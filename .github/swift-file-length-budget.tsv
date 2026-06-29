@@ -12,7 +12,7 @@
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8016	CLI/cmux_open.swift
 7982	Sources/Panels/BrowserPanelView.swift
-7366	cmuxTests/WorkspaceUnitTests.swift
+7367	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6895	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 6317	cmuxTests/SessionPersistenceTests.swift
@@ -105,7 +105,7 @@
 899	Sources/Panels/MarkdownWebRenderer.swift
 897	Sources/Panels/TerminalPanel.swift
 885	cmuxTests/SidebarWorkspaceDropPlannerTests.swift
-881	Sources/DockSplitStore.swift
+884	Sources/DockSplitStore.swift
 871	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 859	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
