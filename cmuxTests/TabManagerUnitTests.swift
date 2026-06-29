@@ -845,6 +845,56 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertNil(workspace.customTitle)
         XCTAssertNotEqual(workspace.panelTitles[splitPanel.id], Optional(workspace.title))
     }
+
+    func testSplitRightKeepsNewTerminalInsideSelectedWorkspace() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let initialWorkspaceIds = manager.tabs.map(\.id)
+        let initialPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let initialPaneCount = workspace.bonsplitController.allPaneIds.count
+
+        let splitPanelId = try XCTUnwrap(manager.createSplit(direction: .right))
+
+        XCTAssertEqual(
+            manager.tabs.map(\.id),
+            initialWorkspaceIds,
+            "Split Right should add a pane inside the selected workspace, not a new sidebar workspace"
+        )
+        XCTAssertEqual(manager.selectedWorkspace?.id, workspace.id)
+        XCTAssertNotEqual(splitPanelId, initialPanelId)
+        XCTAssertTrue(workspace.panels[splitPanelId] is TerminalPanel)
+        XCTAssertEqual(workspace.panels.count, 2)
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, initialPaneCount + 1)
+        XCTAssertEqual(splitNodes(in: workspace.bonsplitController.treeSnapshot()).count, 1)
+        XCTAssertNotEqual(workspace.paneId(forPanelId: splitPanelId), workspace.paneId(forPanelId: initialPanelId))
+    }
+
+    func testNestedSplitsStayWithinOneWorkspace() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let initialWorkspaceIds = manager.tabs.map(\.id)
+        let initialPanelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        let rightPanelId = try XCTUnwrap(
+            manager.createSplit(tabId: workspace.id, surfaceId: initialPanelId, direction: .right)
+        )
+        let bottomPanelId = try XCTUnwrap(
+            manager.createSplit(tabId: workspace.id, surfaceId: initialPanelId, direction: .down)
+        )
+
+        XCTAssertEqual(
+            manager.tabs.map(\.id),
+            initialWorkspaceIds,
+            "Nested split-screen layout should remain grouped under the original workspace"
+        )
+        XCTAssertEqual(manager.selectedWorkspace?.id, workspace.id)
+        XCTAssertEqual(Set(workspace.panels.keys), [initialPanelId, rightPanelId, bottomPanelId])
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 3)
+        XCTAssertEqual(splitNodes(in: workspace.bonsplitController.treeSnapshot()).count, 2)
+        XCTAssertNotNil(workspace.paneId(forPanelId: initialPanelId))
+        XCTAssertNotNil(workspace.paneId(forPanelId: rightPanelId))
+        XCTAssertNotNil(workspace.paneId(forPanelId: bottomPanelId))
+    }
 }
 
 @MainActor
