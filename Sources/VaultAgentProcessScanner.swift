@@ -76,25 +76,29 @@ extension RestorableAgentSessionIndex {
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
 
-        // Per-scan memo for Hermes state.db lookups, keyed by (stateDBPath, cwd).
-        // Several hermes panes/gateways in the same cwd resolve to one query per
-        // scan instead of one per process. The value is the resolved session id
-        // (or nil for "looked up, none found" — cached either way).
+        // Per-scan memo for Hermes state.db lookups. Several hermes panes/gateways
+        // in the same cwd resolve to one query per scan instead of one per process.
         //
-        // The stored value is `String?`, so a "no match" result is a *stored nil*
-        // that must still count as a cache hit (otherwise an unresolved cwd would
-        // re-query state.db every scan on the main-queue save path). Assigning a
-        // typed `String?` value via subscript already stores nil correctly and
-        // preserves the key; updateValue(_:forKey:) + an `if case .some` read are
-        // used to make that intent explicit and immune to a future refactor that
-        // assigns a bare `nil` literal (`dict[key] = nil` on [String: String?]
-        // *removes* the key — the footgun this guards against).
-        var hermesSessionIDByKey: [String: String?] = [:]
+        // Nested [stateDBPath: [cwd: String?]] rather than a joined string key:
+        // session identity is correctness-critical (a wrong bind cross-attaches two
+        // panes), so the key is collision-proof by construction — no separator char
+        // that a path could theoretically contain.
+        //
+        // The inner value is `String?`, so a "no match" is a *stored nil* that must
+        // still count as a cache hit (else an unresolved cwd re-queries state.db
+        // every scan on the main-queue save path). updateValue(_:forKey:) + an
+        // `if case .some` read make that explicit and immune to a future bare-`nil`
+        // assignment (`dict[key] = nil` on [_: String?] removes the key).
+        var hermesSessionIDByStateDBPath: [String: [String: String?]] = [:]
         func latestHermesSessionID(stateDBPath: String, cwd: String) -> String? {
-            let key = stateDBPath + "\u{1f}" + cwd
-            if case .some(let cached) = hermesSessionIDByKey[key] { return cached }
+            if let cwdCache = hermesSessionIDByStateDBPath[stateDBPath],
+               case .some(let cached) = cwdCache[cwd] {
+                return cached
+            }
             let resolvedId = HermesAgentIndex.latestSessionID(cwdFilter: cwd, stateDBPath: stateDBPath)
-            hermesSessionIDByKey.updateValue(resolvedId, forKey: key)
+            var cwdCache = hermesSessionIDByStateDBPath[stateDBPath] ?? [:]
+            cwdCache.updateValue(resolvedId, forKey: cwd)
+            hermesSessionIDByStateDBPath[stateDBPath] = cwdCache
             return resolvedId
         }
 
