@@ -157,8 +157,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The working directory requested at construction, if any.
     public var requestedWorkingDirectory: String? { workingDirectory }
 
-    /// Where the surface participates in focus routing.
-    public let focusPlacement: TerminalSurfaceFocusPlacement
+    /// Where the surface participates in focus routing. Mutable so a live
+    /// surface can move between the workspace area and the right-sidebar dock
+    /// without being recreated (preserving its process). Always mutate through
+    /// `setFocusPlacement(_:)` so the surface registry's placement record stays
+    /// in sync. Reads happen on the main actor (UI/focus routing) and once on
+    /// the creating thread at registration.
+    public private(set) var focusPlacement: TerminalSurfaceFocusPlacement
     var additionalEnvironment: [String: String]
 
     /// When true, the surface is created in libghostty MANUAL I/O mode: no
@@ -462,6 +467,17 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
+    }
+
+    /// Moves this surface between focus-routing placements (workspace ↔
+    /// right-sidebar dock) and keeps the surface registry's record in sync.
+    /// Used when a live terminal is dragged across containers so it is not
+    /// recreated. No-op when the placement is unchanged.
+    @MainActor
+    public func setFocusPlacement(_ placement: TerminalSurfaceFocusPlacement) {
+        guard focusPlacement != placement else { return }
+        focusPlacement = placement
+        registry.updateFocusPlacement(id: id, placement)
     }
 
     deinit {
