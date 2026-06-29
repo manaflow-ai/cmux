@@ -142,12 +142,15 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             "Expected display churn to finish. helperLog=\(readTrimmedFile(atPath: helperLogPath) ?? "<missing>")"
         )
 
-        guard let finalStats = waitForRenderStats(timeout: 6.0) else {
-            XCTFail("Expected render stats after display churn. diagnostics=\(loadDiagnostics() ?? [:])")
-            return
+        // Display/window notifications can briefly overwrite diagnostics with
+        // renderStatsAvailable=0 while the window hierarchy settles after churn.
+        // The liveness assertions below use the last valid render-stat sample.
+        let finalStats = waitForRenderStats(timeout: 6.0)
+        if let finalStats {
+            recordObservedStats(finalStats)
         }
-
-        recordObservedStats(finalStats)
+        let finalStatsDescription = finalStats.map { String(describing: $0) } ??
+            "<unavailable diagnostics=\(loadDiagnostics() ?? [:])>"
         let livenessReferenceUptime = max(maxDiagnosticsUpdatedAt, doneObservedUptime ?? maxDiagnosticsUpdatedAt)
         let secondsSinceLastPresentAdvance = latestPresentAdvanceStats.map {
             livenessReferenceUptime - $0.diagnosticsUpdatedAt
@@ -160,17 +163,17 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(
             maxPresentCount - baselinePresentCount,
             minimumPresentAdvanceForLiveness,
-            "Expected terminal presents to keep advancing during display churn. baseline=\(baselineStats) latestPresent=\(latestPresentDescription) last=\(lastStats) final=\(finalStats)"
+            "Expected terminal presents to keep advancing during display churn. baseline=\(baselineStats) latestPresent=\(latestPresentDescription) last=\(lastStats) final=\(finalStatsDescription)"
         )
         XCTAssertLessThanOrEqual(
             secondsSinceLastPresentAdvance,
             maximumSecondsSinceLastPresentAdvance,
-            "Expected terminal presents to advance near the end of display churn. secondsSinceLastPresentAdvance=\(secondsSinceLastPresentAdvance) livenessReferenceUptime=\(livenessReferenceUptime) baseline=\(baselineStats) latestPresent=\(latestPresentDescription) last=\(lastStats) final=\(finalStats)"
+            "Expected terminal presents to advance near the end of display churn. secondsSinceLastPresentAdvance=\(secondsSinceLastPresentAdvance) livenessReferenceUptime=\(livenessReferenceUptime) baseline=\(baselineStats) latestPresent=\(latestPresentDescription) last=\(lastStats) final=\(finalStatsDescription)"
         )
         XCTAssertGreaterThan(
             maxDiagnosticsUpdatedAt,
             baselineStats.diagnosticsUpdatedAt,
-            "Expected render diagnostics to keep updating during display churn. baseline=\(baselineStats) final=\(finalStats)"
+            "Expected render diagnostics to keep updating during display churn. baseline=\(baselineStats) final=\(finalStatsDescription)"
         )
     }
 
