@@ -93,6 +93,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             },
             "Expected CLAUDE_CODE_NO_FLICKER startup SessionStart to mark Claude running, saw \(context.state.commands)"
         )
+        XCTAssertFalse(
+            context.state.commands.contains {
+                self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
+            "CLAUDE_CODE_NO_FLICKER startup SessionStart must not publish a resume binding before the first prompt, saw \(context.state.commands)"
+        )
 
         let record = try readClaudeHookSession("fullscreen-session", context: context)
         XCTAssertEqual(record["isRestorable"] as? Bool, false)
@@ -135,6 +141,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertFalse(
                 context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId)" },
                 "Expected \(scenario.name) SessionStart not to clear notifications, saw \(context.state.commands)"
+            )
+            XCTAssertFalse(
+                context.state.commands.contains {
+                    self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+                },
+                "Expected \(scenario.name) SessionStart not to publish a resume binding before the first prompt, saw \(context.state.commands)"
             )
 
             let record = try readClaudeHookSession(scenario.sessionId, context: context)
