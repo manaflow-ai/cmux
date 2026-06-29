@@ -5525,6 +5525,8 @@ struct WebViewRepresentable: NSViewRepresentable {
             var cursor: NSCursor { .resizeLeftRight }
         }
 
+        // Match bonsplit's effective divider grab expansion on pane edges.
+        private static let externalSplitDividerHitExpansion: CGFloat = 5
         private static let hostedInspectorDividerHitExpansion: CGFloat = 10
         private static let minimumHostedInspectorWidth: CGFloat = 120
         private static let minimumHostedInspectorPageWidthForSideDock: CGFloat = 240
@@ -6489,6 +6491,12 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 return nil
             }
+            if shouldPassThroughToExternalSplitDivider(at: point, hostedInspectorHit: hostedInspectorHit) {
+#if DEBUG
+                debugLogHitTest(stage: "hitTest.splitPass", point: point, passThrough: true, hitView: nil)
+#endif
+                return nil
+            }
             if let hostedInspectorHit {
                 if let nativeHit = nativeHostedInspectorHit(at: point, hostedInspectorHit: hostedInspectorHit) {
 #if DEBUG
@@ -6644,6 +6652,86 @@ struct WebViewRepresentable: NSViewRepresentable {
                 return hostRectInContent.minX > 1
             }
             return contentView.bounds.maxX - hostRectInContent.maxX > 24
+        }
+
+        private func shouldPassThroughToExternalSplitDivider(
+            at point: NSPoint,
+            hostedInspectorHit: HostedInspectorDividerHit? = nil
+        ) -> Bool {
+            guard hostedInspectorHit == nil else { return false }
+            guard isNearPaneEdge(point) else { return false }
+            guard window != nil else { return false }
+
+            let windowPoint = convert(point, to: nil)
+            var ancestor = superview
+            while let currentAncestor = ancestor {
+                if let splitView = currentAncestor as? NSSplitView,
+                   let arrangedIndex = splitView.arrangedSubviews.firstIndex(where: { arrangedSubview in
+                       self === arrangedSubview || self.isDescendant(of: arrangedSubview)
+                   }) {
+                    if externalSplitDividerHit(at: windowPoint, in: splitView, dividerIndex: arrangedIndex - 1) {
+                        return true
+                    }
+                    if externalSplitDividerHit(at: windowPoint, in: splitView, dividerIndex: arrangedIndex) {
+                        return true
+                    }
+                }
+                ancestor = currentAncestor.superview
+            }
+            return false
+        }
+
+        private func externalSplitDividerHit(
+            at windowPoint: NSPoint,
+            in splitView: NSSplitView,
+            dividerIndex: Int
+        ) -> Bool {
+            guard let window,
+                  dividerIndex >= 0,
+                  dividerIndex + 1 < splitView.arrangedSubviews.count,
+                  splitView.window === window else {
+                return false
+            }
+
+            let first = splitView.arrangedSubviews[dividerIndex].frame
+            let second = splitView.arrangedSubviews[dividerIndex + 1].frame
+            let dividerRect: NSRect
+            if splitView.isVertical {
+                guard first.width > 1 || second.width > 1 else { return false }
+                dividerRect = NSRect(
+                    x: max(0, first.maxX),
+                    y: 0,
+                    width: splitView.dividerThickness,
+                    height: splitView.bounds.height
+                )
+            } else {
+                guard first.height > 1 || second.height > 1 else { return false }
+                dividerRect = NSRect(
+                    x: 0,
+                    y: max(0, first.maxY),
+                    width: splitView.bounds.width,
+                    height: splitView.dividerThickness
+                )
+            }
+
+            let hitRect = splitView.convert(dividerRect, to: nil)
+                .insetBy(
+                    dx: -Self.externalSplitDividerHitExpansion,
+                    dy: -Self.externalSplitDividerHitExpansion
+                )
+                .intersection(splitView.convert(splitView.bounds, to: nil))
+            return !hitRect.isNull && hitRect.contains(windowPoint)
+        }
+
+        private func isNearPaneEdge(_ point: NSPoint) -> Bool {
+            let expansion = Self.externalSplitDividerHitExpansion
+            let nearVerticalEdge = point.x >= bounds.minX &&
+                point.x <= bounds.maxX &&
+                (point.x <= bounds.minX + expansion || point.x >= bounds.maxX - expansion)
+            let nearHorizontalEdge = point.y >= bounds.minY &&
+                point.y <= bounds.maxY &&
+                (point.y <= bounds.minY + expansion || point.y >= bounds.maxY - expansion)
+            return nearVerticalEdge || nearHorizontalEdge
         }
 
         private func updateDividerCursor(
