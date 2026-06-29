@@ -1,13 +1,13 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-34447	CLI/cmux.swift
+34427	CLI/cmux.swift
 17908	Sources/AppDelegate.swift
 16491	Sources/ContentView.swift
-14239	Sources/TerminalController.swift
-12921	Sources/Workspace.swift
+14170	Sources/TerminalController.swift
+12917	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
-12233	Sources/GhosttyTerminalView.swift
+12214	Sources/GhosttyTerminalView.swift
 11592	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8059	Sources/Panels/BrowserPanelView.swift
@@ -114,7 +114,7 @@
 834	Sources/MainWindowFocusController.swift
 830	Sources/TaskManagerTypes.swift
 825	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
-816	Sources/WorkspaceContentView.swift
+813	Sources/WorkspaceContentView.swift
 810	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 803	Packages/iOS/CmuxMobilePairedMac/Sources/CmuxMobilePairedMac/MobilePairedMacStore.swift
 797	Sources/ClosedItemHistory.swift
@@ -202,6 +202,7 @@
 549	Sources/Panels/BrowserAutomation.swift
 547	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift
 546	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
+544	cmuxUITests/DisplayResolutionRegressionUITests.swift
 539	CLI/CMUXCLI+Themes.swift
 539	CLI/CodexTeamsApprovalBridge.swift
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
@@ -232,7 +233,6 @@
 509	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 507	Sources/TerminalControllerTopSupport.swift
 506	Sources/App/MainWindowVisibilityController.swift
-505	cmuxUITests/DisplayResolutionRegressionUITests.swift
 504	Packages/macOS/CmuxSettings/Tests/CmuxSettingsTests/UserDefaultsSettingsStoreTests.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 503	Sources/Settings/ConfigSource.swift
