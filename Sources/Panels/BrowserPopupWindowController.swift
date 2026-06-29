@@ -274,7 +274,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         WebViewInspectorTeardown.closeInspector(for: webView)
         closeAllChildPopups()
-        popupNavigationDelegate.cancelPendingHTTPBasicAuthPrompts()
+        popupNavigationDelegate.cancelPendingAuthenticationPrompts()
 
         // Invalidate observations
         titleObservation?.invalidate()
@@ -571,6 +571,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
     var downloadDelegate: WKDownloadDelegate?
     private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
+    private let clientCertificateAuthenticationController = BrowserClientCertificateAuthenticationController()
     private let sslBypassState = BrowserSSLTrustBypassState()
     private var lastAttemptedURL: URL?
     private var lastAttemptedRequest: URLRequest?
@@ -581,8 +582,9 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
     private(set) var activeErrorPageDisplayURL: URL?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
 
-    func cancelPendingHTTPBasicAuthPrompts() {
+    func cancelPendingAuthenticationPrompts() {
         basicAuthPromptCoordinator.cancelAll()
+        clientCertificateAuthenticationController.cancelAll()
     }
 
     private func recordAttemptedRequest(_ request: URLRequest) {
@@ -881,17 +883,15 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             startPrompt: { finishPrompt, registerCancelPrompt in
                 browserHandleHTTPBasicAuthenticationChallenge(
                     in: webView, challenge: challenge,
-                    registerCancelPrompt: registerCancelPrompt,
-                    completionHandler: finishPrompt
+                    registerCancelPrompt: registerCancelPrompt, completionHandler: finishPrompt
                 )
             },
             completionHandler: completionHandler
-        ) {
-            return
-        }
+        ) { return }
+        if clientCertificateAuthenticationController.handle(
+            challenge: challenge, in: webView, completionHandler: completionHandler
+        ) { return }
 
-        // Parity with main browser: performDefaultHandling enables system keychain
-        // lookups, MDM client certs, and SSO extensions (e.g. Microsoft Entra ID).
         completionHandler(.performDefaultHandling, nil)
     }
 

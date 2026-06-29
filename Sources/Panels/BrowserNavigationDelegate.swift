@@ -26,6 +26,7 @@ import WebKit
     var lastAttemptedURL: URL?
     private(set) var activeErrorPageDisplayURL: URL?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
+    private let clientCertificateAuthenticationController = BrowserClientCertificateAuthenticationController()
     private let sslBypassState = BrowserSSLTrustBypassState()
     private var lastAttemptedRequest: URLRequest?
     private var lastAttemptedRequestWasDiscardedForReplay = false
@@ -34,8 +35,9 @@ import WebKit
     private var activeSSLTrustBypassReplayRequest: URLRequest?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
 
-    func cancelPendingHTTPBasicAuthPrompts(allowFuturePrompts: Bool = false) {
+    func cancelPendingAuthenticationPrompts(allowFuturePrompts: Bool = false) {
         basicAuthPromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
+        clientCertificateAuthenticationController.cancelAll(allowFuturePrompts: allowFuturePrompts)
     }
 
     func recordAttemptedRequest(_ request: URLRequest, displayURL: URL? = nil) {
@@ -172,16 +174,15 @@ import WebKit
             return
         }
 
-        // WKWebView rejects all authentication challenges by default when this
-        // delegate method is not implemented (.rejectProtectionSpace). This
-        // breaks TLS client-certificate flows such as Microsoft Entra ID
-        // Conditional Access, which verifies device compliance via a client
-        // certificate stored in the system keychain by MDM enrollment.
-        //
-        // By returning .performDefaultHandling the system's standard URL-loading
-        // behaviour takes over: the keychain is searched for matching client
-        // identities, MDM-installed root CAs are trusted, and any configured SSO
-        // extensions (e.g. Microsoft Enterprise SSO) can intercept the challenge.
+        if clientCertificateAuthenticationController.handle(
+            challenge: challenge,
+            in: webView,
+            presentAlert: presentAlert,
+            completionHandler: completionHandler
+        ) {
+            return
+        }
+
         completionHandler(.performDefaultHandling, nil)
     }
 
