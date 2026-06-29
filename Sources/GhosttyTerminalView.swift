@@ -929,9 +929,7 @@ class GhosttyApp {
                 // Close requests must be resolved by the callback's workspace/surface IDs only.
                 // If the mapping is already gone (duplicate/stale callback), ignore it.
                 if let callbackTabId,
-                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager,
-                   let workspace = manager.tabs.first(where: { $0.id == callbackTabId }),
-                   workspace.panels[callbackSurfaceId] != nil {
+                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager {
                     if needsConfirmClose {
                         manager.closeRuntimeSurfaceWithConfirmation(
                             tabId: callbackTabId,
@@ -2741,9 +2739,7 @@ class GhosttyApp {
                 guard let app = AppDelegate.shared else { return }
                 if let callbackTabId,
                    let callbackSurfaceId,
-                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager,
-                   let workspace = manager.tabs.first(where: { $0.id == callbackTabId }),
-                   workspace.panels[callbackSurfaceId] != nil {
+                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager {
                     manager.closePanelAfterChildExited(tabId: callbackTabId, surfaceId: callbackSurfaceId)
                 }
             }

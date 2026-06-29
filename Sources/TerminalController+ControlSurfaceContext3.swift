@@ -78,6 +78,20 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
+        if let dock = globalDockForRouting(routing) {
+            var refreshedCount = 0
+            for panel in dock.panels.values {
+                if let terminalPanel = panel as? TerminalPanel {
+                    terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceRefresh.globalDock")
+                    refreshedCount += 1
+                }
+            }
+            return .refreshed(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: dock.workspaceId,
+                refreshedCount: refreshedCount
+            )
+        }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
@@ -104,6 +118,32 @@ extension TerminalController {
     ) -> ControlSurfaceClearHistoryResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
+        }
+        if let dock = globalDockForRouting(routing) {
+            let target = terminalPanel(
+                in: dock,
+                explicitSurfaceID: surfaceID,
+                hasSurfaceIDParam: hasSurfaceIDParam,
+                routing: routing
+            )
+            if target.invalidSurfaceID {
+                return .surfaceNotFoundForID
+            }
+            guard let surfaceId = target.surfaceID else {
+                return .noFocusedSurface
+            }
+            guard let terminalPanel = target.terminalPanel else {
+                return .surfaceNotTerminal(surfaceId)
+            }
+            guard terminalPanel.performBindingAction("clear_screen") else {
+                return .bindingActionUnavailable
+            }
+            terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory.globalDock")
+            return .cleared(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: dock.workspaceId,
+                surfaceID: surfaceId
+            )
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
@@ -138,6 +178,23 @@ extension TerminalController {
     ) -> ControlSurfaceTriggerFlashResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
+        }
+        if let dock = globalDockForRouting(routing) {
+            let surfaceId = surfaceID ?? dock.focusedPanelId
+            guard let surfaceId else {
+                return .noFocusedSurface
+            }
+            guard dock.panels[surfaceId] != nil else {
+                return .surfaceNotFound(surfaceId)
+            }
+            v2MaybeFocusWindow(for: tabManager)
+            revealDockForFocus(tabManager: tabManager)
+            dock.focusPanel(surfaceId)
+            return .flashed(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: dock.workspaceId,
+                surfaceID: surfaceId
+            )
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
@@ -213,6 +270,43 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
+        if let dock = globalDockForRouting(routing) {
+            let target = terminalPanel(
+                in: dock,
+                explicitSurfaceID: surfaceID,
+                hasSurfaceIDParam: hasSurfaceIDParam,
+                routing: routing
+            )
+            if target.invalidSurfaceID {
+                return .surfaceNotFoundForID
+            }
+            guard let surfaceId = target.surfaceID else {
+                return .noFocusedSurface
+            }
+            guard let terminalPanel = target.terminalPanel else {
+                return .surfaceNotTerminal(surfaceId)
+            }
+            let queued: Bool
+            switch terminalPanel.sendInputResult(text) {
+            case .sent:
+                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText.globalDock")
+                queued = false
+            case .queued:
+                queued = true
+            case .inputQueueFull:
+                return .inputQueueFull(surfaceId)
+            case .surfaceUnavailable:
+                return .surfaceUnavailable(surfaceId)
+            case .processExited:
+                return .processExited(surfaceId)
+            }
+            return .sent(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: dock.workspaceId,
+                surfaceID: surfaceId,
+                queued: queued
+            )
+        }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
@@ -254,6 +348,44 @@ extension TerminalController {
     ) -> ControlSurfaceSendResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
+        }
+        if let dock = globalDockForRouting(routing) {
+            let target = terminalPanel(
+                in: dock,
+                explicitSurfaceID: surfaceID,
+                hasSurfaceIDParam: hasSurfaceIDParam,
+                routing: routing
+            )
+            if target.invalidSurfaceID {
+                return .surfaceNotFoundForID
+            }
+            guard let surfaceId = target.surfaceID else {
+                return .noFocusedSurface
+            }
+            guard let terminalPanel = target.terminalPanel else {
+                return .surfaceNotTerminal(surfaceId)
+            }
+            let sendResult = terminalPanel.sendNamedKeyResult(key)
+            switch sendResult {
+            case .sent:
+                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey.globalDock")
+            case .queued:
+                break
+            case .unknownKey:
+                return .unknownKey
+            case .inputQueueFull:
+                return .inputQueueFull(surfaceId)
+            case .surfaceUnavailable:
+                return .surfaceUnavailable(surfaceId)
+            case .processExited:
+                return .processExited(surfaceId)
+            }
+            return .sent(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: dock.workspaceId,
+                surfaceID: surfaceId,
+                queued: sendResult == .queued
+            )
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
@@ -300,6 +432,46 @@ extension TerminalController {
     ) -> ControlSurfaceReadTextResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
+        }
+        if let dock = globalDockForRouting(routing) {
+            let target = terminalPanel(
+                in: dock,
+                explicitSurfaceID: surfaceID,
+                hasSurfaceIDParam: hasSurfaceIDParam,
+                routing: routing
+            )
+            if target.invalidSurfaceID {
+                return .surfaceNotFoundForID
+            }
+            guard let surfaceId = target.surfaceID else {
+                return .noFocusedSurface
+            }
+            guard let terminalPanel = target.terminalPanel else {
+                return .surfaceNotTerminal(surfaceId)
+            }
+
+            guard let rawSnapshot = readTerminalTextRawSnapshot(
+                terminalPanel: terminalPanel,
+                includeScrollback: includeScrollback
+            ) else {
+                return .internalError(message: "Failed to read terminal text")
+            }
+            switch Self.terminalTextPayload(
+                from: rawSnapshot,
+                includeScrollback: includeScrollback,
+                lineLimit: lineLimit
+            ) {
+            case .success(let payload):
+                return .read(
+                    text: payload.text,
+                    base64: payload.base64,
+                    windowID: v2ResolveWindowId(tabManager: tabManager),
+                    workspaceID: dock.workspaceId,
+                    surfaceID: surfaceId
+                )
+            case .failure(let error):
+                return .internalError(message: error.message)
+            }
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
