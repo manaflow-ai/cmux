@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
 import WebKit
 import XCTest
@@ -234,6 +235,14 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertNil(workspace.filePreviewPanel(for: openedPanelId))
         XCTAssertEqual(payload["panel_type"] as? String, PanelType.markdown.rawValue)
         XCTAssertEqual(payload["display_mode"] as? String, MarkdownPanelDisplayMode.preview.rawValue)
+
+        workspace.focusPanel(panel.id)
+        try assertStartSearchRoutesToFocusedMarkdownPreviewPanel(
+            manager: manager,
+            workspace: workspace,
+            panel: panel,
+            filePath: fileURL.path
+        )
     }
 
     func testExternalFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
@@ -299,6 +308,47 @@ final class MarkdownPanelTests: XCTestCase {
         let reopenedMarkdownPanels = workspace.panels.values.compactMap { $0 as? MarkdownPanel }
         XCTAssertEqual(reopenedMarkdownPanels.count, 1)
         XCTAssertTrue(reopenedMarkdownPanels.contains { ObjectIdentifier($0) == originalMarkdownPanelID })
+    }
+
+    private func assertStartSearchRoutesToFocusedMarkdownPreviewPanel(
+        manager: TabManager,
+        workspace: Workspace,
+        panel: MarkdownPanel,
+        filePath: String
+    ) throws {
+        let webView = MarkdownWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480), configuration: WKWebViewConfiguration())
+        var capturedEvent: NSEvent?
+        webView.performKeyEquivalentHandler = { event in
+            capturedEvent = event
+            return true
+        }
+        panel.rendererSession
+            .coordinator(panelId: panel.id, workspaceId: workspace.id, filePath: filePath)
+            .webView = webView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentView?.bounds ?? webView.bounds)
+        contentView.addSubview(webView)
+        window.contentView = contentView
+        window.makeFirstResponder(webView)
+        defer { window.close() }
+
+        XCTAssertEqual(workspace.focusedPanelId, panel.id)
+        XCTAssertEqual(panel.displayMode, .preview)
+        XCTAssertTrue(
+            manager.startSearch(),
+            "Cmd+F should be handled by the focused Markdown preview panel instead of being dropped."
+        )
+        let event = try XCTUnwrap(capturedEvent)
+        XCTAssertEqual(event.charactersIgnoringModifiers, "f")
+        XCTAssertEqual(event.keyCode, UInt16(kVK_ANSI_F))
+        XCTAssertTrue(event.modifierFlags.contains(.command))
+        XCTAssertFalse(event.modifierFlags.contains(.shift))
     }
 
     func testOpenMarkdownPanelReloadsWhenFileChangesOnDisk() async throws {

@@ -52,8 +52,8 @@
 1866	Sources/Panels/BrowserWebAuthnSupport.swift
 1810	Sources/SessionIndexStore.swift
 1748	Sources/WindowDragHandleView.swift
+1737	cmuxTests/MarkdownPanelTests.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
-1687	cmuxTests/MarkdownPanelTests.swift
 1680	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1656	Sources/FileExplorerView.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
