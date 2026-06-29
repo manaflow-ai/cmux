@@ -7972,6 +7972,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    /// Routes externally-linked text (a `cmux://prompt` / `cmux://rules` deep link)
+    /// into a freshly created workspace that launches the user's configured default
+    /// agent, delivering the text **unsent** so it lands in the agent's input box
+    /// and never auto-executes.
+    ///
+    /// The agent launch command comes from the user's own trusted
+    /// `newWorkspaceCommand` config (run via `initialTerminalCommand`); the untrusted
+    /// link text is passed as the surface's `initialTerminalInput` with no trailing
+    /// newline, so it is typed into the agent but not submitted.
+    ///
+    /// - Returns: `true` when an agent workspace was created; `false` when no
+    ///   default-agent command is configured, so the caller can fall back to the
+    ///   plain focused-pane paste path.
+    @discardableResult
+    func routeExternalLinkTextIntoNewAgentWorkspace(
+        _ text: String,
+        title: String? = nil,
+        noFocus: Bool = false,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        let context: MainWindowContext? = {
+            if let existing = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) {
+                return existing
+            }
+            let windowId = createMainWindow(initialTerminalInput: "", shouldActivate: !noFocus)
+            return mainWindowContexts.values.first { $0.windowId == windowId }
+        }()
+        guard let context else { return false }
+
+        guard
+            let agentCommand = context.cmuxConfigStore?
+                .resolvedNewWorkspaceCommand()?.command.command?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !agentCommand.isEmpty
+        else {
+            return false
+        }
+
+        if !noFocus, let window = context.window ?? windowForMainWindowId(context.windowId) {
+            bringToFront(window)
+            setActiveMainWindow(window)
+        }
+
+        let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = context.tabManager.addWorkspace(
+            title: (trimmedTitle?.isEmpty == false) ? trimmedTitle : nil,
+            initialTerminalCommand: agentCommand,
+            initialTerminalInput: text,
+            select: !noFocus,
+            autoWelcomeIfNeeded: false
+        )
+#if DEBUG
+        cmuxDebugLog("textURL.agentRoute created agent workspace chars=\(text.count) noFocus=\(noFocus)")
+#endif
+        return true
+    }
+
     @discardableResult
     func openFilePreviewInPreferredMainWindow(
         filePath: String,

@@ -701,9 +701,24 @@ extension AppDelegate {
         if !request.noFocus {
             NSApp.activate(ignoringOtherApps: true)
         }
+        let preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
+        // Prefer landing the text in an agent: open a new workspace running the
+        // user's configured default agent and deliver the text unsent, so a
+        // `cmux://prompt` / `cmux://rules` link reaches a real agent instead of
+        // sitting at a shell prompt. Falls back to the plain focused-pane paste
+        // when no default-agent command is configured.
+        let routedToAgent = routeExternalLinkTextIntoNewAgentWorkspace(
+            request.pasteText,
+            title: request.title,
+            noFocus: request.noFocus,
+            preferredWindow: preferredWindow
+        )
+        if routedToAgent {
+            return
+        }
         let didPaste = pasteTextInPreferredMainWindowFromExternalLink(
             request.pasteText,
-            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            preferredWindow: preferredWindow,
             shouldBringToFront: !request.noFocus,
             debugSource: "textURL.\(request.kind.rawValue)",
             onSendFailure: { [weak self] in
