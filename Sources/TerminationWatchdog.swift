@@ -55,16 +55,11 @@ final class TerminationWatchdog: Sendable {
         thread.start()
     }
 
-    // A lock, not an actor: `arm()` is called synchronously from the terminate
-    // delegate methods and the deadline fires on a raw `Thread`, both outside any
-    // async context — and by design this must not depend on the Swift concurrency
-    // runtime, which may itself be wedged during the termination it guards
-    // against. Same sanctioned shape as `TerminalPasteboardService` uses for state
-    // shared with its synchronous clipboard callbacks.
-    private let lock = NSLock()
-    // SAFETY: guarded by `lock`; latched from the arming caller (main thread)
-    // and read by the watchdog/test threads.
-    nonisolated(unsafe) private var isArmed = false
+    // Atomic, not an actor: `arm()` is called synchronously from terminate
+    // delegate methods and must not depend on Swift concurrency while guarding
+    // a wedged termination path. The Int32 is a one-shot 0 -> 1 latch claimed
+    // with OSAtomicCompareAndSwap32Barrier, which supports cmux's macOS 14 floor.
+    nonisolated(unsafe) private var isArmedFlag: Int32 = 0
     private let onFire: @Sendable () -> Void
     private let scheduleDeadline: DeadlineScheduler
 
@@ -89,13 +84,9 @@ final class TerminationWatchdog: Sendable {
     /// attempts, or several commit sites arming for one request — schedule the
     /// deadline only once, so `onFire` runs at most once.
     func arm(deadline: TimeInterval = TerminationWatchdog.defaultDeadline) {
-        lock.lock()
-        if isArmed {
-            lock.unlock()
+        guard OSAtomicCompareAndSwap32Barrier(0, 1, &isArmedFlag) else {
             return
         }
-        isArmed = true
-        lock.unlock()
 
         scheduleDeadline(deadline, onFire)
     }
