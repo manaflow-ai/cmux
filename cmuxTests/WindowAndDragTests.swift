@@ -1975,7 +1975,7 @@ final class MainWindowDragBehaviorTests: XCTestCase {
         )
     }
 
-    func testMainWindowDragBehaviorRequiresExplicitDragZones() {
+    func testMainWindowDragBehaviorKeepsWindowManagerCompatibility() {
         let window = CmuxMainWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -1983,25 +1983,28 @@ final class MainWindowDragBehaviorTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        window.isMovable = true
+        window.isMovable = false
         window.isMovableByWindowBackground = true
 
         configureCmuxMainWindowDragBehavior(window)
 
-        XCTAssertFalse(
+        XCTAssertTrue(
             window.isMovable,
-            "Main windows must not use native AppKit titlebar dragging because pane tabs live in the titlebar band"
+            "Main windows must remain movable so Accessibility-based window managers such as Swish can attach titlebar gestures"
         )
-        XCTAssertFalse(window.isMovableByWindowBackground)
+        XCTAssertFalse(
+            window.isMovableByWindowBackground,
+            "Main content must not become an implicit AppKit background-drag region; explicit titlebar chrome owns app-window dragging"
+        )
 
         let previous = withTemporaryWindowMovableEnabled(window: window) {
             XCTAssertTrue(window.isMovable)
         }
 
-        XCTAssertEqual(previous, false)
-        XCTAssertFalse(
+        XCTAssertEqual(previous, true)
+        XCTAssertTrue(
             window.isMovable,
-            "Explicit chrome drag zones may temporarily enable movement, but the main window must return to pane-tab-safe immovable state"
+            "Explicit chrome drag zones should preserve the window-manager-compatible movable state"
         )
     }
 }
