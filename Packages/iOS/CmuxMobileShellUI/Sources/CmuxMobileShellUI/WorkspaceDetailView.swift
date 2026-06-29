@@ -351,7 +351,7 @@ struct WorkspaceDetailView: View {
             // as much as it safely can.
             .frame(maxWidth: MobileNavTitleWidth.cap(
                 contentWidth: contentWidth,
-                hasChatToggle: shouldShowChatToggle
+                hasChatToggle: true
             ))
             .mobileGlassNavigationTitle()
     }

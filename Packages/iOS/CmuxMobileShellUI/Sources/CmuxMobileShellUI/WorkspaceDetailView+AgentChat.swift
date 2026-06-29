@@ -131,12 +131,17 @@ extension WorkspaceDetailView {
     @ViewBuilder
     var toolbarTrailingCluster: some View {
         HStack(spacing: 8) {
-            if shouldShowChatToggle {
-                chatToggleButton
-                    .transition(.scale(scale: 0.82, anchor: .trailing).combined(with: .opacity))
+            ZStack {
+                if shouldShowChatToggle {
+                    chatToggleButton
+                        .transition(.scale(scale: 0.82, anchor: .trailing).combined(with: .opacity))
+                }
             }
+            .frame(width: 44, height: 44)
             terminalPickerToolbarButton
+                .frame(width: 44, height: 44)
         }
+        .frame(width: 96, height: 44, alignment: .trailing)
         .animation(.snappy(duration: 0.25), value: shouldShowChatToggle)
     }
 
