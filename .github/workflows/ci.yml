@@ -437,6 +437,8 @@ jobs:
             "$APP_HOST_HOME/Library/Logs/DiagnosticReports" \
             "$APP_HOST_HOME/Library/Preferences"
           echo "CFFIXED_USER_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"
+          echo "CARGO_HOME=${HOME}/.cargo" >> "$GITHUB_ENV"
+          echo "RUSTUP_HOME=${HOME}/.rustup" >> "$GITHUB_ENV"
 
       - name: Resolve Swift packages
         run: |
