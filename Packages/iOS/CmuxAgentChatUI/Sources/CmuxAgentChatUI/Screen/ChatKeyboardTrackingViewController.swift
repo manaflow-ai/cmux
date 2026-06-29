@@ -383,9 +383,17 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
     private func configureScrollEdgeEffect(for tableView: ChatTranscriptUITableView) {
         if #available(iOS 26.0, *) {
-            tableView.topEdgeEffect.style = .soft
+            tableView.topEdgeEffect.style = shouldSuppressTopScrollEdgeEffect
+                ? .automatic
+                : .soft
             tableView.bottomEdgeEffect.style = .soft
         }
+    }
+
+    private var shouldSuppressTopScrollEdgeEffect: Bool {
+        isKeyboardAnimationActive
+            || keyboardOverlap > 0.5
+            || keyboardAnimationTargetOverlap > 0.5
     }
 
     private func configureContentScrollView(for tableView: ChatTranscriptUITableView?) {
