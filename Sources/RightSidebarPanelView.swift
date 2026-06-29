@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
@@ -80,17 +81,6 @@ nonisolated enum FileExplorerRootSyncPolicy {
     }
 }
 
-nonisolated enum RightSidebarDirectoryContext {
-    static func normalizedDirectory(_ directory: String?) -> String? {
-        let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    static func dockRootDirectory(workspaceDirectory: String?, fallbackDirectory: String?) -> String? {
-        normalizedDirectory(workspaceDirectory) ?? normalizedDirectory(fallbackDirectory)
-    }
-}
-
 extension RightSidebarMode {
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
         modeShortcut(for: event, allowingAction: { _ in true })
@@ -121,6 +111,7 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
     let titlebarHeight: CGFloat
+    let windowAppearance: WindowAppearanceSnapshot
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: FileExplorerPreviewOpenHandler
@@ -133,7 +124,6 @@ struct RightSidebarPanelView: View {
     }
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
-    @StateObject private var dockStore = DockControlsStore()
     @State private var hasMountedRightSidebarContent = false
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
@@ -209,27 +199,15 @@ struct RightSidebarPanelView: View {
             startShortcutHintMonitorsIfNeeded()
             if fileExplorerState.isVisible { hasMountedRightSidebarContent = true }
             fileExplorerState.refreshModeAvailability()
-            synchronizeDockLifecycle()
         }
         .onDisappear {
             stopShortcutHintMonitors()
-            synchronizeDockLifecycle(isRightSidebarVisible: false)
         }
         .onChange(of: showModifierHoldHints) { _, _ in
             startShortcutHintMonitorsIfNeeded()
         }
-        .onChange(of: fileExplorerState.mode) { _, mode in
-            synchronizeDockLifecycle(mode: mode)
-        }
         .onChange(of: fileExplorerState.isVisible) { _, visible in
             if visible { hasMountedRightSidebarContent = true }
-            synchronizeDockLifecycle(isRightSidebarVisible: visible)
-        }
-        .onChange(of: dockRootDirectory) { _, newValue in
-            synchronizeDockLifecycle(rootDirectory: newValue, workspaceId: workspaceId)
-        }
-        .onChange(of: workspaceId) { _, newValue in
-            synchronizeDockLifecycle(rootDirectory: dockRootDirectory, workspaceId: newValue)
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
@@ -422,7 +400,7 @@ struct RightSidebarPanelView: View {
             case .feed:
                 FeedPanelView()
             case .dock:
-                DockPanelView(rootDirectory: dockRootDirectory, workspaceId: workspaceId, store: dockStore)
+                dockPanel(windowAppearance: windowAppearance)
             case .customSidebar:
                 EmptyView()
             }
@@ -435,25 +413,23 @@ struct RightSidebarPanelView: View {
         sessionIndexStore.currentDirectory
     }
 
-    private var dockRootDirectory: String? {
-        RightSidebarDirectoryContext.dockRootDirectory(
-            workspaceDirectory: tabManager.selectedWorkspace?.currentDirectory,
-            fallbackDirectory: sessionIndexStore.currentDirectory
-        )
-    }
-
-    private func synchronizeDockLifecycle(
-        isRightSidebarVisible: Bool? = nil,
-        mode: RightSidebarMode? = nil,
-        rootDirectory: String? = nil,
-        workspaceId: UUID? = nil
-    ) {
-        dockStore.synchronizeSidebarLifecycle(
-            isRightSidebarVisible: isRightSidebarVisible ?? fileExplorerState.isVisible,
-            mode: mode ?? fileExplorerState.mode,
-            rootDirectory: rootDirectory ?? dockRootDirectory,
-            workspaceId: workspaceId ?? self.workspaceId
-        )
+    /// Renders the app-wide Global Dock, shared across every workspace and
+    /// window.
+    @ViewBuilder
+    private func dockPanel(windowAppearance: WindowAppearanceSnapshot) -> some View {
+        if let app = AppDelegate.shared {
+            DockPanelView(
+                store: app.globalDock,
+                isSidebarVisible: fileExplorerState.isVisible,
+                mode: fileExplorerState.mode,
+                rootDirectory: nil,
+                windowAppearance: windowAppearance,
+                rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus
+            )
+            .id("dock.global")
+        } else {
+            Color.clear
+        }
     }
 
     private func selectMode(_ mode: RightSidebarMode) {
@@ -470,9 +446,8 @@ struct RightSidebarPanelView: View {
         let previousMode = fileExplorerState.mode
         fileExplorerState.refreshModeAvailability()
         let mode = fileExplorerState.mode
-        if previousMode == mode {
-            synchronizeDockLifecycle(mode: mode)
-        }
+        // The Dock manages its own lifecycle from DockPanelView, so no dock sync
+        // is needed here when the mode is unchanged.
         guard previousMode != mode,
               fileExplorerState.isVisible,
               let window = NSApp.keyWindow ?? NSApp.mainWindow
