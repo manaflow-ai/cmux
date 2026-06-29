@@ -5,7 +5,7 @@ import {
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { isVmNotFoundError } from "../../../../../services/vms/errors";
-import { openAttachEndpoint, runVmWorkflow } from "../../../../../services/vms/workflows";
+import { openAttachEndpoint, runVmWorkflow } from "../../../../../services/vms/routeRuntime";
 
 export const dynamic = "force-dynamic";
 

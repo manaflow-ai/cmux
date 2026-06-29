@@ -66,7 +66,7 @@
       "version": "freestyle-tooling-20260509d",
       "imageId": "sh-17agfasevrc18c8f15nn",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
-      "defaultForLocalDev": true,
+      "defaultForLocalDev": false,
       "cmuxdRemoteCommit": "1d8f4c3139fbced71ad8eb90736a51da0565e9ee",
       "builtAt": "2026-05-09T04:19:44.920Z",
       "builderScriptVersion": "ce14852d98e7da13597df486a4a7f2db46c2049d99a303d105f03ab4dd5f6d96",
@@ -108,6 +108,28 @@
       },
       "validationStatus": "unknown",
       "notes": "Validated Freestyle image internals with baked cmux CLI, active cmuxd-ws service, Node, npm, Bun, Claude Code, OpenCode, Codex, Pi, and Python SSL. External Freestyle domains returned provider 503 during smoke. binarySha256=fa1e8b7c107e0fd910740af16245aabcb0ab474590d69df5e646e343ad44206d nodeMajor=22 agentTools=@anthropic-ai/claude-code@2.1.137,opencode-ai@1.14.41,@openai/codex@0.130.0,@earendil-works/pi-coding-agent@0.74.0"
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-signedauth-20260614d",
+      "imageId": "sh-6a3egjzxg8nfo52t21vs",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "defaultForLocalDev": true,
+      "features": {
+        "signedWebSocketAuth": true,
+        "signedAuthPublicKeySha256": "3e979ee9c381b40c49a868d511edb5002631355138ac1e29841f066b8aab09a5"
+      },
+      "cmuxdRemoteCommit": "e58801353cc593fdb4b8649d2e7f5911972ea905",
+      "builtAt": "2026-06-14T08:26:17.235Z",
+      "builderScriptVersion": "e230fa5bb58c5bf49d41100b3e45a466488df4be92f6d8e5d286dcfb9200f4a0",
+      "agentToolResolvedVersions": {
+        "claude": "2.1.137",
+        "opencode": "1.14.41",
+        "codex": "0.130.0",
+        "pi": "0.74.0"
+      },
+      "validationStatus": "passed",
+      "notes": "Validated Freestyle WebSocket PTY/RPC image with signed attach-token verification, baked cmux CLI, active cmuxd-ws service, Node, Bun, Claude Code, OpenCode, Codex, and Pi. binarySha256=60aed933e0b4ab8e25ec007e31a574c401848f99cac76dc6462cca99f190391c nodeMajor=22 agentTools=@anthropic-ai/claude-code@2.1.137,opencode-ai@1.14.41,@openai/codex@0.130.0,@earendil-works/pi-coding-agent@0.74.0"
     }
   ]
 }
