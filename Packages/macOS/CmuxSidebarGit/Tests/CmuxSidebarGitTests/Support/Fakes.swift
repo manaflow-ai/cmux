@@ -6,11 +6,18 @@ import CmuxFoundation
 /// A reader returning canned metadata, with an optional gate the test holds
 /// closed to control exactly when a snapshot probe completes.
 actor GatedMetadataReader: WorkspaceGitMetadataReading {
+    private struct ProbeWaiter {
+        let minimumCount: Int
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     private let metadata: GitWorkspaceMetadata
     private let gated: Bool
     private var gateWaiters: [CheckedContinuation<Void, Never>] = []
+    private var probeWaiters: [ProbeWaiter] = []
     private var isOpen = false
     private(set) var probedDirectories: [String] = []
+    private(set) var probedTrackedPathEventGenerations: [GitTrackedPathEventGeneration?] = []
 
     init(metadata: GitWorkspaceMetadata, gated: Bool = false) {
         self.metadata = metadata
@@ -25,8 +32,35 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
         }
     }
 
+    func waitForTrackedPathEventGenerationProbe(
+        count minimumCount: Int = 1
+    ) async -> Bool {
+        if probedTrackedPathEventGenerations.count >= minimumCount {
+            return true
+        }
+        return await withCheckedContinuation { continuation in
+            if probedTrackedPathEventGenerations.count >= minimumCount {
+                continuation.resume(returning: true)
+            } else {
+                probeWaiters.append(ProbeWaiter(
+                    minimumCount: minimumCount,
+                    continuation: continuation
+                ))
+            }
+        }
+    }
+
     func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+        await workspaceMetadata(for: directory, trackedPathEventGeneration: nil)
+    }
+
+    func workspaceMetadata(
+        for directory: String,
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?
+    ) async -> GitWorkspaceMetadata {
         probedDirectories.append(directory)
+        probedTrackedPathEventGenerations.append(trackedPathEventGeneration)
+        resumeProbeWaiters()
         if !isOpen {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 if isOpen {
@@ -37,6 +71,18 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
             }
         }
         return metadata
+    }
+
+    private func resumeProbeWaiters() {
+        var remainingWaiters: [ProbeWaiter] = []
+        for waiter in probeWaiters {
+            if probedTrackedPathEventGenerations.count >= waiter.minimumCount {
+                waiter.continuation.resume(returning: true)
+            } else {
+                remainingWaiters.append(waiter)
+            }
+        }
+        probeWaiters = remainingWaiters
     }
 }
 
