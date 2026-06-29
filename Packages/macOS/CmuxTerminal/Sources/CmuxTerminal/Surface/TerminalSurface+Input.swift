@@ -265,6 +265,18 @@ extension TerminalSurface {
                     appendKey(nav.keycode, mods: nav.mods, label: nav.label)
                     index += nav.length
                 } else if let length = terminalControlSequenceLength(scalars, from: index) {
+                    // A *complete* non-navigation control sequence (a CSI report
+                    // such as DSR `ESC[6n` / CPR `ESC[…R`, or an OSC/DCS/PM/APC
+                    // string) is injected into the terminal parser as process
+                    // output, not the PTY input stream. This grammar carries
+                    // terminal I/O from socket/mobile clients, so these sequences
+                    // must reach the emulator to update state or emit a reply
+                    // (e.g. a DSR query makes Ghostty answer with its own CPR);
+                    // splitting them into Escape + literal text is the #5763
+                    // cursor-desync bug. Printable text still takes the
+                    // input-text path above, and pasted/composed blocks use the
+                    // separate `sendText` (bracketed-paste) path, so neither is
+                    // affected.
                     flushBufferedText()
                     appendTerminalBytes(length: length, from: index)
                     index += length
