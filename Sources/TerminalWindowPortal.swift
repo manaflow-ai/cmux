@@ -417,11 +417,9 @@ final class WindowTerminalHostView: NSView {
     }
 
     private static func dividerCursorKind(at windowPoint: NSPoint, in regions: [DividerRegion], checkLiveness: Bool = true) -> DividerCursorKind? {
-        let expansion: CGFloat = 5
         for region in regions.reversed() {
             if checkLiveness, !region.isLive { continue }
-            let hitRect = region.rectInWindow.insetBy(dx: -expansion, dy: -expansion)
-                .intersection(region.boundsInWindow)
+            let hitRect = region.hitRectInWindow
             if !hitRect.isNull, hitRect.contains(windowPoint) {
                 return region.isVertical ? .vertical : .horizontal
             }
