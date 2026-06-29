@@ -253,12 +253,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `MainWindowContext` *class* — a stored per-window aggregate fusing tabs,
     /// sidebar, focus, file-explorer, config and `NSWindow` — is REJECTED). The
     /// last live per-window fields it still held (`tabManager`,
-    /// `keyboardFocusCoordinator`, and the `NSWindow` handle) now live in their
-    /// own `WindowID`-keyed homes: ``windowTabManagers``,
-    /// ``windowFocusControllers``, and ``windowCoordinator`` respectively. The
-    /// other slices were drained in stages 1-3 (``windowSidebarStates``,
-    /// ``windowSidebarSelectionStates``, ``windowFileExplorerStates``,
-    /// ``windowConfigStores``).
+    /// `keyboardFocusCoordinator`, the `NSWindow` handle, and the sidebar /
+    /// sidebar-selection / file-explorer / config slices) now live in one
+    /// ``WindowContext`` per window, indexed by ``windowRegistry`` and held
+    /// (weakly) by the per-window `MainWindowController`; the `NSWindow` handle
+    /// stays in ``windowCoordinator``.
     ///
     /// `RegisteredMainWindow` is NOT stored anywhere and owns no state: it is a
     /// value snapshot built on demand by the resolver methods
@@ -295,6 +294,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private final class MainWindowController: NSWindowController, NSWindowDelegate {
         var onClose: (() -> Void)?
         var shouldClose: (() -> Bool)?
+
+        /// This window's per-window state. Held weakly: the strong owner is
+        /// ``AppDelegate/windowRegistry`` (exactly replacing the old per-slice
+        /// dictionaries' strong ownership), so the context's lifetime is
+        /// unchanged and the controller only expresses the per-window
+        /// association. Set after `registerMainWindow` seeds the context.
+        weak var windowContext: WindowContext?
 
         #if DEBUG
         private func logWindowEvent(_ event: String, notification: Notification) {
@@ -912,25 +918,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    /// Per-window `TabManager` handles, keyed by ``WindowID`` (the second-to-last
-    /// domain peeled out of the rejected `MainWindowContext` aggregate; owner
-    /// ruling 2026-06-18: per-window state is domain-owned and `WindowID`-keyed).
-    /// The handle stays app-target window-owned (the task scope note): the
-    /// `TabManager` lifecycle is the per-window tabs domain's, but the
-    /// window→manager association is window identity, owned here next to
-    /// ``windowCoordinator``. Mirrors ``windowConfigStores``: a passive
-    /// dictionary whose slice is seeded at `registerMainWindow` and dropped by
-    /// the window teardown paths (`unregisterMainWindowContext` /
-    /// `discardOrphanedMainWindowContext`), which run for every closing window.
-    let windowTabManagers = WindowScopedStore<TabManager>()
+    /// The single `WindowID`→``WindowContext`` index that replaces the six
+    /// parallel `WindowScopedStore<…>` dictionaries this delegate used to hold
+    /// (`windowTabManagers`, `windowFocusControllers`, `windowConfigStores`,
+    /// `windowSidebarSelectionStates`, `windowSidebarStates`,
+    /// `windowFileExplorerStates`). Each main `NSWindow` now has one
+    /// ``WindowContext`` holding all six slices; this registry is the single
+    /// strong owner + lookup the window-lifecycle seam and the per-window
+    /// config/sidebar/file-explorer accessors resolve through. The cross-window
+    /// resolver family (`tabManagerFor`, `locateSurface`, …) is unchanged: it
+    /// iterates `registeredMainWindows` (funnelling through
+    /// `resolveRegisteredWindow`, which reads this registry) plus the
+    /// `recoverableMainWindowRoutes()` pass. A passive index: it does NOT
+    /// subscribe to the single-consumer `windowCoordinator.windowClosed` stream;
+    /// slice removal is driven by the one `removeWindowModelSlices` teardown
+    /// funnel.
+    let windowRegistry = WindowRegistry()
 
-    /// Per-window keyboard-focus coordinators, keyed by ``WindowID`` (the LAST
-    /// domain peeled out of the rejected `MainWindowContext` aggregate; owner
-    /// ruling 2026-06-18). `MainWindowFocusController` owns the per-window
-    /// keyboard-focus/right-sidebar-mode state; it lives in the windowing focus
-    /// domain. Mirrors ``windowTabManagers`` exactly: seeded at
-    /// `registerMainWindow`, dropped by the window teardown paths.
-    let windowFocusControllers = WindowScopedStore<MainWindowFocusController>()
+    /// The ``WindowContext`` for `id`, or `nil` if no window is registered under
+    /// `id`. The single forwarder the seam methods and config/sidebar accessors
+    /// resolve their per-window slices through.
+    func windowContext(for id: WindowID) -> WindowContext? {
+        windowRegistry.context(for: id)
+    }
 
     private var mainWindowControllers: [MainWindowController] = []
 
@@ -989,29 +999,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Builds the ephemeral ``RegisteredMainWindow`` resolved value for `id`, or
     /// `nil` if no window is registered under `id`. The god-type leaf the
-    /// coordinator's resolvers funnel through: it reads the per-domain stores
-    /// (``windowTabManagers`` / ``windowFocusControllers``) and resolves the live
-    /// `NSWindow` through ``windowCoordinator`` then the identifier fallback,
-    /// reproducing the old class's `window ?? windowForMainWindowId(windowId)`
-    /// read.
+    /// coordinator's resolvers funnel through: it reads the window's
+    /// ``WindowContext`` (`tabManager` + `focusController`) from
+    /// ``windowRegistry`` and resolves the live `NSWindow` through
+    /// ``windowCoordinator`` then the identifier fallback, reproducing the old
+    /// class's `window ?? windowForMainWindowId(windowId)` read. (A context only
+    /// exists once both tab manager and focus controller are seeded together, so
+    /// `context != nil` is exactly the old "both slices present" guard.)
     func resolveRegisteredWindow(for id: WindowID) -> RegisteredMainWindow? {
-        guard
-            let tabManager = windowTabManagers.model(for: id),
-            let focusController = windowFocusControllers.model(for: id)
-        else { return nil }
+        guard let context = windowRegistry.context(for: id) else { return nil }
         let window = windowCoordinator.window(for: id) ?? windowForMainWindowId(id.rawValue)
         return RegisteredMainWindow(
             windowId: id.rawValue,
-            tabManager: tabManager,
-            keyboardFocusCoordinator: focusController,
+            tabManager: context.tabManager,
+            keyboardFocusCoordinator: context.focusController,
             window: window
         )
     }
 
     /// The ``WindowID``s currently registered, in no guaranteed order (the
-    /// ``windowTabManagers`` id set). Backs the coordinator's `registeredWindows`.
+    /// ``windowRegistry`` id set). Backs the coordinator's `registeredWindows`.
     var registeredWindowIds: [WindowID] {
-        windowTabManagers.ids
+        windowRegistry.ids
     }
 
     /// The live `NSWindow` bound to `registeredWindow`, for the coordinator's
@@ -1020,31 +1029,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         registeredWindow.window
     }
 
-    /// Binds `tabManager` to `id` in ``windowTabManagers``, returning the
+    /// Rebinds `tabManager` on the window's ``WindowContext``, returning the
     /// `ObjectIdentifier` of the distinct manager previously bound to `id` (for
     /// the coordinator's stale reverse-index drop), or `nil`. Faithfully preserves
-    /// the old `previous !== tabManager` guard.
+    /// the old `previous !== tabManager` guard. Always called right after a
+    /// seed/rebind, so the context exists; the `else` never triggers.
     func rebindTabManagerSlice(_ tabManager: TabManager, for id: WindowID) -> ObjectIdentifier? {
-        let previous = windowTabManagers.model(for: id)
-        windowTabManagers.setModel(tabManager, for: id)
-        if let previous, previous !== tabManager {
+        guard let context = windowRegistry.context(for: id) else { return nil }
+        let previous = context.tabManager
+        context.tabManager = tabManager
+        if previous !== tabManager {
             return ObjectIdentifier(previous)
         }
         return nil
     }
 
-    /// Drops every per-window slice for `id` across the app-side domain stores,
+    /// Drops the window's ``WindowContext`` for `id` (and with it all six slices),
     /// returning the removed tab manager and focus controller, or `nil` if nothing
     /// was registered under `id`. Faithfully reproduces the old per-store
     /// `remove(_:)` calls; the reverse-index drop now lives on the coordinator.
     func removeWindowModelSlices(for id: WindowID) -> (tabManager: TabManager, focusController: MainWindowFocusController?)? {
-        guard let tabManager = windowTabManagers.remove(id) else { return nil }
-        let focusController = windowFocusControllers.remove(id)
-        windowConfigStores.remove(id)
-        windowSidebarSelectionStates.remove(id)
-        windowSidebarStates.remove(id)
-        windowFileExplorerStates.remove(id)
-        return (tabManager, focusController)
+        guard let context = windowRegistry.removeContext(for: id) else { return nil }
+        return (context.tabManager, context.focusController)
     }
 
     /// The window id carried by `registeredWindow`. Lets the coordinator key
@@ -1072,10 +1078,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // MARK: - WindowLifecycleHosting registration ingest seam
 
-    /// Whether a tab-manager slice is registered under `id`. Backs the
-    /// coordinator's rebind-vs-seed branch decision.
+    /// Whether a window is registered under `id`. Backs the coordinator's
+    /// rebind-vs-seed branch decision. A context exists iff the tab manager was
+    /// seeded, so this is exactly the old `windowTabManagers` membership check.
     func isMainWindowRegistered(_ id: WindowID) -> Bool {
-        windowTabManagers.model(for: id) != nil
+        windowRegistry.context(for: id) != nil
     }
 
     /// Re-points the existing live window registered under `existingId` when a
@@ -1095,13 +1102,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "existing={\(debugWindowToken(existingWindow))} duplicate={\(debugWindowToken(duplicate))}"
         )
 #endif
-        if let existingManager = windowTabManagers.model(for: existingId) {
+        if let context = windowRegistry.context(for: existingId) {
+            let existingManager = context.tabManager
             existingManager.window = existingWindow
             existingManager.windowId = windowId
-            windowFocusControllers.model(for: existingId)?.update(
+            context.focusController.update(
                 window: existingWindow,
                 tabManager: existingManager,
-                fileExplorerState: windowFileExplorerStates.model(for: existingId)
+                fileExplorerState: context.fileExplorerState
             )
         }
     }
@@ -1119,17 +1127,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         tabManager.window = window
         tabManager.windowId = resolvedId.rawValue
-        let resolvedFileExplorerState = slices.fileExplorerState ?? windowFileExplorerStates.model(for: resolvedId)
+        // The coordinator only takes the rebind branch when the window is already
+        // registered, so the context exists. Note the tab-manager rebind on the
+        // context itself happens in `rebindTabManagerSlice`, called right after;
+        // the focus-controller update below uses the new `tabManager` param, not
+        // `context.tabManager` (which is still the old manager here), exactly as
+        // before.
+        guard let context = windowRegistry.context(for: resolvedId) else { return }
+        let resolvedFileExplorerState = slices.fileExplorerState ?? context.fileExplorerState
         if let fileExplorerState = slices.fileExplorerState {
-            windowFileExplorerStates.setModel(fileExplorerState, for: resolvedId)
+            context.fileExplorerState = fileExplorerState
         }
-        windowFocusControllers.model(for: resolvedId)?.update(
+        context.focusController.update(
             window: window,
             tabManager: tabManager,
             fileExplorerState: resolvedFileExplorerState
         )
         if let cmuxConfigStore = slices.cmuxConfigStore {
-            windowConfigStores.setModel(cmuxConfigStore, for: resolvedId)
+            context.configStore = cmuxConfigStore
         }
     }
 
@@ -1154,15 +1169,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fileExplorerState: slices.fileExplorerState,
             surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
         )
-        windowFocusControllers.setModel(focusController, for: newId)
-        windowSidebarStates.setModel(slices.sidebarState, for: newId)
-        windowSidebarSelectionStates.setModel(slices.sidebarSelectionState, for: newId)
-        if let fileExplorerState = slices.fileExplorerState {
-            windowFileExplorerStates.setModel(fileExplorerState, for: newId)
-        }
-        if let cmuxConfigStore = slices.cmuxConfigStore {
-            windowConfigStores.setModel(cmuxConfigStore, for: newId)
-        }
+        windowRegistry.setContext(
+            WindowContext(
+                windowId: newId,
+                tabManager: tabManager,
+                focusController: focusController,
+                sidebarState: slices.sidebarState,
+                sidebarSelectionState: slices.sidebarSelectionState,
+                fileExplorerState: slices.fileExplorerState,
+                configStore: slices.cmuxConfigStore
+            ),
+            for: newId
+        )
     }
 
     /// Registers `windowId` with the command-palette presentation coordinator.
@@ -1228,24 +1246,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         slices: MainWindowRegistrationSlices
     ) {
         tabManager.windowId = windowId
-        windowFocusControllers.setModel(
-            MainWindowFocusController(
-                windowId: windowId,
-                window: nil,
+        let focusController = MainWindowFocusController(
+            windowId: windowId,
+            window: nil,
+            tabManager: tabManager,
+            fileExplorerState: slices.fileExplorerState,
+            surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
+        )
+        windowRegistry.setContext(
+            WindowContext(
+                windowId: testId,
                 tabManager: tabManager,
+                focusController: focusController,
+                sidebarState: slices.sidebarState,
+                sidebarSelectionState: slices.sidebarSelectionState,
                 fileExplorerState: slices.fileExplorerState,
-                surfaceFocusResolver: AppTerminalSurfaceFocusResolver()
+                configStore: slices.cmuxConfigStore
             ),
             for: testId
         )
-        windowSidebarStates.setModel(slices.sidebarState, for: testId)
-        windowSidebarSelectionStates.setModel(slices.sidebarSelectionState, for: testId)
-        if let fileExplorerState = slices.fileExplorerState {
-            windowFileExplorerStates.setModel(fileExplorerState, for: testId)
-        }
-        if let cmuxConfigStore = slices.cmuxConfigStore {
-            windowConfigStores.setModel(cmuxConfigStore, for: testId)
-        }
     }
 #endif
 
@@ -1281,94 +1300,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// window/tab/surface state.
     let recoverableMainWindowRouteLedger = RecoverableWindowRouteLedger<RecoverableMainWindowRoute>()
 
-    /// Per-window config stores, keyed by ``WindowID`` (first domain peeled out
-    /// of the rejected `MainWindowContext` aggregate; owner ruling 2026-06-18).
-    /// A passive dictionary: its slice is dropped by the window teardown paths
-    /// (`unregisterMainWindowContext` / `discardOrphanedMainWindowContext`),
-    /// reached for every closing window. It deliberately does NOT subscribe to
-    /// the single-consumer `windowCoordinator.windowClosed` stream (whose sole
-    /// consumer is `WindowLifecycleCoordinator.observeWindowCoordinatorClosures()`),
-    /// which would split close events with the teardown loop and starve it.
-    let windowConfigStores = WindowScopedStore<CmuxConfigStore>()
+    /// The per-window ``SidebarSelectionState`` for `context`, resolved through
+    /// the window's ``WindowContext`` in ``windowRegistry``. `registerMainWindow`
+    /// always seeds the slice before the context is reachable, so a live context
+    /// always has one; the empty-state fallback only guards an already-torn-down
+    /// context (whose ``WindowContext`` has been dropped) and preserves the
+    /// never-`nil` invariant the lifted `let` field had.
+    func sidebarSelectionState(for context: RegisteredMainWindow) -> SidebarSelectionState {
+        if let wctx = windowRegistry.context(for: WindowID(context.windowId)) {
+            return wctx.sidebarSelectionState
+        }
+        return SidebarSelectionState()
+    }
 
-    /// Per-window sidebar-selection states, keyed by ``WindowID`` (peeled out of
-    /// the rejected `MainWindowContext` aggregate; owner ruling 2026-06-18:
-    /// per-window state is domain-owned and `WindowID`-keyed, never bundled into
-    /// one per-window aggregate). Mirrors ``windowConfigStores`` exactly: a
-    /// passive dictionary whose slice is set at `registerMainWindow` and dropped
-    /// by the window teardown paths (`unregisterMainWindowContext` /
-    /// `discardOrphanedMainWindowContext`), which run for every closing window.
-    /// It deliberately does NOT subscribe to the single-consumer
-    /// `windowCoordinator.windowClosed` stream, which would split close events
-    /// with the teardown loop and starve it.
-    let windowSidebarSelectionStates = WindowScopedStore<SidebarSelectionState>()
-
-    /// The per-window ``SidebarSelectionState`` for `context`, resolved by
-    /// ``WindowID`` through ``windowSidebarSelectionStates``. `registerMainWindow`
+    /// The per-window ``SidebarState`` for `context`, resolved through the
+    /// window's ``WindowContext`` in ``windowRegistry``. `registerMainWindow`
     /// always seeds the slice before the context is reachable, so a live context
     /// always has one; the empty-state fallback only guards an already-torn-down
     /// context and preserves the never-`nil` invariant the lifted `let` field had.
-    func sidebarSelectionState(for context: RegisteredMainWindow) -> SidebarSelectionState {
-        if let state = windowSidebarSelectionStates.model(for: WindowID(context.windowId)) {
-            return state
-        }
-        let fallback = SidebarSelectionState()
-        windowSidebarSelectionStates.setModel(fallback, for: WindowID(context.windowId))
-        return fallback
-    }
-
-    /// Per-window ``SidebarState`` (sidebar visibility + persisted width), keyed
-    /// by ``WindowID`` (peeled out of the rejected `MainWindowContext` aggregate;
-    /// owner ruling 2026-06-18: per-window state is domain-owned and
-    /// `WindowID`-keyed, never bundled into one per-window aggregate). Mirrors
-    /// ``windowSidebarSelectionStates`` exactly: a passive dictionary whose slice
-    /// is seeded at `registerMainWindow` and dropped by the window teardown paths
-    /// (`unregisterMainWindowContext` / `discardOrphanedMainWindowContext`), which
-    /// run for every closing window. It deliberately does NOT subscribe to the
-    /// single-consumer `windowCoordinator.windowClosed` stream, which would split
-    /// close events with the teardown loop and starve it.
-    let windowSidebarStates = WindowScopedStore<SidebarState>()
-
-    /// The per-window ``SidebarState`` for `context`, resolved by ``WindowID``
-    /// through ``windowSidebarStates``. `registerMainWindow` always seeds the
-    /// slice before the context is reachable, so a live context always has one;
-    /// the empty-state fallback only guards an already-torn-down context and
-    /// preserves the never-`nil` invariant the lifted `let` field had.
     func sidebarState(for context: RegisteredMainWindow) -> SidebarState {
-        if let state = windowSidebarStates.model(for: WindowID(context.windowId)) {
-            return state
+        if let wctx = windowRegistry.context(for: WindowID(context.windowId)) {
+            return wctx.sidebarState
         }
-        let fallback = SidebarState()
-        windowSidebarStates.setModel(fallback, for: WindowID(context.windowId))
-        return fallback
+        return SidebarState()
     }
 
-    /// Per-window right-sidebar (file-explorer) states, keyed by ``WindowID``
-    /// (peeled out of the rejected `MainWindowContext` aggregate; owner ruling
-    /// 2026-06-18: per-window state is domain-owned and `WindowID`-keyed, never
-    /// bundled into one per-window aggregate). Mirrors ``windowSidebarStates``
-    /// exactly EXCEPT that the slice is OPTIONAL by design: the legacy
-    /// `MainWindowContext.fileExplorerState` was a lazily-bound `var
-    /// FileExplorerState?` (nil until the window's content view seeds it), so an
-    /// absent entry faithfully encodes "no file-explorer state yet" and the
-    /// resolver returns `nil` rather than synthesizing an empty one. Its slice is
-    /// seeded/late-bound at `registerMainWindow` and dropped by the window
-    /// teardown paths (`unregisterMainWindowContext` /
-    /// `discardOrphanedMainWindowContext`), which run for every closing window.
-    /// It deliberately does NOT subscribe to the single-consumer
-    /// `windowCoordinator.windowClosed` stream, which would split close events
-    /// with the teardown loop and starve it.
-    let windowFileExplorerStates = WindowScopedStore<FileExplorerState>()
-
-    /// The per-window ``FileExplorerState`` for `context`, resolved by
-    /// ``WindowID`` through ``windowFileExplorerStates``, or `nil` when the
-    /// window has none yet. Unlike ``sidebarState(for:)`` this has NO empty-state
+    /// The per-window ``FileExplorerState`` for `context`, resolved through the
+    /// window's ``WindowContext`` in ``windowRegistry``, or `nil` when the window
+    /// has none yet. Unlike ``sidebarState(for:)`` this has NO empty-state
     /// fallback: the lifted field was an optional `var FileExplorerState?` that
     /// was nil until lazily bound, so a missing slice must read back as `nil` to
     /// preserve that exact semantics (callers already coalesce against the
     /// active-window mirror or bail on `nil`).
     func fileExplorerState(for context: RegisteredMainWindow) -> FileExplorerState? {
-        windowFileExplorerStates.model(for: WindowID(context.windowId))
+        windowRegistry.context(for: WindowID(context.windowId))?.fileExplorerState
     }
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
@@ -5264,7 +5229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }) else {
             return false
         }
-        guard let cmuxConfigStore = windowConfigStores.model(for: WindowID(context.windowId)),
+        guard let cmuxConfigStore = windowRegistry.context(for: WindowID(context.windowId))?.configStore,
               let action = cmuxConfigStore.resolvedNewWorkspaceAction() else {
             return false
         }
@@ -5356,7 +5321,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? mainWindowContext(forShortcutEvent: event, debugSource: debugSource)
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
         guard let context,
-              let cmuxConfigStore = windowConfigStores.model(for: WindowID(context.windowId)) else {
+              let cmuxConfigStore = windowRegistry.context(for: WindowID(context.windowId))?.configStore else {
             return false
         }
 
@@ -6312,6 +6277,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )
+        // Express the per-window association: the controller weakly references the
+        // ``WindowContext`` the registration just seeded (the registry stays the
+        // strong owner, so this does not extend the context's lifetime).
+        controller.windowContext = windowRegistry.context(for: WindowID(windowId))
         publishCmuxWindowLifecycle(name: "window.created", windowId: windowId, origin: "create")
         AppFileDropTarget.installFileDropOverlay(on: window, tabManager: tabManager)
         if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {
@@ -7517,13 +7486,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     var reloadableConfigStores: [any CmuxConfigStoreReloading] {
-        windowConfigStores.models
+        windowRegistry.contexts.compactMap { $0.configStore }
     }
 
-    /// The per-window config store for `context`, resolved by ``WindowID``
-    /// through ``windowConfigStores`` (the slice peeled out of `MainWindowContext`).
+    /// The per-window config store for `context`, resolved through the window's
+    /// ``WindowContext`` in ``windowRegistry``.
     func configStore(for context: RegisteredMainWindow) -> CmuxConfigStore? {
-        windowConfigStores.model(for: WindowID(context.windowId))
+        windowRegistry.context(for: WindowID(context.windowId))?.configStore
     }
 
     /// The per-window config store for the window owning `tabManager`, if any.
@@ -7531,12 +7500,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let context = registeredMainWindow(forManager: tabManager) else {
             return nil
         }
-        return windowConfigStores.model(for: WindowID(context.windowId))
+        return windowRegistry.context(for: WindowID(context.windowId))?.configStore
     }
 
     /// The first registered context whose window has a config store.
     func firstContextWithConfigStore() -> RegisteredMainWindow? {
-        registeredMainWindows.first { windowConfigStores.model(for: WindowID($0.windowId)) != nil }
+        registeredMainWindows.first { windowRegistry.context(for: WindowID($0.windowId))?.configStore != nil }
     }
 
     func refreshWindowTitlesAfterConfigReload() {
@@ -9946,7 +9915,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for context: RegisteredMainWindow?
     ) -> [CmuxResolvedConfigAction] {
         guard let context else { return [] }
-        return windowConfigStores.model(for: WindowID(context.windowId))?.shortcutActions() ?? []
+        return windowRegistry.context(for: WindowID(context.windowId))?.configStore?.shortcutActions() ?? []
     }
 
     private func handleConfiguredCmuxShortcut(
@@ -9998,7 +9967,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let cwd = anchorId.flatMap { id in
                 tabManager.tabs.first(where: { $0.id == id })?.currentDirectory
             }
-            let configured = windowConfigStores.model(for: WindowID(context.windowId))?.resolveWorkspaceGroupConfig(forCwd: cwd)?.newWorkspacePlacement
+            let configured = windowRegistry.context(for: WindowID(context.windowId))?.configStore?.resolveWorkspaceGroupConfig(forCwd: cwd)?.newWorkspacePlacement
             return configured
                 ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
         }()
@@ -10172,7 +10141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return didSplit
             }
         case .command, .agent, .workspaceCommand:
-            guard let cmuxConfigStore = windowConfigStores.model(for: WindowID(context.windowId)) else {
+            guard let cmuxConfigStore = windowRegistry.context(for: WindowID(context.windowId))?.configStore else {
                 return false
             }
             let rawCwd = context.tabManager.selectedWorkspace?.currentDirectory
