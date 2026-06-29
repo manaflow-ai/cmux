@@ -111,7 +111,8 @@ private func browserDismissClientCertificateCredentialPicker(_ alert: NSAlert) {
         at index: Int
     ) -> String {
         let displayTitle: String
-        if let title = candidate.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+        if let rawTitle = candidate.title,
+           case let title = browserAuthPromptMiddleElidedText(rawTitle),
            !title.isEmpty {
             displayTitle = title
         } else {
@@ -122,7 +123,8 @@ private func browserDismissClientCertificateCredentialPicker(_ alert: NSAlert) {
             displayTitle = String(format: format, locale: Locale.current, index + 1)
         }
 
-        guard let subtitle = candidate.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let rawSubtitle = candidate.subtitle,
+              case let subtitle = browserAuthPromptMiddleElidedText(rawSubtitle),
               !subtitle.isEmpty else {
             return displayTitle
         }

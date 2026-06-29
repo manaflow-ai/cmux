@@ -88,13 +88,13 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
             password: "unused",
             persistence: .forSession
         )
-        let handler = BrowserClientCertificateAuthenticationHandler { _ in
-            [
+        let handler = BrowserClientCertificateAuthenticationHandler { _, completion in
+            completion([
                 BrowserClientCertificateCredentialCandidate(
                     title: "BadSSL Client Certificate",
                     credential: expectedCredential
                 ),
-            ]
+            ])
         }
         var disposition: URLSession.AuthChallengeDisposition?
         var credential: URLCredential?
@@ -120,12 +120,12 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
 
     @Test
     func performsDefaultHandlingWhenCandidatesExistWithoutPicker() {
-        let handler = BrowserClientCertificateAuthenticationHandler { _ in
-            [
+        let handler = BrowserClientCertificateAuthenticationHandler { _, completion in
+            completion([
                 BrowserClientCertificateCredentialCandidate(
                     credential: URLCredential(user: "user", password: "password", persistence: .forSession)
                 ),
-            ]
+            ])
         }
         var disposition: URLSession.AuthChallengeDisposition?
         var credential: URLCredential?
@@ -142,7 +142,9 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
 
     @Test
     func performsDefaultHandlingWhenNoClientCertificateCandidateExists() {
-        let handler = BrowserClientCertificateAuthenticationHandler { _ in [] }
+        let handler = BrowserClientCertificateAuthenticationHandler { _, completion in
+            completion([])
+        }
         var disposition: URLSession.AuthChallengeDisposition?
         var credential: URLCredential?
 
@@ -158,12 +160,12 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
 
     @Test
     func ignoresNonClientCertificateChallenges() {
-        let handler = BrowserClientCertificateAuthenticationHandler { _ in
-            [
+        let handler = BrowserClientCertificateAuthenticationHandler { _, completion in
+            completion([
                 BrowserClientCertificateCredentialCandidate(
                     credential: URLCredential(user: "user", password: "password", persistence: .forSession)
                 ),
-            ]
+            ])
         }
         var completionCalled = false
 
@@ -185,7 +187,9 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
             BrowserClientCertificateCredentialCandidate(title: "First", credential: firstCredential),
             BrowserClientCertificateCredentialCandidate(title: "Second", credential: secondCredential),
         ]
-        let handler = BrowserClientCertificateAuthenticationHandler { _ in candidates }
+        let handler = BrowserClientCertificateAuthenticationHandler { _, completion in
+            completion(candidates)
+        }
         var pickerCandidateCount: Int?
         var disposition: URLSession.AuthChallengeDisposition?
         var credential: URLCredential?
@@ -212,7 +216,8 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
     func pickerSanitizesCredentialReleaseOrigin() {
         let webView = WKWebView(frame: .zero)
         let candidate = BrowserClientCertificateCredentialCandidate(
-            title: "Client",
+            title: "Client\u{202E}\n",
+            subtitle: "Serial \u{202E}\n123",
             credential: URLCredential(user: "client-cert", password: "unused", persistence: .forSession)
         )
         let picker = BrowserClientCertificateCredentialPicker(
@@ -222,6 +227,12 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
                 #expect(alert.informativeText.contains("https://mtls.example:8443"))
                 #expect(alert.informativeText.contains("\u{202E}") == false)
                 #expect(alert.informativeText.contains("\n") == false)
+                let popup = alert.accessoryView as? NSPopUpButton
+                let popupTitle = popup?.itemTitles.first ?? ""
+                #expect(popupTitle.contains("Client"))
+                #expect(popupTitle.contains("Serial 123"))
+                #expect(popupTitle.contains("\u{202E}") == false)
+                #expect(popupTitle.contains("\n") == false)
                 completion(.alertSecondButtonReturn)
             }
         )
@@ -357,10 +368,10 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
         let serverAuthenticationOID = Data([0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x01])
         let anyExtendedKeyUsageOID = Data([0x55, 0x1D, 0x25, 0x00])
 
-        #expect(browserClientCertificateExtendedKeyUsageAllowsTLSClientAuthentication(nil))
-        #expect(browserClientCertificateExtendedKeyUsageAllowsTLSClientAuthentication([clientAuthenticationOID]))
-        #expect(browserClientCertificateExtendedKeyUsageAllowsTLSClientAuthentication([anyExtendedKeyUsageOID]))
-        #expect(!browserClientCertificateExtendedKeyUsageAllowsTLSClientAuthentication([serverAuthenticationOID]))
-        #expect(!browserClientCertificateExtendedKeyUsageAllowsTLSClientAuthentication([]))
+        #expect(BrowserClientCertificateCredentialStore.extendedKeyUsageAllowsTLSClientAuthentication(nil))
+        #expect(BrowserClientCertificateCredentialStore.extendedKeyUsageAllowsTLSClientAuthentication([clientAuthenticationOID]))
+        #expect(BrowserClientCertificateCredentialStore.extendedKeyUsageAllowsTLSClientAuthentication([anyExtendedKeyUsageOID]))
+        #expect(!BrowserClientCertificateCredentialStore.extendedKeyUsageAllowsTLSClientAuthentication([serverAuthenticationOID]))
+        #expect(!BrowserClientCertificateCredentialStore.extendedKeyUsageAllowsTLSClientAuthentication([]))
     }
 }

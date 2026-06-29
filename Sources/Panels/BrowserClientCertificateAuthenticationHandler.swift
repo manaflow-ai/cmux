@@ -2,7 +2,10 @@ import Foundation
 import WebKit
 
 @MainActor struct BrowserClientCertificateAuthenticationHandler {
-    typealias CandidateProvider = (URLProtectionSpace) -> [BrowserClientCertificateCredentialCandidate]
+    typealias CandidateProvider = (
+        _ protectionSpace: URLProtectionSpace,
+        _ completion: @escaping @MainActor ([BrowserClientCertificateCredentialCandidate]) -> Void
+    ) -> Void
     typealias PromptCancellationRegistration = (@escaping () -> Void) -> Void
     typealias CandidatePicker = (
         _ protectionSpace: URLProtectionSpace,
@@ -25,21 +28,56 @@ import WebKit
         registerCancelPrompt: @escaping PromptCancellationRegistration = { _ in },
         completionHandler: @escaping Completion
     ) -> Bool {
-        guard browserShouldHandleClientCertificateAuthentication(challenge: challenge) else {
+        guard Self.shouldHandle(challenge: challenge) else {
             return false
         }
 
-        let candidates = candidateProvider(challenge.protectionSpace)
+        candidateProvider(challenge.protectionSpace) { candidates in
+            complete(
+                candidates: candidates,
+                protectionSpace: challenge.protectionSpace,
+                candidatePicker: candidatePicker,
+                registerCancelPrompt: registerCancelPrompt,
+                completionHandler: completionHandler
+            )
+        }
+        return true
+    }
+
+    fileprivate static func keychainCandidateProvider(
+        protectionSpace: URLProtectionSpace,
+        completion: @escaping @MainActor ([BrowserClientCertificateCredentialCandidate]) -> Void
+    ) {
+        let acceptedIssuers = protectionSpace.distinguishedNames
+        DispatchQueue.global(qos: .userInitiated).async {
+            let candidates = BrowserClientCertificateCredentialStore().candidates(acceptedIssuers: acceptedIssuers)
+            Task { @MainActor in
+                completion(candidates)
+            }
+        }
+    }
+
+    fileprivate static func shouldHandle(challenge: URLAuthenticationChallenge) -> Bool {
+        challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate
+    }
+
+    private func complete(
+        candidates: [BrowserClientCertificateCredentialCandidate],
+        protectionSpace: URLProtectionSpace,
+        candidatePicker: CandidatePicker?,
+        registerCancelPrompt: @escaping PromptCancellationRegistration,
+        completionHandler: @escaping Completion
+    ) {
         switch candidates.count {
         case 0:
             completionHandler(.performDefaultHandling, nil)
         default:
             guard let candidatePicker else {
                 completionHandler(.performDefaultHandling, nil)
-                return true
+                return
             }
             candidatePicker(
-                challenge.protectionSpace,
+                protectionSpace,
                 candidates,
                 { selectedCandidate in
                     guard let selectedCandidate else {
@@ -53,14 +91,7 @@ import WebKit
                 }
             )
         }
-        return true
     }
-}
-
-func browserShouldHandleClientCertificateAuthentication(
-    challenge: URLAuthenticationChallenge
-) -> Bool {
-    challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate
 }
 
 struct BrowserClientCertificateProtectionSpaceKey: Hashable {
@@ -144,7 +175,7 @@ struct BrowserClientCertificateProtectionSpaceKey: Hashable {
         startPrompt: @escaping (@escaping Completion, @escaping PromptCancellationRegistration) -> Bool,
         completionHandler: @escaping Completion
     ) -> Bool {
-        guard browserShouldHandleClientCertificateAuthentication(challenge: challenge) else {
+        guard BrowserClientCertificateAuthenticationHandler.shouldHandle(challenge: challenge) else {
             return false
         }
 
@@ -258,7 +289,7 @@ struct BrowserClientCertificateProtectionSpaceKey: Hashable {
 
     init(
         candidateProvider: @escaping BrowserClientCertificateAuthenticationHandler.CandidateProvider =
-            BrowserClientCertificateCredentialStore().candidates(for:)
+            BrowserClientCertificateAuthenticationHandler.keychainCandidateProvider(protectionSpace:completion:)
     ) {
         authenticationHandler = BrowserClientCertificateAuthenticationHandler(
             candidateProvider: candidateProvider

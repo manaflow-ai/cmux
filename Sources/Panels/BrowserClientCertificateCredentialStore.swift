@@ -16,56 +16,60 @@ private let browserClientCertificateAnyExtendedKeyUsageEKU = Data([
     0x55, 0x1D, 0x25, 0x00,
 ])
 
-func browserClientCertificateExtendedKeyUsageAllowsTLSClientAuthentication(_ value: Any?) -> Bool {
-    guard let value else {
-        return true
-    }
-
-    var foundExtendedKeyUsage = false
-    var allowsTLSClientAuthentication = false
-
-    func collectOIDValues(from value: Any) {
-        if let data = value as? Data {
-            foundExtendedKeyUsage = true
-            if data == browserClientCertificateTLSClientAuthenticationEKU
-                || data == browserClientCertificateAnyExtendedKeyUsageEKU {
-                allowsTLSClientAuthentication = true
-            }
-            return
-        }
-
-        if let string = value as? String {
-            foundExtendedKeyUsage = true
-            switch string {
-            case "1.3.6.1.5.5.7.3.2", "2.5.29.37.0":
-                allowsTLSClientAuthentication = true
-            default:
-                break
-            }
-            return
-        }
-
-        if let dictionary = value as? [String: Any] {
-            if let nestedValue = dictionary[kSecPropertyKeyValue as String] {
-                collectOIDValues(from: nestedValue)
-            }
-            return
-        }
-
-        if let array = value as? [Any] {
-            for nestedValue in array {
-                collectOIDValues(from: nestedValue)
-            }
-        }
-    }
-
-    collectOIDValues(from: value)
-    return foundExtendedKeyUsage && allowsTLSClientAuthentication
-}
-
 struct BrowserClientCertificateCredentialStore {
+    static func extendedKeyUsageAllowsTLSClientAuthentication(_ value: Any?) -> Bool {
+        guard let value else {
+            return true
+        }
+
+        var foundExtendedKeyUsage = false
+        var allowsTLSClientAuthentication = false
+
+        func collectOIDValues(from value: Any) {
+            if let data = value as? Data {
+                foundExtendedKeyUsage = true
+                if data == browserClientCertificateTLSClientAuthenticationEKU
+                    || data == browserClientCertificateAnyExtendedKeyUsageEKU {
+                    allowsTLSClientAuthentication = true
+                }
+                return
+            }
+
+            if let string = value as? String {
+                foundExtendedKeyUsage = true
+                switch string {
+                case "1.3.6.1.5.5.7.3.2", "2.5.29.37.0":
+                    allowsTLSClientAuthentication = true
+                default:
+                    break
+                }
+                return
+            }
+
+            if let dictionary = value as? [String: Any] {
+                if let nestedValue = dictionary[kSecPropertyKeyValue as String] {
+                    collectOIDValues(from: nestedValue)
+                }
+                return
+            }
+
+            if let array = value as? [Any] {
+                for nestedValue in array {
+                    collectOIDValues(from: nestedValue)
+                }
+            }
+        }
+
+        collectOIDValues(from: value)
+        return foundExtendedKeyUsage && allowsTLSClientAuthentication
+    }
+
     func candidates(for protectionSpace: URLProtectionSpace) -> [BrowserClientCertificateCredentialCandidate] {
-        guard let query = identityLookupQuery(for: protectionSpace) else {
+        candidates(acceptedIssuers: protectionSpace.distinguishedNames)
+    }
+
+    func candidates(acceptedIssuers: [Data]?) -> [BrowserClientCertificateCredentialCandidate] {
+        guard let query = identityLookupQuery(acceptedIssuers: acceptedIssuers) else {
             browserClientCertificateLogger.info(
                 "browser.clientCertificate.identityLookupSkipped reason=missingAcceptedIssuers"
             )
@@ -96,6 +100,8 @@ struct BrowserClientCertificateCredentialStore {
 
     func identityLookupQuery(acceptedIssuers: [Data]?) -> [String: Any]? {
         guard let acceptedIssuers, !acceptedIssuers.isEmpty else {
+            // Without server-advertised issuers, any client-auth identity can match.
+            // Let WebKit keep its default handling instead of presenting unrelated Keychain identities.
             return nil
         }
 
@@ -181,10 +187,10 @@ struct BrowserClientCertificateCredentialStore {
 
         if let dictionary = extendedKeyUsage as? [String: Any],
            let value = dictionary[kSecPropertyKeyValue as String] {
-            return browserClientCertificateExtendedKeyUsageAllowsTLSClientAuthentication(value)
+            return Self.extendedKeyUsageAllowsTLSClientAuthentication(value)
         }
 
-        return browserClientCertificateExtendedKeyUsageAllowsTLSClientAuthentication(extendedKeyUsage)
+        return Self.extendedKeyUsageAllowsTLSClientAuthentication(extendedKeyUsage)
     }
 
     private func certificateSerialNumberSubtitle(for certificate: SecCertificate) -> String? {
