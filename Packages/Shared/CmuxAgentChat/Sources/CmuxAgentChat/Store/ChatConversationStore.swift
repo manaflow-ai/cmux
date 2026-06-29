@@ -60,6 +60,14 @@ public final class ChatConversationStore {
 
     @ObservationIgnored private var messages: [ChatMessage] = []
     @ObservationIgnored private var pending: [ChatPendingOutbound] = []
+    /// Live, not-yet-committed preview of the agent's in-progress prose for the
+    /// current turn, scraped from the rendered terminal screen. Held outside
+    /// ``messages`` (so it never collides with window dedup/paging/seq) and
+    /// rendered as a trailing agent bubble. Cleared the instant the authoritative
+    /// agent prose lands via ``ChatSessionEvent/appended`` or an explicit
+    /// ``ChatSessionEvent/streamingProse`` `nil`, so it never duplicates a real
+    /// message.
+    @ObservationIgnored private var streamingMessage: ChatMessage?
     @ObservationIgnored private var firstUnreadSeq: Int?
     /// Terminal command-blocks for a `.terminal`-kind session, upserted by
     /// id; `terminalBlockOrder` preserves arrival order. Unused (and the
@@ -458,6 +466,13 @@ public final class ChatConversationStore {
         switch event {
         case .appended(let newMessages):
             reconcilePending(against: newMessages)
+            // The authoritative agent prose for the in-flight turn just landed:
+            // drop the live preview so the committed message takes over with no
+            // duplicate, even if the host's explicit clear is delayed or lost.
+            if streamingMessage != nil,
+               newMessages.contains(where: { $0.role == .agent && Self.isProse($0) }) {
+                streamingMessage = nil
+            }
             // A live append whose seq regresses below the window tail means
             // the transcript was truncated/replaced and the tailer reset;
             // appending would corrupt window ordering. Re-anchor instead.
@@ -499,6 +514,14 @@ public final class ChatConversationStore {
             // optimistic pending row it came from so it doesn't linger or leak.
             reconcileTerminalPending(against: blocks)
             reproject()
+        case .streamingProse(let message):
+            // The preview is a whole-value replace; an agent session only. A
+            // terminal session has no agent prose, so ignore it there.
+            guard descriptor.kind != .terminal else { break }
+            let next = message.flatMap { Self.isProse($0) ? $0 : nil }
+            guard next != streamingMessage else { break }
+            streamingMessage = next
+            reproject()
         case .reset:
             // The transcript was truncated/replaced on the Mac (tailer
             // re-read from scratch). The window's seq space is void; clear
@@ -507,6 +530,8 @@ public final class ChatConversationStore {
             // their retry and in-flight sends may still land in the new
             // transcript and reconcile normally.
             messages = []
+            // The preview belongs to the old seq space; drop it on re-anchor.
+            streamingMessage = nil
             // Terminal blocks must clear here too: the terminal reproject()
             // does not consult `messages`, so without this the synchronous
             // reproject below would re-render stale blocks (and they'd persist
@@ -713,10 +738,27 @@ public final class ChatConversationStore {
                 + pending.map(ChatTranscriptRow.pendingOutbound)
             return
         }
+        // The live preview renders as a trailing agent bubble after the
+        // committed window. Appending it to the projector input lets it group
+        // with adjacent agent prose exactly like a real message; it carries no
+        // window identity (never paged, deduped, or reconciled by id).
+        let projected: [ChatMessage]
+        if let streamingMessage, !messages.contains(where: { $0.id == streamingMessage.id }) {
+            projected = messages + [streamingMessage]
+        } else {
+            projected = messages
+        }
         rows = projector.rows(
-            messages: messages,
+            messages: projected,
             pending: pending,
             firstUnreadSeq: firstUnreadSeq
         )
+    }
+
+    /// Whether a message is renderable agent/user prose (used to settle the
+    /// live preview against the authoritative transcript line).
+    private static func isProse(_ message: ChatMessage) -> Bool {
+        if case .prose = message.kind { return true }
+        return false
     }
 }
