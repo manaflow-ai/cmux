@@ -4,11 +4,16 @@ import SwiftUI
 
 /// The horizontal shortcut row above the composer field.
 public struct ChatAccessoryChipRow: View {
+    private static let scrollEdgeBlurWidth: CGFloat = 34
+
     private let agentState: ChatAgentState
     private let leadingShortcuts: [ChatAccessoryShortcut]
     private let shortcuts: [ChatAccessoryShortcut]
     private let onInterrupt: (Bool) -> Void
     private let onOpenTerminal: () -> Void
+
+    @State private var scrollContentWidth: CGFloat = 0
+    @State private var scrollViewportWidth: CGFloat = 0
 
     /// Creates the chip row.
     ///
@@ -53,23 +58,24 @@ public struct ChatAccessoryChipRow: View {
                     // chips rather than cropping the very first/last chip flush
                     // at the edge.
                     .padding(.horizontal, 2)
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                        scrollContentWidth = width
+                    }
                 }
                 .frame(height: 32)
                 .layoutPriority(1)
-                // Soft horizontal scroll-edge fade so chips dissolve at the
-                // margins instead of being hard-clipped by the scroll view's
-                // straight edge.
-                .mask {
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: .black, location: 0.035),
-                            .init(color: .black, location: 0.965),
-                            .init(color: .clear, location: 1),
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                    scrollViewportWidth = width
+                }
+                .overlay(alignment: .leading) {
+                    if scrollNeedsEdgeBlur {
+                        scrollEdgeBlur(isLeading: true)
+                    }
+                }
+                .overlay(alignment: .trailing) {
+                    if scrollNeedsEdgeBlur {
+                        scrollEdgeBlur(isLeading: false)
+                    }
                 }
             }
         }
@@ -98,6 +104,10 @@ public struct ChatAccessoryChipRow: View {
 
     private var usesHostShortcuts: Bool {
         !leadingShortcuts.isEmpty || !shortcuts.isEmpty
+    }
+
+    private var scrollNeedsEdgeBlur: Bool {
+        scrollContentWidth > scrollViewportWidth + 1
     }
 
     private var stopShortcut: ChatAccessoryShortcut {
@@ -168,5 +178,23 @@ public struct ChatAccessoryChipRow: View {
         } else {
             Text(shortcut.title)
         }
+    }
+
+    private func scrollEdgeBlur(isLeading: Bool) -> some View {
+        Rectangle()
+            .fill(.regularMaterial)
+            .frame(width: Self.scrollEdgeBlurWidth)
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: isLeading ? .black : .clear, location: 0),
+                        .init(color: isLeading ? .black : .clear, location: 0.18),
+                        .init(color: isLeading ? .clear : .black, location: 1),
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            }
+            .allowsHitTesting(false)
     }
 }
