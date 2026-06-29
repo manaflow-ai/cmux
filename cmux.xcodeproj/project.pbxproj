@@ -103,9 +103,13 @@
 		D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */; };
 		AA1B2C3D4E5F60718 /* BonsplitTabDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */; };
 		D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */; };
+		D7032A070000000000000001 /* BrowserAuthPromptTextFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A070000000000000002 /* BrowserAuthPromptTextFormatter.swift */; };
 		B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770BA00000000000000002 /* BrowserAutomation.swift */; };
 		BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */; };
 		BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */; };
+		D7032A020000000000000001 /* BrowserClientCertificateAuthenticationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A020000000000000002 /* BrowserClientCertificateAuthenticationController.swift */; };
+		D7032A050000000000000001 /* BrowserClientCertificateCredentialPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */; };
+		D7032A030000000000000001 /* BrowserClientCertificateCredentialPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A030000000000000002 /* BrowserClientCertificateCredentialPickerTests.swift */; };
 		E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */; };
 		C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */; };
 		C59240010000000000000003 /* BrowserDownloadFilenameResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */; };
@@ -252,6 +256,7 @@
 		C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2B00000000000000000C2 /* CmuxAppKitSupportUI */; };
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */; };
+		D7032A060000000000000001 /* CmuxBrowser in Frameworks */ = {isa = PBXBuildFile; productRef = D7032A060000000000000002 /* CmuxBrowser */; };
 		E3B7A30000000000000000C3 /* CmuxBrowser in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000C2 /* CmuxBrowser */; };
 		CA52A003CA52A003CA52A003 /* CmuxCanvas in Frameworks */ = {isa = PBXBuildFile; productRef = CA52A005CA52A005CA52A005 /* CmuxCanvas */; };
 		CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */ = {isa = PBXBuildFile; productRef = CA52A005CA52A005CA52A005 /* CmuxCanvas */; };
@@ -1362,9 +1367,13 @@
 		D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabBarPassThrough.swift; sourceTree = "<group>"; };
 		AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabDragUITests.swift; sourceTree = "<group>"; };
 		D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
+		D7032A070000000000000002 /* BrowserAuthPromptTextFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAuthPromptTextFormatter.swift; sourceTree = "<group>"; };
 		B3770BA00000000000000002 /* BrowserAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAutomation.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserChromeMetrics.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserChromeMetricsTests.swift; sourceTree = "<group>"; };
+		D7032A020000000000000002 /* BrowserClientCertificateAuthenticationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserClientCertificateAuthenticationController.swift; sourceTree = "<group>"; };
+		D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserClientCertificateCredentialPicker.swift; sourceTree = "<group>"; };
+		D7032A030000000000000002 /* BrowserClientCertificateCredentialPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserClientCertificateCredentialPickerTests.swift; sourceTree = "<group>"; };
 		970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
 		C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadFilenameResolver.swift; sourceTree = "<group>"; };
 		C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDownloadFilenameResolverTests.swift; sourceTree = "<group>"; };
@@ -2477,6 +2486,7 @@
 			files = (
 				B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */,
 				C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */,
+				D7032A060000000000000001 /* CmuxBrowser in Frameworks */,
 				CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */,
 				5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */,
 				CC0DE00000000000000000A4 /* CmuxCore in Frameworks */,
@@ -3040,6 +3050,9 @@
 				A5001411 /* TerminalPanel.swift */,
 				B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */,
 				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
+				D7032A070000000000000002 /* BrowserAuthPromptTextFormatter.swift */,
+				D7032A020000000000000002 /* BrowserClientCertificateAuthenticationController.swift */,
+				D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */,
 				BABA25000000000000000002 /* BrowserHTTPBasicAuthPromptCoordinator.swift */,
 				BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */,
 				BABA2500000000000000000C /* BrowserHTTPBasicAuthProtectionSpaceKey.swift */,
@@ -3494,6 +3507,7 @@
 				D36090010000000000000006 /* CmuxMainWindowConstrainFrameTests.swift */,
 				D36090020000000000000006 /* CmuxMainWindowFullScreenCapabilityTests.swift */,
 				970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */,
+				D7032A030000000000000002 /* BrowserClientCertificateCredentialPickerTests.swift */,
 				BABA25000000000000000006 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift */,
 				BABA25000000000000000004 /* BrowserHTTPBasicAuthPromptTests.swift */,
 				8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */,
@@ -3874,6 +3888,7 @@
 				5E27010400000000000000A3 /* CmuxSettings */,
 				5E27010400000000000000A4 /* CmuxWorkspaces */,
 				C9A2B00000000000000000C2 /* CmuxAppKitSupportUI */,
+				D7032A060000000000000002 /* CmuxBrowser */,
 				5E55500000000000000000E2 /* CmuxCommandPalette */,
 				C0DE4A000000000000000004 /* CmuxSidebarProviderKit */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
@@ -4197,8 +4212,11 @@
 				A50012F1 /* Backport.swift in Sources */,
 				D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */,
 				D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */,
+				D7032A070000000000000001 /* BrowserAuthPromptTextFormatter.swift in Sources */,
 				B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */,
 				BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */,
+				D7032A020000000000000001 /* BrowserClientCertificateAuthenticationController.swift in Sources */,
+				D7032A050000000000000001 /* BrowserClientCertificateCredentialPicker.swift in Sources */,
 				C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */,
 				C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */,
 				C2035A020000000000000001 /* BrowserErrorPageContent.swift in Sources */,
@@ -4983,6 +5001,7 @@
 				74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */,
 				D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */,
 				BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */,
+				D7032A030000000000000001 /* BrowserClientCertificateCredentialPickerTests.swift in Sources */,
 				E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */,
 				C59240010000000000000003 /* BrowserDownloadFilenameResolverTests.swift in Sources */,
 				A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
@@ -5959,6 +5978,11 @@
 			productName = CmuxSidebar;
 		};
 		E3B7A30000000000000000C2 /* CmuxBrowser */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E3B7A30000000000000000C1 /* XCLocalSwiftPackageReference "CmuxBrowser" */;
+			productName = CmuxBrowser;
+		};
+		D7032A060000000000000002 /* CmuxBrowser */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = E3B7A30000000000000000C1 /* XCLocalSwiftPackageReference "CmuxBrowser" */;
 			productName = CmuxBrowser;
