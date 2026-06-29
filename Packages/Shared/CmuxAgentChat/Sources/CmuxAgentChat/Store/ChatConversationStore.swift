@@ -125,6 +125,8 @@ public final class ChatConversationStore {
     /// Cancellable reconnect-backoff sleep; injectable for deterministic
     /// tests.
     @ObservationIgnored private let idleSleep: (Duration) async -> Void
+    @ObservationIgnored private var backoffSleepTask: Task<Void, Never>?
+    @ObservationIgnored private var backoffSleepID: UUID?
 
     /// Follows the live event stream until cancelled, loading history
     /// inside each subscription so no event falls into a fetch/subscribe
@@ -178,7 +180,15 @@ public final class ChatConversationStore {
                 backoff = .zero
             } else {
                 backoff = min(max(backoff * 2, .milliseconds(500)), .seconds(16))
-                await idleSleep(backoff)
+                let sleepID = UUID()
+                let sleepTask = Task { await idleSleep(backoff) }
+                backoffSleepID = sleepID
+                backoffSleepTask = sleepTask
+                await sleepTask.value
+                if backoffSleepID == sleepID {
+                    backoffSleepID = nil
+                    backoffSleepTask = nil
+                }
             }
         }
     }
@@ -397,6 +407,9 @@ public final class ChatConversationStore {
     /// Rebinds this conversation to the current Mac transport after reconnect.
     public func replaceSource(_ source: any ChatEventSource, descriptor: ChatSessionDescriptor) {
         self.source = source
+        backoffSleepTask?.cancel()
+        backoffSleepTask = nil
+        backoffSleepID = nil
         applyDescriptorSnapshot(descriptor)
     }
 
