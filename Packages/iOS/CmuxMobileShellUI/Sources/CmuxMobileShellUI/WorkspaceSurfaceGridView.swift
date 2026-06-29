@@ -383,10 +383,11 @@ struct WorkspaceSurfaceGridView: View {
             openBrowser(workspace.id)
             return
         }
-        if let terminalID = WorkspaceSurfaceGridSelection.terminalIDToOpen(
-            in: workspace,
+        let selection = WorkspaceSurfaceGridSelection(
+            workspace: workspace,
             selectedTerminalID: selectedTerminalID
-        ) {
+        )
+        if let terminalID = selection.terminalIDToOpen() {
             openTerminal(workspace.id, terminalID)
         }
     }
@@ -397,11 +398,11 @@ private struct WorkspaceSurfaceGridContent {
     let filteredSurfaceItems: [WorkspaceSurfaceGridItem]
 }
 
-enum WorkspaceSurfaceGridSelection {
-    static func terminalIDToOpen(
-        in workspace: MobileWorkspacePreview,
-        selectedTerminalID: MobileTerminalPreview.ID?
-    ) -> MobileTerminalPreview.ID? {
+struct WorkspaceSurfaceGridSelection {
+    let workspace: MobileWorkspacePreview
+    let selectedTerminalID: MobileTerminalPreview.ID?
+
+    func terminalIDToOpen() -> MobileTerminalPreview.ID? {
         if let selectedTerminalID,
            workspace.terminals.contains(where: { $0.id == selectedTerminalID }) {
             return selectedTerminalID

@@ -13,12 +13,12 @@ import CmuxMobileShellModel
             ]
         )
 
-        #expect(
-            WorkspaceSurfaceGridSelection.terminalIDToOpen(
-                in: workspace,
-                selectedTerminalID: "terminal-agent"
-            ) == "terminal-agent"
+        let selection = WorkspaceSurfaceGridSelection(
+            workspace: workspace,
+            selectedTerminalID: "terminal-agent"
         )
+
+        #expect(selection.terminalIDToOpen() == "terminal-agent")
     }
 
     @Test func fallsBackToFirstTerminalWhenSelectionBelongsToAnotherWorkspace() {
@@ -31,11 +31,11 @@ import CmuxMobileShellModel
             ]
         )
 
-        #expect(
-            WorkspaceSurfaceGridSelection.terminalIDToOpen(
-                in: workspace,
-                selectedTerminalID: "terminal-from-other-workspace"
-            ) == "terminal-build"
+        let selection = WorkspaceSurfaceGridSelection(
+            workspace: workspace,
+            selectedTerminalID: "terminal-from-other-workspace"
         )
+
+        #expect(selection.terminalIDToOpen() == "terminal-build")
     }
 }
