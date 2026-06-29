@@ -245,12 +245,14 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 y: clampedOffsetY(rect.minY + anchor.offsetFromRowTop, in: tableView)
             )
             tableView.setContentOffset(offset, animated: false)
+            (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
         }
 
         private func scrollToBottom(in tableView: UITableView, animated: Bool) {
             tableView.layoutIfNeeded()
             let targetY = maxOffsetY(in: tableView)
             tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: targetY), animated: animated)
+            (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
             setAtBottom(true)
         }
 
@@ -316,6 +318,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             let maxY = maxOffsetY(in: tableView)
             let targetY = clampedOffsetY(minY + ((maxY - minY) * 0.5), in: tableView)
             tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: targetY), animated: false)
+            (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
             setAtBottom(false)
         }
         #endif
@@ -334,6 +337,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 CGPoint(x: tableView.contentOffset.x, y: offsetY),
                 animated: false
             )
+            (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
             setAtBottom(snapshot.wasAtBottom)
         }
     }

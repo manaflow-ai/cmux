@@ -79,6 +79,13 @@ final class ChatTranscriptUITableView: UITableView {
         restoreKeyboardViewport(snapshot, boundsHeight: bounds.height)
     }
 
+    func recordCurrentViewport() {
+        recordViewport()
+        #if DEBUG
+        updateDebugAccessibilityValue()
+        #endif
+    }
+
     func restoreKeyboardViewport(
         _ snapshot: MobileScrollViewportSnapshot,
         boundsHeight: CGFloat
@@ -90,10 +97,7 @@ final class ChatTranscriptUITableView: UITableView {
             adjustedBottomInset: adjustedContentInset.bottom
         )
         setContentOffset(CGPoint(x: contentOffset.x, y: targetY), animated: false)
-        recordViewport()
-        #if DEBUG
-        updateDebugAccessibilityValue()
-        #endif
+        recordCurrentViewport()
     }
 
     func applyTranscriptViewportInsets(
