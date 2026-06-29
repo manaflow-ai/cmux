@@ -3666,4 +3666,92 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
         }
     }
+
+    /// Issue #4256 / follow-up of PR #5154: the Claude auto-resume *binding* (source: agent-hook)
+    /// must `cd` into the directory the session was *created* in, not a runtime cwd the agent drifted
+    /// into mid-session. Claude files transcripts under `<config>/projects/<encoded launch cwd>/`, so a
+    /// binding pinned to a drifted subdir resumes from the wrong project dir and fails with
+    /// "No conversation found". PR #5154 fixed the snapshot path but explicitly left the binding path
+    /// as a follow-up; this covers that path.
+    ///
+    /// Reproduces the REAL failure: the SessionStart hook fires after the agent already drifted and
+    /// `CMUX_AGENT_LAUNCH_CWD` is the drift, so BOTH the captured launch cwd and the runtime cwd are
+    /// the drift — the true launch cwd is not available from env at all. The fix recovers it from the
+    /// transcript's recorded `cwd` (verified by re-encoding against the transcript's project dir).
+    func testClaudeResumeBindingPinsLaunchCwdRecoveredFromTranscript() throws {
+        let context = try makeClaudeHookContext(name: "claude-resume-binding-cwd")
+        defer { context.cleanup() }
+
+        let sessionId = "drifted-resume-session"
+        // The TRUE launch cwd Claude namespaced the transcript under.
+        let launchCwd = context.root.appendingPathComponent("repo.main", isDirectory: true).path
+        // The drifted cwd the agent moved into; the hook only ever sees this one.
+        let driftedCwd = context.root.appendingPathComponent("worktree", isDirectory: true).path
+        try FileManager.default.createDirectory(atPath: launchCwd, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: driftedCwd, withIntermediateDirectories: true)
+
+        // Lay the transcript where Claude actually stores it: under the launch cwd's project dir,
+        // with the launch cwd recorded inside (as real Claude transcripts do). Encode independently
+        // of the production helper so an encoder regression can't mask the bug.
+        let encodedLaunchDir = launchCwd
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ".", with: "-")
+        let projectDir = context.root
+            .appendingPathComponent(".claude/projects/\(encodedLaunchDir)", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+        let transcriptPath = projectDir.appendingPathComponent("\(sessionId).jsonl").path
+        try (#"{"type":"user","sessionId":"\#(sessionId)","cwd":"\#(launchCwd)","message":{"role":"user","content":"hi"}}"# + "\n")
+            .write(toFile: transcriptPath, atomically: true, encoding: .utf8)
+
+        // The drift trap: the launch capture itself reports the drifted cwd (CMUX_AGENT_LAUNCH_CWD =
+        // drift), matching the real case where SessionStart fired after the agent had moved.
+        let driftedLaunchEnv: [String: String] = [
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+            "CMUX_AGENT_LAUNCH_CWD": driftedCwd,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
+        ]
+
+        let start = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(driftedCwd)","transcript_path":"\#(transcriptPath)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: driftedLaunchEnv
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(driftedCwd)","transcript_path":"\#(transcriptPath)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: driftedLaunchEnv
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let resumeSetParams = context.state.snapshot().compactMap { line -> [String: Any]? in
+            guard let payload = self.jsonObject(line),
+                  payload["method"] as? String == "surface.resume.set",
+                  let params = payload["params"] as? [String: Any],
+                  params["kind"] as? String == "claude" else {
+                return nil
+            }
+            return params
+        }
+        let params = try XCTUnwrap(
+            resumeSetParams.last,
+            "expected a claude surface.resume.set; saw \(context.state.snapshot())"
+        )
+
+        // The binding must target the launch cwd (where the transcript lives), NOT the drifted cwd.
+        XCTAssertEqual(
+            params["cwd"] as? String, launchCwd,
+            "resume binding cwd should pin the launch dir recovered from the transcript, not the drift"
+        )
+        let command = try XCTUnwrap(params["command"] as? String)
+        XCTAssertTrue(
+            command.contains(launchCwd) && !command.contains(driftedCwd),
+            "resume command should cd into the launch cwd, not the drifted cwd; command=\(command)"
+        )
+    }
 }

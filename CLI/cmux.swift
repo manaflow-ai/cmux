@@ -23116,6 +23116,7 @@ struct CMUXCLI {
                         displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                         sessionId: sessionId,
                         cwd: parsedInput.cwd,
+                        transcriptPath: parsedInput.transcriptPath,
                         launchCommand: launchCommand
                     )
                 }
@@ -23241,6 +23242,7 @@ struct CMUXCLI {
                         displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                         sessionId: sessionId,
                         cwd: parsedInput.cwd ?? mappedSession?.cwd,
+                        transcriptPath: parsedInput.transcriptPath ?? mappedSession?.transcriptPath,
                         launchCommand: mappedSession?.launchCommand
                     )
                 }
@@ -23364,6 +23366,7 @@ struct CMUXCLI {
                     displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                     sessionId: sessionId,
                     cwd: parsedInput.cwd ?? mappedSession?.cwd,
+                    transcriptPath: parsedInput.transcriptPath ?? mappedSession?.transcriptPath,
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand
                 )
             }
@@ -26751,6 +26754,7 @@ struct CMUXCLI {
         displayName: String,
         sessionId: String,
         cwd: String?,
+        transcriptPath: String?,
         launchCommand: AgentHookLaunchCommandRecord?
     ) {
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
@@ -26758,11 +26762,26 @@ struct CMUXCLI {
         // runtime cwd: cwd-namespaced agents (Claude, Grok, Gemini, …) file their session under the
         // launch dir, so resuming from a worktree the agent later `cd`'d into fails with "No
         // conversation found".
-        let resumeWorkingDirectory = AgentResumeWorkingDirectory().resolve(
-            kind: kind,
-            runtimeCwd: cwd,
-            launchWorkingDirectory: launchCommand?.workingDirectory
-        )
+        //
+        // For Claude, the captured launch cwd can itself be the drifted runtime cwd when this hook
+        // process lacks a trusted `CMUX_AGENT_LAUNCH_CWD` (`agentLaunchCommandFromEnvironment` then
+        // falls back to the hook-reported cwd). So before the namespacing rule, verify against the
+        // transcript on disk which candidate directory actually holds the session — the same policy
+        // PR #5154 applied to the snapshot path, now shared via `ClaudeResumeWorkingDirectory`.
+        let verifiedClaudeWorkingDirectory: String? = kind == "claude"
+            ? ClaudeResumeWorkingDirectory().verifiedWorkingDirectory(
+                sessionId: sessionId,
+                transcriptPath: transcriptPath,
+                claudeConfigDir: launchCommand?.environment?["CLAUDE_CONFIG_DIR"],
+                candidateWorkingDirectories: [launchCommand?.workingDirectory, cwd].compactMap { $0 }
+            )
+            : nil
+        let resumeWorkingDirectory = verifiedClaudeWorkingDirectory
+            ?? AgentResumeWorkingDirectory().resolve(
+                kind: kind,
+                runtimeCwd: cwd,
+                launchWorkingDirectory: launchCommand?.workingDirectory
+            )
         guard let command = agentSurfaceResumeCommand(
             kind: kind,
             sessionId: sessionId,
@@ -29948,6 +29967,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         displayName: def.displayName,
                         sessionId: sessionId,
                         cwd: hookCwd ?? mapped?.cwd,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         launchCommand: launchCommand
                     )
                 }
@@ -30015,6 +30035,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: latest.cwd,
+                    transcriptPath: latest.transcriptPath,
                     launchCommand: latest.launchCommand
                 )
                 if let lifecycle = latest.agentLifecycle {
@@ -30215,6 +30236,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: hookCwd ?? mapped?.cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
                 if codexPromptTurnWentTerminal() {
@@ -30489,6 +30511,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
             }
@@ -30670,6 +30693,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: hookCwd ?? mapped?.cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
             }

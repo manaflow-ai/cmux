@@ -1100,6 +1100,12 @@ struct RestorableAgentSessionIndex: Sendable {
             homeDirectory: homeDirectory,
             fileManager: fileManager
         )
+        // One resolver for the whole load pass so its config-root scan and transcript probes are
+        // shared across every session record instead of rebuilt per record.
+        let claudeResumeResolver = ClaudeResumeWorkingDirectory(
+            fileManager: fileManager,
+            homeDirectory: homeDirectory
+        )
         let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
         let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
             RestorableAgentKind.allCases.map { (kind: $0, registration: nil) }
@@ -1154,8 +1160,7 @@ struct RestorableAgentSessionIndex: Sendable {
                         for: effectiveRecord,
                         kind: kind,
                         registration: registration,
-                        fileManager: fileManager,
-                        lookup: claudeTranscriptLookup
+                        resumeResolver: claudeResumeResolver
                     ),
                     launchCommand: effectiveRecord.launchCommand,
                     registration: registration
@@ -1478,8 +1483,7 @@ struct RestorableAgentSessionIndex: Sendable {
         for record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
         registration: CmuxVaultAgentRegistration?,
-        fileManager: FileManager,
-        lookup: ClaudeTranscriptLookupCache
+        resumeResolver: ClaudeResumeWorkingDirectory
     ) -> String? {
         let recordedCwd = normalizedWorkingDirectory(record.cwd)
         let launchCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
@@ -1500,12 +1504,11 @@ struct RestorableAgentSessionIndex: Sendable {
             return recordedCwd ?? launchCwd
         case .byDirectory:
             if kind == .claude,
-               let verified = claudeVerifiedRestorableWorkingDirectory(
-                   record: record,
-                   recordedCwd: recordedCwd,
-                   launchCwd: launchCwd,
-                   fileManager: fileManager,
-                   lookup: lookup
+               let verified = resumeResolver.verifiedWorkingDirectory(
+                   sessionId: record.sessionId,
+                   transcriptPath: record.transcriptPath,
+                   claudeConfigDir: record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"],
+                   candidateWorkingDirectories: [launchCwd, recordedCwd].compactMap { $0 }
                ) {
                 return verified
             }
@@ -1515,88 +1518,10 @@ struct RestorableAgentSessionIndex: Sendable {
         }
     }
 
-    /// For Claude, returns the candidate directory whose project folder actually holds the
-    /// transcript — matched first against the transcript's known storage path, then against the
-    /// config directory on disk — or `nil` when neither can be verified (so the caller prefers the
-    /// launch cwd instead of the drift-prone recorded cwd).
-    private static func claudeVerifiedRestorableWorkingDirectory(
-        record: RestorableAgentHookSessionRecord,
-        recordedCwd: String?,
-        launchCwd: String?,
-        fileManager: FileManager,
-        lookup: ClaudeTranscriptLookupCache
-    ) -> String? {
-        guard let sessionId = normalizedNonEmptyValue(record.sessionId),
-              claudeSessionIdIsSafeFilename(sessionId) else {
-            return nil
-        }
-        let candidates = [launchCwd, recordedCwd].compactMap { $0 }
-
-        // The transcript's own storage path names the project directory Claude will look in,
-        // so the candidate whose encoding matches it is the one Claude can resume from.
-        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) {
-            let expandedTranscriptPath = (transcriptPath as NSString).expandingTildeInPath
-            let roots = lookup.configRoots(for: record)
-            let expectedProjectDirName = claudeProjectDirName(
-                containingTranscriptPath: expandedTranscriptPath,
-                configRoots: roots
-            ) ?? (((expandedTranscriptPath as NSString).deletingLastPathComponent) as NSString)
-                .lastPathComponent
-            if !expectedProjectDirName.isEmpty,
-               let matched = candidates.first(where: {
-                   encodeClaudeProjectDir($0) == expectedProjectDirName
-               }) {
-                return matched
-            }
-        }
-
-        // Probe the config directory for the candidate that holds the transcript on disk.
-        let roots = lookup.configRoots(for: record)
-        if !roots.isEmpty {
-            for candidate in candidates {
-                let projectDirName = encodeClaudeProjectDir(candidate)
-                for root in roots where lookup.transcriptPath(
-                    configRoot: root,
-                    projectDirName: projectDirName,
-                    sessionId: sessionId
-                ) != nil {
-                    return candidate
-                }
-            }
-        }
-        return nil
-    }
-
-    private static func claudeSessionIdIsSafeFilename(_ sessionId: String) -> Bool {
-        sessionId.range(of: #"[\\/]"#, options: .regularExpression) == nil
-            && !sessionId.isEmpty
-            && sessionId != "."
-            && sessionId != ".."
-    }
-
     static func encodeClaudeProjectDir(_ path: String) -> String {
-        // Claude derives a project directory name by replacing both "/" and "." with "-"
-        // (e.g. "/Users/x/repo/.claude" -> "-Users-x-repo--claude"). Missing the "." case
-        // sent dotted paths to the wrong project directory.
-        path.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
-    }
-
-    private static func claudeProjectDirName(containingTranscriptPath path: String, configRoots: [String]) -> String? {
-        let standardizedPath = (path as NSString).standardizingPath
-        for root in configRoots {
-            let projectsRoot = ((root as NSString).appendingPathComponent("projects") as NSString)
-                .standardizingPath
-            let prefix = projectsRoot.hasSuffix("/") ? projectsRoot : projectsRoot + "/"
-            guard standardizedPath.hasPrefix(prefix) else { continue }
-            let relativePath = String(standardizedPath.dropFirst(prefix.count))
-            guard let projectDirName = relativePath.split(separator: "/", maxSplits: 1).first,
-                  !projectDirName.isEmpty else {
-                continue
-            }
-            return String(projectDirName)
-        }
-        return nil
+        // Thin shim over the shared encoder so the app and CLI agree on Claude's project-dir naming
+        // (both "/" and "." map to "-", e.g. "/Users/x/repo/.claude" -> "-Users-x-repo--claude").
+        ClaudeProjectDirEncoding.projectDirName(forPath: path)
     }
 
     private static func claudeTranscriptPath(
