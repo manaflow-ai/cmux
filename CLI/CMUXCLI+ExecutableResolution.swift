@@ -113,6 +113,39 @@ extension CMUXCLI {
         resolveExecutableInSearchPath("codex", searchPath: searchPath)
     }
 
+    func resolveGrokExecutable(searchPath: String?) -> String? {
+        // Prefer GROK_HOME/bin/grok when set (matches the AgentHookDef configDirEnvOverride),
+        // then the conventional ~/.grok/bin/grok symlink (what the installer creates),
+        // then fall back to grok in PATH.
+        if let grokHome = ProcessInfo.processInfo.environment["GROK_HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !grokHome.isEmpty
+        {
+            let candidate = URL(fileURLWithPath: grokHome)
+                .appendingPathComponent("bin", isDirectory: true)
+                .appendingPathComponent("grok", isDirectory: false)
+                .path
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+               !isDirectory.boolValue,
+               FileManager.default.isExecutableFile(atPath: candidate),
+               !isBundledProviderExecutable(at: candidate)
+            {
+                return URL(fileURLWithPath: candidate, isDirectory: false).standardizedFileURL.path
+            }
+        }
+        let userHomeCandidate = NSString(string: "~/.grok/bin/grok").expandingTildeInPath
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: userHomeCandidate, isDirectory: &isDirectory),
+           !isDirectory.boolValue,
+           FileManager.default.isExecutableFile(atPath: userHomeCandidate),
+           !isBundledProviderExecutable(at: userHomeCandidate)
+        {
+            return URL(fileURLWithPath: userHomeCandidate, isDirectory: false).standardizedFileURL.path
+        }
+        return resolveExecutableInSearchPath("grok", searchPath: searchPath)
+    }
+
     func providerExecutableSearchPath(searchPath: String?, includingExecutableAt executablePath: String? = nil) -> String {
         var directories = providerExecutableSearchDirectories(searchPath: searchPath)
         if let executablePath {
