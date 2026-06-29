@@ -5,7 +5,11 @@ import WebKit
 extension MarkdownPanel {
     @discardableResult
     func startFind() -> Bool {
-        performFindAction(.showFindInterface)
+        let handled = performFindAction(.showFindInterface)
+        if displayMode == .preview, handled {
+            setPreviewFindVisible(true)
+        }
+        return handled
     }
 
     @discardableResult
@@ -22,14 +26,16 @@ extension MarkdownPanel {
     func hideFind() -> Bool {
         let wasVisible = isFindVisible
         let handled = performFindAction(.hideFindInterface)
+        if displayMode == .preview {
+            setPreviewFindVisible(false)
+        }
         return handled || wasVisible
     }
 
     var isFindVisible: Bool {
         switch displayMode {
         case .preview:
-            guard let webView = rendererSession.webView else { return false }
-            return Self.isNativeFindInterfaceFocused(for: webView)
+            return isPreviewFindVisible && rendererSession.webView?.window != nil
         case .text:
             guard let textView = attachedTextViewForFind else { return false }
             return Self.textFinderBarIsVisible(for: textView) ||
@@ -88,7 +94,9 @@ extension MarkdownPanel {
                 }
                 return Self.sendTextFinderAction(action, to: webView)
             }
-            window.makeFirstResponder(webView)
+            if action == .showFindInterface {
+                window.makeFirstResponder(webView)
+            }
             if Self.performWebViewFindKeyEquivalent(action, in: webView, windowNumber: window.windowNumber) {
                 return true
             }

@@ -47,6 +47,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Whether the file has been deleted or is unreadable.
     @Published private(set) var isFileUnavailable: Bool = false
 
+    /// Whether this panel has opened WebKit's native preview find UI.
+    @Published private(set) var isPreviewFindVisible: Bool = false
+
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 
@@ -261,10 +264,18 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func setDisplayMode(_ mode: MarkdownPanelDisplayMode) {
         guard displayMode != mode else { return }
+        if displayMode == .preview {
+            isPreviewFindVisible = false
+        }
         displayMode = mode
         if mode == .text {
             focus()
         }
+    }
+
+    func setPreviewFindVisible(_ isVisible: Bool) {
+        guard isPreviewFindVisible != isVisible else { return }
+        isPreviewFindVisible = isVisible
     }
 
     func attachTextView(_ textView: NSTextView) {
