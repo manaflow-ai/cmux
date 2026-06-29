@@ -1572,6 +1572,68 @@ def test_live_socket_does_not_auto_preserve_when_all_backends_are_falsy(failures
     )
 
 
+def test_live_socket_preserves_plain_anthropic_model_on_default_path(failures: list[str]) -> None:
+    # Regression for https://github.com/manaflow-ai/cmux/issues/7047.
+    # A user who pins `export ANTHROPIC_MODEL=claude-opus-4-8[1m]` to get the
+    # Max-plan 1M context window must keep that selection inside cmux on the
+    # default Anthropic API path, exactly like a plain Terminal does. A plain
+    # (non-backend-qualified) id is valid against the Anthropic API, so the
+    # auth-selection scrub must NOT strip it when no Vertex/Bedrock backend is
+    # active.
+    inherited = {
+        "ANTHROPIC_MODEL": "claude-opus-4-8[1m]",
+        "ANTHROPIC_SMALL_FAST_MODEL": "claude-haiku-4-5",
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["hello"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"plain model default path: wrapper exited {code}: {stderr}", failures)
+    expect(
+        auth_env.get("ANTHROPIC_MODEL") == "claude-opus-4-8[1m]",
+        f"plain model default path: expected ANTHROPIC_MODEL preserved, got {auth_env.get('ANTHROPIC_MODEL')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_SMALL_FAST_MODEL") == "claude-haiku-4-5",
+        f"plain model default path: expected ANTHROPIC_SMALL_FAST_MODEL preserved, got {auth_env.get('ANTHROPIC_SMALL_FAST_MODEL')!r}",
+        failures,
+    )
+    # The model pin must not block the normal cmux hook/session injection.
+    expect(
+        "--session-id" in real_argv,
+        f"plain model default path: expected session injection, got {real_argv}",
+        failures,
+    )
+
+
+def test_live_socket_strips_backend_qualified_model_on_default_path(failures: list[str]) -> None:
+    # Guard for the #7047 fix: preserving plain ids must NOT reintroduce the leak
+    # the scrub was added to prevent. When no Vertex/Bedrock backend is active, a
+    # stale backend-qualified id (Vertex `<model>@<date>`, Bedrock
+    # `<region>.anthropic.<model>-v1:0`) is invalid on the Anthropic API and must
+    # still be stripped so it cannot silently mis-route the default path.
+    inherited = {
+        "ANTHROPIC_MODEL": "claude-sonnet-4-5@20250929",
+        "ANTHROPIC_SMALL_FAST_MODEL": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    }
+    code, auth_env, _, stderr = run_wrapper_auth_env(
+        argv=["hello"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"backend-qualified default path: wrapper exited {code}: {stderr}", failures)
+    expect(
+        auth_env.get("ANTHROPIC_MODEL") == "__UNSET__",
+        f"backend-qualified default path: expected Vertex-shaped ANTHROPIC_MODEL stripped, got {auth_env.get('ANTHROPIC_MODEL')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_SMALL_FAST_MODEL") == "__UNSET__",
+        f"backend-qualified default path: expected Bedrock-shaped ANTHROPIC_SMALL_FAST_MODEL stripped, got {auth_env.get('ANTHROPIC_SMALL_FAST_MODEL')!r}",
+        failures,
+    )
+
+
 def test_live_socket_auto_preserve_accepts_all_documented_truthy_variants(failures: list[str]) -> None:
     # The wrapper recognizes 1|true|TRUE|yes|YES as truthy (matching the
     # existing CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV parser); the focused
@@ -1807,6 +1869,8 @@ def main() -> int:
     test_live_socket_auto_preserves_vertex_auth_when_truthy(failures)
     test_live_socket_auto_preserves_bedrock_auth_when_truthy(failures)
     test_live_socket_does_not_auto_preserve_when_all_backends_are_falsy(failures)
+    test_live_socket_preserves_plain_anthropic_model_on_default_path(failures)
+    test_live_socket_strips_backend_qualified_model_on_default_path(failures)
     test_live_socket_auto_preserve_accepts_all_documented_truthy_variants(failures)
     test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
