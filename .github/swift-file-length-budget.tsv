@@ -10,8 +10,8 @@
 12233	Sources/GhosttyTerminalView.swift
 11567	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
+8070	Sources/Panels/BrowserPanelView.swift
 8016	CLI/cmux_open.swift
-7982	Sources/Panels/BrowserPanelView.swift
 7366	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6895	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
