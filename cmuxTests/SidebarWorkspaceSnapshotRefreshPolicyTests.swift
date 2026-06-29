@@ -107,6 +107,34 @@ import Testing
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
+    @Test func contextMenuMuteChangeUpdatesDisplayedGlyphImmediately() {
+        // notificationsMuted is a context-menu immediate field (like isPinned), so
+        // toggling mute while the menu is open must flip the displayed snapshot at
+        // once, while noisy telemetry (latestConversationMessage) stays deferred.
+        let current = Self.snapshot(
+            isPinned: false,
+            notificationsMuted: false,
+            latestConversationMessage: "old message"
+        )
+        let next = Self.snapshot(
+            isPinned: false,
+            notificationsMuted: true,
+            latestConversationMessage: "new message"
+        )
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        #expect(decision.workspaceSnapshotStorage?.notificationsMuted == true)
+        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
+        #expect(decision.pendingWorkspaceSnapshot == next)
+        #expect(decision.hasDeferredWorkspaceObservationInvalidation)
+    }
+
     @Test func closedContextMenuStoresNextAndClearsPending() {
         let current = Self.snapshot(title: "old", isPinned: false)
         let next = Self.snapshot(title: "new", isPinned: true)
