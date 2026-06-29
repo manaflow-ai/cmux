@@ -4443,38 +4443,36 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Fold a browser download event (from either the WKDownload path or the
     /// session/context-menu path) into `recentDownloads` for the toolbar popover.
-    /// Mirrors the same event vocabulary posted on `.browserDownloadEventDidArrive`.
+    /// Mirrors the event vocabulary posted on `.browserDownloadEventDidArrive`.
+    ///
+    /// Always invoked on the main thread: the WKDownload callbacks fire inside a
+    /// `@MainActor` Task / `notifyOnMain`, and the session path hops to main
+    /// before delivering. It therefore mutates `recentDownloads` synchronously.
     func applyBrowserDownloadEvent(type: String, downloadID: String?, filename: String?, path: String?) {
-        let apply = {
-            guard let downloadID else { return }
-            switch type {
-            case "started":
-                guard let filename, !filename.isEmpty else { return }
-                self.upsertRecentDownload(
-                    BrowserDownloadRecord(id: downloadID, filename: filename, fileURL: nil, state: .downloading, byteCount: nil)
-                )
-            case "saved":
-                let url = path.map { URL(fileURLWithPath: $0) }
-                let resolvedName = (filename?.isEmpty == false ? filename : nil) ?? url?.lastPathComponent
-                guard let resolvedName else { return }
-                let size = url.flatMap { u in
-                    ((try? FileManager.default.attributesOfItem(atPath: u.path))?[.size] as? NSNumber)?.intValue
-                }
-                self.upsertRecentDownload(
-                    BrowserDownloadRecord(id: downloadID, filename: resolvedName, fileURL: url, state: .saved, byteCount: size)
-                )
-            case "failed":
-                self.markRecentDownloadFailed(id: downloadID, filename: filename)
-            case "cancelled":
-                self.recentDownloads.removeAll { $0.id == downloadID }
-            default:
-                break
+        assert(Thread.isMainThread, "applyBrowserDownloadEvent must run on the main thread")
+        guard let downloadID else { return }
+        switch type {
+        case "started":
+            guard let filename, !filename.isEmpty else { return }
+            upsertRecentDownload(
+                BrowserDownloadRecord(id: downloadID, filename: filename, fileURL: nil, state: .downloading, byteCount: nil)
+            )
+        case "saved":
+            let url = path.map { URL(fileURLWithPath: $0) }
+            let resolvedName = (filename?.isEmpty == false ? filename : nil) ?? url?.lastPathComponent
+            guard let resolvedName else { return }
+            let size = url.flatMap { u in
+                ((try? FileManager.default.attributesOfItem(atPath: u.path))?[.size] as? NSNumber)?.intValue
             }
-        }
-        if Thread.isMainThread {
-            apply()
-        } else {
-            DispatchQueue.main.async(execute: apply)
+            upsertRecentDownload(
+                BrowserDownloadRecord(id: downloadID, filename: resolvedName, fileURL: url, state: .saved, byteCount: size)
+            )
+        case "failed":
+            markRecentDownloadFailed(id: downloadID, filename: filename)
+        case "cancelled":
+            recentDownloads.removeAll { $0.id == downloadID }
+        default:
+            break
         }
     }
 
