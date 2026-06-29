@@ -1047,8 +1047,8 @@ final class FileExplorerStore: ObservableObject {
 
     @MainActor
     private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
-        guard !Task.isCancelled, let provider else { return }
-
+        if Task.isCancelled { parentNode?.isLoading = false; loadingPaths.remove(path); loadTasks.removeValue(forKey: path); return }
+        guard let provider else { return }
         if !silent {
             loadingPaths.insert(path)
             parentNode?.error = nil
