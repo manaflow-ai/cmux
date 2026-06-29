@@ -95,16 +95,15 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             maxDiagnosticsUpdatedAt = max(maxDiagnosticsUpdatedAt, stats.diagnosticsUpdatedAt)
         }
 
-        // When pre-launched from CI, the display helper uses --start-delay-ms
-        // instead of a start signal file (sandbox prevents writing to /tmp/).
-        // displayStartPath is empty when the harness manifest omits startPath.
-        if prelaunch == nil && !displayStartPath.isEmpty {
-            do {
-                try Data("start\n".utf8).write(to: URL(fileURLWithPath: displayStartPath), options: .atomic)
-            } catch {
-                XCTFail("Expected start signal file to be created at \(displayStartPath): \(error)")
-                return
-            }
+        if !displayStartPath.isEmpty, prelaunch == nil {
+            try Data("start\n".utf8).write(to: URL(fileURLWithPath: displayStartPath), options: .atomic)
+        } else if !displayStartPath.isEmpty, let marker = prelaunch?.baselineReadyMarker, !marker.isEmpty {
+            let data = Data("\(marker)\n".utf8)
+            FileHandle.standardOutput.write(data)
+            FileHandle.standardError.write(data)
+        } else if !displayStartPath.isEmpty {
+            XCTFail("Prelaunched display harness requires a baseline-ready marker")
+            return
         }
 
         let deadline = Date().addingTimeInterval(75.0)
@@ -197,8 +196,10 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             }
             displayReadyPath = readyPath
             self.displayIDPath = displayIDPath
-            // startPath is optional — CI uses --start-delay-ms instead of a start
-            // signal file because the XCTest sandbox can't write to /tmp/.
+            // startPath is optional for helper-binary manifests. Prelaunched CI
+            // passes a shell-owned /tmp start path and a baseline marker; XCTest
+            // prints the marker after sampling baseline stats, and the shell
+            // writes the start file.
             if let startPath = externalHarness.startPath, !startPath.isEmpty {
                 displayStartPath = startPath
             } else {
@@ -531,6 +532,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
 
     private struct PrelaunchManifest: Decodable {
         let diagnosticsPath: String?
+        let baselineReadyMarker: String?
     }
 
     private func loadPrelaunchManifest() -> PrelaunchManifest? {
