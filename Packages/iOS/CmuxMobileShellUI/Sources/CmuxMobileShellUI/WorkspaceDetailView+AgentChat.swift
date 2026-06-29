@@ -251,14 +251,17 @@ extension WorkspaceDetailView {
     /// Flip between the terminal and the inline agent chat, pinning/unpinning the
     /// chosen session. Shared by the toolbar button and the menu row.
     private func toggleChatMode() {
-        let openingSession = !isChatMode ? chatToggleSession : nil
-        if let openingSession {
-            _ = ensureChatConversationStore(for: openingSession)
+        if isChatMode {
+            withAnimation(.snappy(duration: 0.28)) { isChatMode = false }
+            pinnedChatSessionID = nil
+            return
         }
+        guard let openingSession = chatToggleSession,
+              ensureChatConversationStore(for: openingSession) != nil else { return }
         withAnimation(.snappy(duration: 0.28)) {
-            isChatMode.toggle()
+            isChatMode = true
         }
-        pinnedChatSessionID = isChatMode ? openingSession?.id : nil
+        pinnedChatSessionID = openingSession.id
     }
 
     /// Keeps cached stores bounded to sessions the workspace still knows about.

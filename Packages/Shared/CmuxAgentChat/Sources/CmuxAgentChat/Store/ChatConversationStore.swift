@@ -387,7 +387,8 @@ public final class ChatConversationStore {
     /// Reconciles a fresh session-list descriptor into this conversation cache.
     public func applyDescriptorSnapshot(_ descriptor: ChatSessionDescriptor) {
         guard descriptor.id == self.descriptor.id else { return }
-        guard descriptor.version > self.descriptor.version else { return }
+        let isUnversioned = descriptor.version == 0 && self.descriptor.version == 0
+        guard isUnversioned || descriptor.version > self.descriptor.version else { return }
         self.descriptor = descriptor
         agentState = descriptor.state
         if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
