@@ -680,12 +680,14 @@ _cmux_install_winch_guard() {
     fi
 
     TRAPWINCH() {
-        [[ -n "$CMUX_TAB_ID" ]] || return 0
-        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+        [[ -n "$CMUX_TAB_ID" ]] || return 1
+        [[ -n "$CMUX_PANEL_ID" ]] || return 1
 
-        # Ghostty already marks prompt redraws on SIGWINCH. Writing to the PTY
-        # here grows the screen and makes resize look like a fresh prompt.
-        return 0
+        # Return non-zero so zsh runs its default SIGWINCH action: update
+        # $COLUMNS/$LINES via ioctl(TIOCGWINSZ), redraw the ZLE prompt, and
+        # propagate the signal to the foreground process group so TUI programs
+        # (vim, htop, less, etc.) also redraw to fit the new window size.
+        return 1
     }
 
     _CMUX_WINCH_GUARD_INSTALLED=1
