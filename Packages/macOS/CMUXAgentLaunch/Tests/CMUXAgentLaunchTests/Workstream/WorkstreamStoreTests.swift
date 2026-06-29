@@ -144,6 +144,35 @@ struct WorkstreamStoreTests {
         }
     }
 
+    @Test("Codex app-server approval ingests as an actionable permission request")
+    func codexAppServerApprovalIngestsAsActionablePermission() {
+        // Codex app-server (Teams) approvals arrive with the same event name
+        // and source as the non-blocking hook telemetry, distinguished only by
+        // the `app_server_method` marker in tool_input. They are real decisions
+        // cmux owns, so they must surface as actionable pending permission
+        // cards — not be downgraded to tool-use telemetry.
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "codex-app-server",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            toolName: "Bash",
+            toolInputJSON: #"{"app_server_method":"item/commandExecution/requestApproval","command":"rm -rf build"}"#,
+            requestId: "codex-app-server-approval-1"
+        ))
+
+        #expect(store.items.count == 1)
+        #expect(store.items[0].kind == .permissionRequest)
+        #expect(store.items[0].status == .pending)
+        #expect(store.pending.count == 1)
+        if case .permissionRequest(let requestId, let toolName, _, _) = store.items[0].payload {
+            #expect(requestId == "codex-app-server-approval-1")
+            #expect(toolName == "Bash")
+        } else {
+            Issue.record("expected Codex app-server approval to ingest as a permission request")
+        }
+    }
+
     @Test("Codex CLI lifecycle feed events stay telemetry")
     func codexLifecycleFeedEventsStayTelemetry() {
         let store = WorkstreamStore(
