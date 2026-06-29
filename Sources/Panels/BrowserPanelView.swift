@@ -379,6 +379,11 @@ struct BrowserPanelView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
+    /// Explicit pane-ownership signal for hosts whose panels are not registered
+    /// in the main `Workspace` tree (e.g. the right-sidebar Dock, which owns its
+    /// panels in `DockSplitStore`). When set, it overrides the workspace lookup
+    /// in `isCurrentPaneOwner`; `nil` preserves the main-area behavior.
+    let paneOwnershipOverride: Bool?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.openWindow) private var openWindow
@@ -472,6 +477,7 @@ struct BrowserPanelView: View {
         isFocused: Bool,
         isVisibleInUI: Bool,
         portalPriority: Int,
+        paneOwnershipOverride: Bool? = nil,
         onRequestPanelFocus: @escaping () -> Void
     ) {
         self.panel = panel
@@ -479,6 +485,7 @@ struct BrowserPanelView: View {
         self.isFocused = isFocused
         self.isVisibleInUI = isVisibleInUI
         self.portalPriority = portalPriority
+        self.paneOwnershipOverride = paneOwnershipOverride
         self.onRequestPanelFocus = onRequestPanelFocus
         self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
             for: .light,
@@ -646,6 +653,11 @@ struct BrowserPanelView: View {
     }
 
     private var isCurrentPaneOwner: Bool {
+        // Dock (and other non-Workspace hosts) inject ownership explicitly, since
+        // their panels are not registered in the main Workspace tree.
+        if let paneOwnershipOverride {
+            return paneOwnershipOverride
+        }
         guard let currentPaneId = owningWorkspace?.paneId(forPanelId: panel.id) else {
             return false
         }
@@ -1807,6 +1819,7 @@ struct BrowserPanelView: View {
                     isPanelFocused: isFocused,
                     portalZPriority: portalPriority,
                     paneDropZone: paneDropZone,
+                    paneOwnershipOverride: paneOwnershipOverride,
                     searchOverlay: panel.searchState.map { searchState in
                         BrowserPortalSearchOverlayConfiguration(
                             panelId: panel.id,
@@ -2012,12 +2025,11 @@ struct BrowserPanelView: View {
     }
 
     private func isPanelFocusedInModel() -> Bool {
+        if let paneOwnershipOverride { return paneOwnershipOverride && isFocused }
         guard let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: panel.workspaceId),
               manager.selectedTabId == panel.workspaceId,
-              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }) else {
-            return false
-        }
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }) else { return false }
         return workspace.focusedPanelId == panel.id
     }
 
@@ -5404,6 +5416,10 @@ struct WebViewRepresentable: NSViewRepresentable {
     let isPanelFocused: Bool
     let portalZPriority: Int
     let paneDropZone: DropZone?
+    /// Explicit pane-ownership for hosts (the Dock) whose panels are not in the
+    /// main `Workspace` tree, so the portal-visibility gate can resolve ownership
+    /// without `Workspace.paneId(forPanelId:)`. `nil` keeps the main-area path.
+    var paneOwnershipOverride: Bool? = nil
     let searchOverlay: BrowserPortalSearchOverlayConfiguration?
     let omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
     let paneTopChromeHeight: CGFloat
@@ -7910,16 +7926,30 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     private func currentPaneDropContext() -> BrowserPaneDropContext? {
+        // Dock-hosted browsers are not registered in the Workspace tree, so the
+        // workspace lookup below can't resolve their pane. `paneId` is already the
+        // Dock's own Bonsplit pane id, so the drop target diverts live-surface tab
+        // drops to the Dock via `dockForPane`/`performPortalPaneDrop` (mirroring
+        // the terminal pane drop target). A browser filling the Dock now accepts
+        // drops instead of rejecting them.
+        if let paneOwnershipOverride {
+            guard paneOwnershipOverride else { return nil }
+            return BrowserPaneDropContext(
+                workspaceId: panel.workspaceId,
+                panelId: panel.id,
+                paneId: paneId
+            )
+        }
         guard let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: panel.workspaceId),
               let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
-              let paneId = workspace.paneId(forPanelId: panel.id) else {
+              let resolvedPaneId = workspace.paneId(forPanelId: panel.id) else {
             return nil
         }
         return BrowserPaneDropContext(
             workspaceId: panel.workspaceId,
             panelId: panel.id,
-            paneId: paneId
+            paneId: resolvedPaneId
         )
     }
 }
