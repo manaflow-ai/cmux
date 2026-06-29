@@ -409,13 +409,11 @@ struct WorkspaceShellView: View {
 /// that to fold the unread count into the back control). Owns the pop gesture's
 /// delegate and only lets it begin when there is actually a screen to pop, so it
 /// never fires on the root list.
-/// `internal` (not `private`) so `cmuxFeatureTests` can drive
-/// `GestureHostController`'s delegate decisions directly.
-struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
+private struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController { GestureHostController() }
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
 
-    final class GestureHostController: UIViewController, UIGestureRecognizerDelegate {
+    private final class GestureHostController: UIViewController, UIGestureRecognizerDelegate {
         override func didMove(toParent parent: UIViewController?) {
             super.didMove(toParent: parent)
             navigationController?.interactivePopGestureRecognizer?.delegate = self

@@ -109,9 +109,17 @@ struct WorkspaceSurfaceGridCard: View {
                     Spacer()
                 }
                 VStack(alignment: .leading, spacing: 6) {
-                    terminalLine("$ cmux attach", opacity: 0.92)
+                    terminalLine(
+                        L10n.string("mobile.surfaceGrid.terminalAttach", defaultValue: "$ cmux attach"),
+                        opacity: 0.92
+                    )
                     terminalLine(item.title, opacity: 0.74)
-                    terminalLine(item.detail.isEmpty ? "ready" : item.detail, opacity: 0.58)
+                    terminalLine(
+                        item.detail.isEmpty
+                            ? L10n.string("mobile.surfaceGrid.terminalReadyPrompt", defaultValue: "ready")
+                            : item.detail,
+                        opacity: 0.58
+                    )
                     terminalLine("|", opacity: 0.90)
                 }
                 Spacer()

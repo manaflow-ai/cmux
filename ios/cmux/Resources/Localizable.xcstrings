@@ -953,6 +953,23 @@
         }
       }
     },
+    "mobile.surfaceGrid.terminalAttach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$ cmux attach"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$ cmux attach"
+          }
+        }
+      }
+    },
     "mobile.surfaceGrid.terminalReady": {
       "extractionState": "manual",
       "localizations": {
@@ -966,6 +983,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナル"
+          }
+        }
+      }
+    },
+    "mobile.surfaceGrid.terminalReadyPrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ready"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ready"
           }
         }
       }

@@ -28,16 +28,19 @@ struct WorkspaceSurfaceGridView: View {
     @State private var isSearching = false
     @State private var searchText = ""
 
-    private var selectedWorkspace: MobileWorkspacePreview? {
+    private var content: WorkspaceSurfaceGridContent {
         if let selectedWorkspaceID,
            let workspace = workspaces.first(where: { $0.id == selectedWorkspaceID }) {
-            return workspace
+            return makeContent(for: workspace)
         }
-        return workspaces.first
+        return makeContent(for: workspaces.first)
     }
 
-    private var surfaceItems: [WorkspaceSurfaceGridItem] {
-        guard let workspace = selectedWorkspace else { return [] }
+    private func makeContent(for workspace: MobileWorkspacePreview?) -> WorkspaceSurfaceGridContent {
+        guard let workspace else {
+            return WorkspaceSurfaceGridContent(selectedWorkspace: nil, filteredSurfaceItems: [])
+        }
+
         var items = workspace.terminals.map { terminal in
             WorkspaceSurfaceGridItem(
                 id: "terminal-\(terminal.id.rawValue)",
@@ -74,17 +77,16 @@ struct WorkspaceSurfaceGridView: View {
             )
         }
 
-        return items
-    }
-
-    private var filteredSurfaceItems: [WorkspaceSurfaceGridItem] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return surfaceItems }
-        return surfaceItems.filter { item in
+        guard !query.isEmpty else {
+            return WorkspaceSurfaceGridContent(selectedWorkspace: workspace, filteredSurfaceItems: items)
+        }
+        let filteredItems = items.filter { item in
             item.title.localizedCaseInsensitiveContains(query)
                 || item.subtitle.localizedCaseInsensitiveContains(query)
                 || item.detail.localizedCaseInsensitiveContains(query)
         }
+        return WorkspaceSurfaceGridContent(selectedWorkspace: workspace, filteredSurfaceItems: filteredItems)
     }
 
     private var workspaceCountTitle: String {
@@ -98,19 +100,21 @@ struct WorkspaceSurfaceGridView: View {
     }
 
     var body: some View {
+        let gridContent = content
+
         ZStack {
             background
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    header
+                    header(selectedWorkspace: gridContent.selectedWorkspace)
                     if isSearching {
                         searchField
                     }
                     if connectionStatus != .connected {
                         connectionBanner
                     }
-                    grid
+                    grid(items: gridContent.filteredSurfaceItems)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 28)
@@ -155,22 +159,22 @@ struct WorkspaceSurfaceGridView: View {
             }
 
             ToolbarItemGroup(placement: .bottomBar) {
-                addMenu
+                addMenu(selectedWorkspace: gridContent.selectedWorkspace)
 
                 Spacer()
 
-                workspacePicker
+                workspacePicker(selectedWorkspace: gridContent.selectedWorkspace)
 
                 Spacer()
 
                 Button {
-                    openSelectedSurface()
+                    openSelectedSurface(in: gridContent.selectedWorkspace)
                 } label: {
                     Text(L10n.string("mobile.common.done", defaultValue: "Done"))
                         .fontWeight(.semibold)
                 }
                 .accessibilityIdentifier("MobileSurfaceGridDoneButton")
-                .disabled(selectedWorkspace == nil)
+                .disabled(gridContent.selectedWorkspace == nil)
             }
         }
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -193,7 +197,7 @@ struct WorkspaceSurfaceGridView: View {
         .ignoresSafeArea()
     }
 
-    private var header: some View {
+    private func header(selectedWorkspace: MobileWorkspacePreview?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(selectedWorkspace?.name ?? L10n.string("mobile.workspace.emptyTitle", defaultValue: "No Workspace"))
                 .font(.system(size: 44, weight: .bold, design: .default))
@@ -254,7 +258,7 @@ struct WorkspaceSurfaceGridView: View {
         .accessibilityIdentifier("MobileSurfaceGridConnectionBanner")
     }
 
-    private var grid: some View {
+    private func grid(items: [WorkspaceSurfaceGridItem]) -> some View {
         LazyVGrid(
             columns: [
                 GridItem(.flexible(), spacing: 20),
@@ -263,7 +267,7 @@ struct WorkspaceSurfaceGridView: View {
             alignment: .leading,
             spacing: 24
         ) {
-            ForEach(filteredSurfaceItems) { item in
+            ForEach(items) { item in
                 WorkspaceSurfaceGridCard(item: item) {
                     open(item)
                 } close: {
@@ -272,7 +276,7 @@ struct WorkspaceSurfaceGridView: View {
             }
         }
         .overlay {
-            if filteredSurfaceItems.isEmpty {
+            if items.isEmpty {
                 emptyState
                     .frame(maxWidth: .infinity)
                     .padding(.top, 80)
@@ -295,7 +299,7 @@ struct WorkspaceSurfaceGridView: View {
         }
     }
 
-    private var addMenu: some View {
+    private func addMenu(selectedWorkspace: MobileWorkspacePreview?) -> some View {
         Menu {
             if let selectedWorkspace {
                 Button {
@@ -327,7 +331,7 @@ struct WorkspaceSurfaceGridView: View {
         .accessibilityIdentifier("MobileSurfaceGridAddButton")
     }
 
-    private var workspacePicker: some View {
+    private func workspacePicker(selectedWorkspace: MobileWorkspacePreview?) -> some View {
         Menu {
             ForEach(workspaces) { workspace in
                 Button {
@@ -373,14 +377,35 @@ struct WorkspaceSurfaceGridView: View {
         closeBrowser(item.workspaceID)
     }
 
-    private func openSelectedSurface() {
-        guard let workspace = selectedWorkspace else { return }
+    private func openSelectedSurface(in workspace: MobileWorkspacePreview?) {
+        guard let workspace else { return }
         if browserStore.activeBrowser(for: workspace.id.rawValue) != nil {
             openBrowser(workspace.id)
             return
         }
-        if let terminalID = selectedTerminalID ?? workspace.terminals.first?.id {
+        if let terminalID = WorkspaceSurfaceGridSelection.terminalIDToOpen(
+            in: workspace,
+            selectedTerminalID: selectedTerminalID
+        ) {
             openTerminal(workspace.id, terminalID)
         }
+    }
+}
+
+private struct WorkspaceSurfaceGridContent {
+    let selectedWorkspace: MobileWorkspacePreview?
+    let filteredSurfaceItems: [WorkspaceSurfaceGridItem]
+}
+
+enum WorkspaceSurfaceGridSelection {
+    static func terminalIDToOpen(
+        in workspace: MobileWorkspacePreview,
+        selectedTerminalID: MobileTerminalPreview.ID?
+    ) -> MobileTerminalPreview.ID? {
+        if let selectedTerminalID,
+           workspace.terminals.contains(where: { $0.id == selectedTerminalID }) {
+            return selectedTerminalID
+        }
+        return workspace.terminals.first?.id
     }
 }
