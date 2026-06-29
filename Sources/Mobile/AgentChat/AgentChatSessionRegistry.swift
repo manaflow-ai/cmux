@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
+import Combine
 import Foundation
 
 /// A coding-agent session discovered by observing the process table, with no
@@ -27,6 +28,17 @@ final class AgentChatSessionRegistry {
     /// brand-new record), so the owner derives state/descriptor deltas in
     /// one place instead of hand-maintained flags.
     var onRecordChanged: ((AgentChatSessionRecord, _ previous: AgentChatSessionRecord?) -> Void)?
+
+    /// Backing subject for `recordChangesPublisher`, fired alongside the single-owner
+    /// `onRecordChanged` slot at every record-change site so additional consumers (the sidebar
+    /// bridge) can observe edits without contending for that closure.
+    private let recordChangesSubject = PassthroughSubject<AgentChatRecordChange, Never>()
+
+    /// Combine stream of record changes, mirroring `onRecordChanged`. Additive — does not disturb
+    /// the closure slot already owned by `AgentChatTranscriptService`.
+    var recordChangesPublisher: AnyPublisher<AgentChatRecordChange, Never> {
+        recordChangesSubject.eraseToAnyPublisher()
+    }
 
     /// Per-session timestamp of the last hook-store file consult, bounding
     /// main-actor disk reads during tool storms.
@@ -194,6 +206,7 @@ final class AgentChatSessionRegistry {
                 syncProcessExitWatch(for: record)
                 updateLiveSessionIndex(previous: nil, current: record)
                 onRecordChanged?(record, nil)
+                recordChangesSubject.send(AgentChatRecordChange(record: record, previous: nil))
             } else {
                 update(sessionID: session.sessionID) { rec in
                     if rec.surfaceID == nil { rec.surfaceID = session.surfaceID }
@@ -431,6 +444,7 @@ final class AgentChatSessionRegistry {
         syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: previous, current: record)
         onRecordChanged?(record, previous)
+        recordChangesSubject.send(AgentChatRecordChange(record: record, previous: previous))
     }
 
     #if DEBUG
@@ -569,6 +583,7 @@ final class AgentChatSessionRegistry {
         syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: previous, current: record)
         onRecordChanged?(record, previous)
+        recordChangesSubject.send(AgentChatRecordChange(record: record, previous: previous))
         if shouldConsultStore {
             backfillBindingsFromStore(sessionID: sessionID, agentSource: event.source)
         }
@@ -638,6 +653,7 @@ final class AgentChatSessionRegistry {
         syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: nil, current: record)
         onRecordChanged?(record, nil)
+        recordChangesSubject.send(AgentChatRecordChange(record: record, previous: nil))
     }
 
     /// Reads one session's hook-store entry OFF the main actor and applies any
@@ -758,4 +774,21 @@ final class AgentChatSessionRegistry {
             return .ended
         }
     }
+
+    #if DEBUG
+    /// Test-only: insert/replace a record through the real change-notification path so both
+    /// `onRecordChanged` and `recordChangesPublisher` fire. Mirrors the create path
+    /// (`update` is mutate-existing-only, so it would no-op on a fresh sessionID).
+    func applyForTesting(sessionID: String, kind: ChatAgentKind, workspaceID: String?,
+                         state: ChatAgentState, pid: Int?) {
+        let previous = records[sessionID]
+        let record = AgentChatSessionRecord(
+            sessionID: sessionID, agentKind: kind, workspaceID: workspaceID,
+            surfaceID: nil, workingDirectory: nil, transcriptPath: nil,
+            state: state, lastActivityAt: Date(), title: nil, pid: pid)
+        records[sessionID] = record
+        onRecordChanged?(record, previous)
+        recordChangesSubject.send(AgentChatRecordChange(record: record, previous: previous))
+    }
+    #endif
 }
