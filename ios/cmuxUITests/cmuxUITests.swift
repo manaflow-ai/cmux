@@ -1281,6 +1281,12 @@ final class cmuxUITests: XCTestCase {
         let afterKeyboard = try waitForTranscriptMetrics(table, timeout: 6) {
             $0.frameMaxY < beforeKeyboard.frameMaxY - 120
         }
+        XCTAssertFalse(
+            afterKeyboard.topEdgeEffectSoft,
+            "Chat transcript must not force the iOS 26 top scroll-edge effect while the keyboard clips the transcript from \(scrollPosition). before=\(beforeKeyboard) after=\(afterKeyboard)",
+            file: file,
+            line: line
+        )
         let keyboardFrame = keyboardFrameAfterFocus(
             in: app,
             overlap: afterKeyboard.keyboardOverlap,
@@ -2053,9 +2059,11 @@ final class cmuxUITests: XCTestCase {
         let keyboardTransitionDuration: TimeInterval
         let maxAnimationPresentationGap: CGFloat
         let keyboardAnimationSamples: Int
+        let topEdgeEffectSoft: Bool
+        let bottomEdgeEffectSoft: Bool
 
         var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples), topEdgeEffectSoft=\(topEdgeEffectSoft), bottomEdgeEffectSoft=\(bottomEdgeEffectSoft)"
         }
 
         var effectiveFrameMaxY: CGFloat {
@@ -2107,6 +2115,8 @@ final class cmuxUITests: XCTestCase {
             self.keyboardTransitionDuration = TimeInterval(values["keyboardTransitionDuration"] ?? 0)
             self.maxAnimationPresentationGap = values["maxAnimationPresentationGap"] ?? 0
             self.keyboardAnimationSamples = Int(values["keyboardAnimationSamples"] ?? 0)
+            self.topEdgeEffectSoft = (values["topEdgeEffectSoft"] ?? 0) >= 0.5
+            self.bottomEdgeEffectSoft = (values["bottomEdgeEffectSoft"] ?? 0) >= 0.5
         }
     }
 
