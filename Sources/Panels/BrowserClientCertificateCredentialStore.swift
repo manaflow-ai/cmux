@@ -1,5 +1,11 @@
 import Foundation
+import OSLog
 import Security
+
+nonisolated private let browserClientCertificateLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "BrowserClientCertificate"
+)
 
 struct BrowserClientCertificateCredentialStore {
     func candidates(for protectionSpace: URLProtectionSpace) -> [BrowserClientCertificateCredentialCandidate] {
@@ -17,11 +23,11 @@ struct BrowserClientCertificateCredentialStore {
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let result else {
-#if DEBUG
             if status != errSecItemNotFound {
-                cmuxDebugLog("browser.clientCertificate.identityLookup status=\(status)")
+                browserClientCertificateLogger.error(
+                    "browser.clientCertificate.identityLookup status=\(status, privacy: .public)"
+                )
             }
-#endif
             return []
         }
 
@@ -47,9 +53,9 @@ struct BrowserClientCertificateCredentialStore {
         var certificate: SecCertificate?
         let status = SecIdentityCopyCertificate(identity, &certificate)
         guard status == errSecSuccess, let certificate else {
-#if DEBUG
-            cmuxDebugLog("browser.clientCertificate.copyCertificate status=\(status)")
-#endif
+            browserClientCertificateLogger.error(
+                "browser.clientCertificate.copyCertificate status=\(status, privacy: .public)"
+            )
             return nil
         }
 
