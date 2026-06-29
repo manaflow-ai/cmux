@@ -114,6 +114,9 @@ extension DockSplitStore {
         }
         installSubscription(for: panel, tracksTerminalTitle: true)
         applyVisibility(to: panel)
+        if let terminal = panel as? TerminalPanel {
+            terminal.requestViewReattach()
+        }
         recordExplicitPanelCreation()
         if focus {
             bonsplitController.focusPane(paneId)
