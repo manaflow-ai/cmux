@@ -93,10 +93,58 @@ final class PaneDropTargetView: NSView {
             clearDragState(phase: "perform.clear")
         }
 
-        guard let dropContext,
-              let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
+        guard let dropContext else {
 #if DEBUG
             cmuxDebugLog("terminal.paneDrop.perform allowed=0 reason=missingContext")
+#endif
+            return false
+        }
+
+        // A Bonsplit tab dropped on a Dock pane routes to the Dock's own
+        // controller (move/split inside the Dock, or transfer in from elsewhere)
+        // rather than the owning workspace — otherwise a Dock drag-to-split would
+        // land in the main split area. Skip this when the drop should insert the
+        // dragged item's path as text (e.g. a file-preview drag carries both a
+        // Bonsplit tab-transfer payload AND a file URL): those fall through to the
+        // file-drop-as-text path below, matching the workspace ordering.
+        if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
+           transfer.isFromCurrentProcess,
+           let dock = AppDelegate.shared?.dockForPane(dropContext.paneId),
+           // Only divert REAL live container tabs to the Dock. Registry-backed
+           // virtual drags (session-index, file-preview) reuse the same
+           // tab-transfer payload but own no live surface, so let them fall
+           // through to the workspace handlers that consume those registries.
+           AppDelegate.shared?.locateContainerSurface(tabId: transfer.tabId) != nil,
+           !DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+               pasteboardTypes: sender.draggingPasteboard.types,
+               modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
+               canDropAsText: hostedView != nil
+           ) {
+            let proposed = PaneDropRouting.zone(for: convert(sender.draggingLocation, from: nil), in: bounds.size)
+            let zone = dock.portalPaneDropZone(
+                tabId: transfer.tabId,
+                sourcePaneId: transfer.sourcePaneId,
+                targetPane: dropContext.paneId,
+                proposedZone: proposed
+            )
+            let handled = dock.performPortalPaneDrop(
+                tabId: transfer.tabId,
+                sourcePaneId: transfer.sourcePaneId,
+                targetPane: dropContext.paneId,
+                zone: zone
+            )
+#if DEBUG
+            cmuxDebugLog(
+                "terminal.paneDrop.perform.dock panel=\(dropContext.panelId.uuidString.prefix(5)) " +
+                "tab=\(transfer.tabId.uuidString.prefix(5)) zone=\(zone) handled=\(handled ? 1 : 0)"
+            )
+#endif
+            return handled
+        }
+
+        guard let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
+#if DEBUG
+            cmuxDebugLog("terminal.paneDrop.perform allowed=0 reason=missingWorkspace")
 #endif
             return false
         }
@@ -175,8 +223,40 @@ final class PaneDropTargetView: NSView {
             return []
         }
 
-        guard let dropContext,
-              let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
+        guard let dropContext else {
+            clearDragState(phase: "\(phase).reject")
+            return []
+        }
+
+        // Dock pane target: show the Dock's own drop zone and accept the move so
+        // the drop routes to the Dock (see performDragOperation). Skipped for
+        // file-drop-as-text drags (e.g. file-preview), which fall through to the
+        // text-drop handling below.
+        if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
+           transfer.isFromCurrentProcess,
+           let dock = AppDelegate.shared?.dockForPane(dropContext.paneId),
+           // Only divert REAL live container tabs to the Dock. Registry-backed
+           // virtual drags (session-index, file-preview) reuse the same
+           // tab-transfer payload but own no live surface, so let them fall
+           // through to the workspace handlers that consume those registries.
+           AppDelegate.shared?.locateContainerSurface(tabId: transfer.tabId) != nil,
+           !DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
+               pasteboardTypes: sender.draggingPasteboard.types,
+               modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
+               canDropAsText: hostedView != nil
+           ) {
+            let proposed = PaneDropRouting.zone(for: location, in: bounds.size)
+            let zone = dock.portalPaneDropZone(
+                tabId: transfer.tabId,
+                sourcePaneId: transfer.sourcePaneId,
+                targetPane: dropContext.paneId,
+                proposedZone: proposed
+            )
+            setActiveDropZone(zone)
+            return .move
+        }
+
+        guard let workspace = AppDelegate.shared?.workspaceFor(tabId: dropContext.workspaceId) else {
             clearDragState(phase: "\(phase).reject")
             return []
         }
