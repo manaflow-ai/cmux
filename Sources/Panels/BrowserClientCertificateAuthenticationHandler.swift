@@ -2,7 +2,7 @@ import Foundation
 import WebKit
 
 @MainActor struct BrowserClientCertificateAuthenticationHandler {
-    typealias CandidateProvider = (
+    typealias CandidateProvider = @MainActor (
         _ protectionSpace: URLProtectionSpace,
         _ completion: @escaping @MainActor ([BrowserClientCertificateCredentialCandidate]) -> Void
     ) -> Void
