@@ -12,12 +12,15 @@ actor MobileCoreRPCTicketRedemptionGate {
 
     private var current: Current?
     private var abandoned: [UUID: Task<CmxAttachTicket, any Error>] = [:]
-    private var waiterCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
     private let taskTimeout = RPCTaskTimeout()
     private let timedOutResetNanoseconds: UInt64
 
     init(timedOutResetNanoseconds: UInt64 = 30_000_000_000) {
         self.timedOutResetNanoseconds = timedOutResetNanoseconds
+    }
+
+    var waiterCount: Int {
+        current?.waiters ?? 0
     }
 
     func ticket(
@@ -42,12 +45,10 @@ actor MobileCoreRPCTicketRedemptionGate {
             id = existing.id
             task = existing.task
             current?.waiters += 1
-            resumeWaiterCountWaiters()
         } else {
             id = UUID()
             task = Task { try await provider() }
             current = Current(id: id, task: task, waiters: 1, timedOutUntil: nil, isCompleted: false)
-            resumeWaiterCountWaiters()
             Task.detached { [weak self] in
                 _ = await task.result
                 await self?.complete(id: id)
@@ -113,29 +114,5 @@ actor MobileCoreRPCTicketRedemptionGate {
             }
         }
         abandoned[id] = nil
-    }
-
-    func waitForWaiterCountForTesting(_ count: Int) async {
-        guard (current?.waiters ?? 0) < count else {
-            return
-        }
-        await withCheckedContinuation { continuation in
-            waiterCountWaiters.append((count, continuation))
-        }
-    }
-
-    private func resumeWaiterCountWaiters() {
-        let waiterCount = current?.waiters ?? 0
-        var ready: [CheckedContinuation<Void, Never>] = []
-        waiterCountWaiters.removeAll { waiter in
-            guard waiterCount >= waiter.count else {
-                return false
-            }
-            ready.append(waiter.continuation)
-            return true
-        }
-        for continuation in ready {
-            continuation.resume()
-        }
     }
 }

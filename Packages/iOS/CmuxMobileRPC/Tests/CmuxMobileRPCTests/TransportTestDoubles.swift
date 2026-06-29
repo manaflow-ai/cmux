@@ -145,6 +145,18 @@ func hostPortRoute(
     )
 }
 
+extension MobileCoreRPCClient {
+    func waitUntilTicketRedemptionWaiters(count: Int) async -> Bool {
+        for _ in 0..<200 {
+            if await ticketRedemptionGate.waiterCount >= count {
+                return true
+            }
+            await Task.yield()
+        }
+        return await ticketRedemptionGate.waiterCount >= count
+    }
+}
+
 /// Transport that blocks its first `send` until released, recording payloads so
 /// tests can assert a cancelled queued request is never written.
 actor QueuedCancellationProbeTransport: CmxByteTransport {

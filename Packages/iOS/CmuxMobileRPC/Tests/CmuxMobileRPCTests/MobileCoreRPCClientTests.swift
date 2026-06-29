@@ -473,7 +473,7 @@ import Testing
         #expect(firstSent.map(\.method) == ["mobile.attach_ticket.redeem"])
 
         let secondTask = Task { try await client.sendRequest(workspaceCreate) }
-        await client.waitForTicketRedemptionWaiterCountForTesting(2)
+        #expect(await client.waitUntilTicketRedemptionWaiters(count: 2))
         #expect(try await transport.sentRequests().map(\.method) == ["mobile.attach_ticket.redeem"])
 
         await redeemRelease.release()

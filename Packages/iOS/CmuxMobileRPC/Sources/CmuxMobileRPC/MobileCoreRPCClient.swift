@@ -18,7 +18,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     let session: MobileCoreRPCSession
     private let stackTokenGate: RPCStackTokenGate
     private let stackTokenForceRefreshGate: RPCStackTokenGate
-    private let ticketRedemptionGate: MobileCoreRPCTicketRedemptionGate
+    // `internal` so `@testable import` can observe redemption sharing without
+    // a production-only debug hook.
+    let ticketRedemptionGate: MobileCoreRPCTicketRedemptionGate
 
     /// Create a client bound to one route + attach ticket.
     /// - Parameters:
@@ -74,10 +76,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// authenticated attach token and host-reported ticket context.
     public func currentTicket() async -> CmxAttachTicket {
         await ticketState.current()
-    }
-
-    func waitForTicketRedemptionWaiterCountForTesting(_ count: Int) async {
-        await ticketRedemptionGate.waitForWaiterCountForTesting(count)
     }
 
     /// Subscribe to server-pushed events. Returns a stream of envelopes
