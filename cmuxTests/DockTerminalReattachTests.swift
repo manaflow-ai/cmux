@@ -132,8 +132,7 @@ struct DockTerminalReattachTests {
         panel.hostedView.setVisibleInUI(true)
         TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
         #expect(!panel.hostedView.isHidden)
-        #expect(panel.hostedView.window == nil)
-        #expect(panel.hostedView.superview == nil)
+        #expect(TerminalWindowPortalRegistry.hostedViewNeedsPortalReattachForVisiblePresentation(panel.hostedView))
         let reattachTokenBefore = panel.viewReattachToken
 
         store.focusPanel(panelId)
