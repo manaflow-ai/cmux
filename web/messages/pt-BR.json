@@ -820,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Mostra a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas.",
           "focusTextBoxOnNewTerminals": "Foca a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas. Focar também mostra o TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Quando ativado, um banner de notificação é retirado automaticamente apenas quando sua superfície é exatamente a superfície focada. Um banner entregue para uma superfície não focada no workspace atualmente visível permanece visível até você focar essa superfície (ou clicar nele/dispensá-lo), em vez de ser retirado quando o workspace se torna visível. Desativado preserva a retirada antiga baseada na visibilidade do workspace."
+        },
         "browser": {
           "defaultSearchEngine": "Mecanismo de busca padrão para consultas na barra de endereço do navegador que não são URLs. Use custom com customSearchEngineURLTemplate para outros provedores.",
           "customSearchEngineName": "Nome exibido quando defaultSearchEngine é custom.",
@@ -1069,7 +1072,8 @@
       "closeWorkspaceDesc": "Fechar um workspace.",
       "splitCommands": "Comandos de divisão",
       "newSplitDesc": "Criar um novo painel dividido. Direções: left, right, up, down.",
-      "listSurfacesDesc": "Listar todas as superfícies no workspace atual.",
+      "listPanelsDesc": "Listar todas as superfícies no workspace atual.",
+      "listPaneSurfacesDesc": "Listar as superfícies no painel em foco.",
       "focusSurfaceDesc": "Focar uma superfície específica.",
       "inputCommands": "Comandos de entrada",
       "sendDesc": "Enviar texto para o terminal focado.",
