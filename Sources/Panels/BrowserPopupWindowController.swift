@@ -622,10 +622,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
     weak var controller: BrowserPopupWindowController?
     var downloadDelegate: WKDownloadDelegate?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
-    private let clientCertificatePromptCoordinator = BrowserClientCertificatePromptCoordinator()
-    private let clientCertificateAuthenticationHandler = BrowserClientCertificateAuthenticationHandler(
-        candidateProvider: BrowserClientCertificateCredentialStore().candidates(for:)
-    )
+    private let clientCertificateAuthenticationController = BrowserClientCertificateAuthenticationController()
     private let sslBypassState = BrowserSSLTrustBypassState()
     private var lastAttemptedURL: URL?
     private var lastAttemptedRequest: URLRequest?
@@ -638,7 +635,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 
     func cancelPendingAuthenticationPrompts() {
         basicAuthPromptCoordinator.cancelAll()
-        clientCertificatePromptCoordinator.cancelAll()
+        clientCertificateAuthenticationController.cancelAll()
     }
 
     private func recordAttemptedRequest(_ request: URLRequest) {
@@ -908,36 +905,14 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             startPrompt: { finishPrompt, registerCancelPrompt in
                 browserHandleHTTPBasicAuthenticationChallenge(
                     in: webView, challenge: challenge,
-                    registerCancelPrompt: registerCancelPrompt,
-                    completionHandler: finishPrompt
+                    registerCancelPrompt: registerCancelPrompt, completionHandler: finishPrompt
                 )
             },
             completionHandler: completionHandler
-        ) {
-            return
-        }
-
-        if clientCertificatePromptCoordinator.handle(
-            challenge: challenge,
-            startPrompt: { [clientCertificateAuthenticationHandler] finishPrompt, registerCancelPrompt in
-                clientCertificateAuthenticationHandler.handle(
-                    challenge: challenge,
-                    candidatePicker: { protectionSpace, candidates, completion, registerCancelPrompt in
-                        BrowserClientCertificateCredentialPicker(webView: webView).selectCredential(
-                            for: protectionSpace,
-                            candidates: candidates,
-                            registerCancelPrompt: registerCancelPrompt,
-                            completion: completion
-                        )
-                    },
-                    registerCancelPrompt: registerCancelPrompt,
-                    completionHandler: finishPrompt
-                )
-            },
-            completionHandler: completionHandler
-        ) {
-            return
-        }
+        ) { return }
+        if clientCertificateAuthenticationController.handle(
+            challenge: challenge, in: webView, completionHandler: completionHandler
+        ) { return }
 
         completionHandler(.performDefaultHandling, nil)
     }
