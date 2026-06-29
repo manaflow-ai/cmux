@@ -842,8 +842,8 @@
         "fileExplorer": {
           "description": "Indstillinger for filoversigten (filtræet) i højre sidepanel.",
           "doubleClickAction": "Bestemmer, hvad der sker, når du dobbeltklikker (eller trykker Return på et søgeresultat for) en fil i filoversigten. `preview` åbner den indbyggede cmux-filvisning (standard og historisk adfærd). `defaultEditor` åbner med macOS-standardappen for filtypen. `preferredEditor` åbner med kommandoen `app.preferredEditor` og falder tilbage til standardappen, når den ikke er sat. Gælder kun filer; mapper udvides/skjules altid, og ikke-lokale (eksterne) filoversigter åbner altid cmux-forhåndsvisningen.",
-          "sortBy": "How the file explorer orders entries. `name` preserves the historical folders-first alphabetical order; date sorts use each entry's created or modified timestamp, with entries missing that timestamp placed last.",
-          "sortOrder": "Sort direction for the file explorer. Date sorting with `descending` places newer entries first."
+          "sortBy": "Hvordan filoversigten sorterer poster. `name` bevarer den hidtidige alfabetiske sortering med mapper først; datosorteringer bruger hver posts oprettelses- eller ændringstidspunkt, og poster uden dette tidspunkt placeres sidst.",
+          "sortOrder": "Sorteringsretning for filoversigten. Ved datosortering placerer `descending` nyere poster først."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."

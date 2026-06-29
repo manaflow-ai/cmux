@@ -233,6 +233,10 @@ enum FileExplorerSortKey: String, CaseIterable, Sendable {
     case dateCreated
     case dateModified
 
+    init(resolvingRawValue raw: String?) {
+        self = raw.flatMap { Self(rawValue: $0) } ?? .name
+    }
+
     var localizedTitle: String {
         switch self {
         case .name:
@@ -248,6 +252,10 @@ enum FileExplorerSortKey: String, CaseIterable, Sendable {
 enum FileExplorerSortOrder: String, CaseIterable, Sendable {
     case ascending
     case descending
+
+    init(resolvingRawValue raw: String?) {
+        self = raw.flatMap { Self(rawValue: $0) } ?? .ascending
+    }
 
     var localizedTitle: String {
         switch self {
@@ -266,59 +274,49 @@ struct FileExplorerSortOptions: Equatable, Sendable {
     static let defaultValue = FileExplorerSortOptions(key: .name, order: .ascending)
 }
 
-enum FileExplorerSortSettings {
+struct FileExplorerSortSettings {
     static let sortKeyKey = "fileExplorer.sortBy"
     static let sortOrderKey = "fileExplorer.sortOrder"
     static let didChangeNotification = Notification.Name("cmux.fileExplorerSortSettingsDidChange")
-    static let defaultValue = FileExplorerSortOptions.defaultValue
 
-    static func sortKey(forRawValue raw: String?) -> FileExplorerSortKey {
-        guard let raw, let key = FileExplorerSortKey(rawValue: raw) else {
-            return defaultValue.key
-        }
-        return key
+    private let defaults: UserDefaults
+    private let notificationCenter: NotificationCenter
+
+    init(defaults: UserDefaults, notificationCenter: NotificationCenter) {
+        self.defaults = defaults
+        self.notificationCenter = notificationCenter
     }
 
-    static func sortOrder(forRawValue raw: String?) -> FileExplorerSortOrder {
-        guard let raw, let order = FileExplorerSortOrder(rawValue: raw) else {
-            return defaultValue.order
-        }
-        return order
-    }
-
-    static func resolvedOptions(defaults: UserDefaults = .standard) -> FileExplorerSortOptions {
+    func resolvedOptions() -> FileExplorerSortOptions {
         FileExplorerSortOptions(
-            key: sortKey(forRawValue: defaults.string(forKey: sortKeyKey)),
-            order: sortOrder(forRawValue: defaults.string(forKey: sortOrderKey))
+            key: FileExplorerSortKey(resolvingRawValue: defaults.string(forKey: Self.sortKeyKey)),
+            order: FileExplorerSortOrder(resolvingRawValue: defaults.string(forKey: Self.sortOrderKey))
         )
     }
 
-    static func setOptions(
-        _ options: FileExplorerSortOptions,
-        defaults: UserDefaults = .standard,
-        notificationCenter: NotificationCenter = .default
-    ) {
-        defaults.set(options.key.rawValue, forKey: sortKeyKey)
-        defaults.set(options.order.rawValue, forKey: sortOrderKey)
-        notifyDidChange(notificationCenter: notificationCenter)
+    func setOptions(_ options: FileExplorerSortOptions) {
+        defaults.set(options.key.rawValue, forKey: Self.sortKeyKey)
+        defaults.set(options.order.rawValue, forKey: Self.sortOrderKey)
+        notifyDidChange()
     }
 
-    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
-        notificationCenter.post(name: didChangeNotification, object: nil)
+    func notifyDidChange() {
+        notificationCenter.post(name: Self.didChangeNotification, object: nil)
     }
 }
 
-enum FileExplorerNodeSorter {
-    static func sorted(_ nodes: [FileExplorerNode], options: FileExplorerSortOptions) -> [FileExplorerNode] {
+struct FileExplorerNodeSorter {
+    let options: FileExplorerSortOptions
+
+    func sorted(_ nodes: [FileExplorerNode]) -> [FileExplorerNode] {
         nodes.sorted { lhs, rhs in
-            isOrderedBefore(lhs, rhs, options: options)
+            isOrderedBefore(lhs, rhs)
         }
     }
 
-    private static func isOrderedBefore(
+    private func isOrderedBefore(
         _ lhs: FileExplorerNode,
-        _ rhs: FileExplorerNode,
-        options: FileExplorerSortOptions
+        _ rhs: FileExplorerNode
     ) -> Bool {
         switch options.key {
         case .name:
@@ -339,7 +337,7 @@ enum FileExplorerNodeSorter {
         }
     }
 
-    private static func orderedByDate(_ lhs: Date?, _ rhs: Date?, order: FileExplorerSortOrder) -> Bool? {
+    private func orderedByDate(_ lhs: Date?, _ rhs: Date?, order: FileExplorerSortOrder) -> Bool? {
         switch (lhs, rhs) {
         case let (lhs?, rhs?) where lhs != rhs:
             return order == .ascending ? lhs < rhs : lhs > rhs
@@ -352,14 +350,14 @@ enum FileExplorerNodeSorter {
         }
     }
 
-    private static func orderedByFallback(_ lhs: FileExplorerNode, _ rhs: FileExplorerNode) -> Bool {
+    private func orderedByFallback(_ lhs: FileExplorerNode, _ rhs: FileExplorerNode) -> Bool {
         if lhs.isDirectory != rhs.isDirectory {
             return lhs.isDirectory
         }
         return orderedByName(lhs, rhs, order: .ascending)
     }
 
-    private static func orderedByName(
+    private func orderedByName(
         _ lhs: FileExplorerNode,
         _ rhs: FileExplorerNode,
         order: FileExplorerSortOrder
@@ -415,7 +413,7 @@ final class FileExplorerNode: Identifiable {
     }
 
     func sortedChildren(using options: FileExplorerSortOptions) -> [FileExplorerNode]? {
-        children.map { FileExplorerNodeSorter.sorted($0, options: options) }
+        children.map { FileExplorerNodeSorter(options: options).sorted($0) }
     }
 }
 
@@ -994,7 +992,7 @@ final class FileExplorerStore: ObservableObject {
 
     private var remoteHomeResolutionTask: Task<Void, Never>?
     private var remoteHomeResolutionKey: String?
-    private let sortDefaults: UserDefaults
+    private let sortSettings: FileExplorerSortSettings
     private let notificationCenter: NotificationCenter
     private var sortSettingsObserver: NSObjectProtocol?
 
@@ -1002,9 +1000,10 @@ final class FileExplorerStore: ObservableObject {
         sortDefaults: UserDefaults = .standard,
         notificationCenter: NotificationCenter = .default
     ) {
-        self.sortDefaults = sortDefaults
         self.notificationCenter = notificationCenter
-        self.sortOptions = FileExplorerSortSettings.resolvedOptions(defaults: sortDefaults)
+        let sortSettings = FileExplorerSortSettings(defaults: sortDefaults, notificationCenter: notificationCenter)
+        self.sortSettings = sortSettings
+        self.sortOptions = sortSettings.resolvedOptions()
         self.sortSettingsObserver = notificationCenter.addObserver(
             forName: FileExplorerSortSettings.didChangeNotification,
             object: nil,
@@ -1380,7 +1379,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     private func applySortOptionsFromDefaults() {
-        applySortOptions(FileExplorerSortSettings.resolvedOptions(defaults: sortDefaults), persist: false)
+        applySortOptions(sortSettings.resolvedOptions(), persist: false)
     }
 
     private func applySortOptions(_ options: FileExplorerSortOptions, persist: Bool) {
@@ -1389,11 +1388,7 @@ final class FileExplorerStore: ObservableObject {
         resortLoadedNodes()
         sortRevision &+= 1
         if persist {
-            FileExplorerSortSettings.setOptions(
-                options,
-                defaults: sortDefaults,
-                notificationCenter: notificationCenter
-            )
+            sortSettings.setOptions(options)
         }
         objectWillChange.send()
     }
@@ -1408,7 +1403,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     private func sortNodes(_ nodes: [FileExplorerNode]) -> [FileExplorerNode] {
-        FileExplorerNodeSorter.sorted(nodes, options: sortOptions)
+        FileExplorerNodeSorter(options: sortOptions).sorted(nodes)
     }
 
     private func applyRemoteSSHWorkspaceRoot(
@@ -1593,7 +1588,7 @@ final class FileExplorerStore: ObservableObject {
 
 private extension Array where Element == FileExplorerNode {
     func sorted(using options: FileExplorerSortOptions) -> [FileExplorerNode] {
-        FileExplorerNodeSorter.sorted(self, options: options)
+        FileExplorerNodeSorter(options: options).sorted(self)
     }
 }
 

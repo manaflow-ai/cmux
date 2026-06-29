@@ -195,10 +195,8 @@ struct FileExplorerStoreTests {
             FileExplorerNode(name: "alpha", path: "/project/alpha", isDirectory: true),
         ]
 
-        let sorted = FileExplorerNodeSorter.sorted(
-            nodes,
-            options: FileExplorerSortOptions(key: .name, order: .ascending)
-        )
+        let sorted = FileExplorerNodeSorter(options: FileExplorerSortOptions(key: .name, order: .ascending))
+            .sorted(nodes)
 
         #expect(sorted.map(\.name) == ["alpha", "beta", "alpha.txt", "z-file.txt"])
     }
@@ -230,10 +228,8 @@ struct FileExplorerStoreTests {
             FileExplorerNode(name: "untimed.txt", path: "/project/untimed.txt", isDirectory: false),
         ]
 
-        let sorted = FileExplorerNodeSorter.sorted(
-            nodes,
-            options: FileExplorerSortOptions(key: .dateModified, order: .descending)
-        )
+        let sorted = FileExplorerNodeSorter(options: FileExplorerSortOptions(key: .dateModified, order: .descending))
+            .sorted(nodes)
 
         #expect(sorted.map(\.name) == ["new-report.png", "middle.txt", "old-folder", "untimed.txt"])
     }

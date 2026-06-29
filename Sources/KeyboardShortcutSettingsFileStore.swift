@@ -1596,7 +1596,7 @@ final class CmuxSettingsFileStore {
 
                 if change.defaultsKey == FileExplorerSortSettings.sortKeyKey ||
                     change.defaultsKey == FileExplorerSortSettings.sortOrderKey {
-                    FileExplorerSortSettings.notifyDidChange(notificationCenter: notificationCenter)
+                    notificationCenter.post(name: FileExplorerSortSettings.didChangeNotification, object: nil)
                 }
 
                 if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {

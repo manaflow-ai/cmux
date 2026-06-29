@@ -136,24 +136,24 @@ import Testing
     }
 
     @Test func defaultSortIsNameAscending() {
-        #expect(FileExplorerSortSettings.defaultValue == FileExplorerSortOptions(key: .name, order: .ascending))
+        #expect(FileExplorerSortOptions.defaultValue == FileExplorerSortOptions(key: .name, order: .ascending))
     }
 
     @Test func parsesEachKnownSortKeyRawValue() {
-        #expect(FileExplorerSortSettings.sortKey(forRawValue: "name") == .name)
-        #expect(FileExplorerSortSettings.sortKey(forRawValue: "dateCreated") == .dateCreated)
-        #expect(FileExplorerSortSettings.sortKey(forRawValue: "dateModified") == .dateModified)
+        #expect(FileExplorerSortKey(resolvingRawValue: "name") == .name)
+        #expect(FileExplorerSortKey(resolvingRawValue: "dateCreated") == .dateCreated)
+        #expect(FileExplorerSortKey(resolvingRawValue: "dateModified") == .dateModified)
     }
 
     @Test func parsesEachKnownSortOrderRawValue() {
-        #expect(FileExplorerSortSettings.sortOrder(forRawValue: "ascending") == .ascending)
-        #expect(FileExplorerSortSettings.sortOrder(forRawValue: "descending") == .descending)
+        #expect(FileExplorerSortOrder(resolvingRawValue: "ascending") == .ascending)
+        #expect(FileExplorerSortOrder(resolvingRawValue: "descending") == .descending)
     }
 
     @Test func unknownSortValuesFallBackToDefaults() {
         for raw in [nil, "", "modified", "date-created", "DESC", "newest"] {
-            #expect(FileExplorerSortSettings.sortKey(forRawValue: raw) == .name)
-            #expect(FileExplorerSortSettings.sortOrder(forRawValue: raw) == .ascending)
+            #expect(FileExplorerSortKey(resolvingRawValue: raw) == .name)
+            #expect(FileExplorerSortOrder(resolvingRawValue: raw) == .ascending)
         }
     }
 
@@ -164,14 +164,11 @@ import Testing
 
     @Test func resolvedOptionsRoundTripThroughUserDefaults() {
         let defaults = makeDefaults()
+        let settings = FileExplorerSortSettings(defaults: defaults, notificationCenter: NotificationCenter())
         let options = FileExplorerSortOptions(key: .dateModified, order: .descending)
 
-        FileExplorerSortSettings.setOptions(
-            options,
-            defaults: defaults,
-            notificationCenter: NotificationCenter()
-        )
+        settings.setOptions(options)
 
-        #expect(FileExplorerSortSettings.resolvedOptions(defaults: defaults) == options)
+        #expect(settings.resolvedOptions() == options)
     }
 }

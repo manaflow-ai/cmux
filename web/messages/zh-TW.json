@@ -842,8 +842,8 @@
         "fileExplorer": {
           "description": "右側邊欄檔案瀏覽器（檔案樹）設定。",
           "doubleClickAction": "設定在檔案瀏覽器中按兩下檔案（或在搜尋結果上按 Return）時要執行的動作。`preview` 會開啟 cmux 內建檔案預覽（預設與既有行為）。`defaultEditor` 會使用該檔案類型的 macOS 預設 App 開啟。`preferredEditor` 會使用 `app.preferredEditor` 命令開啟；未設定時會退回預設 App。僅適用於檔案；目錄一律展開/收合，非本機（遠端）檔案瀏覽器一律開啟 cmux 預覽。",
-          "sortBy": "How the file explorer orders entries. `name` preserves the historical folders-first alphabetical order; date sorts use each entry's created or modified timestamp, with entries missing that timestamp placed last.",
-          "sortOrder": "Sort direction for the file explorer. Date sorting with `descending` places newer entries first."
+          "sortBy": "檔案總管排列項目的方式。`name` 會保留以資料夾優先的既有字母順序；日期排序會使用每個項目的建立或修改時間戳，缺少該時間戳的項目會排在最後。",
+          "sortOrder": "檔案總管的排序方向。依日期排序時，`descending` 會將較新的項目排在前面。"
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."

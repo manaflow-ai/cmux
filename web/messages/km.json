@@ -842,8 +842,8 @@
         "fileExplorer": {
           "description": "ការកំណត់កម្មវិធីរុករកឯកសារ (មែកធាងឯកសារ) នៅក្នុងរបារចំហៀងស្តាំ។",
           "doubleClickAction": "កំណត់អ្វីដែលកើតឡើងពេលចុចពីរដង (ឬចុច Return លើលទ្ធផលស្វែងរក) លើឯកសារនៅក្នុងកម្មវិធីរុករកឯកសារ។ `preview` បើកការមើលជាមុនឯកសារ cmux ដែលភ្ជាប់មកជាមួយ (ជាលំនាំដើម និងជាឥរិយាបថចាស់)។ `defaultEditor` បើកដោយប្រើកម្មវិធីលំនាំដើមរបស់ macOS សម្រាប់ប្រភេទឯកសារនោះ។ `preferredEditor` បើកដោយប្រើពាក្យបញ្ជា `app.preferredEditor` ហើយត្រឡប់ទៅកម្មវិធីលំនាំដើម ប្រសិនបើមិនបានកំណត់។ អនុវត្តតែលើឯកសារ; ថតតែងតែពង្រីក/បង្រួម ហើយកម្មវិធីរុករកឯកសារដែលមិនមែនក្នុងមូលដ្ឋាន (ពីចម្ងាយ) តែងតែបើកការមើលជាមុនរបស់ cmux។",
-          "sortBy": "How the file explorer orders entries. `name` preserves the historical folders-first alphabetical order; date sorts use each entry's created or modified timestamp, with entries missing that timestamp placed last.",
-          "sortOrder": "Sort direction for the file explorer. Date sorting with `descending` places newer entries first."
+          "sortBy": "របៀបដែលកម្មវិធីរុករកឯកសារតម្រៀបធាតុ។ `name` រក្សាលំដាប់អក្សរក្រមដូចមុន ដោយដាក់ថតនៅមុខ; ការតម្រៀបតាមកាលបរិច្ឆេទប្រើពេលបង្កើត ឬពេលកែប្រែរបស់ធាតុនីមួយៗ ហើយដាក់ធាតុដែលគ្មានពេលនោះនៅចុងក្រោយ។",
+          "sortOrder": "ទិសដៅតម្រៀបសម្រាប់កម្មវិធីរុករកឯកសារ។ ការតម្រៀបតាមកាលបរិច្ឆេទជាមួយ `descending` ដាក់ធាតុថ្មីជាងនៅមុខ។"
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."

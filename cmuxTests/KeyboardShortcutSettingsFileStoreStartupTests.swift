@@ -547,11 +547,9 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             defaults.removeObject(forKey: FileExplorerSortSettings.sortOrderKey)
             defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             defaults.removeObject(forKey: importedManagedDefaultsKey)
+            let sortSettings = FileExplorerSortSettings(defaults: defaults, notificationCenter: NotificationCenter())
 
-            XCTAssertEqual(
-                FileExplorerSortSettings.resolvedOptions(defaults: defaults),
-                FileExplorerSortSettings.defaultValue
-            )
+            XCTAssertEqual(sortSettings.resolvedOptions(), FileExplorerSortOptions.defaultValue)
 
             let directoryURL = try makeTemporaryDirectory()
             defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -580,7 +578,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 XCTAssertEqual(defaults.string(forKey: FileExplorerSortSettings.sortKeyKey), "dateModified")
                 XCTAssertEqual(defaults.string(forKey: FileExplorerSortSettings.sortOrderKey), "descending")
                 XCTAssertEqual(
-                    FileExplorerSortSettings.resolvedOptions(defaults: defaults),
+                    sortSettings.resolvedOptions(),
                     FileExplorerSortOptions(key: .dateModified, order: .descending)
                 )
             }
