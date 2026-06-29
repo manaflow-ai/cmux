@@ -117,18 +117,22 @@ struct WorkspaceShellView: View {
                 retryInitialConnection: retryInitialConnection
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                workspaceDestination(
-                    for: workspaceID,
-                    createWorkspace: createWorkspaceInCompactStack,
-                    backAction: popCompactStack,
-                    backUnreadCount: unreadWorkspaceCount(excluding: workspaceID)
-                )
+                workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
                     // Only on the pushed compact stack (where a back button
                     // exists): replace the system back button with a custom one
                     // that folds the unread-workspace count INTO the same button
                     // ("‹ 3"). Hiding the system button disables the interactive
                     // swipe-back, so re-enable it via InteractiveSwipeBackEnabler.
                     .navigationBarBackButtonHidden(true)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            WorkspaceBackButton(
+                                unreadCount: unreadWorkspaceCount(excluding: workspaceID),
+                                badgeContrast: .darkBackground,
+                                action: popCompactStack
+                            )
+                        }
+                    }
                     .background(InteractiveSwipeBackEnabler())
             }
         }
@@ -346,9 +350,7 @@ struct WorkspaceShellView: View {
     private func workspaceDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
         createWorkspace: @escaping () -> Void,
-        safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth,
-        backAction: (() -> Void)? = nil,
-        backUnreadCount: Int = 0
+        safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth
     ) -> some View {
         WorkspaceDetailContainer(
             store: store,
@@ -356,8 +358,6 @@ struct WorkspaceShellView: View {
             createWorkspace: createWorkspace,
             canCreateWorkspace: canCreateWorkspace,
             safeAreaContext: safeAreaContext,
-            backAction: backAction,
-            backUnreadCount: backUnreadCount,
             signOut: signOut
         )
     }

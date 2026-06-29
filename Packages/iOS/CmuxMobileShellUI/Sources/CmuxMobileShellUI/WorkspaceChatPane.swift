@@ -32,6 +32,11 @@ struct WorkspaceChatPane: View {
 
     @State private var accessoryConfiguration = TerminalAccessoryConfiguration.shared
     @State private var isShowingShortcutSettings = false
+    /// Full content width, used to bound the toolbar-principal header so a long
+    /// workspace name truncates in the center instead of overflowing under the
+    /// back button / trailing toolbar buttons.
+    @State private var contentWidth: CGFloat = 0
+
     var body: some View {
         Group {
             ChatScreen(
@@ -44,8 +49,34 @@ struct WorkspaceChatPane: View {
                 onOpenTerminal: openTerminal
             )
             // The host (workspace detail) owns the nav bar, so the
-            // live session-state header is supplied by `WorkspaceDetailView`'s
-            // own top chrome, keeping first-render toolbar state single-sourced.
+            // live session-state header is supplied here as a principal
+            // item rather than by ChatScreen, which would be dropped
+            // under the workspace's own chrome.
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    ChatSessionHeaderView(
+                        descriptor: conversation.descriptor,
+                        agentState: conversation.agentState,
+                        isConnected: conversation.isConnected,
+                        titleOverride: workspaceName,
+                        subtitle: tabName
+                    )
+                    // Centered principal item: cap it to the clear center gap
+                    // so a long workspace name truncates instead of
+                    // underlapping the toolbar. The chat view always shows the
+                    // chat toggle in its trailing cluster. Reserve only the
+                    // real side clusters so the middle grows as much as it can.
+                    .frame(maxWidth: MobileNavTitleWidth.cap(
+                        contentWidth: contentWidth,
+                        hasChatToggle: true
+                    ))
+                    // The header bar is cleared on iOS 26 so the transcript
+                    // shows through it; back the header on its own Liquid
+                    // Glass pill so it stays readable over the messages.
+                    .mobileGlassNavigationTitle()
+                }
+            }
         }
         .sheet(isPresented: $isShowingShortcutSettings) {
             TerminalShortcutsSettingsView(scope: .agentChat)

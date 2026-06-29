@@ -15,8 +15,6 @@ struct WorkspaceDetailContainer: View {
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
     let safeAreaContext: MobileTerminalSafeAreaContext
-    let backAction: (() -> Void)?
-    let backUnreadCount: Int
     let signOut: (() -> Void)?
 
     private var workspace: MobileWorkspacePreview? {
@@ -51,8 +49,6 @@ struct WorkspaceDetailContainer: View {
                 reportTerminalViewport: store.reportTerminalViewport,
                 sendTerminalInput: store.sendTerminalRawInput,
                 safeAreaContext: safeAreaContext,
-                backAction: backAction,
-                backUnreadCount: backUnreadCount,
                 signOut: signOut
             )
             .onAppear {
