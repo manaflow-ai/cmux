@@ -118,7 +118,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             }
             let livenessReferenceUptime = doneObservedUptime ?? maxDiagnosticsUpdatedAt
             let presentAdvancedNearChurnEnd = latestPresentAdvanceStats.map {
-                livenessReferenceUptime - $0.diagnosticsUpdatedAt <= maximumSecondsSinceLastPresentAdvance
+                livenessReferenceUptime - $0.lastPresentTime <= maximumSecondsSinceLastPresentAdvance
             } ?? false
             if doneMarker == "done" &&
                 maxPresentCount >= baselinePresentCount + minimumPresentAdvanceForLiveness &&
@@ -151,7 +151,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         let finalStatsDescription = String(describing: finalStats)
         let livenessReferenceUptime = doneObservedUptime ?? maxDiagnosticsUpdatedAt
         let secondsSinceLastPresentAdvance = latestPresentAdvanceStats.map {
-            livenessReferenceUptime - $0.diagnosticsUpdatedAt
+            livenessReferenceUptime - $0.lastPresentTime
         } ?? Double.greatestFiniteMagnitude
         let latestPresentDescription = latestPresentAdvanceStats.map { String(describing: $0) } ?? "<none>"
 
