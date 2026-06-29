@@ -111,6 +111,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         return "\(shortcutModifierSymbol)\(shortcutDigit)"
     }
 
+    private var pinnedGroupTooltip: String {
+        String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
+    }
+
     private var rowHeightProbe: some View {
         GeometryReader { proxy in
             Color.clear
@@ -154,6 +158,16 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .foregroundStyle(iconColor)
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
+                if isPinned {
+                    CmuxSystemSymbolImage(
+                        magnified: "pin.fill",
+                        pointSize: metrics.pinnedIconFontSize,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(Color.secondary.opacity(0.8))
+                    .safeHelp(pinnedGroupTooltip)
+                    .accessibilityLabel(Text(pinnedGroupTooltip))
+                }
                 Text(name)
                     .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
@@ -313,62 +327,65 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 action: onTogglePinned
             )
             Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.markRead",
-                    defaultValue: "Mark Group as Read"
-                ),
-                action: onMarkRead
-            )
-            .disabled(!canMarkRead)
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.markUnread",
-                    defaultValue: "Mark Group as Unread"
-                ),
-                action: onMarkUnread
-            )
-            .disabled(!canMarkUnread)
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.clearLatestNotifications",
-                    defaultValue: "Clear Latest Notifications"
-                ),
-                action: onClearLatestNotifications
-            )
-            .disabled(!hasLatestNotifications)
-            Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.markAllRead",
-                    defaultValue: "Mark All Workspaces in Group as Read"
-                ),
-                action: onMarkAllRead
-            )
-            .disabled(!canMarkAllRead)
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.markAllUnread",
-                    defaultValue: "Mark All Workspaces in Group as Unread"
-                ),
-                action: onMarkAllUnread
-            )
-            .disabled(!canMarkAllUnread)
-            Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.editConfig",
-                    defaultValue: "Edit Group Config..."
-                ),
-                action: onEditConfig
-            )
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.openDocs",
-                    defaultValue: "Open Workspace Groups Docs"
-                ),
-                action: onOpenDocs
-            )
+            Menu(String(localized: "workspaceGroup.contextMenu.notifications", defaultValue: "Notifications")) {
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.markRead",
+                        defaultValue: "Mark Group as Read"
+                    ),
+                    action: onMarkRead
+                )
+                .disabled(!canMarkRead)
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.markUnread",
+                        defaultValue: "Mark Group as Unread"
+                    ),
+                    action: onMarkUnread
+                )
+                .disabled(!canMarkUnread)
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.clearLatestNotifications",
+                        defaultValue: "Clear Latest Notifications"
+                    ),
+                    action: onClearLatestNotifications
+                )
+                .disabled(!hasLatestNotifications)
+                Divider()
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.markAllRead",
+                        defaultValue: "Mark All Workspaces in Group as Read"
+                    ),
+                    action: onMarkAllRead
+                )
+                .disabled(!canMarkAllRead)
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.markAllUnread",
+                        defaultValue: "Mark All Workspaces in Group as Unread"
+                    ),
+                    action: onMarkAllUnread
+                )
+                .disabled(!canMarkAllUnread)
+            }
+            Menu(String(localized: "workspaceGroup.contextMenu.configuration", defaultValue: "Configuration")) {
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.editConfig",
+                        defaultValue: "Edit Group Config..."
+                    ),
+                    action: onEditConfig
+                )
+                Button(
+                    String(
+                        localized: "workspaceGroup.contextMenu.openDocs",
+                        defaultValue: "Open Workspace Groups Docs"
+                    ),
+                    action: onOpenDocs
+                )
+            }
             Divider()
             Button(
                 String(
