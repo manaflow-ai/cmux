@@ -82,9 +82,17 @@ final class RendererRealizationController {
         }
     }
 
+    func reclaimForSystemMemoryPressure(now: Date) {
+        evaluate(now: now, trigger: .systemMemoryPressure)
+    }
+
     /// Run one reclamation pass. Internal so a unit/integration test can drive it
     /// deterministically without the timer.
     func evaluate(now: Date) {
+        evaluate(now: now, trigger: .scheduled)
+    }
+
+    private func evaluate(now: Date, trigger: RendererRealizationPlanner.ReclaimTrigger) {
         let settings = RendererRealizationSettings.values()
         guard settings.enabled else { return }
 
@@ -120,7 +128,8 @@ final class RendererRealizationController {
         let selected = RendererRealizationPlanner.selectedSurfaceIds(
             inputs: inputs,
             settings: settings,
-            now: now.timeIntervalSince1970
+            now: now.timeIntervalSince1970,
+            trigger: trigger
         )
         guard !selected.isEmpty else { return }
         for surface in surfaces where selected.contains(surface.id) {
