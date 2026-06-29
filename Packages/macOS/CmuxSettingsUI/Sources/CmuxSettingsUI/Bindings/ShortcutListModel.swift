@@ -248,6 +248,14 @@ public final class ShortcutListModel {
         bumpRemeasure(action.rawValue)
     }
 
+    /// Records a bare-key rejection for the given action and bumps the remeasure
+    /// counter so the hosting NSTableView can invalidate the row's height.
+    /// Called by ``ShortcutListRowView``'s `onBareKeyRejected` callback.
+    public func markBareKeyRejected(_ action: ShortcutAction) {
+        bareKeyRejections.insert(action.rawValue)
+        bumpRemeasure(action.rawValue)
+    }
+
     /// The X/restore button handler: clears rejections then either restores a
     /// previously cached stroke (if the binding is currently unbound) or clears
     /// the binding and caches the current effective stroke for a future restore.

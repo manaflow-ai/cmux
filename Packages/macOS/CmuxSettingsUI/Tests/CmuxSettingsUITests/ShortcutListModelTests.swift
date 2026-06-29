@@ -178,4 +178,21 @@ import CmuxSettings
         #expect(model.heightRevision > initialRevision)
         #expect(model.rowsNeedingRemeasure.contains(targetAction.rawValue))
     }
+
+    @Test func markBareKeyRejectedInsertsAndBumpsRemeasure() {
+        // WHY: markBareKeyRejected is the onBareKeyRejected callback path for
+        // ShortcutListRowView; it must insert the action id into bareKeyRejections
+        // AND bump heightRevision so the NSTableView row can be remeasured when the
+        // bare-key error banner appears.
+        let (store, catalog, errorLog) = makeStore()
+        let action = ShortcutAction.openSettings
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        let initialRevision = model.heightRevision
+
+        model.markBareKeyRejected(action)
+
+        #expect(model.bareKeyRejections.contains(action.rawValue))
+        #expect(model.heightRevision > initialRevision)
+        #expect(model.consumeRemeasure().contains(action.rawValue))
+    }
 }
