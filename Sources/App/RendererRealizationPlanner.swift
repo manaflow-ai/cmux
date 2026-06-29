@@ -22,6 +22,14 @@ enum RendererRealizationPlanner {
     ) -> Set<UUID> {
         guard settings.enabled else { return [] }
 
+        if trigger == .systemMemoryPressure {
+            return Set(
+                inputs.lazy
+                    .filter { $0.isRealized && !$0.isVisible }
+                    .map(\.surfaceId)
+            )
+        }
+
         // Only realized surfaces hold releasable GPU resources. Rank by recency
         // (most-recent first); visible surfaces are stamped ~now so they sort to
         // the top and land inside the warm set.
@@ -33,10 +41,6 @@ enum RendererRealizationPlanner {
                 }
                 return lhs.lastVisibleAt > rhs.lastVisibleAt
             }
-
-        if trigger == .systemMemoryPressure {
-            return Set(ranked.lazy.filter { !$0.isVisible }.map(\.surfaceId))
-        }
 
         let warmCap = max(1, settings.maxWarmRenderers)
         var selected: Set<UUID> = []
