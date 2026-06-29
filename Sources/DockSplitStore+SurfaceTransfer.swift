@@ -113,8 +113,11 @@ extension DockSplitStore {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
         installSubscription(for: panel, tracksTerminalTitle: true)
+        let terminal = panel as? TerminalPanel
+        let wasHidden = terminal?.hostedView.isHidden ?? false
         applyVisibility(to: panel)
-        if let terminal = panel as? TerminalPanel {
+        // `applyVisibility` already requests reattach when it reveals a hidden terminal.
+        if let terminal, !(wasHidden && !terminal.hostedView.isHidden) {
             terminal.requestViewReattach()
         }
         recordExplicitPanelCreation()
