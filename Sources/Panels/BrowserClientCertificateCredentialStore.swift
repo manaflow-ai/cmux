@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import OSLog
 import Security
 
@@ -69,7 +70,11 @@ struct BrowserClientCertificateCredentialStore {
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let result else {
-            if status != errSecItemNotFound {
+            if status == errSecInteractionNotAllowed {
+                browserClientCertificateLogger.info(
+                    "browser.clientCertificate.identityLookupSkipped reason=interactionNotAllowed"
+                )
+            } else if status != errSecItemNotFound {
                 browserClientCertificateLogger.error(
                     "browser.clientCertificate.identityLookup status=\(status, privacy: .public)"
                 )
@@ -85,7 +90,7 @@ struct BrowserClientCertificateCredentialStore {
             kSecClass as String: kSecClassIdentity,
             kSecReturnRef as String: true,
             kSecMatchLimit as String: kSecMatchLimitAll,
-            kSecUseAuthenticationUI as String: kSecUseAuthenticationUISkip,
+            kSecUseAuthenticationContext as String: noninteractiveAuthenticationContext(),
         ]
 
         if let distinguishedNames = protectionSpace.distinguishedNames,
@@ -94,6 +99,12 @@ struct BrowserClientCertificateCredentialStore {
         }
 
         return query
+    }
+
+    private func noninteractiveAuthenticationContext() -> LAContext {
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        return context
     }
 
     private func identities(from result: CFTypeRef) -> [SecIdentity] {

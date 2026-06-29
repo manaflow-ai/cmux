@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import LocalAuthentication
 import Security
 import Testing
 import WebKit
@@ -55,15 +56,17 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
     }
 
     @Test
-    func identityLookupQuerySkipsKeychainAuthenticationUI() {
+    func identityLookupQueryDisallowsKeychainAuthenticationUI() throws {
         let query = BrowserClientCertificateCredentialStore().identityLookupQuery(
             for: makeProtectionSpace(host: "mtls.example")
         )
+        let context = try #require(query[kSecUseAuthenticationContext as String] as? LAContext)
 
         #expect(query[kSecClass as String] as? String == kSecClassIdentity as String)
         #expect(query[kSecReturnRef as String] as? Bool == true)
         #expect(query[kSecMatchLimit as String] as? String == kSecMatchLimitAll as String)
-        #expect(query[kSecUseAuthenticationUI as String] as? String == kSecUseAuthenticationUISkip as String)
+        #expect(context.interactionNotAllowed)
+        #expect(query[kSecUseAuthenticationUI as String] == nil)
     }
 
     @Test
