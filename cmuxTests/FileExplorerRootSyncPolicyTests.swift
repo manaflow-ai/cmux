@@ -103,7 +103,7 @@ struct RightSidebarKeyboardNavigationTests {
 /// `currentDirectory`; the file-explorer root is derived from that value, so the
 /// tree follows the remote cwd.
 @MainActor
-@Suite("Right sidebar file tree remote SSH root")
+@Suite("Right sidebar file tree cwd tracking")
 struct RightSidebarFileTreeRemoteRootTests {
     @Test("Remote SSH file tree root follows the focused terminal's reported cwd")
     func remoteSSHFileTreeRootFollowsReportedWorkingDirectory() throws {
@@ -152,6 +152,50 @@ struct RightSidebarFileTreeRemoteRootTests {
         // Tear down the remote session so the test leaves no live connection
         // state behind, matching the other WorkspaceRemoteConnectionTests.
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64071)
+    }
+
+    /// Guards the live re-root wiring behind issue #5471: a change to the
+    /// workspace's `currentDirectory` must flow through the panel's Combine
+    /// observation (`observeWorkspaceRootChanges` → `syncWorkspaceRoot` →
+    /// `applyWorkspaceRoot`) and actually re-root the backing `FileExplorerStore`,
+    /// not just the pure resolver above. A local workspace with real temp
+    /// directories keeps the store's listing deterministic; the remote-specific
+    /// root value is covered by the test above, and the observation/sync path is
+    /// shared by both transports.
+    @Test("Files sidebar panel re-roots its store when the workspace cwd changes")
+    func filesSidebarPanelReRootsStoreWhenWorkspaceDirectoryChanges() async throws {
+        let fileManager = FileManager.default
+        let dirA = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-cwd-a-\(UUID().uuidString)", isDirectory: true)
+        let dirB = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-cwd-b-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: dirA, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: dirB, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: dirA)
+            try? fileManager.removeItem(at: dirB)
+        }
+
+        let workspace = Workspace()
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let terminal = try #require(workspace.newTerminalSurface(inPane: paneId, focus: true))
+        #expect(workspace.updatePanelDirectory(panelId: terminal.id, directory: dirA.path))
+        #expect(workspace.currentDirectory == dirA.path)
+
+        let sidebar = RightSidebarToolPanel(workspace: workspace, mode: .files)
+        let store = sidebar.fileExplorerStore
+        #expect(store.rootPath == dirA.path)
+
+        // Simulate a `cd`: the focused terminal reports a new working directory.
+        #expect(workspace.updatePanelDirectory(panelId: terminal.id, directory: dirB.path))
+
+        // The panel observes `$currentDirectory` and re-roots the store off the
+        // main run loop; wait for that to land.
+        for _ in 0..<100 {
+            if store.rootPath == dirB.path { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(store.rootPath == dirB.path)
     }
 
     private static func remoteRootPath(_ root: FileExplorerWorkspaceRoot) -> String? {
