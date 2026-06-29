@@ -1,46 +1,28 @@
 import Foundation
 
 extension PullRequestProbeService {
-    private static let checkStatusGraphQLQuery = """
-    query PullRequestCheckRollup($owner: String!, $name: String!, $first: Int!) {
-      repository(owner: $owner, name: $name) {
-        pullRequests(states: OPEN, first: $first, orderBy: { field: UPDATED_AT, direction: DESC }) {
-          nodes {
-            number
-            headRefName
-            commits(last: 1) {
-              nodes {
-                commit {
-                  statusCheckRollup {
-                    state
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    """
-
-    /// Fetches CI rollup states for recent open PRs in one GraphQL call.
+    /// Fetches CI rollup states for the REST-fetched open PRs in one GraphQL call.
     nonisolated func pullRequestCheckStatuses(
         repoSlug: String,
+        pullRequests: [GitHubPullRequestProbeItem],
         session: URLSession,
         authHeader: String?
-    ) async -> (byNumber: [Int: PullRequestCheckStatus], byBranch: [String: PullRequestCheckStatus]) {
+    ) async -> [Int: PullRequestCheckStatus] {
         guard let authHeader, !authHeader.isEmpty else {
-            return ([:], [:])
+            return [:]
         }
         guard let ownerAndName = Self.ownerAndName(fromRepoSlug: repoSlug) else {
-            return ([:], [:])
+            return [:]
+        }
+        let pullRequestNumbers = Self.checkStatusPullRequestNumbers(from: pullRequests)
+        guard !pullRequestNumbers.isEmpty else {
+            return [:]
         }
         let requestBody = WorkspacePullRequestGraphQLRequestBody(
-            query: Self.checkStatusGraphQLQuery,
+            query: Self.checkStatusGraphQLQuery(pullRequestNumbers: pullRequestNumbers),
             variables: WorkspacePullRequestGraphQLVariables(
                 owner: ownerAndName.owner,
-                name: ownerAndName.name,
-                first: Self.repoPageSize
+                name: ownerAndName.name
             )
         )
 
@@ -50,35 +32,86 @@ extension PullRequestProbeService {
             authHeader: authHeader
         ) else {
             debugLog("workspace.prRefresh.checks.fail repo=\(repoSlug) status=nil")
-            return ([:], [:])
+            return [:]
         }
         guard response.statusCode == 200,
               let graphQLResponse = Self.decodeJSON(WorkspacePullRequestGraphQLResponse.self, from: response.data) else {
             debugLog("workspace.prRefresh.checks.fail repo=\(repoSlug) status=\(response.statusCode)")
-            return ([:], [:])
+            return [:]
         }
 
         let statusesByNumber = Self.checkStatusesByPullRequestNumber(from: graphQLResponse)
-        let statusesByBranch = Self.checkStatusesByNormalizedBranch(from: graphQLResponse)
         debugLog("workspace.prRefresh.checks.success repo=\(repoSlug) prs=\(statusesByNumber.count)")
-        return (statusesByNumber, statusesByBranch)
+        return statusesByNumber
+    }
+
+    /// Pull-request numbers whose rollups should be fetched, preserving REST order.
+    nonisolated static func checkStatusPullRequestNumbers(
+        from pullRequests: [GitHubPullRequestProbeItem]
+    ) -> [Int] {
+        var seenNumbers: Set<Int> = []
+        var numbers: [Int] = []
+        for pullRequest in pullRequests where PullRequestStatus(githubState: pullRequest.state) == .open {
+            guard seenNumbers.insert(pullRequest.number).inserted else { continue }
+            numbers.append(pullRequest.number)
+        }
+        return numbers
+    }
+
+    /// Builds one GraphQL query with aliases for each REST-fetched PR number.
+    nonisolated static func checkStatusGraphQLQuery(pullRequestNumbers: [Int]) -> String {
+        let fields = pullRequestNumbers.enumerated().map { index, number in
+            """
+                pr\(index): pullRequest(number: \(number)) {
+                  number
+                  headRefName
+                  commits(last: 1) {
+                    nodes {
+                      commit {
+                        statusCheckRollup {
+                          state
+                        }
+                      }
+                    }
+                  }
+                }
+            """
+        }.joined(separator: "\n")
+        return """
+        query PullRequestCheckRollup($owner: String!, $name: String!) {
+          repository(owner: $owner, name: $name) {
+        \(fields)
+          }
+        }
+        """
     }
 
     /// Applies fetched CI rollups to probe items without changing PR selection fields.
     nonisolated static func applyingCheckStatuses(
         _ statusesByNumber: [Int: PullRequestCheckStatus],
-        byBranch statusesByBranch: [String: PullRequestCheckStatus] = [:],
         to pullRequests: [GitHubPullRequestProbeItem]
     ) -> [GitHubPullRequestProbeItem] {
-        guard !statusesByNumber.isEmpty || !statusesByBranch.isEmpty else { return pullRequests }
+        guard !statusesByNumber.isEmpty else { return pullRequests }
         return pullRequests.map { pullRequest in
-            let normalizedBranch = GitMetadataService.normalizedBranchName(pullRequest.headRefName)
-            guard let ciStatus = statusesByNumber[pullRequest.number]
-                ?? normalizedBranch.flatMap({ statusesByBranch[$0] }) else {
+            guard let ciStatus = statusesByNumber[pullRequest.number] else {
                 return pullRequest
             }
             return applyingCheckStatus(ciStatus, to: pullRequest)
         }
+    }
+
+    /// Looks up an already-cached rollup for a targeted branch lookup.
+    nonisolated static func cachedCheckStatus(
+        for pullRequest: GitHubPullRequestProbeItem,
+        normalizedBranch: String,
+        in cacheEntry: WorkspacePullRequestRepoCacheEntry
+    ) -> PullRequestCheckStatus? {
+        if let status = cacheEntry.pullRequestsByBranch[normalizedBranch]?.ciStatus {
+            return status
+        }
+        return cacheEntry.pullRequestsByBranch.values.first {
+            $0.number == pullRequest.number
+        }?.ciStatus
     }
 
     /// Applies one CI rollup to one probe item.
@@ -102,7 +135,7 @@ extension PullRequestProbeService {
     nonisolated static func checkStatusesByPullRequestNumber(
         from response: WorkspacePullRequestGraphQLResponse
     ) -> [Int: PullRequestCheckStatus] {
-        let nodes = response.data?.repository?.pullRequests.nodes ?? []
+        let nodes = response.data?.repository?.nodes ?? []
         var statusesByNumber: [Int: PullRequestCheckStatus] = [:]
         for node in nodes {
             guard let node else { continue }
@@ -115,7 +148,7 @@ extension PullRequestProbeService {
     nonisolated static func checkStatusesByNormalizedBranch(
         from response: WorkspacePullRequestGraphQLResponse
     ) -> [String: PullRequestCheckStatus] {
-        let nodes = response.data?.repository?.pullRequests.nodes ?? []
+        let nodes = response.data?.repository?.nodes ?? []
         var statusesByBranch: [String: PullRequestCheckStatus] = [:]
         for node in nodes {
             guard let node,

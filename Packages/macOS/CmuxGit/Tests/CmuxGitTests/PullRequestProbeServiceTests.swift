@@ -224,7 +224,79 @@ import Testing
         #expect(branchStatuses["feature/pending"] == .neutral)
     }
 
-    @Test func applyingCheckStatusesUsesNumberThenBranchFallbacks() {
+    @Test func decodesAliasedGraphQLCheckRollupStatuses() throws {
+        let json = """
+        {
+          "data": {
+            "repository": {
+              "pr0": {
+                "number": 7,
+                "headRefName": "feature/pass",
+                "commits": {
+                  "nodes": [
+                    {"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}
+                  ]
+                }
+              },
+              "pr1": {
+                "number": 108,
+                "headRefName": "feature/fail",
+                "commits": {
+                  "nodes": [
+                    {"commit": {"statusCheckRollup": {"state": "FAILURE"}}}
+                  ]
+                }
+              }
+            }
+          }
+        }
+        """
+        let response = try #require(
+            PullRequestProbeService.decodeJSON(
+                WorkspacePullRequestGraphQLResponse.self,
+                from: Data(json.utf8)
+            )
+        )
+
+        let statuses = PullRequestProbeService.checkStatusesByPullRequestNumber(from: response)
+        #expect(statuses[7] == .success)
+        #expect(statuses[108] == .failure)
+    }
+
+    @Test func checkStatusQueryTargetsExactOpenPullRequestNumbers() {
+        let open = item(
+            number: 7,
+            state: "OPEN",
+            updatedAt: "2026-06-01T00:00:00Z"
+        )
+        let duplicateOpen = item(
+            number: 7,
+            state: "open",
+            updatedAt: "2026-06-01T00:00:00Z"
+        )
+        let merged = item(
+            number: 8,
+            state: "MERGED",
+            updatedAt: "2026-06-01T00:00:00Z"
+        )
+        let secondOpen = item(
+            number: 108,
+            state: "OPEN",
+            updatedAt: "2026-06-01T00:00:00Z"
+        )
+
+        let numbers = PullRequestProbeService.checkStatusPullRequestNumbers(
+            from: [open, duplicateOpen, merged, secondOpen]
+        )
+        #expect(numbers == [7, 108])
+
+        let query = PullRequestProbeService.checkStatusGraphQLQuery(pullRequestNumbers: numbers)
+        #expect(query.contains("pr0: pullRequest(number: 7)"))
+        #expect(query.contains("pr1: pullRequest(number: 108)"))
+        #expect(!query.contains("pullRequests(states:"))
+    }
+
+    @Test func applyingCheckStatusesUsesNumberMatches() {
         let passing = item(
             number: 7,
             state: "OPEN",
@@ -248,8 +320,7 @@ import Testing
         )
 
         let updated = PullRequestProbeService.applyingCheckStatuses(
-            [7: .success],
-            byBranch: ["feature/branch": .failure],
+            [7: .success, 9: .failure],
             to: [passing, unknown, branchMatched]
         )
 

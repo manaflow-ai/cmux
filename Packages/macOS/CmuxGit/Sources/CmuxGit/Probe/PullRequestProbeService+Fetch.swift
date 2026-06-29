@@ -147,20 +147,18 @@ extension PullRequestProbeService {
 
         let checkStatuses = await pullRequestCheckStatuses(
             repoSlug: repoSlug,
+            pullRequests: allPullRequests,
             session: session,
             authHeader: authHeader
         )
         let pullRequestsWithCheckStatuses = Self.applyingCheckStatuses(
-            checkStatuses.byNumber,
-            byBranch: checkStatuses.byBranch,
+            checkStatuses,
             to: allPullRequests
         )
 
         let recentWindowEntry = WorkspacePullRequestRepoCacheEntry(
             fetchedAt: fetchTimestamp,
-            pullRequestsByBranch: Self.pullRequestMapByNormalizedBranch(from: pullRequestsWithCheckStatuses),
-            ciStatusesByPullRequestNumber: checkStatuses.byNumber,
-            ciStatusesByBranch: checkStatuses.byBranch
+            pullRequestsByBranch: Self.pullRequestMapByNormalizedBranch(from: pullRequestsWithCheckStatuses)
         )
         let unresolvedBranches = Self.unresolvedBranches(
             normalizedCandidateBranches,
@@ -254,8 +252,11 @@ extension PullRequestProbeService {
         for (branch, result) in branchResults {
             switch result {
             case .found(let pullRequest):
-                let ciStatus = baseEntry.ciStatusesByPullRequestNumber[pullRequest.number]
-                    ?? baseEntry.ciStatusesByBranch[branch]
+                let ciStatus = Self.cachedCheckStatus(
+                    for: pullRequest,
+                    normalizedBranch: branch,
+                    in: baseEntry
+                )
                 pullRequestsByBranch[branch] = ciStatus.map {
                     Self.applyingCheckStatus($0, to: pullRequest)
                 } ?? pullRequest
@@ -271,8 +272,6 @@ extension PullRequestProbeService {
             cacheEntry: WorkspacePullRequestRepoCacheEntry(
                 fetchedAt: refreshedAt,
                 pullRequestsByBranch: pullRequestsByBranch,
-                ciStatusesByPullRequestNumber: baseEntry.ciStatusesByPullRequestNumber,
-                ciStatusesByBranch: baseEntry.ciStatusesByBranch,
                 knownAbsentBranches: knownAbsentBranches
             ),
             transientBranches: transientBranches

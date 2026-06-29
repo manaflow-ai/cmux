@@ -7,12 +7,8 @@ public import Foundation
 public struct WorkspacePullRequestRepoCacheEntry: Sendable {
     /// When this entry was fetched.
     public let fetchedAt: Date
-    /// The best pull request per normalized branch name.
+    /// The best pull request per normalized branch name, including CI rollups.
     public let pullRequestsByBranch: [String: GitHubPullRequestProbeItem]
-    /// CI rollups keyed by pull-request number for the current cache window.
-    public let ciStatusesByPullRequestNumber: [Int: PullRequestCheckStatus]
-    /// CI rollups keyed by normalized head branch for the current cache window.
-    public let ciStatusesByBranch: [String: PullRequestCheckStatus]
     /// Branches positively known to have no pull request (so a cached entry
     /// doesn't re-trigger per-branch lookups for them).
     public let knownAbsentBranches: Set<String>
@@ -21,14 +17,10 @@ public struct WorkspacePullRequestRepoCacheEntry: Sendable {
     public init(
         fetchedAt: Date,
         pullRequestsByBranch: [String: GitHubPullRequestProbeItem],
-        ciStatusesByPullRequestNumber: [Int: PullRequestCheckStatus] = [:],
-        ciStatusesByBranch: [String: PullRequestCheckStatus] = [:],
         knownAbsentBranches: Set<String> = []
     ) {
         self.fetchedAt = fetchedAt
         self.pullRequestsByBranch = pullRequestsByBranch
-        self.ciStatusesByPullRequestNumber = ciStatusesByPullRequestNumber
-        self.ciStatusesByBranch = ciStatusesByBranch
         self.knownAbsentBranches = knownAbsentBranches
     }
 }
