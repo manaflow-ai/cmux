@@ -4872,7 +4872,7 @@ final class Workspace: Identifiable, ObservableObject {
         return "command|\(source)|\(kind)|\(binding.cwd ?? "")|\(binding.command)"
     }
 
-    nonisolated private static func normalizedSurfaceResumeBindingHistory(
+    nonisolated static func normalizedSurfaceResumeBindingHistory(
         _ candidates: [SurfaceResumeBindingSnapshot]
     ) -> [SurfaceResumeBindingSnapshot] {
         let maxHistoryEntries = 8

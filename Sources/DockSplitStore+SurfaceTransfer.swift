@@ -25,11 +25,17 @@ extension DockSplitStore {
         let browser = panel as? BrowserPanel
         let iconImageData = browser?.faviconPNGData
         let isLoading = browser?.isLoading ?? false
+        let resumeBinding = surfaceResumeBindingsByPanelId[panelId]
+        let resumeBindingHistory = Workspace.normalizedSurfaceResumeBindingHistory(
+            [resumeBinding].compactMap { $0 } + (surfaceResumeBindingHistoriesByPanelId[panelId] ?? [])
+        )
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
         panelCancellables[panelId]?.cancel()
         panelCancellables.removeValue(forKey: panelId)
+        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        surfaceResumeBindingHistoriesByPanelId.removeValue(forKey: panelId)
         surfaceIdToPanelId.removeValue(forKey: tabId)
         panels.removeValue(forKey: panelId)
 
@@ -39,6 +45,12 @@ extension DockSplitStore {
             // Close rejected: re-take ownership so the Dock stays consistent.
             panels[panelId] = panel
             surfaceIdToPanelId[tabId] = panelId
+            if let resumeBinding {
+                surfaceResumeBindingsByPanelId[panelId] = resumeBinding
+            }
+            if !resumeBindingHistory.isEmpty {
+                surfaceResumeBindingHistoriesByPanelId[panelId] = resumeBindingHistory
+            }
             installSubscription(for: panel, tracksTerminalTitle: true)
             return nil
         }
@@ -62,7 +74,8 @@ extension DockSplitStore {
             restoredUnreadIndicator: nil,
             restorableAgent: nil,
             restorableAgentResumeState: nil,
-            resumeBinding: nil,
+            resumeBinding: resumeBinding,
+            resumeBindingHistory: resumeBindingHistory,
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,
@@ -106,9 +119,24 @@ extension DockSplitStore {
             inPane: paneId
         ) else {
             panels.removeValue(forKey: detached.panelId)
+            surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+            surfaceResumeBindingHistoriesByPanelId.removeValue(forKey: detached.panelId)
             return nil
         }
         surfaceIdToPanelId[newTabId] = detached.panelId
+        if let resumeBinding = detached.resumeBinding, !resumeBinding.isProcessDetected {
+            surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
+        } else {
+            surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+        }
+        let resumeBindingHistory = Workspace.normalizedSurfaceResumeBindingHistory(
+            [detached.resumeBinding].compactMap { $0 } + detached.resumeBindingHistory
+        )
+        if resumeBindingHistory.isEmpty {
+            surfaceResumeBindingHistoriesByPanelId.removeValue(forKey: detached.panelId)
+        } else {
+            surfaceResumeBindingHistoriesByPanelId[detached.panelId] = resumeBindingHistory
+        }
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }

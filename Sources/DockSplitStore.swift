@@ -35,6 +35,8 @@ final class DockSplitStore: BonsplitDelegate {
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
+    var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    var surfaceResumeBindingHistoriesByPanelId: [UUID: [SurfaceResumeBindingSnapshot]] = [:]
     private var hasLoadedConfiguration = false
     private var configurationLoadTask: Task<Void, Never>?
     private var configurationIdentityTask: Task<Void, Never>?
@@ -633,6 +635,8 @@ final class DockSplitStore: BonsplitDelegate {
             guard let panelId = surfaceIdToPanelId.removeValue(forKey: tabId) else { continue }
             panelCancellables[panelId]?.cancel()
             panelCancellables.removeValue(forKey: panelId)
+            surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+            surfaceResumeBindingHistoriesByPanelId.removeValue(forKey: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
             if let panel = panels.removeValue(forKey: panelId) { panel.close() }
         }
