@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -132,6 +133,47 @@ struct DockTerminalReattachTests {
         panel.hostedView.setVisibleInUI(true)
         TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
         #expect(!panel.hostedView.isHidden)
+        #expect(TerminalWindowPortalRegistry.hostedViewNeedsPortalReattachForVisiblePresentation(panel.hostedView))
+        let reattachTokenBefore = panel.viewReattachToken
+
+        store.focusPanel(panelId)
+
+        #expect(panel.viewReattachToken == reattachTokenBefore + 1)
+    }
+
+    @Test("Visible Dock terminal with stale portal anchor requests a view reattach")
+    @MainActor
+    func visibleDockTerminalWithStalePortalAnchorRequestsViewReattach() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.tabs.first)
+        let store = workspace.dockSplit
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+        let panel = try #require(store.panel(forPanelId: panelId) as? TerminalPanel)
+        store.setVisibleInUI(true)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        let contentView = try #require(window.contentView)
+        let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 240, height: 160))
+        contentView.addSubview(anchor)
+        TerminalWindowPortalRegistry.bind(
+            hostedView: panel.hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: panel.surface.id,
+            expectedGeneration: panel.surface.portalBindingGeneration()
+        )
+        #expect(!TerminalWindowPortalRegistry.hostedViewNeedsPortalReattachForVisiblePresentation(panel.hostedView))
+        anchor.removeFromSuperview()
         #expect(TerminalWindowPortalRegistry.hostedViewNeedsPortalReattachForVisiblePresentation(panel.hostedView))
         let reattachTokenBefore = panel.viewReattachToken
 

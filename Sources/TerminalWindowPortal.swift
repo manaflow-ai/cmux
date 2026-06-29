@@ -1113,8 +1113,8 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func hostedViewNeedsPortalReattachForVisiblePresentation(withId hostedId: ObjectIdentifier) -> Bool {
-        guard let entry = entriesByHostedId[hostedId] else { return true }
-        return entry.hostedView == nil || entry.anchorView == nil || !entry.visibleInUI
+        guard let entry = entriesByHostedId[hostedId], let hostedView = entry.hostedView, let anchor = entry.anchorView else { return true }
+        return !entry.visibleInUI || anchor.window !== window || anchor.superview == nil || (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false) || hostedView.superview !== hostView || hostedView.window !== window
     }
 
     func bind(
