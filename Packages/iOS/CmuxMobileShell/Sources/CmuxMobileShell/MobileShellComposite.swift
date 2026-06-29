@@ -219,7 +219,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
-    public internal(set) var chatSessionSnapshotsByWorkspaceID: [String: [ChatSessionDescriptor]] = [:]
+    /// Last authoritative chat-session snapshots, keyed by the workspace row id the UI renders.
+    var chatSessionSnapshotsByWorkspaceID: [String: [ChatSessionDescriptor]] = [:]
     /// The group sections the UI renders. A materialized derivation of
     /// ``workspacesByMac`` (currently the foreground Mac's groups). Each group's
     /// `isCollapsed` reflects this device's choice (see ``groupCollapseStore``),
@@ -3624,7 +3625,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func dropStalePreviousForeground(_ previousKey: String) {
         guard previousKey != foregroundMacKey,
               secondaryMacSubscriptions[previousKey] == nil else { return }
-        let removedWorkspaceIDs = Set(workspacesByMac[previousKey]?.workspaces.map { $0.id.rawValue } ?? [])
+        let removedWorkspaceIDs = Set((workspacesByMac[previousKey]?.workspaces ?? []).flatMap { workspace in
+            let remoteID = workspace.remoteWorkspaceID ?? workspace.id
+            return [
+                workspace.id.rawValue,
+                remoteID.rawValue,
+                workspaceAggregation.rowID(macDeviceID: previousKey, workspaceID: remoteID).rawValue,
+            ]
+        })
         workspacesByMac[previousKey] = nil
         for workspaceID in removedWorkspaceIDs {
             chatSessionSnapshotsByWorkspaceID[workspaceID] = nil
