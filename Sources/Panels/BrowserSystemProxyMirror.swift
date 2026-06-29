@@ -27,14 +27,15 @@ struct BrowserSystemProxyMirror: Equatable {
     /// so the mirror only claims a system proxy that one configuration can
     /// represent for browser (HTTP/HTTPS) traffic:
     /// - `socksV5`: a SOCKSv5 proxy with no web proxy enabled.
-    /// - `httpCONNECT`: a matched HTTP+HTTPS system web proxy — both enabled
-    ///   and pointing at the same endpoint (the common Clash/Surge/mihomo
-    ///   mixed-port setup). It is mirrored as a CONNECT proxy so the loopback
-    ///   family can be excluded and `*.localhost` reaches local dev servers
-    ///   directly (#5703). The tradeoff: this forces CONNECT for plain-HTTP
-    ///   loads and does not carry system-managed proxy credentials, so an
-    ///   HTTP-only, HTTPS-only, or split web proxy — which a single CONNECT
-    ///   config cannot faithfully represent — is still declined (see `init?`).
+    /// - `httpCONNECT`: a matched HTTP+HTTPS system web proxy on a *loopback*
+    ///   endpoint — both enabled and pointing at the same local address (the
+    ///   common Clash/Surge/mihomo mixed-port setup on `127.0.0.1`). It is
+    ///   mirrored as a CONNECT proxy so the loopback family can be excluded and
+    ///   `*.localhost` reaches local dev servers directly (#5703). Because
+    ///   CONNECT forces tunneling for plain-HTTP loads and cannot carry
+    ///   system-managed credentials, this is scoped to loopback proxy tools the
+    ///   user runs locally; a remote/corporate web proxy, or an HTTP-only,
+    ///   HTTPS-only, or split web proxy, is still declined (see `init?`).
     enum Proxy: Equatable {
         case socksV5(host: String, port: UInt16)
         case httpCONNECT(host: String, port: UInt16)
@@ -130,11 +131,23 @@ struct BrowserSystemProxyMirror: Equatable {
     /// `ProxyConfiguration` can express it.
     ///
     /// A system web proxy takes precedence — it is what the system uses for
-    /// HTTP/HTTPS — but only a matched HTTP+HTTPS pair pointing at one endpoint
-    /// is representable as a single CONNECT proxy. An HTTP-only, HTTPS-only, or
-    /// split web proxy would change routing for the unmirrored scheme, so it
-    /// declines even when a SOCKS proxy is also configured. With no web proxy,
-    /// a SOCKS proxy is mirrored directly.
+    /// HTTP/HTTPS — but it is mirrored only when it is a matched HTTP+HTTPS pair
+    /// pointing at one **loopback** endpoint. That scopes the CONNECT mirror to
+    /// local proxy tools the user runs on this Mac (Clash/Surge/mihomo in "set
+    /// as system proxy" mode), which are reachable and — being general-purpose
+    /// tunnels with HTTPS already enabled — support CONNECT.
+    ///
+    /// The accepted residual (#5703): a *loopback* proxy that is forward-only or
+    /// requires client credentials would see ordinary `http://` loads tunneled
+    /// via CONNECT without auth. That is rare for a localhost proxy and is the
+    /// deliberate trade for reaching `*.localhost` dev servers at all; it cannot
+    /// be detected from the settings dictionary (no CONNECT-capability or
+    /// credential keys), so it is not gated further. A remote or corporate web
+    /// proxy — where forward-only routing and authentication are common — is
+    /// left on WebKit's native system-proxy path (#5959). An HTTP-only,
+    /// HTTPS-only, or split web proxy is likewise unrepresentable and declines,
+    /// even when a SOCKS proxy is also configured. With no web proxy, a SOCKS
+    /// proxy (which faithfully tunnels every scheme) is mirrored directly.
     private static func resolveProxy(in settings: [String: Any]) -> Proxy? {
         let httpEnabled = isEnabled(kCFNetworkProxiesHTTPEnable, in: settings)
         let httpsEnabled = isEnabled(kCFNetworkProxiesHTTPSEnable, in: settings)
@@ -153,7 +166,8 @@ struct BrowserSystemProxyMirror: Equatable {
                       portKey: kCFNetworkProxiesHTTPSPort
                   ),
                   http.host.caseInsensitiveCompare(https.host) == .orderedSame,
-                  http.port == https.port else {
+                  http.port == https.port,
+                  isLoopbackProxyHost(http.host) else {
                 return nil
             }
             return .httpCONNECT(host: http.host, port: http.port)
@@ -167,6 +181,24 @@ struct BrowserSystemProxyMirror: Equatable {
             return .socksV5(host: socks.host, port: socks.port)
         }
         return nil
+    }
+
+    /// Whether a proxy endpoint host is loopback (this Mac). Used to scope the
+    /// web-proxy CONNECT mirror to local proxy tools the user runs themselves;
+    /// see `resolveProxy(in:)`. Covers `localhost`, the IPv6 loopback `::1`
+    /// (with or without brackets), and the `127.0.0.0/8` IPv4 loopback block.
+    private static func isLoopbackProxyHost(_ host: String) -> Bool {
+        var value = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if value.hasPrefix("["), value.hasSuffix("]") {
+            value = String(value.dropFirst().dropLast())
+        }
+        if value == "localhost" || value == "::1" { return true }
+        // 127.0.0.0/8: require a real dotted-quad IPv4 literal whose first octet
+        // is 127, so a DNS name like "127.proxy.corp.example" is not loopback.
+        let octets = value.split(separator: ".", omittingEmptySubsequences: false)
+        guard octets.count == 4 else { return false }
+        let parsedOctets = octets.compactMap { UInt8($0) }
+        return parsedOctets.count == 4 && parsedOctets[0] == 127
     }
 
     /// How a single system bypass-list entry maps onto `excludedDomains`.
