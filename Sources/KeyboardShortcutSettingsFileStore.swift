@@ -715,38 +715,37 @@ final class CmuxSettingsFileStore {
             logInvalid("workspaceColors.stateColorsEnabled", sourcePath: sourcePath)
         }
         if let raw = jsonString(section["stateColorMode"]) {
-            guard let mode = WorkspaceStateColorMode.decodeFromJSON(raw) else {
+            if let mode = WorkspaceStateColorMode.decodeFromJSON(raw) {
+                snapshot.managedUserDefaults[workspaceColors.stateColorMode.userDefaultsKey] = .string(mode.rawValue)
+            } else {
                 logInvalid("workspaceColors.stateColorMode", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[workspaceColors.stateColorMode.userDefaultsKey] = .string(mode.rawValue)
         } else if section.keys.contains("stateColorMode") {
             logInvalid("workspaceColors.stateColorMode", sourcePath: sourcePath)
         }
         if section.keys.contains("stateColors") {
-            guard let rawStateColors = section["stateColors"] as? [String: Any] else {
+            if let rawStateColors = section["stateColors"] as? [String: Any] {
+                var normalizedStateColors = WorkspaceColorsCatalogSection.defaultStateColors
+                for (rawState, rawValue) in rawStateColors {
+                    guard let stateKey = workspaceStateColorKey(rawState) else {
+                        cmuxSettingsFileStoreLogger.warning("ignoring unknown workspace state color key '\(rawState, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+                        continue
+                    }
+                    if rawValue is NSNull {
+                        normalizedStateColors.removeValue(forKey: stateKey)
+                        continue
+                    }
+                    guard let hex = jsonString(rawValue),
+                          let normalizedHex = WorkspaceTabColorSettings.normalizedHex(hex) else {
+                        cmuxSettingsFileStoreLogger.warning("ignoring invalid workspace state color '\(rawState, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+                        continue
+                    }
+                    normalizedStateColors[stateKey] = normalizedHex
+                }
+                snapshot.managedUserDefaults[workspaceColors.stateColors.userDefaultsKey] = .stringDictionary(normalizedStateColors)
+            } else {
                 logInvalid("workspaceColors.stateColors", sourcePath: sourcePath)
-                return
             }
-
-            var normalizedStateColors = WorkspaceColorsCatalogSection.defaultStateColors
-            for (rawState, rawValue) in rawStateColors {
-                guard let stateKey = workspaceStateColorKey(rawState) else {
-                    cmuxSettingsFileStoreLogger.warning("ignoring unknown workspace state color key '\(rawState, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
-                    continue
-                }
-                if rawValue is NSNull {
-                    normalizedStateColors.removeValue(forKey: stateKey)
-                    continue
-                }
-                guard let hex = jsonString(rawValue),
-                      let normalizedHex = WorkspaceTabColorSettings.normalizedHex(hex) else {
-                    cmuxSettingsFileStoreLogger.warning("ignoring invalid workspace state color '\(rawState, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
-                    continue
-                }
-                normalizedStateColors[stateKey] = normalizedHex
-            }
-            snapshot.managedUserDefaults[workspaceColors.stateColors.userDefaultsKey] = .stringDictionary(normalizedStateColors)
         }
         if section.keys.contains("colors") {
             guard let rawColors = section["colors"] as? [String: Any] else {

@@ -10728,8 +10728,8 @@ struct VerticalTabsSidebar: View {
                     // unrelated sidebar event fires.
                     anchorCwdRevision &+= 1
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .workspaceAgentLifecycleDidChange)) { _ in
-                    groupAgentLifecycleRevision &+= 1
+                .onReceive(NotificationCenter.default.publisher(for: .workspaceAgentLifecycleDidChange)) { notification in
+                    if let workspace = notification.object as? Workspace, renderContext.workspaceById[workspace.id] != nil { groupAgentLifecycleRevision &+= 1 }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionDidHideEvent.notificationName)) { notification in
                     // Group collapse hides some workspaces without changing

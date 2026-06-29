@@ -2591,7 +2591,8 @@ final class Workspace: Identifiable, ObservableObject {
     var agentPIDPanelIdsByKey: [String: UUID] = [:]
     var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
     var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
-    let agentLifecycleStatesPublisher = CurrentValueSubject<[UUID: [String: AgentHibernationLifecycleState]], Never>([:])
+    private let agentLifecycleStatesSubject = CurrentValueSubject<[UUID: [String: AgentHibernationLifecycleState]], Never>([:])
+    var agentLifecycleStatesPublisher: AnyPublisher<[UUID: [String: AgentHibernationLifecycleState]], Never> { agentLifecycleStatesSubject.eraseToAnyPublisher() }
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -4668,7 +4669,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func recordAgentLifecycleChange(panelId: UUID) {
-        agentLifecycleStatesPublisher.send(agentLifecycleStatesByPanelId)
+        agentLifecycleStatesSubject.send(agentLifecycleStatesByPanelId)
         NotificationCenter.default.post(
             name: .workspaceAgentLifecycleDidChange,
             object: self,
