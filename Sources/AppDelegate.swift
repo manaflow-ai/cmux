@@ -3785,10 +3785,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } ?? false
         guard visibleMatches || frameMatches else { return false }
 
-        return frame.width.isFinite
+        guard frame.width.isFinite
             && frame.height.isFinite
             && frame.origin.x.isFinite
-            && frame.origin.y.isFinite
+            && frame.origin.y.isFinite else {
+            return false
+        }
+
+        // Even when the display ID and geometry match, the saved window position may
+        // be off-screen (e.g. the window was dragged partly off-screen, or the
+        // display was physically repositioned at the same ID/resolution). Only
+        // preserve the exact frame when enough of the top strip is accessible so the
+        // user can grab and reposition the window.
+        return shouldPreserveAccessibleFrame(frame: frame, targetDisplay: targetDisplay)
     }
 
     private nonisolated static func rectApproximatelyEqual(
