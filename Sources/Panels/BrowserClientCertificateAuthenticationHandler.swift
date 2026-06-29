@@ -29,8 +29,6 @@ import Foundation
         switch candidates.count {
         case 0:
             completionHandler(.performDefaultHandling, nil)
-        case 1:
-            completionHandler(.useCredential, candidates[0].credential)
         default:
             guard let candidatePicker else {
                 completionHandler(.performDefaultHandling, nil)

@@ -38,7 +38,7 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
     }
 
     @Test
-    func usesCredentialWhenOneClientCertificateCandidateExists() throws {
+    func usesPickerSelectionWhenOneClientCertificateCandidateExists() throws {
         let expectedCredential = URLCredential(
             user: "client-cert",
             password: "unused",
@@ -54,6 +54,37 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
         }
         var disposition: URLSession.AuthChallengeDisposition?
         var credential: URLCredential?
+        var pickerCandidateCount: Int?
+
+        let handled = handler.handle(
+            challenge: makeChallenge(),
+            candidatePicker: { _, presentedCandidates, completion in
+                pickerCandidateCount = presentedCandidates.count
+                completion(presentedCandidates[0])
+            }
+        ) { returnedDisposition, returnedCredential in
+            disposition = returnedDisposition
+            credential = returnedCredential
+        }
+
+        #expect(handled)
+        #expect(pickerCandidateCount == 1)
+        #expect(disposition == .useCredential)
+        let returnedCredential = try #require(credential)
+        #expect(returnedCredential === expectedCredential)
+    }
+
+    @Test
+    func performsDefaultHandlingWhenCandidatesExistWithoutPicker() {
+        let handler = BrowserClientCertificateAuthenticationHandler { _ in
+            [
+                BrowserClientCertificateCredentialCandidate(
+                    credential: URLCredential(user: "user", password: "password", persistence: .forSession)
+                ),
+            ]
+        }
+        var disposition: URLSession.AuthChallengeDisposition?
+        var credential: URLCredential?
 
         let handled = handler.handle(challenge: makeChallenge()) { returnedDisposition, returnedCredential in
             disposition = returnedDisposition
@@ -61,9 +92,8 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
         }
 
         #expect(handled)
-        #expect(disposition == .useCredential)
-        let returnedCredential = try #require(credential)
-        #expect(returnedCredential === expectedCredential)
+        #expect(disposition == .performDefaultHandling)
+        #expect(credential == nil)
     }
 
     @Test
