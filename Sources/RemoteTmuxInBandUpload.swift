@@ -40,6 +40,17 @@ enum RemoteTmuxUploadError: LocalizedError {
     /// the user about the actual cause.
     case tooLargeFallbackFailed(maxBytes: Int, underlying: Error)
 
+    /// A dropped/pasted file could not be read from disk before upload.
+    case fileUnreadable(name: String)
+
+    /// The in-band stream to the remote failed (control stream dropped, or the
+    /// remote decode/size/checksum verification did not match).
+    case inBandStreamFailed(name: String)
+
+    /// The target surface is no longer a live remote-tmux mirror (e.g. the mirror
+    /// was torn down between the drop and the upload).
+    case noActiveMirror
+
     var errorDescription: String? {
         switch self {
         case .tooLargeForSingleConnectionHost(let maxBytes):
@@ -54,6 +65,21 @@ enum RemoteTmuxUploadError: LocalizedError {
             return String(
                 localized: "remoteTmux.upload.fallbackFailed",
                 defaultValue: "This file is too large to send over the tmux connection (over \(maxMB) MB), and the scp fallback failed: \(detail)"
+            )
+        case .fileUnreadable(let name):
+            return String(
+                localized: "remoteTmux.upload.unreadable",
+                defaultValue: "Couldn't read \(name) to upload it."
+            )
+        case .inBandStreamFailed(let name):
+            return String(
+                localized: "remoteTmux.upload.streamFailed",
+                defaultValue: "Upload of \(name) failed over the tmux connection (the connection dropped or the transfer didn't verify). Try again."
+            )
+        case .noActiveMirror:
+            return String(
+                localized: "remoteTmux.upload.noMirror",
+                defaultValue: "Couldn't upload: this remote tmux mirror is no longer connected."
             )
         }
     }

@@ -980,7 +980,7 @@ final class RemoteTmuxController {
     /// caller can tell the user why the large drop didn't go through.
     func uploadFilesInBand(surfaceId: UUID, localURLs: [URL]) async -> Result<[String], Error> {
         guard let target = pasteTarget(forSurfaceId: surfaceId) else {
-            return .failure(NSError(domain: "cmux.inBandUpload", code: 1))
+            return .failure(RemoteTmuxUploadError.noActiveMirror)
         }
 
         // Stat first (cheap, no read into memory): if anything is oversized the
@@ -1003,13 +1003,13 @@ final class RemoteTmuxController {
             guard let data = await Task.detached(priority: .userInitiated, operation: {
                 try? Data(contentsOf: fileURL)
             }).value else {
-                return .failure(NSError(domain: "cmux.inBandUpload", code: 2))
+                return .failure(RemoteTmuxUploadError.fileUnreadable(name: url.lastPathComponent))
             }
             let ext = url.pathExtension.isEmpty ? nil : url.pathExtension
             guard let remotePath = await target.connection.uploadFileInBand(
                 data: data, remoteExtension: ext
             ) else {
-                return .failure(NSError(domain: "cmux.inBandUpload", code: 2))
+                return .failure(RemoteTmuxUploadError.inBandStreamFailed(name: url.lastPathComponent))
             }
             remotePaths.append(remotePath)
         }
