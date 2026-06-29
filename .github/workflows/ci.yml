@@ -201,6 +201,9 @@ jobs:
       - name: Validate bash shell integration job control
         run: python3 tests/test_bash_integration_no_done_notifications.py
 
+      - name: Validate sidebar lazy-layout guard
+        run: python3 tests/test_ci_sidebar_lazy_layout_guard.py
+
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
 
@@ -661,6 +664,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omx_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omc_fallback_path.py
           python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
+          python3 tests/test_issue_6714_zsh_shim_noclobber.py
           python3 tests/test_shell_git_branch_stale_cwd.py
           python3 tests/test_shell_git_config_remote_url_parsing.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
@@ -1632,10 +1636,9 @@ jobs:
             # this create on persistent self-hosted runners.
             scripts/ci/virtual-display-lock.sh reap-strays || true
 
-            # Launch display helper from shell (non-sandboxed).
-            # The shell owns the /tmp start signal because the XCTest runner is
-            # sandboxed. xcodebuild output carries the baseline-ready marker, and
-            # the shell writes startPath only after the test captures render stats.
+            # Launch display helper from shell (non-sandboxed). The helper waits
+            # on a shell-owned /tmp start file; XCTest prints a baseline-ready
+            # marker after sampling render stats, then the shell writes startPath.
             "$HELPER_PATH" \
               --modes "1920x1080,1728x1117,1600x900,1440x810" \
               --ready-path "$DISPLAY_READY" \
