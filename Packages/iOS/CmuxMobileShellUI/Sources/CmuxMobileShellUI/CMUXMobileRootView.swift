@@ -70,6 +70,22 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowStreamingChatPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.streamingChatPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder private var streamingChatPreview: some View {
+        #if os(iOS) && DEBUG
+        StreamingChatPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
@@ -188,6 +204,8 @@ struct CMUXMobileRootView: View {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
+        } else if shouldShowStreamingChatPreview {
+            streamingChatPreview
         } else if !isAuthenticated {
             SignInView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
