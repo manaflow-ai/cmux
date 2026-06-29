@@ -132,6 +132,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let windowID = "22222222-2222-2222-2222-222222222222"
         let callerWorkspaceID = "33333333-3333-3333-3333-333333333333"
         let callerSurfaceID = "44444444-4444-4444-4444-444444444444"
+        let surfaceID = "55555555-5555-5555-5555-555555555555"
 
         defer {
             Darwin.close(listenerFD)
@@ -164,6 +165,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "surface_id": "55555555-5555-5555-5555-555555555555",
                     ]
                 )
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
+                return self.surfaceListResponse(id: id, surfaceId: surfaceID)
             case "workspace.remote.configure":
                 return self.v2Response(
                     id: id,
@@ -177,6 +182,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         ],
                     ]
                 )
+            case "workspace.close":
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
             default:
                 return self.v2Response(
                     id: id,
@@ -217,7 +224,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         XCTAssertEqual(
             requests.compactMap { $0["method"] as? String },
-            ["window.focus", "workspace.create", "workspace.remote.configure"]
+            ["window.focus", "workspace.create", "surface.list", "workspace.remote.configure"]
         )
     }
 
