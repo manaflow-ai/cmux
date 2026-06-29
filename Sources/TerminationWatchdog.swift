@@ -1,6 +1,5 @@
 import Darwin
 import Foundation
-import os
 
 /// Hard deadline on AppKit's application-termination sequence.
 ///
@@ -56,17 +55,13 @@ final class TerminationWatchdog: Sendable {
         thread.start()
     }
 
-    // Lock, not an actor: `arm()` is called synchronously from terminate delegate
-    // methods and must not depend on Swift concurrency while guarding a wedged
-    // termination path. The lock is held only while claiming this one-shot latch;
-    // the deadline callback itself remains lock-free.
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    // C11 atomic, not an actor: `arm()` is called synchronously from terminate
+    // delegate methods and must not depend on Swift concurrency while guarding a
+    // wedged termination path. This is a one-shot 0 -> 1 latch; the deadline
+    // callback itself remains lock-free.
+    nonisolated(unsafe) private var latch = CMUXTerminationWatchdogLatchMake()
     private let onFire: @Sendable () -> Void
     private let scheduleDeadline: DeadlineScheduler
-
-    private struct State: Sendable {
-        var isArmed = false
-    }
 
     /// - Parameters:
     ///   - onFire: invoked at most once, on the scheduler's thread, when the
@@ -89,14 +84,7 @@ final class TerminationWatchdog: Sendable {
     /// attempts, or several commit sites arming for one request — schedule the
     /// deadline only once, so `onFire` runs at most once.
     func arm(deadline: TimeInterval = TerminationWatchdog.defaultDeadline) {
-        let shouldSchedule = state.withLock { state in
-            guard !state.isArmed else {
-                return false
-            }
-            state.isArmed = true
-            return true
-        }
-        guard shouldSchedule else {
+        guard CMUXTerminationWatchdogLatchClaim(&latch) else {
             return
         }
 
