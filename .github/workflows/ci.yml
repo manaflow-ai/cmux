@@ -1867,6 +1867,7 @@ jobs:
     needs:
       - changes
       - workflow-guard-tests
+      - secret-scan
       - remote-daemon-tests
       - web-typecheck
       - react-apps-check
