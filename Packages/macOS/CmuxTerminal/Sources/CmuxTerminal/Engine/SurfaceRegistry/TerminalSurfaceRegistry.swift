@@ -109,6 +109,16 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         return surfaceFocusPlacements[id] == .rightSidebarDock
     }
 
+    /// Re-records the focus placement for a live surface that moved between the
+    /// workspace area and the right-sidebar dock. No-op when the id is not
+    /// currently registered, so a stale move cannot resurrect a dropped entry.
+    public func updateFocusPlacement(id: UUID, _ placement: TerminalSurfaceFocusPlacement) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard surfaceFocusPlacements[id] != nil else { return }
+        surfaceFocusPlacements[id] = placement
+    }
+
     /// A bounded count snapshot for leak diagnostics and crash/app-hang telemetry.
     public func diagnosticSnapshot() -> TerminalSurfaceRegistryDiagnosticSnapshot {
         lock.lock()

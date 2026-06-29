@@ -2265,6 +2265,34 @@ final class Workspace: Identifiable, ObservableObject {
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
 
+    /// Backing store for `dockSplit`, created on first access. Kept optional so
+    /// workspace teardown can tear down the Dock only when it was actually used
+    /// (and so reading it during teardown does not lazily create one).
+    private(set) var _dockSplit: DockSplitStore?
+
+    /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
+    /// terminal/browser panels, separate from the main-area `bonsplitController`.
+    /// Created on first access so workspaces that never open the Dock pay nothing.
+    var dockSplit: DockSplitStore {
+        if let existing = _dockSplit { return existing }
+        let store = DockSplitStore(
+            workspaceId: id,
+            baseDirectoryProvider: { [weak self] in self?.currentDirectory },
+            remoteBrowserSettingsProvider: { [weak self] in
+                guard let self else { return .local }
+                return DockRemoteBrowserSettings(
+                    proxyEndpoint: self.remoteProxyEndpoint,
+                    bypassRemoteProxy: false,
+                    isRemoteWorkspace: self.isRemoteWorkspace,
+                    remoteWebsiteDataStoreIdentifier: self.isRemoteWorkspace ? self.id : nil,
+                    remoteStatus: self.browserRemoteWorkspaceStatusSnapshot()
+                )
+            }
+        )
+        _dockSplit = store
+        return store
+    }
+
     /// How this workspace lays out its panels. Mutate through
     /// `setLayoutMode(_:)` (Workspace+CanvasLayout.swift) so canvas frames
     /// are seeded from the split layout on first entry.
@@ -2750,7 +2778,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Initialization
 
-    private static func currentSplitButtonTooltips() -> BonsplitConfiguration.SplitButtonTooltips {
+    static func currentSplitButtonTooltips() -> BonsplitConfiguration.SplitButtonTooltips {
         BonsplitConfiguration.SplitButtonTooltips(
             newTerminal: KeyboardShortcutSettings.Action.newSurface.tooltip("New Terminal"),
             newBrowser: KeyboardShortcutSettings.Action.openBrowser.tooltip("New Browser"),
@@ -3897,10 +3925,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func applyBrowserRemoteWorkspaceStatusToPanels() {
         let snapshot = browserRemoteWorkspaceStatusSnapshot()
-        for panel in panels.values {
-            guard let browserPanel = panel as? BrowserPanel else { continue }
-            browserPanel.setRemoteWorkspaceStatus(snapshot)
-        }
+        for panel in panels.values { (panel as? BrowserPanel)?.setRemoteWorkspaceStatus(snapshot) }
+        _dockSplit?.applyRemoteWorkspaceStatus(snapshot)
     }
 
     // MARK: - Panel Access
@@ -6661,9 +6687,9 @@ final class Workspace: Identifiable, ObservableObject {
     func applyRemoteProxyEndpointUpdate(_ endpoint: BrowserProxyEndpoint?) {
         remoteProxyEndpoint = endpoint
         for panel in panels.values {
-            guard let browserPanel = panel as? BrowserPanel else { continue }
-            browserPanel.setRemoteProxyEndpoint(endpoint)
+            (panel as? BrowserPanel)?.setRemoteProxyEndpoint(endpoint)
         }
+        _dockSplit?.applyRemoteProxyEndpointUpdate(endpoint)
         applyBrowserRemoteWorkspaceStatusToPanels()
     }
 
@@ -8587,6 +8613,9 @@ final class Workspace: Identifiable, ObservableObject {
         terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
         lastTerminalConfigInheritanceFontPoints = nil
+        // Tear down the right-sidebar Dock's own panels (terminals/browsers) too,
+        // but only if the Dock was ever opened for this workspace.
+        _dockSplit?.closeAllPanels()
     }
 
     /// Close a panel.
@@ -9933,6 +9962,7 @@ final class Workspace: Identifiable, ObservableObject {
                 return true
             }
         }
+        if _dockSplit?.needsConfirmClose() == true { return true }
         return false
     }
 
@@ -10519,6 +10549,11 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        // Focus-exclusivity: when the right sidebar (Dock) owns input focus in this
+        // window, no main terminal should be (re)marked active even if it is still
+        // this workspace's focused panel — mirroring the SwiftUI `isFocused` gate so
+        // a layout reconcile cannot steal focus back from the sidebar.
+        let rightSidebarOwnsFocus = AppDelegate.shared?.rightSidebarOwnsInputFocus(for: self) ?? false
         var didChange = agentHibernationAutoResumePresentationVisible
             ? resumeVisibleAgentHibernationPanels(panelIds: visiblePanelIds)
             : false
@@ -10534,7 +10569,7 @@ final class Workspace: Identifiable, ObservableObject {
                 terminalPanel.hostedView.setVisibleInUI(shouldBeVisible)
                 didChange = true
             }
-            let shouldBeActive = shouldBeVisible && focusedPanelId == terminalPanel.id
+            let shouldBeActive = shouldBeVisible && focusedPanelId == terminalPanel.id && !rightSidebarOwnsFocus
             if terminalPanel.hostedView.debugPortalActive != shouldBeActive {
                 terminalPanel.hostedView.setActive(shouldBeActive)
                 didChange = true
