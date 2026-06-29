@@ -11,9 +11,19 @@ public struct KeyboardShortcutsSection: View {
     private let hostActions: SettingsHostActions
     @State private var model: ShortcutListModel
 
-    // TUNABLE — bounded viewport that makes the section's outer-page height constant across the
-    // deactivate/reactivate flip (the jump-fix) AND keeps the table virtualized. Tune during
-    // ./scripts/reload.sh — too short = cramped, too tall = page-dominating.
+    // Build-time list-rendering selector (NOT a user-facing option). Both paths fix the
+    // deactivate/reactivate scroll-jump (neither uses a LazyVStack); they differ in layout:
+    //   false (default) — `ShortcutListEagerView`: full-height inline list, flows in the page
+    //                     like upstream (no inner scroll). Realizes all ~166 recorders at open.
+    //   true            — `ShortcutListView`: virtualized NSTableView in a bounded box (recycled
+    //                     cells, fast open) but with its own inner scroll region.
+    // Default is inline to match upstream's single continuous scroll. Flip to `true` to trade
+    // that for fast open + low memory if the eager open-cost proves too high.
+    private static let useVirtualizedList = false
+
+    // TUNABLE (virtualized path only) — bounded viewport that keeps the table's contribution to
+    // the outer-page height constant across the active-state flip AND keeps the table virtualized.
+    // Tune during ./scripts/reload.sh — too short = cramped, too tall = page-dominating.
     private static let shortcutListBoxHeight: CGFloat = 520
 
     public init(
@@ -37,8 +47,12 @@ public struct KeyboardShortcutsSection: View {
                 SettingsCardDivider()
                 resetDefaultsRow
                 SettingsCardDivider()
-                ShortcutListView(model: model, heightRevision: model.heightRevision)
-                    .frame(height: Self.shortcutListBoxHeight)
+                if Self.useVirtualizedList {
+                    ShortcutListView(model: model, heightRevision: model.heightRevision)
+                        .frame(height: Self.shortcutListBoxHeight)
+                } else {
+                    ShortcutListEagerView(model: model)
+                }
             }
             .settingsSearchAnchors(["setting:keyboardShortcuts:shortcuts"])
             Text(String(localized: "settings.shortcuts.recordHint", defaultValue: "Click a shortcut value to record. Use X to unbind; it changes to restore after a clear."))

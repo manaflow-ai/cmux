@@ -123,8 +123,12 @@ final class ShortcutListContainerView: NSView {
         coordinator.tableView = tableView
 
         scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
+        // No inner scroller: the bounded table must read as part of the one
+        // continuous Settings page (upstream has no inner scroll here). Wheel
+        // events still scroll the table and forward to the page at its limits
+        // (ShortcutListScrollView); the outer page scroller is the sole indicator.
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
         scrollView.borderType = .noBorder
         scrollView.documentView = tableView
 
