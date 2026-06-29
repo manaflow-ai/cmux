@@ -757,6 +757,18 @@ final class FileExplorerStore: ObservableObject {
     private var directoryWatchTask: Task<Void, Never>?
     private var directoryWatchPath: String?
 
+    /// Whether a `git status` fetch started by ``refreshGitStatus()`` is still
+    /// running. The recursive watcher can request a refresh once per throttle
+    /// window during a sustained filesystem storm; without this guard each
+    /// request would spawn another uncancelled `git status` process, letting
+    /// slow fetches on a large repo pile up. Only ever read/written on the main
+    /// actor.
+    private var isGitStatusRefreshInFlight = false
+    /// Set when a refresh is requested while one is already in flight, so exactly
+    /// one follow-up runs after the current fetch finishes (coalescing a burst of
+    /// requests into a single trailing refresh rather than N concurrent ones).
+    private var gitStatusRefreshRequestedWhileInFlight = false
+
     /// Paths that are logically expanded (persisted across provider changes)
     private(set) var expandedPaths: Set<String> = []
 
@@ -850,8 +862,20 @@ final class FileExplorerStore: ObservableObject {
     func refreshGitStatus() {
         guard !rootPath.isEmpty else {
             gitStatusByPath = [:]
+            gitStatusRefreshRequestedWhileInFlight = false
             return
         }
+        // Coalesce overlapping refreshes. The recursive directory watcher can
+        // request a refresh once per throttle window during a sustained
+        // filesystem storm, and each fetch spawns an external `git status`
+        // process. Running at most one at a time — and re-running once if a
+        // request arrived mid-flight — bounds this to a single process instead
+        // of letting slow fetches on a large repo pile up.
+        if isGitStatusRefreshInFlight {
+            gitStatusRefreshRequestedWhileInFlight = true
+            return
+        }
+        isGitStatusRefreshInFlight = true
         let path = rootPath
         if let sshProvider = provider as? SSHFileExplorerProvider {
             let dest = sshProvider.destination
@@ -864,16 +888,29 @@ final class FileExplorerStore: ObservableObject {
                     identityFile: identity, sshOptions: opts
                 )
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    self?.applyGitStatusResult(status)
                 }
             }
         } else {
             DispatchQueue.global(qos: .utility).async {
                 let status = GitStatusProvider.fetchStatus(directory: path)
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    self?.applyGitStatusResult(status)
                 }
             }
+        }
+    }
+
+    /// Applies a completed `git status` result and, if a refresh was requested
+    /// while the fetch was in flight, runs exactly one coalesced follow-up so the
+    /// final state reflects the latest filesystem change without spawning
+    /// overlapping `git status` processes.
+    private func applyGitStatusResult(_ status: [String: GitFileStatus]) {
+        gitStatusByPath = status
+        isGitStatusRefreshInFlight = false
+        if gitStatusRefreshRequestedWhileInFlight {
+            gitStatusRefreshRequestedWhileInFlight = false
+            refreshGitStatus()
         }
     }
 
@@ -900,6 +937,12 @@ final class FileExplorerStore: ObservableObject {
             directoryWatcher = watcher
             directoryWatchPath = rootPath
             let events = watcher.events
+            // `events` is already leading-edge throttled by RecursivePathWatcher
+            // (one element per window even during a sustained storm), so this
+            // loop runs at a bounded rate rather than per raw filesystem event.
+            // `reload()` supersedes its own prior load via `cancelAllLoads()`,
+            // and `refreshGitStatus()` coalesces to a single in-flight process,
+            // so neither work item accumulates under churn.
             directoryWatchTask = Task { @MainActor [weak self] in
                 for await _ in events {
                     guard let self else { break }
