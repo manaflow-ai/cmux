@@ -21,7 +21,6 @@
     </MacroExpansion>
     <EnvironmentVariables>
       <EnvironmentVariable key="SWIFT_BACKTRACE" value="interactive=no,timeout=0s,symbolicate=off,color=no" isEnabled="YES"/>
-      <EnvironmentVariable key="CMUX_APP_HOST_UNIT_TESTS" value="1" isEnabled="YES"/>
     </EnvironmentVariables>
   </TestAction>
   <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="YES" debugDocumentVersioning="YES" allowLocationSimulation="YES">

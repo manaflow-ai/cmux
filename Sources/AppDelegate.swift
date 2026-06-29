@@ -520,7 +520,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var cmuxThemePreviewReloadGeneration = 0
     private var cmuxThemePreviewReloadWorkItem: DispatchWorkItem?
 
-    private nonisolated static func detectRunningUnderXCTest(_ env: [String: String]) -> Bool {
+    private static func detectRunningUnderXCTest(_ env: [String: String]) -> Bool {
         if env["XCTestConfigurationFilePath"] != nil { return true }
         if env["XCTestBundlePath"] != nil { return true }
         if env["XCTestSessionIdentifier"] != nil { return true }
@@ -529,10 +529,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if env["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true { return true }
         if env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) { return true }
         return false
-    }
-
-    nonisolated static func shouldBootstrapInitialMainWindowForLaunch(_ env: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
-        env["CMUX_APP_HOST_UNIT_TESTS"] != "1"
     }
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
@@ -1470,13 +1466,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         RendererRealizationController.shared.start()
         NSApp.servicesProvider = self
 
-        if Self.shouldBootstrapInitialMainWindowForLaunch(env) {
-            StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
-            scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
-        } else {
-            StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.skipped", fields: ["reason": "appHostUnitTests"])
-            bootstrapAppHostUnitTestSocketListenerIfNeeded()
-        }
+        StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
+        scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
         StartupBreadcrumbLog.append("appDelegate.didFinish.complete")
 #if DEBUG
         UpdateTestSupport(model: updateController.model, log: updateLog).applyIfNeeded()
@@ -7257,16 +7248,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             openPreferencesWindow(debugSource: "uiTestShowSettings.\(debugSource)")
         }
         return windowId
-    }
-
-    private func bootstrapAppHostUnitTestSocketListenerIfNeeded() {
-        reserveInitialSocketPathIfNeeded()
-        if let tabManager {
-            startSocketListenerIfEnabled(
-                tabManager: tabManager,
-                source: "bootstrapInitialMainWindow.appHostUnitTests"
-            )
-        }
     }
 
     @discardableResult
