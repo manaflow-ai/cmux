@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux CLI"
+  short_description: "Use and document the cmux command line for sockets, workspaces, panes, surfaces, browser automation, hooks, settings, and debug builds."
+  default_prompt: "Use this skill to discover current cmux CLI syntax with cmux --help, target the right socket/workspace/surface, and run non-disruptive cmux command-line automation."
