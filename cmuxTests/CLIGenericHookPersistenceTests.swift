@@ -3088,26 +3088,26 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
             .compactMap { $0["command"] as? String }
-
+        let hookBodies = allCommands.map { (try? String(contentsOfFile: $0, encoding: .utf8)) ?? $0 }
         XCTAssertTrue(
-            allCommands.contains {
+            hookBodies.contains {
                 $0.contains("CMUX_BUNDLED_CLI_PATH")
                     && $0.contains("\"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks codex prompt-submit")
             },
-            "Codex hooks should route through the launching app's bundled CLI, saw \(allCommands)"
+            "Codex hooks should route through the launching app's bundled CLI, saw commands \(allCommands) bodies \(hookBodies)"
         )
         XCTAssertFalse(
-            allCommands.contains { $0.contains("command -v cmux >/dev/null 2>&1 && cmux hooks codex") },
-            "Codex hooks must not use the reload-global cmux shim directly, saw \(allCommands)"
+            hookBodies.contains { $0.contains("command -v cmux >/dev/null 2>&1 && cmux hooks codex") },
+            "Codex hooks must not use the reload-global cmux shim directly, saw commands \(allCommands) bodies \(hookBodies)"
         )
         XCTAssertFalse(
-            allCommands.contains { $0 == previousBundledHookCommand },
-            "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw \(allCommands)"
+            hookBodies.contains { $0 == previousBundledHookCommand },
+            "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw commands \(allCommands) bodies \(hookBodies)"
         )
         XCTAssertEqual(
-            allCommands.filter { $0.contains("hooks codex prompt-submit") }.count,
+            hookBodies.filter { $0.contains("hooks codex prompt-submit") }.count,
             1,
-            "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(allCommands)"
+            "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw commands \(allCommands) bodies \(hookBodies)"
         )
     }
 
@@ -3246,7 +3246,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(params["auto_resume"] as? Bool, true)
             XCTAssertEqual(
                 params["command"] as? String,
-                "{ cd -- '\(workspace.path)' 2>/dev/null || [ ! -d '\(workspace.path)' ]; } && '\(scenario.executable)' 'chat' '--resume-id' '\(scenario.sessionId)' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
+                "cd -- '\(workspace.path)' 2>/dev/null || [ ! -d '\(workspace.path)' ] && '\(scenario.executable)' 'chat' '--resume-id' '\(scenario.sessionId)' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
             )
             XCTAssertEqual(params["environment"] as? [String: String], scenario.expectedEnvironment)
             XCTAssertFalse(
