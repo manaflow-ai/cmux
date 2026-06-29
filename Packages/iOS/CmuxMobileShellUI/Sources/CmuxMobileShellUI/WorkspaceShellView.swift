@@ -369,7 +369,9 @@ struct WorkspaceShellView: View {
 /// that to fold the unread count into the back control). Owns the pop gesture's
 /// delegate and only lets it begin when there is actually a screen to pop, so it
 /// never fires on the root list.
-private struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
+/// `internal` (not `private`) so `cmuxFeatureTests` can drive
+/// `GestureHostController`'s delegate decisions directly.
+struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController { GestureHostController() }
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
 
@@ -381,6 +383,22 @@ private struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             (navigationController?.viewControllers.count ?? 0) > 1
+        }
+
+        // The pushed workspace detail hosts surfaces with their own pan/scroll
+        // gesture recognizers — the terminal's full-bounds scroll-mechanics
+        // `UIScrollView` and the browser's `WKWebView` scroll view. Taking over
+        // the navigation controller's `interactivePopGestureRecognizer` delegate
+        // (above, so the custom back button can re-enable the swipe) drops
+        // UIKit's built-in rule that lets the edge swipe-back coexist with scroll
+        // views, so the swipe stopped popping back to the workspace list over a
+        // terminal or browser (issue #6634). Allow the pop gesture to recognize
+        // simultaneously with those surface gestures to restore it.
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            gestureRecognizer == navigationController?.interactivePopGestureRecognizer
         }
     }
 }
