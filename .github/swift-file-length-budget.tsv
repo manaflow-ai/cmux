@@ -1,7 +1,7 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-34773	CLI/cmux.swift
+34771	CLI/cmux.swift
 17854	Sources/AppDelegate.swift
 16109	Sources/ContentView.swift
 13913	Sources/TerminalController.swift
@@ -89,7 +89,7 @@
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1002	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/PairedMacBackupTests.swift
-989	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
+995	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
 948	Sources/App/ShortcutRoutingSupport.swift
 947	Sources/TerminalNotificationPolicy.swift

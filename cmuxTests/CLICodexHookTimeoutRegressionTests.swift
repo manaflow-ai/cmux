@@ -500,9 +500,10 @@ struct CLICodexHookTimeoutRegressionTests {
         let cliPath = try bundledCLIPath()
 
         for ownerCase in [
-            (label: "running", runtimeStatus: "running", ownerStartedAfterIncoming: false),
-            (label: "needsInput", runtimeStatus: "needsInput", ownerStartedAfterIncoming: false),
-            (label: "newerRunning", runtimeStatus: "running", ownerStartedAfterIncoming: true),
+            (label: "running", runtimeStatus: "running", ownerStartedAfterIncoming: false, includePidCapturedAt: true),
+            (label: "needsInput", runtimeStatus: "needsInput", ownerStartedAfterIncoming: false, includePidCapturedAt: true),
+            (label: "legacyRunning", runtimeStatus: "running", ownerStartedAfterIncoming: false, includePidCapturedAt: false),
+            (label: "newerRunning", runtimeStatus: "running", ownerStartedAfterIncoming: true, includePidCapturedAt: true),
         ] {
             let socketPath = makeSocketPath("codex-notty")
             let listenerFD = try bindUnixSocket(at: socketPath)
@@ -547,6 +548,11 @@ struct CLICodexHookTimeoutRegressionTests {
                     "updatedAt": now,
                 ],
             ]
+            if !ownerCase.includePidCapturedAt,
+               var ownerRecord = sessions[ownerSessionId] as? [String: Any] {
+                ownerRecord.removeValue(forKey: "pidCapturedAt")
+                sessions[ownerSessionId] = ownerRecord
+            }
             if ownerCase.ownerStartedAfterIncoming {
                 sessions[newcomerSessionId] = [
                     "sessionId": newcomerSessionId,

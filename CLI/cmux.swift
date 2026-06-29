@@ -1223,7 +1223,7 @@ final class ClaudeHookSessionStore {
                     }
                 }
 
-                if requireLiveProcess, !Self.processIsLiveForSession(pid: record.pid, capturedAt: record.pidCapturedAt ?? record.startedAt) {
+                if requireLiveProcess, !Self.processIsLiveForSession(pid: record.pid, capturedAt: record.pidCapturedAt) {
                     record.runtimeStatus = nil
                     record.updatedAt = now
                     state.sessions[sessionId] = record
@@ -1253,7 +1253,6 @@ final class ClaudeHookSessionStore {
                 sessionId: String,
                 pid: Int?,
                 pidCapturedAt: TimeInterval?,
-                startedAt: TimeInterval,
                 updatedAt: TimeInterval
             )? in
                 guard record.sessionId != incoming,
@@ -1266,14 +1265,13 @@ final class ClaudeHookSessionStore {
                     sessionId: record.sessionId,
                     pid: record.pid,
                     pidCapturedAt: record.pidCapturedAt,
-                    startedAt: record.startedAt,
                     updatedAt: record.updatedAt
                 )
             }
         }
 
         for candidate in candidates {
-            if !Self.processIsLiveForSession(pid: candidate.pid, capturedAt: candidate.pidCapturedAt ?? candidate.startedAt) {
+            if !Self.processIsLiveForSession(pid: candidate.pid, capturedAt: candidate.pidCapturedAt) {
                 let now = Date().timeIntervalSince1970
                 try withLockedState { state in
                     guard var record = state.sessions[candidate.sessionId],
