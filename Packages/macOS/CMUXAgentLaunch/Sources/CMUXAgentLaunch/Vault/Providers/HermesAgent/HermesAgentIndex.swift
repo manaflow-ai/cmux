@@ -166,7 +166,8 @@ public enum HermesAgentIndex {
     /// Loads Hermes sessions from state.db, newest first.
     ///
     /// When `cwdFilter` is non-nil, only sessions whose recorded `cwd` matches the
-    /// (standardized) filter are returned. Hermes records `cwd` on the `sessions`
+    /// filter — by standardized path or its symlink-resolved realpath — are
+    /// returned. Hermes records `cwd` on the `sessions`
     /// row at creation time, so this is the disambiguator that lets cmux map a
     /// scanned hermes process to *its* session rather than the newest session
     /// globally — critical when several hermes panes/gateways write to the same
@@ -238,14 +239,18 @@ public enum HermesAgentIndex {
     ) throws -> HermesAgentIndexResult {
         let trimmedNeedle = needle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let hasNeedle = !trimmedNeedle.isEmpty
-        // Standardize the cwd filter the same way the caller's path is standardized
-        // (~ expansion, symlink-free) so equality holds regardless of how the path
-        // was spelled. A non-nil filter restricts to rows with a matching non-empty cwd.
-        let normalizedCwdFilter: String? = {
-            guard let cwdFilter = normalized(cwdFilter) else { return nil }
-            return (cwdFilter as NSString).standardizingPath
+        // Match the stored cwd against BOTH the standardized path and its
+        // symlink-resolved realpath, via the same `cwdMatchCandidates` helper the
+        // resume fast path (`latestSessionID`) uses. `standardizingPath` alone does
+        // NOT resolve symlinks, so a pane whose PWD is a symlink (e.g. /tmp/x) would
+        // otherwise never match a session hermes recorded under the real path
+        // (/private/tmp/x), silently returning no rows. A non-nil filter restricts
+        // to rows with a matching non-empty cwd.
+        let cwdFilterCandidates: [String] = {
+            guard let cwdFilter = normalized(cwdFilter) else { return [] }
+            return Self.cwdMatchCandidates(cwdFilter)
         }()
-        let hasCwdFilter = normalizedCwdFilter != nil
+        let hasCwdFilter = !cwdFilterCandidates.isEmpty
         var sql = """
             SELECT
               s.id,
@@ -267,7 +272,8 @@ public enum HermesAgentIndex {
             WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
             """
         if hasCwdFilter {
-            sql += "\n AND s.cwd = ?"
+            let placeholders = cwdFilterCandidates.map { _ in "?" }.joined(separator: ", ")
+            sql += "\n AND s.cwd IN (\(placeholders))"
         }
         if hasNeedle {
             sql += """
@@ -304,11 +310,11 @@ public enum HermesAgentIndex {
         // SQLITE_TRANSIENT — tell SQLite to copy the bound bytes (the Swift strings
         // are deallocated as soon as this scope exits).
         let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        // Bind in placeholder order: the cwd filter `?` (if present) comes before
+        // Bind in placeholder order: the cwd filter `?`s (if present) come before
         // the five needle `?`s in the SQL above.
         var bindIndex: Int32 = 1
-        if let normalizedCwdFilter {
-            guard sqlite3_bind_text(stmt, bindIndex, normalizedCwdFilter, -1, destructor) == SQLITE_OK else {
+        for candidate in cwdFilterCandidates {
+            guard sqlite3_bind_text(stmt, bindIndex, candidate, -1, destructor) == SQLITE_OK else {
                 throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
             }
             bindIndex += 1

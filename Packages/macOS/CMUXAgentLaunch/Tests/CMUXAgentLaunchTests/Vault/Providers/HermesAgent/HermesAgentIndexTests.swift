@@ -125,6 +125,40 @@ struct HermesAgentIndexTests {
         #expect(result.errors.isEmpty)
     }
 
+    // Regression: `standardizingPath` does NOT resolve symlinks, so a filter
+    // spelled with a symlinked path (e.g. /tmp/x) must still match a session
+    // hermes recorded under the resolved realpath (/private/tmp/x), and vice
+    // versa. loadSessions matches against both spellings (cwdMatchCandidates),
+    // mirroring the resume fast path, so neither direction silently misses.
+    @Test("A symlink-spelled cwd filter matches a session stored under its realpath")
+    func cwdFilterMatchesAcrossSymlink() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+
+        // On macOS /tmp is a symlink to /private/tmp. Use a real dir under /tmp:
+        // its standardized spelling stays /tmp/... while resolvingSymlinksInPath
+        // yields /private/tmp/.... Pick the spelling that differs from the input
+        // so each assertion exercises the cross-symlink match (skip if, on some
+        // host, the two coincide and there is nothing to disambiguate).
+        let symlinkSpelling = "/tmp/cmux-hermes-symlink-test-\(UUID().uuidString)"
+        let realSpelling = (symlinkSpelling as NSString).resolvingSymlinksInPath
+        try #require(symlinkSpelling != realSpelling)
+
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, title, cwd)
+        VALUES ('under-realpath', 'cli', 'm', 30, NULL, '\(realSpelling)');
+        """)
+
+        // Query with the symlink spelling: must resolve to the realpath row.
+        let viaSymlink = HermesAgentIndex.loadSessions(
+            needle: "", cwdFilter: symlinkSpelling, offset: 0, limit: 1, stateDBPath: dbURL.path
+        )
+        #expect(viaSymlink.sessions.map(\.sessionId) == ["under-realpath"])
+        #expect(viaSymlink.errors.isEmpty)
+    }
+
     @Test("A NULL-cwd session never matches a non-nil cwd filter")
     func nullCwdNeverMatchesFilter() throws {
         let root = try temporaryDirectory()
