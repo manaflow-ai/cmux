@@ -4,6 +4,23 @@ internal import CmuxMobileRPC
 /// Agent-chat access for the shell store: surfaces sessions and a
 /// conversation event source bound to the current Mac connection.
 extension MobileShellComposite {
+    /// Cached chat-capable sessions for a workspace, from the last authoritative
+    /// pull or push-derived session list. Used by workspace detail views before
+    /// their per-view refresh task has reconnected.
+    public func cachedChatSessions(workspaceID: String) -> [ChatSessionDescriptor] {
+        chatSessionSnapshotsByWorkspaceID[workspaceID] ?? []
+    }
+
+    /// Replaces the cached chat-session snapshot for a workspace. Call only when
+    /// data came from an authoritative pull or from the live session event stream,
+    /// not when the transport is unavailable.
+    public func rememberChatSessions(
+        _ sessions: [ChatSessionDescriptor],
+        workspaceID: String
+    ) {
+        chatSessionSnapshotsByWorkspaceID[workspaceID] = sessions
+    }
+
     /// A chat event source over the current connection, or `nil` when not
     /// connected. Construct one ``ChatConversationStore`` per opened
     /// conversation from this.

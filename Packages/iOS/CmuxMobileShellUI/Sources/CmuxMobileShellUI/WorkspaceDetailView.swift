@@ -65,6 +65,15 @@ struct WorkspaceDetailView: View {
     /// mid-read. Cleared when chat mode turns off.
     @State private var pinnedChatSessionID: String?
     @State private var chatSessions: [ChatSessionDescriptor] = []
+    /// Last terminal id whose cached snapshot said it had a chat session. This
+    /// keeps the toolbar affordance and title spacing stable while SwiftUI
+    /// swaps between terminal and chat mode, or while transport is reconnecting.
+    @State private var cachedChatToggleTerminalID: String?
+    /// Per-session chat stores kept warm while the workspace detail is visible.
+    /// The selected terminal's store runs even when terminal rendering is shown,
+    /// so toggling into chat presents the already-loaded transcript instead of
+    /// treating terminal mode as "no GUI data loaded."
+    @State private var chatConversationStores: [String: ChatConversationStore] = [:]
     /// Per-session composer drafts, surviving toggles back to the terminal.
     @State private var chatDrafts: [String: String] = [:]
     /// App lifecycle phase. Returning from `.background` re-pulls the session
@@ -88,6 +97,22 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
+    private var selectedTerminalID: String? {
+        selectedTerminal?.id.rawValue
+    }
+
+    /// Chat sessions this view should render from right now. On first render
+    /// after returning to a workspace, local `@State` is empty, but the shell
+    /// store still has the last authoritative GUI-history snapshot for this
+    /// workspace. Use that immediately so the toolbar does not flicker while the
+    /// refresh task reconnects.
+    private var visibleChatSessions: [ChatSessionDescriptor] {
+        if !chatSessions.isEmpty {
+            return chatSessions
+        }
+        return store.cachedChatSessions(workspaceID: workspace.id.rawValue)
+    }
+
     /// The chat session belonging to the currently visible tab/terminal, if
     /// any. The toggle and the chat bind to THIS — the tab the user is
     /// looking at — so a tab's chat never shows another tab's history, and a
@@ -100,8 +125,26 @@ struct WorkspaceDetailView: View {
     /// is still unique), so the session's recorded terminal id keeps matching
     /// the live terminal.
     private var sessionForSelectedTerminal: ChatSessionDescriptor? {
-        guard let terminalID = selectedTerminal?.id.rawValue else { return nil }
-        return chatSessions.first { $0.terminalID == terminalID }
+        guard let terminalID = selectedTerminalID else { return nil }
+        return visibleChatSessions.first { $0.terminalID == terminalID }
+    }
+
+    /// The session backing the toolbar toggle. Prefer the currently selected
+    /// terminal's live match, but fall back to the last cached match while the
+    /// selected terminal is temporarily unavailable during mode transitions.
+    private var chatToggleSession: ChatSessionDescriptor? {
+        if let sessionForSelectedTerminal {
+            return sessionForSelectedTerminal
+        }
+        guard let terminalID = cachedChatToggleTerminalID else { return nil }
+        if let selectedTerminalID, selectedTerminalID != terminalID {
+            return nil
+        }
+        return visibleChatSessions.first { $0.terminalID == terminalID }
+    }
+
+    private var shouldShowChatToggle: Bool {
+        isChatMode || chatToggleSession != nil
     }
 
     /// The session chat mode opens: the visible tab's session, or the pinned
@@ -113,9 +156,16 @@ struct WorkspaceDetailView: View {
         // would claim B while the conversation stays A). nil makes the body
         // fall back to the terminal and refreshChatSessions exit chat mode.
         if let pinnedChatSessionID {
-            return chatSessions.first { $0.id == pinnedChatSessionID }
+            return visibleChatSessions.first { $0.id == pinnedChatSessionID }
         }
-        return sessionForSelectedTerminal
+        return chatToggleSession
+    }
+
+    /// The session whose full chat model should stay warm while this detail is
+    /// visible. In terminal mode this is the selected terminal's session; in
+    /// chat mode it is the pinned session.
+    private var warmChatSession: ChatSessionDescriptor? {
+        chosenChatSession ?? chatToggleSession
     }
 
     /// The tab/terminal name for a session, for the chat header subtitle.
@@ -128,6 +178,14 @@ struct WorkspaceDetailView: View {
         Group {
             detailSurfaceContent
         }
+        #if os(iOS)
+        .task(id: chatConversationWarmKey) {
+            await runWarmChatConversation()
+        }
+        .onChange(of: selectedTerminalID) { _, _ in
+            refreshCachedChatToggleAnchor()
+        }
+        #endif
         .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
     }
 
@@ -152,43 +210,51 @@ struct WorkspaceDetailView: View {
     #if os(iOS)
     @ViewBuilder
     private func chatContent(_ session: ChatSessionDescriptor) -> some View {
-        WorkspaceChatPane(
-            session: session,
-            store: store,
-            workspaceName: workspace.name,
-            tabName: tabName(for: session),
-            draft: Binding(
-                get: { chatDrafts[session.id] ?? "" },
-                set: { chatDrafts[session.id] = $0 }
-            ),
-            onExitChat: {
-                withAnimation(.snappy(duration: 0.28)) {
-                    isChatMode = false
+        if let conversation = chatConversationStores[session.id] {
+            WorkspaceChatPane(
+                session: session,
+                conversation: conversation,
+                store: store,
+                workspaceName: workspace.name,
+                tabName: tabName(for: session),
+                draft: Binding(
+                    get: { chatDrafts[session.id] ?? "" },
+                    set: { chatDrafts[session.id] = $0 }
+                ),
+                onExitChat: {
+                    withAnimation(.snappy(duration: 0.28)) {
+                        isChatMode = false
+                    }
+                    pinnedChatSessionID = nil
                 }
-                pinnedChatSessionID = nil
+            )
+            .id(session.id)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .mobileChatTopScrollEdgeLayout(legacyTopPadding: terminalTopPadding)
+            .mobileTerminalNavigationChrome()
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    chatToggleButton
+                    terminalPickerToolbarButton
+                }
             }
-        )
-        .id(session.id)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .mobileChatTopScrollEdgeLayout(legacyTopPadding: terminalTopPadding)
-        .mobileTerminalNavigationChrome()
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                chatToggleButton
-                terminalPickerToolbarButton
-            }
+            .task(id: chatRefreshKey) { await refreshChatSessions() }
+            .workspaceRenameDialog(
+                isPresented: $isRenamePresented,
+                text: $renameText,
+                onSave: commitRenameFromDialog
+            )
+        } else {
+            Color.clear
+                .task(id: session.id) {
+                    _ = ensureChatConversationStore(for: session)
+                }
         }
-        .task(id: chatRefreshKey) { await refreshChatSessions() }
-        .workspaceRenameDialog(
-            isPresented: $isRenamePresented,
-            text: $renameText,
-            onSave: commitRenameFromDialog
-        )
     }
 
     @ViewBuilder
     private var chatToggleButton: some View {
-        if isChatMode || sessionForSelectedTerminal != nil {
+        if shouldShowChatToggle {
             Button(action: toggleChatMode) {
                 Image(systemName: isChatMode
                     ? "bubble.left.and.bubble.right.fill"
@@ -196,17 +262,21 @@ struct WorkspaceDetailView: View {
             }
             .accessibilityLabel(L10n.string("mobile.workspace.agentChat", defaultValue: "Agent Chat"))
             .accessibilityIdentifier("MobileWorkspaceAgentChatButton")
-            .disabled(!isChatMode && chosenChatSession == nil)
+            .disabled(!isChatMode && chatToggleSession == nil)
         }
     }
 
     /// Flip between the terminal and the inline agent chat, pinning/unpinning the
     /// chosen session. Shared by the (legacy) toolbar button and the menu row.
     private func toggleChatMode() {
+        let openingSession = !isChatMode ? chatToggleSession : nil
+        if let openingSession {
+            _ = ensureChatConversationStore(for: openingSession)
+        }
         withAnimation(.snappy(duration: 0.28)) {
             isChatMode.toggle()
         }
-        pinnedChatSessionID = isChatMode ? chosenChatSession?.id : nil
+        pinnedChatSessionID = isChatMode ? openingSession?.id : nil
     }
 
     /// Identity for the session refetch: workspace, connection epoch, and a
@@ -224,6 +294,18 @@ struct WorkspaceDetailView: View {
         return "\(workspace.id.rawValue)#\(connected)#\(foreground)"
     }
 
+    /// Identity for warming the selected chat model. Includes descriptor version
+    /// so an authoritative session-list refresh reconciles header/state metadata
+    /// even before a live conversation event arrives.
+    private var chatConversationWarmKey: String {
+        let connected = store.connectionState == .connected ? 1 : 0
+        let foreground = scenePhase == .background ? 0 : 1
+        guard let session = warmChatSession else {
+            return "\(workspace.id.rawValue)#none#\(connected)#\(foreground)"
+        }
+        return "\(workspace.id.rawValue)#\(session.id)#\(session.version)#\(connected)#\(foreground)"
+    }
+
     /// Keeps the chat-capable session list current while this workspace is
     /// shown, so the GUI toggle appears as soon as a coding agent becomes
     /// active, without polling. The Mac pushes a `chat.message` frame on
@@ -236,8 +318,7 @@ struct WorkspaceDetailView: View {
     /// on workspace change or when the view goes away.
     private func refreshChatSessions() async {
         guard let source = store.makeChatEventSource() else {
-            chatSessions = []
-            applyChatModeFallback()
+            applyChatModeFallback(canInvalidateSelection: false)
             return
         }
         let reducer = ChatSessionListReducer(workspaceID: workspace.id.rawValue)
@@ -245,15 +326,93 @@ struct WorkspaceDetailView: View {
         // Animate the list update so the toggle eases in rather than popping
         // when a session is found (the seed/first frame arriving over the
         // wire is the "appears real quickly but not smooth" moment).
-        let seeded = (try? await source.sessions(workspaceID: workspace.id.rawValue)) ?? []
-        withAnimation(.snappy(duration: 0.25)) { chatSessions = seeded }
+        let seedOutcome: WorkspaceChatSessionRefreshOutcome
+        do {
+            seedOutcome = .authoritative(try await source.sessions(workspaceID: workspace.id.rawValue))
+        } catch {
+            seedOutcome = .unavailable
+        }
+        let nextSessions = seedOutcome.applying(to: visibleChatSessions)
+        withAnimation(.snappy(duration: 0.25)) {
+            chatSessions = nextSessions
+        }
+        if seedOutcome.canInvalidateSelection {
+            store.rememberChatSessions(nextSessions, workspaceID: workspace.id.rawValue)
+        }
+        refreshCachedChatToggleAnchor()
+        pruneCachedChatConversations()
+        if let warmChatSession {
+            _ = ensureChatConversationStore(for: warmChatSession)
+        }
         repinToReopenedSession()
-        applyChatModeFallback()
+        applyChatModeFallback(canInvalidateSelection: seedOutcome.canInvalidateSelection)
         for await frame in stream {
-            let next = reducer.applying(frame, to: chatSessions)
+            let next = reducer.applying(frame, to: visibleChatSessions)
             withAnimation(.snappy(duration: 0.25)) { chatSessions = next }
+            store.rememberChatSessions(next, workspaceID: workspace.id.rawValue)
+            refreshCachedChatToggleAnchor()
+            pruneCachedChatConversations()
+            if let warmChatSession {
+                _ = ensureChatConversationStore(for: warmChatSession)
+            }
             repinToReopenedSession()
-            applyChatModeFallback()
+            applyChatModeFallback(canInvalidateSelection: false)
+        }
+    }
+
+    /// Creates or updates the cached conversation store for a session. This is
+    /// called from tasks/actions, not from `body`, so the body remains a pure
+    /// projection of state.
+    @discardableResult
+    private func ensureChatConversationStore(
+        for session: ChatSessionDescriptor
+    ) -> ChatConversationStore? {
+        if let existing = chatConversationStores[session.id] {
+            existing.applyDescriptorSnapshot(session)
+            return existing
+        }
+        guard let source = store.makeChatEventSource() else { return nil }
+        let conversation = ChatConversationStore(descriptor: session, source: source)
+        chatConversationStores[session.id] = conversation
+        return conversation
+    }
+
+    /// Keeps cached stores bounded to sessions the workspace still knows about.
+    /// During transport loss the session list itself is preserved, so this does
+    /// not evict usable GUI state just because the Mac is reconnecting.
+    private func pruneCachedChatConversations() {
+        let liveIDs = Set(visibleChatSessions.map(\.id))
+        chatConversationStores = chatConversationStores.filter { liveIDs.contains($0.key) }
+    }
+
+    /// Runs the selected terminal's chat store while terminal mode is visible.
+    /// Opening chat reuses the same store, so there is only one subscription and
+    /// the transcript/history loaded in the background remains available.
+    private func runWarmChatConversation() async {
+        guard let session = warmChatSession,
+              let conversation = ensureChatConversationStore(for: session)
+        else { return }
+        await conversation.run()
+    }
+
+    /// Keeps the toolbar's chat affordance anchored to the latest session
+    /// snapshot for the selected terminal. Authoritative empty snapshots clear
+    /// the anchor; unavailable refreshes preserve `chatSessions`, so the anchor
+    /// naturally survives reconnects.
+    private func refreshCachedChatToggleAnchor() {
+        if let terminalID = sessionForSelectedTerminal?.terminalID {
+            cachedChatToggleTerminalID = terminalID
+            return
+        }
+
+        if let selectedTerminalID {
+            cachedChatToggleTerminalID = nil
+            return
+        }
+
+        guard let terminalID = cachedChatToggleTerminalID else { return }
+        if !visibleChatSessions.contains(where: { $0.terminalID == terminalID }) {
+            cachedChatToggleTerminalID = nil
         }
     }
 
@@ -266,10 +425,10 @@ struct WorkspaceDetailView: View {
     private func repinToReopenedSession() {
         guard isChatMode,
               let pinnedID = pinnedChatSessionID,
-              let pinned = chatSessions.first(where: { $0.id == pinnedID }),
+              let pinned = visibleChatSessions.first(where: { $0.id == pinnedID }),
               pinned.state == .ended,
               let terminalID = pinned.terminalID else { return }
-        let live = chatSessions
+        let live = visibleChatSessions
             .filter { $0.terminalID == terminalID && $0.id != pinnedID && $0.state != .ended }
             .max { ($0.lastActivityAt ?? .distantPast) < ($1.lastActivityAt ?? .distantPast) }
         if let live {
@@ -279,7 +438,8 @@ struct WorkspaceDetailView: View {
 
     /// If the session backing chat mode disappeared, fall back to the
     /// terminal rather than showing an empty chat.
-    private func applyChatModeFallback() {
+    private func applyChatModeFallback(canInvalidateSelection: Bool) {
+        guard canInvalidateSelection else { return }
         if isChatMode, chosenChatSession == nil {
             isChatMode = false
             pinnedChatSessionID = nil
@@ -511,7 +671,7 @@ struct WorkspaceDetailView: View {
             // as much as it safely can.
             .frame(maxWidth: MobileNavTitleWidth.cap(
                 contentWidth: contentWidth,
-                hasChatToggle: isChatMode || sessionForSelectedTerminal != nil
+                hasChatToggle: shouldShowChatToggle
             ))
             .mobileGlassNavigationTitle()
     }

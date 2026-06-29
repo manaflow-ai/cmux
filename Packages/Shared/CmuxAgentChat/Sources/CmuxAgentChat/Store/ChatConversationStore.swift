@@ -384,6 +384,21 @@ public final class ChatConversationStore {
         await loadInitialHistoryIfNeeded()
     }
 
+    /// Reconciles a fresh session-list descriptor into this conversation cache.
+    ///
+    /// The workspace detail keeps a conversation store warm while terminal mode
+    /// is visible. A session-list pull can therefore produce a newer descriptor
+    /// before this store sees the matching live event; apply that snapshot so
+    /// reopening chat shows the freshest header/state without waiting for
+    /// another push.
+    public func applyDescriptorSnapshot(_ descriptor: ChatSessionDescriptor) {
+        guard descriptor.id == self.descriptor.id else { return }
+        guard descriptor.version >= self.descriptor.version else { return }
+        self.descriptor = descriptor
+        agentState = descriptor.state
+        if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
+    }
+
     /// After a stream drop, fetches the newest page and merges anything the
     /// window missed while disconnected.
     private func resyncTail() async {
