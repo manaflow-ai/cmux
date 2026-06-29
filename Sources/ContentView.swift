@@ -919,7 +919,6 @@ struct ContentView: View {
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
-    @State private var selectedWorkspaceDirectoryObserver = ContentView.SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var fileExplorerWidth: CGFloat = 220
@@ -2264,6 +2263,16 @@ struct ContentView: View {
         )
     }
 
+    private var selectedWorkspaceSidebarObservationPublisher: AnyPublisher<Void, Never> {
+        guard let selectedId = tabManager.selectedTabId,
+              let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
+            return Empty().eraseToAnyPublisher()
+        }
+        return tab.sidebarObservationPublisher
+            .receive(on: RunLoop.main)
+            .eraseToAnyPublisher()
+    }
+
     private func syncFileExplorerDirectory() {
         guard let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
@@ -2433,7 +2442,6 @@ struct ContentView: View {
         )
 
         view = AnyView(view.onAppear {
-            selectedWorkspaceDirectoryObserver.wire(tabManager: tabManager)
             tabManager.applyWindowBackgroundForSelectedTab()
             reconcileMountedWorkspaceIds()
             previousSelectedWorkspaceId = tabManager.selectedTabId
@@ -2533,8 +2541,7 @@ struct ContentView: View {
             syncSidebarSelectedWorkspaceIds()
         })
 
-        // File explorer: keep the Combine subscription stable across body re-evaluations.
-        view = AnyView(view.onChange(of: selectedWorkspaceDirectoryObserver.directoryChangeGeneration) { _ in
+        view = AnyView(view.onReceive(selectedWorkspaceSidebarObservationPublisher) { _ in
             syncFileExplorerDirectory()
         })
 

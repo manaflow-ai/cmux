@@ -37,6 +37,7 @@ private struct SidebarObservationState: Equatable {
     let remoteConfiguration: WorkspaceRemoteConfiguration?
     let remoteConnectionState: WorkspaceRemoteConnectionState
     let remoteConnectionDetail: String?
+    let remoteDaemonStatus: WorkspaceRemoteDaemonStatus
     let activeRemoteTerminalSessionCount: Int
     let listeningPorts: [Int]
     let browserMediaActivity: BrowserMediaActivity
@@ -97,6 +98,9 @@ extension Workspace {
             $remoteConfiguration,
             $remoteConnectionState,
             $remoteConnectionDetail,
+            $remoteDaemonStatus
+        )
+        .combineLatest(
             $activeRemoteTerminalSessionCount
         )
 
@@ -126,10 +130,11 @@ extension Workspace {
                     panelGitBranches: gitFields.1,
                     pullRequest: gitFields.2,
                     panelPullRequests: gitFields.3,
-                    remoteConfiguration: remoteFields.0,
-                    remoteConnectionState: remoteFields.1,
-                    remoteConnectionDetail: remoteFields.2,
-                    activeRemoteTerminalSessionCount: remoteFields.3,
+                    remoteConfiguration: remoteFields.0.0,
+                    remoteConnectionState: remoteFields.0.1,
+                    remoteConnectionDetail: remoteFields.0.2,
+                    remoteDaemonStatus: remoteFields.0.3,
+                    activeRemoteTerminalSessionCount: remoteFields.1,
                     listeningPorts: listeningPorts,
                     browserMediaActivity: self.browserMediaActivity
                 )
