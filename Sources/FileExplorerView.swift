@@ -32,6 +32,33 @@ enum FileExplorerPanelPlacement: Equatable {
     case pane
 }
 
+enum FileExplorerDragSource {
+    /// Pasteboard writer for dragging a file-tree node.
+    ///
+    /// Files carry a `FilePreviewDragPasteboardWriter` so pane drops can open a
+    /// preview while terminal drops insert the path. Directories have no preview
+    /// surface, so they carry a plain file URL — the same payload as the
+    /// workspace folder icon drag (`DraggableFolderNSView`) — which the file-drop
+    /// text routing inserts as a shell-escaped path over terminals and editors.
+    /// Remote providers have no local URL to offer, so their nodes are not
+    /// draggable.
+    static func pasteboardWriter(
+        for node: FileExplorerNode,
+        isLocalProvider: Bool
+    ) -> (any NSPasteboardWriting)? {
+        guard isLocalProvider else { return nil }
+        if node.isDirectory {
+            // Plain (non-standardized) URL — the same payload
+            // DraggableFolderNSView writes for the workspace folder icon drag.
+            // Read-side consumers (PasteboardFileURLReader) standardize
+            // uniformly for every drag source, so the writer stays neutral
+            // rather than baking standardization into the payload.
+            return URL(fileURLWithPath: node.path) as NSURL
+        }
+        return FilePreviewDragPasteboardWriter(filePath: node.path, displayTitle: node.name)
+    }
+}
+
 /// The entire file explorer panel as one AppKit view hierarchy.
 /// Contains the header bar (path + controls) and NSOutlineView, with no SwiftUI intermediaries.
 struct FileExplorerPanelView: NSViewRepresentable {
@@ -529,9 +556,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
         // MARK: - Drag-to-Preview
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {
-            guard let node = item as? FileExplorerNode, !node.isDirectory else { return nil }
-            guard store.provider is LocalFileExplorerProvider else { return nil }
-            return FilePreviewDragPasteboardWriter(filePath: node.path, displayTitle: node.name)
+            guard let node = item as? FileExplorerNode else { return nil }
+            return FileExplorerDragSource.pasteboardWriter(
+                for: node,
+                isLocalProvider: store.provider is LocalFileExplorerProvider
+            )
         }
 
         func outlineView(
@@ -791,7 +820,10 @@ final class FileExplorerContainerView: NSView {
         outlineView.delegate = coordinator
         outlineView.target = coordinator
         outlineView.doubleAction = #selector(FileExplorerPanelView.Coordinator.handleDoubleClick(_:))
-        outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
+        // .copy is required for directory drags: their plain file-URL payload is
+        // accepted by terminal/editor text-drop targets with .copy, while file
+        // preview transfers keep resolving to .move.
+        outlineView.setDraggingSourceOperationMask([.move, .copy], forLocal: true)
         coordinator.outlineView = outlineView
 
         // Context menu

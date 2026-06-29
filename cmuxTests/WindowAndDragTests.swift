@@ -2812,6 +2812,56 @@ final class FilePreviewFocusCoordinatorTests: XCTestCase {
 }
 
 
+final class FileExplorerDragSourceTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        NSPasteboard(name: .drag).clearContents()
+    }
+
+    override func tearDown() {
+        NSPasteboard(name: .drag).clearContents()
+        super.tearDown()
+    }
+
+    func testDirectoryNodeDragsAsPlainFileURL() throws {
+        let node = FileExplorerNode(name: "testdir", path: "/tmp/cmux-drag-test/testdir", isDirectory: true)
+
+        let writer = try XCTUnwrap(
+            FileExplorerDragSource.pasteboardWriter(for: node, isLocalProvider: true)
+        )
+
+        let url = try XCTUnwrap(writer as? NSURL)
+        XCTAssertTrue(url.isFileURL)
+        XCTAssertEqual(url.path, node.path)
+
+        // Directories must not advertise file-preview transfer types: a preview
+        // transfer makes terminal drops defer to bonsplit pane routing, and a
+        // directory has no preview surface to open.
+        let types = writer.writableTypes(for: NSPasteboard(name: .drag))
+        XCTAssertTrue(types.contains(.fileURL))
+        XCTAssertFalse(types.contains(DragOverlayRoutingPolicy.filePreviewTransferType))
+        XCTAssertFalse(types.contains(FilePreviewDragPasteboardWriter.bonsplitTransferType))
+    }
+
+    func testFileNodeDragsAsFilePreviewWriter() throws {
+        let node = FileExplorerNode(name: "file.txt", path: "/tmp/cmux-drag-test/file.txt", isDirectory: false)
+
+        let writer = try XCTUnwrap(
+            FileExplorerDragSource.pasteboardWriter(for: node, isLocalProvider: true)
+        )
+
+        XCTAssertTrue(writer is FilePreviewDragPasteboardWriter)
+    }
+
+    func testRemoteProviderNodesAreNotDraggable() {
+        let dir = FileExplorerNode(name: "dir", path: "/remote/dir", isDirectory: true)
+        let file = FileExplorerNode(name: "file.txt", path: "/remote/file.txt", isDirectory: false)
+
+        XCTAssertNil(FileExplorerDragSource.pasteboardWriter(for: dir, isLocalProvider: false))
+        XCTAssertNil(FileExplorerDragSource.pasteboardWriter(for: file, isLocalProvider: false))
+    }
+}
+
 final class FilePreviewDragPasteboardWriterTests: XCTestCase {
     override func setUp() {
         super.setUp()
