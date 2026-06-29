@@ -2278,12 +2278,14 @@ private struct NotificationsPopoverView: View {
             // sidebar/sessions panel (https://github.com/manaflow-ai/cmux/issues/2586).
             let snapshot = notificationStore.notifications
             let lastIndex = snapshot.count - 1
+            // One tabId -> title index per render, not an O(tabs) scan per row (#5794).
+            let tabTitles = AppDelegate.shared?.tabTitlesByTabId() ?? [:]
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
                         NotificationPopoverRow(
                             notification: notification,
-                            tabTitle: tabTitle(for: notification.tabId),
+                            tabTitle: tabTitles[notification.tabId],
                             onOpen: { open(notification) },
                             onClear: {
                                 withAnimation(.easeOut(duration: 0.18)) {
@@ -2311,6 +2313,7 @@ private struct NotificationsPopoverView: View {
                                 }
                             }
                         )
+                        .equatable()  // snapshot-boundary: skip unchanged rows (#5794)
                         if index < lastIndex {
                             Divider()
                                 .opacity(0.4)
@@ -2340,9 +2343,6 @@ private struct NotificationsPopoverView: View {
         .padding(24)
     }
 
-    private func tabTitle(for tabId: UUID) -> String? {
-        AppDelegate.shared?.tabTitle(for: tabId)
-    }
 
     private var jumpToUnreadShortcut: StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
@@ -2374,7 +2374,12 @@ private struct NotificationsPopoverView: View {
     }
 }
 
-private struct NotificationPopoverRow: View {
+struct NotificationPopoverRow: View, Equatable {
+    // Closures excluded from ==; equality is the rendered snapshot only (#2586).
+    nonisolated static func == (lhs: NotificationPopoverRow, rhs: NotificationPopoverRow) -> Bool {
+        lhs.notification == rhs.notification && lhs.tabTitle == rhs.tabTitle
+    }
+
     let notification: TerminalNotification
     let tabTitle: String?
     let onOpen: () -> Void
