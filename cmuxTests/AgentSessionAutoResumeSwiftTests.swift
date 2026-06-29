@@ -99,6 +99,7 @@ struct AgentSessionAutoResumeSwiftTests {
                 workspace: restored,
                 panelId: restoredPanelId,
                 sessionId: sessionId,
+                expectedResumeToken: "--resume",
                 inputContains: [launchCwd, "--resume"],
                 inputDoesNotContain: [runtimeCwd]
             )
@@ -294,6 +295,7 @@ struct AgentSessionAutoResumeSwiftTests {
                 workspace: restored,
                 panelId: restoredPanelId,
                 sessionId: freshSessionId,
+                expectedResumeToken: "--resume",
                 inputContains: [freshRuntimeCwd, "claude", "--resume"],
                 inputDoesNotContain: [staleLaunchCwd, staleSessionId],
                 expectedResumeState: nil
@@ -361,6 +363,7 @@ struct AgentSessionAutoResumeSwiftTests {
                 workspace: restored,
                 panelId: restoredPanelId,
                 sessionId: codexSessionId,
+                expectedResumeToken: "'resume'",
                 inputContains: ["codex", "resume"],
                 inputDoesNotContain: [claudeSessionId, "claude-opus-4-8"],
                 expectedResumeState: nil
@@ -431,6 +434,7 @@ struct AgentSessionAutoResumeSwiftTests {
                 workspace: restored,
                 panelId: restoredPanelId,
                 sessionId: codexSessionId,
+                expectedResumeToken: "'resume'",
                 inputContains: ["codex", "resume"],
                 inputDoesNotContain: [claudeSessionId, "claude-opus-4-8"],
                 expectedResumeState: nil
@@ -627,6 +631,7 @@ struct AgentSessionAutoResumeSwiftTests {
         workspace: Workspace,
         panelId: UUID,
         sessionId: String,
+        expectedResumeToken: String,
         inputContains needles: [String] = [],
         inputDoesNotContain excludedNeedles: [String] = [],
         expectedResumeState: RestoredAgentResumeState? = .awaitingAutoResumeCommand
@@ -634,7 +639,7 @@ struct AgentSessionAutoResumeSwiftTests {
         workspace.focusPanel(panelId)
         let panel = try #require(workspace.terminalPanel(for: panelId))
         if let input = panel.surface.nextRuntimeInitialInput {
-            #expect(input.contains("'resume'"), Comment(rawValue: input))
+            #expect(input.contains(expectedResumeToken), Comment(rawValue: input))
             #expect(input.contains(sessionId), Comment(rawValue: input))
             for needle in needles {
                 #expect(input.contains(needle), Comment(rawValue: input))
