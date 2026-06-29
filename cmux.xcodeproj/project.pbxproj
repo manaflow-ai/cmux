@@ -106,6 +106,8 @@
 		D7032A020000000000000001 /* BrowserClientCertificateAuthenticationHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A020000000000000002 /* BrowserClientCertificateAuthenticationHandler.swift */; };
 		D7032A030000000000000001 /* BrowserClientCertificateAuthenticationHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A030000000000000002 /* BrowserClientCertificateAuthenticationHandlerTests.swift */; };
 		D7032A010000000000000001 /* BrowserClientCertificateCredentialCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A010000000000000002 /* BrowserClientCertificateCredentialCandidate.swift */; };
+		D7032A050000000000000001 /* BrowserClientCertificateCredentialPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */; };
+		D7032A040000000000000001 /* BrowserClientCertificateCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A040000000000000002 /* BrowserClientCertificateCredentialStore.swift */; };
 		E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */; };
 		C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */; };
 		C59240010000000000000003 /* BrowserDownloadFilenameResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */; };
@@ -1311,6 +1313,8 @@
 		D7032A020000000000000002 /* BrowserClientCertificateAuthenticationHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserClientCertificateAuthenticationHandler.swift; sourceTree = "<group>"; };
 		D7032A030000000000000002 /* BrowserClientCertificateAuthenticationHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserClientCertificateAuthenticationHandlerTests.swift; sourceTree = "<group>"; };
 		D7032A010000000000000002 /* BrowserClientCertificateCredentialCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserClientCertificateCredentialCandidate.swift; sourceTree = "<group>"; };
+		D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserClientCertificateCredentialPicker.swift; sourceTree = "<group>"; };
+		D7032A040000000000000002 /* BrowserClientCertificateCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserClientCertificateCredentialStore.swift; sourceTree = "<group>"; };
 		970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
 		C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadFilenameResolver.swift; sourceTree = "<group>"; };
 		C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDownloadFilenameResolverTests.swift; sourceTree = "<group>"; };
@@ -2919,6 +2923,8 @@
 				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
 				D7032A020000000000000002 /* BrowserClientCertificateAuthenticationHandler.swift */,
 				D7032A010000000000000002 /* BrowserClientCertificateCredentialCandidate.swift */,
+				D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */,
+				D7032A040000000000000002 /* BrowserClientCertificateCredentialStore.swift */,
 				BABA25000000000000000002 /* BrowserHTTPBasicAuthPromptCoordinator.swift */,
 				BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */,
 				BABA2500000000000000000C /* BrowserHTTPBasicAuthProtectionSpaceKey.swift */,
@@ -4034,6 +4040,8 @@
 				BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */,
 				D7032A020000000000000001 /* BrowserClientCertificateAuthenticationHandler.swift in Sources */,
 				D7032A010000000000000001 /* BrowserClientCertificateCredentialCandidate.swift in Sources */,
+				D7032A050000000000000001 /* BrowserClientCertificateCredentialPicker.swift in Sources */,
+				D7032A040000000000000001 /* BrowserClientCertificateCredentialStore.swift in Sources */,
 				C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */,
 				A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */,
 				B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */,

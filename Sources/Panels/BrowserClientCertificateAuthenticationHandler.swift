@@ -25,9 +25,25 @@ import Foundation
             return false
         }
 
-        _ = candidateProvider
-        _ = candidatePicker
-        completionHandler(.performDefaultHandling, nil)
+        let candidates = candidateProvider(challenge.protectionSpace)
+        switch candidates.count {
+        case 0:
+            completionHandler(.performDefaultHandling, nil)
+        case 1:
+            completionHandler(.useCredential, candidates[0].credential)
+        default:
+            guard let candidatePicker else {
+                completionHandler(.performDefaultHandling, nil)
+                return true
+            }
+            candidatePicker(challenge.protectionSpace, candidates) { selectedCandidate in
+                guard let selectedCandidate else {
+                    completionHandler(.cancelAuthenticationChallenge, nil)
+                    return
+                }
+                completionHandler(.useCredential, selectedCandidate.credential)
+            }
+        }
         return true
     }
 }

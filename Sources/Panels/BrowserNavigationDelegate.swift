@@ -20,6 +20,9 @@ import WebKit
     /// when a provisional navigation fails (e.g. connection refused on localhost:3000).
     var lastAttemptedURL: URL?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
+    private let clientCertificateAuthenticationHandler = BrowserClientCertificateAuthenticationHandler(
+        candidateProvider: BrowserClientCertificateCredentialStore().candidates(for:)
+    )
 
     func cancelPendingHTTPBasicAuthPrompts(allowFuturePrompts: Bool = false) {
         basicAuthPromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
@@ -92,16 +95,23 @@ import WebKit
             return
         }
 
-        // WKWebView rejects all authentication challenges by default when this
-        // delegate method is not implemented (.rejectProtectionSpace). This
-        // breaks TLS client-certificate flows such as Microsoft Entra ID
-        // Conditional Access, which verifies device compliance via a client
-        // certificate stored in the system keychain by MDM enrollment.
-        //
-        // By returning .performDefaultHandling the system's standard URL-loading
-        // behaviour takes over: the keychain is searched for matching client
-        // identities, MDM-installed root CAs are trusted, and any configured SSO
-        // extensions (e.g. Microsoft Enterprise SSO) can intercept the challenge.
+        if clientCertificateAuthenticationHandler.handle(
+            challenge: challenge,
+            candidatePicker: { [presentAlert] protectionSpace, candidates, completion in
+                BrowserClientCertificateCredentialPicker(
+                    webView: webView,
+                    presentAlert: presentAlert
+                ).selectCredential(
+                    for: protectionSpace,
+                    candidates: candidates,
+                    completion: completion
+                )
+            },
+            completionHandler: completionHandler
+        ) {
+            return
+        }
+
         completionHandler(.performDefaultHandling, nil)
     }
 
@@ -380,4 +390,3 @@ import WebKit
         download.delegate = downloadDelegate
     }
 }
-

@@ -4,8 +4,7 @@
 <dict>
     <key>keychain-access-groups</key>
     <array>
-        <string>$(AppIdentifierPrefix)$(CFBundleIdentifier)</string>
-        <string>$(CFBundleIdentifier)</string>
+        <string>$(AppIdentifierPrefix)com.cmuxterm.app</string>
     </array>
 </dict>
 </plist>

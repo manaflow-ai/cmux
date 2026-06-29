@@ -601,6 +601,9 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
     weak var controller: BrowserPopupWindowController?
     var downloadDelegate: WKDownloadDelegate?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
+    private let clientCertificateAuthenticationHandler = BrowserClientCertificateAuthenticationHandler(
+        candidateProvider: BrowserClientCertificateCredentialStore().candidates(for:)
+    )
 
     func cancelPendingHTTPBasicAuthPrompts() {
         basicAuthPromptCoordinator.cancelAll()
@@ -699,8 +702,20 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             return
         }
 
-        // Parity with main browser: performDefaultHandling enables system keychain
-        // lookups, MDM client certs, and SSO extensions (e.g. Microsoft Entra ID).
+        if clientCertificateAuthenticationHandler.handle(
+            challenge: challenge,
+            candidatePicker: { protectionSpace, candidates, completion in
+                BrowserClientCertificateCredentialPicker(webView: webView).selectCredential(
+                    for: protectionSpace,
+                    candidates: candidates,
+                    completion: completion
+                )
+            },
+            completionHandler: completionHandler
+        ) {
+            return
+        }
+
         completionHandler(.performDefaultHandling, nil)
     }
 
