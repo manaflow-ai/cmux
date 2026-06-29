@@ -78,10 +78,22 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             return
         }
         let baselinePresentCount = baselineStats.presentCount
-        let minimumPresentAdvanceForLiveness = 4
+        let minimumPresentAdvanceForLiveness = 6
+        let maximumSecondsSinceLastPresentAdvance = 1.0
         var maxPresentCount = baselinePresentCount
         var maxDiagnosticsUpdatedAt = baselineStats.diagnosticsUpdatedAt
         var lastStats = baselineStats
+        var latestPresentAdvanceStats: RenderStats?
+        var doneObservedUptime: Double?
+
+        func recordObservedStats(_ stats: RenderStats) {
+            lastStats = stats
+            if stats.presentCount > maxPresentCount {
+                latestPresentAdvanceStats = stats
+            }
+            maxPresentCount = max(maxPresentCount, stats.presentCount)
+            maxDiagnosticsUpdatedAt = max(maxDiagnosticsUpdatedAt, stats.diagnosticsUpdatedAt)
+        }
 
         // When pre-launched from CI, the display helper uses --start-delay-ms
         // instead of a start signal file (sandbox prevents writing to /tmp/).
@@ -95,16 +107,23 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             }
         }
 
-        let deadline = Date().addingTimeInterval(30.0)
+        let deadline = Date().addingTimeInterval(75.0)
         while Date() < deadline {
             if let stats = loadRenderStats() {
-                lastStats = stats
-                maxPresentCount = max(maxPresentCount, stats.presentCount)
-                maxDiagnosticsUpdatedAt = max(maxDiagnosticsUpdatedAt, stats.diagnosticsUpdatedAt)
+                recordObservedStats(stats)
             }
 
             let doneMarker = readTrimmedFile(atPath: displayDonePath)
-            if doneMarker == "done" && maxPresentCount >= baselinePresentCount + minimumPresentAdvanceForLiveness {
+            if doneMarker == "done", doneObservedUptime == nil {
+                doneObservedUptime = ProcessInfo.processInfo.systemUptime
+            }
+            let livenessReferenceUptime = max(maxDiagnosticsUpdatedAt, doneObservedUptime ?? maxDiagnosticsUpdatedAt)
+            let presentAdvancedNearChurnEnd = latestPresentAdvanceStats.map {
+                livenessReferenceUptime - $0.diagnosticsUpdatedAt <= maximumSecondsSinceLastPresentAdvance
+            } ?? false
+            if doneMarker == "done" &&
+                maxPresentCount >= baselinePresentCount + minimumPresentAdvanceForLiveness &&
+                presentAdvancedNearChurnEnd {
                 break
             }
             if let doneMarker, doneMarker.hasPrefix("error:") {
@@ -114,8 +133,12 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.15))
         }
 
+        let finalDoneMarker = readTrimmedFile(atPath: displayDonePath)
+        if finalDoneMarker == "done", doneObservedUptime == nil {
+            doneObservedUptime = ProcessInfo.processInfo.systemUptime
+        }
         XCTAssertEqual(
-            readTrimmedFile(atPath: displayDonePath),
+            finalDoneMarker,
             "done",
             "Expected display churn to finish. helperLog=\(readTrimmedFile(atPath: helperLogPath) ?? "<missing>")"
         )
@@ -125,16 +148,25 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             return
         }
 
-        maxPresentCount = max(maxPresentCount, finalStats.presentCount)
-        maxDiagnosticsUpdatedAt = max(maxDiagnosticsUpdatedAt, finalStats.diagnosticsUpdatedAt)
+        recordObservedStats(finalStats)
+        let livenessReferenceUptime = max(maxDiagnosticsUpdatedAt, doneObservedUptime ?? maxDiagnosticsUpdatedAt)
+        let secondsSinceLastPresentAdvance = latestPresentAdvanceStats.map {
+            livenessReferenceUptime - $0.diagnosticsUpdatedAt
+        } ?? Double.greatestFiniteMagnitude
+        let latestPresentDescription = latestPresentAdvanceStats.map { String(describing: $0) } ?? "<none>"
 
-        // The helper cycles four distinct display modes. Require multiple
-        // terminal presents so a single early redraw cannot mask a freeze, but
-        // leave headroom for headless CI to coalesce rapid display changes.
+        // Require more than one pass through the four display modes, and require
+        // the last observed present to be near churn completion so an early burst
+        // cannot mask a later freeze.
         XCTAssertGreaterThanOrEqual(
             maxPresentCount - baselinePresentCount,
             minimumPresentAdvanceForLiveness,
-            "Expected terminal presents to keep advancing during display churn. baseline=\(baselineStats) last=\(lastStats) final=\(finalStats)"
+            "Expected terminal presents to keep advancing during display churn. baseline=\(baselineStats) latestPresent=\(latestPresentDescription) last=\(lastStats) final=\(finalStats)"
+        )
+        XCTAssertLessThanOrEqual(
+            secondsSinceLastPresentAdvance,
+            maximumSecondsSinceLastPresentAdvance,
+            "Expected terminal presents to advance near the end of display churn. secondsSinceLastPresentAdvance=\(secondsSinceLastPresentAdvance) livenessReferenceUptime=\(livenessReferenceUptime) baseline=\(baselineStats) latestPresent=\(latestPresentDescription) last=\(lastStats) final=\(finalStats)"
         )
         XCTAssertGreaterThan(
             maxDiagnosticsUpdatedAt,

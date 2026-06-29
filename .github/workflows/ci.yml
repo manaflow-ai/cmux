@@ -1615,7 +1615,8 @@ jobs:
             # Launch display helper from shell (non-sandboxed).
             # Use --start-delay-ms instead of --start-path because the XCTest
             # runner is sandboxed and can't write to /tmp/ for the start signal.
-            # 10s delay gives the test time to capture baseline render stats.
+            # 45s delay gives xcodebuild/XCTest startup time to capture baseline
+            # render stats before the expensive display-mode churn starts.
             "$HELPER_PATH" \
               --modes "1920x1080,1728x1117,1600x900,1440x810" \
               --ready-path "$DISPLAY_READY" \
@@ -1623,7 +1624,7 @@ jobs:
               --done-path "$DISPLAY_DONE" \
               --iterations 40 \
               --interval-ms 40 \
-              --start-delay-ms 10000 \
+              --start-delay-ms 45000 \
               > "$HELPER_LOG" 2>&1 &
             HELPER_PID=$!
             scripts/ci/virtual-display-lock.sh set-owner "$HELPER_PID"
