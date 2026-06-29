@@ -315,7 +315,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ]
 
         func runAntigravityHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state, connectionCount: 4) { line in
                 guard let payload = self.jsonObject(line) else {
                     return "OK"
                 }
@@ -3088,26 +3088,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
             .compactMap { $0["command"] as? String }
+        let commandSources = allCommands + allCommands.compactMap { command -> String? in
+            guard command.hasPrefix("/") else { return nil }
+            return try? String(contentsOfFile: command, encoding: .utf8)
+        }
 
         XCTAssertTrue(
-            allCommands.contains {
+            commandSources.contains {
                 $0.contains("CMUX_BUNDLED_CLI_PATH")
                     && $0.contains("\"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks codex prompt-submit")
             },
-            "Codex hooks should route through the launching app's bundled CLI, saw \(allCommands)"
+            "Codex hooks should route through the launching app's bundled CLI, saw \(commandSources)"
         )
         XCTAssertFalse(
-            allCommands.contains { $0.contains("command -v cmux >/dev/null 2>&1 && cmux hooks codex") },
-            "Codex hooks must not use the reload-global cmux shim directly, saw \(allCommands)"
+            commandSources.contains { $0.contains("command -v cmux >/dev/null 2>&1 && cmux hooks codex") },
+            "Codex hooks must not use the reload-global cmux shim directly, saw \(commandSources)"
         )
         XCTAssertFalse(
             allCommands.contains { $0 == previousBundledHookCommand },
             "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw \(allCommands)"
         )
         XCTAssertEqual(
-            allCommands.filter { $0.contains("hooks codex prompt-submit") }.count,
+            commandSources.filter { $0.contains("hooks codex prompt-submit") }.count,
             1,
-            "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(allCommands)"
+            "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(commandSources)"
         )
     }
 

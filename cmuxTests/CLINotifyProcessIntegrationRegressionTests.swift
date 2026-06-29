@@ -9428,8 +9428,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
     // into the wrong surface on reload.
     func testTmuxCompatEnvStampsLaunchSurfaceNotFocusedPane() throws {
         let cliPath = try bundledCLIPath()
-        let tmpDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-spawn-id-e2e-\(UUID().uuidString)", isDirectory: true)
+        let tmpDir = URL(fileURLWithPath: "/tmp")
+            .appendingPathComponent("cx-spawn-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
         let socketPath = tmpDir.appendingPathComponent("sock").path

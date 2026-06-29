@@ -27,6 +27,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    final class ProcessPipeBuffer: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+
+        func store(_ newData: Data) {
+            lock.lock()
+            data = newData
+            lock.unlock()
+        }
+
+        func snapshot() -> Data {
+            lock.lock()
+            let value = data
+            lock.unlock()
+            return value
+        }
+    }
+
     struct LoopbackTCPListener {
         let fd: Int32
         let port: Int
@@ -38,9 +56,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
-        return URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
-            .path
+        return "/tmp/cx-\(name.prefix(6))-\(shortID).sock"
     }
 
     func bindUnixSocket(at path: String) throws -> Int32 {
@@ -374,6 +390,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
+
+        let stdoutBuffer = ProcessPipeBuffer()
+        let stderrBuffer = ProcessPipeBuffer()
+        let stdoutRead = DispatchSemaphore(value: 0)
+        let stderrRead = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            stdoutBuffer.store(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+            stdoutRead.signal()
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            stderrBuffer.store(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+            stderrRead.signal()
+        }
+
         if let standardInput, let stdinPipe {
             stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
             try? stdinPipe.fileHandleForWriting.close()
@@ -394,8 +424,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        _ = stdoutRead.wait(timeout: .now() + 2)
+        _ = stderrRead.wait(timeout: .now() + 2)
+        let stdout = String(data: stdoutBuffer.snapshot(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrBuffer.snapshot(), encoding: .utf8) ?? ""
         return ProcessRunResult(
             status: process.isRunning ? SIGKILL : process.terminationStatus,
             stdout: stdout,

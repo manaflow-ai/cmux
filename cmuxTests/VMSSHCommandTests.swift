@@ -52,6 +52,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: [
                         "workspace_id": workspaceID,
                         "window_id": windowID,
+                        "surface_id": "55555555-5555-5555-5555-555555555555",
                     ]
                 )
             case "workspace.rename":
@@ -160,6 +161,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: [
                         "workspace_id": workspaceID,
                         "window_id": windowID,
+                        "surface_id": "55555555-5555-5555-5555-555555555555",
                     ]
                 )
             case "workspace.remote.configure":
