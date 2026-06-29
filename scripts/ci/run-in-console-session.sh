@@ -43,7 +43,8 @@ if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
     CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS \
-    CMUX_APP_HOST_XCODEBUILD_ATTEMPTS)
+    CMUX_APP_HOST_XCODEBUILD_ATTEMPTS \
+    CFFIXED_USER_HOME)
   env_pairs=()
   for var in "${forward[@]}"; do
     if [ -n "${!var+set}" ]; then
