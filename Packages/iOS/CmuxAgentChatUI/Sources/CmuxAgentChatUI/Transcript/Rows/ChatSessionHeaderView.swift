@@ -106,7 +106,7 @@ public struct ChatSessionHeaderView: View {
         case .regular:
             return 0
         case .toolbarCompact:
-            return MobileCompactToolbarTitleMetrics.horizontalContentPadding
+            return MobileCompactToolbarTitleStack.horizontalContentPadding
         }
     }
 

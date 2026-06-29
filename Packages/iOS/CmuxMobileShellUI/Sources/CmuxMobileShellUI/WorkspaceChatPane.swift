@@ -58,11 +58,13 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
                 // chrome.
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        workspaceBackToolbarButton
-                    }
-                    if #available(iOS 26.0, *) {
-                        ToolbarSpacer(.fixed, placement: .topBarLeading)
+                    if backButtonConfiguration != nil {
+                        ToolbarItem(placement: .topBarLeading) {
+                            workspaceBackToolbarButton
+                        }
+                        if #available(iOS 26.0, *) {
+                            ToolbarSpacer(.fixed, placement: .topBarLeading)
+                        }
                     }
                     ToolbarItem(placement: .topBarLeading) {
                         Menu {

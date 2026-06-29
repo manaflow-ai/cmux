@@ -14,18 +14,12 @@ struct WorkspaceToolbarTitleView: View {
 
             MobileCompactToolbarTitleStack(title: title, subtitle: subtitleLine)
         }
-        .padding(.horizontal, MobileCompactToolbarTitleMetrics.horizontalContentPadding)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityLabel)
+        .padding(.horizontal, MobileCompactToolbarTitleStack.horizontalContentPadding)
+        .accessibilityElement(children: .combine)
     }
 
     private var subtitleLine: String? {
         guard let subtitle, !subtitle.isEmpty else { return nil }
         return subtitle
-    }
-
-    private var accessibilityLabel: String {
-        guard let subtitleLine else { return title }
-        return "\(title), \(subtitleLine)"
     }
 }

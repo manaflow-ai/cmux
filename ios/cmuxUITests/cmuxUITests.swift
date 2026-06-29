@@ -552,9 +552,22 @@ final class cmuxUITests: XCTestCase {
     func testInlineWorkspaceTitleMenuShowsWorkspaceActions() throws {
         let app = launchAgentChatInlinePreviewApp()
         let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
         XCTAssertTrue(titleMenu.waitForExistence(timeout: 8))
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            waitForCompactToolbarHeightsToMatch(
+                titleMenu: titleMenu,
+                backButton: backButton,
+                surfacePicker: surfacePicker,
+                tolerance: 2,
+                timeout: 4
+            )
+        )
 
-        titleMenu.tap()
+        tapCompactToolbarTitleMenu(titleMenu, in: app)
 
         XCTAssertTrue(app.buttons["Rename Workspace"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.buttons["Mark as Read"].exists)
@@ -575,11 +588,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
 
-        let nearbyToolbarHeight = max(backButton.frame.height, surfacePicker.frame.height)
-        XCTAssertLessThanOrEqual(
-            abs(titleMenu.frame.height - nearbyToolbarHeight),
-            2,
-            "Tall glyphs must not make the compact title glass taller than nearby toolbar controls. title=\(titleMenu.frame), back=\(backButton.frame), picker=\(surfacePicker.frame)"
+        XCTAssertTrue(
+            waitForCompactToolbarHeightsToMatch(
+                titleMenu: titleMenu,
+                backButton: backButton,
+                surfacePicker: surfacePicker,
+                tolerance: 2,
+                timeout: 4
+            )
         )
 
         let screenshotAttachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
@@ -587,7 +603,7 @@ final class cmuxUITests: XCTestCase {
         screenshotAttachment.lifetime = .keepAlways
         add(screenshotAttachment)
 
-        titleMenu.tap()
+        tapCompactToolbarTitleMenu(titleMenu, in: app)
         XCTAssertTrue(app.buttons["Rename Workspace"].waitForExistence(timeout: 4))
         XCTAssertFalse(app.buttons["New Terminal"].exists)
     }
@@ -1919,6 +1935,59 @@ final class cmuxUITests: XCTestCase {
             return frame
         }
         return nil
+    }
+
+    @MainActor
+    private func waitForCompactToolbarHeightsToMatch(
+        titleMenu: XCUIElement,
+        backButton: XCUIElement,
+        surfacePicker: XCUIElement,
+        tolerance: CGFloat,
+        timeout: TimeInterval,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastTitleFrame = titleMenu.frame
+        var lastBackFrame = backButton.frame
+        var lastPickerFrame = surfacePicker.frame
+
+        while Date() < deadline {
+            lastTitleFrame = titleMenu.frame
+            lastBackFrame = backButton.frame
+            lastPickerFrame = surfacePicker.frame
+            let nearbyToolbarHeight = max(lastBackFrame.height, lastPickerFrame.height)
+            if abs(lastTitleFrame.height - nearbyToolbarHeight) <= tolerance {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        let nearbyToolbarHeight = max(lastBackFrame.height, lastPickerFrame.height)
+        XCTFail(
+            "Tall glyphs must not make the compact title glass taller than nearby toolbar controls. title=\(lastTitleFrame), back=\(lastBackFrame), picker=\(lastPickerFrame), delta=\(abs(lastTitleFrame.height - nearbyToolbarHeight))",
+            file: file,
+            line: line
+        )
+        return false
+    }
+
+    @MainActor
+    private func tapCompactToolbarTitleMenu(
+        _ titleMenu: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 4), file: file, line: line)
+        dismissKeyboard(in: app)
+        guard let frame = waitForUsableFrame(of: titleMenu, timeout: 4) else {
+            XCTFail("Title menu has no usable frame: \(titleMenu.debugDescription)", file: file, line: line)
+            return
+        }
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.minX + min(24, frame.width / 2), dy: frame.midY))
+            .tap()
     }
 
     private struct ChatTranscriptMetrics: CustomStringConvertible {

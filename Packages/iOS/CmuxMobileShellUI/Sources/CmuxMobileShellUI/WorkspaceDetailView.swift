@@ -79,6 +79,11 @@ struct WorkspaceDetailView: View {
         workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
     }
 
+    private var selectedToolbarSubtitle: String? {
+        guard let selectedTerminalID = store.selectedTerminalID else { return nil }
+        return workspace.terminals.first { $0.id == selectedTerminalID }?.name
+    }
+
     /// Extra blank top padding for the terminal/chat, on top of the safe area. The
     /// grid already sits below the nav bar (in the top safe area), so this is just
     /// a hairline so the first row is not jammed against the bar's bottom edge.
@@ -316,11 +321,13 @@ struct WorkspaceDetailView: View {
         .navigationTitle("")
         .mobileTerminalNavigationChrome()
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                workspaceBackToolbarButton
-            }
-            if #available(iOS 26.0, *) {
-                ToolbarSpacer(.fixed, placement: .topBarLeading)
+            if backButtonConfiguration != nil {
+                ToolbarItem(placement: .topBarLeading) {
+                    workspaceBackToolbarButton
+                }
+                if #available(iOS 26.0, *) {
+                    ToolbarSpacer(.fixed, placement: .topBarLeading)
+                }
             }
             ToolbarItem(placement: .topBarLeading) {
                 glassTitle(browser.title ?? workspace.name)
@@ -474,14 +481,16 @@ struct WorkspaceDetailView: View {
         #endif
         .toolbar {
             #if os(iOS)
-            ToolbarItem(placement: .topBarLeading) {
-                workspaceBackToolbarButton
+            if backButtonConfiguration != nil {
+                ToolbarItem(placement: .topBarLeading) {
+                    workspaceBackToolbarButton
+                }
+                if #available(iOS 26.0, *) {
+                    ToolbarSpacer(.fixed, placement: .topBarLeading)
+                }
             }
-            if #available(iOS 26.0, *) {
-                ToolbarSpacer(.fixed, placement: .topBarLeading)
-            }
             ToolbarItem(placement: .topBarLeading) {
-                glassWorkspaceTitle(workspace.name, subtitle: selectedTerminal?.name)
+                glassWorkspaceTitle(workspace.name, subtitle: selectedToolbarSubtitle)
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton

@@ -1,9 +1,5 @@
 public import SwiftUI
 
-public enum MobileCompactToolbarTitleMetrics {
-    public static let horizontalContentPadding: CGFloat = 3
-}
-
 /// Two-line toolbar title text with stable row slots.
 ///
 /// Some glyphs, especially emoji, draw outside the font's nominal line box. In a
@@ -12,6 +8,8 @@ public enum MobileCompactToolbarTitleMetrics {
 /// each row to its own slot keeps the toolbar height native and prevents tall
 /// glyphs from bleeding into the neighboring row.
 public struct MobileCompactToolbarTitleStack: View {
+    public static let horizontalContentPadding: CGFloat = 3
+
     private let title: String
     private let subtitle: String?
     private let titleFont: Font
@@ -30,11 +28,11 @@ public struct MobileCompactToolbarTitleStack: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
-            line(title, font: titleFont, height: Metrics.titleRowHeight)
+        VStack(alignment: .leading, spacing: Self.rowSpacing) {
+            line(title, font: titleFont, height: Self.titleRowHeight)
 
             if let subtitleLine {
-                line(subtitleLine, font: subtitleFont, height: Metrics.subtitleRowHeight)
+                line(subtitleLine, font: subtitleFont, height: Self.subtitleRowHeight)
                     .foregroundStyle(.secondary)
             }
         }
@@ -54,9 +52,7 @@ public struct MobileCompactToolbarTitleStack: View {
             .clipped()
     }
 
-    private enum Metrics {
-        static let titleRowHeight: CGFloat = 16
-        static let subtitleRowHeight: CGFloat = 12
-        static let rowSpacing: CGFloat = 1
-    }
+    private static let titleRowHeight: CGFloat = 16
+    private static let subtitleRowHeight: CGFloat = 12
+    private static let rowSpacing: CGFloat = 1
 }
