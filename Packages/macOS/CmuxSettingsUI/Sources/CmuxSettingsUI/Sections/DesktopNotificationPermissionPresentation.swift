@@ -2,7 +2,7 @@ import Foundation
 
 struct DesktopNotificationPermissionPresentation: Equatable, Sendable {
     var statusLabel: DesktopNotificationPermissionStatusLabel
-    var subtitle: DesktopNotificationPermissionSubtitle
+    var subtitle: DesktopNotificationPermissionSubtitle?
     var primaryAction: DesktopNotificationPermissionAction?
     var sendTestEnabled: Bool
 
@@ -13,7 +13,7 @@ struct DesktopNotificationPermissionPresentation: Equatable, Sendable {
         case .unknown:
             return DesktopNotificationPermissionPresentation(
                 statusLabel: .unknown,
-                subtitle: .notDetermined,
+                subtitle: nil,
                 primaryAction: nil,
                 sendTestEnabled: false
             )
@@ -72,7 +72,8 @@ struct DesktopNotificationPermissionPresentation: Equatable, Sendable {
         }
     }
 
-    var subtitleText: String {
+    var subtitleText: String? {
+        guard let subtitle else { return nil }
         switch subtitle {
         case .notDetermined:
             return String(localized: "settings.notifications.desktop.subtitle.notDetermined", defaultValue: "Desktop notifications are not enabled yet.")

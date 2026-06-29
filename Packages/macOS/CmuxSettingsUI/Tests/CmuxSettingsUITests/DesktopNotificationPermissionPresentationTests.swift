@@ -25,7 +25,7 @@ import Testing
         let presentation = DesktopNotificationPermissionPresentation.make(for: .unknown)
 
         #expect(presentation.statusLabel == .unknown)
-        #expect(presentation.subtitle == .notDetermined)
+        #expect(presentation.subtitle == nil)
         #expect(presentation.primaryAction == nil)
         #expect(!presentation.sendTestEnabled)
     }

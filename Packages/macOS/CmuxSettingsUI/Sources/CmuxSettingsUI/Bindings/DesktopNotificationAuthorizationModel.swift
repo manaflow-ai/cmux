@@ -37,11 +37,12 @@ final class DesktopNotificationAuthorizationModel {
 
     /// Starts live observation and asks the host to refresh the OS permission state.
     func startObserving() {
-        guard !hasStarted else { return }
-        hasStarted = true
         current = currentStatus()
-        driver.activate(makeStream) { [weak self] state in
-            self?.current = state
+        if !hasStarted {
+            hasStarted = true
+            driver.activate(makeStream) { [weak self] state in
+                self?.current = state
+            }
         }
         refreshStatus()
     }
