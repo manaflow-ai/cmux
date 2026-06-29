@@ -4426,6 +4426,11 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func noteRenderedPDFDocument(_ url: URL, isMainFrame: Bool) {
+        // The PDF toolbar's Download/Print buttons act on the main web view, so
+        // only a top-level (main-frame) PDF document should drive the toolbar.
+        // A subframe PDF (e.g. an embedded <iframe>/preview) must not show the
+        // toolbar or it would print the host page instead of the PDF.
+        guard isMainFrame else { return }
         renderedPDFDocumentURL = url
         #if DEBUG
         cmuxDebugLog(
