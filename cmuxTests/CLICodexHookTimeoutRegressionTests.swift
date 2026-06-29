@@ -642,16 +642,21 @@ struct CLICodexHookTimeoutRegressionTests {
     @Test func codexHookWithoutTTYCanRouteWhenSurfaceOwnerIsStoppedOrRecycled() throws {
         let cliPath = try bundledCLIPath()
 
-        for ownerCase in [("idle", false), ("running", true)] {
+        let ownerCases: [(label: String, runtimeStatus: String, stalePidCapture: Bool, pidOverride: Int?)] = [
+            (label: "idle", runtimeStatus: "idle", stalePidCapture: false, pidOverride: nil),
+            (label: "running", runtimeStatus: "running", stalePidCapture: true, pidOverride: nil),
+            (label: "oversizedPid", runtimeStatus: "running", stalePidCapture: false, pidOverride: Int(Int32.max) + 1),
+        ]
+        for ownerCase in ownerCases {
             let socketPath = makeSocketPath("codex-take")
             let listenerFD = try bindUnixSocket(at: socketPath)
             let commands = CapturedSocketCommands()
             let root = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-codex-take-\(ownerCase.0)-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("cmux-codex-take-\(ownerCase.label)-\(UUID().uuidString)", isDirectory: true)
             let workspaceId = "11111111-1111-1111-1111-111111111111"
             let surfaceId = "22222222-2222-2222-2222-222222222222"
-            let ownerSessionId = "codex-takeover-owner-\(ownerCase.0)-session"
-            let newcomerSessionId = "codex-takeover-new-\(ownerCase.0)-session"
+            let ownerSessionId = "codex-takeover-owner-\(ownerCase.label)-session"
+            let newcomerSessionId = "codex-takeover-new-\(ownerCase.label)-session"
 
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             let ownerProcess = Process()
@@ -669,7 +674,7 @@ struct CLICodexHookTimeoutRegressionTests {
             }
 
             let now = Date().timeIntervalSince1970
-            let ownerUpdatedAt = ownerCase.1 ? now - 60 : now
+            let ownerUpdatedAt = ownerCase.stalePidCapture ? now - 60 : now
             let store: [String: Any] = [
                 "version": 1,
                 "sessions": [
@@ -678,10 +683,10 @@ struct CLICodexHookTimeoutRegressionTests {
                         "workspaceId": workspaceId,
                         "surfaceId": surfaceId,
                         "cwd": root.path,
-                        "pid": Int(ownerProcess.processIdentifier),
+                        "pid": ownerCase.pidOverride ?? Int(ownerProcess.processIdentifier),
                         "pidCapturedAt": ownerUpdatedAt,
-                        "runtimeStatus": ownerCase.0,
-                        "agentLifecycle": ownerCase.0,
+                        "runtimeStatus": ownerCase.runtimeStatus,
+                        "agentLifecycle": ownerCase.runtimeStatus,
                         "startedAt": ownerUpdatedAt - 10,
                         "updatedAt": ownerUpdatedAt,
                     ],
@@ -732,7 +737,7 @@ struct CLICodexHookTimeoutRegressionTests {
             }
             let params = try #require(
                 resumeRequests.last,
-                "stopped or recycled owner should not block no-TTY takeover; saw \(commands.snapshot())"
+                "stopped, recycled, or corrupt owner should not block no-TTY takeover; saw \(commands.snapshot())"
             )
             #expect(params["surface_id"] as? String == surfaceId)
             #expect(params["checkpoint_id"] as? String == newcomerSessionId)

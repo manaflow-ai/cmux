@@ -16,6 +16,15 @@ public enum ControlSurfaceCreateResolution: Sendable, Equatable {
     /// The agent-session `renderer` token was invalid (legacy `invalid_params` /
     /// "Invalid renderer (react|solid)", `data: {"renderer": …}`).
     case invalidRenderer(rawValue: String)
+    /// The `placement` was present but not one of `workspace|dock`
+    /// (`invalid_params`, `data: {"placement": rawValue}`). Carries the raw value.
+    case invalidPlacement(rawValue: String)
+    /// The request targeted the Dock with a surface type the Dock cannot host
+    /// (`invalid_params`, app-bundle-resolved message, `data: {"type": rawValue}`).
+    case dockUnsupportedType(typeRawValue: String, message: String)
+    /// Dock placement was requested while the Dock sidebar mode is unavailable
+    /// (`invalid_params`, app-bundle-resolved message, `data: {"placement": "dock"}`).
+    case dockUnavailable(message: String)
     /// The browser was disabled; carries the shared external-open outcome.
     case browserDisabled(ControlSurfaceBrowserDisabledOutcome)
     /// No workspace resolved (legacy `not_found` / "Workspace not found").
@@ -33,6 +42,15 @@ public enum ControlSurfaceCreateResolution: Sendable, Equatable {
     /// The create was routed to the remote tmux mirror backing the workspace
     /// (`new-window`); the tab arrives asynchronously via `%window-add`.
     case routedToRemote(windowID: UUID?, workspaceID: UUID, typeRawValue: String)
+    /// The surface was created in the right-sidebar Dock. Dock handles are scoped
+    /// to the Dock container and are not ordinary workspace surface/pane ids.
+    case createdDock(
+        windowID: UUID?,
+        workspaceID: UUID,
+        dockPaneID: UUID,
+        dockSurfaceID: UUID,
+        typeRawValue: String
+    )
     /// The surface was created. Carries the echoed identity and the panel type.
     case created(
         windowID: UUID?,
