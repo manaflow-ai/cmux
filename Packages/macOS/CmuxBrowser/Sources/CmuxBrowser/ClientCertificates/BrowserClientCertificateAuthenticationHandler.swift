@@ -69,7 +69,11 @@ public import Foundation
             )
         }
         if let cancelLookup {
-            registerCancelPrompt(cancelLookup)
+            registerCancelPrompt {
+                MainActor.assumeIsolated {
+                    cancelLookup()
+                }
+            }
         }
         return true
     }
