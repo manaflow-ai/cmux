@@ -67,9 +67,13 @@ import Testing
         }
         #expect(snapshot.windowGlassSettings.style == .clear)
 
+        // Pin the pre-macOS-27 default explicitly so this legacy tinted-glass
+        // expectation does not depend on the host OS version. The macOS 27
+        // suppression behavior is covered by the dedicated tests below.
         let plan = snapshot.backdropPlan(
             glassEffectAvailable: true,
-            windowBackgroundPolicy: makeWindowBackgroundPolicy()
+            windowBackgroundPolicy: makeWindowBackgroundPolicy(),
+            suppressNativeTerminalGlassTint: false
         )
         #expect(plan.hostingPhase == .windowGlass)
         #expect(plan.glass?.tintColor?.hexString(includeAlpha: true) == "#272822FF")
