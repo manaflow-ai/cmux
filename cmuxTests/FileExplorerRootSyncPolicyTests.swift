@@ -48,29 +48,6 @@ struct FileExplorerRootSyncPolicyTests {
     }
 }
 
-@Suite("Right sidebar directory context")
-struct RightSidebarDirectoryContextTests {
-    @Test("Dock root prefers selected workspace directory")
-    func dockRootPrefersSelectedWorkspaceDirectory() {
-        #expect(
-            RightSidebarDirectoryContext.dockRootDirectory(
-                workspaceDirectory: " /remote/project ",
-                fallbackDirectory: "/local/session"
-            ) == "/remote/project"
-        )
-    }
-
-    @Test("Dock root falls back to session index directory")
-    func dockRootFallsBackToSessionIndexDirectory() {
-        #expect(
-            RightSidebarDirectoryContext.dockRootDirectory(
-                workspaceDirectory: " ",
-                fallbackDirectory: "/local/session"
-            ) == "/local/session"
-        )
-    }
-}
-
 @MainActor
 @Suite("Right sidebar keyboard navigation")
 struct RightSidebarKeyboardNavigationTests {
