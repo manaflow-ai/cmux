@@ -10,8 +10,15 @@ enum WorkspaceMacSelection: Hashable {
 
 extension WorkspaceListView {
     var activeFilter: MobileWorkspaceListFilter {
+        filter(forMacSelection: visibleMacSelection)
+    }
+
+    /// The base filter narrowed to a Mac selection, the same machine mapping the
+    /// flat/grouped lists consume via `activeFilter`. Shared so per-row picker
+    /// counts and the visible list agree on what a selection shows.
+    func filter(forMacSelection selection: WorkspaceMacSelection) -> MobileWorkspaceListFilter {
         var active = filter
-        switch visibleMacSelection {
+        switch selection {
         case .automatic:
             break
         case .all:
@@ -20,6 +27,12 @@ extension WorkspaceListView {
             active.machines = Set([id])
         }
         return active
+    }
+
+    /// Number of workspaces a Mac picker row would show if selected, so the
+    /// count printed next to the row matches the list the user lands on.
+    func macSelectionCount(_ selection: WorkspaceMacSelection) -> Int {
+        filter(forMacSelection: selection).matchCount(in: workspaces)
     }
 
     var visibleMacSelection: WorkspaceMacSelection {
@@ -112,9 +125,11 @@ extension WorkspaceListView {
                 selection: $macSelection
             ) {
                 Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"))
+                    .badge(Text(macSelectionCount(.all), format: .number))
                     .tag(WorkspaceMacSelection.all)
                 ForEach(macPickerMachines) { machine in
                     Text(machine.name)
+                        .badge(Text(macSelectionCount(.machine(machine.id)), format: .number))
                         .tag(WorkspaceMacSelection.machine(machine.id))
                 }
             }

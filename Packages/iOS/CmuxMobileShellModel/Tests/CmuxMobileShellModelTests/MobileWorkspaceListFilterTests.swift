@@ -53,6 +53,26 @@ import Testing
         #expect(unreadAnyMac.matches(workspace("b", hasUnread: true, mac: nil)))
     }
 
+    @Test func matchCountEqualsTheNumberOfRowsAfterFiltering() {
+        let rows = [
+            workspace("a", hasUnread: true, mac: "mac-1"),
+            workspace("b", hasUnread: false, mac: "mac-1"),
+            workspace("c", hasUnread: true, mac: "mac-2"),
+            workspace("d", hasUnread: true, mac: nil),
+        ]
+        // "All Macs" row: no machine narrowing, every row counts.
+        #expect(MobileWorkspaceListFilter.all.matchCount(in: rows) == 4)
+        // A single-machine selection counts only that Mac's rows.
+        #expect(MobileWorkspaceListFilter(machines: ["mac-1"]).matchCount(in: rows) == 2)
+        #expect(MobileWorkspaceListFilter(machines: ["mac-2"]).matchCount(in: rows) == 1)
+        // The count always equals the filtered list it mirrors.
+        let onMac1 = MobileWorkspaceListFilter(machines: ["mac-1"])
+        #expect(onMac1.matchCount(in: rows) == rows.filter(onMac1.matches).count)
+        // A base read-state filter is preserved in the count.
+        #expect(MobileWorkspaceListFilter(readState: .unread, machines: ["mac-1"]).matchCount(in: rows) == 1)
+        #expect(MobileWorkspaceListFilter().matchCount(in: []) == 0)
+    }
+
     @Test func machineIDsAreDistinctInFirstAppearanceOrder() {
         let rows = [
             workspace("a", hasUnread: false, mac: "mac-2"),

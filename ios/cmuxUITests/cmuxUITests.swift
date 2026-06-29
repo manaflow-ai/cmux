@@ -97,6 +97,53 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["refreshPreservedEmptyList=true"].exists)
     }
 
+    /// The Mac picker shows a per-selection workspace count on each row. The
+    /// count is rendered as a trailing `.badge`, which must actually appear in
+    /// the menu (badges are reliable in lists/tab bars but can silently drop in
+    /// a `Menu`-presented `Picker`). Drives the real `WorkspaceListView` via the
+    /// layout preview fixture: MacBook Pro has 2 workspaces, the Studio Display
+    /// has 1, so the picker rows must read All Macs 3, MacBook Pro 2, Studio 1.
+    @MainActor
+    func testMacPickerRowsShowWorkspaceCounts() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+
+        let picker = app.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 8))
+
+        // Bare count digits must not exist before the menu opens (the list rows
+        // show names/previews, not standalone numbers), so finding them after
+        // opening proves the badge rendered rather than matching pre-existing UI.
+        XCTAssertFalse(menuBadgeLabelExists("3", in: app), "Count badge leaked before opening the picker")
+
+        tap(picker, in: app)
+
+        let allMacsRow = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "All Macs")
+        ).firstMatch
+        XCTAssertTrue(allMacsRow.waitForExistence(timeout: 6), "Mac picker did not present its rows")
+
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "mac-picker-counts"
+        shot.lifetime = .keepAlways
+        add(shot)
+
+        // Each selection's count must be visible in the open menu.
+        XCTAssertTrue(menuBadgeLabelExists("3", in: app), "All Macs count (3) missing from picker")
+        XCTAssertTrue(menuBadgeLabelExists("2", in: app), "MacBook Pro count (2) missing from picker")
+        XCTAssertTrue(menuBadgeLabelExists("1", in: app), "Studio Display count (1) missing from picker")
+    }
+
+    /// Whether a standalone count badge with `value` is currently shown. A badge
+    /// surfaces as its own element whose trimmed label is exactly the number.
+    @MainActor
+    private func menuBadgeLabelExists(_ value: String, in app: XCUIApplication) -> Bool {
+        let predicate = NSPredicate(format: "label == %@", value)
+        return app.staticTexts.matching(predicate).firstMatch.exists
+            || app.descendants(matching: .any).matching(predicate).firstMatch.exists
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not
