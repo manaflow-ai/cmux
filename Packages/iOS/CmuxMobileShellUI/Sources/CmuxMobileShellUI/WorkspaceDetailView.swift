@@ -196,6 +196,10 @@ struct WorkspaceDetailView: View {
             }
         }
         .task(id: chatRefreshKey) { await refreshChatSessions() }
+        .closeWorkspaceConfirmation(
+            isPresented: $isConfirmingClose,
+            confirm: confirmCloseWorkspaceFromMenu
+        )
         .workspaceRenameDialog(
             isPresented: $isRenamePresented,
             text: $renameText,
