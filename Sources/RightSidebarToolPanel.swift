@@ -167,7 +167,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
-        workspaceObservationCancellable = workspace.sidebarRootObservationPublisher
+        workspaceObservationCancellable = workspace.makeSidebarRootObservationPublisher()
             .sink { [weak self, weak workspace] _ in
                 Task { @MainActor in
                     guard let self, let workspace else { return }

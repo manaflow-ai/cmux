@@ -2274,7 +2274,7 @@ struct ContentView: View {
             selectedWorkspaceSidebarRootObservationPublisher = Empty().eraseToAnyPublisher()
             return
         }
-        selectedWorkspaceSidebarRootObservationPublisher = tab.sidebarRootObservationPublisher
+        selectedWorkspaceSidebarRootObservationPublisher = tab.makeSidebarRootObservationPublisher()
             .receive(on: RunLoop.main)
             .eraseToAnyPublisher()
     }
