@@ -113,19 +113,18 @@ extension DockSplitStore {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
         installSubscription(for: panel, tracksTerminalTitle: true)
-        let terminal = panel as? TerminalPanel
-        let reattachTokenBefore = terminal?.viewReattachToken
-        applyVisibility(to: panel)
-        // Surface transfer must force a portal reattach unless visibility recovery already did.
-        if let terminal, let reattachTokenBefore, terminal.viewReattachToken == reattachTokenBefore {
-            terminal.requestViewReattach()
-        }
-        recordExplicitPanelCreation()
-        if focus {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(newTabId)
-            applyDockSelection(tabId: newTabId, inPane: paneId)
-            panel.focus()
+        withCoalescedTerminalViewReattach {
+            applyVisibility(to: panel)
+            if let terminal = panel as? TerminalPanel {
+                requestTerminalViewReattach(terminal)
+            }
+            recordExplicitPanelCreation()
+            if focus {
+                bonsplitController.focusPane(paneId)
+                bonsplitController.selectTab(newTabId)
+                applyDockSelection(tabId: newTabId, inPane: paneId)
+                panel.focus()
+            }
         }
         return detached.panelId
     }
