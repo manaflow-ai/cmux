@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Combine
 import CMUXAgentLaunch
 
 #if canImport(cmux_DEV)
@@ -179,5 +180,29 @@ final class WorkspaceMuteNotificationsTests: XCTestCase {
         workspace.notificationsMuted = true
         let unresolvedEffects = FeedCoordinator.muteClampedEffects(alerting, for: event(for: nil))
         XCTAssertTrue(unresolvedEffects.desktop)
+    }
+
+    /// The mute mutation must go through TabManager and fire `objectWillChange`,
+    /// otherwise the sidebar (which observes TabManager, not each Workspace) never
+    /// re-renders and the Mute/Unmute label + glyph stay stale until an unrelated
+    /// refresh (the focused-workspace bug).
+    func testTabManagerSetNotificationsMutedTogglesWorkspaceAndNotifiesSidebar() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected a selected workspace")
+            return
+        }
+        XCTAssertFalse(workspace.notificationsMuted)
+
+        var willChangeCount = 0
+        let cancellable = manager.objectWillChange.sink { _ in willChangeCount += 1 }
+        defer { cancellable.cancel() }
+
+        manager.setNotificationsMuted(true, forWorkspaceIds: [workspace.id])
+        XCTAssertTrue(workspace.notificationsMuted, "mute should set the flag")
+        XCTAssertGreaterThan(willChangeCount, 0, "a mute change must fire objectWillChange so the sidebar re-renders")
+
+        manager.setNotificationsMuted(false, forWorkspaceIds: [workspace.id])
+        XCTAssertFalse(workspace.notificationsMuted, "unmute should clear the flag")
     }
 }

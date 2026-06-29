@@ -254,6 +254,27 @@ class TabManager: ObservableObject {
         workspaceGroupsPublisher.send(newValue)
     }
 
+    /// Sets `notificationsMuted` on the given workspaces and fires
+    /// `objectWillChange` so the sidebar re-renders the affected rows. The flag is
+    /// `@Published` on `Workspace`, which the sidebar parent does not observe
+    /// directly — without this trigger the Mute/Unmute context-menu label and the
+    /// row's bell.slash glyph would not refresh until an unrelated re-render
+    /// (e.g. a window minimize/restore). Single pass over `tabs` keyed by a `Set`,
+    /// never O(targets × workspaces). A plain `objectWillChange.send()` (not the
+    /// tabs-reorder bridge) avoids spurious sidebar reorder/animation.
+    func setNotificationsMuted(_ muted: Bool, forWorkspaceIds workspaceIds: [UUID]) {
+        let idSet = Set(workspaceIds)
+        guard !idSet.isEmpty else { return }
+        var changed = false
+        for workspace in tabs where idSet.contains(workspace.id) {
+            guard workspace.notificationsMuted != muted else { continue }
+            workspace.notificationsMuted = muted
+            changed = true
+        }
+        guard changed else { return }
+        objectWillChange.send()
+    }
+
     /// Legacy `@Published selectedTabId` willSet; `selectedTabId` still
     /// reads the old value here, exactly like the original property observer.
     func selectedWorkspaceIdWillChange(to newValue: UUID?) {

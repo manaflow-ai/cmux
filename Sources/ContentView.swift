@@ -13197,6 +13197,9 @@ struct SidebarWorkspaceSnapshotBuilder {
         let showsGitBranch: Bool
         let usesViewportAwarePath: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+        // Included so a mute toggle invalidates the cached row snapshot and the
+        // bell.slash glyph re-renders from the fresh `notificationsMuted` value.
+        let notificationsMuted: Bool
     }
 
     struct VerticalBranchDirectoryLine: Equatable {
@@ -13680,7 +13683,8 @@ struct TabItemView: View, Equatable {
             usesVerticalBranchLayout: sidebarBranchVerticalLayout,
             showsGitBranch: sidebarShowGitBranch,
             usesViewportAwarePath: sidebarUsesLastSegmentPath,
-            visibleAuxiliaryDetails: visibleAuxiliaryDetails
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails,
+            notificationsMuted: tab.notificationsMuted
         )
     }
 
@@ -14705,14 +14709,11 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    /// Mutes or unmutes notifications for every workspace in `targetIds`.
-    /// Single pass over `tabManager.tabs` keyed by a `Set` so a batch toggle over
-    /// a multi-selection stays O(workspaces), never O(targets × workspaces).
+    /// Mutes or unmutes notifications for every workspace in `targetIds` through
+    /// the single TabManager mutation path, which performs one Set-keyed pass and
+    /// fires `objectWillChange` so the sidebar label + glyph refresh immediately.
     private func setNotificationsMuted(_ muted: Bool, for targetIds: [UUID]) {
-        let targetIdSet = Set(targetIds)
-        for workspace in tabManager.tabs where targetIdSet.contains(workspace.id) {
-            workspace.notificationsMuted = muted
-        }
+        tabManager.setNotificationsMuted(muted, forWorkspaceIds: targetIds)
     }
 
     private func hasLatestNotifications(in targetIds: [UUID]) -> Bool {

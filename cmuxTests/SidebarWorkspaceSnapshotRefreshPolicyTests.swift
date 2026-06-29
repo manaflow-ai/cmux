@@ -165,7 +165,7 @@ import Testing
         mediaActivity: BrowserMediaActivity = BrowserMediaActivity()
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
-            presentationKey: presentationKey ?? Self.presentationKey(),
+            presentationKey: presentationKey ?? Self.presentationKey(notificationsMuted: notificationsMuted),
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
@@ -198,6 +198,7 @@ import Testing
         usesVerticalBranchLayout: Bool = true,
         showsGitBranch: Bool = true,
         usesViewportAwarePath: Bool = false,
+        notificationsMuted: Bool = false,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
             showsMetadata: true,
             showsLog: true,
@@ -212,7 +213,8 @@ import Testing
             usesVerticalBranchLayout: usesVerticalBranchLayout,
             showsGitBranch: showsGitBranch,
             usesViewportAwarePath: usesViewportAwarePath,
-            visibleAuxiliaryDetails: visibleAuxiliaryDetails
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails,
+            notificationsMuted: notificationsMuted
         )
     }
 }
