@@ -74,7 +74,7 @@ public final class ChatConversationStore {
     /// reproject below ignores them) for agent sessions.
     @ObservationIgnored private var terminalBlocks: [Int: TerminalCommandBlock] = [:]
     @ObservationIgnored private var terminalBlockOrder: [Int] = []
-    @ObservationIgnored private let source: any ChatEventSource
+    @ObservationIgnored private var source: any ChatEventSource
     @ObservationIgnored private let projector: ChatTranscriptProjector
     @ObservationIgnored private let pageSize: Int
     @ObservationIgnored private let maxWindowCount: Int
@@ -391,6 +391,12 @@ public final class ChatConversationStore {
         self.descriptor = descriptor
         agentState = descriptor.state
         if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
+    }
+
+    /// Rebinds this conversation to the current Mac transport after reconnect.
+    public func replaceSource(_ source: any ChatEventSource, descriptor: ChatSessionDescriptor) {
+        self.source = source
+        applyDescriptorSnapshot(descriptor)
     }
 
     /// After a stream drop, fetches the newest page and merges anything the

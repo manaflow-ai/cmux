@@ -80,9 +80,9 @@ extension WorkspaceDetailView {
         let connected = store.connectionState == .connected ? 1 : 0
         let foreground = scenePhase == .background ? 0 : 1
         guard let session = warmChatSession else {
-            return "\(workspace.id.rawValue)#none#\(connected)#\(foreground)"
+            return "\(workspace.id.rawValue)#none#\(store.agentChatEventSourceIdentity)#\(connected)#\(foreground)"
         }
-        return "\(workspace.id.rawValue)#\(session.id)#\(connected)#\(foreground)"
+        return "\(workspace.id.rawValue)#\(session.id)#\(store.agentChatEventSourceIdentity)#\(connected)#\(foreground)"
     }
 
     @ViewBuilder
@@ -228,11 +228,16 @@ extension WorkspaceDetailView {
     private func ensureChatConversationStore(
         for session: ChatSessionDescriptor
     ) -> ChatConversationStore? {
+        let source = store.makeChatEventSource()
         if let existing = chatConversationStores[session.id] {
-            existing.applyDescriptorSnapshot(session)
+            if let source {
+                existing.replaceSource(source, descriptor: session)
+            } else {
+                existing.applyDescriptorSnapshot(session)
+            }
             return existing
         }
-        guard let source = store.makeChatEventSource() else { return nil }
+        guard let source else { return nil }
         let conversation = ChatConversationStore(descriptor: session, source: source)
         chatConversationStores[session.id] = conversation
         return conversation
