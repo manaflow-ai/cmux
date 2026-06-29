@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { DocsSchema } from "../docs-schema";
 import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
@@ -195,6 +196,7 @@ export default function SkillsPage() {
 
   return (
     <>
+      <DocsSchema namespace="docs.skills" path="/docs/skills" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 

@@ -321,6 +321,7 @@ func makeTicket(clock: TestClock) throws -> CmxAttachTicket {
         terminalID: "live-terminal",
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
+        macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
         routes: [route],
         expiresAt: clock.now.addingTimeInterval(3600)
     )

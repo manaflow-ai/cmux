@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Bonsplit
 import SwiftUI
 
@@ -74,7 +75,7 @@ struct NotificationsPage: View {
     private var header: some View {
         HStack {
             Text(String(localized: "notifications.title", defaultValue: "Notifications"))
-                .font(.title2)
+                .cmuxFont(.title2)
                 .fontWeight(.semibold)
 
             Spacer()
@@ -98,7 +99,7 @@ struct NotificationsPage: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String(localized: "notifications.forwardToPhone.title", defaultValue: "Forward notifications to my iPhone"))
                     Text(String(localized: "notifications.forwardToPhone.subtitle", defaultValue: "Send agent notifications to the cmux iPhone app. Off by default; nothing is uploaded unless this is on."))
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundColor(.secondary)
                 }
             }
@@ -115,17 +116,17 @@ struct NotificationsPage: View {
                     }
                     .pickerStyle(.menu)
                     .fixedSize()
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     if forwardToPhoneMode == PhoneForwardingMode.onlyWhenAway.rawValue {
                         Text(awayModeExplanation)
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundColor(.secondary)
                     }
                 }
                 .padding(.leading, 20)
                 Toggle(isOn: $hidePhoneNotificationContent) {
                     Text(String(localized: "notifications.forwardToPhone.hideContent", defaultValue: "Hide content (send a generic message instead of the terminal text)"))
-                        .font(.caption)
+                        .cmuxFont(.caption)
                 }
                 .padding(.leading, 20)
             }
@@ -145,12 +146,12 @@ struct NotificationsPage: View {
     private var emptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "bell.slash")
-                .font(.system(size: 32))
+                .cmuxFont(size: 32)
                 .foregroundColor(.secondary)
             Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
-                .font(.headline)
+                .cmuxFont(.headline)
             Text(String(localized: "notifications.empty.description", defaultValue: "Desktop notifications will appear here for quick review."))
-                .font(.subheadline)
+                .cmuxFont(.subheadline)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -159,10 +160,10 @@ struct NotificationsPage: View {
     private var workspaceUnreadIndicatorState: some View {
         VStack(spacing: 8) {
             Image(systemName: "bell.badge")
-                .font(.system(size: 32))
+                .cmuxFont(size: 32)
                 .foregroundColor(.secondary)
             Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
-                .font(.headline)
+                .cmuxFont(.headline)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -226,7 +227,7 @@ struct ShortcutAnnotation: View {
 
     private var badge: some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .cmuxFont(size: 10, weight: .semibold, design: .rounded)
             .foregroundStyle(.primary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -260,24 +261,24 @@ private struct NotificationRow: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text(notification.title)
-                                .font(.headline)
+                                .cmuxFont(.headline)
                                 .foregroundColor(.primary)
                             Spacer()
                             Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                                .font(.caption)
+                                .cmuxFont(.caption)
                                 .foregroundColor(.secondary)
                         }
 
                         if !notification.body.isEmpty {
                             Text(notification.body)
-                                .font(.subheadline)
+                                .cmuxFont(.subheadline)
                                 .foregroundColor(.secondary)
                                 .lineLimit(3)
                         }
 
                         if let tabTitle {
                             Text(tabTitle)
-                                .font(.caption)
+                                .cmuxFont(.caption)
                                 .foregroundColor(.secondary)
                         }
                     }

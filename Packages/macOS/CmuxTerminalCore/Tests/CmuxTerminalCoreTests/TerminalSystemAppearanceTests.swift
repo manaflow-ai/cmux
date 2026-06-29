@@ -100,3 +100,86 @@ import Testing
         )
     }
 }
+
+@Suite struct GhosttySplitThemePreferenceTests {
+    @Test func storedDarkModeSelectsDarkSplitTheme() {
+        let suiteName = "GhosttySplitThemePreferenceTests.storedDark.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("dark", forKey: TerminalColorSchemePreference.appearanceModeDefaultsKey)
+
+        let preferredColorScheme = GhosttyConfig.currentColorSchemePreference(
+            defaults: defaults,
+            systemAppearance: TerminalSystemAppearance(interfaceStyle: nil)
+        )
+        let resolvedTheme = GhosttyConfig.resolveThemeName(
+            from: "light:Catppuccin Latte,dark:Apple System Colors",
+            preferredColorScheme: preferredColorScheme
+        )
+
+        #expect(preferredColorScheme == .dark)
+        #expect(resolvedTheme == "Apple System Colors")
+    }
+
+    @Test func storedLightModeSelectsLightSplitTheme() {
+        let suiteName = "GhosttySplitThemePreferenceTests.storedLight.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("light", forKey: TerminalColorSchemePreference.appearanceModeDefaultsKey)
+
+        let preferredColorScheme = GhosttyConfig.currentColorSchemePreference(
+            defaults: defaults,
+            systemAppearance: TerminalSystemAppearance(interfaceStyle: "Dark")
+        )
+        let resolvedTheme = GhosttyConfig.resolveThemeName(
+            from: "light:Catppuccin Latte,dark:Apple System Colors",
+            preferredColorScheme: preferredColorScheme
+        )
+
+        #expect(preferredColorScheme == .light)
+        #expect(resolvedTheme == "Catppuccin Latte")
+    }
+
+    @Test func systemLightModeSelectsLightSplitTheme() {
+        let suiteName = "GhosttySplitThemePreferenceTests.systemLight.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("system", forKey: TerminalColorSchemePreference.appearanceModeDefaultsKey)
+        defaults.removeObject(forKey: TerminalSystemAppearance.appleInterfaceStyleKey)
+
+        let preferredColorScheme = GhosttyConfig.currentColorSchemePreference(
+            defaults: defaults,
+            systemAppearance: TerminalSystemAppearance(interfaceStyle: nil)
+        )
+        let resolvedTheme = GhosttyConfig.resolveThemeName(
+            from: "light:Monokai Pro Light,dark:Monokai Pro Machine",
+            preferredColorScheme: preferredColorScheme
+        )
+
+        #expect(preferredColorScheme == .light)
+        #expect(resolvedTheme == "Monokai Pro Light")
+    }
+
+    @Test func systemDarkModeSelectsDarkSplitTheme() {
+        let suiteName = "GhosttySplitThemePreferenceTests.systemDark.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("system", forKey: TerminalColorSchemePreference.appearanceModeDefaultsKey)
+
+        let preferredColorScheme = GhosttyConfig.currentColorSchemePreference(
+            defaults: defaults,
+            systemAppearance: TerminalSystemAppearance(interfaceStyle: "Dark")
+        )
+        let resolvedTheme = GhosttyConfig.resolveThemeName(
+            from: "light:Monokai Pro Light,dark:Monokai Pro Machine",
+            preferredColorScheme: preferredColorScheme
+        )
+
+        #expect(preferredColorScheme == .dark)
+        #expect(resolvedTheme == "Monokai Pro Machine")
+    }
+}

@@ -146,6 +146,33 @@ import Testing
         #expect(messages == [.sessionChanged(sessionId: 1, name: "my session name")])
     }
 
+    @Test func sessionRenamedParsesToDistinctMessage() {
+        // tmux emits %session-renamed (NOT %session-changed) for `rename-session`;
+        // cmux must parse it so a remote rename re-titles the mirror workspace.
+        let messages = parse("%session-renamed renamed-session-actual\r\n")
+        #expect(messages == [.sessionRenamed(sessionId: nil, name: "renamed-session-actual", idBearingName: nil)])
+    }
+
+    @Test func sessionRenamedKeepsMultiWordName() {
+        let messages = parse("%session-renamed my renamed session\r\n")
+        #expect(messages == [.sessionRenamed(sessionId: nil, name: "my renamed session", idBearingName: nil)])
+    }
+
+    @Test func sessionRenamedKeepsSessionIdWhenTmuxSuppliesOne() {
+        let messages = parse("%session-renamed $1 my renamed session\r\n")
+        #expect(messages == [.sessionRenamed(sessionId: 1, name: "$1 my renamed session", idBearingName: "my renamed session")])
+    }
+
+    @Test func sessionRenamedAllowsDollarPrefixedNameInDocumentedForm() {
+        let messages = parse("%session-renamed $1\r\n")
+        #expect(messages == [.sessionRenamed(sessionId: nil, name: "$1", idBearingName: nil)])
+    }
+
+    @Test func sessionRenamedPreservesAmbiguousDollarPrefixedDocumentedName() {
+        let messages = parse("%session-renamed $1 dev\r\n")
+        #expect(messages == [.sessionRenamed(sessionId: 1, name: "$1 dev", idBearingName: "dev")])
+    }
+
     @Test func layoutChangeCarriesRawLayoutString() {
         let messages = parse("%layout-change @4 f92f,80x24,0,0,1 @4 1\r\n")
         #expect(messages == [.layoutChange(windowId: 4, layout: "f92f,80x24,0,0,1")])

@@ -1,6 +1,6 @@
 import Foundation
 import CmuxGit
-import CmuxProcess
+import CmuxFoundation
 @testable import CmuxSidebarGit
 
 /// A reader returning canned metadata, with an optional gate the test holds
@@ -11,6 +11,7 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
     private var gateWaiters: [CheckedContinuation<Void, Never>] = []
     private var isOpen = false
     private(set) var probedDirectories: [String] = []
+    private(set) var probedTrackedPathEventGenerations: [GitTrackedPathEventGeneration?] = []
 
     init(metadata: GitWorkspaceMetadata, gated: Bool = false) {
         self.metadata = metadata
@@ -25,8 +26,29 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
         }
     }
 
+    func waitForTrackedPathEventGenerationProbe(
+        count minimumCount: Int = 1,
+        maxYields: Int = 5_000
+    ) async -> Bool {
+        for _ in 0..<maxYields {
+            if probedTrackedPathEventGenerations.count >= minimumCount {
+                return true
+            }
+            await Task.yield()
+        }
+        return probedTrackedPathEventGenerations.count >= minimumCount
+    }
+
     func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+        await workspaceMetadata(for: directory, trackedPathEventGeneration: nil)
+    }
+
+    func workspaceMetadata(
+        for directory: String,
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?
+    ) async -> GitWorkspaceMetadata {
         probedDirectories.append(directory)
+        probedTrackedPathEventGenerations.append(trackedPathEventGeneration)
         if !isOpen {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 if isOpen {
@@ -46,26 +68,33 @@ final class RecordingPullRequestProbing: PullRequestProbing {
     private(set) var scheduledRefreshes: [(workspaceId: UUID, panelId: UUID, reason: String)] = []
     private(set) var clearedTrackingKeys: [(workspaceId: UUID, panelId: UUID)] = []
     private(set) var clearedTrackingWorkspaceIds: [UUID] = []
+    var trackedPanelIdsByWorkspace: [UUID: Set<UUID>] = [:]
     private(set) var resetCount = 0
 
     func attach(host: any SidebarGitHosting) {}
     func scheduleWorkspacePullRequestRefresh(workspaceId: UUID, panelId: UUID, reason: String) {
         scheduledRefreshes.append((workspaceId, panelId, reason))
+        trackedPanelIdsByWorkspace[workspaceId, default: []].insert(panelId)
     }
     func refreshTrackedWorkspacePullRequestsIfNeeded(reason: String) {}
     func sidebarPullRequestPollingSettingsDidChange() {}
     func handleWorkspacePullRequestCommandHint(workspaceId: UUID, panelId: UUID, action: String, target: String?) {}
     func clearWorkspacePullRequestTracking(workspaceId: UUID, panelId: UUID) {
         clearedTrackingKeys.append((workspaceId, panelId))
+        trackedPanelIdsByWorkspace[workspaceId]?.remove(panelId)
     }
     func clearWorkspacePullRequestMetadata(workspaceId: UUID, panelId: UUID) {}
     func clearWorkspacePullRequestTracking(workspaceId: UUID) {
         clearedTrackingWorkspaceIds.append(workspaceId)
+        trackedPanelIdsByWorkspace[workspaceId] = []
     }
     func resetWorkspacePullRequestRefreshState() {
         resetCount += 1
+        trackedPanelIdsByWorkspace.removeAll()
     }
-    func workspacePullRequestTrackedPanelIds(workspaceId: UUID) -> Set<UUID> { [] }
+    func workspacePullRequestTrackedPanelIds(workspaceId: UUID) -> Set<UUID> {
+        trackedPanelIdsByWorkspace[workspaceId] ?? []
+    }
 }
 
 /// A `CommandRunning` that fails the test if any subprocess is spawned.

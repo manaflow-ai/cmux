@@ -27,7 +27,11 @@ import Foundation
 /// ```
 public actor UserDefaultsSettingsStore {
     /// The `UserDefaults` suite this store reads and writes.
-    public let underlyingDefaults: UserDefaults
+    ///
+    /// `UserDefaults` is Apple-documented thread-safe. Keep the non-Sendable
+    /// instance inside a private unchecked-Sendable wrapper and expose only
+    /// typed operations.
+    private let storage: UserDefaultsSettingsStorage
 
     /// Creates a store backed by the given `UserDefaults` instance.
     ///
@@ -42,7 +46,7 @@ public actor UserDefaultsSettingsStore {
     ///     Pass ``SettingCatalog/all`` from the app, or an empty array when no
     ///     migration is needed.
     public init(defaults: UserDefaults, migrating: [AnySettingKey] = []) {
-        self.underlyingDefaults = defaults
+        self.storage = UserDefaultsSettingsStorage(defaults: defaults)
         // Each entry's migration closure was captured with its concrete
         // Value type, so it skips legacy keys whose stored value does not
         // decode as the new key's type. See AnySettingKey for details.
@@ -53,18 +57,27 @@ public actor UserDefaultsSettingsStore {
 
     /// Returns the current value for the key.
     public func value<Value>(for key: DefaultsKey<Value>) -> Value {
-        key.value(in: underlyingDefaults)
+        storage.value(for: key)
+    }
+
+    /// Synchronously seeds UI state from the backing `UserDefaults` suite.
+    ///
+    /// Settings views need a value during SwiftUI construction before they can
+    /// await the actor. This keeps the non-Sendable `UserDefaults` instance
+    /// inside the store while returning only the typed setting value.
+    public nonisolated func initialValue<Value>(for key: DefaultsKey<Value>) -> Value {
+        storage.value(for: key)
     }
 
     /// Writes a value for the key.
     public func set<Value>(_ value: Value, for key: DefaultsKey<Value>) {
-        key.set(value, in: underlyingDefaults)
+        storage.set(value, for: key)
     }
 
     /// Removes the stored override for the key. After this call ``value(for:)``
     /// returns the key's default value until something writes a new override.
     public func reset<Value>(_ key: DefaultsKey<Value>) {
-        underlyingDefaults.removeObject(forKey: key.userDefaultsKey)
+        storage.removeObject(forKey: key.userDefaultsKey)
     }
 
     /// Removes the stored overrides for every UserDefaults-backed entry in
@@ -82,7 +95,8 @@ public actor UserDefaultsSettingsStore {
             if let suite, let custom = UserDefaults(suiteName: suite) {
                 defaults = custom
             } else {
-                defaults = underlyingDefaults
+                storage.removeObject(forKey: storageKey)
+                continue
             }
             defaults.removeObject(forKey: storageKey)
         }

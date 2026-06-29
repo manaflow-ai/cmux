@@ -2,7 +2,7 @@ import AppKit
 import CmuxSidebar
 import CmuxWorkspaces
 import SwiftUI
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,15 +10,16 @@ import XCTest
 @testable import cmux
 #endif
 
-final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
-    func testContextMenuPinChangeUpdatesDisplayedFieldsAndDefersNoisyFields() {
+@Suite struct SidebarWorkspaceSnapshotRefreshPolicyTests {
+    @Test func contextMenuPinChangeUpdatesDisplayedFieldsAndDefersNoisyFields() {
         let current = Self.snapshot(
             title: "lmao",
             isPinned: false,
             customColorHex: nil,
             remoteConnectionStatusText: "Connected",
             latestConversationMessage: "old message",
-            listeningPorts: [3000]
+            listeningPorts: [3000],
+            finderDirectoryPath: "/old"
         )
         let next = Self.snapshot(
             title: "lmao",
@@ -26,7 +27,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             customColorHex: nil,
             remoteConnectionStatusText: "Disconnected",
             latestConversationMessage: "new message",
-            listeningPorts: [3000, 4000]
+            listeningPorts: [3000, 4000],
+            finderDirectoryPath: nil
         )
 
         let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
@@ -38,27 +40,30 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
 
         var expectedDisplayed = current
         expectedDisplayed = expectedDisplayed.applyingContextMenuImmediateFields(from: next)
-        XCTAssertEqual(decision.workspaceSnapshotStorage, expectedDisplayed)
-        XCTAssertTrue(decision.workspaceSnapshotStorage?.isPinned == true)
-        XCTAssertEqual(decision.workspaceSnapshotStorage?.remoteConnectionStatusText, "Connected")
-        XCTAssertEqual(decision.workspaceSnapshotStorage?.latestConversationMessage, "old message")
-        XCTAssertEqual(decision.workspaceSnapshotStorage?.listeningPorts, [3000])
-        XCTAssertEqual(decision.pendingWorkspaceSnapshot, next)
-        XCTAssertTrue(decision.hasDeferredWorkspaceObservationInvalidation)
+        #expect(decision.workspaceSnapshotStorage == expectedDisplayed)
+        #expect(decision.workspaceSnapshotStorage?.isPinned == true)
+        #expect(decision.workspaceSnapshotStorage?.remoteConnectionStatusText == "Connected")
+        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
+        #expect(decision.workspaceSnapshotStorage?.listeningPorts == [3000])
+        #expect(decision.workspaceSnapshotStorage?.finderDirectoryPath == nil)
+        #expect(decision.pendingWorkspaceSnapshot == next)
+        #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
-    func testContextMenuImmediateOnlyChangeDoesNotCreateDeferredFlush() {
+    @Test func contextMenuImmediateOnlyChangeDoesNotCreateDeferredFlush() {
         let current = Self.snapshot(
             title: "old",
             customDescription: nil,
             isPinned: false,
-            customColorHex: nil
+            customColorHex: nil,
+            finderDirectoryPath: nil
         )
         let next = Self.snapshot(
             title: "new",
             customDescription: "description",
             isPinned: true,
-            customColorHex: "#C0392B"
+            customColorHex: "#C0392B",
+            finderDirectoryPath: "/tmp/workspace"
         )
 
         let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
@@ -68,12 +73,41 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             contextMenuVisible: true
         )
 
-        XCTAssertEqual(decision.workspaceSnapshotStorage, next)
-        XCTAssertNil(decision.pendingWorkspaceSnapshot)
-        XCTAssertFalse(decision.hasDeferredWorkspaceObservationInvalidation)
+        #expect(decision.workspaceSnapshotStorage == next)
+        #expect(decision.pendingWorkspaceSnapshot == nil)
+        #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
-    func testClosedContextMenuStoresNextAndClearsPending() {
+    @Test func contextMenuMediaActivityChangeUpdatesDisplayedGlyphImmediately() {
+        let current = Self.snapshot(
+            remoteConnectionStatusText: "Connected",
+            latestConversationMessage: "old message",
+            listeningPorts: [3000],
+            mediaActivity: BrowserMediaActivity(isPlayingAudio: true)
+        )
+        let next = Self.snapshot(
+            remoteConnectionStatusText: "Disconnected",
+            latestConversationMessage: "new message",
+            listeningPorts: [3000, 4000],
+            mediaActivity: BrowserMediaActivity(isPlayingAudio: false)
+        )
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        #expect(decision.workspaceSnapshotStorage?.mediaActivity.isPlayingAudio == false)
+        #expect(decision.workspaceSnapshotStorage?.remoteConnectionStatusText == "Connected")
+        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
+        #expect(decision.workspaceSnapshotStorage?.listeningPorts == [3000])
+        #expect(decision.pendingWorkspaceSnapshot == next)
+        #expect(decision.hasDeferredWorkspaceObservationInvalidation)
+    }
+
+    @Test func closedContextMenuStoresNextAndClearsPending() {
         let current = Self.snapshot(title: "old", isPinned: false)
         let next = Self.snapshot(title: "new", isPinned: true)
 
@@ -84,9 +118,9 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             contextMenuVisible: false
         )
 
-        XCTAssertEqual(decision.workspaceSnapshotStorage, next)
-        XCTAssertNil(decision.pendingWorkspaceSnapshot)
-        XCTAssertFalse(decision.hasDeferredWorkspaceObservationInvalidation)
+        #expect(decision.workspaceSnapshotStorage == next)
+        #expect(decision.pendingWorkspaceSnapshot == nil)
+        #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
     private static func snapshot(
@@ -97,7 +131,9 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         customColorHex: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
         latestConversationMessage: String? = nil,
-        listeningPorts: [Int] = []
+        listeningPorts: [Int] = [],
+        finderDirectoryPath: String? = nil,
+        mediaActivity: BrowserMediaActivity = BrowserMediaActivity()
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
@@ -121,7 +157,9 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             branchDirectoryLines: [],
             branchLinesContainBranch: false,
             pullRequestRows: [],
-            listeningPorts: listeningPorts
+            listeningPorts: listeningPorts,
+            finderDirectoryPath: finderDirectoryPath,
+            mediaActivity: mediaActivity
         )
     }
 
@@ -149,98 +187,77 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
     }
 }
 
-final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
-    func testSkipsScrollWhenSelectedWorkspaceIdIsNil() {
-        XCTAssertFalse(
-            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
-                selectedWorkspaceId: nil as String?,
-                oldWorkspaceIds: ["a"],
-                newWorkspaceIds: ["a"]
-            )
-        )
+@Suite struct SidebarSelectedWorkspaceScrollPolicyTests {
+    @Test func skipsScrollWhenSelectedWorkspaceIdIsNil() {
+        #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: nil as String?,
+            oldWorkspaceIds: ["a"],
+            newWorkspaceIds: ["a"]
+        ))
     }
 
-    func testRequestsScrollWhenSelectedWorkspaceFirstAppears() {
-        XCTAssertTrue(
-            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
-                selectedWorkspaceId: "b",
-                oldWorkspaceIds: ["a"],
-                newWorkspaceIds: ["a", "b"]
-            )
-        )
+    @Test func requestsScrollWhenSelectedWorkspaceFirstAppears() {
+        #expect(SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: "b",
+            oldWorkspaceIds: ["a"],
+            newWorkspaceIds: ["a", "b"]
+        ))
     }
 
-    func testRequestsScrollWhenSelectedWorkspaceMovesToTop() {
-        XCTAssertTrue(
-            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
-                selectedWorkspaceId: "c",
-                oldWorkspaceIds: ["a", "b", "c"],
-                newWorkspaceIds: ["c", "a", "b"]
-            )
-        )
+    @Test func requestsScrollWhenSelectedWorkspaceMovesToTop() {
+        #expect(SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: "c",
+            oldWorkspaceIds: ["a", "b", "c"],
+            newWorkspaceIds: ["c", "a", "b"]
+        ))
     }
 
-    func testRequestsScrollWhenAnotherReorderShiftsSelectedWorkspaceIndex() {
-        XCTAssertTrue(
-            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
-                selectedWorkspaceId: "b",
-                oldWorkspaceIds: ["a", "b", "c"],
-                newWorkspaceIds: ["c", "a", "b"]
-            )
-        )
+    @Test func requestsScrollWhenAnotherReorderShiftsSelectedWorkspaceIndex() {
+        #expect(SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: "b",
+            oldWorkspaceIds: ["a", "b", "c"],
+            newWorkspaceIds: ["c", "a", "b"]
+        ))
     }
 
-    func testSkipsScrollWhenReorderLeavesSelectedWorkspaceIndexUnchanged() {
-        XCTAssertFalse(
-            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
-                selectedWorkspaceId: "a",
-                oldWorkspaceIds: ["a", "b", "c"],
-                newWorkspaceIds: ["a", "c", "b"]
-            )
-        )
+    @Test func skipsScrollWhenReorderLeavesSelectedWorkspaceIndexUnchanged() {
+        #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: "a",
+            oldWorkspaceIds: ["a", "b", "c"],
+            newWorkspaceIds: ["a", "c", "b"]
+        ))
     }
 
-    func testSkipsScrollWhenSelectedWorkspaceIsMissing() {
-        XCTAssertFalse(
-            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
-                selectedWorkspaceId: "b",
-                oldWorkspaceIds: ["a", "b"],
-                newWorkspaceIds: ["a", "c"]
-            )
-        )
+    @Test func skipsScrollWhenSelectedWorkspaceIsMissing() {
+        #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: "b",
+            oldWorkspaceIds: ["a", "b"],
+            newWorkspaceIds: ["a", "c"]
+        ))
     }
 
-    func testScrollTargetIsSelfWithoutGroup() {
+    @Test func scrollTargetIsSelfWithoutGroup() {
         let workspaceId = UUID()
-        XCTAssertEqual(
-            SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
-                selectedWorkspaceId: workspaceId,
-                group: nil
-            ),
-            workspaceId
-        )
+        #expect(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+            selectedWorkspaceId: workspaceId,
+            group: nil
+        ) == workspaceId)
     }
 
-    func testScrollTargetIsSelfInExpandedGroup() {
+    @Test func scrollTargetIsSelfInExpandedGroup() {
         let workspaceId = UUID()
-        XCTAssertEqual(
-            SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
-                selectedWorkspaceId: workspaceId,
-                group: makeGroup(isCollapsed: false, anchorWorkspaceId: UUID())
-            ),
-            workspaceId
-        )
+        #expect(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+            selectedWorkspaceId: workspaceId,
+            group: makeGroup(isCollapsed: false, anchorWorkspaceId: UUID())
+        ) == workspaceId)
     }
 
-    func testScrollTargetIsGroupAnchorWhenGroupIsCollapsed() {
+    @Test func scrollTargetIsGroupAnchorWhenGroupIsCollapsed() {
         let anchorId = UUID()
-        XCTAssertEqual(
-            SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
-                selectedWorkspaceId: UUID(),
-                group: makeGroup(isCollapsed: true, anchorWorkspaceId: anchorId)
-            ),
-            anchorId
-        )
+        #expect(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+            selectedWorkspaceId: UUID(),
+            group: makeGroup(isCollapsed: true, anchorWorkspaceId: anchorId)
+        ) == anchorId)
     }
 
     private func makeGroup(isCollapsed: Bool, anchorWorkspaceId: UUID) -> WorkspaceGroup {
@@ -256,15 +273,15 @@ final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
     }
 }
 
-final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
-    func testHoverRevealIsIndependentFromStaleContextMenuVisibility() {
+@Suite struct SidebarWorkspaceRowInteractionStateTests {
+    @Test func hoverRevealIsIndependentFromStaleContextMenuVisibility() {
         var state = SidebarWorkspaceRowInteractionState()
 
         state.contextMenuDidAppear()
         state.contextMenuTrackingDidEnd()
         state.setPointerHovering(true)
 
-        XCTAssertTrue(
+        #expect(
             state.shouldShowCloseButton(
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
@@ -274,8 +291,8 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
 
         state.setPointerHovering(false)
 
-        XCTAssertFalse(
-            state.shouldShowCloseButton(
+        #expect(
+            !state.shouldShowCloseButton(
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
             ),
@@ -283,21 +300,16 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
         )
     }
 
-    func testContextMenuTrackingBeginHidesExistingCloseButtonBeforeSwiftUIMenuAppears() {
+    @Test func contextMenuTrackingBeginHidesExistingCloseButtonBeforeSwiftUIMenuAppears() {
         var state = SidebarWorkspaceRowInteractionState()
 
         state.setPointerHovering(true)
-        XCTAssertTrue(
-            state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            )
-        )
+        #expect(state.shouldShowCloseButton(canCloseWorkspace: true, shortcutHintModeActive: false))
 
         state.contextMenuTrackingDidBegin()
 
-        XCTAssertFalse(
-            state.shouldShowCloseButton(
+        #expect(
+            !state.shouldShowCloseButton(
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
             ),
@@ -305,14 +317,14 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
         )
     }
 
-    func testHoverDuringContextMenuTrackingStaysHiddenUntilTrackingEnds() {
+    @Test func hoverDuringContextMenuTrackingStaysHiddenUntilTrackingEnds() {
         var state = SidebarWorkspaceRowInteractionState()
 
         state.contextMenuDidAppear()
         state.setPointerHovering(true)
 
-        XCTAssertFalse(
-            state.shouldShowCloseButton(
+        #expect(
+            !state.shouldShowCloseButton(
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
             ),
@@ -321,7 +333,7 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
 
         state.contextMenuTrackingDidEnd()
 
-        XCTAssertTrue(
+        #expect(
             state.shouldShowCloseButton(
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
@@ -330,7 +342,7 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
         )
     }
 
-    func testCoordinatorPreservesHoverExitWhileMenuTrackingSuppressesCloseButton() {
+    @Test func coordinatorPreservesHoverExitWhileMenuTrackingSuppressesCloseButton() {
         var state = SidebarWorkspaceRowInteractionState()
         let binding = Binding<SidebarWorkspaceRowInteractionState>(
             get: { state },
@@ -345,8 +357,8 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
         coordinator.pointerHoverChanged(false)
         coordinator.menuTrackingChanged(false)
 
-        XCTAssertFalse(
-            state.shouldShowCloseButton(
+        #expect(
+            !state.shouldShowCloseButton(
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
             ),
@@ -354,31 +366,27 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
         )
     }
 
-    func testMenuTrackingSuppressionOnlyAppliesToPointerMenusInsideRow() {
-        XCTAssertTrue(
-            SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
-                pointerInsideRow: true,
-                eventType: .rightMouseDown,
-                modifierFlags: []
-            )
-        )
-        XCTAssertTrue(
-            SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
-                pointerInsideRow: true,
-                eventType: .leftMouseDown,
-                modifierFlags: .control
-            )
-        )
-        XCTAssertFalse(
-            SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
+    @Test func menuTrackingSuppressionOnlyAppliesToPointerMenusInsideRow() {
+        #expect(SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
+            pointerInsideRow: true,
+            eventType: .rightMouseDown,
+            modifierFlags: []
+        ))
+        #expect(SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
+            pointerInsideRow: true,
+            eventType: .leftMouseDown,
+            modifierFlags: .control
+        ))
+        #expect(
+            !SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
                 pointerInsideRow: false,
                 eventType: .rightMouseDown,
                 modifierFlags: []
             ),
             "A menu opened outside this row must not suppress this row's hover state."
         )
-        XCTAssertFalse(
-            SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
+        #expect(
+            !SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
                 pointerInsideRow: true,
                 eventType: .keyDown,
                 modifierFlags: []
@@ -387,7 +395,7 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
         )
     }
 
-    func testPointerExitWhileContextMenuIsVisibleStaysHiddenAfterDismissal() {
+    @Test func pointerExitWhileContextMenuIsVisibleStaysHiddenAfterDismissal() {
         var state = SidebarWorkspaceRowInteractionState()
 
         state.setPointerHovering(true)
@@ -395,8 +403,8 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
         state.setPointerHovering(false)
         state.contextMenuDidDisappear()
 
-        XCTAssertFalse(
-            state.shouldShowCloseButton(
+        #expect(
+            !state.shouldShowCloseButton(
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
             ),
@@ -404,14 +412,14 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
         )
     }
 
-    func testNoHoverDoesNotRevealCloseButtonWhileContextMenuIsVisible() {
+    @Test func noHoverDoesNotRevealCloseButtonWhileContextMenuIsVisible() {
         var state = SidebarWorkspaceRowInteractionState()
 
         state.contextMenuDidAppear()
         state.setPointerHovering(false)
 
-        XCTAssertFalse(
-            state.shouldShowCloseButton(
+        #expect(
+            !state.shouldShowCloseButton(
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
             ),
@@ -419,21 +427,16 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
         )
     }
 
-    func testContextMenuAppearanceHidesExistingCloseButtonUntilPointerIsReconciled() {
+    @Test func contextMenuAppearanceHidesExistingCloseButtonUntilPointerIsReconciled() {
         var state = SidebarWorkspaceRowInteractionState()
 
         state.setPointerHovering(true)
-        XCTAssertTrue(
-            state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            )
-        )
+        #expect(state.shouldShowCloseButton(canCloseWorkspace: true, shortcutHintModeActive: false))
 
         state.contextMenuDidAppear()
 
-        XCTAssertFalse(
-            state.shouldShowCloseButton(
+        #expect(
+            !state.shouldShowCloseButton(
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
             ),
@@ -441,7 +444,7 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
         )
     }
 
-    func testContextMenuDismissalCanRevealAfterPointerReconciliation() {
+    @Test func contextMenuDismissalCanRevealAfterPointerReconciliation() {
         var state = SidebarWorkspaceRowInteractionState()
 
         state.setPointerHovering(true)
@@ -449,7 +452,7 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
         state.contextMenuDidDisappear()
         state.setPointerHovering(true)
 
-        XCTAssertTrue(
+        #expect(
             state.shouldShowCloseButton(
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
@@ -458,29 +461,25 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
         )
     }
 
-    func testCloseButtonHiddenWhenWorkspaceCannotBeClosed() {
+    @Test func closeButtonHiddenWhenWorkspaceCannotBeClosed() {
         var state = SidebarWorkspaceRowInteractionState()
 
         state.setPointerHovering(true)
 
-        XCTAssertFalse(
-            state.shouldShowCloseButton(
-                canCloseWorkspace: false,
-                shortcutHintModeActive: false
-            )
-        )
+        #expect(!state.shouldShowCloseButton(
+            canCloseWorkspace: false,
+            shortcutHintModeActive: false
+        ))
     }
 
-    func testCloseButtonHiddenDuringShortcutHintMode() {
+    @Test func closeButtonHiddenDuringShortcutHintMode() {
         var state = SidebarWorkspaceRowInteractionState()
 
         state.setPointerHovering(true)
 
-        XCTAssertFalse(
-            state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: true
-            )
-        )
+        #expect(!state.shouldShowCloseButton(
+            canCloseWorkspace: true,
+            shortcutHintModeActive: true
+        ))
     }
 }

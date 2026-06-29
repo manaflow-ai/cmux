@@ -20,8 +20,9 @@ public struct CMUXAuthState: Equatable, Sendable {
 
     /// The launch-time priming state, decided from the launch inputs in
     /// priority order: cleared auth, mock data, a UI-test fixture user,
-    /// pending auto-login, then the cached user (restoring iff tokens are
-    /// known to exist).
+    /// pending auto-login, then the cached user. A cached user with known
+    /// tokens is treated as signed in immediately while runtime validation
+    /// proceeds in the background.
     /// - Parameters:
     ///   - clearAuthRequested: Whether the launch requested a cleared auth state.
     ///   - mockDataEnabled: Whether mock-data mode is active.
@@ -51,15 +52,15 @@ public struct CMUXAuthState: Equatable, Sendable {
             return Self(isAuthenticated: true, currentUser: fixtureUser, isRestoringSession: false)
         }
 
-        if autoLoginCredentials != nil {
+        if autoLoginCredentials != nil, !hasTokens {
             return Self(isAuthenticated: false, currentUser: cachedUser, isRestoringSession: true)
         }
 
-        return Self(
-            isAuthenticated: false,
-            currentUser: cachedUser,
-            isRestoringSession: hasTokens
-        )
+        if hasTokens, let cachedUser {
+            return Self(isAuthenticated: true, currentUser: cachedUser, isRestoringSession: false)
+        }
+
+        return Self(isAuthenticated: false, currentUser: cachedUser, isRestoringSession: hasTokens)
     }
 
     /// The fully signed-out state.

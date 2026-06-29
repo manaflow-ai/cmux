@@ -23,12 +23,165 @@ cmux_claude_wrapper_is_self_or_shim() {
         return 0
     fi
     case "$candidate" in
+        */cmux-cli-shims/*/claude|*/cmux-cli-shims/claude)
+            return 0
+            ;;
         */Contents/Resources/bin/claude|*/Resources/bin/claude)
             return 0
             ;;
     esac
     return 1
 }
+
+cmux_claude_wrapper_reexec_guard_limit=16
+cmux_claude_wrapper_reexec_hops=0
+# Newline-delimited, not PATH/colon-delimited: custom executable paths can
+# legally contain ':' even though PATH entries cannot.
+cmux_claude_wrapper_reexec_target_history=""
+
+cmux_claude_wrapper_is_nonnegative_integer() {
+    case "$1" in
+        ''|*[!0-9]*)
+            return 1
+            ;;
+    esac
+    return 0
+}
+
+cmux_claude_wrapper_fail_reexec_guard() {
+    cat >&2 <<'EOF'
+cmux: stopped a possible infinite claude shim loop.
+cmux's per-surface claude shim re-entered before the real binary started.
+This is usually caused by a conflicting `claude` shim from another tool on PATH.
+Set CMUX_CUSTOM_CLAUDE_PATH, or set Automation > Claude Binary Path to the real
+claude binary, then start a new surface.
+EOF
+    exit 126
+}
+
+cmux_claude_wrapper_init_reexec_guard() {
+    local guard="${cmux_claude_wrapper_reexec_guard:-}"
+    local hops
+
+    case "$guard" in
+        *[!0-9]*|'')
+            unset cmux_claude_wrapper_reexec_guard
+            unset cmux_claude_wrapper_reexec_targets
+            cmux_claude_wrapper_reexec_hops=0
+            cmux_claude_wrapper_reexec_target_history=""
+            ;;
+        *)
+            hops="$guard"
+            cmux_claude_wrapper_is_nonnegative_integer "$hops" || hops=0
+            cmux_claude_wrapper_reexec_hops="$hops"
+            cmux_claude_wrapper_reexec_target_history="${cmux_claude_wrapper_reexec_targets:-}"
+            ;;
+    esac
+}
+
+cmux_claude_wrapper_reexec_target_seen() {
+    local target="$1"
+    local seen
+    while IFS= read -r seen; do
+        [[ "$seen" == "$target" ]] && return 0
+    done <<< "$cmux_claude_wrapper_reexec_target_history"
+    return 1
+}
+
+cmux_claude_wrapper_target_looks_like_reexec_shim() {
+    local target="$1"
+    cmux_claude_wrapper_is_self_or_shim "$target" && return 0
+    [[ -f "$target" && -r "$target" ]] || return 1
+
+    case "$target" in
+        */.asdf/shims/claude|*/.mise/shims/claude|*/.local/share/mise/shims/claude|*/.volta/bin/claude)
+            return 1
+            ;;
+    esac
+
+    local magic
+    magic="$(od -An -N2 -tx1 "$target" 2>/dev/null | tr -d '[:space:]')"
+    [[ "$magic" == "2321" ]] || return 1
+
+    local first_line snippet
+    IFS= read -r first_line < "$target" || first_line=""
+    snippet="$(sed -n '1,160p' "$target" 2>/dev/null || true)"
+
+    case "$snippet" in
+        *"exec claude"*|*"exec \"claude\""*|*"exec 'claude'"*|\
+        *"exec env claude"*|*"exec /usr/bin/env claude"*|\
+        *"env claude"*|*"env \"claude\""*|*"env 'claude'"*|\
+        *"command claude"*|*"command \"claude\""*|*"command 'claude'"*|\
+        *"spawn(\"claude\""*|*"spawn('claude'"*|\
+        *"spawnSync(\"claude\""*|*"spawnSync('claude'"*|\
+        *"execFile(\"claude\""*|*"execFile('claude'"*|\
+        *"execFileSync(\"claude\""*|*"execFileSync('claude'"*|\
+        *"execSync(\"claude"*|*"execSync('claude"*|\
+        *"os.execvp(\"claude\""*|*"os.execvp('claude'"*|\
+        *"os.execlp(\"claude\""*|*"os.execlp('claude'"*|\
+        *"subprocess.run([\"claude\""*|*"subprocess.run(['claude'"*|\
+        *"subprocess.call([\"claude\""*|*"subprocess.call(['claude'"*|\
+        *"subprocess.Popen([\"claude\""*|*"subprocess.Popen(['claude'"*)
+            return 0
+            ;;
+    esac
+    case "$snippet" in
+        *'=claude'*|*'="claude"'*|*"='claude'"*|\
+        *':-claude}'*|*':-"claude"}'*|*":-'claude'}"*)
+            case "$snippet" in
+                *'exec "$'*|*'exec ${'*)
+                    return 0
+                    ;;
+            esac
+            ;;
+    esac
+    case "$snippet" in
+        *'@anthropic-ai/claude-code'*|*'claude-code/cli.js'*)
+            return 1
+            ;;
+    esac
+    case "$first_line" in
+        *node*|*Node*)
+            return 1
+            ;;
+    esac
+    return 1
+}
+
+cmux_claude_wrapper_exec_resolved_claude() {
+    local target="$1"
+    shift
+
+    if ! cmux_claude_wrapper_target_looks_like_reexec_shim "$target"; then
+        # A non-shim target is the boundary where a real Claude process starts.
+        # Clear the shim-bounce guard so real Claude children that invoke
+        # `claude` later begin a fresh wrapper resolution.
+        unset cmux_claude_wrapper_reexec_guard
+        unset cmux_claude_wrapper_reexec_targets
+        exec "$target" "$@"
+    fi
+    if cmux_claude_wrapper_reexec_target_seen "$target"; then
+        cmux_claude_wrapper_fail_reexec_guard "$target"
+    fi
+    if (( cmux_claude_wrapper_reexec_hops >= cmux_claude_wrapper_reexec_guard_limit )); then
+        cmux_claude_wrapper_fail_reexec_guard
+    fi
+
+    local hops="${cmux_claude_wrapper_reexec_hops:-0}"
+    cmux_claude_wrapper_is_nonnegative_integer "$hops" || hops=0
+    hops=$((hops + 1))
+    export cmux_claude_wrapper_reexec_guard="$hops"
+    if [[ -n "$cmux_claude_wrapper_reexec_target_history" ]]; then
+        cmux_claude_wrapper_reexec_target_history="$cmux_claude_wrapper_reexec_target_history"$'\n'"$target"
+    else
+        cmux_claude_wrapper_reexec_target_history="$target"
+    fi
+    cmux_claude_wrapper_reexec_targets="$cmux_claude_wrapper_reexec_target_history"
+    export cmux_claude_wrapper_reexec_targets
+    exec "$target" "$@"
+}
+
+cmux_claude_wrapper_init_reexec_guard
 
 # Find the real claude binary, skipping cmux's wrapper and temp shell shims.
 find_real_claude() {
@@ -188,6 +341,183 @@ normalize_claude_config_dir() {
     esac
 }
 
+# Claude stores transcripts at <config-dir>/projects/<encode(cwd)>/<id>.jsonl and
+# `--resume <id>` only resolves a session under the *current* CLAUDE_CONFIG_DIR.
+# cmux can launch with a foreign CLAUDE_CONFIG_DIR (the .app inherits the env of
+# whatever opened it, e.g. a terminal whose agent set one), so resuming a session
+# created under a different config root fails with "No conversation found" and drops
+# the user to a bare shell. Self-heal by relocating CLAUDE_CONFIG_DIR to the root
+# that actually holds the transcript, but only when the current root lacks it (so a
+# correct resume is never repointed). https://github.com/manaflow-ai/cmux/issues/6194
+cmux_claude_config_dir_has_session() {
+    local root="$1" sid="$2"
+    [[ -n "$root" && -d "$root/projects" ]] || return 1
+    local transcript
+    for transcript in \
+        "$root"/projects/*/"$sid".jsonl \
+        "$root"/projects/*/*/"$sid".jsonl \
+        "$root"/projects/*/*/*/"$sid".jsonl \
+        "$root"/projects/*/*/*/*/"$sid".jsonl \
+        "$root"/projects/*/*/*/*/*/"$sid".jsonl; do
+        [[ -f "$transcript" && -s "$transcript" ]] && return 0
+    done
+    return 1
+}
+
+claude_option_consumes_value() {
+    case "$1" in
+        --add-dir|--agent|--agents|--allowedTools|--allowed-tools|\
+        --append-system-prompt|--betas|--debug-file|--disallowedTools|\
+        --disallowed-tools|--effort|--fallback-model|--file|\
+        --input-format|--json-schema|--max-budget-usd|--mcp-config|\
+        --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
+        --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
+        --settings|--system-prompt|--tools)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_remaining_args_have_resume_flag() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            --resume|-r|--resume=*)
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+claude_remaining_args_have_explicit_session_flag() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            --resume|--resume=*|-r|--session-id|--session-id=*|--continue|-c)
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+claude_unknown_option_should_skip_value_before_resume_flag() {
+    local index="$1"
+    local -a args=("${@:2}")
+    local next_index=$((index + 1))
+    local rest_index=$((index + 2))
+    (( next_index < ${#args[@]} )) || return 1
+    [[ "${args[$next_index]}" != -* ]] || return 1
+    claude_remaining_args_have_resume_flag "${args[@]:$rest_index}"
+}
+
+claude_unknown_option_should_skip_value_before_explicit_session_flag() {
+    local index="$1"
+    local -a args=("${@:2}")
+    local next_index=$((index + 1))
+    local rest_index=$((index + 2))
+    (( next_index < ${#args[@]} )) || return 1
+    [[ "${args[$next_index]}" != -* ]] || return 1
+    claude_remaining_args_have_explicit_session_flag "${args[@]:$rest_index}"
+}
+
+extract_claude_resume_session_id() {
+    local -a args=("$@")
+    local index=0
+    local arg
+    while (( index < ${#args[@]} )); do
+        arg="${args[$index]}"
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            --resume|-r)
+                index=$((index + 1))
+                (( index < ${#args[@]} )) || return 1
+                printf '%s' "${args[$index]}"
+                return 0
+                ;;
+            --resume=*)
+                printf '%s' "${arg#--resume=}"
+                return 0
+                ;;
+            -*)
+                if [[ "$arg" != *=* ]]; then
+                    if claude_option_consumes_value "$arg" ||
+                       claude_unknown_option_should_skip_value_before_resume_flag "$index" "${args[@]}"; then
+                        index=$((index + 2))
+                        continue
+                    fi
+                fi
+                ;;
+            *)
+                ;;
+        esac
+        index=$((index + 1))
+    done
+    return 1
+}
+
+claude_explicit_session_flag_present() {
+    local -a args=("$@")
+    local index=0
+    local arg
+    while (( index < ${#args[@]} )); do
+        arg="${args[$index]}"
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            --resume|--resume=*|-r|--session-id|--session-id=*|--continue|-c)
+                return 0
+                ;;
+            -*)
+                if [[ "$arg" != *=* ]]; then
+                    if claude_option_consumes_value "$arg" ||
+                       claude_unknown_option_should_skip_value_before_explicit_session_flag "$index" "${args[@]}"; then
+                        index=$((index + 2))
+                        continue
+                    fi
+                fi
+                ;;
+            *)
+                ;;
+        esac
+        index=$((index + 1))
+    done
+    return 1
+}
+
+reconcile_claude_config_dir_for_resume() {
+    local sid="$1"
+    [[ -n "$sid" && -n "${HOME:-}" ]] || return 0
+    # Only safe filename tokens (claude session ids are uuids); never glob-walk on
+    # path separators or dot segments.
+    case "$sid" in
+        *[!A-Za-z0-9._-]*|''|.|..) return 0 ;;
+    esac
+
+    local current_root="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+    cmux_claude_config_dir_has_session "$current_root" "$sid" && return 0
+
+    local root
+    for root in "$HOME/.claude" "$HOME"/.codex-accounts/claude/* "$HOME/.subrouter/codex/claude" "$HOME"/.subrouter/codex/claude/*; do
+        [[ "$root" == "$current_root" ]] && continue
+        if cmux_claude_config_dir_has_session "$root" "$sid"; then
+            export CLAUDE_CONFIG_DIR="$root"
+            return 0
+        fi
+    done
+}
+
 clear_inherited_claude_auth_selection_env() {
     if [[ "${IN_CMUX:-0}" == "1" ]]; then
         local key
@@ -215,7 +545,7 @@ exec_real_claude_passthrough() {
         done
         unset TERMINFO
     fi
-    exec "$REAL_CLAUDE" "$@"
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 }
 
 if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
@@ -224,8 +554,11 @@ if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
         unset CLAUDECODE
     fi
     clear_inherited_claude_auth_selection_env
+    if [[ "$IN_CMUX" == "1" ]]; then
+        reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
+    fi
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
-    exec "$REAL_CLAUDE" "$@"
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 fi
 
 if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
@@ -235,6 +568,9 @@ if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
         unset CLAUDECODE
     fi
     clear_inherited_claude_auth_selection_env
+    if [[ "$IN_CMUX" == "1" ]]; then
+        reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
+    fi
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     exec_real_claude_passthrough "$@"
 fi
@@ -341,6 +677,23 @@ normalize_node_options_for_restore() {
     fi
 }
 
+install_cmux_node_options() {
+    local guard_path
+    if guard_path="$(ensure_node_options_restore_module)"; then
+        if [[ ${NODE_OPTIONS+x} && "${NODE_OPTIONS:-}" == *"--require=$guard_path"* ]]; then
+            return 0
+        fi
+        if [[ ${NODE_OPTIONS+x} ]]; then
+            export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
+            export CMUX_ORIGINAL_NODE_OPTIONS="$(normalize_node_options_for_restore "$NODE_OPTIONS")"
+        else
+            export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
+            unset CMUX_ORIGINAL_NODE_OPTIONS
+        fi
+        export NODE_OPTIONS="$(merge_node_options "$guard_path")"
+    fi
+}
+
 encode_launch_argv() {
     {
         printf '%s\0' "$REAL_CLAUDE"
@@ -348,21 +701,6 @@ encode_launch_argv() {
             printf '%s\0' "$@"
         fi
     } | base64 | tr -d '\n'
-}
-
-claude_option_consumes_value() {
-    case "$1" in
-        --add-dir|--agent|--agents|--allowedTools|--allowed-tools|\
-        --append-system-prompt|--betas|--debug-file|--disallowedTools|\
-        --disallowed-tools|--effort|--fallback-model|--file|\
-        --input-format|--json-schema|--max-budget-usd|--mcp-config|\
-        --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
-        --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
-        --settings|--system-prompt|--tools)
-            return 0
-            ;;
-    esac
-    return 1
 }
 
 claude_interactive_entry_flag() {
@@ -445,6 +783,22 @@ should_inject_claude_hooks() {
     return 0
 }
 
+if (( cmux_claude_wrapper_reexec_hops > 0 )); then
+    # A previous wrapper pass already made the cmux launch decision and may have
+    # injected --session-id/--settings. While resolving a finite shim chain,
+    # refresh per-process hook metadata, then forward argv unchanged so hooks are
+    # not merged again on re-entry.
+    unset CLAUDECODE
+    clear_inherited_claude_auth_selection_env
+    export CMUX_CLAUDE_PID=$$
+    export CMUX_CLAUDE_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
+    export CMUX_AGENT_LAUNCH_KIND="claude"
+    export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
+    export CMUX_AGENT_LAUNCH_CWD="$PWD"
+    install_cmux_node_options
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
+fi
+
 # Only inject hooks for Claude session entrypoints. Command-like invocations
 # pass through so Claude subcommands do not receive session/hook flags.
 if ! should_inject_claude_hooks "$@"; then
@@ -460,14 +814,14 @@ clear_inherited_claude_auth_selection_env
 # Check if the user already specified a session/resume flag.
 # If so, don't inject our own --session-id (it would conflict).
 SKIP_SESSION_ID=false
-for arg in "$@"; do
-    case "$arg" in
-        --resume|--resume=*|-r|--session-id|--session-id=*|--continue|-c)
-            SKIP_SESSION_ID=true
-            break
-            ;;
-    esac
-done
+if claude_explicit_session_flag_present "$@"; then
+    SKIP_SESSION_ID=true
+fi
+
+# For an explicit `--resume <id>`, point CLAUDE_CONFIG_DIR at the config root that
+# actually holds the transcript so an inherited/foreign config dir cannot turn the
+# resume into "No conversation found". https://github.com/manaflow-ai/cmux/issues/6194
+reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
 
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
@@ -477,16 +831,7 @@ export CMUX_AGENT_LAUNCH_KIND="claude"
 export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
 export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
 export CMUX_AGENT_LAUNCH_CWD="$PWD"
-if GUARD_PATH="$(ensure_node_options_restore_module)"; then
-    if [[ ${NODE_OPTIONS+x} ]]; then
-        export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
-        export CMUX_ORIGINAL_NODE_OPTIONS="$(normalize_node_options_for_restore "$NODE_OPTIONS")"
-    else
-        export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
-        unset CMUX_ORIGINAL_NODE_OPTIONS
-    fi
-    export NODE_OPTIONS="$(merge_node_options "$GUARD_PATH")"
-fi
+install_cmux_node_options
 
 # Build Claude settings JSON.
 # Claude Code merges --settings additively with the user's own settings.json.
@@ -496,12 +841,17 @@ fi
 # - SessionEnd: cleanup when Claude exits (covers Ctrl+C where Stop doesn't fire)
 # - UserPromptSubmit: clears "Needs input" and sets "Running" on new prompt
 # - PreToolUse: rejects unsupported durable cron requests synchronously, then
-#   clears "Needs input" and captures AskUserQuestion text for notifications
-#   (async status only)
+#   (async) clears "Needs input" / sets "Running" for ordinary tools, and flags
+#   "Needs input" for the blocking AskUserQuestion / ExitPlanMode tools. With
+#   --dangerously-skip-permissions (permission_mode "bypassPermissions") Claude
+#   fires no PermissionRequest/Notification for those two, so the handler also
+#   publishes the full needs-input status + bell itself. See
+#   https://github.com/manaflow-ai/cmux/issues/6606
 # - PermissionRequest: cmux hooks feed. SYNC with a 125s timeout.
-#   This is Claude Code's native blocking decision hook. It covers
-#   permissions, ExitPlanMode, and AskUserQuestion without using
-#   PreToolUse denial as a side channel.
+#   This is Claude Code's native blocking decision hook. Outside
+#   bypassPermissions it covers permissions, ExitPlanMode, and AskUserQuestion
+#   without using PreToolUse denial as a side channel; under bypassPermissions it
+#   does not fire, and PreToolUse is the needs-input fallback (see above).
 # - SubagentStop: feed telemetry only. It must not run the visible Stop
 #   hook because a subagent finishing should not notify like the parent.
 # - Stop auto-name: opt-in AI workspace/tab naming. ASYNC with a long
@@ -510,9 +860,118 @@ fi
 #   no-op when the feature is disabled.
 HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude auto-name","timeout":120,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
 
+# Fold any user-provided --settings into HOOKS_JSON before launching.
+#
+# cmux injects its hook configuration via --settings. Passing it as a separate
+# flag alongside a user's own --settings is fragile: with two --settings on the
+# command line Claude Code reads only ONE of them (a pure replace, not a merge),
+# and which one is undocumented and has already changed across CLI versions --
+# first-wins on <=2.1.168 (the user's flag was dropped: the original #2816
+# symptom), last-wins on >=2.1.169 (the user's flag wins but cmux's hook
+# --settings is dropped, silently breaking cmux notifications/status). Either
+# way one side is lost. Deep-merge the user's settings into ours and pass a
+# SINGLE combined --settings so Claude Code never sees multiple --settings: hook
+# arrays are concatenated (so both cmux and user hooks run) and the user's other
+# keys win. This is precedence-agnostic -- it does not rely on the CLI's
+# multi-flag behavior. Requires `node`; if node is missing or the merge fails we
+# fall back to the previous behavior (no worse than before).
+CMUX_FILTERED_ARGS=()
+CMUX_USER_SETTINGS=()
+cmux_collect_settings_value=false
+cmux_pending_option_value=false
+cmux_positional_only=false
+for arg in "$@"; do
+    if [[ "$cmux_positional_only" == true ]]; then
+        CMUX_FILTERED_ARGS+=("$arg")
+        continue
+    fi
+    if [[ "$cmux_collect_settings_value" == true ]]; then
+        CMUX_USER_SETTINGS+=("$arg")
+        cmux_collect_settings_value=false
+        continue
+    fi
+    if [[ "$cmux_pending_option_value" == true ]]; then
+        CMUX_FILTERED_ARGS+=("$arg")
+        cmux_pending_option_value=false
+        continue
+    fi
+    case "$arg" in
+        --)
+            cmux_positional_only=true
+            CMUX_FILTERED_ARGS+=("$arg")
+            ;;
+        --settings)
+            cmux_collect_settings_value=true
+            ;;
+        --settings=*)
+            CMUX_USER_SETTINGS+=("${arg#--settings=}")
+            ;;
+        -*)
+            CMUX_FILTERED_ARGS+=("$arg")
+            if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
+                cmux_pending_option_value=true
+            fi
+            ;;
+        *)
+            CMUX_FILTERED_ARGS+=("$arg")
+            ;;
+    esac
+done
+if [[ "$cmux_collect_settings_value" == true ]]; then
+    # Dangling --settings with no value; keep it so the real CLI reports the error.
+    CMUX_FILTERED_ARGS+=("--settings")
+fi
+
+if (( ${#CMUX_USER_SETTINGS[@]} > 0 )) && command -v node >/dev/null 2>&1; then
+    CMUX_MERGED_SETTINGS="$(
+        CMUX_BASE_SETTINGS="$HOOKS_JSON" \
+        CMUX_USER_SETTINGS_B64="$(printf '%s\0' "${CMUX_USER_SETTINGS[@]}" | base64 | tr -d '\n')" \
+        node -e '
+const fs=require("fs"),os=require("os"),path=require("path");
+const isObj=x=>x&&typeof x==="object"&&!Array.isArray(x);
+const merge=(a,b)=>{
+  if(Array.isArray(a)&&Array.isArray(b))return a.concat(b);
+  if(isObj(a)&&isObj(b)){const o=Object.assign({},a);for(const k of Object.keys(b))o[k]=(k in a)?merge(a[k],b[k]):b[k];return o;}
+  // a is the cmux/base side; on a type mismatch keep the cmux container so a
+  // non-object/array user value (e.g. hooks:null or hooks:[]) cannot wipe the
+  // cmux hook object/event arrays. Scalars still let the user value (b) win.
+  if(isObj(a)||Array.isArray(a))return a;
+  return b;
+};
+const expand=p=>p.indexOf("~/")===0?path.join(os.homedir(),p.slice(2)):p;
+const load=v=>{const t=String(v).trim();return (t[0]==="{"||t[0]==="[")?JSON.parse(t):JSON.parse(fs.readFileSync(expand(t),"utf8"));};
+let acc=JSON.parse(process.env.CMUX_BASE_SETTINGS);
+const raw=Buffer.from(process.env.CMUX_USER_SETTINGS_B64||"","base64").toString("utf8");
+// split() leaves one trailing "" from printf terminating NUL; slice it off
+// rather than filtering all empties, so an explicit empty --settings= reaches
+// load("") -> JSON.parse throws -> merge fails loudly (warning + fallback)
+// instead of being silently dropped. The wrapper emits exactly one --settings,
+// so Claude Code never sees multiples; its multi-flag precedence (first-wins
+// <=2.1.168, last-wins >=2.1.169, undocumented) is irrelevant here. Among
+// repeated USER --settings, reverse() makes the earliest-listed value win the
+// scalar conflict (issue #2816).
+try{for(const it of raw.split("\0").slice(0,-1).reverse())acc=merge(acc,load(it));}
+catch(e){process.stderr.write("cmux: --settings merge error: "+((e&&e.message)||e)+"\n");process.exit(1);}
+process.stdout.write(JSON.stringify(acc));
+'
+    )"
+    cmux_merge_status=$?
+    if [[ $cmux_merge_status -eq 0 && -n "$CMUX_MERGED_SETTINGS" ]]; then
+        HOOKS_JSON="$CMUX_MERGED_SETTINGS"
+        set -- "${CMUX_FILTERED_ARGS[@]}"
+    else
+        # Merge failed: malformed JSON, an unreadable --settings file, or a node
+        # error. node has already written the specific cause to stderr; add a
+        # one-line summary so the user knows their --settings was dropped instead
+        # of silently falling back to the dual-flag behavior that #2816 fixes.
+        printf 'cmux: warning: --settings merge failed; your --settings was ignored\n' >&2
+    fi
+    unset CMUX_MERGED_SETTINGS cmux_merge_status
+fi
+
 if [[ "$SKIP_SESSION_ID" == true ]]; then
-    exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-    exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
 fi

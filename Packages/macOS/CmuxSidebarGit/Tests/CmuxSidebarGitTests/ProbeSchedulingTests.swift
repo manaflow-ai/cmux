@@ -22,6 +22,16 @@ import CmuxGit
         return service
     }
 
+    private func waitUntil(maxYields: Int = 5_000, _ predicate: () -> Bool) async -> Bool {
+        for _ in 0..<maxYields {
+            if predicate() {
+                return true
+            }
+            await Task.yield()
+        }
+        return predicate()
+    }
+
     /// The initial probe's retry offsets [0, 0.5, 1.5, 3, 6, 10] are absolute
     /// offsets from scheduling time, walked as sequential clock gaps. The
     /// reader gate stays closed so no snapshot applies mid-walk (an applied
@@ -88,7 +98,6 @@ import CmuxGit
             pullRequestProbing: pullRequestProbing
         )
 
-        let events = host.projectionEvents()
         service.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: workspaceId,
             panelId: panelId,
@@ -97,18 +106,152 @@ import CmuxGit
         await clock.waitForSleeper()
         await clock.resumeNext()
 
-        var sawBranch = false
-        for await event in events {
-            if case .gitBranch(workspaceId, panelId, "feature/x", true) = event {
-                sawBranch = true
-                break
+        #expect(await waitUntil {
+            host.events.contains { event in
+                if case .gitBranch(workspaceId, panelId, "feature/x", true) = event {
+                    return true
+                }
+                return false
             }
-        }
-        #expect(sawBranch)
+        })
         #expect(host.workspaces[0].state.panels[panelId]?.branch == SidebarPanelGitBranch(branch: "feature/x", isDirty: true))
         #expect(pullRequestProbing.scheduledRefreshes.contains {
             $0.workspaceId == workspaceId && $0.panelId == panelId && $0.reason == "localGitProbe"
         })
+    }
+
+    /// Reapplying the same branch from a filesystem-triggered git probe keeps
+    /// the sidebar branch fresh without forcing another PR refresh when that
+    /// panel is already tracked by the PR poller.
+    @Test(.timeLimit(.minutes(1)))
+    func knownBranchSnapshotDoesNotForceDuplicatePullRequestRefresh() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/x",
+            isDirty: false
+        )
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(metadata: .repository(branch: "feature/x", isDirty: true))
+        let pullRequestProbing = RecordingPullRequestProbing()
+        pullRequestProbing.trackedPanelIdsByWorkspace[workspaceId] = [panelId]
+        let service = makeService(
+            host: host,
+            reader: reader,
+            clock: clock,
+            pullRequestProbing: pullRequestProbing
+        )
+
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "filesystemEvent"
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+
+        #expect(await waitUntil {
+            host.events.contains { event in
+                if case .gitBranch = event { return true }
+                return false
+            }
+        })
+        #expect(host.workspaces[0].state.panels[panelId]?.branch == SidebarPanelGitBranch(
+            branch: "feature/x",
+            isDirty: true
+        ))
+        #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
+    }
+
+    /// Restored sessions can already have a branch projected before the first
+    /// local git probe runs. If the PR poller has no tracking state yet, that
+    /// same-branch snapshot must still seed one refresh.
+    @Test(.timeLimit(.minutes(1)))
+    func restoredKnownBranchSnapshotSeedsPullRequestRefreshWhenUntracked() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/x",
+            isDirty: false
+        )
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(metadata: .repository(branch: "feature/x", isDirty: false))
+        let pullRequestProbing = RecordingPullRequestProbing()
+        let service = makeService(
+            host: host,
+            reader: reader,
+            clock: clock,
+            pullRequestProbing: pullRequestProbing
+        )
+
+        service.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "restore"
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        #expect(await reader.waitForTrackedPathEventGenerationProbe())
+        #expect(await waitUntil { pullRequestProbing.scheduledRefreshes.count == 1 })
+
+        #expect(pullRequestProbing.scheduledRefreshes.count == 1)
+        let scheduledRefresh = try #require(pullRequestProbing.scheduledRefreshes.first)
+        #expect(scheduledRefresh.workspaceId == workspaceId)
+        #expect(scheduledRefresh.panelId == panelId)
+        #expect(scheduledRefresh.reason == "localGitProbe")
+    }
+
+    /// A filesystem event that arrives while a probe is already in flight is a
+    /// freshness signal independent of whether the stale snapshot changes
+    /// visible sidebar state. It should coalesce to one follow-up probe.
+    @Test(.timeLimit(.minutes(1)))
+    func inFlightFilesystemEventChainsOneProbeRerun() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/x",
+            isDirty: true
+        )
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(
+            metadata: .repository(branch: "feature/x", isDirty: true),
+            gated: true
+        )
+        let service = makeService(host: host, reader: reader, clock: clock)
+
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "filesystemEvent"
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        #expect(await reader.waitForTrackedPathEventGenerationProbe())
+
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "filesystemEvent"
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        #expect(await waitUntil { service.workspaceGitProbeRerunPending(for: key) })
+        #expect(service.workspaceGitProbeRerunPending(for: key))
+        await reader.openGate()
+
+        for _ in 0..<500 {
+            let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
+            if immediateProbeSleeps >= 3 { break }
+            await Task.yield()
+        }
+        let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
+
+        #expect(immediateProbeSleeps == 3)
+        service.clearWorkspaceGitProbes(workspaceId: workspaceId)
     }
 
     /// With PR polling disabled, a branch probe does not touch the PR seam.
@@ -125,7 +268,6 @@ import CmuxGit
             pullRequestProbing: pullRequestProbing
         )
 
-        let events = host.projectionEvents()
         service.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: workspaceId,
             panelId: panelId,
@@ -134,15 +276,19 @@ import CmuxGit
         await clock.waitForSleeper()
         await clock.resumeNext()
 
-        for await event in events {
-            if case .gitBranch = event { break }
-        }
+        #expect(await waitUntil {
+            host.events.contains { event in
+                if case .gitBranch = event { return true }
+                return false
+            }
+        })
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
     }
 
     /// A probe whose panel directory changes while the snapshot is in flight
     /// is dropped: no projection lands for the stale directory.
-    @Test func directoryChangeWhileProbeInFlightDropsTheApply() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func directoryChangeWhileProbeInFlightDropsTheApply() async throws {
         let host = RecordingSidebarGitHost()
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/old")
         let clock = ManualGitPollClock()
@@ -162,16 +308,14 @@ import CmuxGit
 
         // Wait until the snapshot probe has started reading, then move the
         // panel to a different directory before letting the read finish.
-        while await reader.probedDirectories.isEmpty {
-            await Task.yield()
-        }
+        #expect(await reader.waitForTrackedPathEventGenerationProbe())
         host.workspaces[0].state.panels[panelId]?.directory = "/tmp/new"
         await reader.openGate()
 
         // The stale apply must clear the probe rather than project "main".
-        while !service.activeWorkspaceGitProbePanelIds(workspaceId: workspaceId).isEmpty {
-            await Task.yield()
-        }
+        #expect(await waitUntil {
+            service.activeWorkspaceGitProbePanelIds(workspaceId: workspaceId).isEmpty
+        })
         #expect(host.workspaces[0].state.panels[panelId]?.branch == nil)
         #expect(!host.events.contains { event in
             if case .gitBranch = event { return true }

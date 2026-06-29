@@ -39,6 +39,7 @@ private struct SidebarObservationState: Equatable {
     let remoteConnectionDetail: String?
     let activeRemoteTerminalSessionCount: Int
     let listeningPorts: [Int]
+    let browserMediaActivity: BrowserMediaActivity
 }
 
 extension Workspace {
@@ -106,7 +107,8 @@ extension Workspace {
             remoteFields
         )
             .combineLatest($listeningPorts)
-            .map { groupedFields, listeningPorts in
+            .compactMap { [weak self] groupedFields, listeningPorts -> SidebarObservationState? in
+                guard let self else { return nil }
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
                 let gitFields = groupedFields.2
@@ -128,7 +130,8 @@ extension Workspace {
                     remoteConnectionState: remoteFields.1,
                     remoteConnectionDetail: remoteFields.2,
                     activeRemoteTerminalSessionCount: remoteFields.3,
-                    listeningPorts: listeningPorts
+                    listeningPorts: listeningPorts,
+                    browserMediaActivity: self.browserMediaActivity
                 )
             }
             .removeDuplicates()

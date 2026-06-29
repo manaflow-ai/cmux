@@ -92,6 +92,8 @@
 - **ネイティブmacOSアプリ** — SwiftとAppKitで構築、Electronではありません。高速起動、低メモリ消費。
 - **Ghostty互換** — 既存の`~/.config/ghostty/config`からテーマ、フォント、カラーを読み込み
 - **GPU高速化** — libghosttyによるスムーズなレンダリング
+- **キーボードショートカット** — ワークスペース、分割、ブラウザなどのための[豊富なショートカット](https://cmux.com/docs/keyboard-shortcuts)
+- **オープンソース** — 無料、GPLライセンス
 
 ## インストール
 
@@ -157,7 +159,10 @@ cmuxの設定方法の詳細は、[ドキュメントをご覧ください](http
 | ⌃ ⌘ [ | 前のワークスペース |
 | ⌘ ⇧ W | ワークスペースを閉じる |
 | ⌘ ⇧ R | ワークスペースの名前を変更 |
+| ⌥ ⌘ E | ワークスペースの説明を編集 |
 | ⌘ B | サイドバーの表示切替 |
+| ⌥ ⌘ B | 右サイドバーの表示切替 |
+| ⌘ ⇧ E | 右サイドバーのフォーカス切替 |
 
 ### サーフェス
 
@@ -184,6 +189,7 @@ cmuxの設定方法の詳細は、[ドキュメントをご覧ください](http
 ### ブラウザ
 
 ブラウザの開発者ツールのショートカットはSafariのデフォルトに従い、`設定 → キーボードショートカット`でカスタマイズできます。
+⌃ P を含むコマンドパレットのナビゲーションショートカットもカスタマイズ可能で、クリアしてキー入力をアクティブなターミナルに届かせることもできます。
 
 | ショートカット | アクション |
 |----------|--------|
@@ -201,14 +207,17 @@ cmuxの設定方法の詳細は、[ドキュメントをご覧ください](http
 |----------|--------|
 | ⌘ I | 通知パネルを表示 |
 | ⌘ ⇧ U | 最新の未読にジャンプ |
+| ⌥ ⌘ U | 現在の項目の未読状態を切替 |
+| ⌃ ⌘ U | 現在の項目を最も古い未読としてマークし、次の最新の未読にジャンプ |
 
 ### 検索
 
 | ショートカット | アクション |
 |----------|--------|
 | ⌘ F | 検索 |
-| ⌘ G / ⌘ ⇧ G | 次を検索 / 前を検索 |
-| ⌘ ⇧ F | 検索バーを非表示 |
+| ⌘ ⇧ F | ディレクトリ内を検索 |
+| ⌘ G / ⌥ ⌘ G | 次を検索 / 前を検索 |
+| ⌥ ⌘ ⇧ F | 検索バーを非表示 |
 | ⌘ E | 選択範囲で検索 |
 
 ### ターミナル
@@ -226,6 +235,7 @@ cmuxの設定方法の詳細は、[ドキュメントをご覧ください](http
 | ショートカット | アクション |
 |----------|--------|
 | ⌘ ⇧ N | 新規ウィンドウ |
+| ⌘ ⇧ O | 前のセッションを再度開く |
 | ⌘ , | 設定 |
 | ⌘ ⇧ , | 設定を再読み込み |
 | ⌘ Q | 終了 |
@@ -235,6 +245,8 @@ cmuxの設定方法の詳細は、[ドキュメントをご覧ください](http
 [cmux NIGHTLYをダウンロード](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
 
 cmux NIGHTLYは独自のバンドルIDを持つ別のアプリなので、安定版と並行して実行できます。最新の`main`コミットから自動的にビルドされ、独自のSparkleフィード経由で自動更新されます。
+
+ナイトリーのバグは[GitHub Issues](https://github.com/manaflow-ai/cmux/issues)または[Discordの#nightly-bugs](https://discord.gg/xsgFEVrWCZ)で報告してください。
 
 ## セッション復元
 
@@ -246,13 +258,15 @@ cmux NIGHTLYは独自のバンドルIDを持つ別のアプリなので、安定
 
 cmuxは任意のライブプロセス状態をチェックポイントしません。tmux、vim、シェル、未対応のターミナルアプリは通常のターミナルとして再度開きます。
 
-対応エージェントは、フックがネイティブセッションIDを保存している場合に復元できます：
+対応エージェントのセッションは、フックがネイティブセッションIDを保存している場合に復元できます。エージェントのバイナリが`PATH`に乗るよう、エージェントCLIをインストールした後にフックをインストールしてください：
 
 ```bash
 cmux hooks setup
 cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
+
+`cmux hooks setup`は見つかった対応エージェントをインストールし、スキップしたエージェントのサマリーを表示します。対応する復元連携には、Claude Code、Codex、Grok、OpenCode、Pi、Amp、Cursor CLI、Gemini、Rovo Dev、Copilot、CodeBuddy、Factory、Qoderが含まれます。Claude Codeは、設定でClaude連携が有効な場合、cmuxのClaudeラッパーが処理します。
 
 上級ユーザーや連携機能は、現在のターミナルサーフェスにカスタム復元コマンドを紐づけられます。tmuxセッションやカスタムエージェントCLIのように、独自の永続状態を持つツールに使います：
 
@@ -262,7 +276,98 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-この紐づけはcmuxサーフェスに保存されます。公開CLIやsocketで作成された紐づけは確認と手動復元用に保存されます。cmuxが自動実行するのは、実行中プロセスから検出したtmux紐づけなど、信頼済みとして扱う復元紐づけだけです。 トークン、パスワード、シークレット、APIキーなどの機密環境変数キーは、復元紐づけを保存する前に破棄されます。
+この紐づけはcmuxサーフェスに保存され続けます。公開CLIやsocketで作成された紐づけは、署名済みのコマンドプレフィックスを自動復元用に承認しない限り、確認と手動復元用に保存されます。承認済みプレフィックスは、存在する場合、作業ディレクトリと正確な環境変数の値にも紐づけられます。承認の確認や編集は**設定 > ターミナル > 復元コマンド**で行えます。cmuxが自動実行するのは、実行中プロセスから検出したtmux紐づけやユーザーが承認したプレフィックスなど、信頼済みとして扱う復元紐づけだけです。トークン、パスワード、シークレット、APIキーなどの機密環境変数キーは、復元紐づけを保存する前に破棄されます。
+
+復元されたエージェントターミナルの復元コマンドを自動実行せずアイドル状態にしておきたい場合は、**設定 > ターミナル > 再オープン時にエージェントセッションを復元**をオフにするか、`~/.config/cmux/cmux.json`に次を設定してください：
+
+```json
+{
+  "terminal": {
+    "autoResumeAgentSessions": false
+  }
+}
+```
+
+これはエージェントの自動復元コマンドのみを無効にします。cmuxは引き続き、保存されたレイアウト、作業ディレクトリ、スクロールバック、ブラウザ履歴を復元します。
+
+最後に保存したスナップショットを手動で再適用する必要がある場合は、次を使用してください：
+- `ファイル > 前のセッションを再度開く`
+- `⌘ ⇧ O`
+- `cmux restore-session`
+
+内部的には、cmuxは`~/Library/Application Support/cmux/`の下にバージョン管理されたスナップショットを書き込み、エージェントフックは`~/.cmuxterm/`の下にセッションマッピングを書き込みます。復元時、cmuxはまずレイアウトを再構築し、その後、自動エージェント復元が有効な場合に対応エージェントのネイティブ復元コマンドを実行します。
+
+完全なガイドは<https://cmux.com/docs/session-restore>でご覧ください。
+
+## FAQ
+
+### cmuxはGhosttyとどう関係していますか？
+
+cmuxはGhosttyのフォークではありません。アプリがWebビューにWebKitを使うのと同じように、ターミナルレンダリングのライブラリとして[libghostty](https://github.com/ghostty-org/ghostty)を使用しています。Ghosttyはスタンドアロンのターミナルで、cmuxはそのレンダリングエンジンの上に構築された別のアプリです。
+
+### どのプラットフォームに対応していますか？
+
+今のところmacOSのみです。cmuxはネイティブのSwift + AppKitアプリです。
+
+### iOSアプリはありますか？
+
+はい、ベータ版があります。Mobile ConnectウィンドウからiPhoneをMacとペアリングし、スマホからターミナルにアタッチできます。ターミナル通知の転送もオプションで可能です。TestFlightでcmux BETAとして配信されています。[iOSドキュメント](https://cmux.com/docs/ios)をご覧ください。
+
+### cmuxはどのコーディングエージェントで動作しますか？
+
+すべてです。cmuxはターミナルなので、ターミナルで動くエージェントはそのまま動作します：Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent、そしてコマンドラインから起動できるものは何でも。
+
+### cmuxは複数のエージェントやサブエージェントをオーケストレーションできますか？
+
+はい。エージェントがサブエージェントやチームメイトを生成すると、cmuxはそれらを隠れたバックグラウンドプロセスではなくネイティブのペインや分割に変えます。[Claude Code teams](https://cmux.com/docs/agent-integrations/claude-code-teams)や[oh-my-opencode](https://cmux.com/docs/agent-integrations/oh-my-opencode)のマルチモデルオーケストレーションに対応しているので、実行中のすべてのエージェントが可視化され、制御可能です。
+
+### リモートマシンでcmuxを使えますか？
+
+はい。SSHでワークスペースを開き、リモートのtmuxセッションにアタッチできるので、リモートホストでエージェントを実行しながらcmuxから操作できます。[SSHとリモート](https://cmux.com/docs/ssh)をご覧ください。
+
+### 通知はどのように機能しますか？
+
+プロセスが注意を必要とするとき、cmuxはペイン周りの通知リング、サイドバーの未読バッジ、通知ポップオーバー、macOSのデスクトップ通知を表示します。これらは標準的なターミナルエスケープシーケンス（OSC 9/99/777）を介して自動的に発火するほか、[cmux CLI](https://cmux.com/docs/notifications#cli-usage)や[エージェントフック](https://cmux.com/docs/notifications#integration-examples)でトリガーすることもできます。Claude Code、Codex、OpenCode、piを含め、フックやOSCに対応するエージェントは何でも動作します。
+
+### cmuxはプログラマブルですか？
+
+はい。すべてのアクションがcmux CLIとUnixソケットを通じて利用できます：ワークスペースの作成、分割ペインのオープン、入力の送信、画面内容の読み取り、スクリーンショットの取得、そしてアプリ内ブラウザの操作。[CLIリファレンス](https://cmux.com/docs/api)と[ブラウザ自動化](https://cmux.com/docs/browser-automation)のドキュメントをご覧ください。
+
+### 内蔵ブラウザで何ができますか？
+
+cmuxはターミナルの横に本物のブラウザペインを分割でき、完全にプログラマブルです：ナビゲート、DOMのスナップショット、クリック、入力、JavaScriptの評価、そして同じソケットAPIでコンソールとネットワークアクティビティの読み取り。エージェントはこれを使って、cmuxを離れることなく自分のWeb変更を検証します。[ブラウザ自動化](https://cmux.com/docs/browser-automation)をご覧ください。
+
+### cmuxにはスキルがありますか？
+
+はい。スキルは、CLI制御、ワークスペース自動化、設定、ブラウザサーフェスなどのために、cmuxで動くあらゆるエージェントに与えられる再利用可能なワークフローです。オープンなコレクションは[cmux-skills](https://github.com/manaflow-ai/cmux-skills)で閲覧するか、[スキルのドキュメント](https://cmux.com/docs/skills)をご覧ください。
+
+### キーボードショートカットをカスタマイズできますか？
+
+ターミナルのキーバインドはGhostty設定ファイル（`~/.config/ghostty/config`）から読み込まれます。cmux固有のショートカット（ワークスペース、分割、ブラウザ、通知）は設定でカスタマイズできます。全リストは[デフォルトショートカット](https://cmux.com/docs/keyboard-shortcuts)をご覧ください。
+
+### cmuxをカスタマイズできますか？
+
+はい。ターミナルレンダリングはGhostty設定を使うので、テーマ、フォント、カラー、カーソルがそのまま引き継がれます。`~/.config/cmux/cmux.json`にあるcmux独自の設定でサイドバー、タブバー、分割ペイン、挙動を制御でき、すべての[キーボードショートカット](https://cmux.com/docs/keyboard-shortcuts)が編集可能です。[設定](https://cmux.com/docs/configuration)をご覧ください。
+
+### セッションは保存されますか？
+
+はい。cmuxは再起動時にウィンドウ、ワークスペース、ペイン、作業ディレクトリ、スクロールバックを復元し、その状態はアプリを終了しただけでなくコンピューターの完全な再起動でも維持されます。Claude Code、Codex、OpenCodeなどのエージェントセッションも復帰します。[セッション復元](https://cmux.com/docs/session-restore)をご覧ください。
+
+### tmuxと比べてどうですか？
+
+tmuxは任意のターミナル内で動くターミナルマルチプレクサです。cmuxはGUIを備えたネイティブmacOSアプリで、縦タブ、分割ペイン、組み込みブラウザ、ソケットAPIがすべて内蔵されており、設定ファイルやプレフィックスキーは不要です。とはいえ、多くの人がcmuxをSSHやtmuxと一緒に問題なく使っており、cmuxはリモートのtmuxセッションにネイティブでアタッチできます（[ベータ](https://cmux.com/docs/remote-tmux)）。
+
+### cmuxは無料ですか？
+
+はい、cmuxは無料で使えます。ソースコードは[GitHub](https://github.com/manaflow-ai/cmux)で公開されています。
+
+### cmuxをどうやって支援できますか？
+
+cmuxは無料でオープンソースであり、今後もそうあり続けます。開発を後押しし、cmux AI、iOSアプリ、Cloud VMsなど次に来るものへの早期アクセスを得たい方は、[cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)をご覧ください。
+
+### 機能リクエストがある、またはバグを見つけました？
+
+ぜひお聞かせください。GitHubで[issue](https://github.com/manaflow-ai/cmux/issues)や[プルリクエスト](https://github.com/manaflow-ai/cmux/pulls)を開くか、[メールでご連絡ください](mailto:founders@manaflow.com?subject=cmux%20feature%20request)。
 
 ## Star History
 

@@ -1,5 +1,5 @@
 import CMUXMobileCore
-import CmuxTerminalEngine
+import CmuxTerminal
 import Foundation
 
 /// Pushes terminal render events only while a mobile client is actively subscribed.

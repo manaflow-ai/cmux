@@ -16,6 +16,8 @@ extension TerminalControllerSocketSecurityTests {
         let windowId = UUID()
         let tabManager = TabManager()
         let fileExplorerState = FileExplorerState()
+        fileExplorerState.setVisible(false)
+        fileExplorerState.mode = .files
 
         appDelegate.fileExplorerState = fileExplorerState
         appDelegate.registerMainWindowContextForTesting(
@@ -57,6 +59,52 @@ extension TerminalControllerSocketSecurityTests {
         #expect(modePayload["mode"] as? String == "sessions")
 
         #expect(TerminalController.shared.handleSocketLine("right_sidebar set unknown").hasPrefix("ERROR:"))
+    }
+
+    @Test func v1CommandsRejectCustomSidebarNames() throws {
+        let name = "__cmux_test_sidebar_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        try withTemporaryCustomSidebarsDirectory { directory in
+            let fileURL = directory.appendingPathComponent("\(name).swift")
+            try #"Text("Custom")"#.write(to: fileURL, atomically: true, encoding: .utf8)
+
+            let customSidebarsDefaultsKey = "customSidebars.beta.enabled"
+            let previousCustomSidebars = UserDefaults.standard.object(forKey: customSidebarsDefaultsKey)
+            UserDefaults.standard.set(true, forKey: customSidebarsDefaultsKey)
+            defer {
+                if let previousCustomSidebars {
+                    UserDefaults.standard.set(previousCustomSidebars, forKey: customSidebarsDefaultsKey)
+                } else {
+                    UserDefaults.standard.removeObject(forKey: customSidebarsDefaultsKey)
+                }
+            }
+
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            defer { AppDelegate.shared = previousAppDelegate }
+
+            let windowId = UUID()
+            let tabManager = TabManager()
+            let fileExplorerState = FileExplorerState()
+
+            appDelegate.fileExplorerState = fileExplorerState
+            appDelegate.registerMainWindowContextForTesting(
+                windowId: windowId,
+                tabManager: tabManager,
+                fileExplorerState: fileExplorerState
+            )
+            defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+            #expect(TerminalController.shared.handleSocketLine("right_sidebar set \(name) --no-focus").hasPrefix("ERROR:"))
+            #expect(!fileExplorerState.isVisible)
+            #expect(fileExplorerState.mode == .files)
+            #expect(fileExplorerState.customSidebarName != name)
+
+            let modeResponse = TerminalController.shared.handleSocketLine("right_sidebar mode")
+            let modeData = try #require(modeResponse.data(using: .utf8))
+            let modePayload = try #require(JSONSerialization.jsonObject(with: modeData) as? [String: Any])
+            #expect(modePayload["visible"] as? Bool == false)
+            #expect(modePayload["mode"] as? String == "files")
+        }
     }
 
     @Test func v1ParserProducesRemoteCommands() throws {
@@ -237,7 +285,7 @@ extension TerminalControllerSocketSecurityTests {
         #expect(appDelegate.applyRightSidebarRemoteCommand(
             .getState,
             target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
-        ) == .state(.init(visible: false, mode: .sessions)))
+        ) == .state(.init(visible: false, modeRawValue: "sessions")))
 
         switch appDelegate.applyRightSidebarRemoteCommand(
             .getState,
@@ -257,6 +305,18 @@ extension TerminalControllerSocketSecurityTests {
             #expect(message.contains("target not found"), Comment(rawValue: message))
         case .ok, .state:
             Issue.record("Expected missing workspace target to fail")
+        }
+    }
+
+    private func withTemporaryCustomSidebarsDirectory<T>(_ body: (URL) throws -> T) throws -> T {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebars-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        return try CmuxExtensionSidebarSelection.withCustomSidebarsDirectoryForTesting(directory) {
+            try body(directory)
         }
     }
 }

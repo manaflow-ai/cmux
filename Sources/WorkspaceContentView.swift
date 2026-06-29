@@ -1,9 +1,10 @@
 import SwiftUI
 import Foundation
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import Bonsplit
-import CmuxWorkspaceWindow
+import CmuxWorkspaces
 import CmuxTerminal
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
@@ -120,8 +121,15 @@ struct WorkspaceContentView: View {
     @ObservedObject var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
+    /// True when the right sidebar (Dock / Files / Find) owns keyboard focus in
+    /// this window. The main pane dims its focus ring while this is true so main
+    /// and Dock focus are mutually exclusive. Does not affect input-activeness
+    /// (`isWorkspaceInputActive`) or drag interactivity — only the visual/active
+    /// focus state — so the terminal stays visible (via `isSelectedInPane`).
+    var rightSidebarOwnsInputFocus: Bool = false
     let isFullScreen: Bool
     let workspacePortalPriority: Int
+    let windowAppearance: WindowAppearanceSnapshot
     let onThemeRefreshRequest: ((
         _ reason: String,
         _ backgroundEventId: UInt64?,
@@ -136,9 +144,7 @@ struct WorkspaceContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
-    private var isMinimalMode: Bool {
-        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
-    }
+    private var isMinimalMode: Bool { WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal }
 
     static func panelVisibleInUI(
         isWorkspaceVisible: Bool,
@@ -180,12 +186,20 @@ struct WorkspaceContentView: View {
             // Content for each tab in bonsplit
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
             if let panel = workspace.panel(for: tab.id) {
-                let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
+                // Un-gated "is this the workspace's focused panel". Used for the
+                // visibility fallback so the focused panel stays rendered during
+                // transient Bonsplit selection churn (selected=false) EVEN while
+                // the right sidebar owns focus — gating this would reintroduce
+                // blank frames.
+                let isFocusedPanel = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
+                // Gated focus for the ring/active state only: the main pane yields
+                // its focus ring while the right sidebar (Dock) owns focus.
+                let isFocused = isFocusedPanel && !rightSidebarOwnsInputFocus
                 let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
                 let isVisibleInUI = Self.panelVisibleInUI(
                     isWorkspaceVisible: isWorkspaceVisible,
                     isSelectedInPane: isSelectedInPane,
-                    isFocused: isFocused
+                    isFocused: isFocusedPanel
                 )
                 let showsNotificationRing = Workspace.shouldShowUnreadIndicator(
                     hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
@@ -225,7 +239,7 @@ struct WorkspaceContentView: View {
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
                         isSplit: isSplit,
-                        appearance: appearance,
+                        appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,
                         hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
                         terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
                         onFocus: {
@@ -343,7 +357,7 @@ struct WorkspaceContentView: View {
                     isWorkspaceVisible: isWorkspaceVisible,
                     isWorkspaceInputActive: isWorkspaceInputActive,
                     portalPriority: workspacePortalPriority,
-                    appearance: appearance
+                    appearance: appearance, windowAppearance: windowAppearance
                 )
             } else {
                 bonsplitView
@@ -689,7 +703,7 @@ struct EmptyPanelView: View {
 
         var body: some View {
             Text(text)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .cmuxFont(size: 11, weight: .semibold, design: .rounded)
                 .foregroundStyle(.white.opacity(0.9))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
@@ -757,11 +771,11 @@ struct EmptyPanelView: View {
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "terminal.fill")
-                .font(.system(size: 48))
+                .cmuxFont(size: 48)
                 .foregroundStyle(.tertiary)
 
-            Text("Empty Panel")
-                .font(.headline)
+            Text(String(localized: "emptyPanel.title", defaultValue: "Empty Panel"))
+                .cmuxFont(.headline)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {

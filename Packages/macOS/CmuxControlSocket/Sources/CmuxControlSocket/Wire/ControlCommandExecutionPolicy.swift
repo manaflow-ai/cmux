@@ -63,6 +63,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
+        // `mobile.terminal.set_font` only validates params and emits a
+        // `terminal.set_font` push event via thread-safe MobileHostService
+        // statics (no main-actor UI access), so it runs on the socket worker
+        // like the other mobile data-plane verbs. Without this entry the policy
+        // routes it to the main-actor processV2Command switch, which lacks the
+        // case, and the control socket returns method_not_found.
+        "mobile.terminal.set_font",
         "system.top",
         "system.memory",
         // `workspace.env` is a read that resolves a workspace and copies its
@@ -83,19 +90,20 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",
+        "sidebar.custom.open",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via
         // v2MainSync). Running on .mainActor would deadlock the UI for the
         // entire simulation, defeating the profiling workload.
         "debug.sidebar.simulate_drag",
-        // Browser methods that evaluate page JavaScript (or wait on it) run on
-        // the socket worker: on the main actor they block SwiftUI updates for
-        // their full duration, and on a not-yet-mounted webview that is a
-        // starvation deadlock (the JS can't run until SwiftUI mounts the
-        // webview, which can't happen while the handler holds the main
-        // thread). UI/model access inside the handlers stays on main via
-        // v2MainSync.
+        // Browser automation methods that wait on page JavaScript, WebKit
+        // cookies, or capture callbacks run on the socket worker: on the main
+        // actor they block SwiftUI updates for their full duration, and on a
+        // not-yet-mounted webview that is a starvation deadlock (the JS can't
+        // run until SwiftUI mounts the webview, which can't happen while the
+        // handler holds the main thread). UI/model access inside the handlers
+        // stays on main via v2MainSync.
         "browser.navigate",
         "browser.back",
         "browser.forward",
@@ -138,6 +146,24 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.find.last",
         "browser.find.nth",
         "browser.highlight",
+        "browser.screenshot",
+        "browser.frame.select",
+        "browser.dialog.accept",
+        "browser.dialog.dismiss",
+        "browser.cookies.get",
+        "browser.cookies.set",
+        "browser.cookies.clear",
+        "browser.storage.get",
+        "browser.storage.set",
+        "browser.storage.clear",
+        "browser.console.list",
+        "browser.console.clear",
+        "browser.errors.list",
+        "browser.state.save",
+        "browser.state.load",
+        "browser.addinitscript",
+        "browser.addscript",
+        "browser.addstyle",
     ]
 
     /// Socket-worker methods that are also safe to invoke from the main

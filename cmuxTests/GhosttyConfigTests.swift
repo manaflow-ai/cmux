@@ -1,15 +1,13 @@
 @preconcurrency import XCTest
+import CmuxAppKitSupportUI
 import CmuxSettings
 import CmuxBrowser
-import CmuxBrowserImport
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
 import CmuxRemoteWorkspace
-import CmuxSocketControl
 import CmuxFoundation
 import AppKit
-import CmuxFoundation
 import Combine
 import CoreText
 import WebKit
@@ -1466,7 +1464,7 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
             return
         }
 
-        let color = WindowChromeSeparatorColor.color(forChromeBackground: backgroundColor)
+        let color = WindowChromeColorResolver().separatorColor(forChromeBackground: backgroundColor)
         let rgba = rgbaComponents(color)
 
         XCTAssertEqual(rgba.red, CGFloat(39.0 / 255.0) + CGFloat(0.16), accuracy: 0.0001)
@@ -1481,7 +1479,7 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
             return
         }
 
-        let color = WindowChromeSeparatorColor.color(forChromeBackground: backgroundColor)
+        let color = WindowChromeColorResolver().separatorColor(forChromeBackground: backgroundColor)
         let rgba = rgbaComponents(color)
 
         XCTAssertEqual(rgba.red, CGFloat(253.0 / 255.0) - CGFloat(0.12), accuracy: 0.0001)
@@ -3003,6 +3001,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
     }
 }
 
+@MainActor
 final class NotificationBurstCoalescerTests: XCTestCase {
     func testSignalsInSameBurstFlushOnce() {
         let coalescer = NotificationBurstCoalescer(delay: 0.01)
@@ -3010,12 +3009,10 @@ final class NotificationBurstCoalescerTests: XCTestCase {
         expectation.expectedFulfillmentCount = 1
         var flushCount = 0
 
-        DispatchQueue.main.async {
-            for _ in 0..<8 {
-                coalescer.signal {
-                    flushCount += 1
-                    expectation.fulfill()
-                }
+        for _ in 0..<8 {
+            coalescer.signal {
+                flushCount += 1
+                expectation.fulfill()
             }
         }
 
@@ -3028,14 +3025,12 @@ final class NotificationBurstCoalescerTests: XCTestCase {
         let expectation = expectation(description: "latest action flushed")
         var value = 0
 
-        DispatchQueue.main.async {
-            coalescer.signal {
-                value = 1
-            }
-            coalescer.signal {
-                value = 2
-                expectation.fulfill()
-            }
+        coalescer.signal {
+            value = 1
+        }
+        coalescer.signal {
+            value = 2
+            expectation.fulfill()
         }
 
         wait(for: [expectation], timeout: 1.0)
@@ -3048,12 +3043,12 @@ final class NotificationBurstCoalescerTests: XCTestCase {
         expectation.expectedFulfillmentCount = 2
         var flushCount = 0
 
-        DispatchQueue.main.async {
-            coalescer.signal {
-                flushCount += 1
-                expectation.fulfill()
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        coalescer.signal {
+            flushCount += 1
+            expectation.fulfill()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            MainActor.assumeIsolated {
                 coalescer.signal {
                     flushCount += 1
                     expectation.fulfill()
@@ -6003,7 +5998,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
                 return nil
             },
             applicationSearchDirectories: []
-        
+
         ).detectInstalledBrowsers()
 
         guard let chrome = detected.first(where: { $0.descriptor.id == "google-chrome" }) else {
@@ -6028,7 +6023,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
-        
+
         ).detectInstalledBrowsers()
 
         XCTAssertTrue(detected.isEmpty)
@@ -6048,7 +6043,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
-        
+
         ).detectInstalledBrowsers()
 
         XCTAssertTrue(detected.contains(where: { $0.descriptor.id == "chromium" }))
@@ -6092,7 +6087,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
-        
+
         ).detectInstalledBrowsers()
 
         guard let helium = detected.first(where: { $0.descriptor.id == "helium" }) else {
@@ -6133,7 +6128,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
-        
+
         ).detectInstalledBrowsers()
 
         guard let safari = detected.first(where: { $0.descriptor.id == "safari" }) else {

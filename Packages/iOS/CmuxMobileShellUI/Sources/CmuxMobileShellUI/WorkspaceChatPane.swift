@@ -4,7 +4,10 @@ import CmuxAgentChatUI
 import CmuxMobileBrowser
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
+import CmuxMobileTerminal
 import SwiftUI
+import UIKit
 
 /// The agent chat rendered inline in the workspace detail, in place of the
 /// terminal, when chat mode is toggled on. There is no cover and no Done
@@ -27,6 +30,8 @@ struct WorkspaceChatPane: View {
     @Environment(BrowserSurfaceStore.self) private var browserStore
 
     @State private var conversation: ChatConversationStore?
+    @State private var accessoryConfiguration = TerminalAccessoryConfiguration.shared
+    @State private var isShowingShortcutSettings = false
     /// Full content width, used to bound the toolbar-principal header so a long
     /// workspace name truncates in the center instead of overflowing under the
     /// back button / trailing toolbar buttons.
@@ -38,6 +43,8 @@ struct WorkspaceChatPane: View {
                 ChatScreen(
                     store: conversation,
                     draft: $draft,
+                    accessoryLeadingShortcuts: chatAccessoryLeadingShortcuts(),
+                    accessoryShortcuts: chatAccessoryShortcuts(for: conversation),
                     providesOwnChrome: false,
                     onOpenTerminal: openTerminal
                 )
@@ -55,13 +62,19 @@ struct WorkspaceChatPane: View {
                             titleOverride: workspaceName,
                             subtitle: tabName
                         )
-                        // The principal item is screen-centered and does not
-                        // reserve space for the back button + 3 trailing
-                        // toolbar buttons, so an unbounded long title overflows
-                        // under them. Bound it to the clear center gap (reserve
-                        // ~300pt for both bar-button clusters + margins) so the
-                        // name truncates instead of underlapping the toolbar.
-                        .frame(maxWidth: contentWidth > 0 ? max(96, contentWidth - 300) : 180)
+                        // Centered principal item: cap it to the clear center gap
+                        // so a long workspace name truncates instead of
+                        // underlapping the toolbar. The chat view always shows the
+                        // chat toggle in its trailing cluster. Reserve only the
+                        // real side clusters so the middle grows as much as it can.
+                        .frame(maxWidth: MobileNavTitleWidth.cap(
+                            contentWidth: contentWidth,
+                            hasChatToggle: true
+                        ))
+                        // The header bar is cleared on iOS 26 so the transcript
+                        // shows through it; back the header on its own Liquid
+                        // Glass pill so it stays readable over the messages.
+                        .mobileGlassNavigationTitle()
                     }
                 }
             } else {
@@ -77,6 +90,9 @@ struct WorkspaceChatPane: View {
                     ChatConversationStore(descriptor: session, source: $0)
                 }
             }
+        }
+        .sheet(isPresented: $isShowingShortcutSettings) {
+            TerminalShortcutsSettingsView(scope: .agentChat)
         }
     }
 
@@ -98,6 +114,124 @@ struct WorkspaceChatPane: View {
             browserStore.closeBrowser(for: workspaceID)
         }
         onExitChat()
+    }
+
+    private func chatAccessoryLeadingShortcuts() -> [ChatAccessoryShortcut] {
+        [
+            ChatAccessoryShortcut(
+                id: "terminal.inputAccessory.hideKeyboard",
+                title: "",
+                systemImage: "keyboard.chevron.compact.down",
+                accessibilityLabel: L10n.string(
+                    "terminal.input_accessory.hideKeyboard",
+                    defaultValue: "Hide Keyboard"
+                ),
+                tint: .secondary,
+                semanticAction: .dismissKeyboard
+            ) {},
+            ChatAccessoryShortcut(
+                id: "terminal.inputAccessory.composer",
+                title: "",
+                systemImage: "terminal",
+                accessibilityLabel: L10n.string(
+                    "mobile.terminal.select",
+                    defaultValue: "Terminal"
+                ),
+                action: openTerminal
+            ),
+        ]
+    }
+
+    private func chatAccessoryShortcuts(
+        for conversation: ChatConversationStore
+    ) -> [ChatAccessoryShortcut] {
+        accessoryConfiguration.enabledItems.compactMap { item in
+            chatAccessoryShortcut(for: item, conversation: conversation)
+        } + [
+            ChatAccessoryShortcut(
+                id: "terminal.inputAccessory.customize",
+                title: "",
+                systemImage: "slider.horizontal.3",
+                accessibilityLabel: L10n.string(
+                    "terminal.input_accessory.customize",
+                    defaultValue: "Customize Toolbar"
+                ),
+                tint: .secondary
+            ) {
+                isShowingShortcutSettings = true
+            },
+        ]
+    }
+
+    private func chatAccessoryShortcut(
+        for item: ResolvedToolbarItem,
+        conversation: ChatConversationStore
+    ) -> ChatAccessoryShortcut? {
+        switch item {
+        case let .builtin(action):
+            guard action.isSupportedInAgentChat else { return nil }
+            return ChatAccessoryShortcut(
+                id: action.accessibilityIdentifier,
+                title: action.title(isMacRemote: true),
+                systemImage: action.symbolName,
+                accessibilityLabel: action.accessibilityLabel ?? action.settingsDisplayName,
+                semanticAction: action == .paste ? .paste : nil
+            ) {
+                performChatAccessoryAction(action, conversation: conversation)
+            }
+        case let .custom(custom):
+            guard let output = custom.output,
+                  let text = String(data: output, encoding: .utf8) else {
+                return nil
+            }
+            return ChatAccessoryShortcut(
+                id: "terminal.inputAccessory.custom.\(custom.id.uuidString)",
+                title: custom.title,
+                systemImage: validSymbolName(custom.symbolName),
+                accessibilityLabel: custom.title
+            ) {
+                sendSessionTerminalInput(text)
+            }
+        }
+    }
+
+    private func performChatAccessoryAction(
+        _ action: TerminalInputAccessoryAction,
+        conversation: ChatConversationStore
+    ) {
+        switch action {
+        case .escape:
+            Task { await conversation.interrupt(hard: false) }
+        case .ctrlC:
+            Task { await conversation.interrupt(hard: true) }
+        case .paste:
+            break
+        default:
+            guard let output = action.output,
+                  let text = String(data: output, encoding: .utf8) else {
+                return
+            }
+            sendSessionTerminalInput(text)
+        }
+    }
+
+    private func sendSessionTerminalInput(_ text: String) {
+        guard let terminalID = session.terminalID,
+              let data = text.data(using: .utf8)
+        else { return }
+        Task {
+            await store.submitTerminalRawInput(data, surfaceID: terminalID)
+        }
+    }
+
+    private func validSymbolName(_ symbolName: String?) -> String? {
+        guard let symbolName,
+              !symbolName.isEmpty,
+              UIImage(systemName: symbolName) != nil
+        else {
+            return nil
+        }
+        return symbolName
     }
 }
 #endif

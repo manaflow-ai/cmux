@@ -882,7 +882,13 @@ struct MobileHostAuthorizationTests {
 
         await session.subscribe(streamID: "events", topics: ["terminal.updated"])
         await session.debugStartIdleTimeoutAfterFrameForTesting()
-        try await Task.sleep(nanoseconds: 25_000_000)
+        // An active subscription suppresses the idle-after-frame timeout: the
+        // arm path early-returns without scheduling any close. Awaiting an
+        // actor-isolated round-trip on the connection guarantees the arm call
+        // was fully processed and that the connection is still alive and
+        // subscribed, so the recorder reflects the final state with no
+        // wall-clock window to race.
+        #expect(await session.isSubscribed(to: "terminal.updated"))
         let subscribedCloseIDs = await recorder.recordedIDs()
         #expect(subscribedCloseIDs.isEmpty)
 
@@ -1005,6 +1011,15 @@ struct MobileHostAuthorizationTests {
         let connectionID = UUID()
         let requestRecorder = MobileHostConnectionRequestRecorder()
         let sessionBox = MobileHostConnectionBox()
+        // Deterministic ordering signals replace the former timing race: the
+        // first frame's authorize records and closes the session, then fulfills
+        // `firstRecorded`. The second frame's authorize blocks on `secondGate`
+        // (held until close is confirmed) instead of a fixed 100ms sleep, so the
+        // close provably lands before the second frame can proceed.
+        let firstRecorded = AsyncTestSignal()
+        let secondAuthorizeStarted = AsyncTestSignal()
+        let secondAuthorizeFinished = AsyncTestSignal()
+        let secondGate = SendableSemaphore(value: 0)
         let connection = NWConnection(
             host: NWEndpoint.Host("127.0.0.1"),
             port: NWEndpoint.Port(rawValue: 9)!,
@@ -1015,15 +1030,16 @@ struct MobileHostAuthorizationTests {
             connection: connection,
             authorizeRequest: { request in
                 if request.id as? String == "second" {
-                    do {
-                        try await Task.sleep(nanoseconds: 100_000_000)
-                    } catch {}
+                    secondAuthorizeStarted.fulfill()
+                    secondGate.wait()
+                    secondAuthorizeFinished.fulfill()
                 }
                 return nil
             },
             onAuthorizedRequest: { request in
                 await requestRecorder.record(request)
                 await sessionBox.close(reason: "test close after first batched frame")
+                firstRecorded.fulfill()
             },
             handleRequest: { _ in .ok([:]) },
             onClose: { _ in }
@@ -1042,14 +1058,17 @@ struct MobileHostAuthorizationTests {
 
         await session.debugHandleReceiveDataForTesting(batch)
 
-        for _ in 0..<100 {
-            let recordedMethods = await requestRecorder.recordedMethods()
-            if !recordedMethods.isEmpty {
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        try await Task.sleep(nanoseconds: 150_000_000)
+        // Wait for the first frame to record and close the connection, then
+        // confirm the second frame's authorize is in flight before releasing it.
+        try await firstRecorded.wait()
+        try await secondAuthorizeStarted.wait()
+        secondGate.signal()
+        try await secondAuthorizeFinished.wait()
+        // After the second authorize returns, `respond` re-checks `isClosed`
+        // synchronously and drops the frame without recording it. An
+        // actor-isolated round-trip flushes that synchronous tail so the
+        // recorder reflects the final, settled state.
+        _ = await session.isSubscribed(to: "terminal.updated")
         let recordedMethods = await requestRecorder.recordedMethods()
         #expect(recordedMethods == ["workspace.list"])
     }

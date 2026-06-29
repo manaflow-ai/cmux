@@ -1,6 +1,6 @@
 public import CmuxCore
 public import Foundation
-internal import CmuxSocketControl
+internal import CmuxSettings
 internal import CryptoKit
 
 /// Mediates the cmuxd-remote release manifest and the local cache of

@@ -35,13 +35,16 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// every non-alphanumeric character to `-`, so distinct destinations can
     /// collapse to the same slug — uniqueness comes from ``connectionHash``,
     /// never from the slug alone.
+    ///
+    /// The slug is *not* length-capped here: ``controlSocketPath`` trims it to
+    /// whatever budget remains after the fixed parts of the path, so the socket
+    /// (plus OpenSSH's transient bind suffix) always fits the AF_UNIX limit.
     var slug: String {
         let lowered = destination.lowercased()
         let mapped = lowered.map { ch -> Character in
             ch.isLetter || ch.isNumber ? ch : "-"
         }
-        let collapsed = String(mapped.prefix(40))
-        return collapsed.isEmpty ? "host" : collapsed
+        return mapped.isEmpty ? "host" : String(mapped)
     }
 
     /// A stable, deterministic, collision-resistant hex digest of this host's full
@@ -68,21 +71,91 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
 
     /// The SSH ControlMaster socket path shared by every operation against this host.
     ///
-    /// Kept short (well under the AF_UNIX 104-byte limit) and namespaced under
-    /// `~/.cmux/ssh/`. The filename combines the lossy human-readable ``slug``
-    /// with the collision-resistant ``connectionHash`` of the exact connection
-    /// identity (destination + port + identity file), so two distinct endpoints
-    /// never collide on one socket (which would otherwise route commands —
-    /// including the destructive `kill-session` — to the wrong host through a
-    /// shared master).
+    /// Namespaced under `~/.cmux/ssh/`. The filename combines the lossy
+    /// human-readable ``slug`` with the collision-resistant ``connectionHash`` of
+    /// the exact connection identity (destination + port + identity file), so two
+    /// distinct endpoints never collide on one socket (which would otherwise route
+    /// commands — including the destructive `kill-session` — to the wrong host
+    /// through a shared master).
+    ///
+    /// The slug is trimmed so the final path *plus OpenSSH's transient bind
+    /// suffix* stays within the AF_UNIX limit. OpenSSH never binds `ControlPath`
+    /// directly: it binds `<ControlPath>.XXXXXXXXXXXXXXXX` (a 17-byte suffix) and
+    /// atomically renames it into place, so the socket path budget must account
+    /// for that suffix — otherwise long destinations fail with
+    /// `unix_listener: path "…" too long for Unix domain socket`. The
+    /// ``connectionHash`` is never trimmed, so uniqueness is preserved even when
+    /// the slug is dropped entirely. ``ensureControlSocketDirectory()`` rejects
+    /// the rare case where even an empty slug overflows (an unusually long home).
     var controlSocketPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return "\(home)/.cmux/ssh/tmux-\(slug)-\(connectionHash).sock"
+        // Fixed parts that can never be trimmed: directory, the `tmux-` prefix,
+        // the `-<hash>.sock` tail, and the transient suffix OpenSSH binds first.
+        let prefix = "\(home)/.cmux/ssh/tmux-"
+        let suffix = "-\(connectionHash).sock"
+        let fixedBytes = prefix.utf8.count + suffix.utf8.count + Self.opensshTransientSuffixLength
+        let slugBudget = max(0, Self.maxUnixSocketPathLength - fixedBytes)
+        return "\(prefix)\(Self.trimmedToUTF8ByteBudget(slug, slugBudget))\(suffix)"
+    }
+
+    /// macOS caps an AF_UNIX `sun_path` at 104 bytes (including the NUL
+    /// terminator), so the usable path length is 103 bytes.
+    private static let maxUnixSocketPathLength = 103
+
+    /// Bytes OpenSSH appends to `ControlPath` for its transient pre-rename bind
+    /// socket: a `.` plus 16 random characters (see `mux.c`). The bound path must
+    /// fit the AF_UNIX limit, not just the final renamed `ControlPath`.
+    private static let opensshTransientSuffixLength = 17
+
+    /// Whether the path OpenSSH would actually bind for `controlPath` — i.e.
+    /// `controlPath` plus its 17-byte transient suffix — fits the AF_UNIX limit.
+    /// ``ensureControlSocketDirectory()`` checks this before opening the master so
+    /// an un-bindable path fails with a clear error instead of the opaque
+    /// `unix_listener: … too long`.
+    static func controlSocketPathFitsUnixLimit(_ controlPath: String) -> Bool {
+        controlPath.utf8.count + opensshTransientSuffixLength <= maxUnixSocketPathLength
+    }
+
+    /// Returns the longest whole-`Character` prefix of `value` whose UTF-8
+    /// encoding fits `byteBudget`. Trims on Character (not byte) boundaries so a
+    /// multi-byte scalar is never split, and counts bytes (not characters)
+    /// because the AF_UNIX limit is measured in bytes.
+    private static func trimmedToUTF8ByteBudget(_ value: String, _ byteBudget: Int) -> String {
+        guard value.utf8.count > byteBudget else { return value }
+        var result = ""
+        var used = 0
+        for ch in value {
+            let chBytes = String(ch).utf8.count
+            if used + chBytes > byteBudget { break }
+            result.append(ch)
+            used += chBytes
+        }
+        return result
     }
 
     /// Ensures the directory that holds the control socket exists.
+    ///
+    /// Also rejects up front the rare case where the home directory is long
+    /// enough that the fixed path parts alone overflow the AF_UNIX limit, so even
+    /// an empty slug can't fit (``controlSocketPath`` trims the slug but cannot
+    /// shrink the home dir / hash / suffix). Without this guard `ssh` would still
+    /// open, then die with the opaque `unix_listener: … too long` — surfacing it
+    /// here gives a clear, actionable error instead.
     func ensureControlSocketDirectory() throws {
-        let dir = (controlSocketPath as NSString).deletingLastPathComponent
+        let path = controlSocketPath
+        guard Self.controlSocketPathFitsUnixLimit(path) else {
+            let boundPathBytes = path.utf8.count + Self.opensshTransientSuffixLength
+            let message = String(
+                format: String(
+                    localized: "remoteTmux.error.controlSocketPathTooLong",
+                    defaultValue: "SSH control socket path is too long for a Unix domain socket (%lld > %lld bytes); home directory path is too long"
+                ),
+                boundPathBytes,
+                Self.maxUnixSocketPathLength
+            )
+            throw RemoteTmuxError.unreachable(message)
+        }
+        let dir = (path as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(
             atPath: dir,
             withIntermediateDirectories: true,
@@ -175,6 +248,30 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
+    /// Builds a remote shell command that resolves `tmux` before executing it.
+    ///
+    /// OpenSSH runs remote commands under the account's shell, but not as an
+    /// interactive/login shell. On macOS that often means zsh starts with only
+    /// `/usr/bin:/bin:/usr/sbin:/sbin`, so Homebrew's `tmux` is invisible even
+    /// though it works in the user's normal terminal. Resolve the binary in a
+    /// tiny `/bin/sh` wrapper, then `exec` it with the original arguments so both
+    /// one-shot probes and `tmux -CC` use the same path behavior.
+    static func tmuxRemoteCommand(arguments: [String]) -> String {
+        (["/bin/sh", "-c", tmuxResolverShellScript, "cmux-remote-tmux"] + arguments)
+            .map(shellSingleQuoted)
+            .joined(separator: " ")
+    }
+
+    // Keep this one physical line: the remote login shell parses it before /bin/sh -c runs.
+    private static let tmuxResolverShellScript =
+        "cmux_tmux=\"\"; " +
+        "if command -v tmux >/dev/null 2>&1; then cmux_tmux=\"$(command -v tmux)\"; else " +
+        "for cmux_dir in \"$HOME/.local/bin\" \"$HOME/bin\" /opt/homebrew/bin /usr/local/bin /opt/local/bin /usr/pkg/bin /snap/bin /usr/bin /bin; do " +
+        "if [ -x \"$cmux_dir/tmux\" ]; then cmux_tmux=\"$cmux_dir/tmux\"; break; fi; done; " +
+        "if [ -z \"$cmux_tmux\" ] && [ -x /usr/libexec/path_helper ]; then eval \"$(/usr/libexec/path_helper -s 2>/dev/null)\"; " +
+        "if command -v tmux >/dev/null 2>&1; then cmux_tmux=\"$(command -v tmux)\"; fi; fi; fi; " +
+        "if [ -n \"$cmux_tmux\" ]; then exec \"$cmux_tmux\" \"$@\"; fi; exec tmux \"$@\""
+
     /// Returns a non-empty tmux control-mode command argument, or `nil` when the
     /// value could break the line-oriented control stream. Shell quoting is not
     /// enough here: CR/LF/control bytes can terminate a `rename-*` command line
@@ -217,10 +314,9 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
             controlPersistSeconds: controlPersistSeconds,
             batchMode: true
         ))
-        let quotedName = Self.shellSingleQuoted(sessionName)
-        let remoteCommand = createIfMissing
-            ? "tmux -CC new-session -A -s \(quotedName)"
-            : "tmux -CC attach-session -t \(quotedName)"
+        let remoteCommand = Self.tmuxRemoteCommand(arguments: createIfMissing
+            ? ["-CC", "new-session", "-A", "-s", sessionName]
+            : ["-CC", "attach-session", "-t", sessionName])
         args.append(contentsOf: ["--", destination, remoteCommand])
         return args
     }
