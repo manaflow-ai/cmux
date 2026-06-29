@@ -13107,9 +13107,12 @@ private struct SidebarEmptyArea: View {
                 selection = .tabs
             }
         if let tabDropDelegate {
-            base.onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegate)
+            base
+                .sidebarEmptyAreaWorkspaceGroupContextMenu(tabManager: tabManager)
+                .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegate)
         } else {
             base
+                .sidebarEmptyAreaWorkspaceGroupContextMenu(tabManager: tabManager)
         }
     }
 
@@ -13123,6 +13126,28 @@ private struct SidebarEmptyArea: View {
             Color.clear
                 .frame(maxWidth: .infinity, minHeight: minimumHeight ?? 0)
                 .contentShape(Rectangle())
+        }
+    }
+}
+
+private extension View {
+    func sidebarEmptyAreaWorkspaceGroupContextMenu(tabManager: TabManager) -> some View {
+        contextMenu {
+            let newWorkspaceGroupShortcut = KeyboardShortcutSettings.shortcut(for: .newWorkspaceGroup)
+            let newWorkspaceGroupLabel = String(
+                localized: "contextMenu.workspaceGroup.newEmpty",
+                defaultValue: "New Empty Workspace Group"
+            )
+            if let key = newWorkspaceGroupShortcut.keyEquivalent {
+                Button(newWorkspaceGroupLabel) {
+                    _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+                }
+                .keyboardShortcut(key, modifiers: newWorkspaceGroupShortcut.eventModifiers)
+            } else {
+                Button(newWorkspaceGroupLabel) {
+                    _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+                }
+            }
         }
     }
 }

@@ -6,6 +6,22 @@ extension TabItemView {
         targetIds: [UUID],
         isMulti: Bool
     ) -> some View {
+        let newWorkspaceGroupShortcut = KeyboardShortcutSettings.shortcut(for: .newWorkspaceGroup)
+        let newWorkspaceGroupLabel = String(
+            localized: "contextMenu.workspaceGroup.newEmpty",
+            defaultValue: "New Empty Workspace Group"
+        )
+        if let key = newWorkspaceGroupShortcut.keyEquivalent {
+            Button(newWorkspaceGroupLabel) {
+                _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+            }
+            .keyboardShortcut(key, modifiers: newWorkspaceGroupShortcut.eventModifiers)
+        } else {
+            Button(newWorkspaceGroupLabel) {
+                _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+            }
+        }
+
         let targetWorkspaces = targetIds.compactMap { id in
             tabManager.tabs.first(where: { $0.id == id })
         }
