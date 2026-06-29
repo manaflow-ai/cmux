@@ -130,6 +130,21 @@ Test Suite 'SkippedBundle' started
     )
 
 
+def test_rejects_nonzero_abort_after_early_clean_summary_without_completion() -> None:
+    # An app-host abort can return a non-timeout non-zero code (e.g. 65) after
+    # only the first suite printed a clean summary. Without a terminal completion
+    # marker the later suites may never have run, so the early clean summary must
+    # not mask the skipped remainder (#5641) -- the same hole as a timeout.
+    expect_fail(
+        65,
+        """
+Test Suite 'EarlySuite' passed
+    Executed 2 tests, with 0 failures (0 unexpected) in 0.125 seconds
+xcodebuild: error: Test runner exited before all tests completed.
+""",
+    )
+
+
 def test_rejects_unexpected_failure_even_when_last_suite_is_clean() -> None:
     expect_fail(
         65,
@@ -167,6 +182,7 @@ def main() -> int:
     test_rejects_timeout_without_terminal_completion_even_when_partial_summaries_are_clean()
     test_accepts_timeout_after_terminal_completion_with_zero_unexpected()
     test_rejects_timeout_marker_without_completion_even_with_nonstandard_exit_code()
+    test_rejects_nonzero_abort_after_early_clean_summary_without_completion()
     test_rejects_timeout_when_xcodebuild_prints_only_zero_test_summaries()
     test_rejects_unexpected_failure_even_when_last_suite_is_clean()
     test_rejects_zero_test_summaries_without_any_executed_tests()
