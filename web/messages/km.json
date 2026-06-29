@@ -821,6 +821,9 @@
           "showTextBoxOnNewTerminals": "បង្ហាញការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។",
           "focusTextBoxOnNewTerminals": "ផ្តោតការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។ ការផ្តោតក៏បង្ហាញ TextBox ផងដែរ។"
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "នៅពេលបើក banner នៃការជូនដំណឹងនឹងត្រូវដកវិញដោយស្វ័យប្រវត្តិ តែនៅពេល Surface របស់វាជា Surface ដែលកំពុងផ្តោតយ៉ាងពិតប្រាកដប៉ុណ្ណោះ។ banner ដែលបានបញ្ជូនសម្រាប់ Surface ដែលមិនបានផ្តោតក្នុង workspace ដែលកំពុងបង្ហាញ នឹងបន្តបង្ហាញរហូតដល់អ្នកផ្តោតលើ Surface នោះ (ឬចុច/បិទវា) ជំនួសឱ្យការដកវិញនៅពេល workspace ក្លាយជាមើលឃើញ។ បិទ នឹងរក្សាឥរិយាបថដកវិញចាស់ដែលផ្អែកលើភាពមើលឃើញនៃ workspace។"
+        },
         "browser": {
           "defaultSearchEngine": "ម៉ាស៊ីនស្វែងរកលំនាំដើមសម្រាប់សំណួរនៅក្នុងរបារអាសយដ្ឋានដែលមិនមែនជា URL។ ប្រើ custom ជាមួយ customSearchEngineURLTemplate សម្រាប់អ្នកផ្តល់ផ្សេងៗ។",
           "customSearchEngineName": "ឈ្មោះបង្ហាញដែលប្រើនៅពេល defaultSearchEngine ជា custom។",
@@ -1069,7 +1072,8 @@
       "closeWorkspaceDesc": "បិទ workspace។",
       "splitCommands": "ពាក្យបញ្ជាបំបែក",
       "newSplitDesc": "បង្កើតបន្ទះបំបែកថ្មី។ ទិសដៅ: ឆ្វេង, ស្ដាំ, លើ, ក្រោម។",
-      "listSurfacesDesc": "រាយ surface ទាំងអស់ក្នុង workspace បច្ចុប្បន្ន។",
+      "listPanelsDesc": "រាយ surface ទាំងអស់ក្នុង workspace បច្ចុប្បន្ន។",
+      "listPaneSurfacesDesc": "រាយ surface នៅក្នុងបន្ទះដែលកំពុងផ្ដោត។",
       "focusSurfaceDesc": "ផ្ដោតលើ surface ជាក់លាក់។",
       "inputCommands": "ពាក្យបញ្ជាបញ្ចូល",
       "sendDesc": "ផ្ញើអត្ថបទបញ្ចូលទៅទែមីណលដែលកំពុងផ្ដោត។",

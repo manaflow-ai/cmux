@@ -139,11 +139,17 @@ enum AppSettingsFileMapping {
 }
 
 enum NotificationSettingsFileMapping {
+    private static let notifications = NotificationsCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(jsonKey: "dockBadge", defaultsKey: NotificationBadgeSettings.dockBadgeEnabledKey),
         .init(jsonKey: "showInMenuBar", defaultsKey: MenuBarExtraSettings.showInMenuBarKey),
         .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationPaneRingSettings.enabledKey),
         .init(jsonKey: "paneFlash", defaultsKey: NotificationPaneFlashSettings.enabledKey),
+        .init(
+            jsonKey: "suppressOnlyFocusedSurface",
+            defaultsKey: notifications.suppressOnlyFocusedSurface.userDefaultsKey
+        ),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
@@ -372,6 +378,7 @@ extension CmuxSettingsFileStore {
         "notifications.command",
         "notifications.hooks",
         "notifications.hooksMode",
+        "notifications.suppressOnlyFocusedSurface",
         "sidebar.hideAllDetails",
         "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",

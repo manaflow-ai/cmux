@@ -602,6 +602,12 @@
           "default": true,
           "description": "Flash the focused pane when requested."
         },
+        "suppressOnlyFocusedSurface": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.notifications.suppressOnlyFocusedSurface",
+          "description": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw."
+        },
         "sound": {
           "type": "string",
           "enum": [
