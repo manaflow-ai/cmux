@@ -1297,11 +1297,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case networkChange
         case manual
         case presencePush
+        case livenessProbe
         var description: String {
             switch self {
             case .networkChange: return "networkChange"
             case .manual: return "manual"
             case .presencePush: return "presencePush"
+            case .livenessProbe: return "livenessProbe"
             }
         }
     }
@@ -1327,7 +1329,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// User-initiated reconnect from the Retry control.
     public func retryMobileConnection() {
         connectionRecoveryFailed = false
-        recoverMobileConnection(trigger: .manual)
+        recoverMobileConnection(
+            trigger: .manual,
+            forceReconnectConnectedClient: macConnectionStatus != .connected
+        )
     }
 
     /// Single guarded recovery entry for every trigger (network change, manual
@@ -1336,9 +1341,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resync re-subscribes and requests a render-grid replay to repaint.
     /// Otherwise the connection dropped, so reconnect once; on failure the UI
     /// shows Retry and the next network change re-attempts automatically.
-    private func recoverMobileConnection(trigger: RecoveryTrigger) {
+    private func recoverMobileConnection(
+        trigger: RecoveryTrigger,
+        forceReconnectConnectedClient: Bool = false
+    ) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
-        if connectionState == .connected, remoteClient != nil {
+        if connectionState == .connected,
+           remoteClient != nil,
+           (!forceReconnectConnectedClient || pairedMacStore == nil) {
             markMacConnectionReconnecting()
             resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
             return
@@ -1354,7 +1364,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self?.recoveryInFlight = false
                 self?.isRecoveringConnection = false
             }
-            guard let self, self.connectionState != .connected else { return }
+            guard let self else { return }
+            if self.connectionState == .connected, self.remoteClient != nil {
+                self.disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
+            }
+            guard self.connectionState != .connected else { return }
             let reconnected = await self.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
             if !reconnected, !Task.isCancelled {
                 self.connectionRecoveryFailed = true
@@ -6089,12 +6103,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             MobileDebugLog.anchormux("sync.liveness re-subscribe silentMs=\(silentMs)")
             self.diagnosticLog?.record(DiagnosticEvent(.livenessResubscribe, ms: UInt32(clamping: silentMs)))
             mobileShellLog.info("render-grid stream silent for \(silentMs, privacy: .public)ms and subscription probe failed, re-subscribing")
-            // resyncTerminalOutput(restartEventStream: true) stops the wedged
-            // listener (which cancels this watchdog via stopTerminalRefreshPolling)
-            // and starts a fresh subscription + watchdog, then replays every
-            // surface so the phone catches up on the deltas it missed while the
-            // stream was dead.
-            self.resyncTerminalOutput(reason: "liveness", restartEventStream: true)
+            // A failed probe means the persistent RPC client itself may be wedged
+            // after iOS suspension. Reusing that same client just repeats the
+            // timeout loop; reconnect from the saved Mac record so the transport,
+            // reader, writer, and subscription state are all rebuilt together.
+            self.recoverMobileConnection(
+                trigger: .livenessProbe,
+                forceReconnectConnectedClient: true
+            )
         }
     }
 
