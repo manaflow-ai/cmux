@@ -38,6 +38,7 @@ for needle in \
   "reload.sh did not write app path" \
   "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1" \
   "artifact/provenance.json" \
+  "rm -rf \"\$artifact_dir\"" \
   "retention-days: 14"; do
   if ! grep -Fq "$needle" "$WORKFLOW_FILE"; then
     fail "approved fork artifact workflow must contain: $needle"
@@ -66,6 +67,9 @@ for needle in \
   "approved_head_sha" \
   "pull_request.head.sha" \
   "persist-credentials: false" \
+  "uses read-only" \
+  "does not reference repository secrets" \
+  "rejects same-repository PRs" \
   "gh workflow run approved-fork-artifact.yml"; do
   if ! grep -Fq "$needle" "$DOC_FILE"; then
     fail "docs/ci-runners.md must document: $needle"

@@ -144,9 +144,14 @@ jobs:
           app_path="$(tr -d '\n' < "$app_path_file")"
           [ -n "$app_path" ] && [ -d "$app_path" ] || { echo "could not locate built app" >&2; exit 1; }
 
-          mkdir -p artifact/logs
-          cp "$log" artifact/logs/reload.log
-          ( cd "$(dirname "$app_path")" && ditto -c -k --sequesterRsrc --keepParent "$(basename "$app_path")" "$GITHUB_WORKSPACE/artifact/app.zip" )
+          # The fork controls the checked-out workspace, so artifact/ may
+          # already exist as a fork-supplied symlink or stale directory.
+          # Recreate it fresh so the upload only contains files this run wrote.
+          artifact_dir="$GITHUB_WORKSPACE/artifact"
+          rm -rf "$artifact_dir"
+          mkdir -p "$artifact_dir/logs"
+          cp "$log" "$artifact_dir/logs/reload.log"
+          ( cd "$(dirname "$app_path")" && ditto -c -k --sequesterRsrc --keepParent "$(basename "$app_path")" "$artifact_dir/app.zip" )
 
       - name: Write artifact provenance
         run: |
