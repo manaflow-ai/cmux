@@ -5,9 +5,7 @@ extension TerminalSurface {
         _ scalars: [Unicode.Scalar],
         from start: Int
     ) -> Int? {
-        guard start + 1 < scalars.count,
-              scalars[start].value == 0x1B,
-              scalars[start + 1].value == 0x5B else {
+        guard start + 1 < scalars.count else {
             return nil
         }
 
@@ -64,8 +62,24 @@ extension TerminalSurface {
     }
 
     private static func isCursorPositionReport(_ parameters: [UInt32]) -> Bool {
-        guard !parameters.isEmpty else { return false }
-        return parameters.allSatisfy { ($0 >= 0x30 && $0 <= 0x39) || $0 == 0x3B }
+        var fieldCount = 0
+        var fieldHasDigit = false
+
+        for parameter in parameters {
+            if parameter >= 0x30, parameter <= 0x39 {
+                fieldHasDigit = true
+                continue
+            }
+            guard parameter == 0x3B, fieldHasDigit else {
+                return false
+            }
+            fieldCount += 1
+            fieldHasDigit = false
+        }
+
+        guard fieldHasDigit else { return false }
+        fieldCount += 1
+        return fieldCount == 2
     }
 
     private static func isDeviceAttributesReport(_ parameters: [UInt32]) -> Bool {
