@@ -101,34 +101,35 @@ ensure_gitleaks() {
   # mode 0700), then install atomically into the cache. Nothing is executed from
   # a shared or attacker-writable location, and the upstream archive checksum is
   # always verified before extraction.
-  local work asset archive checksum selected_checksum base_url
+  local work asset base_url
   work="$(mktemp -d)"
   asset="gitleaks_${GITLEAKS_VERSION}_${os}_${arch}.tar.gz"
-  archive="$work/$asset"
-  checksum="$work/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
-  selected_checksum="$work/$asset.sha256"
   base_url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
 
-  curl -fsSL --connect-timeout 20 --max-time 120 "$base_url/$asset" --output "$archive"
-  curl -fsSL --connect-timeout 20 --max-time 120 "$base_url/gitleaks_${GITLEAKS_VERSION}_checksums.txt" --output "$checksum"
-  grep "  ${asset}$" "$checksum" > "$selected_checksum"
+  # Download/verify/install in a subshell whose EXIT trap always removes the work
+  # dir, even when a step fails. The && chain stops at the first failure (so a
+  # network error never runs later steps or installs a partial binary), and the
+  # subshell EXIT trap is local, so it never disturbs the RETURN trap that
+  # self_test installs in the parent shell. errexit is not inherited into the
+  # $(ensure_gitleaks) command substitution, so failures are handled explicitly.
   (
-    cd "$work"
-    sha256_check "$selected_checksum" >&2
-  )
-  tar -xzf "$archive" -C "$work" gitleaks
-  chmod 0755 "$work/gitleaks"
-  # Record the verified binary's own checksum so future runs can re-verify it.
-  (
-    cd "$work"
-    sha256_sum gitleaks > gitleaks.sha256
-  )
-
-  mkdir -p "$cache_dir"
-  chmod 0700 "$cache_dir" 2>/dev/null || true
-  mv -f "$work/gitleaks" "$bin"
-  mv -f "$work/gitleaks.sha256" "$cache_dir/gitleaks.sha256"
-  rm -rf "$work"
+    trap 'rm -rf "$work"' EXIT
+    cd "$work" &&
+      curl -fsSL --connect-timeout 20 --max-time 120 "$base_url/$asset" --output "$asset" &&
+      curl -fsSL --connect-timeout 20 --max-time 120 "$base_url/gitleaks_${GITLEAKS_VERSION}_checksums.txt" --output checksums.txt &&
+      grep "  ${asset}$" checksums.txt > "$asset.sha256" &&
+      sha256_check "$asset.sha256" >&2 &&
+      tar -xzf "$asset" gitleaks &&
+      chmod 0755 gitleaks &&
+      sha256_sum gitleaks > gitleaks.sha256 &&
+      mkdir -p "$cache_dir" &&
+      { chmod 0700 "$cache_dir" 2>/dev/null || true; } &&
+      mv -f gitleaks "$bin" &&
+      mv -f gitleaks.sha256 "$cache_dir/gitleaks.sha256"
+  ) || {
+    echo "Failed to download and verify pinned gitleaks ${GITLEAKS_VERSION}." >&2
+    return 1
+  }
 
   printf '%s\n' "$bin"
 }
@@ -195,7 +196,11 @@ main() {
       self_test
       ;;
     *)
-      scan_dir "$(ensure_gitleaks)" "$repo_root"
+      # Assign on its own line (not `local x=...`) so set -e aborts when
+      # ensure_gitleaks fails instead of running scan_dir with an empty binary.
+      local gitleaks_bin
+      gitleaks_bin="$(ensure_gitleaks)"
+      scan_dir "$gitleaks_bin" "$repo_root"
       ;;
   esac
 }
