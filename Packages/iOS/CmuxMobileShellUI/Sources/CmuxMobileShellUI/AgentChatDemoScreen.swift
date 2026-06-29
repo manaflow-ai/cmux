@@ -38,7 +38,7 @@ struct AgentChatDemoScreen: View {
             .toolbar {
                 if style == .standalone {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Done") { dismiss() }
+                        Button(L10n.string("mobile.common.done", defaultValue: "Done")) { dismiss() }
                             .accessibilityIdentifier("AgentChatDemoDone")
                     }
                 }
@@ -74,7 +74,9 @@ struct AgentChatDemoScreen: View {
                     ToolbarItem(placement: .topBarLeading) {
                         Menu {
                             Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
+                                .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
                             Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
+                                .accessibilityIdentifier("MobileWorkspaceTitleMarkReadMenuItem")
                         } label: {
                             header(for: stack)
                                 .frame(
