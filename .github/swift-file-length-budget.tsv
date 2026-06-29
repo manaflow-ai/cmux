@@ -5,7 +5,7 @@
 17892	Sources/AppDelegate.swift
 16491	Sources/ContentView.swift
 14239	Sources/TerminalController.swift
-13035	Sources/Workspace.swift
+13050	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12247	Sources/GhosttyTerminalView.swift
 11592	Sources/Panels/BrowserPanel.swift
@@ -202,7 +202,7 @@
 549	Sources/Panels/BrowserAutomation.swift
 547	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift
 546	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
-543	Sources/App/WorkspaceRuntimeSettings.swift
+542	Sources/App/WorkspaceRuntimeSettings.swift
 539	CLI/CMUXCLI+Themes.swift
 539	CLI/CodexTeamsApprovalBridge.swift
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift

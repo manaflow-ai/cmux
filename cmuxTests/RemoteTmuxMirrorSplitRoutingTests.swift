@@ -135,6 +135,26 @@ import Testing
         #expect(tints[9] == tints[1])
     }
 
+    @Test func splitTintPlannerKeepsCurrentSplitDistinctAfterPaletteWrap() throws {
+        let baseColor = try #require(NSColor(hex: "#101010"))
+        var usedHexes = Set<String>()
+        for _ in 0..<8 {
+            let tint = try #require(TerminalSplitPaneTintPlanner.nextColor(baseColor: baseColor, usedHexes: usedHexes))
+            usedHexes.insert(tint.hexString())
+        }
+
+        let assignment = TerminalSplitPaneTintPlanner.assignmentForTerminalSplit(
+            baseColor: baseColor,
+            usedHexes: usedHexes,
+            sourceNeedsTint: true,
+            newPaneNeedsTint: true
+        )
+        let sourceTint = try #require(assignment.source?.hexString())
+        let newPaneTint = try #require(assignment.newPane?.hexString())
+
+        #expect(sourceTint != newPaneTint)
+    }
+
     @Test func terminalSplitTintingCanBeDisabled() throws {
         try withIsolatedDefaults { defaults in
             defaults.set(false, forKey: TerminalSplitPaneTintSettings.autoTintSplitPanesKey)
@@ -142,10 +162,12 @@ import Testing
         }
     }
 
-    @Test func terminalSnapshotPersistsPaneBackgroundHex() {
+    @Test func terminalSnapshotPersistsPaneBackgroundHex() throws {
         let snapshot = SessionTerminalPanelSnapshot(backgroundColorHex: "#123456")
+        let data = try JSONEncoder().encode(snapshot)
+        let restored = try JSONDecoder().decode(SessionTerminalPanelSnapshot.self, from: data)
 
-        #expect(snapshot.backgroundColorHex == "#123456")
+        #expect(restored.backgroundColorHex == "#123456")
     }
 
     private func withIsolatedDefaults(_ body: (UserDefaults) throws -> Void) throws {

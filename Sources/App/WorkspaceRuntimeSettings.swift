@@ -1,4 +1,5 @@
 import Darwin
+import CmuxSettings
 import Foundation
 
 enum WorkspaceTitlebarSettings {
@@ -200,14 +201,12 @@ enum TerminalCopyOnSelectSettings {
 }
 
 struct TerminalSplitPaneTintSettings {
-    static let autoTintSplitPanesKey = "terminal.autoTintSplitPanes"
-    static let defaultAutoTintSplitPanes = true
+    private static let autoTintSplitPanes = TerminalCatalogSection().autoTintSplitPanes
+    static var autoTintSplitPanesKey: String { autoTintSplitPanes.userDefaultsKey }
+    static var defaultAutoTintSplitPanes: Bool { autoTintSplitPanes.defaultValue }
 
     func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: Self.autoTintSplitPanesKey) != nil else {
-            return Self.defaultAutoTintSplitPanes
-        }
-        return defaults.bool(forKey: Self.autoTintSplitPanesKey)
+        Self.autoTintSplitPanes.value(in: defaults)
     }
 }
 

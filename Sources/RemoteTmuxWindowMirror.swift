@@ -110,14 +110,21 @@ final class RemoteTmuxWindowMirror {
                 panel.surface.paneBackgroundOverrideColor?.hexString()
             }
         )
+        var selectedHexes = Set<String>()
         for paneId in paneIDsInOrder {
             guard let panel = panelsByPaneId[paneId],
                   panel.surface.paneBackgroundOverrideColor == nil,
-                  let color = TerminalSplitPaneTintPlanner.nextColor(baseColor: baseColor, usedHexes: usedHexes) else {
+                  let color = TerminalSplitPaneTintPlanner.nextColor(
+                    baseColor: baseColor,
+                    usedHexes: usedHexes,
+                    excludedHexes: selectedHexes
+                  ) else {
                 continue
             }
             panel.surface.paneBackgroundOverrideColor = color
-            usedHexes.insert(color.hexString())
+            let hex = color.hexString()
+            usedHexes.insert(hex)
+            selectedHexes.insert(hex)
         }
     }
 

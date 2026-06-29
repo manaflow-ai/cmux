@@ -67,16 +67,27 @@ enum TerminalSplitPaneTintPlanner {
     private static let opacityOnDarkBackground: CGFloat = 0.18
     private static let opacityOnLightBackground: CGFloat = 0.14
 
-    static func nextColor(baseColor: NSColor, usedHexes: Set<String>) -> NSColor? {
+    static func nextColor(
+        baseColor: NSColor,
+        usedHexes: Set<String>,
+        excludedHexes: Set<String> = []
+    ) -> NSColor? {
         let palette = paletteHexes.compactMap { hex -> NSColor? in
             guard let accentColor = NSColor(hex: hex) else { return nil }
             return tintColor(baseColor: baseColor, accentColor: accentColor)
         }
         guard !palette.isEmpty else { return nil }
-        if let unusedColor = palette.first(where: { !usedHexes.contains($0.hexString()) }) {
+        if let unusedColor = palette.first(where: {
+            let hex = $0.hexString()
+            return !usedHexes.contains(hex) && !excludedHexes.contains(hex)
+        }) {
             return unusedColor
         }
-        return palette[usedHexes.count % palette.count]
+        let wrappedPalette = palette.filter { !excludedHexes.contains($0.hexString()) }
+        guard !wrappedPalette.isEmpty else {
+            return palette[usedHexes.count % palette.count]
+        }
+        return wrappedPalette[usedHexes.count % wrappedPalette.count]
     }
 
     static func assignmentForTerminalSplit(
@@ -86,13 +97,16 @@ enum TerminalSplitPaneTintPlanner {
         newPaneNeedsTint: Bool
     ) -> TerminalSplitPaneTintAssignment {
         var usedHexes = usedHexes
+        var selectedHexes = Set<String>()
         var sourceColor: NSColor?
         if sourceNeedsTint, let color = nextColor(baseColor: baseColor, usedHexes: usedHexes) {
             sourceColor = color
-            usedHexes.insert(color.hexString())
+            let hex = color.hexString()
+            usedHexes.insert(hex)
+            selectedHexes.insert(hex)
         }
         let newPaneColor = newPaneNeedsTint
-            ? nextColor(baseColor: baseColor, usedHexes: usedHexes)
+            ? nextColor(baseColor: baseColor, usedHexes: usedHexes, excludedHexes: selectedHexes)
             : nil
         return TerminalSplitPaneTintAssignment(source: sourceColor, newPane: newPaneColor)
     }
@@ -7086,14 +7100,15 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func applyAutomaticSplitPaneTints(sourcePanelId: UUID, newPanel: TerminalPanel) {
         guard TerminalSplitPaneTintSettings().isEnabled(defaults: terminalSplitPaneTintDefaults) else { return }
-        let baseColor = GhosttyApp.shared.defaultBackgroundColor
+        let sourcePanel = terminalPanel(for: sourcePanelId)
+        let baseColor = sourcePanel?.surface.paneBackgroundOverrideColor
+            ?? WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "splitPaneTint").backgroundColor
         let usedHexes = Set(
             panels.values.compactMap { panel -> String? in
                 guard let terminalPanel = panel as? TerminalPanel else { return nil }
                 return terminalPanel.surface.paneBackgroundOverrideColor?.hexString()
             }
         )
-        let sourcePanel = terminalPanel(for: sourcePanelId)
         let assignment = TerminalSplitPaneTintPlanner.assignmentForTerminalSplit(
             baseColor: baseColor,
             usedHexes: usedHexes,
