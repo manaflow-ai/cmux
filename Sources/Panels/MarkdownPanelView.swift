@@ -90,7 +90,8 @@ struct MarkdownPanelView: View {
                 fontFamily: panel.fontFamily,
                 maxContentWidth: panel.maxContentWidth,
                 session: panel.rendererSession,
-                onRequestPanelFocus: onRequestPanelFocus
+                onRequestPanelFocus: onRequestPanelFocus,
+                onCancelFind: { [weak panel] in panel?.setPreviewFindVisible(false) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .opacity(panel.displayMode == .preview ? 1 : 0)
