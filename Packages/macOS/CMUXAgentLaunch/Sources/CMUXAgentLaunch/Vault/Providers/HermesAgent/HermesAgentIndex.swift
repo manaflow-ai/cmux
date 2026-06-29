@@ -1,7 +1,11 @@
 import Foundation
 import SQLite3
 
-/// Indexed Hermes sessions do not carry cwd metadata and cannot be filtered by working directory.
+/// One indexed Hermes session row. Hermes records `cwd` on the session at
+/// creation time, so sessions can be filtered by working directory (see
+/// `loadSessions(cwdFilter:)`) to disambiguate concurrent sessions that share
+/// one state.db. Sessions created with a NULL/empty `cwd` are simply not
+/// matched by a cwd-scoped query.
 public struct HermesAgentIndexedSession: Equatable, Sendable {
     public let sessionId: String
     public let source: String
@@ -82,7 +86,15 @@ public enum HermesAgentIndex {
             .appendingPathComponent("state.db")
     }
 
-    /// Loads Hermes sessions from state.db. Hermes does not store cwd metadata, so any non-nil cwdFilter returns no sessions and no errors.
+    /// Loads Hermes sessions from state.db, newest first.
+    ///
+    /// When `cwdFilter` is non-nil, only sessions whose recorded `cwd` matches the
+    /// (standardized) filter are returned. Hermes records `cwd` on the `sessions`
+    /// row at creation time, so this is the disambiguator that lets cmux map a
+    /// scanned hermes process to *its* session rather than the newest session
+    /// globally — critical when several hermes panes/gateways write to the same
+    /// state.db concurrently. Rows with a NULL/empty `cwd` never match a non-nil
+    /// filter (so an un-attributable session is skipped rather than mis-bound).
     public static func loadSessions(
         needle: String,
         cwdFilter: String?,
@@ -95,9 +107,6 @@ public enum HermesAgentIndex {
         }
         let (_, overflow) = offset.addingReportingOverflow(limit)
         guard !overflow else {
-            return HermesAgentIndexResult(sessions: [], errors: [])
-        }
-        guard cwdFilter == nil else {
             return HermesAgentIndexResult(sessions: [], errors: [])
         }
 
@@ -117,7 +126,7 @@ public enum HermesAgentIndex {
 
         do {
             return try withDatabase(snapshot.databaseURL.path) { db in
-                try loadSessions(db: db, needle: needle, offset: offset, limit: limit)
+                try loadSessions(db: db, needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
             }
         } catch {
             return HermesAgentIndexResult(
@@ -146,11 +155,20 @@ public enum HermesAgentIndex {
     private static func loadSessions(
         db: OpaquePointer,
         needle: String,
+        cwdFilter: String?,
         offset: Int,
         limit: Int
     ) throws -> HermesAgentIndexResult {
         let trimmedNeedle = needle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let hasNeedle = !trimmedNeedle.isEmpty
+        // Standardize the cwd filter the same way the caller's path is standardized
+        // (~ expansion, symlink-free) so equality holds regardless of how the path
+        // was spelled. A non-nil filter restricts to rows with a matching non-empty cwd.
+        let normalizedCwdFilter: String? = {
+            guard let cwdFilter = normalized(cwdFilter) else { return nil }
+            return (cwdFilter as NSString).standardizingPath
+        }()
+        let hasCwdFilter = normalizedCwdFilter != nil
         var sql = """
             SELECT
               s.id,
@@ -171,6 +189,9 @@ public enum HermesAgentIndex {
             LEFT JOIN messages m ON m.session_id = s.id
             WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
             """
+        if hasCwdFilter {
+            sql += "\n AND s.cwd = ?"
+        }
         if hasNeedle {
             sql += """
                  AND (
@@ -203,13 +224,25 @@ public enum HermesAgentIndex {
         }
         defer { sqlite3_finalize(stmt) }
 
+        // SQLITE_TRANSIENT — tell SQLite to copy the bound bytes (the Swift strings
+        // are deallocated as soon as this scope exits).
+        let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        // Bind in placeholder order: the cwd filter `?` (if present) comes before
+        // the five needle `?`s in the SQL above.
+        var bindIndex: Int32 = 1
+        if let normalizedCwdFilter {
+            guard sqlite3_bind_text(stmt, bindIndex, normalizedCwdFilter, -1, destructor) == SQLITE_OK else {
+                throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
+            }
+            bindIndex += 1
+        }
         if hasNeedle {
             let likePattern = "%\(trimmedNeedle)%"
-            let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-            for index in 1...5 {
-                guard sqlite3_bind_text(stmt, Int32(index), likePattern, -1, destructor) == SQLITE_OK else {
+            for _ in 0..<5 {
+                guard sqlite3_bind_text(stmt, bindIndex, likePattern, -1, destructor) == SQLITE_OK else {
                     throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
                 }
+                bindIndex += 1
             }
         }
 
