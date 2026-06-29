@@ -820,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Domyślnie pokazuje wejście TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów.",
           "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Gdy włączone, baner powiadomienia jest automatycznie wycofywany tylko wtedy, gdy jego Surface jest dokładnie tym Surface, który ma fokus. Baner dostarczony dla Surface bez fokusu w aktualnie widocznym workspace pozostaje wyświetlony, dopóki nie ustawisz fokusu na tym Surface (albo go nie klikniesz/odrzucisz), zamiast być wycofywany, gdy workspace stanie się widoczny. Wyłączone zachowuje dawne wycofywanie oparte na widoczności workspace."
+        },
         "browser": {
           "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
           "customSearchEngineName": "Nazwa wyświetlana, gdy defaultSearchEngine ma wartość custom.",
@@ -1070,7 +1073,8 @@
       "closeWorkspaceDesc": "Zamknij workspace.",
       "splitCommands": "Polecenia podziału",
       "newSplitDesc": "Utwórz nowy dzielony panel. Kierunki: left, right, up, down.",
-      "listSurfacesDesc": "Wyświetl wszystkie surface'y w bieżącym workspace.",
+      "listPanelsDesc": "Wyświetl wszystkie surface'y w bieżącym workspace.",
+      "listPaneSurfacesDesc": "Wyświetl surface'y w aktywnym panelu.",
       "focusSurfaceDesc": "Ustaw fokus na konkretnym surface.",
       "inputCommands": "Polecenia wejścia",
       "sendDesc": "Wyślij tekst do fokusowanego terminala.",

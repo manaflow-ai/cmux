@@ -820,6 +820,9 @@
           "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",
           "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦測試版 TextBox 輸入。聚焦也會顯示 TextBox。"
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "啟用後，只有當通知橫幅的 Surface 正好是目前聚焦的 Surface 時，該橫幅才會自動撤回。對於目前可見 workspace 中未聚焦的 Surface 所投遞的橫幅，在你聚焦該 Surface（或點擊／關閉它）之前會持續顯示，而不會在 workspace 變為可見時被撤回。關閉則保留舊有的基於 workspace 可見性的撤回行為。"
+        },
         "browser": {
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
@@ -1070,7 +1073,8 @@
       "closeWorkspaceDesc": "關閉工作區。",
       "splitCommands": "分割指令",
       "newSplitDesc": "建立新的分割窗格。方向：left、right、up、down。",
-      "listSurfacesDesc": "列出目前工作區中的所有 surface。",
+      "listPanelsDesc": "列出目前工作區中的所有 surface。",
+      "listPaneSurfacesDesc": "列出目前聚焦窗格中的 surface。",
       "focusSurfaceDesc": "聚焦到指定的 surface。",
       "inputCommands": "輸入指令",
       "sendDesc": "向聚焦的終端機傳送文字輸入。",

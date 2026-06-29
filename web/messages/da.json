@@ -820,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits.",
           "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits. Fokus viser også TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Når dette er slået til, trækkes et notifikationsbanner kun automatisk tilbage, når dets surface er præcis den fokuserede surface. Et banner leveret til en ikke-fokuseret surface i det aktuelt synlige workspace bliver vist, indtil du fokuserer på den surface (eller klikker/afviser det), i stedet for at blive trukket tilbage, når workspacet bliver synligt. Fra bevarer den ældre tilbagetrækning baseret på workspace-synlighed."
+        },
         "browser": {
           "defaultSearchEngine": "Standardsøgemaskine for forespørgsler i browserens adresselinje, der ikke er URLer. Brug custom med customSearchEngineURLTemplate til andre udbydere.",
           "customSearchEngineName": "Visningsnavn brugt når defaultSearchEngine er custom.",
@@ -1070,7 +1073,8 @@
       "closeWorkspaceDesc": "Luk et workspace.",
       "splitCommands": "Opdelingskommandoer",
       "newSplitDesc": "Opret et nyt opdelt panel. Retninger: left, right, up, down.",
-      "listSurfacesDesc": "List alle surfaces i det aktuelle workspace.",
+      "listPanelsDesc": "List alle surfaces i det aktuelle workspace.",
+      "listPaneSurfacesDesc": "List surfaces i det fokuserede panel.",
       "focusSurfaceDesc": "Fokusér en specifik surface.",
       "inputCommands": "Inputkommandoer",
       "sendDesc": "Send tekstinput til den fokuserede terminal.",
