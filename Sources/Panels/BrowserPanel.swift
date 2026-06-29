@@ -2878,7 +2878,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     var isShowingBlankBrowserPage: Bool {
         Self.isBlankBrowserPage(
-            liveURL: Self.remoteProxyDisplayURL(for: webView.url) ?? webView.url,
+            liveURL: restorableDisplayURLForCurrentErrorPage(liveURL: webView.url) ?? webView.url,
             currentURL: currentURL,
             pendingNavigationURL: Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
                 ?? navigationDelegate?.lastAttemptedURL,
@@ -3060,6 +3060,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
     var reactGrabMessageHandler: ReactGrabMessageHandler?
+    var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
     /// Whether the live page currently has any actively-playing `<video>` or
     /// `<audio>` element, in the main frame or any iframe, reported by the
     /// injected media-playback hook. Keeps an actively-playing pane alive in the
@@ -3339,7 +3340,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelHiddenWebViewDiscard()
 
         let oldWebView = webView
-        let restoreURL = Self.remoteProxyDisplayURL(for: oldWebView.url) ?? currentURL
+        let restoreURL = restorableDisplayURLForCurrentErrorPage(liveURL: oldWebView.url)
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar() ?? restoreURL?.absoluteString
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
@@ -3754,9 +3755,26 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
+        setupSSLTrustBypassMessageHandler(for: webView)
         setupMediaPlaybackMessageHandler(for: webView)
         webAuthnCoordinator.install(on: webView)
         applyMuteState(to: webView, reason: "bindWebView")
+    }
+
+    private func setupSSLTrustBypassMessageHandler(for webView: WKWebView) {
+        let handler = BrowserSSLTrustBypassMessageHandler(
+            canHandleToken: { [weak self] token in
+                self?.navigationDelegate?.canHandleSSLTrustBypassToken(token) ?? false
+            },
+            handleToken: { [weak self, weak webView] token in
+                guard let self, let webView else { return }
+                self.navigationDelegate?.handleSSLTrustBypassToken(token, in: webView)
+            }
+        )
+        sslTrustBypassMessageHandler = handler
+        let userContentController = webView.configuration.userContentController
+        userContentController.removeScriptMessageHandler(forName: BrowserSSLTrustBypassMessageHandler.name)
+        userContentController.add(handler, name: BrowserSSLTrustBypassMessageHandler.name)
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -3793,9 +3811,11 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.isMainFrameProvisionalNavigationActive = false
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationFinish")
-                self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
-                boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
-                self.refreshFavicon(from: webView)
+                if self.navigationDelegate?.activeErrorPageDisplayURL == nil {
+                    self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
+                    boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
+                    self.refreshFavicon(from: webView)
+                }
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
             }
@@ -3821,15 +3841,21 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
-                self.navigationDelegate?.lastAttemptedURL = nil
+                self.navigationDelegate?.clearAttemptedRequest()
                 self.refreshBackgroundAppearance()
             }
         }
     }
 
     private func publishCommittedURL(from webView: WKWebView) {
+        if let errorPageDisplayURL = navigationDelegate?.activeErrorPageDisplayURL {
+            currentURL = Self.remoteProxyDisplayURL(for: errorPageDisplayURL) ?? errorPageDisplayURL
+            refreshBackgroundAppearance()
+            GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+            return
+        }
         currentURL = Self.remoteProxyDisplayURL(for: webView.url)
-        navigationDelegate?.lastAttemptedURL = nil
+        navigationDelegate?.clearAttemptedRequest()
         refreshBackgroundAppearance()
         GlobalSearchCoordinator.shared.captureBrowserPanel(self)
     }
@@ -4377,7 +4403,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let previousWebView = webView
         let wasRenderable = shouldRenderWebView
-        let restoreURL = previousWebView.url ?? currentURL
+        let restoreURL = restorableDisplayURLForCurrentErrorPage(liveURL: previousWebView.url)
         let restoreURLString = restoreURL?.absoluteString
         let shouldRestoreURL = wasRenderable && restoreURLString != nil && restoreURLString != blankURLString
         let history = sessionNavigationHistorySnapshot()
@@ -4399,6 +4425,7 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconRefreshGeneration &+= 1
         cancelPendingInteractiveBrowserPrompts(reason: "profileSwitch")
         closeBackgroundPreloadHost(reason: "profileSwitch")
+        navigationDelegate?.clearSSLTrustState()
         BrowserWindowPortalRegistry.detach(webView: previousWebView)
         webAuthnCoordinator.tearDown(from: previousWebView); previousWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
@@ -4478,9 +4505,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func resolvedLiveSessionHistoryURL() -> URL? {
-        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
-           Self.serializableSessionHistoryURLString(webViewURL) != nil {
-            return webViewURL
+        if let displayURL = restorableDisplayURLForCurrentErrorPage(liveURL: webView.url),
+           Self.serializableSessionHistoryURLString(displayURL) != nil {
+            return displayURL
         }
         if let currentURL,
            Self.serializableSessionHistoryURLString(currentURL) != nil {
@@ -4620,8 +4647,8 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func preferredURLStringForSessionSnapshot() -> String? {
-        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
-           let value = Self.serializableSessionHistoryURLString(webViewURL) {
+        if let displayURL = restorableDisplayURLForCurrentErrorPage(liveURL: webView.url),
+           let value = Self.serializableSessionHistoryURLString(displayURL) {
             return value
         }
         if let currentURL,
@@ -4871,6 +4898,14 @@ final class BrowserPanel: Panel, ObservableObject {
         return value.caseInsensitiveCompare("about:blank") == .orderedSame
     }
 
+    private func restorableDisplayURLForCurrentErrorPage(liveURL: URL?) -> URL? {
+        Self.restorableDisplayURL(
+            liveURL: liveURL,
+            currentURL: currentURL,
+            activeErrorPageDisplayURL: navigationDelegate?.activeErrorPageDisplayURL
+        )
+    }
+
     nonisolated static func isBlankBrowserPage(
         liveURL: URL?,
         currentURL: URL?,
@@ -4943,8 +4978,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let wasRenderable = shouldRenderWebView
         let attemptedURL = Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
             ?? navigationDelegate?.lastAttemptedURL
-        let liveURL = Self.remoteProxyDisplayURL(for: oldWebView.url)
-            ?? currentURL
+        let liveURL = restorableDisplayURLForCurrentErrorPage(liveURL: oldWebView.url)
         let restoreURL = (isMainFrameProvisionalNavigationActive ? attemptedURL : nil)
             ?? liveURL
             ?? attemptedURL
@@ -4957,6 +4991,10 @@ final class BrowserPanel: Panel, ObservableObject {
         let historyCurrentURL = preferredURLStringForOmnibar()
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
         let restoreDevTools = preferredDeveloperToolsVisible
+
+        if oldWebView.configuration.websiteDataStore !== websiteDataStore {
+            navigationDelegate?.clearSSLTrustState()
+        }
 
 #if DEBUG
         cmuxDebugLog(
@@ -5578,7 +5616,7 @@ final class BrowserPanel: Panel, ObservableObject {
             )
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
-            navigationDelegate?.lastAttemptedURL = url
+            navigationDelegate?.recordAttemptedRequest(request)
             refreshBackgroundAppearance()
             shouldRenderWebView = true
             return
@@ -5627,7 +5665,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
-        navigationDelegate?.lastAttemptedURL = originalURL
+        navigationDelegate?.recordAttemptedRequest(effectiveRequest, displayURL: originalURL)
         refreshBackgroundAppearance()
         shouldRenderWebView = true
         if shouldPreloadInitialNavigationInBackground {
@@ -5673,19 +5711,6 @@ final class BrowserPanel: Panel, ObservableObject {
             kCFNetworkProxiesSOCKSPort as String: endpoint.port,
         ]
         return URLSession(configuration: configuration)
-    }
-
-    private static func remoteProxyDisplayURL(for url: URL?) -> URL? {
-        guard let url else { return nil }
-        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return url }
-        guard let displayHost = RemoteLoopbackProxyAlias.localhostFamilyHost(
-            forAliasHost: host,
-            aliasHost: RemoteLoopbackProxyAlias.aliasHost
-        ) else { return url }
-
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        components?.host = displayHost
-        return components?.url ?? url
     }
 
     private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {
@@ -5959,7 +5984,7 @@ extension BrowserPanel {
         estimatedProgress = 0
         nativeCanGoBack = false
         nativeCanGoForward = false
-        navigationDelegate?.lastAttemptedURL = nil
+        navigationDelegate?.clearSSLTrustState()
         abandonRestoredSessionHistoryIfNeeded()
 
         pendingAddressBarFocusRequestId = nil
@@ -7846,7 +7871,7 @@ extension BrowserPanel {
     /// Returns the most reliable URL string for omnibar-related matching and UI decisions.
     /// `currentURL` can lag behind navigation changes, so prefer the live WKWebView URL.
     func preferredURLStringForOmnibar() -> String? {
-        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url)?.absoluteString
+        if let webViewURL = restorableDisplayURLForCurrentErrorPage(liveURL: webView.url)?.absoluteString
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !webViewURL.isEmpty,
            webViewURL != blankURLString {
@@ -7864,9 +7889,9 @@ extension BrowserPanel {
     }
 
     private func resolvedCurrentSessionHistoryURL() -> URL? {
-        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
-           Self.serializableSessionHistoryURLString(webViewURL) != nil {
-            return webViewURL
+        if let displayURL = restorableDisplayURLForCurrentErrorPage(liveURL: webView.url),
+           Self.serializableSessionHistoryURLString(displayURL) != nil {
+            return displayURL
         }
         if let currentURL,
            Self.serializableSessionHistoryURLString(currentURL) != nil {
