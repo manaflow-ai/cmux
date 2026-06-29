@@ -1,9 +1,11 @@
 import Combine
 import Foundation
+import Observation
 
 extension ContentView {
     @MainActor
-    final class SelectedWorkspaceDirectoryObserver: ObservableObject {
+    @Observable
+    final class SelectedWorkspaceDirectoryObserver {
         private struct Snapshot: Equatable {
             let workspaceId: UUID?
             let currentDirectory: String?
@@ -14,9 +16,9 @@ extension ContentView {
             let activeRemoteTerminalSessionCount: Int?
         }
 
-        @Published private(set) var directoryChangeGeneration: UInt64 = 0
-        private weak var tabManager: TabManager?
-        private var cancellable: AnyCancellable?
+        private(set) var directoryChangeGeneration: UInt64 = 0
+        @ObservationIgnored private weak var tabManager: TabManager?
+        @ObservationIgnored private var cancellable: AnyCancellable?
 
         func wire(tabManager: TabManager) {
             guard self.tabManager !== tabManager || cancellable == nil else { return }
