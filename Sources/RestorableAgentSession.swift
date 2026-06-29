@@ -382,7 +382,11 @@ enum AgentResumeCommandBuilder {
 
         let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
             ? nil
-            : normalized(workingDirectory ?? launchCommand?.workingDirectory)
+            : commandWorkingDirectory(
+                kind: kind,
+                launchCommand: launchCommand,
+                workingDirectory: workingDirectory
+            )
         let sanitizedCommandParts = customRegistration == nil
             ? AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: commandParts,
@@ -418,6 +422,17 @@ enum AgentResumeCommandBuilder {
             shellCommand = sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
         }
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
+    }
+
+    private static func commandWorkingDirectory(
+        kind: RestorableAgentKind,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?
+    ) -> String? {
+        if kind == .claude {
+            return normalized(launchCommand?.workingDirectory) ?? normalized(workingDirectory)
+        }
+        return normalized(workingDirectory ?? launchCommand?.workingDirectory)
     }
 
     static func openCodeVersionProbe(

@@ -2802,6 +2802,40 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testClaudeResumeAndForkCommandsUseLaunchProjectDirectoryWhenSnapshotDirectoryDrifts() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "a1fcdb44-3fe9-4045-98bf-256e21051de3",
+            workingDirectory: "/Users/lawrence/fun/cmuxterm-hq/worktrees/feat-ios-swift-mobile-core",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/Users/lawrence/.local/bin/claude",
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--dangerously-skip-permissions"
+                ],
+                workingDirectory: "/Users/lawrence/fun/cmuxterm-hq",
+                environment: [
+                    "CLAUDE_CONFIG_DIR": "/Users/lawrence/.codex-accounts/claude/_p1775010019397"
+                ],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "{ cd -- '/Users/lawrence/fun/cmuxterm-hq' 2>/dev/null || [ ! -d '/Users/lawrence/fun/cmuxterm-hq' ]; } && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/Users/lawrence/.local/bin/claude' '--resume' 'a1fcdb44-3fe9-4045-98bf-256e21051de3' '--dangerously-skip-permissions'"
+        )
+        XCTAssertEqual(
+            snapshot.forkCommand,
+            "{ cd -- '/Users/lawrence/fun/cmuxterm-hq' 2>/dev/null || [ ! -d '/Users/lawrence/fun/cmuxterm-hq' ]; } && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/Users/lawrence/.local/bin/claude' '--resume' 'a1fcdb44-3fe9-4045-98bf-256e21051de3' '--fork-session' '--dangerously-skip-permissions'"
+        )
+        XCTAssertFalse(
+            snapshot.forkCommand?.contains("/Users/lawrence/fun/cmuxterm-hq/worktrees/feat-ios-swift-mobile-core") ?? true
+        )
+    }
+
     func testForkCommandsUseVerifiedAgentForkSyntaxAndPreserveContext() {
         let claude = SessionRestorableAgentSnapshot(
             kind: .claude,

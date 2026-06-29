@@ -5884,6 +5884,53 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testForkAgentConversationForClaudeUsesLaunchProjectDirectoryWhenPanelDirectoryDrifts() throws {
+        let workspace = Workspace()
+        let launchProjectDirectory = "/Users/lawrence/fun/cmuxterm-hq"
+        let driftedPanelDirectory = "/Users/lawrence/fun/cmuxterm-hq/worktrees/feat-ios-swift-mobile-core"
+        workspace.currentDirectory = driftedPanelDirectory
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "a1fcdb44-3fe9-4045-98bf-256e21051de3",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/Users/lawrence/.local/bin/claude",
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--dangerously-skip-permissions"
+                ],
+                workingDirectory: launchProjectDirectory,
+                environment: [
+                    "CLAUDE_CONFIG_DIR": "/Users/lawrence/.codex-accounts/claude/_p1775010019397"
+                ],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        let forkPanel = try XCTUnwrap(
+            workspace.forkAgentConversation(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot,
+                direction: .right
+            )
+        )
+        let initialInput = try XCTUnwrap(forkPanel.surface.initialInput)
+
+        XCTAssertEqual(forkPanel.requestedWorkingDirectory, driftedPanelDirectory)
+        XCTAssertTrue(
+            initialInput.hasPrefix("{ cd -- '\(launchProjectDirectory)' 2>/dev/null"),
+            initialInput
+        )
+        XCTAssertFalse(initialInput.contains("{ cd -- '\(driftedPanelDirectory)'"), initialInput)
+        XCTAssertTrue(
+            initialInput.contains("'--resume' 'a1fcdb44-3fe9-4045-98bf-256e21051de3' '--fork-session'"),
+            initialInput
+        )
+    }
+
     func testForkAgentConversationInRemoteWorkspaceUsesRemoteStartupCommand() throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(
