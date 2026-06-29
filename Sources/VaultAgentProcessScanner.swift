@@ -927,6 +927,17 @@ private extension CmuxVaultAgentSessionIDSource {
             // GB-scale snapshot copy — this runs on cmux's main-queue quit/save
             // path), and the injected cache collapses repeated (db, cwd) lookups
             // within a single scan to one query.
+            //
+            // KNOWN LIMITATION (same as `.piSessionFile`, which infers newest
+            // session per cwd the same way): two hermes panes launched in the
+            // IDENTICAL cwd both resolve to that cwd's newest session, so they
+            // can bind to the same conversation. cwd disambiguates panes in
+            // DIFFERENT directories (the common case, incl. the per-profile
+            // gateway dirs); state.db records no PID/TTY to separate two panes
+            // sharing one cwd. The result is marked `.inferredLatestSessionFile`
+            // so the resolved id yields to an exact hook-store identity when one
+            // exists. A precise fix needs a per-process key (e.g. hermes writing
+            // its PID into the session row) — tracked in manaflow-ai/cmux#7042.
             guard let sessionId = latestHermesSessionID(stateDBPath, workingDirectory),
                   !sessionId.isEmpty else { return nil }
             return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
