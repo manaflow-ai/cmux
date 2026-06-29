@@ -959,7 +959,15 @@ extension Workspace {
             return false
         }
         guard commandLooksLikePoisonedShellResumeBinding(binding.command, kind: bindingKind) else { return false }
-        return restorableAgent.resumeCommand != nil
+        guard restorableAgent.resumeCommand != nil else { return false }
+
+        if normalizedResumeBindingValue(binding.checkpointId) == restorableAgent.sessionId {
+            return true
+        }
+        guard let capturedAt = restorableAgent.launchCommand?.capturedAt else {
+            return false
+        }
+        return capturedAt > binding.updatedAt
     }
 
     nonisolated private static func commandLooksLikePoisonedShellResumeBinding(
