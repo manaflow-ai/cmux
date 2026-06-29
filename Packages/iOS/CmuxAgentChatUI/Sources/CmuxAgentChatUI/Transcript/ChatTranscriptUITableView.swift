@@ -7,8 +7,10 @@ final class ChatTranscriptUITableView: UITableView {
     var afterLayout: ((
         _ oldBoundsSize: CGSize,
         _ oldContentSize: CGSize,
-        _ oldViewport: MobileScrollViewportSnapshot?
+        _ oldViewport: MobileScrollViewportSnapshot?,
+        _ oldAnchor: ChatTranscriptTableAnchor?
     ) -> Void)?
+    var anchorBeforeLayout: (() -> ChatTranscriptTableAnchor?)?
     #if DEBUG
     var keyboardDebugEventCount = 0
     var keyboardDebugOverlap: CGFloat = 0
@@ -44,10 +46,15 @@ final class ChatTranscriptUITableView: UITableView {
     }
     #endif
 
+    override var contentOffset: CGPoint {
+        didSet { recordViewport() }
+    }
+
     override func layoutSubviews() {
         let oldBoundsSize = lastBoundsSize
         let oldContentSize = lastContentSize
         let oldViewport = lastViewport
+        let oldAnchor = anchorBeforeLayout?()
         super.layoutSubviews()
         lastBoundsSize = bounds.size
         lastContentSize = contentSize
@@ -55,7 +62,7 @@ final class ChatTranscriptUITableView: UITableView {
         #if DEBUG
         updateDebugAccessibilityValue()
         #endif
-        afterLayout?(oldBoundsSize, oldContentSize, oldViewport)
+        afterLayout?(oldBoundsSize, oldContentSize, oldViewport, oldAnchor)
     }
 
     func keyboardViewportSnapshot() -> MobileScrollViewportSnapshot {
@@ -254,4 +261,10 @@ final class ChatTranscriptUITableView: UITableView {
     }
     #endif
 }
+
+struct ChatTranscriptTableAnchor {
+    let id: String
+    let offsetFromRowTop: CGFloat
+}
+
 #endif
