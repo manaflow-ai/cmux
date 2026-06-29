@@ -14,6 +14,26 @@ if zmodload zsh/parameter 2>/dev/null && (( ${+jobstates} )); then
     _CMUX_HAS_ZSH_JOBSTATES=1
 fi
 
+# Prefer zsh/zselect for the poll-loop sleeps in the git-HEAD and PR-status
+# watchers (no fork, vs ~1 fork+exec of /bin/sleep per second per pane).
+# Falls back to /bin/sleep if the module is unavailable.
+typeset -g _CMUX_HAS_ZSELECT=0
+if zmodload zsh/zselect 2>/dev/null; then
+    _CMUX_HAS_ZSELECT=1
+fi
+
+# Fork-free sleep.  Argument is in centiseconds (zselect's -t unit), so a
+# whole-second wait is `_cmux_sleep_cs 100`.  zselect with only -t and no fds
+# returns status 1 on timeout, so call it then return 0 explicitly rather than
+# falling through to the /bin/sleep fallback (which would double the wait).
+_cmux_sleep_cs() {
+    if (( _CMUX_HAS_ZSELECT )); then
+        zselect -t "$1"
+        return 0
+    fi
+    sleep "$(( $1 / 100.0 ))"
+}
+
 _cmux_zsh_job_table_saturated() {
     (( _CMUX_HAS_ZSH_JOBSTATES )) || return 1
 
@@ -1445,14 +1465,14 @@ _cmux_run_pr_probe_with_timeout() {
     probe_pid=$!
 
     while kill -0 "$probe_pid" >/dev/null 2>&1; do
-        sleep 1
+        _cmux_sleep_cs 100
         now="${EPOCHSECONDS:-$SECONDS}"
         if (( _CMUX_ASYNC_JOB_TIMEOUT > 0 )) && (( now - started_at >= _CMUX_ASYNC_JOB_TIMEOUT )); then
             _cmux_kill_process_tree "$probe_pid" TERM
-            sleep 0.2
+            _cmux_sleep_cs 20
             if kill -0 "$probe_pid" >/dev/null 2>&1; then
                 _cmux_kill_process_tree "$probe_pid" KILL
-                sleep 0.2
+                _cmux_sleep_cs 20
             fi
             if ! kill -0 "$probe_pid" >/dev/null 2>&1; then
                 wait "$probe_pid" >/dev/null 2>&1 || true
@@ -1527,7 +1547,7 @@ _cmux_start_pr_poll_loop() {
                 if [[ -n "$signal_path" && -f "$signal_path" ]]; then
                     break
                 fi
-                sleep 1
+                _cmux_sleep_cs 100
                 slept=$(( slept + 1 ))
             done
         done
@@ -1566,7 +1586,7 @@ _cmux_start_git_head_watch() {
         local last_signature="$watch_head_signature"
         while true; do
             kill -0 "$watch_shell_pid" >/dev/null 2>&1 || break
-            sleep 1
+            _cmux_sleep_cs 100
 
             local signature
             signature="$(_cmux_git_head_signature "$watch_head_path" 2>/dev/null || true)"
