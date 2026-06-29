@@ -232,6 +232,12 @@ struct RightSidebarPanelView: View {
 
     private var modeBar: some View {
         let _ = keyboardShortcutSettingsObserver.revision
+        let heldFlags = modeShortcutHintMonitor.activeModifierFlags
+        let modeModifierHintsEnabled = ShortcutHintTitlebarPolicy.modifierHoldHintsEnabled(
+            showModifierHoldHints: showModifierHoldHints,
+            showCommandHoldHints: showCommandHoldHints,
+            heldModifierFlags: heldFlags
+        )
         return ZStack {
             WindowDragHandleView()
 
@@ -248,8 +254,8 @@ struct RightSidebarPanelView: View {
                         showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
                             shortcut: shortcut,
                             alwaysShowShortcutHints: alwaysShowShortcutHints,
-                            modifierFlags: modeShortcutHintMonitor.activeModifierFlags,
-                            modifierHoldHintsEnabled: showModifierHoldHints
+                            modifierFlags: heldFlags,
+                            modifierHoldHintsEnabled: modeModifierHintsEnabled
                         )
                     ) {
                         let mode = item.mode

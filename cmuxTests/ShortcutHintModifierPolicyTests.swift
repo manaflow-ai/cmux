@@ -61,6 +61,25 @@ struct ShortcutHintModifierHoldPolicyTests {
     }
 
     @Test
+    func titlebarModeModifierGateSuppressesCommandOnlyWhenCommandHintsAreDisabled() {
+        #expect(!ShortcutHintTitlebarPolicy.modifierHoldHintsEnabled(
+            showModifierHoldHints: true,
+            showCommandHoldHints: false,
+            heldModifierFlags: [.command]
+        ))
+        #expect(ShortcutHintTitlebarPolicy.modifierHoldHintsEnabled(
+            showModifierHoldHints: true,
+            showCommandHoldHints: false,
+            heldModifierFlags: [.control]
+        ))
+        #expect(!ShortcutHintTitlebarPolicy.modifierHoldHintsEnabled(
+            showModifierHoldHints: false,
+            showCommandHoldHints: true,
+            heldModifierFlags: [.control]
+        ))
+    }
+
+    @Test
     func modifierHoldHintsSettingSuppressesCommandAndControlHintActivation() throws {
         try withDefaultsSuite { defaults in
             defaults.set(false, forKey: ShortcutHintDebugSettings.showModifierHoldHintsKey)

@@ -35,6 +35,17 @@ enum ShortcutHintTitlebarPolicy {
         }
     }
 
+    static func modifierHoldHintsEnabled(
+        showModifierHoldHints: Bool,
+        showCommandHoldHints: Bool,
+        heldModifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard showModifierHoldHints else { return false }
+        let heldFlags = normalized(heldModifierFlags)
+        guard heldFlags.contains(.command) else { return true }
+        return showCommandHoldHints
+    }
+
     private static func normalized(_ modifierFlags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
         modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
