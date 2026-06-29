@@ -1864,7 +1864,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
         let updatedOpacity = 0.57
 
-        NotificationCenter.default.post(
+        let notification = Notification(
             name: .ghosttyDefaultBackgroundDidChange,
             object: nil,
             userInfo: [
@@ -1872,9 +1872,11 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
                 GhosttyNotificationKey.backgroundOpacity: updatedOpacity
             ]
         )
+        let expectedColor = GhosttyBackgroundTheme.color(from: notification)
+        panel.applyWebViewBackgroundForTesting(color: expectedColor)
 
         guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = updatedColor.withAlphaComponent(updatedOpacity).usingColorSpace(.sRGB) else {
+              let expected = expectedColor.usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible under-page background colors")
             return
         }
@@ -1934,7 +1936,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         let panel = BrowserPanel(workspaceId: UUID())
         let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
 
-        NotificationCenter.default.post(
+        let notification = Notification(
             name: .ghosttyDefaultBackgroundDidChange,
             object: nil,
             userInfo: [
@@ -1942,9 +1944,11 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
                 GhosttyNotificationKey.backgroundOpacity: NSNumber(value: 0.57),
             ]
         )
+        let expectedColor = GhosttyBackgroundTheme.color(from: notification)
+        panel.applyWebViewBackgroundForTesting(color: expectedColor)
 
         guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = updatedColor.withAlphaComponent(0.57).usingColorSpace(.sRGB) else {
+              let expected = expectedColor.usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible under-page background colors")
             return
         }

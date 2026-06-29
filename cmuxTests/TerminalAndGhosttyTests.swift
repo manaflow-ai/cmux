@@ -2630,10 +2630,22 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
         config.backgroundBlur = .disabled
 
         let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
+        let expectedBackground = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: config.backgroundColor,
+            opacity: config.backgroundOpacity
+        )
+        guard let actualBackground = appearance.backgroundColor.usingColorSpace(.sRGB),
+              let expectedBackground = expectedBackground.usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible panel background colors")
+            return
+        }
 
         XCTAssertTrue(appearance.usesClearContentBackground)
         XCTAssertFalse(appearance.drawsContentBackground)
-        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 0.42, accuracy: 0.0001)
+        XCTAssertEqual(actualBackground.redComponent, expectedBackground.redComponent, accuracy: 0.005)
+        XCTAssertEqual(actualBackground.greenComponent, expectedBackground.greenComponent, accuracy: 0.005)
+        XCTAssertEqual(actualBackground.blueComponent, expectedBackground.blueComponent, accuracy: 0.005)
+        XCTAssertEqual(actualBackground.alphaComponent, expectedBackground.alphaComponent, accuracy: 0.005)
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
     }
 

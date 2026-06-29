@@ -8,7 +8,7 @@
 12921	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12233	Sources/GhosttyTerminalView.swift
-11592	Sources/Panels/BrowserPanel.swift
+11598	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8016	CLI/cmux_open.swift
 7982	Sources/Panels/BrowserPanelView.swift
@@ -16,11 +16,11 @@
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6895	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 6359	cmuxTests/SessionPersistenceTests.swift
-6217	cmuxTests/GhosttyConfigTests.swift
+6227	cmuxTests/GhosttyConfigTests.swift
 6180	Sources/TabManager.swift
 6077	Sources/TextBoxInput.swift
-5915	cmuxTests/TerminalAndGhosttyTests.swift
-5573	cmuxTests/BrowserConfigTests.swift
+5927	cmuxTests/TerminalAndGhosttyTests.swift
+5577	cmuxTests/BrowserConfigTests.swift
 4487	Sources/Panels/FilePreviewPanel.swift
 4476	Sources/cmuxApp.swift
 4367	cmuxTests/BrowserPanelTests.swift
@@ -82,7 +82,7 @@
 1161	cmuxTests/SidebarOrderingTests.swift
 1147	cmuxTests/PiVaultAgentPersistenceTests.swift
 1121	cmuxTests/AgentHibernationTests.swift
-1110	Sources/AppDelegate+CmuxSSHURL.swift
+1109	Sources/AppDelegate+CmuxSSHURL.swift
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
 1031	cmuxTests/WorkspaceGroupTests.swift
