@@ -542,22 +542,24 @@ final class SessionIndexStore: ObservableObject {
     func reload() {
         loadTask?.cancel()
         let vaultConfigStore = self.vaultConfigStore
+        let workingDirectory = normalizedDirectory(currentDirectory)
         isLoading = true
         directorySnapshotGeneration += 1
         invalidateDirectorySnapshots()
         loadTask = Task.detached(priority: .userInitiated) { [weak self, vaultConfigStore] in
-            let claudeVaultConfiguration = await Self.claudeVaultConfiguration(store: vaultConfigStore)
+            let baseClaudeVaultConfiguration = await Self.claudeVaultConfiguration(store: vaultConfigStore)
             if Task.isCancelled { return }
+            let order = await Self.defaultAgentOrder(workingDirectory: workingDirectory)
+            let claudeVaultConfiguration = baseClaudeVaultConfiguration.merging(registry: order.registry)
+            if Task.isCancelled { return }
+            let scanned = await Self.scanAll(
+                order: order,
+                claudeVaultConfiguration: claudeVaultConfiguration
+            )
             await MainActor.run {
                 guard let self else { return }
                 if Task.isCancelled { return }
                 self.refreshVaultPathMappings(claudeVaultConfiguration.pathMappings)
-            }
-            if Task.isCancelled { return }
-            let scanned = await Self.scanAll(claudeVaultConfiguration: claudeVaultConfiguration)
-            await MainActor.run {
-                guard let self else { return }
-                if Task.isCancelled { return }
                 self.entries = scanned
                 self.isLoading = false
                 self.backfillAgentOrderFromEntries()
@@ -610,9 +612,10 @@ final class SessionIndexStore: ObservableObject {
         // Claude's `searchMaxFiles` cap still applies (currently 1500); if
         // anyone has more Claude sessions in a single cwd we'll bump it.
         let bigLimit = 10_000
-        let claudeVaultConfiguration = await claudeVaultConfiguration()
-        refreshVaultPathMappings(claudeVaultConfiguration.pathMappings)
+        let baseClaudeVaultConfiguration = await claudeVaultConfiguration()
         let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
+        let claudeVaultConfiguration = baseClaudeVaultConfiguration.merging(registry: order.registry)
+        refreshVaultPathMappings(claudeVaultConfiguration.pathMappings)
         var merged = await Self.loadAgents(
             order.agents,
             registry: order.registry,
@@ -764,12 +767,14 @@ final class SessionIndexStore: ObservableObject {
     /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
     nonisolated static let searchMaxFiles = 1500
 
-    private static func scanAll(claudeVaultConfiguration: ClaudeVaultConfiguration) async -> [SessionEntry] {
+    private static func scanAll(
+        order: LoadedAgentOrder,
+        claudeVaultConfiguration: ClaudeVaultConfiguration
+    ) async -> [SessionEntry] {
         // Initial scan errors are silently ignored — UI just shows the cached
         // entries we did get. Errors get surfaced when the user actively
         // searches via the popover.
         let bag = ErrorBag()
-        let order = await defaultAgentOrder(workingDirectory: nil)
         let combined = await loadAgents(
             order.agents,
             registry: order.registry,
@@ -812,6 +817,18 @@ final class SessionIndexStore: ObservableObject {
     struct ClaudeVaultConfiguration: Sendable, Equatable {
         let extraSessionRoots: [String]
         let pathMappings: [VaultPathMapping]
+
+        func merging(registry: CmuxVaultAgentRegistry) -> ClaudeVaultConfiguration {
+            ClaudeVaultConfiguration(
+                extraSessionRoots: Self.unique(extraSessionRoots + registry.claudeSessionRoots),
+                pathMappings: Self.unique(pathMappings + registry.pathMappings)
+            )
+        }
+
+        private static func unique<Value: Hashable>(_ values: [Value]) -> [Value] {
+            var seen = Set<Value>()
+            return values.filter { seen.insert($0).inserted }
+        }
     }
 
     nonisolated private static func claudeVaultConfiguration(
@@ -1299,8 +1316,7 @@ final class SessionIndexStore: ObservableObject {
         }
         #endif
         let entries: [SessionEntry]
-        let claudeVaultConfiguration = await claudeVaultConfiguration()
-        refreshVaultPathMappings(claudeVaultConfiguration.pathMappings)
+        let baseClaudeVaultConfiguration = await claudeVaultConfiguration()
         switch scope {
         case .agent(let a):
             let registry: CmuxVaultAgentRegistry
@@ -1319,6 +1335,8 @@ final class SessionIndexStore: ObservableObject {
                 cwdFilter = nil
                 registry = CmuxVaultAgentRegistry(registrations: [])
             }
+            let claudeVaultConfiguration = baseClaudeVaultConfiguration.merging(registry: registry)
+            refreshVaultPathMappings(claudeVaultConfiguration.pathMappings)
             entries = await Self.searchAgent(
                 needle: needle, agent: a, cwdFilter: cwdFilter,
                 offset: offset, limit: limit, errorBag: bag, registry: registry,
@@ -1331,6 +1349,8 @@ final class SessionIndexStore: ObservableObject {
             // merge-sort can produce a stable global ordering, then slice.
             let target = offset + limit
             let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
+            let claudeVaultConfiguration = baseClaudeVaultConfiguration.merging(registry: order.registry)
+            refreshVaultPathMappings(claudeVaultConfiguration.pathMappings)
             var merged = await Self.loadAgents(
                 order.agents,
                 registry: order.registry,

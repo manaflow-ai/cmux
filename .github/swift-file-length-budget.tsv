@@ -42,11 +42,11 @@
 2395	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
 2242	Sources/TerminalNotificationStore.swift
+2242	cmuxTests/CmuxConfigTests.swift
 2233	Sources/TerminalWindowPortal.swift
-2148	cmuxTests/CmuxConfigTests.swift
 2091	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2078	Sources/SessionPersistence.swift
-1979	Sources/SessionIndexStore.swift
+1999	Sources/SessionIndexStore.swift
 1960	Sources/RestorableAgentSession.swift
 1952	Sources/KeyboardShortcutSettingsFileStore.swift
 1900	cmuxTests/NotificationAndMenuBarTests.swift
@@ -225,6 +225,7 @@
 519	Sources/CmuxConfigExecutor.swift
 518	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/CMUXMobileRootView.swift
 518	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
+518	Sources/VaultAgentRegistry.swift
 516	Sources/TerminalImageTransfer.swift
 514	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 514	cmuxUITests/UpdatePillUITests.swift
