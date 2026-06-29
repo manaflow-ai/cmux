@@ -3947,6 +3947,97 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         return surface
     }
 
+    private struct ReviewScrollbackHarness {
+        let window: NSWindow
+        let surfaceView: ScrollbarPostingSurfaceView
+        let scrollView: NSScrollView
+    }
+
+    private func makeReviewScrollbackHarness(
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> ReviewScrollbackHarness? {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view", file: file, line: line)
+            window.orderOut(nil)
+            return nil
+        }
+
+        let surfaceView = ScrollbarPostingSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view", file: file, line: line)
+            window.orderOut(nil)
+            return nil
+        }
+
+        return ReviewScrollbackHarness(window: window, surfaceView: surfaceView, scrollView: scrollView)
+    }
+
+    @discardableResult
+    private func scrollHarnessToReviewPosition(
+        _ harness: ReviewScrollbackHarness,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> Bool {
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: harness.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            harness.scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            file: file,
+            line: line
+        )
+
+        harness.surfaceView.nextScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
+
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: 0,
+            wheel2: -12,
+            wheel3: 0
+        ), let scrollEvent = NSEvent(cgEvent: cgEvent) else {
+            XCTFail("Expected scroll wheel event", file: file, line: line)
+            return false
+        }
+
+        harness.scrollView.scrollWheel(with: scrollEvent)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            harness.scrollView.contentView.bounds.origin.y,
+            500,
+            accuracy: 0.01,
+            file: file,
+            line: line
+        )
+        return true
+    }
+
     private func findEditableTextField(in view: NSView) -> NSTextField? {
         if let field = view as? NSTextField, field.isEditable {
             return field
@@ -4055,75 +4146,105 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     }
 
     func testExplicitWheelScrollKeepsScrollbackPinnedAgainstLaterBottomPacket() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let surfaceView = ScrollbarPostingSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
-        surfaceView.cellSize = CGSize(width: 10, height: 10)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
-            XCTFail("Expected hosted terminal scroll view")
-            return
-        }
+        guard let harness = makeReviewScrollbackHarness() else { return }
+        defer { harness.window.orderOut(nil) }
+        guard scrollHarnessToReviewPosition(harness) else { return }
 
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
-            object: surfaceView,
-            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
-        )
-        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
-
-        surfaceView.nextScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
-
-        guard let cgEvent = CGEvent(
-            scrollWheelEvent2Source: nil,
-            units: .pixel,
-            wheelCount: 2,
-            wheel1: 0,
-            wheel2: -12,
-            wheel3: 0
-        ), let scrollEvent = NSEvent(cgEvent: cgEvent) else {
-            XCTFail("Expected scroll wheel event")
-            return
-        }
-
-        scrollView.scrollWheel(with: scrollEvent)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 500, accuracy: 0.01)
-
-        NotificationCenter.default.post(
-            name: .ghosttyDidUpdateScrollbar,
-            object: surfaceView,
+            object: harness.surfaceView,
             userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
         )
         RunLoop.current.run(until: Date().addingTimeInterval(0.01))
 
         XCTAssertEqual(
-            scrollView.contentView.bounds.origin.y,
+            harness.scrollView.contentView.bounds.origin.y,
             500,
             accuracy: 0.01,
             "A passive bottom packet should not yank the viewport after an explicit wheel scroll into scrollback"
+        )
+    }
+
+    func testNearBottomLiveScrollResumesBottomFollowing() {
+        guard let harness = makeReviewScrollbackHarness() else { return }
+        defer { harness.window.orderOut(nil) }
+        guard scrollHarnessToReviewPosition(harness) else { return }
+
+        guard let documentView = harness.scrollView.documentView else {
+            XCTFail("Expected hosted terminal document view")
+            return
+        }
+
+        let nearBottomOriginY = max(
+            0,
+            documentView.frame.height - harness.scrollView.contentView.bounds.height - 2
+        )
+        XCTAssertGreaterThan(
+            nearBottomOriginY,
+            0,
+            "Expected enough scrollback geometry to exercise a near-bottom live-scroll position"
+        )
+        harness.scrollView.contentView.scroll(to: CGPoint(x: 0, y: nearBottomOriginY))
+        harness.scrollView.reflectScrolledClipView(harness.scrollView.contentView)
+
+        NotificationCenter.default.post(
+            name: NSScrollView.didLiveScrollNotification,
+            object: harness.scrollView
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: harness.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertEqual(
+            harness.scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            "A live scroll within the bottom threshold should resume following passive bottom packets"
+        )
+    }
+
+    func testStreamingOutputPreservesManualScrollbackPosition() {
+        guard let harness = makeReviewScrollbackHarness() else { return }
+        defer { harness.window.orderOut(nil) }
+        guard scrollHarnessToReviewPosition(harness) else { return }
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: harness.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 110, offset: 40, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertEqual(
+            harness.scrollView.contentView.bounds.origin.y,
+            600,
+            accuracy: 0.01,
+            "Streaming output should keep the same scrollback rows visible instead of drifting toward bottom"
+        )
+    }
+
+    func testResizeScrollbarUpdatePreservesManualScrollbackPosition() {
+        guard let harness = makeReviewScrollbackHarness() else { return }
+        defer { harness.window.orderOut(nil) }
+        guard scrollHarnessToReviewPosition(harness) else { return }
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: harness.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 40, len: 20)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertEqual(
+            harness.scrollView.contentView.bounds.origin.y,
+            400,
+            accuracy: 0.01,
+            "Resize-driven scrollbar updates should preserve manual scrollback instead of resetting the viewport"
         )
     }
 
