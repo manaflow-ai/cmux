@@ -54,7 +54,7 @@ public import Foundation
         isCancelled: @escaping PromptCancellationCheck = { false },
         completionHandler: @escaping Completion
     ) -> Bool {
-        guard Self.shouldHandle(challenge: challenge) else {
+        guard challenge.isBrowserClientCertificateChallenge else {
             return false
         }
 
@@ -76,32 +76,6 @@ public import Foundation
             }
         }
         return true
-    }
-
-    /// Looks up candidates from the macOS Keychain without blocking the main actor.
-    /// - Parameters:
-    ///   - protectionSpace: The WebKit protection space from the client-certificate challenge.
-    ///   - completion: Main-actor callback receiving matching candidates.
-    public static func keychainCandidateProvider(
-        protectionSpace: URLProtectionSpace,
-        completion: @escaping @MainActor @Sendable ([BrowserClientCertificateCredentialCandidate]) -> Void
-    ) -> CandidateLookupCancellation? {
-        let acceptedIssuers = protectionSpace.distinguishedNames
-        let lookupTask = Task.detached(priority: .userInitiated) {
-            let candidates = BrowserClientCertificateCredentialStore().candidates(acceptedIssuers: acceptedIssuers)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard !Task.isCancelled else { return }
-                completion(candidates)
-            }
-        }
-        return {
-            lookupTask.cancel()
-        }
-    }
-
-    static func shouldHandle(challenge: URLAuthenticationChallenge) -> Bool {
-        challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate
     }
 
     private func complete(

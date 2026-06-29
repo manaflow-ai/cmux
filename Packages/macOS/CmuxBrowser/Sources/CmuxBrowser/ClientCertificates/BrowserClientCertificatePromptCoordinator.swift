@@ -39,7 +39,7 @@ public import Foundation
         ) -> Bool,
         completionHandler: @escaping Completion
     ) -> Bool {
-        guard BrowserClientCertificateAuthenticationHandler.shouldHandle(challenge: challenge) else {
+        guard challenge.isBrowserClientCertificateChallenge else {
             return false
         }
 

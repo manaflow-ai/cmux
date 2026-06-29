@@ -4,8 +4,9 @@ public import Foundation
 ///
 /// The candidate carries the credential WebKit needs plus sanitized-by-caller
 /// display metadata for the certificate picker.
-// URLCredential is created once for an auth challenge and then transferred
-// to the main-actor WebKit completion callback without mutation.
+///
+/// - Safety: `URLCredential` is created once for an auth challenge and then
+///   transferred to the main-actor WebKit completion callback without mutation.
 public struct BrowserClientCertificateCredentialCandidate: @unchecked Sendable {
     /// The certificate subject summary, if Keychain exposes one.
     public let title: String?

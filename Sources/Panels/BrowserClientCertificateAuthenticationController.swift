@@ -7,8 +7,14 @@ import WebKit
     private let authenticationHandler: BrowserClientCertificateAuthenticationHandler
 
     init(
-        candidateProvider: @escaping BrowserClientCertificateAuthenticationHandler.CandidateProvider =
-            BrowserClientCertificateAuthenticationHandler.keychainCandidateProvider(protectionSpace:completion:)
+        candidateProvider: @escaping BrowserClientCertificateAuthenticationHandler.CandidateProvider = {
+            protectionSpace,
+            completion in
+            BrowserClientCertificateCredentialStore().lookupCandidates(
+                protectionSpace: protectionSpace,
+                completion: completion
+            )
+        }
     ) {
         authenticationHandler = BrowserClientCertificateAuthenticationHandler(
             candidateProvider: candidateProvider

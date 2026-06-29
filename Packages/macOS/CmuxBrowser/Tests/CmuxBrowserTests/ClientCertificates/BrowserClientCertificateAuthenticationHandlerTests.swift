@@ -7,14 +7,6 @@ import Testing
 
 @MainActor @Suite
 struct BrowserClientCertificateAuthenticationHandlerTests {
-    private final class BrowserAuthChallengeSenderStub: NSObject, URLAuthenticationChallengeSender {
-        func use(_ credential: URLCredential, for challenge: URLAuthenticationChallenge) {}
-        func continueWithoutCredential(for challenge: URLAuthenticationChallenge) {}
-        func cancel(_ challenge: URLAuthenticationChallenge) {}
-        func performDefaultHandling(for challenge: URLAuthenticationChallenge) {}
-        func rejectProtectionSpaceAndContinue(with challenge: URLAuthenticationChallenge) {}
-    }
-
     private func makeChallenge(
         authenticationMethod: String = NSURLAuthenticationMethodClientCertificate
     ) -> URLAuthenticationChallenge {
@@ -414,10 +406,12 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
         let serverAuthenticationOID = Data([0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x01])
         let anyExtendedKeyUsageOID = Data([0x55, 0x1D, 0x25, 0x00])
 
-        #expect(BrowserClientCertificateCredentialStore.extendedKeyUsageAllowsTLSClientAuthentication(nil))
-        #expect(BrowserClientCertificateCredentialStore.extendedKeyUsageAllowsTLSClientAuthentication([clientAuthenticationOID]))
-        #expect(BrowserClientCertificateCredentialStore.extendedKeyUsageAllowsTLSClientAuthentication([anyExtendedKeyUsageOID]))
-        #expect(!BrowserClientCertificateCredentialStore.extendedKeyUsageAllowsTLSClientAuthentication([serverAuthenticationOID]))
-        #expect(!BrowserClientCertificateCredentialStore.extendedKeyUsageAllowsTLSClientAuthentication([]))
+        let store = BrowserClientCertificateCredentialStore()
+
+        #expect(store.extendedKeyUsageAllowsTLSClientAuthentication(nil))
+        #expect(store.extendedKeyUsageAllowsTLSClientAuthentication([clientAuthenticationOID]))
+        #expect(store.extendedKeyUsageAllowsTLSClientAuthentication([anyExtendedKeyUsageOID]))
+        #expect(!store.extendedKeyUsageAllowsTLSClientAuthentication([serverAuthenticationOID]))
+        #expect(!store.extendedKeyUsageAllowsTLSClientAuthentication([]))
     }
 }

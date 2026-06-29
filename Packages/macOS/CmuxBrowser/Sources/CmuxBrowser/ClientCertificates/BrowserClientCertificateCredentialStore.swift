@@ -22,6 +22,29 @@ public struct BrowserClientCertificateCredentialStore {
     /// Creates a Keychain-backed credential store.
     public init() {}
 
+    /// Looks up candidates from the macOS Keychain without blocking the main actor.
+    /// - Parameters:
+    ///   - protectionSpace: The WebKit protection space from the client-certificate challenge.
+    ///   - completion: Main-actor callback receiving matching candidates.
+    /// - Returns: A cancellation callback for the in-flight lookup task.
+    public func lookupCandidates(
+        protectionSpace: URLProtectionSpace,
+        completion: @escaping @MainActor @Sendable ([BrowserClientCertificateCredentialCandidate]) -> Void
+    ) -> BrowserClientCertificateAuthenticationHandler.CandidateLookupCancellation {
+        let acceptedIssuers = protectionSpace.distinguishedNames
+        let lookupTask = Task.detached(priority: .userInitiated) {
+            let candidates = BrowserClientCertificateCredentialStore().candidates(acceptedIssuers: acceptedIssuers)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard !Task.isCancelled else { return }
+                completion(candidates)
+            }
+        }
+        return {
+            lookupTask.cancel()
+        }
+    }
+
     /// Returns credential candidates matching the server's accepted issuers.
     /// - Parameter protectionSpace: The WebKit protection space from the client-certificate challenge.
     /// - Returns: Client-certificate candidates, or an empty array when none can be used.
@@ -72,7 +95,7 @@ public struct BrowserClientCertificateCredentialStore {
         return query
     }
 
-    static func extendedKeyUsageAllowsTLSClientAuthentication(_ value: Any?) -> Bool {
+    func extendedKeyUsageAllowsTLSClientAuthentication(_ value: Any?) -> Bool {
         guard let value else {
             return true
         }
@@ -190,10 +213,10 @@ public struct BrowserClientCertificateCredentialStore {
 
         if let dictionary = extendedKeyUsage as? [String: Any],
            let value = dictionary[kSecPropertyKeyValue as String] {
-            return Self.extendedKeyUsageAllowsTLSClientAuthentication(value)
+            return extendedKeyUsageAllowsTLSClientAuthentication(value)
         }
 
-        return Self.extendedKeyUsageAllowsTLSClientAuthentication(extendedKeyUsage)
+        return extendedKeyUsageAllowsTLSClientAuthentication(extendedKeyUsage)
     }
 
     private func certificateSerialNumber(for certificate: SecCertificate) -> String? {
