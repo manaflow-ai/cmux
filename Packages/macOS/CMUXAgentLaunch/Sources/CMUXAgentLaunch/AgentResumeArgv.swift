@@ -367,9 +367,57 @@ public struct AgentResumeArgv: Sendable, Equatable {
         arguments: [String],
         fallbackExecutable: String
     ) -> (executable: String, tail: [String]) {
-        let executable = normalized(executablePath) ?? normalized(arguments.first) ?? fallbackExecutable
-        let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
+        var executable = normalized(executablePath) ?? normalized(arguments.first) ?? fallbackExecutable
+        var tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
+        if isNodeExecutable(executable), let jsIndex = nodeScriptEntrypointIndex(in: arguments) {
+            executable = fallbackExecutable
+            tail = Array(arguments.suffix(from: arguments.index(after: jsIndex)))
+        }
         return (executable, tail)
+    }
+
+    private func isNodeExecutable(_ executable: String) -> Bool {
+        let executableName = URL(fileURLWithPath: executable).lastPathComponent.lowercased()
+        return executableName == "node" || executableName == "node.exe"
+    }
+
+    private func nodeScriptEntrypointIndex(in arguments: [String]) -> [String].Index? {
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            if nodeOptionConsumesNextValue(argument) {
+                index = arguments.index(after: index)
+                if index < arguments.endIndex {
+                    index = arguments.index(after: index)
+                }
+                continue
+            }
+            if nodeOptionHasInlineValue(argument) {
+                index = arguments.index(after: index)
+                continue
+            }
+            if argument.hasSuffix(".js"), !argument.hasPrefix("-") {
+                return index
+            }
+            index = arguments.index(after: index)
+        }
+        return nil
+    }
+
+    private func nodeOptionConsumesNextValue(_ argument: String) -> Bool {
+        argument == "-r" ||
+            argument == "--require" ||
+            argument == "--import" ||
+            argument == "--loader" ||
+            argument == "--experimental-loader"
+    }
+
+    private func nodeOptionHasInlineValue(_ argument: String) -> Bool {
+        argument.hasPrefix("-r") ||
+            argument.hasPrefix("--require=") ||
+            argument.hasPrefix("--import=") ||
+            argument.hasPrefix("--loader=") ||
+            argument.hasPrefix("--experimental-loader=")
     }
 
     private func normalized(_ value: String?) -> String? {
