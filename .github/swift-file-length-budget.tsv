@@ -1,16 +1,16 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-34447	CLI/cmux.swift
+34427	CLI/cmux.swift
 17908	Sources/AppDelegate.swift
 16491	Sources/ContentView.swift
-14239	Sources/TerminalController.swift
-12921	Sources/Workspace.swift
+14170	Sources/TerminalController.swift
+12917	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
-12233	Sources/GhosttyTerminalView.swift
+12214	Sources/GhosttyTerminalView.swift
 11592	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
-8046	Sources/Panels/BrowserPanelView.swift
+8059	Sources/Panels/BrowserPanelView.swift
 8016	CLI/cmux_open.swift
 7366	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
@@ -32,7 +32,7 @@
 3668	cmuxTests/CLIGenericHookPersistenceTests.swift
 3397	Sources/CmuxConfig.swift
 3364	cmuxTests/TabManagerSessionSnapshotTests.swift
-3053	Sources/Update/UpdateTitlebarAccessory.swift
+3058	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
 2875	Sources/SessionIndexView.swift
 2606	Sources/KeyboardShortcutSettings.swift
@@ -79,7 +79,6 @@
 1204	cmuxTests/FileExplorerStoreTests.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1166	Sources/VaultAgentProcessScanner.swift
-1164	Sources/RemoteTmuxController.swift
 1161	cmuxTests/SidebarOrderingTests.swift
 1147	cmuxTests/PiVaultAgentPersistenceTests.swift
 1121	cmuxTests/AgentHibernationTests.swift
@@ -114,8 +113,8 @@
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 834	Sources/MainWindowFocusController.swift
 830	Sources/TaskManagerTypes.swift
-816	Sources/WorkspaceContentView.swift
-813	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
+825	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
+813	Sources/WorkspaceContentView.swift
 810	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 803	Packages/iOS/CmuxMobilePairedMac/Sources/CmuxMobilePairedMac/MobilePairedMacStore.swift
 797	Sources/ClosedItemHistory.swift
