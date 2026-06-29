@@ -139,6 +139,14 @@
                 ],
                 "description": "Shell-like argv template used to resume a session. Supported placeholders: {{sessionId}}, {{sessionPath}}, {{executable}}, {{cwd}}, {{sessionDir}}. Must include {{sessionId}} or {{sessionPath}}."
               },
+              "forkCommand": {
+                "type": "string",
+                "anyOf": [
+                  { "pattern": "\\{\\{sessionId\\}\\}" },
+                  { "pattern": "\\{\\{sessionPath\\}\\}" }
+                ],
+                "description": "Optional shell-like argv template used to fork (branch) a session into a new copy, for example \"{{executable}} --session {{sessionId}} --fork\". Same placeholders as resumeCommand. Omit when the agent has no fork capability; Fork Conversation stays hidden for it."
+              },
               "cwd": {
                 "type": "string",
                 "enum": ["preserve", "ignore"],
@@ -266,6 +274,12 @@
           "default": "automatic",
           "description": "Dock and app switcher icon style."
         },
+        "windowTitleTemplate": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.app.windowTitleTemplate",
+          "description": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: {windowId}, {windowToken}, {activeWorkspace}, {activeDirectory}, {defaultTitle}, {appName}."
+        },
         "menuBarOnly": {
           "type": "boolean",
           "default": false,
@@ -318,6 +332,15 @@
           "type": "boolean",
           "default": true,
           "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
+        },
+        "globalFontMagnification": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 200,
+          "multipleOf": 10,
+          "default": 100,
+          "descriptionKey": "schemaDescriptions.app.globalFontMagnification",
+          "description": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "reorderOnNotification": {
           "type": "boolean",
@@ -387,11 +410,19 @@
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
         },
+        "scrollSpeed": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 3.0,
+          "default": 1.0,
+          "descriptionKey": "schemaDescriptions.terminal.scrollSpeed",
+          "description": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower."
+        },
         "copyOnSelect": {
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
-          "description": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
+          "description": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior."
         },
         "autoResumeAgentSessions": {
           "type": "boolean",
@@ -433,6 +464,32 @@
               "maximum": 256,
               "default": 12,
               "description": "Maximum live restorable agent terminals to keep before cmux hibernates eligible background terminals, oldest first."
+            }
+          }
+        },
+        "rendererRealization": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Reclaim off-screen terminal GPU renderer memory. cmux releases the Metal renderer (IOSurface) of a terminal that has stayed off-screen and idle while keeping its process and terminal state alive, then rebuilds the renderer instantly when the tab is visited again. Non-destructive and on by default.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Reclaim off-screen terminal renderer memory."
+            },
+            "idleSeconds": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 604800,
+              "default": 30,
+              "description": "Minimum seconds a terminal must stay off-screen before its GPU renderer memory is reclaimed."
+            },
+            "maxWarmRenderers": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256,
+              "default": 12,
+              "description": "Most recently visible terminals to keep renderer-ready so switching stays instant. Extra off-screen renderers are reclaimed oldest first."
             }
           }
         },
@@ -701,6 +758,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show custom metadata pills."
+        },
+        "rightMaxWidth": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "descriptionKey": "schemaDescriptions.sidebar.rightMaxWidth",
+          "description": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         }
       }
     },
@@ -859,6 +922,18 @@
           "type": "string",
           "default": "",
           "description": "Custom path to the claude binary."
+        },
+        "workspaceAutoNaming": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.automation.workspaceAutoNaming",
+          "description": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win."
+        },
+        "autoNamingAgent": {
+          "type": "string",
+          "default": "auto",
+          "descriptionKey": "schemaDescriptions.automation.autoNamingAgent",
+          "description": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks."
         },
         "ripgrepBinaryPath": {
           "type": "string",
@@ -1047,6 +1122,28 @@
         }
       }
     },
+    "canvas": {
+      "title": "canvas",
+      "description": "Freeform canvas workspace layout settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paneGap": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 16,
+          "description": "Spacing between panes in the canvas layout, in points. Snapping, tidy, and new-pane placement all use this one gap.",
+          "descriptionKey": "schemaDescriptions.canvas.paneGap"
+        },
+        "snappingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture.",
+          "descriptionKey": "schemaDescriptions.canvas.snappingEnabled"
+        }
+      }
+    },
     "fileEditor": {
       "title": "fileEditor",
       "description": "Built-in plain-text file editor settings.",
@@ -1058,6 +1155,22 @@
           "default": false,
           "description": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
           "descriptionKey": "schemaDescriptions.fileEditor.wordWrap"
+        }
+      }
+    },
+    "fileExplorer": {
+      "title": "fileExplorer",
+      "description": "Right-sidebar file explorer (file tree) settings.",
+      "descriptionKey": "schemaDescriptions.fileExplorer.description",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "doubleClickAction": {
+          "type": "string",
+          "enum": ["preview", "defaultEditor", "preferredEditor"],
+          "default": "preview",
+          "description": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview.",
+          "descriptionKey": "schemaDescriptions.fileExplorer.doubleClickAction"
         }
       }
     },
@@ -1082,6 +1195,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "showModifierHoldHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show shortcut-hint chips while holding Cmd or Control.",
+          "descriptionKey": "schemaDescriptions.shortcuts.showModifierHoldHints"
+        },
         "bindings": {
           "type": "object",
           "default": {},
@@ -1098,6 +1217,7 @@
               "quit",
               "toggleSidebar",
               "newTab",
+              "newBrowserWorkspace",
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",
@@ -1138,6 +1258,7 @@
               "focusTextBoxInput",
               "attachTextBoxFile",
               "sendCtrlFToTerminal",
+              "clearScreenKeepScrollback",
               "focusLeft",
               "focusRight",
               "focusUp",
@@ -1148,13 +1269,31 @@
               "equalizeSplits",
               "splitBrowserRight",
               "splitBrowserDown",
+              "toggleCanvasLayout",
+              "canvasRevealFocusedPane",
+              "canvasOverview",
+              "canvasZoomIn",
+              "canvasZoomOut",
+              "canvasZoomReset",
+              "canvasTidy",
+              "canvasAlignLeft",
+              "canvasAlignRight",
+              "canvasAlignTop",
+              "canvasAlignBottom",
+              "canvasEqualizeWidths",
+              "canvasEqualizeHeights",
+              "canvasDistributeHorizontally",
+              "canvasDistributeVertically",
               "toggleFileExplorer",
+              "fileExplorerOpenSelection",
+              "fileExplorerOpenSelectionFinderAlias",
               "saveFilePreview",
               "openBrowser",
               "focusBrowserAddressBar",
               "browserBack",
               "browserForward",
               "browserReload",
+              "browserHardReload",
               "browserZoomIn",
               "browserZoomOut",
               "browserZoomReset",
@@ -1180,20 +1319,26 @@
             ]
           },
           "properties": {
+            "fileExplorerOpenSelection": {
+              "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
+            },
+            "fileExplorerOpenSelectionFinderAlias": {
+              "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
+            },
             "diffViewerScrollDown": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollUp": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollToBottom": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollToTop": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerOpenFileSearch": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },
           "additionalProperties": {
@@ -1203,7 +1348,7 @@
         "when": {
           "type": "object",
           "default": {},
-          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "descriptionKey": "schemaDescriptions.shortcuts.when",
           "additionalProperties": {
             "type": "string"
@@ -1265,15 +1410,38 @@
         }
       ]
     },
-    "diffViewerShortcutBinding": {
+    "singleBareFirstStrokeShortcutBinding": {
       "oneOf": [
         {
           "$ref": "#/$defs/unboundShortcutBinding",
           "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
         },
         {
-          "$ref": "#/$defs/diffViewerShortcutFirstStroke",
-          "description": "Single-stroke diff viewer shortcut, for example j, k, /, or shift+g."
+          "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
+          "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
+        }
+      ]
+    },
+    "singleBareFirstStrokeShortcutBindingNullable": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/singleBareFirstStrokeShortcutBinding"
+        },
+        {
+          "type": "null",
+          "description": "Unbind this shortcut."
+        }
+      ]
+    },
+    "bareFirstStrokeShortcutBinding": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/unboundShortcutBinding",
+          "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
+        },
+        {
+          "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
+          "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
         },
         {
           "type": "array",
@@ -1281,20 +1449,20 @@
           "maxItems": 2,
           "prefixItems": [
             {
-              "$ref": "#/$defs/diffViewerShortcutFirstStroke"
+              "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
             },
             {
               "$ref": "#/$defs/shortcutStroke"
             }
           ],
-          "description": "Chorded diff viewer shortcut. Example: [\"g\", \"g\"]."
+          "description": "Chorded shortcut. Bare first strokes are accepted for this action. Example: [\"g\", \"g\"]."
         }
       ]
     },
-    "diffViewerShortcutBindingNullable": {
+    "bareFirstStrokeShortcutBindingNullable": {
       "oneOf": [
         {
-          "$ref": "#/$defs/diffViewerShortcutBinding"
+          "$ref": "#/$defs/bareFirstStrokeShortcutBinding"
         },
         {
           "type": "null",
@@ -1324,7 +1492,7 @@
       ],
       "description": "First or only shortcut stroke. Must include a modifier unless the key is Space."
     },
-    "diffViewerShortcutFirstStroke": {
+    "bareFirstStrokeShortcutFirstStroke": {
       "allOf": [
         {
           "$ref": "#/$defs/shortcutStroke"
@@ -1338,12 +1506,18 @@
               "pattern": "^(?: |[sS][pP][aA][cC][eE]|[sS][pP][aA][cC][eE][bB][aA][rR]|<[sS][pP][aA][cC][eE]>)$"
             },
             {
+              "pattern": "^(?:[rR][eE][tT][uU][rR][nN]|[eE][nN][tT][eE][rR]|↩)$"
+            },
+            {
+              "pattern": "^(?:[lL][eE][fF][tT]|[aA][rR][rR][oO][wW][lL][eE][fF][tT]|[lL][eE][fF][tT][aA][rR][rR][oO][wW]|←|[rR][iI][gG][hH][tT]|[aA][rR][rR][oO][wW][rR][iI][gG][hH][tT]|[rR][iI][gG][hH][tT][aA][rR][rR][oO][wW]|→|[uU][pP]|[aA][rR][rR][oO][wW][uU][pP]|[uU][pP][aA][rR][rR][oO][wW]|↑|[dD][oO][wW][nN]|[aA][rR][rR][oO][wW][dD][oO][wW][nN]|[dD][oO][wW][nN][aA][rR][rR][oO][wW]|↓)$"
+            },
+            {
               "pattern": "^(?:[A-Za-z0-9]|[,./\\\\;'`=\\[\\]-]|[cC][oO][mM][mM][aA]|[pP][eE][rR][iI][oO][dD]|[dD][oO][tT]|[sS][lL][aA][sS][hH]|[bB][aA][cC][kK][sS][lL][aA][sS][hH]|[sS][eE][mM][iI][cC][oO][lL][oO][nN]|[qQ][uU][oO][tT][eE]|[aA][pP][oO][sS][tT][rR][oO][pP][hH][eE]|[bB][aA][cC][kK][tT][iI][cC][kK]|[gG][rR][aA][vV][eE]|[mM][iI][nN][uU][sS]|[hH][yY][pP][hH][eE][nN]|[pP][lL][uU][sS]|[eE][qQ][uU][aA][lL][sS]|[lL][eE][fF][tT][bB][rR][aA][cC][kK][eE][tT]|[oO][pP][eE][nN][bB][rR][aA][cC][kK][eE][tT]|[rR][iI][gG][hH][tT][bB][rR][aA][cC][kK][eE][tT]|[cC][lL][oO][sS][eE][bB][rR][aA][cC][kK][eE][tT])$"
             }
           ]
         }
       ],
-      "description": "First or only diff viewer shortcut stroke. Bare printable keys are accepted."
+      "description": "First or only shortcut stroke. Bare printable keys are accepted for actions that opt into bare first strokes."
     },
     "shortcutStroke": {
       "type": "string",

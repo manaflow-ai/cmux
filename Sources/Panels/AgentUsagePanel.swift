@@ -1,7 +1,6 @@
 import AppKit
 import Combine
 import CmuxSettings
-import CmuxSocketControl
 import Foundation
 
 /// Loads agent usage snapshots off the main actor and publishes the result.

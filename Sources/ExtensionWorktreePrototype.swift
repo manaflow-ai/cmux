@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 struct CmuxExtensionWorktreeCreationResult: Sendable {
@@ -216,7 +217,7 @@ final class CmuxExtensionPipeOutputCollector: @unchecked Sendable {
     init(fileHandle: FileHandle) {
         let readHandle = ReadHandle(fileHandle: fileHandle)
         readTask = Task.detached(priority: .utility) {
-            let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: readHandle.fileHandle)
+            let data = readHandle.fileHandle.readDataToEndOfFileOrEmpty()
             try? readHandle.fileHandle.close()
             return data
         }

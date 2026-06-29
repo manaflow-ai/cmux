@@ -75,6 +75,13 @@ enum AuthEnvironment {
         URL(string: "\(callbackScheme)://auth-callback")!
     }
 
+    static func resolvedCallbackURL(
+        environment: [String: String],
+        bundleIdentifier: String?
+    ) -> URL {
+        URL(string: "\(callbackScheme(environment: environment, bundleIdentifier: bundleIdentifier))://auth-callback")!
+    }
+
     static var websiteOrigin: URL {
         resolvedURL(
             environmentKey: "CMUX_WWW_ORIGIN",
@@ -146,11 +153,21 @@ enum AuthEnvironment {
     }
 
     private static var cmuxPort: String {
-        environmentPort("CMUX_PORT") ?? environmentPort("PORT") ?? "3777"
+        resolvedCmuxPort(environment: ProcessInfo.processInfo.environment)
+    }
+
+    private static func resolvedCmuxPort(environment: [String: String]) -> String {
+        environmentPort("CMUX_PORT", environment: environment)
+            ?? environmentPort("PORT", environment: environment)
+            ?? "3777"
     }
 
     private static func environmentPort(_ key: String) -> String? {
-        guard let port = ProcessInfo.processInfo.environment[key]?
+        environmentPort(key, environment: ProcessInfo.processInfo.environment)
+    }
+
+    private static func environmentPort(_ key: String, environment: [String: String]) -> String? {
+        guard let port = environment[key]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             let value = UInt16(port),
             value > 0
@@ -161,13 +178,17 @@ enum AuthEnvironment {
     }
 
     private static var defaultWebOrigin: String {
-        if let origin = ProcessInfo.processInfo.environment["CMUX_WWW_ORIGIN"]?
+        resolvedDefaultWebOrigin(environment: ProcessInfo.processInfo.environment)
+    }
+
+    private static func resolvedDefaultWebOrigin(environment: [String: String]) -> String {
+        if let origin = environment["CMUX_WWW_ORIGIN"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !origin.isEmpty {
             return origin
         }
         #if DEBUG
-        return "http://localhost:\(cmuxPort)"
+        return "http://localhost:\(resolvedCmuxPort(environment: environment))"
         #else
         return "https://cmux.com"
         #endif
@@ -231,13 +252,38 @@ enum AuthEnvironment {
 
     /// The website origin used for the after-sign-in handler.
     static var afterSignInOrigin: URL {
+        resolvedAfterSignInOrigin(environment: ProcessInfo.processInfo.environment)
+    }
+
+    static func resolvedAfterSignInOrigin(environment: [String: String]) -> URL {
         resolvedURL(
             environmentKey: "CMUX_AUTH_WWW_ORIGIN",
-            fallback: defaultWebOrigin
+            fallback: resolvedDefaultWebOrigin(environment: environment),
+            environment: environment
         )
     }
 
     static func signInURL(callbackState: String? = nil) -> URL {
+        signInURL(callbackState: callbackState, afterSignInOrigin: afterSignInOrigin, callbackURL: callbackURL)
+    }
+
+    static func signInURL(
+        callbackState: String? = nil,
+        environment: [String: String],
+        bundleIdentifier: String? = nil
+    ) -> URL {
+        signInURL(
+            callbackState: callbackState,
+            afterSignInOrigin: resolvedAfterSignInOrigin(environment: environment),
+            callbackURL: resolvedCallbackURL(environment: environment, bundleIdentifier: bundleIdentifier)
+        )
+    }
+
+    private static func signInURL(
+        callbackState: String?,
+        afterSignInOrigin: URL,
+        callbackURL: URL
+    ) -> URL {
         // Build the after-sign-in callback URL that includes the native app return scheme.
         // The after-sign-in handler extracts tokens from the Stack Auth session
         // and redirects to the native app via the cmux:// callback scheme.
@@ -275,7 +321,18 @@ enum AuthEnvironment {
     }
 
     private static func resolvedURL(environmentKey: String, fallback: String) -> URL {
-        let environment = ProcessInfo.processInfo.environment
+        resolvedURL(
+            environmentKey: environmentKey,
+            fallback: fallback,
+            environment: ProcessInfo.processInfo.environment
+        )
+    }
+
+    private static func resolvedURL(
+        environmentKey: String,
+        fallback: String,
+        environment: [String: String]
+    ) -> URL {
         if let overridden = environment[environmentKey]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !overridden.isEmpty,

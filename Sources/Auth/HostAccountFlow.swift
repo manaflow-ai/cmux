@@ -1,3 +1,4 @@
+import AppKit
 import CMUXAuthCore
 import CmuxAuthRuntime
 import CmuxSettingsUI
@@ -40,8 +41,17 @@ final class HostAccountFlow: AccountFlow {
         coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isSigningIn
     }
 
+    var signInIsSlow: Bool {
+        browserSignIn.signInIsSlow
+    }
+
     func startSignIn() {
         browserSignIn.beginSignIn()
+    }
+
+    func openSignInInDefaultBrowser() {
+        guard let url = browserSignIn.activeAttemptSignInURL else { return }
+        NSWorkspace.shared.open(url)
     }
 
     func signOut() async {

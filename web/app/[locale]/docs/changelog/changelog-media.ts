@@ -26,6 +26,89 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.17": {
+    title:
+      "Global Font Magnification, Remote tmux Mirroring, Diff Viewer Branch Picker",
+    features: [
+      {
+        title: "Global Font Magnification",
+        description:
+          "Scale the entire cmux interface up or down with a single magnification control, not just the terminal font.",
+      },
+      {
+        title: "Remote tmux Mirroring (Beta)",
+        description:
+          "Mirror a remote tmux session over SSH using -CC control mode, so remote windows show up as native cmux tabs that stay in sync with renames and reorders.",
+      },
+      {
+        title: "Browser and Diff Viewer Polish",
+        description:
+          "Browser panes get a Chrome-style audio-playing indicator and a hard-refresh shortcut. The diff viewer adds a searchable, uncapped branch-base picker with smart defaults and a toolbar that never overlaps at small widths.",
+      },
+      {
+        title: "Stability and Performance",
+        description:
+          "Fixes for a sidebar lag regression, a vertical-sidebar tab-switch crash, a ~100% CPU re-render loop on bundled extension sidebars, blank SF Symbol controls on macOS 27, terminal content duplication on resize, and quit hangs from analytics flushing.",
+      },
+    ],
+  },
+  "0.64.16": {
+    title:
+      "AI Auto-Naming, Per-Workspace Env Vars, Left/Right Option as Alt",
+    features: [
+      {
+        title: "AI Auto-Naming for Workspaces and Tabs",
+        description:
+          "Opt in to have cmux name your workspaces and tabs from the agent conversation running inside them, so a wall of sessions stays readable at a glance.",
+      },
+      {
+        title: "Per-Workspace Environment Variables",
+        description:
+          "Set environment variables on a workspace and every shell it spawns inherits them, so per-project configuration no longer has to live in your shell profile.",
+      },
+      {
+        title: "Left and Right Option as Alt",
+        description:
+          "macos-option-as-alt now distinguishes the left and right Option keys, sending sided modifier bits to the terminal. One of our most-requested terminal fixes.",
+      },
+      {
+        title: "iOS Beta Polish",
+        description:
+          "A redesigned workspace list with groups, unread dots, and last-activity previews; smoother terminal scrolling; cross-device notification dismiss-sync with an authoritative unread badge; and a TestFlight push-notification fix.",
+      },
+    ],
+  },
+  "0.64.15": {
+    title:
+      "Diff Viewer Review Comments, Rebindable ⌘1-9 + Shortcut When-Clauses, In-Process Custom Sidebars, iOS Terminal Composer",
+    features: [
+      {
+        title: "Review Comments in the Diff Viewer",
+        description:
+          "Comment on changed lines in the diff viewer, persisted per repo. Attach the comment set to a terminal TextBox to hand structured review feedback straight to an agent.",
+      },
+      {
+        title: "Rebindable Shortcuts with When-Clauses",
+        description:
+          "The Select Workspace and Surface 1…9 shortcuts (⌘1-9) can finally be rebound, and every shortcut supports VS Code-style `when` context clauses so a binding only applies where you want it.",
+      },
+      {
+        title: "Custom Sidebars, In-Process by Default",
+        description:
+          "Custom sidebars now render in-process by default with a dedicated Settings section, instant toggling, live-resize repaint, and example sidebars to start from.",
+      },
+      {
+        title: "iOS Beta: Composer, Toolbar, Multi-Mac",
+        description:
+          "An iMessage-style terminal composer with per-terminal drafts, a customizable terminal toolbar, a multi-Mac host switcher, clipboard image paste, and notification forwarding only while you're away from the Mac.",
+      },
+      {
+        title: "Stability Under Load",
+        description:
+          "Fixes for the macOS 26 launch hang, a macOS 27 beta launch crash, SSH typing lag, sidebar livelocks with many workspaces, white-on-white light themes, and a UI freeze when closing tabs.",
+      },
+    ],
+  },
   "0.64.14": {
     title:
       "iPhone Companion App (Beta), Cross-Window Workspace Drag, Out-of-Process Custom Sidebars",

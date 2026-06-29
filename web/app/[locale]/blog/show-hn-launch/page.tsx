@@ -2,6 +2,7 @@ import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { BlogSchema } from "../blog-schema";
 import { Link } from "../../../../i18n/navigation";
 import { Tweet } from "react-tweet";
 import starHistory from "./star-history.png";
@@ -38,6 +39,7 @@ export default function ShowHNLaunchPage() {
 
   return (
     <>
+      <BlogSchema postKey="showHnLaunch" path="/blog/show-hn-launch" datePublished="2026-02-21T00:00:00Z" />
       <div className="mb-8">
         <Link
           href="/blog"

@@ -1,6 +1,14 @@
-export type NavLink = { titleKey: string; href: string };
+import type { Locale } from "../../../i18n/routing";
+
+export type NavLink = {
+  titleKey: string;
+  href: string;
+  locales?: readonly Locale[];
+};
 export type NavSection = { sectionKey: string; children: NavLink[] };
 export type NavEntry = NavLink | NavSection;
+
+export const remoteTmuxDocsLocales = ["en", "ja"] as const satisfies readonly Locale[];
 
 export function isSection(entry: NavEntry): entry is NavSection {
   return "sectionKey" in entry;
@@ -9,6 +17,25 @@ export function isSection(entry: NavEntry): entry is NavSection {
 /** Flatten sections into an ordered list of links (for pager prev/next). */
 export function flatNavItems(entries: NavEntry[]): NavLink[] {
   return entries.flatMap((e) => (isSection(e) ? e.children : [e]));
+}
+
+function isLinkVisible(item: NavLink, locale: string): boolean {
+  return !item.locales || item.locales.includes(locale as Locale);
+}
+
+export function navItemsForLocale(locale: string): NavEntry[] {
+  const entries: NavEntry[] = [];
+  for (const entry of navItems) {
+    if (!isSection(entry)) {
+      if (isLinkVisible(entry, locale)) entries.push(entry);
+      continue;
+    }
+    const children = entry.children.filter((child) =>
+      isLinkVisible(child, locale)
+    );
+    if (children.length > 0) entries.push({ ...entry, children });
+  }
+  return entries;
 }
 
 export const navItems: NavEntry[] = [
@@ -26,6 +53,8 @@ export const navItems: NavEntry[] = [
   { titleKey: "skills", href: "/docs/skills" },
   { titleKey: "notifications", href: "/docs/notifications" },
   { titleKey: "ssh", href: "/docs/ssh" },
+  { titleKey: "ios", href: "/docs/ios" },
+  { titleKey: "remoteTmux", href: "/docs/remote-tmux", locales: remoteTmuxDocsLocales },
   {
     sectionKey: "agentIntegrations",
     children: [

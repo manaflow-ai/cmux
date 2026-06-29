@@ -107,7 +107,9 @@ const { buildAttachURL } = await import(
 
 const rawPayload = JSON.parse(fs.readFileSync(rawPath, "utf8"));
 // Shared encode recipe: filter routes, base64url-encode the ticket, build the
-// cmux-ios://attach URL. Same module dev-setup.sh uses for headless minting.
+// channel-specific <scheme>://attach URL (dev scheme by default so this
+// debug-CLI QR routes to the dev iOS build via the system Camera). Same module
+// dev-setup.sh uses for headless minting.
 const { attachURL, routes, payload } = buildAttachURL(rawPayload, { routeID, routeKind });
 payload.attach_url = attachURL;
 

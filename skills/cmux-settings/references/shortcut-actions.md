@@ -24,6 +24,7 @@ Values for `shortcuts.bindings.<action>`:
 ## Tabs
 
 - `shortcuts.bindings.newTab`
+- `shortcuts.bindings.newBrowserWorkspace`
 - `shortcuts.bindings.reopenPreviousSession`
 - `shortcuts.bindings.renameTab`
 - `shortcuts.bindings.closeTab`
@@ -44,6 +45,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.selectSurfaceByNumber`
 - `shortcuts.bindings.newSurface`
 - `shortcuts.bindings.toggleTerminalCopyMode`
+- `shortcuts.bindings.clearScreenKeepScrollback`
 - `shortcuts.bindings.focusLeft`
 - `shortcuts.bindings.focusRight`
 - `shortcuts.bindings.focusUp`
@@ -52,6 +54,24 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.splitDown`
 - `shortcuts.bindings.toggleSplitZoom`
 - `shortcuts.bindings.equalizeSplits`
+
+## Canvas
+
+- `shortcuts.bindings.toggleCanvasLayout`
+- `shortcuts.bindings.canvasRevealFocusedPane`
+- `shortcuts.bindings.canvasOverview`
+- `shortcuts.bindings.canvasZoomIn`
+- `shortcuts.bindings.canvasZoomOut`
+- `shortcuts.bindings.canvasZoomReset`
+- `shortcuts.bindings.canvasTidy`
+- `shortcuts.bindings.canvasAlignLeft`
+- `shortcuts.bindings.canvasAlignRight`
+- `shortcuts.bindings.canvasAlignTop`
+- `shortcuts.bindings.canvasAlignBottom`
+- `shortcuts.bindings.canvasEqualizeWidths`
+- `shortcuts.bindings.canvasEqualizeHeights`
+- `shortcuts.bindings.canvasDistributeHorizontally`
+- `shortcuts.bindings.canvasDistributeVertically`
 
 ## Command palette
 

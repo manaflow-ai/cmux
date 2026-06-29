@@ -1,6 +1,8 @@
 import AppKit
 import Bonsplit
+import CmuxCommandPalette
 import Foundation
+import CmuxTerminal
 
 func browserOmnibarSelectionDeltaForControlNavigation(
     hasFocusedAddressBar: Bool,
@@ -109,9 +111,8 @@ func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     guard firstResponderIsBrowser else { return false }
     guard !firstResponderHasMarkedText else { return false }
     guard keyCode == 36 || keyCode == 76 else { return false }
-    // Keep browser Return forwarding narrow: only plain/Shift Return should be
-    // treated as submit-intent. Command-modified Return is reserved for app shortcuts
-    // like Toggle Pane Zoom (Cmd+Shift+Enter).
+    // Keep browser Return forwarding narrow: only plain/Shift Return is submit;
+    // Command-modified Return is reserved for app shortcuts like Toggle Pane Zoom.
     return browserOmnibarShouldSubmitOnReturn(flags: flags)
 }
 
@@ -125,9 +126,7 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     guard !firstResponderHasMarkedText else { return false }
     guard (123...126).contains(keyCode) else { return false }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
 
     if normalizedFlags.isEmpty {
         return true
@@ -151,6 +150,17 @@ func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
 
     let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     return normalizedFlags.isEmpty
+}
+
+/// Returns true when a terminal arrow key-equivalent should be sent through keyDown.
+func shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsTerminal: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsTerminal, !firstResponderHasMarkedText, (123...126).contains(keyCode) else { return false }
+    return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
 }
 
 struct BrowserAddressBarTrackingContext {
@@ -188,9 +198,7 @@ func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
     guard !firstResponderHasMarkedText else { return false }
     guard keyCode == 123 || keyCode == 124 else { return false }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     switch normalizedFlags {
     case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
         return true
@@ -217,9 +225,7 @@ private func standaloneTextResponderOwnsArrowKeyDown(
     guard !firstResponderHasMarkedText else { return false }
     guard (123...126).contains(keyCode) else { return false }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     switch normalizedFlags {
     case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
         return true
@@ -283,9 +289,7 @@ func shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
     guard firstResponderIsTextBoxInput else { return false }
     guard !firstResponderHasMarkedText else { return false }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     guard normalizedFlags == [.control] else { return false }
     let key = charactersIgnoringModifiers?.lowercased()
     return key == "n" || key == "p"
@@ -297,9 +301,7 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     keyCode: UInt16,
     layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> Bool {
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     guard normalizedFlags == [.command, .control] else { return false }
     let normalizedChars = chars.lowercased()
     if normalizedChars == "f" {
@@ -426,22 +428,6 @@ enum BrowserZoomShortcutAction: Equatable {
     case reset
 }
 
-struct CommandPaletteDebugResultRow {
-    let commandId: String
-    let title: String
-    let shortcutHint: String?
-    let trailingLabel: String?
-    let score: Int
-}
-
-struct CommandPaletteDebugSnapshot {
-    let query: String
-    let mode: String
-    let results: [CommandPaletteDebugResultRow]
-
-    static let empty = CommandPaletteDebugSnapshot(query: "", mode: "commands", results: [])
-}
-
 func browserZoomShortcutAction(
     flags: NSEvent.ModifierFlags,
     chars: String,
@@ -538,6 +524,10 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
         literalChars: literalChars
     ) != nil
 }
+// Main-actor isolated: TerminalSurface.searchState carries the legacy
+// main-thread-only contract as compiler-enforced isolation after the
+// CmuxTerminal lift; both callers (TabManager, overlay tests) are @MainActor.
+@MainActor
 @discardableResult
 func startOrFocusTerminalSearch(
     _ terminalSurface: TerminalSurface,
@@ -625,6 +615,7 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
     case copy
     case cut
     case selectAll
+    case italic
 
     var shortcut: StoredShortcut {
         switch self {
@@ -654,6 +645,19 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
                 option: false,
                 control: false,
                 keyCode: 0
+            )
+        case .italic:
+            // Cmd+I is the universal italics command in web writing apps (Notion,
+            // Google Docs, …). Let the focused editor handle it before the app's
+            // menu/Show Notifications fallback, just like copy/cut/select-all
+            // (issue #6776).
+            return StoredShortcut(
+                key: "i",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                keyCode: 34
             )
         }
     }

@@ -1,5 +1,8 @@
+import CmuxWorkspaces
 import Darwin
+import CmuxCore
 import XCTest
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -474,11 +477,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             isNavigable: true
         )
 
-        let snapshot = FocusHistoryMenuSnapshotBuilder.recentlyFocused(
+        let snapshot = FocusHistoryMenuSnapshot.recentlyFocused(
             back: FocusHistoryMenuSnapshot(items: [older], totalItemCount: 1, isLimited: false),
             forward: FocusHistoryMenuSnapshot(items: [newer], totalItemCount: 1, isLimited: false),
-            maxItemCount: 1
-        )
+            maxItemCount: 1)
 
         XCTAssertTrue(snapshot.isLimited)
         XCTAssertEqual(snapshot.totalItemCount, 2)
@@ -494,10 +496,14 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         _ = manager.addWorkspace(select: true)
 
         let snapshot = manager.focusHistoryMenuSnapshot(direction: .back)
+        let endedAt = Date()
         let item = try XCTUnwrap(snapshot.items.first)
 
-        XCTAssertGreaterThanOrEqual(item.focusedAt.timeIntervalSince1970, startedAt.timeIntervalSince1970 - 1)
-        XCTAssertLessThanOrEqual(item.focusedAt.timeIntervalSince1970, Date().timeIntervalSince1970 + 1)
+        // The recorded focus timestamp is stamped while `addWorkspace` runs, so it must fall
+        // within the causal interval bounded by the reads before and after that call. Asserting
+        // the closed [startedAt, endedAt] interval removes the prior ±1s wall-clock fudge.
+        XCTAssertGreaterThanOrEqual(item.focusedAt.timeIntervalSince1970, startedAt.timeIntervalSince1970)
+        XCTAssertLessThanOrEqual(item.focusedAt.timeIntervalSince1970, endedAt.timeIntervalSince1970)
     }
 
     func testReopenClosedItemRestoresClosedPanelSnapshot() throws {
@@ -2007,9 +2013,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 ),
             ]
         )
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let store = SessionSnapshotRepository<AppSessionSnapshot>(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: "com.cmuxterm.tests"
+        )
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
         let persistedTabManager = try XCTUnwrap(
-            SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?.tabManager
+            store.load(fileURL: snapshotURL)?.windows.first?.tabManager
         )
         let remoteSnapshot = try XCTUnwrap(
             persistedTabManager.workspaces.first { $0.customTitle == "Remote Mac mini" }?.remote
@@ -2141,9 +2151,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 ),
             ]
         )
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let store = SessionSnapshotRepository<AppSessionSnapshot>(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: "com.cmuxterm.tests"
+        )
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
         let persistedTabManager = try XCTUnwrap(
-            SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?.tabManager
+            store.load(fileURL: snapshotURL)?.windows.first?.tabManager
         )
         let persistedWorkspace = try XCTUnwrap(
             persistedTabManager.workspaces.first { $0.customTitle == "Persistent SSH" }
@@ -3019,9 +3033,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 ),
             ]
         )
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let store = SessionSnapshotRepository<AppSessionSnapshot>(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: "com.cmuxterm.tests"
+        )
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
         let persistedTabManager = try XCTUnwrap(
-            SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?.tabManager
+            store.load(fileURL: snapshotURL)?.windows.first?.tabManager
         )
 
         let restored = TabManager()
@@ -3207,6 +3225,36 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         XCTAssertNil(configuration.port)
         XCTAssertEqual(configuration.terminalStartupCommand, "ssh -tt dev@example.com")
+    }
+
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/5931 — a restored
+    /// terminal pane header showed the default "Terminal" title instead of its real
+    /// title until a command ran. `applySessionPanelMetadata` wrote the restored title
+    /// into `panelTitles` but never pushed it to the bonsplit tab header.
+    func testRestoredTerminalPaneHeaderTitleSyncsToBonsplitTab() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        let restoredTitle = "~/projects/cmux"
+        workspace.updatePanelTitle(panelId: panelId, title: restoredTitle)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        drainMainQueue()
+
+        let restoredWorkspace = try XCTUnwrap(restored.selectedWorkspace)
+        let restoredPanelId = try XCTUnwrap(
+            restoredWorkspace.panelTitles.first(where: { $0.value == restoredTitle })?.key
+        )
+        let restoredTabId = try XCTUnwrap(restoredWorkspace.surfaceIdFromPanelId(restoredPanelId))
+        let restoredTab = try XCTUnwrap(restoredWorkspace.bonsplitController.tab(restoredTabId))
+
+        XCTAssertEqual(restoredTab.title, restoredTitle)
+        XCTAssertNotEqual(restoredTab.title, "Terminal")
     }
 
     private static func persistentSSHWorkspaceSnapshot(

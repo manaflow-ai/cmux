@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminal
 import Testing
 
 #if canImport(cmux_DEV)
@@ -17,7 +18,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil
         )
-        defer { TerminalSurfaceRegistry.shared.unregister(surface) }
+        defer { GhosttyApp.terminalSurfaceRegistry.unregister(surface) }
 
         let expectedContextValues = [
             "CMUX_WORKSPACE_ID": workspaceId.uuidString,
@@ -239,6 +240,137 @@ struct GhosttyTerminalStartupEnvironmentTests {
         expectTrue(output.contains("shim=\(shim.executablePath)\n"), output)
         expectTrue(output.contains("root=\(shim.directoryPath)\n"), output)
         expectTrue(output.contains("args=hello two words\n"), output)
+    }
+
+    @Test
+    func testClaudeCommandShimFallsBackToCurrentBundledWrapperWhenEmbeddedWrapperWasReaped() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GhosttyTerminalStartupEnvironmentTests-\(UUID().uuidString)", isDirectory: true)
+        let oldBundleBin =
+            root
+            .appendingPathComponent("old.app", isDirectory: true)
+            .appendingPathComponent("Contents/Resources/bin", isDirectory: true)
+        let currentBundleBin =
+            root
+            .appendingPathComponent("current.app", isDirectory: true)
+            .appendingPathComponent("Contents/Resources/bin", isDirectory: true)
+        let tempRoot = root.appendingPathComponent("tmp", isDirectory: true)
+        let logURL = root.appendingPathComponent("shim.log", isDirectory: false)
+        for directory in [oldBundleBin, currentBundleBin, tempRoot] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        func writeExecutable(_ url: URL, _ body: String) throws {
+            try body.write(to: url, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+        }
+
+        let staleWrapperURL = oldBundleBin.appendingPathComponent("cmux-claude-wrapper", isDirectory: false)
+        try writeExecutable(staleWrapperURL, """
+        #!/usr/bin/env bash
+        printf 'stale %s\\n' "$*" > "$CMUX_TEST_LOG"
+        """)
+
+        let currentWrapperURL = currentBundleBin.appendingPathComponent("cmux-claude-wrapper", isDirectory: false)
+        try writeExecutable(currentWrapperURL, """
+        #!/usr/bin/env bash
+        printf 'current %s\\n' "$*" > "$CMUX_TEST_LOG"
+        """)
+        let currentCLIURL = currentBundleBin.appendingPathComponent("cmux", isDirectory: false)
+        try writeExecutable(currentCLIURL, """
+        #!/usr/bin/env bash
+        exit 0
+        """)
+
+        let shim = try #require(
+            TerminalSurface.installClaudeCommandShimIfPossible(
+                wrapperURL: staleWrapperURL,
+                surfaceId: UUID(),
+                temporaryDirectory: tempRoot
+            ))
+        try FileManager.default.removeItem(at: staleWrapperURL)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shim.executablePath)
+        process.arguments = ["--resume", "session-id"]
+        process.environment = [
+            "PATH": "/usr/bin:/bin",
+            "CMUX_BUNDLED_CLI_PATH": currentCLIURL.path,
+            "CMUX_TEST_LOG": logURL.path,
+        ]
+        try process.run()
+        process.waitUntilExit()
+
+        expectEqual(process.terminationStatus, 0)
+        let output = try String(contentsOf: logURL, encoding: .utf8)
+        expectEqual(output, "current --resume session-id\n")
+    }
+
+    @Test
+    func testClaudeCommandShimFallbackSkipsInheritedCmuxShimRoots() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GhosttyTerminalStartupEnvironmentTests-\(UUID().uuidString)", isDirectory: true)
+        let bundleBin =
+            root
+            .appendingPathComponent("cmux.app", isDirectory: true)
+            .appendingPathComponent("Contents/Resources/bin", isDirectory: true)
+        let tempRoot = root.appendingPathComponent("tmp", isDirectory: true)
+        let oldShimRoot = tempRoot
+            .appendingPathComponent("cmux-cli-shims", isDirectory: true)
+            .appendingPathComponent("old-surface", isDirectory: true)
+        let realBin = root.appendingPathComponent("real-bin", isDirectory: true)
+        let logURL = root.appendingPathComponent("shim.log", isDirectory: false)
+        for directory in [bundleBin, oldShimRoot, realBin] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        func writeExecutable(_ url: URL, _ body: String) throws {
+            try body.write(to: url, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+        }
+
+        let wrapperURL = bundleBin.appendingPathComponent("cmux-claude-wrapper", isDirectory: false)
+        try writeExecutable(wrapperURL, """
+        #!/usr/bin/env bash
+        printf 'stale-wrapper %s\\n' "$*" > "$CMUX_TEST_LOG"
+        """)
+        let oldShimURL = oldShimRoot.appendingPathComponent("claude", isDirectory: false)
+        try writeExecutable(oldShimURL, """
+        #!/usr/bin/env bash
+        printf 'old-shim %s\\n' "$*" > "$CMUX_TEST_LOG"
+        exit 43
+        """)
+        let realClaudeURL = realBin.appendingPathComponent("claude", isDirectory: false)
+        try writeExecutable(realClaudeURL, """
+        #!/usr/bin/env bash
+        printf 'real %s\\n' "$*" > "$CMUX_TEST_LOG"
+        """)
+
+        let shim = try #require(
+            TerminalSurface.installClaudeCommandShimIfPossible(
+                wrapperURL: wrapperURL,
+                surfaceId: UUID(),
+                temporaryDirectory: tempRoot
+            ))
+        try FileManager.default.removeItem(at: wrapperURL)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shim.executablePath)
+        process.arguments = ["--resume", "session-id"]
+        process.environment = [
+            "PATH": "\(shim.directoryPath):\(oldShimRoot.path):\(realBin.path):/usr/bin:/bin",
+            "CMUX_TEST_LOG": logURL.path,
+        ]
+        try process.run()
+        process.waitUntilExit()
+
+        expectEqual(process.terminationStatus, 0)
+        let output = try String(contentsOf: logURL, encoding: .utf8)
+        expectEqual(output, "real --resume session-id\n")
     }
 
     @Test

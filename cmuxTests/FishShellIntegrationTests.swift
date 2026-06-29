@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -157,6 +158,58 @@ struct FishShellIntegrationTests {
         )
         expectTrue(
             result.stdout.contains("report_shell_state prompt --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222"),
+            result.stdout
+        )
+    }
+
+    @Test(.enabled(if: fishExecutablePath != nil))
+    func testFishIntegrationRelayPromptReportsPWD() throws {
+        _ = try requireFishExecutable()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-fish-relay-pwd-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let remoteDirectory = root.appendingPathComponent("remote-cwd", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+        let cmuxPath = binDir.appendingPathComponent("cmux", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: remoteDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableShellFile(
+            at: cmuxPath,
+            body: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            """
+        )
+
+        let result = try runInteractiveFish(
+            command: """
+            printf '' > "\(logPath.path)"
+            cd "\(remoteDirectory.path)"
+            set -g _CMUX_TTY_REPORTED 1
+            set -g _CMUX_PORTS_LAST_RUN (_cmux_now)
+            set -g _CMUX_PWD_LAST_PWD /tmp/local-launch
+            _cmux_prompt
+            for _cmux_i in (seq 1 20)
+                test -s "\(logPath.path)"; and break
+                sleep 0.05
+            end
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_BUNDLED_CLI_PATH": cmuxPath.path,
+            ]
+        )
+
+        expectTrue(
+            result.stdout.contains(#"rpc surface.report_pwd {"workspace_id":"11111111-1111-1111-1111-111111111111","path":"\#(remoteDirectory.path)","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
             result.stdout
         )
     }

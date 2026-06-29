@@ -1,3 +1,5 @@
+import Foundation
+
 enum SettingsSearchAliasIndex {
     static func sectionAliases(for target: SettingsNavigationTarget) -> String {
         switch target {
@@ -9,10 +11,14 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.terminal", defaultValue: "shell scrollback scrollbar scroll bar ghostty tty pty")
         case .textBox:
             return localized("settings.search.alias.section.textBox", defaultValue: "textbox text box rich input prompt beta focus composer compose attachments")
+        case .sleepyMode:
+            return localized("settings.search.alias.section.sleepyMode", defaultValue: "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night")
         case .mobile:
             return localized("settings.search.alias.section.mobile", defaultValue: "ios iphone ipad mobile pairing local network permission sync")
         case .sidebarAppearance:
             return localized("settings.search.alias.section.sidebarAppearance", defaultValue: "sidebar left rail navigation details branches badges material terminal background")
+        case .customSidebars:
+            return localized("settings.search.alias.section.customSidebars", defaultValue: "custom sidebars vibe code swift json interpreted renderer in-process remote worker isolated")
         case .betaFeatures:
             return localized("settings.search.alias.section.betaFeatures", defaultValue: "beta experimental unstable preview feed dock right sidebar")
         case .automation:
@@ -57,7 +63,7 @@ enum SettingsSearchAliasIndex {
         "app:focus-pane-first-click": localized("settings.search.alias.setting.app.focus-pane-first-click", defaultValue: "app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation"),
         "app:preferred-editor": localized("settings.search.alias.setting.app.preferred-editor", defaultValue: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
         "app:supported-file-previews": localized("settings.search.alias.setting.app.supported-file-previews", defaultValue: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
-        "app:terminal-config": localized("settings.search.alias.setting.app.terminal-config", defaultValue: "ghostty config configuration terminal settings preview merged file reload"),
+        "app:terminal-config": localized("settings.search.alias.setting.app.terminal-config", defaultValue: "ghostty config configuration terminal settings preview merged file reload macos-option-as-alt option as alt left option right option alt key meta"),
         "app:markdown-viewer": localized("settings.search.alias.setting.app.markdown-viewer", defaultValue: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
         "app:markdown-font-size": localized("settings.search.alias.setting.app.markdown-font-size", defaultValue: "markdown.fontSize md markdown viewer font size points zoom scale text bigger smaller larger default"),
         "app:markdown-font-family": localized("settings.search.alias.setting.app.markdown-font-family", defaultValue: "markdown.fontFamily md markdown viewer font font-family family typeface system stack custom"),
@@ -72,7 +78,7 @@ enum SettingsSearchAliasIndex {
         "app:pane-flash": localized("settings.search.alias.setting.app.pane-flash", defaultValue: "notifications.paneFlash flash blink highlight pane notification pulse"),
         "app:desktop-notifications": localized("settings.search.alias.setting.app.desktop-notifications", defaultValue: "macos desktop notifications system settings permission alerts notify test"),
         "app:notification-sound": localized("settings.search.alias.setting.app.notification-sound", defaultValue: "notifications.sound notifications.customSoundFilePath sound audio alert chime beep custom file wav mp3 caf aiff"),
-        "app:notification-command": localized("settings.search.alias.setting.app.notification-command", defaultValue: "notifications.command shell command hook script env environment variable done agent"),
+        "app:notification-command": localized("settings.search.alias.setting.app.notification-command", defaultValue: "notifications.command shell command hook script env environment variable variables done agent"),
         "app:telemetry": localized("settings.search.alias.setting.app.telemetry", defaultValue: "app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
         "app:warn-before-quit": localized("settings.search.alias.setting.app.warn-before-quit", defaultValue: "app.warnBeforeQuit quit confirmation command-q cmd-q exit close app"),
         "app:warn-before-closing-tab": localized("settings.search.alias.setting.app.warn-before-closing-tab", defaultValue: "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"),
@@ -86,6 +92,8 @@ enum SettingsSearchAliasIndex {
         ),
         "app:rename-selects-name": localized("settings.search.alias.setting.app.rename-selects-name", defaultValue: "app.renameSelectsExistingName rename select all existing title command palette workspace name"),
         "app:palette-search-all": localized("settings.search.alias.setting.app.palette-search-all", defaultValue: "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
+        "app:canvas-pane-gap": localized("settings.search.alias.setting.app.canvas-pane-gap", defaultValue: "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
+        "app:canvas-snapping": localized("settings.search.alias.setting.app.canvas-snapping", defaultValue: "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
         "terminal:scrollbar": localized("settings.search.alias.setting.terminal.scrollbar", defaultValue: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
         "terminal:copy-on-select": localized("settings.search.alias.setting.terminal.copy-on-select", defaultValue: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
         "terminal:tab-bar-font-size": localized("settings.search.alias.setting.terminal.tab-bar-font-size", defaultValue: "surface-tab-bar-font-size tab bar font size text scale terminal browser pane tab title"),
@@ -113,6 +121,7 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:show-log": localized("settings.search.alias.setting.app.show-log", defaultValue: "sidebar.showLog log status latest message imperative"),
         "sidebarAppearance:show-progress": localized("settings.search.alias.setting.app.show-progress", defaultValue: "sidebar.showProgress progress bar percent status set_progress"),
         "sidebarAppearance:show-metadata": localized("settings.search.alias.setting.app.show-metadata", defaultValue: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
+        "sidebarAppearance:right-max-width": localized("settings.search.alias.setting.sidebarAppearance.right-max-width", defaultValue: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
         "betaFeatures:feed": localized("settings.search.alias.setting.betaFeatures.feed", defaultValue: "feed right sidebar agent decisions permissions questions approval beta unstable"),
         "betaFeatures:dock": localized("settings.search.alias.setting.betaFeatures.dock", defaultValue: "dock right sidebar terminal controls tui beta unstable"),
         "mobile:iOSPairingHost": localized("settings.search.alias.setting.mobile.iOSPairingHost", defaultValue: "ios iphone ipad mobile pairing local network permission sync"),
@@ -122,6 +131,7 @@ enum SettingsSearchAliasIndex {
         "automation:socket-password": localized("settings.search.alias.setting.automation.socket-password", defaultValue: "automation.socketPassword auth token credential secret password access key"),
         "automation:claude-code": localized("settings.search.alias.setting.automation.claude-code", defaultValue: "automation.claudeCodeIntegration claude code hooks agent integration status notifications"),
         "automation:claude-path": localized("settings.search.alias.setting.automation.claude-path", defaultValue: "automation.claudeBinaryPath claude binary executable path cli command custom"),
+        "automation:workspace-auto-naming": localized("settings.search.alias.setting.automation.workspace-auto-naming", defaultValue: "automation.workspaceAutoNaming automation.autoNamingAgent ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated name summarize summary summarizer conversation agent picker naming agent"),
         "automation:ripgrep-path": localized("settings.search.alias.setting.automation.ripgrep-path", defaultValue: "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"),
         "automation:subagent-notifications": localized("settings.search.alias.setting.automation.subagent-notifications", defaultValue: "automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"),
         "automation:cursor": localized("settings.search.alias.setting.automation.cursor", defaultValue: "automation.cursorIntegration cursor ide agent hooks notifications"),
@@ -165,5 +175,147 @@ enum SettingsSearchAliasIndex {
 
     private static func localized(_ key: StaticString, defaultValue: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: defaultValue)
+    }
+}
+
+extension SettingsSearchIndex {
+    static func normalized(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    static func setting(
+        _ target: SettingsNavigationTarget,
+        _ idSuffix: String,
+        _ title: String,
+        _ searchText: String
+    ) -> SettingsSearchEntry {
+        SettingsSearchEntry(
+            id: settingID(for: target, idSuffix: idSuffix),
+            kind: .setting,
+            target: target,
+            title: title,
+            subtitle: target.title,
+            symbolName: target.symbolName,
+            searchText: "\(target.rawValue) \(idSuffix) \(target.searchText) \(searchText) \(SettingsSearchAliasIndex.aliases(target: target, idSuffix: idSuffix))"
+        )
+    }
+
+    static func normalizedTokens(for query: String) -> [String] {
+        normalized(query)
+            .split { character in
+                character.unicodeScalars.allSatisfy { scalar in
+                    CharacterSet.whitespacesAndNewlines.contains(scalar)
+                        || CharacterSet.punctuationCharacters.contains(scalar)
+                }
+            }
+            .map(String.init)
+    }
+
+    static func normalizedQueryTokens(for query: String) -> [String] {
+        normalizedTokens(for: query).filter { !isSearchStopWord($0) }
+    }
+
+    private static func isSearchStopWord(_ token: String) -> Bool {
+        switch token {
+        case "setting", "settings", "preference", "preferences":
+            return true
+        default:
+            return false
+        }
+    }
+
+    static func matchScore(entry: SettingsSearchEntry, query: String, tokens: [String]) -> Int? {
+        var score = 0
+        for token in tokens {
+            guard let tokenScore = matchScore(
+                token: token,
+                text: entry.normalizedSearchText,
+                words: entry.normalizedSearchWords,
+                wordSet: entry.normalizedSearchWordSet
+            ) else {
+                return nil
+            }
+            score += tokenScore
+        }
+
+        let title = normalized(entry.title)
+        if title == query { score -= 1_000 }
+        if title.hasPrefix(query) { score -= 800 }
+        if containsAtWordBoundary(query, in: title) { score -= 700 }
+        if entry.normalizedSearchText.hasPrefix(query) { score -= 600 }
+        if containsAtWordBoundary(query, in: entry.normalizedSearchText) { score -= 500 }
+        if entry.normalizedSearchText.contains(query) { score -= 400 }
+        if case .section = entry.kind { score += 25 }
+        return score
+    }
+
+    private static func matchScore(token: String, text: String, words: [String], wordSet: Set<String>) -> Int? {
+        if wordSet.contains(token) { return 0 }
+        if words.contains(where: { $0.hasPrefix(token) }) { return 10 }
+        if containsAtWordBoundary(token, in: text) { return 20 }
+        if text.contains(token) { return 30 }
+        if words.contains(where: { isLightTypo(token, comparedTo: $0) }) { return 50 }
+        if words.contains(where: { isSubsequence(token, of: $0) }) { return 60 }
+        if isSubsequence(token, of: text) { return 80 }
+        return nil
+    }
+
+    private static func containsAtWordBoundary(_ needle: String, in haystack: String) -> Bool {
+        guard !needle.isEmpty else { return true }
+        var searchStart = haystack.startIndex
+        while let range = haystack.range(of: needle, range: searchStart..<haystack.endIndex) {
+            if range.lowerBound == haystack.startIndex {
+                return true
+            }
+            let previous = haystack[haystack.index(before: range.lowerBound)]
+            if !previous.isLetter, !previous.isNumber {
+                return true
+            }
+            searchStart = range.upperBound
+        }
+        return false
+    }
+
+    private static func isSubsequence(_ needle: String, of haystack: String) -> Bool {
+        guard !needle.isEmpty else { return true }
+        var index = needle.startIndex
+        for character in haystack where character == needle[index] {
+            index = needle.index(after: index)
+            if index == needle.endIndex { return true }
+        }
+        return false
+    }
+
+    private static func isLightTypo(_ token: String, comparedTo word: String) -> Bool {
+        let tokenCount = token.count
+        let wordCount = word.count
+        guard tokenCount >= 4, wordCount >= 4 else { return false }
+        let allowedDistance = min(tokenCount, wordCount) >= 6 ? 2 : 1
+        guard abs(tokenCount - wordCount) <= allowedDistance else { return false }
+        return editDistance(token, word, maximum: allowedDistance) <= allowedDistance
+    }
+
+    private static func editDistance(_ lhs: String, _ rhs: String, maximum: Int) -> Int {
+        if abs(lhs.count - rhs.count) > maximum { return maximum + 1 }
+        let left = Array(lhs)
+        let right = Array(rhs)
+        var previous = Array(0...right.count)
+        var current = Array(repeating: 0, count: right.count + 1)
+        for leftIndex in 1...left.count {
+            current[0] = leftIndex
+            var rowMinimum = current[0]
+            for rightIndex in 1...right.count {
+                let cost = left[leftIndex - 1] == right[rightIndex - 1] ? 0 : 1
+                current[rightIndex] = min(
+                    previous[rightIndex] + 1,
+                    current[rightIndex - 1] + 1,
+                    previous[rightIndex - 1] + cost
+                )
+                rowMinimum = min(rowMinimum, current[rightIndex])
+            }
+            if rowMinimum > maximum { return maximum + 1 }
+            swap(&previous, &current)
+        }
+        return previous[right.count]
     }
 }

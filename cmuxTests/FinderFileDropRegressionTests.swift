@@ -1,4 +1,5 @@
 import XCTest
+import CmuxTerminal
 import AppKit
 
 #if canImport(cmux_DEV)
@@ -292,7 +293,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
             .split(separator: " ")
             .map(String.init)
         defer {
-            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(
                 paths.map { URL(fileURLWithPath: $0) }
             )
         }
@@ -320,7 +321,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
             .split(separator: " ")
             .map(String.init)
         defer {
-            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(
                 paths.map { URL(fileURLWithPath: $0) }
             )
         }
@@ -350,7 +351,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
             .split(separator: " ")
             .map(String.init)
         defer {
-            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(
                 paths.map { URL(fileURLWithPath: $0) }
             )
         }
@@ -381,7 +382,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
             return XCTFail("expected remote image upload plan, got \(plan)")
         }
         defer {
-            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(urls)
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(urls)
         }
 
         XCTAssertEqual(urls.count, 2)
