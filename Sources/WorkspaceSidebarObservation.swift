@@ -21,15 +21,6 @@ private struct SidebarImmediateObservationState: Equatable {
     let latestSubmittedAt: Date?
 }
 
-private struct SidebarRootObservationState: Equatable {
-    let currentDirectory: String
-    let remoteConfiguration: WorkspaceRemoteConfiguration?
-    let remoteConnectionState: WorkspaceRemoteConnectionState
-    let remoteConnectionDetail: String?
-    let remoteDaemonStatus: WorkspaceRemoteDaemonStatus
-    let activeRemoteTerminalSessionCount: Int
-}
-
 private struct SidebarObservationState: Equatable {
     let currentDirectory: String
     let extensionSidebarProjectRootPath: String?
