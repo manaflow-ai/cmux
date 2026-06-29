@@ -53,13 +53,28 @@ struct MissingTestStackAccessToken: Error {}
 /// Async-safe one-shot boolean flag used to observe task progress in tests.
 actor AsyncFlag {
     private var value = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     func set() {
         value = true
+        let waiters = waiters
+        self.waiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 
     func isSet() -> Bool {
         value
+    }
+
+    func wait() async {
+        if value {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
     }
 }
 

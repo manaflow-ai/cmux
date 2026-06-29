@@ -43,8 +43,8 @@ import Testing
     }
 
     @Test func prefixCheckAcceptsBothChannelsAndRejectsOthers() {
-        #expect(CmxPairingURLScheme.hasPairingScheme("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
-        #expect(CmxPairingURLScheme.hasPairingScheme("cmux-ios-dev://attach?v=2&r=100.64.0.5:58465"))
+        #expect(CmxPairingURLScheme.hasPairingScheme("cmux-ios://attach?v=2&tr=ticket-ref-123&r=100.64.0.5:58465"))
+        #expect(CmxPairingURLScheme.hasPairingScheme("cmux-ios-dev://attach?v=2&tr=ticket-ref-123&r=100.64.0.5:58465"))
         #expect(CmxPairingURLScheme.hasPairingScheme("CMUX-IOS://attach?v=2"))
         #expect(!CmxPairingURLScheme.hasPairingScheme("https://example.com"))
         // A bare scheme name without "://" is not a deep link.

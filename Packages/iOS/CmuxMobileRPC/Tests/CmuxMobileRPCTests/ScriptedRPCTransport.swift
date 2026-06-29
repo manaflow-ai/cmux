@@ -34,7 +34,7 @@ actor ScriptedRPCTransport: CmxByteTransport {
         let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
         for payload in payloads {
             sentPayloads.append(payload)
-            enqueueResponse(try await handler(payload))
+            try enqueueResponse(try await handler(payload))
         }
     }
 
@@ -63,11 +63,9 @@ actor ScriptedRPCTransport: CmxByteTransport {
         return requests
     }
 
-    private func enqueueResponse(_ envelope: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: envelope),
-              let frame = try? MobileSyncFrameCodec.encodeFrame(data) else {
-            return
-        }
+    private func enqueueResponse(_ envelope: [String: Any]) throws {
+        let data = try JSONSerialization.data(withJSONObject: envelope)
+        let frame = try MobileSyncFrameCodec.encodeFrame(data)
         if receiveWaiters.isEmpty {
             queuedResponses.append(frame)
             return

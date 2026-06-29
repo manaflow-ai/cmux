@@ -2,8 +2,17 @@ import CMUXMobileCore
 import Foundation
 
 actor MobileCoreRPCTicketRedemptionGate {
-    private var current: (id: UUID, task: Task<CmxAttachTicket, any Error>, waiters: Int, timedOutUntil: UInt64?)?
+    private struct Current {
+        var id: UUID
+        var task: Task<CmxAttachTicket, any Error>
+        var waiters: Int
+        var timedOutUntil: UInt64?
+        var isCompleted: Bool
+    }
+
+    private var current: Current?
     private var abandoned: [UUID: Task<CmxAttachTicket, any Error>] = [:]
+    private var waiterCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
     private let taskTimeout = RPCTaskTimeout()
     private let timedOutResetNanoseconds: UInt64
 
@@ -21,23 +30,27 @@ actor MobileCoreRPCTicketRedemptionGate {
             guard DispatchTime.now().uptimeNanoseconds >= timedOutUntil else {
                 throw MobileShellConnectionError.requestTimedOut
             }
-            guard abandoned.isEmpty else {
-                throw MobileShellConnectionError.requestTimedOut
+            if !existing.isCompleted {
+                guard abandoned.isEmpty else {
+                    throw MobileShellConnectionError.requestTimedOut
+                }
+                abandoned[existing.id] = existing.task
             }
-            abandoned[existing.id] = existing.task
             current = nil
         }
         if let existing = current {
             id = existing.id
             task = existing.task
             current?.waiters += 1
+            resumeWaiterCountWaiters()
         } else {
             id = UUID()
             task = Task { try await provider() }
-            current = (id: id, task: task, waiters: 1, timedOutUntil: nil)
+            current = Current(id: id, task: task, waiters: 1, timedOutUntil: nil, isCompleted: false)
+            resumeWaiterCountWaiters()
             Task.detached { [weak self] in
                 _ = await task.result
-                await self?.clear(id: id)
+                await self?.complete(id: id)
             }
         }
 
@@ -63,11 +76,12 @@ actor MobileCoreRPCTicketRedemptionGate {
         guard let waiters = current?.waiters, waiters <= 0 else {
             return
         }
-        current = (
+        current = Current(
             id: id,
             task: task,
             waiters: 0,
-            timedOutUntil: DispatchTime.now().uptimeNanoseconds &+ timedOutResetNanoseconds
+            timedOutUntil: DispatchTime.now().uptimeNanoseconds &+ timedOutResetNanoseconds,
+            isCompleted: false
         )
         task.cancel()
     }
@@ -87,5 +101,41 @@ actor MobileCoreRPCTicketRedemptionGate {
             current = nil
         }
         abandoned[id] = nil
+    }
+
+    private func complete(id: UUID) {
+        if var existing = current, existing.id == id {
+            if existing.timedOutUntil == nil {
+                current = nil
+            } else {
+                existing.isCompleted = true
+                current = existing
+            }
+        }
+        abandoned[id] = nil
+    }
+
+    func waitForWaiterCountForTesting(_ count: Int) async {
+        guard (current?.waiters ?? 0) < count else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiterCountWaiters.append((count, continuation))
+        }
+    }
+
+    private func resumeWaiterCountWaiters() {
+        let waiterCount = current?.waiters ?? 0
+        var ready: [CheckedContinuation<Void, Never>] = []
+        waiterCountWaiters.removeAll { waiter in
+            guard waiterCount >= waiter.count else {
+                return false
+            }
+            ready.append(waiter.continuation)
+            return true
+        }
+        for continuation in ready {
+            continuation.resume()
+        }
     }
 }

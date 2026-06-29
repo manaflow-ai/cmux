@@ -28,15 +28,7 @@ import Testing
                 return redeemedTicket
             }
         }
-        var sawProviderStart = false
-        for _ in 0..<1000 {
-            if await providerStarted.isSet() {
-                sawProviderStart = true
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        #expect(sawProviderStart)
+        await providerStarted.wait()
 
         cancelled.cancel()
         await #expect(throws: CancellationError.self) {
@@ -50,5 +42,52 @@ import Testing
         #expect(retry.ticketRef == "ticket-ref-123")
 
         await releaseProvider.release()
+    }
+
+    @Test func timedOutTicketReferenceRedemptionKeepsCooldownAfterTaskCompletes() async throws {
+        let gate = MobileCoreRPCTicketRedemptionGate(timedOutResetNanoseconds: 30 * 1_000_000_000)
+        let providerStarted = AsyncFlag()
+        let providerFinished = AsyncFlag()
+        let releaseProvider = AsyncReleaseGate()
+        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let redeemedTicket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-1",
+            macDisplayName: "Studio",
+            routes: [route],
+            expiresAt: Date(timeIntervalSince1970: 4_000_000_000),
+            ticketRef: "ticket-ref-123",
+            authToken: "ticket-secret"
+        )
+
+        let timedOut = Task {
+            try await gate.ticket(timeoutNanoseconds: 10_000_000) {
+                await providerStarted.set()
+                await releaseProvider.wait()
+                await providerFinished.set()
+                return redeemedTicket
+            }
+        }
+        await providerStarted.wait()
+        do {
+            _ = try await timedOut.value
+            Issue.record("Expected ticket redemption to time out")
+        } catch MobileShellConnectionError.requestTimedOut {
+        } catch {
+            Issue.record(error)
+        }
+        await releaseProvider.release()
+        await providerFinished.wait()
+
+        do {
+            _ = try await gate.ticket(timeoutNanoseconds: 60 * 1_000_000_000) {
+                redeemedTicket
+            }
+            Issue.record("Expected ticket redemption cooldown to reject immediate retry")
+        } catch MobileShellConnectionError.requestTimedOut {
+        } catch {
+            Issue.record(error)
+        }
     }
 }

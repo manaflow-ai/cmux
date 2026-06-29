@@ -113,6 +113,26 @@ test("prefers dev-scheme canonical attach_url returned by debug Mac builds", () 
   assert.equal(attachURL, payload.attach_url);
 });
 
+test("does not reuse secret-bearing payload attach_url returned by older Macs", () => {
+  const payload = {
+    ...samplePayloadWithCanonicalURL(),
+    attach_url: "cmux-ios://attach?v=1&payload=secret-bearing-payload",
+  };
+  const { attachURL } = buildAttachURL(payload);
+  assert.match(attachURL, /^cmux-ios-dev:\/\/attach\?v=1&payload=/);
+  assert.notEqual(attachURL, payload.attach_url);
+});
+
+test("does not reuse v2 attach_url without a ticket reference", () => {
+  const payload = {
+    ...samplePayloadWithCanonicalURL(),
+    attach_url: "cmux-ios://attach?v=2&r=100.1.2.3:8080",
+  };
+  const { attachURL } = buildAttachURL(payload);
+  assert.match(attachURL, /^cmux-ios-dev:\/\/attach\?v=1&payload=/);
+  assert.notEqual(attachURL, payload.attach_url);
+});
+
 test("does not reuse canonical attach_url after local route filtering", () => {
   const { attachURL, routes } = buildAttachURL(samplePayloadWithCanonicalURL(), { routeKind: "tailscale" });
   assert.match(attachURL, /^cmux-ios-dev:\/\/attach\?v=1&payload=/);

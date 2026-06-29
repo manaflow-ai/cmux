@@ -3,10 +3,9 @@ import Foundation
 import Testing
 @testable import CmuxMobileRPC
 
-/// URL-level coverage for ``CmxAttachTicketInput`` across the two attach
-/// payload grammars: the compact short-key form newer Macs put in the
-/// pairing QR, and the legacy full-key form older Macs and stored fixtures
-/// still produce. Both ride the same `cmux-ios://attach?v=1&payload=` URL.
+/// URL-level coverage for ``CmxAttachTicketInput`` across the bare v2 pairing
+/// URL and the two attach payload grammars: the compact short-key form and the
+/// legacy full-key form older Macs and stored fixtures still produce.
 @Suite struct CmxAttachTicketInputTests {
     private func makeTicket(authToken: String? = nil) throws -> CmxAttachTicket {
         try CmxAttachTicket(
@@ -149,7 +148,7 @@ import Testing
 
     @Test func garbagePayloadIsRejected() {
         let url = attachURL(payload: Data("definitely not json".utf8))
-        #expect(throws: Error.self) {
+        #expect(throws: (any Error).self) {
             try CmxAttachTicketInput.decode(url)
         }
     }
@@ -182,10 +181,16 @@ import Testing
         // v1 payload grammar is intentionally NOT gated: the dev/simulator
         // auto-pair flow injects loopback attach URLs in that grammar.
         #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
-            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&r=127.0.0.1:58465")
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&tr=ticket-ref-123&r=127.0.0.1:58465")
         }
         #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
-            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&r=localhost:58465")
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&tr=ticket-ref-123&r=localhost:58465")
+        }
+    }
+
+    @Test func minimalPairingCodeRequiresTicketReference() {
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&r=100.64.0.5:58465")
         }
     }
 
@@ -233,10 +238,11 @@ import Testing
         // phone on either channel pairs from a QR minted by either channel.
         for scheme in CmxPairingURLScheme.all {
             let decoded = try CmxAttachTicketInput.decode(
-                "\(scheme)://attach?v=2&r=100.64.0.5:58465"
+                "\(scheme)://attach?v=2&tr=ticket-ref-123&r=100.64.0.5:58465"
             )
             #expect(decoded.routes.count == 1)
             #expect(decoded.routes.first?.kind == .tailscale)
+            #expect(decoded.ticketRef == "ticket-ref-123")
         }
     }
 
@@ -258,7 +264,7 @@ import Testing
         // The current grammar version is not "newer", so it decodes normally
         // rather than tripping the unrecognized-version path.
         let decoded = try CmxAttachTicketInput.decode(
-            "cmux-ios://attach?v=\(CmxPairingQRCode.version)&r=100.64.0.5:58465"
+            "cmux-ios://attach?v=\(CmxPairingQRCode.version)&tr=ticket-ref-123&r=100.64.0.5:58465"
         )
         #expect(decoded.routes.count == 1)
     }

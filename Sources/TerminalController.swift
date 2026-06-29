@@ -13545,7 +13545,7 @@ class TerminalController {
                     localized: "mobile.attachTicket.redeem.failed",
                     defaultValue: "Failed to redeem mobile attach ticket"
                 ),
-                data: ["error": String(describing: error)]
+                data: nil
             )
         }
     }

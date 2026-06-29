@@ -415,7 +415,7 @@ final class TerminalOutputCollector {
     #expect(store.activeTicket?.macDeviceID == "active-mac")
 
     let warningResult = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&pc=2&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        minimalPairingURL(ticketRef: "warning-ref", compatibilityVersion: 2, appVersion: "0.65.0", appBuild: "9")
     )
 
     #expect(warningResult == .needsUserApproval)
@@ -474,7 +474,7 @@ final class TerminalOutputCollector {
     await router.waitForFirstWorkspaceListRequest()
 
     let warningResult = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&pc=2&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        minimalPairingURL(ticketRef: "warning-ref", compatibilityVersion: 2, appVersion: "0.65.0", appBuild: "9")
     )
     await router.releaseFirstWorkspaceListResponse()
     let slowResult = await slowTask.value
@@ -1443,23 +1443,30 @@ final class TerminalOutputCollector {
     let route = try hostPortRoute(
         kind: .tailscale,
         host: "100.71.210.41",
-        port: CmxMobileDefaults.defaultHostPort
+        port: CmxMobileDefaults.defaultHostPort,
+        priority: 10
     )
     let ticket = try CmxAttachTicket(
-        workspaceID: "qr-workspace",
+        workspaceID: "",
         terminalID: nil,
         macDeviceID: "qr-mac",
         macDisplayName: "QR Mac",
         macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
         routes: [route],
         expiresAt: mintedAt.addingTimeInterval(600),
+        ticketRef: "qr-ticket-ref",
         authToken: "minted-but-never-in-the-qr"
     )
-    // Encode exactly what the Mac's pairing window renders: the compact QR
-    // grammar, which drops the token, the display name, and the expiry.
-    let payload = try CmxAttachTicketCompactCoder().encode(ticket)
-    let url = "cmux-ios://attach?v=\(ticket.version)&payload=\(base64URLEncode(payload))"
+    // Encode exactly what the Mac's pairing window renders: the v2 QR grammar,
+    // which drops the token, the display name, and the expiry.
+    let url = try #require(CmxPairingQRCode().encode(ticket))
     let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(
+            route: route,
+            workspaceID: "",
+            macDeviceID: "",
+            ticketRef: "qr-ticket-ref"
+        ),
         try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
     ])
     let runtime = testRuntime(
@@ -1477,9 +1484,9 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .connected)
     #expect(store.connectionError == nil)
     #expect(store.selectedWorkspace?.id.rawValue == "qr-workspace")
-    // The QR carries no display name, so until `mobile.host.status` reports
-    // one the device id stands in.
-    #expect(store.connectedHostName == "qr-mac")
+    // The QR carries no display name or device id, so until `mobile.host.status`
+    // reports one the Tailscale host stands in.
+    #expect(store.connectedHostName == "100.71.210.41")
 }
 
 @MainActor
@@ -1492,7 +1499,14 @@ final class TerminalOutputCollector {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let pairedMacStore = try MobilePairedMacStore(databaseURL: directory.appendingPathComponent("paired-macs.sqlite3"))
+    let route = try qrTailscaleRoute()
     let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(
+            route: route,
+            workspaceID: "",
+            macDeviceID: "",
+            ticketRef: "identity-ref"
+        ),
         try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
         try rpcHostStatusFrame(
             renderGrid: true,
@@ -1513,7 +1527,7 @@ final class TerminalOutputCollector {
     )
 
     store.signIn()
-    await store.connectPairingURL("cmux-ios://attach?v=2&pc=1&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)")
+    await store.connectPairingURL(minimalPairingURL(ticketRef: "identity-ref"))
 
     #expect(store.connectionState == .connected)
     // Until the status reply lands, the dialed Tailscale host stands in for
@@ -1565,7 +1579,7 @@ final class TerminalOutputCollector {
 
     store.signIn()
     let result = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&ub=mac-user&pc=1&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        minimalPairingURL(ticketRef: "email-mismatch-ref", userID: "mac-user")
     )
 
     #expect(result == .failed)
@@ -1580,7 +1594,14 @@ final class TerminalOutputCollector {
 
 @MainActor
 @Test func minimalPairingCodeWithUnknownPhoneEmailUsesHostAuth() async throws {
+    let route = try qrTailscaleRoute()
     let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(
+            route: route,
+            workspaceID: "",
+            macDeviceID: "",
+            ticketRef: "unknown-email-ref"
+        ),
         try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
     ])
     let runtime = testRuntime(
@@ -1598,7 +1619,7 @@ final class TerminalOutputCollector {
 
     store.signIn()
     let result = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&ub=mac-user&pc=1&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        minimalPairingURL(ticketRef: "unknown-email-ref", userID: "mac-user")
     )
 
     #expect(result == .connected)
@@ -1609,7 +1630,14 @@ final class TerminalOutputCollector {
 
 @MainActor
 @Test func minimalPairingCodeCompatibilityMismatchWarnsAndContinuesAfterAcceptance() async throws {
+    let route = try qrTailscaleRoute()
     let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(
+            route: route,
+            workspaceID: "",
+            macDeviceID: "",
+            ticketRef: "compat-ref"
+        ),
         try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
         try rpcHostStatusFrame(
             renderGrid: false,
@@ -1645,7 +1673,13 @@ final class TerminalOutputCollector {
 
     store.signIn()
     let result = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&ub=phone-user&pc=2&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        minimalPairingURL(
+            ticketRef: "compat-ref",
+            userID: "phone-user",
+            compatibilityVersion: 2,
+            appVersion: "0.65.0",
+            appBuild: "9"
+        )
     )
 
     #expect(result == .needsUserApproval)
@@ -1696,7 +1730,7 @@ final class TerminalOutputCollector {
 
     store.signIn()
     let result = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&ub=phone-user&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        minimalPairingURL(ticketRef: "missing-compat-ref", userID: "phone-user", compatibilityVersion: nil)
     )
 
     #expect(result == .needsUserApproval)
@@ -1707,7 +1741,14 @@ final class TerminalOutputCollector {
 
 @MainActor
 @Test func minimalPairingCodeAppVersionMismatchDoesNotWarnWhenCompatibilityMatches() async throws {
+    let route = try qrTailscaleRoute()
     let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(
+            route: route,
+            workspaceID: "",
+            macDeviceID: "",
+            ticketRef: "app-version-ref"
+        ),
         try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
         try rpcHostStatusFrame(
             renderGrid: false,
@@ -1741,7 +1782,12 @@ final class TerminalOutputCollector {
 
     store.signIn()
     let result = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&ub=phone-user&pc=1&av=0.65.0&ab=95&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        minimalPairingURL(
+            ticketRef: "app-version-ref",
+            userID: "phone-user",
+            appVersion: "0.65.0",
+            appBuild: "95"
+        )
     )
 
     #expect(result == .connected)
@@ -1762,7 +1808,14 @@ final class TerminalOutputCollector {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let pairedMacStore = try MobilePairedMacStore(databaseURL: directory.appendingPathComponent("paired-macs.sqlite3"))
+    let route = try qrTailscaleRoute()
     let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(
+            route: route,
+            workspaceID: "",
+            macDeviceID: "",
+            ticketRef: "persist-ref"
+        ),
         try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
         try rpcHostStatusFrame(
             renderGrid: false,
@@ -1782,7 +1835,7 @@ final class TerminalOutputCollector {
     )
 
     store.signIn()
-    await store.connectPairingURL("cmux-ios://attach?v=2&pc=1&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)")
+    await store.connectPairingURL(minimalPairingURL(ticketRef: "persist-ref"))
 
     #expect(store.connectionState == .connected)
     // The recovery request runs on its own task; poll briefly instead of
@@ -1814,7 +1867,9 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore.preview()
 
     store.signIn()
-    let result = await store.connectPairingURLResult("cmux-ios://attach?v=2&r=127.0.0.1:\(CmxMobileDefaults.defaultHostPort)")
+    let result = await store.connectPairingURLResult(
+        minimalPairingURL(ticketRef: "loopback-ref", host: "127.0.0.1")
+    )
 
     #expect(result == .failed)
     #expect(store.connectionState == .disconnected)
@@ -2674,6 +2729,42 @@ private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
     return try #require(URL(string: "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"))
 }
 
+private func minimalPairingURL(
+    ticketRef: String = "ticket-ref-123",
+    userID: String? = nil,
+    compatibilityVersion: Int? = CmxMobileDefaults.pairingCompatibilityVersion,
+    appVersion: String? = nil,
+    appBuild: String? = nil,
+    host: String = "100.71.210.41",
+    port: Int = CmxMobileDefaults.defaultHostPort
+) -> String {
+    var items = [
+        "v=2",
+        "tr=\(ticketRef)",
+    ]
+    if let userID {
+        items.append("ub=\(userID)")
+    }
+    if let compatibilityVersion {
+        items.append("pc=\(compatibilityVersion)")
+    }
+    if let appVersion {
+        items.append("av=\(appVersion)")
+    }
+    if let appBuild {
+        items.append("ab=\(appBuild)")
+    }
+    items.append("r=\(host):\(port)")
+    return "cmux-ios://attach?\(items.joined(separator: "&"))"
+}
+
+private func qrTailscaleRoute(
+    host: String = "100.71.210.41",
+    port: Int = CmxMobileDefaults.defaultHostPort
+) throws -> CmxAttachRoute {
+    try hostPortRoute(kind: .tailscale, host: host, port: port, priority: 10)
+}
+
 private extension CmxAttachTicket {
     func withCurrentMacPairingCompatibilityVersionForTest() throws -> CmxAttachTicket {
         guard macPairingCompatibilityVersion == nil else {
@@ -3002,17 +3093,22 @@ private func rpcTerminalCreateScopedFrame() throws -> Data {
 private func rpcAttachTicketFrame(
     route: CmxAttachRoute,
     workspaceID: String,
-    terminalID: String? = nil
+    terminalID: String? = nil,
+    macDeviceID: String = "test-mac",
+    macDisplayName: String? = nil,
+    ticketRef: String? = nil,
+    authToken: String? = "ticket-secret"
 ) throws -> Data {
     let ticket = try CmxAttachTicket(
         workspaceID: workspaceID,
         terminalID: terminalID,
-        macDeviceID: "test-mac",
-        macDisplayName: nil,
+        macDeviceID: macDeviceID,
+        macDisplayName: macDisplayName,
         macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
         routes: [route],
         expiresAt: Date(timeIntervalSince1970: 2_000_000_000),
-        authToken: "ticket-secret"
+        ticketRef: ticketRef,
+        authToken: authToken
     )
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601

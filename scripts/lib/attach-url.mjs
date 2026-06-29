@@ -88,7 +88,7 @@ export function buildAttachURL(payload, filter = {}) {
   // route set, so fall through to the lossless v1 reconstruction.
   if (
     typeof payload.attach_url === "string" &&
-    isCanonicalAttachURL(payload.attach_url) &&
+    isCanonicalAttachURL(payload.attach_url, routes.length) &&
     routes.length === payload.ticket.routes.length
   ) {
     result.attach_url = payload.attach_url;
@@ -104,9 +104,28 @@ export function buildAttachURL(payload, filter = {}) {
   return { attachURL: result.attach_url, routes, payload: result };
 }
 
-function isCanonicalAttachURL(value) {
+function isCanonicalAttachURL(value, expectedRouteCount) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (
+    url.protocol !== `${RELEASE_URL_SCHEME}:` &&
+    url.protocol !== `${DEV_URL_SCHEME}:`
+  ) {
+    return false;
+  }
+  if (url.hostname !== "attach") {
+    return false;
+  }
+  const params = url.searchParams;
+  const ticketRef = params.get("tr")?.trim() ?? "";
   return (
-    value.startsWith(`${RELEASE_URL_SCHEME}://attach?`) ||
-    value.startsWith(`${DEV_URL_SCHEME}://attach?`)
+    params.get("v") === "2" &&
+    ticketRef.length > 0 &&
+    !params.has("payload") &&
+    params.getAll("r").length === expectedRouteCount
   );
 }

@@ -76,6 +76,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         await ticketState.current()
     }
 
+    func waitForTicketRedemptionWaiterCountForTesting(_ count: Int) async {
+        await ticketRedemptionGate.waitForWaiterCountForTesting(count)
+    }
+
     /// Subscribe to server-pushed events. Returns a stream of envelopes
     /// matching any of the requested topics. Cancel by terminating iteration.
     public func subscribe(to topics: Set<String>) async -> AsyncStream<MobileEventEnvelope> {
@@ -337,7 +341,14 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
         )
         let response = try MobileAttachTicketRedeemResponse.decode(responseData)
-        return try Self.redeemedTicket(response.ticket, constrainedTo: baseTicket)
+        guard response.ticket.ticketRef?.trimmingCharacters(in: .whitespacesAndNewlines) == ticketRef else {
+            throw MobileShellConnectionError.invalidResponse
+        }
+        return try Self.redeemedTicket(
+            response.ticket,
+            ticketRef: ticketRef,
+            constrainedTo: baseTicket
+        )
     }
 
     private func requestDataWithStackAuthOnly(_ requestData: Data, deadline: RPCRequestDeadline) async throws -> Data {
@@ -367,6 +378,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
     private static func redeemedTicket(
         _ redeemed: CmxAttachTicket,
+        ticketRef: String,
         constrainedTo scanned: CmxAttachTicket
     ) throws -> CmxAttachTicket {
         try CmxAttachTicket(
@@ -383,7 +395,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             macAppBuild: redeemed.macAppBuild ?? scanned.macAppBuild,
             routes: scanned.routes,
             expiresAt: redeemed.expiresAt,
-            ticketRef: redeemed.ticketRef ?? scanned.ticketRef,
+            ticketRef: ticketRef,
             authToken: redeemed.authToken
         )
     }

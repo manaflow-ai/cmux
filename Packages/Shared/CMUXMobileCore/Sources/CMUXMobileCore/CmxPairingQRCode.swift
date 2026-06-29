@@ -142,6 +142,7 @@ public struct CmxPairingQRCode: Sendable {
     /// this grammar. v1 URLs carry the base64 `payload` item instead.
     public func isPairingCodeURL(_ components: URLComponents) -> Bool {
         components.queryItems?.first(where: { $0.name == "v" })?.value == "\(Self.version)"
+            && queryValue(named: "tr", in: components) != nil
     }
 
     /// The integer grammar version declared by an attach URL's `v` query item,
@@ -172,9 +173,8 @@ public struct CmxPairingQRCode: Sendable {
     ///
     /// The ticket comes back unscoped with an empty `macDeviceID`; the shell
     /// recovers the Mac's identity post-handshake from `mobile.host.status`.
-    /// Older v2 URLs without `tr` are still accepted for compatibility, but
-    /// newly encoded URLs always carry it so the phone can redeem the host-side
-    /// ticket record after Stack auth.
+    /// The `tr` ticket reference is mandatory; without it the phone has nothing
+    /// to redeem after Stack auth.
     /// - Parameter components: The parsed `cmux-ios://attach?v=2&...` URL.
     /// - Throws: ``MobileSyncPairingPayloadError/invalidURL`` for malformed
     ///   input and ``MobileSyncPairingPayloadError/loopbackRouteRejected``
@@ -182,6 +182,9 @@ public struct CmxPairingQRCode: Sendable {
     ///   point the phone at itself).
     public func decode(_ components: URLComponents) throws -> CmxAttachTicket {
         guard isPairingCodeURL(components) else {
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+        guard let ticketRef = queryValue(named: "tr", in: components) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         let rawRoutes = (components.queryItems ?? [])
@@ -214,7 +217,7 @@ public struct CmxPairingQRCode: Sendable {
             macAppBuild: queryValue(named: "ab", in: components),
             routes: routes,
             expiresAt: nil,
-            ticketRef: queryValue(named: "tr", in: components),
+            ticketRef: ticketRef,
             authToken: nil
         )
         try ticket.validate()

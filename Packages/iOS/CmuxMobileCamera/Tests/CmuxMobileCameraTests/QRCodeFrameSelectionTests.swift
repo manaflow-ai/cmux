@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxMobileCamera
 
 @Suite struct QRCodeFrameSelectionTests {
-    private let accepted = "cmux-ios://attach?v=2&r=100.64.0.5:52341"
+    private let accepted = "cmux-ios://attach?v=2&tr=ticket-ref-123&r=100.64.0.5:52341"
     private let acceptsPairing: @Sendable (String) -> Bool = { $0.hasPrefix("cmux-ios://") }
 
     /// The pairing QR must be found even when another detection is ordered
@@ -47,7 +47,7 @@ import Testing
     /// The first accepted code wins when several qualify; later ones in the
     /// same frame are ignored.
     @Test func firstAcceptedCodeWinsAmongMultiple() {
-        let other = "cmux-ios://attach?v=2&r=100.64.0.9:1024"
+        let other = "cmux-ios://attach?v=2&tr=other-ticket-ref&r=100.64.0.9:1024"
         let candidates = [
             QRCodeFrameCandidate(isQRCode: true, stringValue: accepted),
             QRCodeFrameCandidate(isQRCode: true, stringValue: other),

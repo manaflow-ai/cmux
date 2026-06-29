@@ -382,6 +382,43 @@ struct MobileHostAuthorizationTests {
         }
         #expect(error.code == "unauthorized")
     }
+    @Test func testMobileAttachTicketRedeemRequiresAuthorization() async {
+        let request = MobileHostRPCRequest(
+            id: "attach-ticket-redeem",
+            method: "mobile.attach_ticket.redeem",
+            params: ["ticket_ref": "ticket-ref-123"],
+            auth: nil
+        )
+
+        let result = await MobileHostService.shared.debugAuthorizationError(for: request)
+
+        guard case let .failure(error) = result else {
+            return #expect(Bool(false), "mobile.attach_ticket.redeem should require mobile authorization")
+        }
+        #expect(error.code == "unauthorized")
+    }
+    #if DEBUG
+    @Test func testDebugConfiguredStackAuthTokenAuthorizesAttachTicketRedeem() async {
+        let service = MobileHostService.shared
+        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
+        defer {
+            service.debugConfigureAcceptedStackAuthTokenForTesting(nil)
+        }
+        let request = MobileHostRPCRequest(
+            id: "attach-ticket-redeem",
+            method: "mobile.attach_ticket.redeem",
+            params: ["ticket_ref": "ticket-ref-123"],
+            auth: MobileHostRPCAuth(
+                attachToken: nil,
+                stackAccessToken: "cmux-dev-token"
+            )
+        )
+
+        let result = await service.debugAuthorizationError(for: request)
+
+        #expect(result == nil)
+    }
+    #endif
     @Test func testScopedAttachTicketRejectsWorkspaceAliasIgnoredByHandlers() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
         let request = MobileHostRPCRequest(

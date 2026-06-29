@@ -250,7 +250,7 @@ import Testing
     ])
     func decodeRejectsLoopbackHosts(host: String) throws {
         let encodedHost = host.contains(":") ? "[\(host)]" : host
-        let url = "cmux-ios://attach?v=2&r=\(encodedHost):58465"
+        let url = "cmux-ios://attach?v=2&tr=ticket-ref-123&r=\(encodedHost):58465"
         #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
             try CmxPairingQRCode().decode(try components(url))
         }
@@ -258,7 +258,7 @@ import Testing
 
     @Test func decodeRejectsLoopbackEvenWhenARealRouteIsPresent() throws {
         // Hostile half-and-half codes fail closed, not "dial the good half".
-        let url = "cmux-ios://attach?v=2&r=100.64.0.5:58465&r=127.0.0.1:58465"
+        let url = "cmux-ios://attach?v=2&tr=ticket-ref-123&r=100.64.0.5:58465&r=127.0.0.1:58465"
         #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
             try CmxPairingQRCode().decode(try components(url))
         }
@@ -266,13 +266,13 @@ import Testing
 
     @Test func decodeRejectsMalformedRoutes() throws {
         let malformed = [
-            "cmux-ios://attach?v=2",
-            "cmux-ios://attach?v=2&r=",
-            "cmux-ios://attach?v=2&r=hostonly",
-            "cmux-ios://attach?v=2&r=host:0",
-            "cmux-ios://attach?v=2&r=host:99999",
-            "cmux-ios://attach?v=2&r=host:not-a-port",
-            "cmux-ios://attach?v=2&r=[::1:58465",
+            "cmux-ios://attach?v=2&tr=ticket-ref-123",
+            "cmux-ios://attach?v=2&tr=ticket-ref-123&r=",
+            "cmux-ios://attach?v=2&tr=ticket-ref-123&r=hostonly",
+            "cmux-ios://attach?v=2&tr=ticket-ref-123&r=host:0",
+            "cmux-ios://attach?v=2&tr=ticket-ref-123&r=host:99999",
+            "cmux-ios://attach?v=2&tr=ticket-ref-123&r=host:not-a-port",
+            "cmux-ios://attach?v=2&tr=ticket-ref-123&r=[::1:58465",
         ]
         for url in malformed {
             #expect(throws: (any Error).self, "\(url) should not decode") {
@@ -281,17 +281,24 @@ import Testing
         }
     }
 
+    @Test func decodeRejectsMissingTicketReference() throws {
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxPairingQRCode().decode(try components("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
+        }
+    }
+
     @Test func decodeCapsHostileRouteCounts() throws {
         let routes = (0..<(CmxPairingQRCode.maximumRouteCount + 1))
             .map { "r=100.64.0.\($0 + 1):58465" }
             .joined(separator: "&")
         #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
-            try CmxPairingQRCode().decode(try components("cmux-ios://attach?v=2&\(routes)"))
+            try CmxPairingQRCode().decode(try components("cmux-ios://attach?v=2&tr=ticket-ref-123&\(routes)"))
         }
     }
 
     @Test func versionedURLDetectionDistinguishesGrammars() throws {
-        #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
+        #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&tr=ticket-ref-123&r=100.64.0.5:58465"))
+        #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=1&payload=abc"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://pair?v=1&payload=abc"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("https://example.com?v=2"))
@@ -301,7 +308,7 @@ import Testing
     @Test func decodedTicketHasNoInlineExpiry() throws {
         // The URL grammar has no inline expiry field at all; the host-side
         // ticket reference record owns expiry when the phone redeems it.
-        let url = "cmux-ios://attach?v=2&r=100.64.0.5:58465"
+        let url = "cmux-ios://attach?v=2&tr=ticket-ref-123&r=100.64.0.5:58465"
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.expiresAt == nil)
         // validate() is structural only; re-running it later cannot fail.

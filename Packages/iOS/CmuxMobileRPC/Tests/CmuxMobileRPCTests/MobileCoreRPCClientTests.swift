@@ -335,6 +335,65 @@ import Testing
         #expect(effectiveTicket.routes == [route])
     }
 
+    @Test func ticketReferenceRedemptionRejectsMismatchedReference() async throws {
+        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465, priority: 10)
+        let scannedTicket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: nil,
+            ticketRef: "ticket-ref-123",
+            authToken: nil
+        )
+        let mismatchedTicket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-1",
+            macDisplayName: "Studio",
+            routes: [route],
+            expiresAt: Date(timeIntervalSince1970: 4_000_000_000),
+            ticketRef: "other-ticket-ref",
+            authToken: "ticket-secret"
+        )
+        let transport = ScriptedRPCTransport { payload in
+            let request = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+            let id = request["id"] ?? NSNull()
+            return [
+                "id": id,
+                "ok": true,
+                "result": ["ticket": try Self.ticketJSONObject(mismatchedTicket)],
+            ]
+        }
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: ScriptedRPCTransportFactory(transport: transport),
+            stackAccessToken: "stack-token"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: scannedTicket,
+            allowsStackAuthFallback: true
+        )
+
+        do {
+            _ = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(method: "workspace.list", params: [:])
+            )
+            Issue.record("Expected mismatched ticket reference redemption to fail")
+        } catch MobileShellConnectionError.invalidResponse {
+        } catch {
+            Issue.record(error)
+        }
+
+        let sent = try await transport.sentRequests()
+        #expect(sent.map(\.method) == ["mobile.attach_ticket.redeem"])
+        let effectiveTicket = await client.currentTicket()
+        #expect(effectiveTicket.ticketRef == "ticket-ref-123")
+        #expect(effectiveTicket.authToken == nil)
+    }
+
     @Test func concurrentAuthorizedRequestsShareTicketReferenceRedemption() async throws {
         let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465, priority: 10)
         let scannedTicket = try CmxAttachTicket(
@@ -414,12 +473,7 @@ import Testing
         #expect(firstSent.map(\.method) == ["mobile.attach_ticket.redeem"])
 
         let secondTask = Task { try await client.sendRequest(workspaceCreate) }
-        for _ in 0..<100 {
-            try await Task.sleep(nanoseconds: 1_000_000)
-            if try await transport.sentRequests().count > 1 {
-                break
-            }
-        }
+        await client.waitForTicketRedemptionWaiterCountForTesting(2)
         #expect(try await transport.sentRequests().map(\.method) == ["mobile.attach_ticket.redeem"])
 
         await redeemRelease.release()
@@ -427,10 +481,18 @@ import Testing
         _ = try await secondTask.value
 
         let sent = try await transport.sentRequests()
-        #expect(sent.map(\.method).filter { $0 == "mobile.attach_ticket.redeem" }.count == 1)
-        #expect(sent.dropFirst().compactMap(\.method).sorted() == ["workspace.create", "workspace.list"])
-        #expect(sent.dropFirst().allSatisfy { $0.attachToken == "ticket-secret" })
-        #expect(sent.dropFirst().allSatisfy { $0.stackAccessToken == "stack-token" })
+        let redeemCount = sent
+            .map(\.method)
+            .filter { $0 == "mobile.attach_ticket.redeem" }
+            .count
+        let followupRequests = sent.dropFirst()
+        let followupMethods = followupRequests.compactMap(\.method).sorted()
+        let followupAttachTokens = followupRequests.map(\.attachToken)
+        let followupStackAccessTokens = followupRequests.map(\.stackAccessToken)
+        #expect(redeemCount == 1)
+        #expect(followupMethods == ["workspace.create", "workspace.list"])
+        #expect(followupAttachTokens == ["ticket-secret", "ticket-secret"])
+        #expect(followupStackAccessTokens == ["stack-token", "stack-token"])
     }
 
     /// A QR-style unscoped ticket (empty ids, no token, no expiry) over the
