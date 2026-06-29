@@ -651,6 +651,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_campfire_extension_install.py
 
   tests:
     name: tests

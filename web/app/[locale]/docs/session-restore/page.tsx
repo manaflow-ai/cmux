@@ -105,6 +105,12 @@ cmux surface resume clear --checkpoint work`}</CodeBlock>
             <td>{t("none")}</td>
           </tr>
           <tr>
+            <td>Campfire</td>
+            <td><code>campfire</code></td>
+            <td><code>campfire --session &lt;id&gt;</code></td>
+            <td>{t("none")}</td>
+          </tr>
+          <tr>
             <td>Amp</td>
             <td><code>amp</code></td>
             <td><code>amp threads continue &lt;id&gt;</code></td>

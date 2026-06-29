@@ -6,6 +6,11 @@ public import GhosttyKit
 @_silgen_name("ghostty_surface_clear_selection")
 private func cmux_ghostty_surface_clear_selection(_ surface: ghostty_surface_t) -> Bool
 
+// lint:allow free-function — @_silgen_name FFI declaration: see
+// `cmux_ghostty_surface_clear_selection` above.
+@_silgen_name("ghostty_surface_set_renderer_realized")
+private func cmux_ghostty_surface_set_renderer_realized(_ surface: ghostty_surface_t, _ realized: Bool) -> Bool
+
 /// The one sanctioned seam for libghostty symbols that are linked by name
 /// rather than imported through the GhosttyKit header.
 ///
@@ -33,4 +38,18 @@ public struct GhosttyRuntimeCInterop {
         cmux_ghostty_surface_clear_selection(surface)
     }
 
+    /// Sets whether a runtime surface owns realized GPU renderer resources.
+    ///
+    /// Mirrors `ghostty_surface_set_renderer_realized` from the cmux libghostty
+    /// fork. The call asks Ghostty to enqueue a renderer realize/release
+    /// transition without blocking the caller.
+    ///
+    /// - Parameters:
+    ///   - surface: The live runtime surface to update.
+    ///   - realized: Whether the surface should hold renderer resources.
+    /// - Returns: Whether Ghostty accepted the renderer transition message.
+    @discardableResult
+    public static func setRendererRealized(_ surface: ghostty_surface_t, _ realized: Bool) -> Bool {
+        cmux_ghostty_surface_set_renderer_realized(surface, realized)
+    }
 }

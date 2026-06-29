@@ -217,6 +217,15 @@ extension CMUXCLI {
             events: []
         ),
         AgentHookDef(
+            name: "campfire", displayName: "Campfire", statusKey: "campfire",
+            configDir: ".campfire/agent", configFile: "extensions/cmux-campfire-session.ts",
+            createConfigDirIfMissing: true,
+            configDirResolver: { CMUXCLI.resolvedCampfireAgentDirectory().path },
+            sessionStoreSuffix: "campfire", disableEnvVar: "CMUX_CAMPFIRE_HOOKS_DISABLED",
+            hookMarker: "cmux hooks campfire", format: .flat,
+            events: []
+        ),
+        AgentHookDef(
             name: "amp", displayName: "Amp", statusKey: "amp",
             configDir: ".config/amp", configFile: "plugins/cmux-session.ts",
             sessionStoreSuffix: "amp", disableEnvVar: "CMUX_AMP_HOOKS_DISABLED",

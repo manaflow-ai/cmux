@@ -10,7 +10,7 @@ extension AgentLaunchCommandSnapshot {
         workingDirectory: String?,
         environment: [String: String]
     ) {
-        var selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment, kind: launcher)
+        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: launcher)
         if launcher == "opencode",
            let path = environment["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !path.isEmpty {
@@ -105,6 +105,7 @@ extension RestorableAgentSessionIndex {
             let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
             let processRegistry = registryForWorkingDirectory(cwd)
             guard let registration = processRegistry.registrations.first(where: { $0.detect.matches(observed) }),
+                  registration.processDetectedSnapshotIsRestorable(for: observed),
                   let sessionIDResolution = registration.sessionIdSource.sessionIDResolution(
                       from: observed,
                       registration: registration,
@@ -114,8 +115,20 @@ extension RestorableAgentSessionIndex {
             }
             let sessionId = sessionIDResolution.sessionId
 
-            let executablePath = normalized(observed.arguments.first) ?? normalized(process.path) ?? registration.defaultExecutable
-            let arguments = observed.arguments.isEmpty ? [executablePath] : observed.arguments
+            let useDefaultExecutable = registration.detect.usesAlternateMatchWithoutPrimaryMatch(observed)
+            var executablePath = useDefaultExecutable
+                ? registration.defaultExecutable
+                : (normalized(observed.arguments.first) ?? normalized(process.path) ?? registration.defaultExecutable)
+            var arguments = useDefaultExecutable
+                ? [executablePath]
+                : (observed.arguments.isEmpty ? [executablePath] : observed.arguments)
+            if registration == CmuxVaultAgentRegistration.builtInCampfire {
+                arguments = normalizedCampfireLaunchArguments(
+                    observed.arguments,
+                    defaultExecutable: registration.defaultExecutable
+                )
+                executablePath = arguments.first ?? registration.defaultExecutable
+            }
             let snapshot = SessionRestorableAgentSnapshot(
                 kind: .custom(registration.id),
                 sessionId: sessionId,
@@ -139,6 +152,55 @@ extension RestorableAgentSessionIndex {
         }
 
         return resolved
+    }
+
+    private static func normalizedCampfireLaunchArguments(
+        _ arguments: [String],
+        defaultExecutable: String
+    ) -> [String] {
+        guard !arguments.isEmpty else { return [defaultExecutable] }
+        if campfireArgumentLooksLikeExecutable(arguments[0]) {
+            if arguments.count > 1, campfireArgumentLooksLikeBunfsEntry(arguments[1]) {
+                return [arguments[0]] + Array(arguments.dropFirst(2))
+            }
+            return arguments
+        }
+        if campfireArgumentLooksLikeJavaScriptRuntime(arguments[0]),
+           let scriptIndex = campfireScriptArgumentIndex(in: arguments) {
+            return [defaultExecutable] + Array(arguments.dropFirst(scriptIndex + 1))
+        }
+        return [defaultExecutable] + Array(arguments.dropFirst())
+    }
+
+    private static func campfireScriptArgumentIndex(in arguments: [String]) -> Int? {
+        guard arguments.count > 1 else { return nil }
+        return arguments.indices.dropFirst().first { campfireArgumentLooksLikeScript(arguments[$0]) }
+    }
+
+    private static func campfireArgumentLooksLikeBunfsEntry(_ value: String) -> Bool {
+        let normalized = value.replacingOccurrences(of: "\\", with: "/")
+        return normalized.contains("$bunfs")
+            || normalized.contains("~BUN")
+            || normalized.contains("%7EBUN")
+    }
+
+    private static func campfireArgumentLooksLikeExecutable(_ value: String) -> Bool {
+        URL(fileURLWithPath: value).lastPathComponent.compare(
+            "campfire",
+            options: [.caseInsensitive, .literal]
+        ) == .orderedSame && !campfireArgumentLooksLikeBunfsEntry(value)
+    }
+
+    private static func campfireArgumentLooksLikeScript(_ value: String) -> Bool {
+        let normalized = value.replacingOccurrences(of: "\\", with: "/").lowercased()
+        let base = URL(fileURLWithPath: normalized).lastPathComponent
+        return ["campfire.ts", "campfire.js", "campfire"].contains(base)
+            && (normalized.contains("/campfire") || normalized.contains("packages/session"))
+    }
+
+    private static func campfireArgumentLooksLikeJavaScriptRuntime(_ value: String) -> Bool {
+        let base = URL(fileURLWithPath: value).lastPathComponent.lowercased()
+        return ["node", "bun", "deno", "tsx", "ts-node"].contains(base)
     }
 
     static func processLooksLikeOpenCode(
@@ -817,28 +879,78 @@ private struct VaultObservedAgentProcess: Sendable {
     }
 }
 
+private extension CmuxVaultAgentRegistration {
+    func processDetectedSnapshotIsRestorable(for process: VaultObservedAgentProcess) -> Bool {
+        guard id == "campfire" else { return true }
+        return process.environment["CAMPFIRE_SESSION_ROLE"] == "host"
+    }
+}
+
 private extension CmuxVaultAgentDetectRule {
     func matches(_ process: VaultObservedAgentProcess) -> Bool {
+        let expectedNames = primaryProcessNames
+        let hasPrimaryCriteria = !expectedNames.isEmpty || !argvContains.isEmpty
+        let hasAlternateCriteria = !alternateArgvContains.isEmpty || !alternateArgvContainsAny.isEmpty
+        guard hasPrimaryCriteria || hasAlternateCriteria else {
+            return false
+        }
+        // Gate the primary match on the presence of primary criteria. Without
+        // this, an alternate-only rule (empty process names and `argvContains`)
+        // makes `primaryMatches` return true for every process, so it would
+        // match before the alternate criteria are ever checked.
+        let primary = hasPrimaryCriteria && primaryMatches(process, expectedNames: expectedNames)
+        return primary || alternateMatches(process)
+    }
+
+    func usesAlternateMatchWithoutPrimaryMatch(_ process: VaultObservedAgentProcess) -> Bool {
+        let expectedNames = primaryProcessNames
+        return alternateMatches(process) && !primaryMatches(process, expectedNames: expectedNames)
+    }
+
+    private var primaryProcessNames: [String] {
         var expectedNames = processNames
         if let processName {
             expectedNames.append(processName)
         }
-        guard !expectedNames.isEmpty || !argvContains.isEmpty || !alternateArgvContains.isEmpty else {
-            return false
-        }
+        return expectedNames
+    }
+
+    private func primaryMatches(
+        _ process: VaultObservedAgentProcess,
+        expectedNames: [String]
+    ) -> Bool {
         let processNameMatch = expectedNames.isEmpty || expectedNames.contains { expected in
             process.executableBasenames.contains { candidate in
                 candidate.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
             }
         }
         let argvContainsMatch = argvContains.isEmpty || process.argumentsContainAll(argvContains)
+        return processNameMatch && argvContainsMatch
+    }
+
+    private func alternateMatches(_ process: VaultObservedAgentProcess) -> Bool {
+        let alternateProcessNameMatch = alternateProcessNames.isEmpty || alternateProcessNames.contains { expected in
+            process.executableBasenames.contains { candidate in
+                candidate.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
+            }
+        }
         let alternateArgvContainsMatch = !alternateArgvContains.isEmpty
+            && alternateProcessNameMatch
             && process.argumentsContainAll(alternateArgvContains)
-        return (processNameMatch && argvContainsMatch) || alternateArgvContainsMatch
+        let alternateArgvContainsAnyMatch = !alternateArgvContainsAny.isEmpty
+            && alternateProcessNameMatch
+            && process.argumentsContainAny(alternateArgvContainsAny)
+        return alternateArgvContainsMatch || alternateArgvContainsAnyMatch
     }
 }
 
 private extension VaultObservedAgentProcess {
+    func argumentsContainAny(_ needles: [String]) -> Bool {
+        needles.contains { needle in
+            argumentsContainAll([needle])
+        }
+    }
+
     func argumentsContainAll(_ needles: [String]) -> Bool {
         needles.allSatisfy { needle in
             if needle.contains(" ") {
@@ -1089,9 +1201,10 @@ enum PiSessionLocator {
         registration: CmuxVaultAgentRegistration
     ) -> String {
         let sessionRoot = process.arguments.value(afterOption: "--session-dir")
-            ?? process.environment["PI_CODING_AGENT_SESSION_DIR"]
+            ?? piConfiguredSessionDirectory(for: process, registration: registration)
             ?? configuredSessionDirectory(for: registration)
             ?? ompAgentSessionsRoot(for: process, registration: registration)
+            ?? campfireAgentSessionsRoot(for: process, registration: registration)
             ?? registration.sessionDirectory
             ?? defaultSessionsRoot()
         let expandedRoot = (sessionRoot as NSString).expandingTildeInPath
@@ -1100,6 +1213,22 @@ enum PiSessionLocator {
             return (expandedRoot as NSString).appendingPathComponent(projectDirectory)
         }
         return expandedRoot
+    }
+
+    /// Reads `PI_CODING_AGENT_SESSION_DIR` for Pi-based agents only.
+    ///
+    /// Campfire embeds Pi, so a Campfire process can inherit
+    /// `PI_CODING_AGENT_SESSION_DIR` from a user's Pi configuration. Consuming it
+    /// here would resolve Campfire sessions against the Pi session directory and
+    /// pre-empt Campfire's own `CAMPFIRE_CODING_AGENT_SESSION_DIR` /
+    /// `CAMPFIRE_CODING_AGENT_DIR` lookup, so it is gated out for the `campfire`
+    /// registration. Behavior for `pi` and `omp` is unchanged.
+    private static func piConfiguredSessionDirectory(
+        for process: VaultObservedAgentProcess,
+        registration: CmuxVaultAgentRegistration
+    ) -> String? {
+        guard registration.id != "campfire" else { return nil }
+        return process.environment["PI_CODING_AGENT_SESSION_DIR"]
     }
 
     private static func ompAgentSessionsRoot(
@@ -1127,10 +1256,29 @@ enum PiSessionLocator {
         return (agentRoot as NSString).appendingPathComponent("sessions")
     }
 
+    private static func campfireAgentSessionsRoot(
+        for process: VaultObservedAgentProcess,
+        registration: CmuxVaultAgentRegistration
+    ) -> String? {
+        guard registration.id == "campfire" else { return nil }
+        if let sessionRoot = nonEmptyEnvironmentValue("CAMPFIRE_CODING_AGENT_SESSION_DIR", in: process.environment) {
+            return NSString(string: sessionRoot).expandingTildeInPath
+        }
+        guard let agentRoot = nonEmptyEnvironmentValue("CAMPFIRE_CODING_AGENT_DIR", in: process.environment) else {
+            return nil
+        }
+        let expandedAgentRoot = NSString(string: agentRoot).expandingTildeInPath
+        return (expandedAgentRoot as NSString).appendingPathComponent("sessions")
+    }
+
     private static func configuredSessionDirectory(for registration: CmuxVaultAgentRegistration) -> String? {
         guard let sessionDirectory = registration.sessionDirectory else { return nil }
         if registration.id == "omp",
            sessionDirectory == CmuxVaultAgentRegistration.builtInOmp.sessionDirectory {
+            return nil
+        }
+        if registration.id == "campfire",
+           sessionDirectory == CmuxVaultAgentRegistration.builtInCampfire.sessionDirectory {
             return nil
         }
         return sessionDirectory

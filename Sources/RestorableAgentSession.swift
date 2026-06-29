@@ -450,7 +450,7 @@ enum AgentResumeCommandBuilder {
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment, kind: kind.rawValue)
+        let selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: kind.rawValue)
         for key in selectedEnvironment.keys.sorted() {
             guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")
@@ -489,6 +489,14 @@ enum AgentResumeCommandBuilder {
 
         if case .custom = kind {
             guard let customRegistration else { return nil }
+            if customRegistration == CmuxVaultAgentRegistration.builtInCampfire {
+                return AgentResumeArgv().builtInKind(
+                    kind: "campfire",
+                    sessionId: sessionId,
+                    executablePath: launchCommand?.executablePath,
+                    arguments: launchCommand?.arguments ?? []
+                )
+            }
             if customRegistration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
                 return resumeWithOption(
                     kind: "antigravity",

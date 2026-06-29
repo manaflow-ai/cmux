@@ -279,6 +279,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("pi", executable: "pi", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "omp":
             return withOption("omp", executable: "omp", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "campfire":
+            return withOption("campfire", executable: "campfire", option: "--session", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "amp":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "amp")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "amp", args: parts.tail) else { return nil }

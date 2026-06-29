@@ -14353,7 +14353,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, grok, opencode, pi, omp, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -14368,6 +14368,7 @@ struct CMUXCLI {
               ~/.config/opencode/plugins/cmux-feed.js
               ~/.pi/agent/extensions/cmux-session.ts
               ~/.omp/agent/extensions/cmux-omp-session.ts
+              ~/.campfire/agent/extensions/cmux-campfire-session.ts
               ~/.config/amp/plugins/cmux-session.ts
               ~/.kiro/agents/cmux.json
               See docs/agent-hooks.md for the full integration matrix.
@@ -25910,6 +25911,9 @@ struct CMUXCLI {
                 isFallback: false
             )
         }
+        if let campfireSummary = summarizeCampfireObserverNotification(def: def, object: object) {
+            return campfireSummary
+        }
         if let grokSummary = summarizeGrokAssistantCompletionNotification(
             def: def,
             message: normalizedMessage,
@@ -25934,6 +25938,82 @@ struct CMUXCLI {
             message: normalizedMessage,
             isFallback: message == fallbackBody
         )
+    }
+
+    private func summarizeCampfireObserverNotification(
+        def: AgentHookDef,
+        object: [String: Any]
+    ) -> AgentHookNotificationSummary? {
+        guard def.name == "campfire" else { return nil }
+        let extra = (object["extra"] as? [String: Any]) ?? [:]
+        let eventType = firstString(in: object, keys: ["campfire_event_type", "campfireEventType"])
+            ?? firstString(in: extra, keys: ["campfire_event_type", "campfireEventType"])
+        guard let eventType else {
+            return nil
+        }
+        let displayName = firstString(in: object, keys: ["display_name", "displayName"])
+            ?? firstString(in: extra, keys: ["display_name", "displayName"])
+        switch eventType {
+        case "join.requested":
+            let name = displayName ?? String(localized: "agent.campfire.notification.participantFallback", defaultValue: "Someone")
+            let body = String.localizedStringWithFormat(
+                String(localized: "agent.campfire.notification.body.joinRequested", defaultValue: "%@ is waiting to join the Campfire session"),
+                name
+            )
+            return AgentHookNotificationSummary(
+                subtitle: String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting"),
+                body: truncate(body, maxLength: 180),
+                status: .needsInput,
+                isFallback: false
+            )
+        case "permission.asked":
+            let name = displayName ?? String(localized: "agent.campfire.notification.participantFallback", defaultValue: "Someone")
+            let capability = firstString(in: object, keys: ["capability"])
+                ?? firstString(in: extra, keys: ["capability"])
+            let capabilityLabel = campfireCapabilityLabel(capability)
+            let body = String.localizedStringWithFormat(
+                String(localized: "agent.campfire.notification.body.permissionAsked", defaultValue: "%1$@ asked for permission to %2$@"),
+                name,
+                capabilityLabel
+            )
+            return AgentHookNotificationSummary(
+                subtitle: String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission"),
+                body: truncate(body, maxLength: 180),
+                status: .needsInput,
+                isFallback: false
+            )
+        case "relay.error":
+            return AgentHookNotificationSummary(
+                subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error"),
+                body: String(localized: "agent.campfire.notification.body.relayError", defaultValue: "Campfire relay connection failed"),
+                status: .error,
+                isFallback: false
+            )
+        default:
+            return nil
+        }
+    }
+
+    private func campfireCapabilityLabel(_ capability: String?) -> String {
+        switch capability {
+        case "queue:add":
+            return String(localized: "agent.campfire.capability.queueAdd", defaultValue: "queue a prompt")
+        case "queue:run-now":
+            return String(localized: "agent.campfire.capability.queueRunNow", defaultValue: "run a prompt now")
+        case "session:interrupt":
+            return String(localized: "agent.campfire.capability.sessionInterrupt", defaultValue: "interrupt the agent")
+        case "shell:exec":
+            return String(localized: "agent.campfire.capability.shellExec", defaultValue: "run a shell command")
+        case "tools:contribute":
+            return String(localized: "agent.campfire.capability.toolsContribute", defaultValue: "add tools or skills")
+        case "files:list":
+            return String(localized: "agent.campfire.capability.filesList", defaultValue: "browse files")
+        default:
+            // Unknown/unmapped (or nil) capabilities fall back to the localized
+            // generic label rather than surfacing the raw capability identifier
+            // in user-facing notification copy.
+            return String(localized: "agent.campfire.capability.fallback", defaultValue: "do something")
+        }
     }
 
     private func summarizeGrokAssistantCompletionNotification(
@@ -27048,7 +27128,7 @@ struct CMUXCLI {
     }
 
     private func selectedAgentLaunchEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
-        var selected = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: env, kind: kind)
+        var selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: env, kind: kind)
         if kind == "hermes-agent" {
             selected = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
                 to: selected,
@@ -28205,6 +28285,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             try installOmpExtensionHooks(def)
             return
         }
+        if def.name == "campfire" {
+            try installCampfireExtensionHooks(def)
+            return
+        }
         if def.name == "amp" {
             try installAmpExtensionHooks(def)
             return
@@ -28564,6 +28648,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         if def.name == "omp" {
             try uninstallOmpExtensionHooks(def)
+            return
+        }
+        if def.name == "campfire" {
+            try uninstallCampfireExtensionHooks(def)
             return
         }
         if def.name == "amp" {
