@@ -17,7 +17,7 @@
 6895	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 6359	cmuxTests/SessionPersistenceTests.swift
 6217	cmuxTests/GhosttyConfigTests.swift
-6111	Sources/TabManager.swift
+6115	Sources/TabManager.swift
 6077	Sources/TextBoxInput.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
 5573	cmuxTests/BrowserConfigTests.swift
@@ -51,8 +51,8 @@
 1900	cmuxTests/NotificationAndMenuBarTests.swift
 1866	Sources/Panels/BrowserWebAuthnSupport.swift
 1810	Sources/SessionIndexStore.swift
+1766	cmuxTests/MarkdownPanelTests.swift
 1748	Sources/WindowDragHandleView.swift
-1737	cmuxTests/MarkdownPanelTests.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1680	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1656	Sources/FileExplorerView.swift

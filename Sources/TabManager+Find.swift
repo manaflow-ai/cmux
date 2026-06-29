@@ -3,11 +3,14 @@ import Foundation
 
 extension TabManager {
     var isFindVisible: Bool {
-        selectedTerminalPanel?.searchState != nil || focusedBrowserPanel?.searchState != nil
+        selectedTerminalPanel?.searchState != nil ||
+            focusedMarkdownPanelForFind?.isFindVisible == true ||
+            focusedBrowserPanel?.searchState != nil
     }
 
     var canUseSelectionForFind: Bool {
-        selectedTerminalPanel?.hasSelection() == true
+        selectedTerminalPanel?.hasSelection() == true ||
+            focusedMarkdownPanelForFind?.canUseSelectionForFind == true
     }
 
     @discardableResult
@@ -42,6 +45,10 @@ extension TabManager {
     }
 
     func searchSelection() {
+        if focusedMarkdownPanelForFind?.searchSelection() == true {
+            return
+        }
+
         guard let panel = selectedTerminalPanel else { return }
         if panel.searchState == nil {
             panel.searchState = TerminalSurface.SearchState()
@@ -85,7 +92,7 @@ extension TabManager {
     /// Returns the focused Markdown panel for native find actions. Unlike
     /// preview zoom, Find is valid in both the rendered preview and raw text
     /// editor modes.
-    private var focusedMarkdownPanelForFind: MarkdownPanel? {
+    var focusedMarkdownPanelForFind: MarkdownPanel? {
         guard let tab = selectedWorkspace,
               let panelId = tab.focusedPanelId else { return nil }
         return tab.panels[panelId] as? MarkdownPanel

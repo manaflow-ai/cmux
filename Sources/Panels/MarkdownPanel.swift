@@ -47,6 +47,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Whether the file has been deleted or is unreadable.
     @Published private(set) var isFileUnavailable: Bool = false
 
+    /// Whether this panel has opened the native find UI.
+    @Published var isFindVisible = false
+
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 
@@ -262,6 +265,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     func setDisplayMode(_ mode: MarkdownPanelDisplayMode) {
         guard displayMode != mode else { return }
         displayMode = mode
+        isFindVisible = false
         if mode == .text {
             focus()
         }

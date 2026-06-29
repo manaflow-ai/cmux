@@ -5,7 +5,11 @@ import WebKit
 extension MarkdownPanel {
     @discardableResult
     func startFind() -> Bool {
-        performFindAction(.showFindInterface)
+        let handled = performFindAction(.showFindInterface)
+        if handled {
+            isFindVisible = true
+        }
+        return handled
     }
 
     @discardableResult
@@ -18,6 +22,57 @@ extension MarkdownPanel {
         performFindAction(.previousMatch)
     }
 
+    @discardableResult
+    func hideFind() -> Bool {
+        let handled = performFindAction(.hideFindInterface)
+        if handled || isFindVisible {
+            isFindVisible = false
+            return true
+        }
+        return false
+    }
+
+    var canUseSelectionForFind: Bool {
+        switch displayMode {
+        case .preview:
+            guard let webView = rendererSession.webView else { return false }
+            return webView.window?.firstResponder === webView
+        case .text:
+            guard let textView = attachedTextViewForFind else { return false }
+            return textView.selectedRange().length > 0
+        }
+    }
+
+    @discardableResult
+    func searchSelection() -> Bool {
+        switch displayMode {
+        case .preview:
+            guard let webView = rendererSession.webView,
+                  let window = webView.window else {
+                return false
+            }
+            window.makeFirstResponder(webView)
+            let handled = Self.performWebViewFindKeyEquivalent(
+                .setSearchString,
+                in: webView,
+                windowNumber: window.windowNumber
+            )
+            return handled
+        case .text:
+            guard let textView = attachedTextViewForFind,
+                  textView.selectedRange().length > 0 else {
+                return false
+            }
+            textView.window?.makeFirstResponder(textView)
+            let setSearchString = Self.sendTextFinderAction(.setSearchString, to: textView)
+            let showFind = Self.sendTextFinderAction(.showFindInterface, to: textView)
+            if setSearchString || showFind {
+                isFindVisible = true
+            }
+            return setSearchString || showFind
+        }
+    }
+
     private func performFindAction(_ action: NSTextFinder.Action) -> Bool {
         switch displayMode {
         case .preview:
@@ -26,7 +81,10 @@ extension MarkdownPanel {
                 return false
             }
             window.makeFirstResponder(webView)
-            return Self.performWebViewFindKeyEquivalent(action, in: webView, windowNumber: window.windowNumber)
+            if Self.performWebViewFindKeyEquivalent(action, in: webView, windowNumber: window.windowNumber) {
+                return true
+            }
+            return Self.sendTextFinderAction(action, to: webView)
         case .text:
             guard let textView = attachedTextViewForFind else { return false }
             textView.window?.makeFirstResponder(textView)
@@ -78,6 +136,11 @@ extension MarkdownPanel {
             characters = "G"
             keyCode = UInt16(kVK_ANSI_G)
             modifiers = [.command, .shift]
+        case .setSearchString:
+            key = "e"
+            characters = "e"
+            keyCode = UInt16(kVK_ANSI_E)
+            modifiers = [.command]
         default:
             return nil
         }

@@ -872,6 +872,10 @@ class TabManager: ObservableObject {
             return
         }
 
+        if focusedMarkdownPanelForFind?.hideFind() == true {
+            return
+        }
+
         focusedBrowserPanel?.hideFind()
     }
 

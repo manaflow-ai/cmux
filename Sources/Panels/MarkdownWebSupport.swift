@@ -44,8 +44,8 @@ final class MarkdownWebView: WKWebView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if let performKeyEquivalentHandler {
-            return performKeyEquivalentHandler(event)
+        if performKeyEquivalentHandler?(event) == true {
+            return true
         }
         return super.performKeyEquivalent(with: event)
     }

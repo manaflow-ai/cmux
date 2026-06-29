@@ -317,9 +317,9 @@ final class MarkdownPanelTests: XCTestCase {
         filePath: String
     ) throws {
         let webView = MarkdownWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480), configuration: WKWebViewConfiguration())
-        var capturedEvent: NSEvent?
+        var capturedEvents: [NSEvent] = []
         webView.performKeyEquivalentHandler = { event in
-            capturedEvent = event
+            capturedEvents.append(event)
             return true
         }
         panel.rendererSession
@@ -340,15 +340,44 @@ final class MarkdownPanelTests: XCTestCase {
 
         XCTAssertEqual(workspace.focusedPanelId, panel.id)
         XCTAssertEqual(panel.displayMode, .preview)
+        XCTAssertFalse(panel.isFindVisible)
+        XCTAssertFalse(manager.isFindVisible)
         XCTAssertTrue(
             manager.startSearch(),
             "Cmd+F should be handled by the focused Markdown preview panel instead of being dropped."
         )
-        let event = try XCTUnwrap(capturedEvent)
+        XCTAssertTrue(panel.isFindVisible)
+        XCTAssertTrue(manager.isFindVisible)
+        let event = try XCTUnwrap(capturedEvents.last)
         XCTAssertEqual(event.charactersIgnoringModifiers, "f")
         XCTAssertEqual(event.keyCode, UInt16(kVK_ANSI_F))
         XCTAssertTrue(event.modifierFlags.contains(.command))
         XCTAssertFalse(event.modifierFlags.contains(.shift))
+
+        XCTAssertTrue(manager.canUseSelectionForFind)
+        manager.searchSelection()
+        let useSelectionEvent = try XCTUnwrap(capturedEvents.last)
+        XCTAssertEqual(useSelectionEvent.charactersIgnoringModifiers, "e")
+        XCTAssertEqual(useSelectionEvent.keyCode, UInt16(kVK_ANSI_E))
+        XCTAssertTrue(useSelectionEvent.modifierFlags.contains(.command))
+
+        manager.findNext()
+        let nextEvent = try XCTUnwrap(capturedEvents.last)
+        XCTAssertEqual(nextEvent.charactersIgnoringModifiers, "g")
+        XCTAssertEqual(nextEvent.keyCode, UInt16(kVK_ANSI_G))
+        XCTAssertTrue(nextEvent.modifierFlags.contains(.command))
+        XCTAssertFalse(nextEvent.modifierFlags.contains(.shift))
+
+        manager.findPrevious()
+        let previousEvent = try XCTUnwrap(capturedEvents.last)
+        XCTAssertEqual(previousEvent.charactersIgnoringModifiers, "g")
+        XCTAssertEqual(previousEvent.keyCode, UInt16(kVK_ANSI_G))
+        XCTAssertTrue(previousEvent.modifierFlags.contains(.command))
+        XCTAssertTrue(previousEvent.modifierFlags.contains(.shift))
+
+        manager.hideFind()
+        XCTAssertFalse(panel.isFindVisible)
+        XCTAssertFalse(manager.isFindVisible)
     }
 
     func testOpenMarkdownPanelReloadsWhenFileChangesOnDisk() async throws {
