@@ -25,6 +25,10 @@ public final class UpdateController {
     private let fileManager: FileManager
     private let hostBundle: Bundle
     private let backgroundProbeInterval: TimeInterval
+    /// Whether this build is excluded from the public Sparkle release train (DEV/staging bundle
+    /// id, outside the UI-test/XCTest harness). When true the updater is never started, no
+    /// public appcast is queried, and no public release can be surfaced or installed.
+    private let suppressesPublicUpdates: Bool
 
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
     public weak var actionDelegate: (any UpdateActionDelegate)? {
@@ -72,17 +76,23 @@ public final class UpdateController {
                 settings: UpdateSettings = UpdateSettings(),
                 hostBundle: Bundle = .main,
                 defaults: UserDefaults = .standard,
-                fileManager: FileManager = .default) {
+                fileManager: FileManager = .default,
+                environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.log = log
         self.clock = clock
         self.defaults = defaults
         self.fileManager = fileManager
         self.hostBundle = hostBundle
         self.backgroundProbeInterval = settings.scheduledCheckInterval
+        let suppressesPublicUpdates = Self.shouldSuppressPublicUpdates(
+            bundleIdentifier: hostBundle.bundleIdentifier,
+            environment: environment
+        )
+        self.suppressesPublicUpdates = suppressesPublicUpdates
         settings.apply(to: defaults)
 
         let model = UpdateStateModel()
-        let driver = UpdateDriver(model: model, log: log, clock: clock)
+        let driver = UpdateDriver(model: model, log: log, clock: clock, suppressesPublicUpdates: suppressesPublicUpdates)
         self.driver = driver
         self.updater = SPUUpdater(
             hostBundle: hostBundle,
@@ -246,6 +256,19 @@ public final class UpdateController {
 
     /// Check for updates once the updater reports it can.
     private func checkForUpdatesWhenReady() {
+        // DEV/staging builds are off the public release train: never query the public appcast,
+        // even from a manual "Check for Updates" / custom-UI / attempt-install path. Report
+        // "up to date" and bail before starting the updater so the public release can never be
+        // surfaced or installed over a locally-built app.
+        if suppressesPublicUpdates {
+            cancelReadinessRetry()
+            recheckTask?.cancel()
+            isForceInstalling = false
+            model.clearDetectedUpdate()
+            log.append("update check skipped (dev/staging build)")
+            model.setState(.notFound(.init(acknowledgement: {})))
+            return
+        }
         cancelReadinessRetry()
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
@@ -300,6 +323,14 @@ public final class UpdateController {
     /// Start the updater. If startup fails, the error is shown via the custom UI.
     public func startUpdaterIfNeeded() {
         guard !didStartUpdater else { return }
+        // Root gate: DEV/staging builds are off the public release train. Never start Sparkle, so
+        // no scheduled check, automatic download, or silent install-on-quit can reach the public
+        // release over a locally-built app. (The UI-test/XCTest harness is exempt; see
+        // `shouldSuppressPublicUpdates`.)
+        if suppressesPublicUpdates {
+            log.append("updater not started (dev/staging build off public release train)")
+            return
+        }
         ensureSparkleInstallationCache()
 #if DEBUG
         // Keep the permission-related defaults resettable for UI tests even though the
@@ -338,6 +369,17 @@ public final class UpdateController {
     }
 
     private func startLaunchUpdateProbeIfNeeded() {
+        // Defense in depth: `startUpdaterIfNeeded` already returns early for suppressed builds, so
+        // this is normally unreachable on DEV/staging. Keep the guard so the probe can never query
+        // the public appcast or surface the "Update Available" pill if reached another way.
+        if suppressesPublicUpdates {
+            backgroundProbeTask?.cancel()
+            backgroundProbeTask = nil
+            model.clearDetectedUpdate()
+            log.append("launch update probe skipped (dev/staging build)")
+            return
+        }
+
         guard updater.automaticallyChecksForUpdates else {
             log.append("launch update probe skipped (automatic checks disabled)")
             return
