@@ -14,12 +14,13 @@ import AppKit
 struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(AuthCoordinator.self) private var authManager
+    @Environment(AuthCoordinator.self) var authManager
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     /// The persisted first-run onboarding "seen" flag store. The one-time
     /// onboarding screen gates ahead of the never-paired add-device state.
     private let onboardingStore: MobileOnboardingStore
+    let authCallbackRouter: AuthCallbackRouter?
     /// Mirrors ``MobileOnboardingStore/hasSeenOnboarding`` so completing
     /// onboarding (which calls `markSeen()` in the button action) re-renders the
     /// root and falls through to the pairing flow. Seeded synchronously from the
@@ -27,12 +28,14 @@ struct CMUXMobileRootView: View {
     /// never flashes onboarding for a returning user.
     @State private var hasSeenOnboarding: Bool
     #endif
-    @State private var pendingAttachURL: String?
+    @State var pendingAttachURL: String?
     @State private var didConsumeUITestAttachURL = false
     @State private var didAuthenticateWithAttachTicket = false
     @State private var isShowingAddDeviceSheet = false
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
+    @State var authCallbackError: String?
+    @State var shouldShowAuthCodeEntry = false
     #endif
     /// The app's one tailnet detector, built at the composition root and
     /// injected through the environment so pairing, the disconnected shell,
@@ -43,9 +46,14 @@ struct CMUXMobileRootView: View {
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
 
     #if os(iOS)
-    init(store: CMUXMobileShellStore, onboardingStore: MobileOnboardingStore) {
+    init(
+        store: CMUXMobileShellStore,
+        onboardingStore: MobileOnboardingStore,
+        authCallbackRouter: AuthCallbackRouter? = nil
+    ) {
         self.store = store
         self.onboardingStore = onboardingStore
+        self.authCallbackRouter = authCallbackRouter
         _hasSeenOnboarding = State(initialValue: onboardingStore.hasSeenOnboarding)
     }
     #else
@@ -150,26 +158,14 @@ struct CMUXMobileRootView: View {
             // failed connect to surface a confusing host-side message.
             Task { await authManager.revalidateSession() }
         }
-        .onOpenURL { url in
-            let rawURL = url.absoluteString
-            if MobileRootAuthGate.isAttachURL(url) {
-                connectAttachURL(rawURL)
-                return
-            }
-
-            guard isAuthenticated else {
-                pendingAttachURL = rawURL
-                return
-            }
-            Task {
-                await store.connectPairingURL(rawURL)
-            }
-        }
+        .onOpenURL(perform: handleOpenURL)
         .onChange(of: isAuthenticated) { _, isAuthenticated in
             syncShellAuthentication(isAuthenticated)
-            guard isAuthenticated else {
-                return
-            }
+            guard isAuthenticated else { return }
+            #if os(iOS)
+            authCallbackError = nil
+            shouldShowAuthCodeEntry = false
+            #endif
             if consumePendingURLIfReady() {
                 return
             }
@@ -207,7 +203,10 @@ struct CMUXMobileRootView: View {
         } else if shouldShowStreamingChatPreview {
             streamingChatPreview
         } else if !isAuthenticated {
-            SignInView()
+            SignInView(
+                externalError: $authCallbackError,
+                shouldShowCodeEntry: $shouldShowAuthCodeEntry
+            )
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
             RestoringStoredMacWorkspaceShell(
                 store: store,
@@ -330,7 +329,7 @@ struct CMUXMobileRootView: View {
     }
     #endif
 
-    private var isAuthenticated: Bool {
+    var isAuthenticated: Bool {
         MobileRootAuthGate.isAuthenticated(
             stackAuthenticated: authManager.isAuthenticated,
             attachTicketAuthenticated: hasActiveAttachTicketAuthentication
@@ -390,7 +389,7 @@ struct CMUXMobileRootView: View {
         isShowingAddDeviceSheet = true
     }
 
-    private func connectAttachURL(_ rawURL: String) {
+    func connectAttachURL(_ rawURL: String) {
         guard !authManager.isRestoringSession else {
             pendingAttachURL = rawURL
             return
@@ -423,7 +422,7 @@ struct CMUXMobileRootView: View {
         return true
     }
 
-    private func isRawAttachURL(_ rawURL: String) -> Bool {
+    func isRawAttachURL(_ rawURL: String) -> Bool {
         guard let url = URL(string: rawURL) else { return false }
         return MobileRootAuthGate.isAttachURL(url)
     }
@@ -463,8 +462,8 @@ struct CMUXMobileRootView: View {
 
     private func signOut() {
         #if os(iOS)
-        // The hook receives the tokens captured before the local-first clear:
-        // by the time it runs, the live token store is already empty.
+        authCallbackError = nil
+        shouldShowAuthCodeEntry = false
         let pushCoordinator = pushCoordinator
         let onSignedOut: @Sendable (String?, String?) async -> Void = { accessToken, refreshToken in
             await pushCoordinator.unregisterFromServer(

@@ -1997,7 +1997,9 @@
   "afterSignIn": {
     "title": "Signed in to cmux",
     "body": "If cmux did not open automatically, use the button below.",
-    "button": "Return to cmux"
+    "button": "Return to cmux",
+    "iphoneButton": "Return to cmux on iPhone",
+    "testFlightButton": "Return to cmux TestFlight"
   },
   "landing": {
     "bestTerminal": {
@@ -2276,5 +2278,12 @@
       "faqQ4": "Is cmux free to use with Cursor CLI?",
       "faqA4": "Yes. cmux is free and open source for macOS."
     }
+  },
+  "mobileMagicLinkCallback": {
+    "title": "Open cmux to finish sign in",
+    "body": "For security, enter the code from this email in cmux. This link was not used.",
+    "button": "Return to cmux",
+    "iphoneButton": "Return to cmux on iPhone",
+    "testFlightButton": "Return to cmux TestFlight"
   }
 }

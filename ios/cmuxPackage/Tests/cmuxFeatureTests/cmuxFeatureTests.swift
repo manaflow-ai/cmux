@@ -70,6 +70,66 @@ final class TerminalOutputCollector {
     #expect(!AuthLaunchOptions.shouldStartAutoLogin(hasCredentials: false, hasStoredTokens: false))
 }
 
+@MainActor
+@Test func authEnvironmentOverrideAllowsProductionStackInDebugBuilds() {
+    #expect(MobileAuthComposition.authEnvironment(
+        buildEnvironment: .development,
+        overrides: [:]
+    ) == .development)
+    #expect(MobileAuthComposition.authEnvironment(
+        buildEnvironment: .development,
+        overrides: ["AuthEnvironment": " production "]
+    ) == .production)
+    #expect(MobileAuthComposition.authEnvironment(
+        buildEnvironment: .production,
+        overrides: ["AuthEnvironment": "development"]
+    ) == .production)
+    #expect(MobileAuthComposition.authEnvironment(
+        buildEnvironment: .development,
+        overrides: ["AuthEnvironment": "bogus"]
+    ) == .development)
+}
+
+@MainActor
+@Test func mobileAuthCallbackSchemeAndMagicLinkURLAreChannelAware() throws {
+    #expect(MobileAuthComposition.authCallbackScheme(
+        bundle: .main,
+        authEnvironment: .production,
+        overrides: ["AuthCallbackScheme": " cmux-ios-beta "]
+    ) == "cmux-ios-beta")
+    #expect(MobileAuthComposition.authCallbackScheme(
+        bundle: .main,
+        authEnvironment: .production,
+        overrides: [:]
+    ) == "cmux-ios-dev")
+
+    let magicURL = try #require(MobileAuthComposition.nativeMagicLinkCallbackURL(
+        magicLinkCallbackURL: "https://cmux.com/handler/magic-link-callback",
+        callbackScheme: "cmux-ios-beta",
+        callbackState: "state-123"
+    ))
+    let magicComponents = try #require(URLComponents(url: magicURL, resolvingAgainstBaseURL: false))
+    #expect(magicComponents.path == "/handler/magic-link-callback")
+    #expect(
+        magicComponents.queryItems?.first(where: { $0.name == "native_app_return_to" })?.value
+            == "cmux-ios-beta://auth-callback?cmux_auth_state=state-123"
+    )
+
+    let customCallback = try #require(MobileAuthComposition.nativeMagicLinkCallbackURL(
+        magicLinkCallbackURL: "https://auth.example.test/custom/callback",
+        callbackScheme: "cmux-ios-beta",
+        callbackState: "state-456"
+    ))
+    #expect(URLComponents(url: customCallback, resolvingAgainstBaseURL: false)?.host == "auth.example.test")
+    #expect(URLComponents(url: customCallback, resolvingAgainstBaseURL: false)?.path == "/custom/callback")
+
+    #expect(MobileAuthComposition.nativeMagicLinkCallbackURL(
+        magicLinkCallbackURL: "not-a-callback-url",
+        callbackScheme: "cmux-ios-beta",
+        callbackState: "state-789"
+    ) == nil)
+}
+
 #if DEBUG
 @Test func mobileDevStackAuthTokenProviderUsesExplicitEnvironmentOnly() {
     #expect(MobileShellDevStackAuthTokenProvider.token(environment: [:]) == nil)

@@ -120,6 +120,23 @@
         }
       }
     },
+    "auth.error.mobileWebSignInRequiresCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For security, enter the code from this email in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セキュリティ保護のため、このメールのコードを cmux に入力してください。"
+          }
+        }
+      }
+    },
     "auth.error.invalid_code_short": {
       "extractionState": "manual",
       "localizations": {
@@ -4574,6 +4591,40 @@
         }
       }
     },
+    "mobile.signIn.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue in Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザで続行"
+          }
+        }
+      }
+    },
+    "mobile.signIn.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
     "mobile.signIn.checkEmail": {
       "extractionState": "manual",
       "localizations": {
@@ -4710,6 +4761,23 @@
         }
       }
     },
+    "mobile.signIn.openBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザで開く"
+          }
+        }
+      }
+    },
     "mobile.signIn.restoring": {
       "extractionState": "manual",
       "localizations": {
@@ -4791,6 +4859,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ にコードを送信しました"
+          }
+        }
+      }
+    },
+    "mobile.signIn.sentCodeGeneric": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter the code from the email."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メールに記載されたコードを入力してください。"
           }
         }
       }

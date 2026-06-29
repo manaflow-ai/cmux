@@ -19,3 +19,8 @@ CODE_SIGN_ENTITLEMENTS = Config/cmux-release.entitlements
 // cmux-ios-dev instead, so the Camera app routes each channel's QR to the
 // matching build. Keep in sync with CmxPairingURLScheme.release.
 CMUX_IOS_URL_SCHEME = cmux-ios
+
+// TestFlight beta auth callbacks use their own scheme so a future App Store
+// build can own cmux-ios://auth-callback without ambiguity when both are
+// installed.
+CMUX_IOS_AUTH_CALLBACK_SCHEME = cmux-ios-beta

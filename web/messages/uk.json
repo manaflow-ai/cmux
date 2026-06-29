@@ -1674,7 +1674,9 @@
   "afterSignIn": {
     "title": "Вхід у cmux виконано",
     "body": "Якщо cmux не відкрився автоматично, скористайтеся кнопкою нижче.",
-    "button": "Повернутися до cmux"
+    "button": "Повернутися до cmux",
+    "iphoneButton": "Повернутися до cmux на iPhone",
+    "testFlightButton": "Повернутися до cmux TestFlight"
   },
   "landing": {
     "bestTerminal": {
@@ -1980,5 +1982,12 @@
     "successBody": "Ми напишемо вам, коли версія для {platform} буде готова.",
     "successBodyAny": "Ми напишемо вам, коли cmux буде готовий для вашої платформи.",
     "done": "Готово"
+  },
+  "mobileMagicLinkCallback": {
+    "title": "Відкрийте cmux, щоб завершити вхід",
+    "body": "З міркувань безпеки введіть код із цього листа в cmux. Це посилання не було використано.",
+    "button": "Повернутися до cmux",
+    "iphoneButton": "Повернутися до cmux на iPhone",
+    "testFlightButton": "Повернутися до cmux TestFlight"
   }
 }

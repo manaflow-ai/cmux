@@ -1591,7 +1591,9 @@
   "afterSignIn": {
     "title": "cmux oturumu açıldı",
     "body": "cmux otomatik olarak açılmadıysa aşağıdaki düğmeyi kullanın.",
-    "button": "cmux’a dön"
+    "button": "cmux’a dön",
+    "iphoneButton": "iPhone’da cmux’a dön",
+    "testFlightButton": "cmux TestFlight’a dön"
   },
   "landing": {
     "bestTerminal": {
@@ -1897,5 +1899,12 @@
     "successBody": "{platform} sürümü hazır olduğunda sana e-posta göndereceğiz.",
     "successBodyAny": "cmux senin platformun için hazır olduğunda sana e-posta göndereceğiz.",
     "done": "Tamam"
+  },
+  "mobileMagicLinkCallback": {
+    "title": "Oturumu tamamlamak için cmux’u açın",
+    "body": "Güvenlik için bu e-postadaki kodu cmux’a girin. Bu bağlantı kullanılmadı.",
+    "button": "cmux’a dön",
+    "iphoneButton": "iPhone’da cmux’a dön",
+    "testFlightButton": "cmux TestFlight’a dön"
   }
 }

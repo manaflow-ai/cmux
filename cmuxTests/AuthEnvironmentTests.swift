@@ -86,6 +86,11 @@ struct AuthEnvironmentTests {
             .queryItems?
             .first(where: { $0.name == "native_app_return_to" })?
             .value)
+        let nativePlatform = try #require(URLComponents(url: afterSignInURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "cmux_native_platform" })?
+            .value)
+        #expect(nativePlatform == "desktop")
         let nativeCallbackURL = try #require(URL(string: nativeReturnTo))
         #expect(nativeCallbackURL.scheme == "cmux-dev-pair-auth")
         #expect(nativeCallbackURL.host == "auth-callback")
@@ -149,6 +154,7 @@ private func assertNativeSignInURL(_ url: URL) {
 
     #expect(nativeCallbackURL.scheme == "cmux")
     #expect(nativeCallbackURL.host == "auth-callback")
+    #expect(afterSignInComponents.queryItems?.first { $0.name == "cmux_native_platform" }?.value == "desktop")
 
     let nativeCallbackComponents = URLComponents(url: nativeCallbackURL, resolvingAgainstBaseURL: false)
     #expect(nativeCallbackComponents?.queryItems?.first { $0.name == "cmux_auth_state" }?.value == "state-1")

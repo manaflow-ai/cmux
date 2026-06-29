@@ -438,6 +438,22 @@ import Testing
         #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
     }
 
+    @Test func statelessExternalCallbackIsRejectedWhenDisabled() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(
+            user: user,
+            allowsStatelessExternalCallbacks: false
+        )
+
+        let result = await harness.flow.handleCallbackURL(harness.fallbackCallbackURL())
+
+        #expect(result == false)
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        #expect(await harness.tokenStore.getStoredAccessToken() == nil)
+        #expect(harness.flow.lastFailure == .invalidCallback)
+    }
+
     @Test func statefulExternalCallbackWithoutActiveAttemptIsRejected() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)

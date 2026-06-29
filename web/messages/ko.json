@@ -1591,7 +1591,9 @@
   "afterSignIn": {
     "title": "cmux에 로그인했습니다",
     "body": "cmux가 자동으로 열리지 않으면 아래 버튼을 사용하세요.",
-    "button": "cmux로 돌아가기"
+    "button": "cmux로 돌아가기",
+    "iphoneButton": "iPhone에서 cmux로 돌아가기",
+    "testFlightButton": "cmux TestFlight로 돌아가기"
   },
   "landing": {
     "bestTerminal": {
@@ -1897,5 +1899,12 @@
     "successBody": "{platform} 버전이 준비되면 이메일로 알려드릴게요.",
     "successBodyAny": "cmux가 회원님의 플랫폼에서 준비되면 이메일로 알려드릴게요.",
     "done": "완료"
+  },
+  "mobileMagicLinkCallback": {
+    "title": "cmux를 열어 로그인을 완료하세요",
+    "body": "보안을 위해 이 이메일의 코드를 cmux에 입력하세요. 이 링크는 사용되지 않았습니다.",
+    "button": "cmux로 돌아가기",
+    "iphoneButton": "iPhone에서 cmux로 돌아가기",
+    "testFlightButton": "cmux TestFlight로 돌아가기"
   }
 }

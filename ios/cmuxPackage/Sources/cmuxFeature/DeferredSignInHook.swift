@@ -1,3 +1,5 @@
+import Foundation
+
 /// A settable post-sign-in hook used to break the auth-coordinator <-> push
 /// construction cycle.
 ///
@@ -18,5 +20,20 @@ final class DeferredSignInHook {
     /// Run the installed hook (no-op until ``set(_:)`` has been called).
     func run() async {
         await action?()
+    }
+}
+
+/// Settable magic-link callback URL provider used to break the
+/// AuthCoordinator <-> HostBrowserSignInFlow construction cycle.
+@MainActor
+final class DeferredMagicLinkCallbackURLProvider {
+    private var makeURL: (() -> URL?)?
+
+    func set(_ makeURL: @escaping () -> URL?) {
+        self.makeURL = makeURL
+    }
+
+    func urlString() -> String? {
+        makeURL?()?.absoluteString
     }
 }

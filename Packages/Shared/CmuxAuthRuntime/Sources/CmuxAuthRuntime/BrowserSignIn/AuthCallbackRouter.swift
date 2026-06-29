@@ -3,10 +3,11 @@ public import Foundation
 /// Recognizes and parses cmux auth callback URLs.
 ///
 /// Accepts the built-in cmux callback schemes (`cmux`, `cmux-nightly`,
-/// `cmux-dev`) plus an optional runtime override (e.g. a per-tag Debug build's
-/// unique scheme), injected at construction so the type never reads the
-/// process environment itself. A pure value; construct it once at the
-/// composition root and inject it.
+/// and `cmux-dev`) plus an optional runtime override (e.g. a per-tag Debug
+/// build's unique scheme, or the selected iOS release/TestFlight scheme),
+/// injected at construction so the type never reads the process environment
+/// itself. A pure value; construct it once at the composition root and inject
+/// it.
 public struct AuthCallbackRouter: Sendable {
     private static let builtInSchemes: Set<String> = ["cmux", "cmux-nightly", "cmux-dev"]
     private let extraAllowedScheme: String?

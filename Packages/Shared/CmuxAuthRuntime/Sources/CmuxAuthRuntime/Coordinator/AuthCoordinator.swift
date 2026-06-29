@@ -62,6 +62,7 @@ public final class AuthCoordinator {
     private let teamSelection: CMUXAuthTeamSelectionStore
     private let anchor: any AuthPresentationAnchoring
     private let config: AuthConfig
+    private let magicLinkCallbackURLProvider: (() -> String?)?
     let launch: AuthLaunchOptions
     let timeouts: AuthTimeouts
     let clock: any Clock<Duration>
@@ -70,7 +71,7 @@ public final class AuthCoordinator {
     let log = AuthDebugLog()
     let phaseTimeoutRegistry = AuthPhaseTimeoutRegistry()
 
-    private var pendingNonce: String?
+    var pendingNonce: String?
     var debugCredentials: CMUXAuthAutoLoginCredentials?
     private var bootstrapTask: Task<Void, Never>?
     var isRevalidatingSession = false
@@ -138,10 +139,7 @@ public final class AuthCoordinator {
     ///   - anchor: Presentation anchor provider for OAuth flows.
     ///   - config: Resolved auth configuration (callback URL, project, API base).
     ///   - launch: Launch-time priming inputs (UI-test fixtures, dev-auth flag).
-    ///   - timeouts: Per-phase deadlines for the sign-in/session flows. Every
-    ///     phase that holds a loading state is bounded so the UI can never spin
-    ///     forever; a phase that hits its deadline fails with the localized,
-    ///     retryable ``AuthError/timedOut``. Defaults to ``AuthTimeouts/default``.
+    ///   - timeouts: Per-phase deadlines for sign-in/session flows.
     ///   - clock: The clock the phase deadlines sleep on. Injected so tests
     ///     drive timeouts with virtual time. Defaults to `ContinuousClock`.
     ///   - isOnline: Connectivity probe; sign-in flows fail fast when offline.
@@ -156,6 +154,7 @@ public final class AuthCoordinator {
         teamSelection: CMUXAuthTeamSelectionStore,
         anchor: any AuthPresentationAnchoring,
         config: AuthConfig,
+        magicLinkCallbackURLProvider: (() -> String?)? = nil,
         launch: AuthLaunchOptions,
         timeouts: AuthTimeouts = .default,
         clock: any Clock<Duration> = ContinuousClock(),
@@ -168,6 +167,7 @@ public final class AuthCoordinator {
         self.teamSelection = teamSelection
         self.anchor = anchor
         self.config = config
+        self.magicLinkCallbackURLProvider = magicLinkCallbackURLProvider
         self.launch = launch
         self.timeouts = timeouts
         self.clock = clock
@@ -228,7 +228,7 @@ public final class AuthCoordinator {
 
         do {
             let client = self.client
-            let callbackURL = config.magicLinkCallbackURL
+            let callbackURL = magicLinkCallbackURLProvider?() ?? config.magicLinkCallbackURL
             let nonce = try await runPhase(.sendCode, timeout: timeouts.network) {
                 try await client.sendMagicLinkEmail(email: email, callbackURL: callbackURL)
             }

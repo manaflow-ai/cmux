@@ -24,6 +24,8 @@ public struct MobileAuthComposition {
     public let pushRegistration: PushRegistrationService
     /// The resolved configuration (used for diagnostics + push API base URL).
     public let config: AuthConfig
+    /// Recognizes/parses native auth callback URLs delivered back from Safari.
+    public let callbackRouter: AuthCallbackRouter
 
     /// A reachability monitor used to fail sign-in flows fast when offline.
     private let reachability: any ReachabilityProviding
@@ -47,17 +49,22 @@ public struct MobileAuthComposition {
     ) {
         self.reachability = reachability
 
-        let isDevelopment = Self.isDevelopmentBuild
         let overrides = Self.localConfigStringOverrides(in: bundle)
+        let buildEnvironment: CMUXAuthEnvironment = Self.isDevelopmentBuild ? .development : .production
+        let authEnvironment = Self.authEnvironment(
+            buildEnvironment: buildEnvironment,
+            bundle: bundle,
+            overrides: overrides
+        )
         let resolvedConfig = AuthConfig(
-            environment: isDevelopment ? .development : .production,
+            environment: authEnvironment,
             overrides: overrides
         )
         self.config = resolvedConfig
 
         let client = StackAuthClient(
             config: resolvedConfig,
-            tokenStore: Self.tokenStore
+            tokenStore: Self.stackTokenStore(for: resolvedConfig)
         )
         let sessionCache = CMUXAuthSessionCache(
             keyValueStore: defaults,
@@ -77,23 +84,42 @@ public struct MobileAuthComposition {
             environment: environment,
             includesDevAuth: policy.includesFortyTwoShortcut
         )
+        let authCallbackScheme = Self.authCallbackScheme(
+            bundle: bundle,
+            authEnvironment: authEnvironment,
+            overrides: overrides
+        )
+        let canUseNativeMagicLinkCallback = !(authEnvironment == .production && authCallbackScheme == "cmux-ios-dev")
         // Break the coordinator <-> push cycle: the coordinator is built first
         // and reaches the push service (for its post-sign-in token re-upload)
         // through a deferred async hook that is pointed at the push service once
         // it exists. The push service reads tokens directly from the coordinator.
         let deferredSignIn = DeferredSignInHook()
+        let magicLinkCallbackURLProvider = DeferredMagicLinkCallbackURLProvider()
         let monitor = reachability
+        let anchor = AuthPresentationContextProvider()
         let coordinator = AuthCoordinator(
             client: client,
             sessionCache: sessionCache,
             userCache: userCache,
             teamSelection: teamSelection,
-            anchor: AuthPresentationContextProvider(),
+            anchor: anchor,
             config: resolvedConfig,
+            magicLinkCallbackURLProvider: { magicLinkCallbackURLProvider.urlString() },
             launch: launch,
             isOnline: { await monitor.isOnline },
             onSignedIn: { await deferredSignIn.run() }
         )
+        let callbackRouter = AuthCallbackRouter(extraAllowedScheme: authCallbackScheme)
+        self.callbackRouter = callbackRouter
+        magicLinkCallbackURLProvider.set {
+            guard canUseNativeMagicLinkCallback else { return nil }
+            return Self.nativeMagicLinkCallbackURL(
+                magicLinkCallbackURL: resolvedConfig.magicLinkCallbackURL,
+                callbackScheme: authCallbackScheme,
+                callbackState: Self.makeCallbackState()
+            )
+        }
         let push = PushRegistrationService(
             tokenProvider: coordinator,
             apiBaseURL: resolvedConfig.apiBaseURL,
@@ -127,12 +153,75 @@ public struct MobileAuthComposition {
         #endif
     }
 
-    private static var tokenStore: TokenStoreInit {
+    static func authEnvironment(
+        buildEnvironment: CMUXAuthEnvironment,
+        bundle: Bundle = .main,
+        overrides: [String: String]
+    ) -> CMUXAuthEnvironment {
+        if buildEnvironment == .development,
+           let override = overrides["AuthEnvironment"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return CMUXAuthEnvironment(rawValue: override.lowercased()) ?? buildEnvironment
+        }
+        if buildEnvironment == .development,
+           let override = bundle.object(forInfoDictionaryKey: "CMUXAuthEnvironment") as? String {
+            let trimmed = override.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return CMUXAuthEnvironment(rawValue: trimmed.lowercased()) ?? buildEnvironment
+            }
+        }
+        return buildEnvironment
+    }
+
+    static func authCallbackScheme(
+        bundle: Bundle,
+        authEnvironment: CMUXAuthEnvironment,
+        overrides: [String: String]
+    ) -> String {
+        let resolvedScheme: String
+        if let override = overrides["AuthCallbackScheme"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            resolvedScheme = override
+        } else if let scheme = bundle.object(forInfoDictionaryKey: "CMUXIOSAuthCallbackScheme") as? String {
+            let trimmed = scheme.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                resolvedScheme = trimmed
+            } else {
+                resolvedScheme = isDevelopmentBuild ? "cmux-ios-dev" : "cmux-ios"
+            }
+        } else {
+            resolvedScheme = isDevelopmentBuild ? "cmux-ios-dev" : "cmux-ios"
+        }
+        return resolvedScheme
+    }
+
+    static func stackTokenStore(for config: AuthConfig) -> TokenStoreInit {
         #if DEBUG && targetEnvironment(simulator)
-        .memory
+        return .memory
         #else
-        .keychain
+        return .custom(StackProjectKeychainTokenStore(projectId: config.stack.projectId))
         #endif
+    }
+
+    static func nativeMagicLinkCallbackURL(
+        magicLinkCallbackURL: String,
+        callbackScheme: String,
+        callbackState: String
+    ) -> URL? {
+        guard let magicLink = URL(string: magicLinkCallbackURL),
+              magicLink.scheme != nil,
+              magicLink.host != nil,
+              var magicComponents = URLComponents(url: magicLink, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        magicComponents.queryItems = [
+            URLQueryItem(name: "native_app_return_to", value: "\(callbackScheme)://auth-callback?cmux_auth_state=\(callbackState)"),
+        ]
+        return magicComponents.url
+    }
+
+    private static func makeCallbackState() -> String {
+        UUID().uuidString.lowercased()
     }
 
     /// Parse optional string overrides from a bundled `LocalConfig.plist`.

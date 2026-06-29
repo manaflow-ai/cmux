@@ -1591,7 +1591,9 @@
   "afterSignIn": {
     "title": "Logget på cmux",
     "body": "Hvis cmux ikke åpnet automatisk, bruk knappen nedenfor.",
-    "button": "Gå tilbake til cmux"
+    "button": "Gå tilbake til cmux",
+    "iphoneButton": "Gå tilbake til cmux på iPhone",
+    "testFlightButton": "Gå tilbake til cmux TestFlight"
   },
   "landing": {
     "bestTerminal": {
@@ -1897,5 +1899,12 @@
     "successBody": "Vi sender deg en e-post når {platform}-versjonen er klar.",
     "successBodyAny": "Vi sender deg en e-post når cmux er klar for plattformen din.",
     "done": "Ferdig"
+  },
+  "mobileMagicLinkCallback": {
+    "title": "Åpne cmux for å fullføre innloggingen",
+    "body": "Av sikkerhetshensyn må du skrive inn koden fra denne e-posten i cmux. Denne lenken ble ikke brukt.",
+    "button": "Tilbake til cmux",
+    "iphoneButton": "Tilbake til cmux på iPhone",
+    "testFlightButton": "Tilbake til cmux TestFlight"
   }
 }

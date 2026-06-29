@@ -9,6 +9,7 @@ import Testing
         client: FakeAuthClient,
         launch: AuthLaunchOptions = .plain(),
         clock: any Clock<Duration> = ContinuousClock(),
+        magicLinkCallbackURLProvider: (() -> String?)? = nil,
         isOnline: @escaping @Sendable () async -> Bool = { true }
     ) -> (AuthCoordinator, FakeKeyValueStore) {
         let store = FakeKeyValueStore()
@@ -19,6 +20,7 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
+            magicLinkCallbackURLProvider: magicLinkCallbackURLProvider,
             launch: launch,
             clock: clock,
             isOnline: isOnline
@@ -48,6 +50,7 @@ import Testing
 
     @Test func magicLinkRequiresPriorNonce() async {
         let (coordinator, _) = makeCoordinator(client: FakeAuthClient())
+        #expect(!coordinator.hasPendingMagicLinkCode)
         await #expect(throws: AuthError.invalidCode) {
             try await coordinator.verifyCode("000000")
         }
@@ -59,11 +62,27 @@ import Testing
         let (coordinator, _) = makeCoordinator(client: client)
 
         try await coordinator.sendCode(to: "a@b.com")
+        #expect(coordinator.hasPendingMagicLinkCode)
         try await coordinator.verifyCode("123456")
 
         #expect(coordinator.isAuthenticated)
+        #expect(!coordinator.hasPendingMagicLinkCode)
         let didMagicLink = await client.signedInWithMagicLink
         #expect(didMagicLink)
+    }
+
+    @Test func sendCodeUsesDynamicMagicLinkCallbackURLWhenProvided() async throws {
+        let client = FakeAuthClient()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            magicLinkCallbackURLProvider: {
+                "https://cmux.com/handler/native-sign-in?after_auth_return_to=stateful"
+            }
+        )
+
+        try await coordinator.sendCode(to: "a@b.com")
+
+        #expect(await client.lastMagicLinkCallbackURL == "https://cmux.com/handler/native-sign-in?after_auth_return_to=stateful")
     }
 
     @Test func sendCodeThenVerifySubmitsLowercaseDisplayedOtpWithNonce() async throws {

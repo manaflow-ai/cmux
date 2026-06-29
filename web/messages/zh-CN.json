@@ -1591,7 +1591,9 @@
   "afterSignIn": {
     "title": "已登录 cmux",
     "body": "如果 cmux 没有自动打开，请使用下面的按钮。",
-    "button": "返回 cmux"
+    "button": "返回 cmux",
+    "iphoneButton": "返回 iPhone 上的 cmux",
+    "testFlightButton": "返回 cmux TestFlight"
   },
   "landing": {
     "bestTerminal": {
@@ -1897,5 +1899,12 @@
     "successBody": "{platform} 版本就绪后，我们会给你发邮件。",
     "successBodyAny": "cmux 在你的平台上就绪后，我们会给你发邮件。",
     "done": "完成"
+  },
+  "mobileMagicLinkCallback": {
+    "title": "打开 cmux 以完成登录",
+    "body": "为确保安全，请在 cmux 中输入这封邮件里的验证码。此链接尚未使用。",
+    "button": "返回 cmux",
+    "iphoneButton": "返回 iPhone 上的 cmux",
+    "testFlightButton": "返回 cmux TestFlight"
   }
 }

@@ -1,4 +1,5 @@
 import CmuxMobileBrowser
+import CmuxAuthRuntime
 import CmuxMobileShell
 import SwiftUI
 #if os(iOS)
@@ -18,6 +19,7 @@ public struct CMUXMobileAppView: View {
     @State private var browserStore: BrowserSurfaceStore
     #if os(iOS)
     private let onboardingStore: MobileOnboardingStore
+    private let authCallbackRouter: AuthCallbackRouter?
     #endif
 
     #if os(iOS)
@@ -32,11 +34,13 @@ public struct CMUXMobileAppView: View {
     public init(
         store: CMUXMobileShellStore = .preview(),
         browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
-        onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceSeen: true)
+        onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceSeen: true),
+        authCallbackRouter: AuthCallbackRouter? = nil
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
         self.onboardingStore = onboardingStore
+        self.authCallbackRouter = authCallbackRouter
     }
     #else
     public init(
@@ -50,7 +54,11 @@ public struct CMUXMobileAppView: View {
 
     public var body: some View {
         #if os(iOS)
-        CMUXMobileRootView(store: store, onboardingStore: onboardingStore)
+        CMUXMobileRootView(
+            store: store,
+            onboardingStore: onboardingStore,
+            authCallbackRouter: authCallbackRouter
+        )
             .environment(browserStore)
         #else
         CMUXMobileRootView(store: store)

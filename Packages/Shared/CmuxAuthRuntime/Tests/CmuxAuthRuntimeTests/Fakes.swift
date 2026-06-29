@@ -31,6 +31,7 @@ actor FakeAuthClient: AuthClient {
     var nonce = "nonce-123"
     private(set) var signedInWithMagicLink = false
     private(set) var lastMagicLinkCode: String?
+    private(set) var lastMagicLinkCallbackURL: String?
     private(set) var signedInWithCredential: (email: String, password: String)?
     private(set) var oauthProviders: [String] = []
     private(set) var clearLocalSessionCount = 0
@@ -80,7 +81,10 @@ actor FakeAuthClient: AuthClient {
         return teams
     }
 
-    func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { nonce }
+    func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String {
+        lastMagicLinkCallbackURL = callbackURL
+        return nonce
+    }
 
     func signInWithMagicLink(code: String) async throws {
         signedInWithMagicLink = true
