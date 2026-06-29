@@ -86,6 +86,57 @@ public enum HermesAgentIndex {
             .appendingPathComponent("state.db")
     }
 
+    /// Fast path for the resume scanner: the newest `cli`/`tui` session id whose
+    /// recorded `cwd` matches `cwdFilter`, or `nil` if there is none.
+    ///
+    /// Unlike `loadSessions`, this does NOT snapshot-copy `state.db`. It opens
+    /// the live database read-only and runs a single indexed `LIMIT 1` query
+    /// (the `idx_sessions_started` index makes it O(log n)). state.db is WAL, so
+    /// a read-only connection is safe under concurrent writes without copying —
+    /// which matters because this is reached from cmux's main-queue quit/save
+    /// path and the database can be multiple GB. A `nil`/empty `cwdFilter`
+    /// returns `nil` (the scanner must not bind a session it cannot attribute).
+    public static func latestSessionID(
+        cwdFilter: String?,
+        stateDBPath: String = Self.defaultStateDBPath()
+    ) -> String? {
+        guard let normalizedCwd = normalized(cwdFilter).map({ ($0 as NSString).standardizingPath }) else {
+            return nil
+        }
+        guard FileManager.default.fileExists(atPath: stateDBPath) else { return nil }
+
+        var db: OpaquePointer?
+        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX
+        guard sqlite3_open_v2(stateDBPath, &db, flags, nil) == SQLITE_OK, let db else {
+            sqlite3_close(db)
+            return nil
+        }
+        defer { sqlite3_close(db) }
+        _ = sqlite3_busy_timeout(db, 50)
+
+        let sql = """
+            SELECT s.id
+            FROM sessions s
+            WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
+              AND s.cwd = ?
+            ORDER BY s.started_at DESC
+            LIMIT 1
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            sqlite3_finalize(stmt)
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        guard sqlite3_bind_text(stmt, 1, normalizedCwd, -1, transient) == SQLITE_OK else { return nil }
+
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        let id = sqliteText(stmt, 0)
+        return (id?.isEmpty == false) ? id : nil
+    }
+
     /// Loads Hermes sessions from state.db, newest first.
     ///
     /// When `cwdFilter` is non-nil, only sessions whose recorded `cwd` matches the

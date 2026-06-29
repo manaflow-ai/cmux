@@ -76,6 +76,19 @@ extension RestorableAgentSessionIndex {
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
 
+        // Per-scan memo for Hermes state.db lookups, keyed by (stateDBPath, cwd).
+        // Several hermes panes/gateways in the same cwd resolve to one query per
+        // scan instead of one per process. The value is the resolved session id
+        // (or nil for "looked up, none found" — cached either way).
+        var hermesSessionIDByKey: [String: String?] = [:]
+        func latestHermesSessionID(stateDBPath: String, cwd: String) -> String? {
+            let key = stateDBPath + "\u{1f}" + cwd
+            if let cached = hermesSessionIDByKey[key] { return cached }
+            let resolvedId = HermesAgentIndex.latestSessionID(cwdFilter: cwd, stateDBPath: stateDBPath)
+            hermesSessionIDByKey[key] = resolvedId
+            return resolvedId
+        }
+
         func registryForWorkingDirectory(_ workingDirectory: String?) -> CmuxVaultAgentRegistry {
             guard let workingDirectory else { return registry }
             let key = (workingDirectory as NSString).standardizingPath
@@ -109,7 +122,8 @@ extension RestorableAgentSessionIndex {
                       from: observed,
                       registration: registration,
                       workingDirectory: cwd,
-                      fileManager: fileManager
+                      fileManager: fileManager,
+                      latestHermesSessionID: latestHermesSessionID
                   ) else {
                 continue
             }
@@ -871,7 +885,8 @@ private extension CmuxVaultAgentSessionIDSource {
         from process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
         workingDirectory: String?,
-        fileManager: FileManager
+        fileManager: FileManager,
+        latestHermesSessionID: (_ stateDBPath: String, _ cwd: String) -> String?
     ) -> VaultAgentSessionIDResolution? {
         switch self {
         case .argvOption(let option):
@@ -898,15 +913,14 @@ private extension CmuxVaultAgentSessionIDSource {
                 return nil
             }
             let stateDBPath = HermesAgentIndex.defaultStateDBPath(env: process.environment)
-            let result = HermesAgentIndex.loadSessions(
-                needle: "",
-                cwdFilter: workingDirectory,
-                offset: 0,
-                limit: 1,
-                stateDBPath: stateDBPath
-            )
-            guard let latest = result.sessions.first, !latest.sessionId.isEmpty else { return nil }
-            return VaultAgentSessionIDResolution(sessionId: latest.sessionId, source: .inferredLatestSessionFile)
+            // Lean, copy-free, per-scan-cached lookup: HermesAgentIndex.latestSessionID
+            // opens state.db read-only and runs one indexed LIMIT-1 query (no
+            // GB-scale snapshot copy — this runs on cmux's main-queue quit/save
+            // path), and the injected cache collapses repeated (db, cwd) lookups
+            // within a single scan to one query.
+            guard let sessionId = latestHermesSessionID(stateDBPath, workingDirectory),
+                  !sessionId.isEmpty else { return nil }
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
         case .piSessionFile:
             if let session = process.piCompatibleSessionID {
                 let sessionId = PiSessionLocator.resolvedSessionPath(
