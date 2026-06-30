@@ -3604,12 +3604,28 @@ final class Workspace: Identifiable, ObservableObject {
 
     func handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded() -> Bool {
         guard remoteTmuxKeepWorkspaceOpenAfterSessionEnd else { return false }
-        remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false
+        remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false; isRemoteTmuxDisposableLocalShell = true
         let panelIds = remoteTmuxKeepWorkspaceOpenTabIds.compactMap { panelIdFromSurfaceId($0) }
         remoteTmuxKeepWorkspaceOpenTabIds.removeAll(); remoteTmuxWindowMirrors.removeAll()
         for panelId in panelIds { _ = closePanel(panelId, force: true) }
         if panels.isEmpty { _ = createReplacementTerminalPanel() }
         return true
+    }
+
+    /// Convert this kept-open remote-tmux mirror into a plain local shell: drop its
+    /// mirror + keep-open state, detach it from the controller, and mark it a
+    /// DISPOSABLE local shell. "Disposable" = untouched scaffolding that the
+    /// window-leak reclaim may discard when its host dies; the mark is cleared the
+    /// moment the user adopts the window (e.g. aggregates another host into it — see
+    /// `RemoteTmuxController.mirrorHostInNewWindow`). Shared by the two keep-open
+    /// branches in `closePanel` so the conversion can't drift between them.
+    private func convertKeptOpenMirrorToDisposableLocalShell() {
+        pendingRemoteDisconnectReplacement = nil
+        remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false
+        isRemoteTmuxMirror = false
+        isRemoteTmuxDisposableLocalShell = true
+        remoteTmuxWindowMirrors.removeAll()
+        AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: id)
     }
 
     private func clearRemoteTmuxWorkspaceCloseIntent(tabId: TabID) {
@@ -5354,6 +5370,16 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Ephemeral remote tmux mirror; excluded from cmux session restore.
     var isRemoteTmuxMirror: Bool = false
+
+    /// A non-mirror workspace that exists ONLY as remote-tmux scaffolding, not as the
+    /// user's work: the disposable bootstrap "welcome" tab of a fresh dedicated mirror
+    /// window, or a mirror tab that was kept open as a LOCAL shell after its remote
+    /// session ended. The linked-view teardown treats these as "nothing to lose" so it
+    /// can reclaim a dead dedicated window, while NEVER discarding a window that holds a
+    /// genuine (user-created or moved-in) local tab. Fail-closed: a workspace not marked
+    /// here is treated as the user's, so the worst case of a missed mark is a benign
+    /// lingering window, never lost work.
+    var isRemoteTmuxDisposableLocalShell: Bool = false
 
     /// Per-window multi-pane renderers, keyed by mirrored window-tab panel id.
     private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]
@@ -7625,6 +7651,16 @@ final class Workspace: Identifiable, ObservableObject {
         panelTitles[panelId] = title
         guard let existing = bonsplitController.tab(tabId), existing.title != title else { return }
         bonsplitController.updateTab(tabId, title: title, icon: nil, isDirty: nil)
+    }
+
+    /// Selects a mirrored remote-tmux tab without stealing AppKit keyboard focus.
+    func selectRemoteTmuxTab(panelId: UUID) {
+        guard let tabId = surfaceIdFromPanelId(panelId),
+              let paneId = bonsplitController.allPaneIds.first(where: { paneId in
+                  bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabId })
+              }) else { return }
+        bonsplitController.selectTab(tabId)
+        applyTabSelection(tabId: tabId, inPane: paneId, reassertAppKitFocus: false)
     }
 
     /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.
@@ -12159,18 +12195,41 @@ extension Workspace: BonsplitDelegate {
             }
 
             if remoteTmuxWorkspaceCloseButton != nil {
-                pendingRemoteDisconnectReplacement = nil; remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false
-                remoteTmuxWindowMirrors.removeAll()
-                AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: id)
+                // Explicit user close of the workspace's close button: always close THIS
+                // workspace (or discard the window when it is the only tab). No
+                // `hasGenuineLocal` gate is needed here — `closeWorkspace` closes only
+                // self when siblings exist, so the discard branch is reached only when
+                // this is the last tab (no sibling genuine tab to lose). Contrast the
+                // keep-open branch below, which keeps self as a replacement shell when a
+                // genuine local sibling exists.
+                convertKeptOpenMirrorToDisposableLocalShell()
                 let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
                 if let manager, manager.tabs.count > 1 { manager.closeWorkspace(self, recordHistory: false); scheduleTerminalGeometryReconcile(); return }
                 if let manager, let appDelegate = AppDelegate.shared, appDelegate.mainWindowContexts.count > 1,
                    let windowId = appDelegate.windowId(for: manager) { appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId); scheduleTerminalGeometryReconcile(); return }
             }
             if remoteTmuxKeepWorkspaceOpen {
-                pendingRemoteDisconnectReplacement = nil; remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false
-                remoteTmuxWindowMirrors.removeAll()
-                AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: id)
+                convertKeptOpenMirrorToDisposableLocalShell()
+                // Window-leak fix: a DEDICATED mirror window with no GENUINE local
+                // content (every other tab is itself a mirror or a disposable shell)
+                // must NOT spawn a replacement local shell — that stray live window is
+                // what accumulates under host-death churn and resists discard. Close /
+                // discard it instead (the dead mirror was the only thing in it). An
+                // AGGREGATED window — one the user has real local tabs in — keeps open
+                // so a local tab is never lost (falls through to the replacement).
+                let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
+                let hasGenuineLocal = manager?.tabs.contains {
+                    $0.id != id && !$0.isRemoteTmuxMirror && !$0.isRemoteTmuxDisposableLocalShell
+                } ?? false
+                if !hasGenuineLocal {
+                    if let manager, manager.tabs.count > 1 {
+                        manager.closeWorkspace(self, recordHistory: false); scheduleTerminalGeometryReconcile(); return
+                    }
+                    if let manager, let appDelegate = AppDelegate.shared, appDelegate.mainWindowContexts.count > 1,
+                       let windowId = appDelegate.windowId(for: manager) {
+                        appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId); scheduleTerminalGeometryReconcile(); return
+                    }
+                }
             }
 
             #if DEBUG

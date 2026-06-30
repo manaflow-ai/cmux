@@ -432,6 +432,15 @@ final class RemoteTmuxController {
             manager = existingManager
             bootstrapWorkspaceId = nil  // window already holds the first host's workspaces
             createdNewWindow = false
+            // The user is actively composing this window by aggregating another host
+            // into it, so any local shell already here — e.g. a kept-open shell left by
+            // a host that previously died — is now genuine content the user is keeping,
+            // not disposable scaffolding. Clear the disposable mark so a later
+            // host-death teardown can't discard the window out from under that adopted
+            // shell (data loss); see `teardownLinkedView`'s `hasUserLocalWorkspaces` gate.
+            for tab in existingManager.tabs where tab.isRemoteTmuxDisposableLocalShell {
+                tab.isRemoteTmuxDisposableLocalShell = false
+            }
             if activateWindow { appDelegate.windowForMainWindowId(intoWindowId)?.makeKeyAndOrderFront(nil) }
         } else {
             let newWindowId = appDelegate.createMainWindow(shouldActivate: activateWindow)
@@ -441,6 +450,10 @@ final class RemoteTmuxController {
             windowId = newWindowId
             manager = newManager
             bootstrapWorkspaceId = newManager.tabs.first?.id
+            // The fresh window's only tab is a disposable bootstrap "welcome" — mark it
+            // so teardown can reclaim the window if the host dies before any real mirror
+            // surfaces (it's scaffolding, not the user's work).
+            newManager.tabs.first?.isRemoteTmuxDisposableLocalShell = true
             createdNewWindow = true
         }
         windowRegistry.bind(host: host, windowId: windowId)
@@ -631,8 +644,9 @@ final class RemoteTmuxController {
         for workspaceGroup in desired {
             let key = Self.connectionKey(host: host, sessionName: workspaceGroup.sessionName)
             let windowIds = Set(workspaceGroup.windowIds.compactMap { Self.windowIntId($0) })
+            let activeWindowId = workspaceGroup.activeWindowId.flatMap { Self.windowIntId($0) }
             if let existing = linkedMirrors[key] {
-                existing.updateWindowIdFilter(windowIds)
+                existing.updateWindowIdFilter(windowIds, activeWindowId: activeWindowId)
             } else {
                 let workspace = manager.addWorkspace(
                     title: workspaceGroup.sessionName, select: false, autoWelcomeIfNeeded: false)
@@ -644,6 +658,7 @@ final class RemoteTmuxController {
                     tabManager: manager,
                     workspace: workspace,
                     windowIdFilter: windowIds,
+                    activeWindowId: activeWindowId,
                     managesOwnLifecycle: false,
                     perWindowSizing: true)
             }
@@ -712,17 +727,27 @@ final class RemoteTmuxController {
         if let manager {
             for workspaceId in workspaceIds {
                 guard manager.tabs.count > 1,
-                      let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { continue }
+                      let workspace = manager.tabs.first(where: { $0.id == workspaceId }),
+                      // A mirror that was converted to a kept-open LOCAL shell (its host
+                      // died and the user kept the terminal) is no longer ours to close
+                      // — `isRemoteTmuxMirror` flips false on conversion. Closing it here
+                      // would discard the user's adopted local work.
+                      workspace.isRemoteTmuxMirror else { continue }
                 manager.closeWorkspace(workspace, recordHistory: false)
             }
         }
-        // Only discard a window that was purely this host's (a dedicated remote
-        // window whose last tab can't be closed). If the window also holds LOCAL
-        // workspaces (a host aggregated into the user's regular window), the close
-        // loop above already removed this host's tabs — discarding now would destroy
-        // the user's local work.
-        let hasLocalWorkspaces = manager?.tabs.contains { !$0.isRemoteTmuxMirror } ?? false
-        if !hasLocalWorkspaces,
+        // Discard a window that has nothing of the USER's left in it (a dead dedicated
+        // remote window whose last tab can't be closed). A "genuine" local tab is a
+        // non-mirror workspace that is NOT remote-tmux scaffolding — i.e. not the
+        // disposable bootstrap welcome and not a kept-open-local shell from a dead
+        // mirror (those defeat a plain `!isRemoteTmuxMirror` check and strand the
+        // window — the window-leak fix). This is fail-closed: a window the user moved a
+        // real local tab into keeps that tab (genuine → not discarded), and an
+        // AGGREGATED window with the user's local tabs is never discarded.
+        let hasUserLocalWorkspaces = manager?.tabs.contains {
+            !$0.isRemoteTmuxMirror && !$0.isRemoteTmuxDisposableLocalShell
+        } ?? false
+        if !hasUserLocalWorkspaces,
            windowRegistry.hosts(forWindowId: windowId).isEmpty,
            let appDelegate = AppDelegate.shared,
            appDelegate.windowForMainWindowId(windowId) != nil {

@@ -76,6 +76,16 @@ final class RemoteTmuxSessionMirror {
     /// creation/teardown to this workspace's windows. Updated as the coordinator
     /// regroups (a new tab in this session adds an id) via ``updateWindowIdFilter``.
     private var windowIdFilter: Set<Int>?
+    /// The remote session's active tmux window. Used in linked-view mode to select the
+    /// same mirror tab that `tmux capture-pane -t <session>` would target.
+    private var activeWindowId: Int?
+    /// The `activeWindowId` we last propagated to the cmux tab selection. `rebuild()`
+    /// only re-selects when the remote's active window actually CHANGES — otherwise a
+    /// routine rebuild (fired by `%layout-change` / `%window-renamed` on any command or
+    /// resize) would snap the user back to the remote-active tab and hijack their manual
+    /// tab choice. `nil` until the first selection, so the active tab still opens on
+    /// initial attach.
+    private var lastSelectedActiveWindowId: Int?
 
     /// Whether this mirror owns its connection's lifecycle. `true` (per-session
     /// transport): a connection `%exit` means THIS session ended, so route to
@@ -99,6 +109,7 @@ final class RemoteTmuxSessionMirror {
         tabManager: TabManager,
         workspace: Workspace,
         windowIdFilter: Set<Int>? = nil,
+        activeWindowId: Int? = nil,
         managesOwnLifecycle: Bool = true,
         perWindowSizing: Bool = false
     ) {
@@ -108,6 +119,7 @@ final class RemoteTmuxSessionMirror {
         self.tabManager = tabManager
         self.workspace = workspace
         self.windowIdFilter = windowIdFilter
+        self.activeWindowId = activeWindowId
         self.managesOwnLifecycle = managesOwnLifecycle
         self.perWindowSizing = perWindowSizing
         self.defaultPanelIds = Array(workspace.panels.keys)
@@ -234,9 +246,10 @@ final class RemoteTmuxSessionMirror {
     /// local tab(s) once at least one remote tab exists.
     /// Updates the window-id scope (linked-view regrouping) and rebuilds. A no-op
     /// when unchanged so coordinator republishes don't churn the UI.
-    func updateWindowIdFilter(_ filter: Set<Int>?) {
-        guard filter != windowIdFilter else { return }
+    func updateWindowIdFilter(_ filter: Set<Int>?, activeWindowId: Int? = nil) {
+        guard filter != windowIdFilter || activeWindowId != self.activeWindowId else { return }
         windowIdFilter = filter
+        self.activeWindowId = activeWindowId
         rebuild()
     }
 
@@ -318,6 +331,18 @@ final class RemoteTmuxSessionMirror {
         let desiredPanelOrder = mirroredWindowOrder.compactMap { panelIdByWindow[$0] }
         if desiredPanelOrder.count > 1 {
             workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
+        }
+        // Follow the remote's active window when the tab STRUCTURE changed (a new mirror
+        // panel was created — initial attach or a new tmux window, both of which disturb
+        // the selection) OR the remote's active window itself changed. NOT on a routine
+        // rebuild with no structural change (e.g. %layout-change from a resize or
+        // %window-renamed from a title update) — that would override the user's manual
+        // tab selection on every command. `lastSelectedActiveWindowId` is updated only on
+        // a real selection, so a not-yet-created active tab is retried next rebuild.
+        if let activeWindowId, let panelId = panelIdByWindow[activeWindowId],
+           createdNewPanel || activeWindowId != lastSelectedActiveWindowId {
+            workspace.selectRemoteTmuxTab(panelId: panelId)
+            lastSelectedActiveWindowId = activeWindowId
         }
     }
 

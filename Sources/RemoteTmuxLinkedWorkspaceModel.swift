@@ -27,20 +27,29 @@ enum RemoteTmuxLinkedWorkspaceModel {
         let sessionName: String
         let windowId: String     // stable @id
         let windowIndex: Int
+        let isActive: Bool
+
+        init(sessionName: String, windowId: String, windowIndex: Int, isActive: Bool = false) {
+            self.sessionName = sessionName
+            self.windowId = windowId
+            self.windowIndex = windowIndex
+            self.isActive = isActive
+        }
     }
 
     /// Format for `list-windows -a -F`. Uses the printable `:` delimiter (like
     /// ``RemoteTmuxSessionListParser``), NOT a control byte: tmux's
     /// `utf8_sanitize()` rewrites non-printable bytes to `_` for non-UTF-8 clients,
     /// which would drop every row. Controlled fields (`window_id` = `@N`,
-    /// `window_index` = int) come first; the free-text `session_name` is LAST and
-    /// rejoined from the remainder so a `:` in a name can't shift fields.
-    static let listFormat = "#{window_id}:#{window_index}:#{session_name}"
+    /// `window_index` = int, `window_active` = 0/1) come first; the free-text
+    /// `session_name` is LAST and rejoined from the remainder so a `:` in a name
+    /// can't shift fields.
+    static let listFormat = "#{window_id}:#{window_index}:#{window_active}:#{session_name}"
 
     static func parseRows(_ output: String) -> [WindowRow] {
-        RemoteTmuxSessionListParser.splitRows(output, fieldCount: 3).compactMap { f in
+        RemoteTmuxSessionListParser.splitRows(output, fieldCount: 4).compactMap { f in
             guard let idx = Int(f[1]) else { return nil }
-            return WindowRow(sessionName: f[2], windowId: f[0], windowIndex: idx)
+            return WindowRow(sessionName: f[3], windowId: f[0], windowIndex: idx, isActive: f[2] == "1")
         }
     }
 
@@ -48,6 +57,13 @@ enum RemoteTmuxLinkedWorkspaceModel {
     struct Workspace: Equatable {
         let sessionName: String
         let windowIds: [String]   // ordered by window index
+        let activeWindowId: String?
+
+        init(sessionName: String, windowIds: [String], activeWindowId: String? = nil) {
+            self.sessionName = sessionName
+            self.windowIds = windowIds
+            self.activeWindowId = activeWindowId
+        }
     }
 
     /// The deterministic home session for a window: the lexicographically smallest
@@ -83,15 +99,15 @@ enum RemoteTmuxLinkedWorkspaceModel {
         }
         // Collect each home session's windows, taking the index from the row that
         // belongs to that home session (not a different session's linked copy).
-        var bySession: [String: [(idx: Int, id: String)]] = [:]
+        var bySession: [String: [(idx: Int, id: String, active: Bool)]] = [:]
         for r in rows where homeByWindow[r.windowId] == r.sessionName {
-            bySession[r.sessionName, default: []].append((r.windowIndex, r.windowId))
+            bySession[r.sessionName, default: []].append((r.windowIndex, r.windowId, r.isActive))
         }
         return bySession.keys.sorted().map { name in
             let ordered = bySession[name]!
                 .sorted { ($0.idx, $0.id) < ($1.idx, $1.id) }
-                .map(\.id)
-            return Workspace(sessionName: name, windowIds: ordered)
+            let active = ordered.first(where: { $0.active })?.id
+            return Workspace(sessionName: name, windowIds: ordered.map(\.id), activeWindowId: active)
         }
     }
 

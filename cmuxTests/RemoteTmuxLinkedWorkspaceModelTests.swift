@@ -26,17 +26,17 @@ import Testing
     ]
 
     @Test func parsesRows() {
-        // format is window_id : window_index : session_name
-        let out = "@1:0:A\n@3:0:B"
+        // format is window_id : window_index : window_active : session_name
+        let out = "@1:0:1:A\n@3:0:0:B"
         #expect(M.parseRows(out) == [
-            Row(sessionName: "A", windowId: "@1", windowIndex: 0),
+            Row(sessionName: "A", windowId: "@1", windowIndex: 0, isActive: true),
             Row(sessionName: "B", windowId: "@3", windowIndex: 0),
         ])
     }
 
     @Test func parsingKeepsSessionNamesContainingDelimiter() {
         // A `:` in the (free-text, last) name must not drop or corrupt the row.
-        let out = "@5:2:we:ird:name"
+        let out = "@5:2:0:we:ird:name"
         #expect(M.parseRows(out) == [Row(sessionName: "we:ird:name", windowId: "@5", windowIndex: 2)])
     }
 
@@ -90,6 +90,18 @@ import Testing
             Row(sessionName: "A", windowId: "@9", windowIndex: 3),
         ]
         #expect(M.workspaces(rows: r, excludedSessions: []) == [.init(sessionName: "A", windowIds: ["@4", "@9", "@7"])])
+    }
+
+    @Test func activeWindowTracksHomeSessionActiveRow() {
+        let r = [
+            Row(sessionName: "A", windowId: "@7", windowIndex: 0),
+            Row(sessionName: "A", windowId: "@9", windowIndex: 1, isActive: true),
+            Row(sessionName: view, windowId: "@7", windowIndex: 1, isActive: true),
+            Row(sessionName: view, windowId: "@9", windowIndex: 2),
+        ]
+        #expect(M.workspaces(rows: r, excludedSessions: [view]) == [
+            .init(sessionName: "A", windowIds: ["@7", "@9"], activeWindowId: "@9")
+        ])
     }
 
     @Test mutating func desiredLinkedWindowsAreAllNonViewWindows() {

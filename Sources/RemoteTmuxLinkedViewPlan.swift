@@ -27,6 +27,17 @@ enum RemoteTmuxLinkedViewPlan {
         /// True when no live, current-format, owned view session exists yet and
         /// the coordinator must create one (via `view.createCommands`).
         let needsViewCreate: Bool
+        /// True when the host has NO real (non-view) session, so the linked view
+        /// would surface zero workspaces. The chosen behavior for `ssh-tmux` to a
+        /// session-less host is to create one fresh session so the user always gets a
+        /// workspace instead of an empty mirror. Derived from the SESSION LIST (not
+        /// the window grouping): a session always has ≥1 window, so the two normally
+        /// agree, but the snapshot's `list-sessions` and `list-windows` are separate
+        /// non-atomic queries — keying off the session list avoids a false "empty"
+        /// when a session dies between them. The live coordinator additionally GATES
+        /// acting on it to a host whose view has NEVER surfaced a workspace, so it
+        /// never recreates a session the user just closed (see ``RemoteTmuxViewConnection``).
+        let needsBootstrapSession: Bool
         /// Stale same-owner views to garbage-collect (`kill-session`), never
         /// including the current view or any foreign view.
         let staleViewsToKill: [String]
@@ -77,8 +88,14 @@ enum RemoteTmuxLinkedViewPlan {
         let workspaces = RemoteTmuxLinkedWorkspaceModel.workspaces(
             rows: snapshot.windows, excludedSessions: excluded)
 
+        // Bootstrap is keyed off the SESSION list (authoritative), not the window
+        // grouping: a real session exists when any listed session is not one of
+        // cmux's hidden view sessions.
+        let hasRealSession = snapshot.sessions.contains { !RemoteTmuxViewSession.isAnyView($0) }
+
         return Plan(
             needsViewCreate: needsCreate,
+            needsBootstrapSession: !hasRealSession,
             staleViewsToKill: stale,
             reconcileActions: actions,
             workspaces: workspaces)

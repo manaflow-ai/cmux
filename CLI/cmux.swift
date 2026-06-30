@@ -3973,14 +3973,22 @@ struct CMUXCLI {
             guard let target = optionValue(commandArgs, name: "--window") else {
                 throw CLIError(message: "focus-window requires --window")
             }
-            let response = try sendV1Command("focus_window \(target)", client: client)
+            // Normalize the handle so index/ref forms (`0`, `window:1`) resolve to the
+            // UUID the app expects — matching `close-window` and every sibling window
+            // command (the app handler only accepts a bare UUID).
+            let winId = try normalizeWindowHandle(target, client: client) ?? target
+            let response = try sendV1Command("focus_window \(winId)", client: client)
             print(response)
 
         case "close-window":
             guard let target = optionValue(commandArgs, name: "--window") else {
                 throw CLIError(message: "close-window requires --window")
             }
-            let response = try sendV1Command("close_window \(target)", client: client)
+            // Normalize the handle so index/ref forms (`0`, `window:1`) resolve to the
+            // UUID the app expects — matching every sibling window command (the app
+            // handler only accepts a bare UUID).
+            let winId = try normalizeWindowHandle(target, client: client) ?? target
+            let response = try sendV1Command("close_window \(winId)", client: client)
             print(response)
 
         case "move-workspace-to-window":
