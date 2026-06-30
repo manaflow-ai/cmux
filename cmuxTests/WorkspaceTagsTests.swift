@@ -16,6 +16,27 @@ import Testing
         #expect(tags == ["In CI", "waiting for review", "Ready"])
     }
 
+    @Test func clampsCustomTagCountToMaximum() {
+        // A large paste must not create thousands of long-lived tags that
+        // scale sidebar projection / filter menu / autosave work.
+        let manyTags = (0..<(Workspace.maxCustomTagCount + 50)).map { "tag\($0)" }
+        let normalized = Workspace.normalizedCustomTags(manyTags)
+
+        #expect(normalized.count == Workspace.maxCustomTagCount)
+        // Keeps the first N distinct tags in order.
+        #expect(normalized.first == "tag0")
+        #expect(normalized.last == "tag\(Workspace.maxCustomTagCount - 1)")
+    }
+
+    @Test func clampsCustomTagLengthToMaximum() {
+        // A single multi-kilobyte token must be truncated, not stored whole.
+        let longTag = String(repeating: "a", count: Workspace.maxCustomTagLength + 25)
+        let normalized = Workspace.normalizedCustomTags([longTag])
+
+        #expect(normalized.count == 1)
+        #expect(normalized.first?.count == Workspace.maxCustomTagLength)
+    }
+
     @Test func tabManagerAppliesTagsThroughSharedMutationPath() throws {
         let manager = TabManager()
         let first = try #require(manager.selectedWorkspace)

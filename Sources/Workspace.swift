@@ -4467,17 +4467,33 @@ final class Workspace: Identifiable, ObservableObject {
         return normalizedLineEndings
     }
 
+    /// Upper bound on the number of custom tags stored per workspace.
+    static let maxCustomTagCount = 64
+    /// Upper bound on each stored tag's character length.
+    static let maxCustomTagLength = 64
+
     static func normalizedCustomTags(_ tags: [String]) -> [String] {
         var seenKeys = Set<String>()
         var normalizedTags: [String] = []
-        normalizedTags.reserveCapacity(tags.count)
+        normalizedTags.reserveCapacity(min(tags.count, maxCustomTagCount))
 
         for tag in tags {
-            let normalized = tag
+            // Bound count and per-tag length at the single normalization
+            // choke point (storage, snapshot restore, and the sidebar tag
+            // projection all route through here). Tags feed the sidebar
+            // projection, filter menu, and autosave fingerprint, so an
+            // unbounded paste (e.g. a CSV/log) must not create thousands of
+            // long-lived tags or multi-kilobyte tag strings that scale that
+            // repeated work.
+            if normalizedTags.count >= maxCustomTagCount { break }
+            var normalized = tag
                 .components(separatedBy: .whitespacesAndNewlines)
                 .filter { !$0.isEmpty }
                 .joined(separator: " ")
             guard !normalized.isEmpty else { continue }
+            if normalized.count > maxCustomTagLength {
+                normalized = String(normalized.prefix(maxCustomTagLength))
+            }
             let key = normalized.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
             guard seenKeys.insert(key).inserted else { continue }
             normalizedTags.append(normalized)
