@@ -47,18 +47,11 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
 
     // MARK: - read_text recording
 
-    /// Whether the coordinator should consider a TabManager resolvable; read-text
-    /// tests need this `true` so `surfaceReadText` reaches `controlSurfaceReadText`.
-    var readTextResolvesTabManager = true
-
     /// The arguments the coordinator forwarded to ``controlSurfaceReadText``, so a
     /// test can assert how it derived `includeScrollback` / `lineLimit` from the
-    /// request params.
+    /// request params. `controlSurfaceRoutingResolvesTabManager` already returns
+    /// `true` above, so `surfaceReadText` reaches `controlSurfaceReadText`.
     var readTextInvocation: (includeScrollback: Bool, lineLimit: Int?)?
-
-    func controlSurfaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool {
-        readTextResolvesTabManager
-    }
 
     func controlSurfaceReadText(
         routing: ControlRoutingSelectors,
