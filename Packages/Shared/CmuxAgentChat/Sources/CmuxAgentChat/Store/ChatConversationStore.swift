@@ -454,7 +454,7 @@ public final class ChatConversationStore {
         descriptor: ChatSessionDescriptor,
         sourceIdentity: String? = nil
     ) {
-        let didChangeSource = sourceIdentity != nil && sourceIdentity != self.sourceIdentity
+        let didChangeSource = sourceIdentity == nil || sourceIdentity != self.sourceIdentity
         self.source = source
         self.sourceIdentity = sourceIdentity
         if didChangeSource {

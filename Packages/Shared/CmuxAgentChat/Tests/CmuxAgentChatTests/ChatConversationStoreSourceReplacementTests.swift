@@ -72,6 +72,31 @@ struct ChatConversationStoreSourceReplacementTests {
         })
     }
 
+    @Test("unknown source identity still discards stale history after replacement")
+    func unknownSourceIdentityStillDiscardsStaleHistoryAfterReplacement() async {
+        let oldSource = GatedHistoryEventSource(
+            page: ChatHistoryPage(messages: [Self.prose(seq: 0, text: "old history")], hasMore: false)
+        )
+        let newSource = FixtureChatEventSource(
+            backlog: [Self.prose(seq: 0, text: "new history")]
+        )
+        let store = ChatConversationStore(
+            descriptor: Self.descriptor(),
+            source: oldSource,
+            now: { Self.baseTime }
+        )
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await Self.waitUntil { store.isConnected })
+        store.replaceSource(newSource, descriptor: Self.descriptor())
+        await oldSource.release()
+
+        #expect(await Self.waitUntil {
+            Self.userProseTexts(store.rows) == ["new history"]
+        })
+    }
+
     @Test("source replacement accepts an equal-version fresh descriptor")
     func sourceReplacementAcceptsEqualVersionFreshDescriptor() async {
         let oldSource = FixtureChatEventSource()
