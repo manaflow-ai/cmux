@@ -44,6 +44,9 @@ final class ChatScrollEdgeCoordinator {
                 topContentScrollViewController = topController
             }
             topController?.setContentScrollView(tableView, for: .top)
+            #if DEBUG
+            tableView?.recordTopContentScrollViewRegistration(topController != nil)
+            #endif
         }
     }
 
