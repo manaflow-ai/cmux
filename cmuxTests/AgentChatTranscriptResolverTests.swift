@@ -12,8 +12,7 @@ import Testing
     @Test("Codex fallback ignores a rollout whose session_meta id belongs to another session")
     func codexFallbackRequiresMatchingSessionMetaID() throws {
         let fm = FileManager.default
-        let home = fm.temporaryDirectory
-            .appendingPathComponent("agentchat-resolver-codex-\(UUID().uuidString)", isDirectory: true)
+        let home = Self.makeTemporaryHome("agentchat-resolver-codex")
         defer { try? fm.removeItem(at: home) }
 
         let liveSessionID = "live-wedged-session-actual"
@@ -33,8 +32,7 @@ import Testing
     @Test("Codex fallback fails closed when session_meta id is unavailable")
     func codexFallbackRequiresSessionMetaID() throws {
         let fm = FileManager.default
-        let home = fm.temporaryDirectory
-            .appendingPathComponent("agentchat-resolver-codex-missing-meta-\(UUID().uuidString)", isDirectory: true)
+        let home = Self.makeTemporaryHome("agentchat-resolver-codex-missing-meta")
         defer { try? fm.removeItem(at: home) }
 
         let sessionID = "live-wedged-session-actual"
@@ -51,8 +49,7 @@ import Testing
     @Test("Codex fallback trusts session_meta even when the filename lacks the session id")
     func codexFallbackUsesSessionMetaAsAuthority() throws {
         let fm = FileManager.default
-        let home = fm.temporaryDirectory
-            .appendingPathComponent("agentchat-resolver-codex-meta-authority-\(UUID().uuidString)", isDirectory: true)
+        let home = Self.makeTemporaryHome("agentchat-resolver-codex-meta-authority")
         defer { try? fm.removeItem(at: home) }
 
         let sessionID = "confirmed-session-from-meta"
@@ -69,8 +66,7 @@ import Testing
     @Test("Codex fallback only scans bounded recent day directories")
     func codexFallbackScansOnlyRecentDayDirectories() throws {
         let fm = FileManager.default
-        let home = fm.temporaryDirectory
-            .appendingPathComponent("agentchat-resolver-codex-recent-\(UUID().uuidString)", isDirectory: true)
+        let home = Self.makeTemporaryHome("agentchat-resolver-codex-recent")
         defer { try? fm.removeItem(at: home) }
 
         let staleSessionID = "old-session-with-valid-meta"
@@ -99,8 +95,7 @@ import Testing
     @Test("Codex history resolves fallback transcript for ended sessions")
     func codexHistoryResolvesFallbackForEndedSession() async throws {
         let fm = FileManager.default
-        let home = fm.temporaryDirectory
-            .appendingPathComponent("agentchat-resolver-codex-ended-\(UUID().uuidString)", isDirectory: true)
+        let home = Self.makeTemporaryHome("agentchat-resolver-codex-ended")
         defer { try? fm.removeItem(at: home) }
 
         let sessionID = "ended-session-with-valid-meta"
@@ -150,6 +145,17 @@ import Testing
             environment: [:],
             now: { Self.utcDate(year: 2026, month: 6, day: 26) }
         )
+    }
+
+    /// Unique temp home for a Codex resolver test, with symlinks resolved up
+    /// front. The resolver returns paths from `contentsOfDirectory`, which on
+    /// some macOS versions canonicalizes `/var` -> `/private/var`; resolving the
+    /// home here keeps the paths the resolver returns equal to the rollout paths
+    /// the test writes, so the exact-path `#expect` is not a macOS-version flake.
+    private static func makeTemporaryHome(_ label: String) -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(label)-\(UUID().uuidString)", isDirectory: true)
+            .resolvingSymlinksInPath()
     }
 
     private static func writeCodexRollout(
