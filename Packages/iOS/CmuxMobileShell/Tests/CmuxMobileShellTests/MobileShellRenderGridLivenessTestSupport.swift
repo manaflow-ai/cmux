@@ -58,15 +58,13 @@ actor LivenessHostRouter {
         var topics: [String]?
     }
 
-    private struct CountWaiter {
-        let id: UUID
-        let method: String
-        let expectedCount: Int
-        let continuation: CheckedContinuation<Void, Never>
-    }
-
     private var recorded: [RecordedRequest] = []
-    private var countWaiters: [CountWaiter] = []
+    private var countWaiters: [(
+        id: UUID,
+        method: String,
+        expectedCount: Int,
+        continuation: CheckedContinuation<Void, Never>
+    )] = []
     private var hostStatusRequestCount = 0
     private var heldHostStatusRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
@@ -123,7 +121,7 @@ actor LivenessHostRouter {
         let waiterID = UUID()
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                countWaiters.append(CountWaiter(
+                countWaiters.append((
                     id: waiterID,
                     method: method,
                     expectedCount: expectedCount,
@@ -137,7 +135,12 @@ actor LivenessHostRouter {
     }
 
     private func resumeSatisfiedCountWaiters() {
-        var remaining: [CountWaiter] = []
+        var remaining: [(
+            id: UUID,
+            method: String,
+            expectedCount: Int,
+            continuation: CheckedContinuation<Void, Never>
+        )] = []
         var satisfied: [CheckedContinuation<Void, Never>] = []
         for waiter in countWaiters {
             if count(of: waiter.method) >= waiter.expectedCount {
