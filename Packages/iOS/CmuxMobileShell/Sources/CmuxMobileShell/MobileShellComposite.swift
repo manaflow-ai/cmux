@@ -2377,16 +2377,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         stopTerminalRefreshPolling()
         startTerminalRefreshPolling()
         syncSelectedTerminalForWorkspace()
-        if let pairedMacStore {
-            Task { [weak self] in
-                guard let self, await self.isScopeCurrent(activeWriteScope) else { return }
-                try? await pairedMacStore.setActive(
-                    macDeviceID: macID,
-                    stackUserID: activeWriteScope.userID,
-                    teamID: activeWriteScope.teamID
-                )
-            }
-        }
+        enqueueActivePairedMacWrite(
+            macDeviceID: macID,
+            scope: activeWriteScope,
+            reloadAfterWrite: false
+        )
         // Re-aggregate so the PREVIOUS foreground Mac comes back as a secondary.
         scheduleSecondaryAggregation()
         return true
@@ -2464,9 +2459,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             switchingTo: macDeviceID,
             storeMacs: storeMacs
         )
-        if macSwitchRestoreBaseline == nil {
-            macSwitchRestoreBaseline = previousForegroundMac
-        }
+        macSwitchRestoreBaseline = previousForegroundMac
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let (host, port) = Self.firstReconnectHostPortRoute(
             refreshedTarget.routes,
@@ -2498,29 +2491,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if switched {
             macSwitchRestoreBaseline = nil
             finishMacSwitchAttempt(switchAttemptID)
-            let activeWriteScope = scope
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if let activeWriteScope {
-                    guard await self.isScopeCurrent(activeWriteScope) else { return }
-                }
-                guard self.connectionState == .connected,
-                      self.remoteClient != nil,
-                      self.foregroundMacDeviceID == macDeviceID else { return }
-                do {
-                    try await pairedMacStore.setActive(
-                        macDeviceID: macDeviceID,
-                        stackUserID: activeWriteScope?.userID,
-                        teamID: activeWriteScope?.teamID
-                    )
-                    guard self.connectionState == .connected,
-                          self.remoteClient != nil,
-                          self.foregroundMacDeviceID == macDeviceID else { return }
-                    await self.loadPairedMacs()
-                } catch {
-                    mobileShellLog.error("paired mac store setActive failed mac=\(macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)")
-                }
-            }
+            enqueueActivePairedMacWrite(
+                macDeviceID: macDeviceID,
+                scope: scope,
+                reloadAfterWrite: true
+            )
             return true
         } else if macSwitchRestoreBaseline != nil || previousForegroundMac != nil, !hasActiveMacConnection {
             // The switch did not connect and the destructive connect path dropped
@@ -2612,21 +2587,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let restored = connectionState == .connected
             && remoteClient != nil
             && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
-        guard restored, let pairedMacStore else { return restored }
+        guard restored else { return restored }
         let scope = await currentScopeSnapshot()
         if let scope {
             guard await isScopeCurrent(scope), isCancelRestoreCurrent() else { return restored }
         }
-        do {
-            try await pairedMacStore.setActive(
-                macDeviceID: previousActive.macDeviceID,
-                stackUserID: scope?.userID,
-                teamID: scope?.teamID
-            )
-            guard isCancelRestoreCurrent() else { return restored }
-            await loadPairedMacs()
-        } catch {
-            mobileShellLog.error("restorePreviousMacIfNeeded: setActive failed mac=\(previousActive.macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)")
+        if let task = enqueueActivePairedMacWrite(
+            macDeviceID: previousActive.macDeviceID,
+            scope: scope,
+            reloadAfterWrite: true
+        ) {
+            await task.value
         }
         return restored
     }
@@ -2729,7 +2700,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Runs one paired-Mac store mutation on the serialized write chain.
+    /// Enqueues one paired-Mac store mutation on the serialized write chain.
     ///
     /// All `markActive` writes go through here so they execute strictly in
     /// submission order, and `ifStillCurrent` is re-evaluated at EXECUTION
@@ -2739,10 +2710,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// and any newer connection's write is queued strictly behind it and
     /// overwrites the active mark. The chain is deliberately not cancelled
     /// on disconnect; in-flight writes complete or skip via their own check.
-    private func performSerializedPairedMacWrite(
+    @discardableResult
+    private func enqueueSerializedPairedMacWrite(
         ifStillCurrent: (() -> Bool)?,
         _ operation: @escaping @MainActor () async -> Void
-    ) async {
+    ) -> Task<Void, Never> {
         let previous = pairedMacWriteChain
         let task = Task { @MainActor in
             await previous?.value
@@ -2750,7 +2722,52 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await operation()
         }
         pairedMacWriteChain = task
+        return task
+    }
+
+    /// Runs one paired-Mac store mutation on the serialized write chain.
+    private func performSerializedPairedMacWrite(
+        ifStillCurrent: (() -> Bool)?,
+        _ operation: @escaping @MainActor () async -> Void
+    ) async {
+        let task = enqueueSerializedPairedMacWrite(
+            ifStillCurrent: ifStillCurrent,
+            operation
+        )
         await task.value
+    }
+
+    @discardableResult
+    private func enqueueActivePairedMacWrite(
+        macDeviceID: String,
+        scope: MobileShellScopeSnapshot?,
+        reloadAfterWrite: Bool
+    ) -> Task<Void, Never>? {
+        guard let pairedMacStore else { return nil }
+        return enqueueSerializedPairedMacWrite(ifStillCurrent: nil) { [weak self, pairedMacStore] in
+            guard let self else { return }
+            if let scope {
+                guard await self.isScopeCurrent(scope) else { return }
+            }
+            guard self.connectionState == .connected,
+                  self.remoteClient != nil,
+                  self.foregroundMacDeviceID == macDeviceID else { return }
+            do {
+                try await pairedMacStore.setActive(
+                    macDeviceID: macDeviceID,
+                    stackUserID: scope?.userID,
+                    teamID: scope?.teamID
+                )
+                guard self.connectionState == .connected,
+                      self.remoteClient != nil,
+                      self.foregroundMacDeviceID == macDeviceID else { return }
+                if reloadAfterWrite {
+                    await self.loadPairedMacs()
+                }
+            } catch {
+                mobileShellLog.error("paired mac store setActive failed mac=\(macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     /// Persists `ticket` as the active paired Mac.
@@ -5262,6 +5279,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macSwitchRestorePreviousOnCancelAttemptIDs.removeAll(keepingCapacity: true)
         macSwitchAttemptID = attemptID
         macSwitchAttemptSignInGeneration = signInGeneration
+        macSwitchRestoreBaseline = nil
         invalidatePairingAttempt()
         connectionAttemptGeneration = UUID()
         return attemptID
