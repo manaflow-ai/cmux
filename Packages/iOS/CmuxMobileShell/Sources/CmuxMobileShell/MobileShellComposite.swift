@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+public import CmuxAgentChat
 internal import CmuxMobileDiagnostics
 public import CmuxMobilePairedMac
 public import CmuxMobileRPC
@@ -218,6 +219,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
+    /// Last authoritative chat-session snapshots, keyed by the workspace row id the UI renders.
+    var chatSessionSnapshotsByWorkspaceID: [String: [ChatSessionDescriptor]] = [:]
     /// The group sections the UI renders. A materialized derivation of
     /// ``workspacesByMac`` (currently the foreground Mac's groups). Each group's
     /// `isCollapsed` reflects this device's choice (see ``groupCollapseStore``),
@@ -600,6 +603,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     /// `remoteClient` narrowed for `MobileShellComposite+AgentChat.swift`.
     var remoteClientForAgentChat: MobileCoreRPCClient? { remoteClient }
+    /// Identity token that changes when the paired Mac chat event source is rebuilt.
+    public var agentChatEventSourceIdentity: String { chatEventSourceGeneration.uuidString }
     private var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
     /// Recovers the Mac's identity post-handshake for tickets that arrived
@@ -655,6 +660,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
     private var connectionAttemptGeneration: UUID
+    private var chatEventSourceGeneration: UUID
     /// The per-Mac connection pool (P2 of the multi-Mac work), keyed by
     /// `macDeviceID`. Today it tracks the single foreground connection; P3 adds
     /// read-only connections to the user's other Macs so every connected Mac's
@@ -869,6 +875,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
         self.connectionAttemptGeneration = UUID()
+        self.chatEventSourceGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
@@ -972,6 +979,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // store we are about to empty wholesale.
         isLoadingDraft = true
         terminalInputText = ""
+        chatSessionSnapshotsByWorkspaceID = [:]
         // Enqueued on the FIFO draft pipeline so every save issued before this
         // point is applied first and then wiped; a pending keystroke save can
         // never land after the wipe and leak into the next account's session.
@@ -3505,6 +3513,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         workspaces = derived
+        pruneChatSessionSnapshots(to: derived)
         if let selectedWorkspaceID,
            !derived.contains(where: { $0.id == selectedWorkspaceID }) {
             let remapped = previousSelection.flatMap { previous in
@@ -3517,6 +3526,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         workspaceGroups = workspaceAggregation.derivedGroups(
             statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
+    }
+
+    private func pruneChatSessionSnapshots(to visibleWorkspaces: [MobileWorkspacePreview]) {
+        var validWorkspaceIDs = Set<String>()
+        for workspace in visibleWorkspaces {
+            let remoteID = workspace.remoteWorkspaceID ?? workspace.id
+            validWorkspaceIDs.insert(workspace.id.rawValue)
+            validWorkspaceIDs.insert(remoteID.rawValue)
+            if let macDeviceID = workspace.macDeviceID {
+                validWorkspaceIDs.insert(
+                    workspaceAggregation.rowID(macDeviceID: macDeviceID, workspaceID: remoteID).rawValue
+                )
+            }
+        }
+        chatSessionSnapshotsByWorkspaceID = chatSessionSnapshotsByWorkspaceID.filter {
+            validWorkspaceIDs.contains($0.key)
+        }
     }
 
     /// Set the user's per-Mac customizations (name / color / icon), persist them
@@ -3638,7 +3664,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func dropStalePreviousForeground(_ previousKey: String) {
         guard previousKey != foregroundMacKey,
               secondaryMacSubscriptions[previousKey] == nil else { return }
+        let removedWorkspaceIDs = Set((workspacesByMac[previousKey]?.workspaces ?? []).flatMap { workspace in
+            let remoteID = workspace.remoteWorkspaceID ?? workspace.id
+            return [
+                workspace.id.rawValue,
+                remoteID.rawValue,
+                workspaceAggregation.rowID(macDeviceID: previousKey, workspaceID: remoteID).rawValue,
+            ]
+        })
         workspacesByMac[previousKey] = nil
+        for workspaceID in removedWorkspaceIDs {
+            chatSessionSnapshotsByWorkspaceID[workspaceID] = nil
+        }
     }
 
     /// Adopt a host-reported real device id as the foreground Mac's aggregate key.
@@ -4858,6 +4895,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func replaceRemoteClient(with newValue: MobileCoreRPCClient?) {
         let previous = remoteClient
         remoteClient = newValue
+        if newValue != nil, previous !== newValue {
+            chatEventSourceGeneration = UUID()
+        }
         if let previous, previous !== newValue {
             Task { await previous.disconnect() }
         }
