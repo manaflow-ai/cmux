@@ -48,7 +48,6 @@ public struct ChatToolUseRowView: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("ChatToolUseToggle-\(rowID)")
             .accessibilityValue(
                 isExpanded
                     ? String(

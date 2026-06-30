@@ -840,7 +840,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
-          "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato."
+          "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato.",
+          "workspaceControls": "Controlli integrati mostrati al passaggio del mouse sulle righe degli spazi di lavoro nella barra laterale. Il controllo di chiusura viene sempre mantenuto e vengono mostrati al massimo tre controlli."
         },
         "fileExplorer": {
           "description": "Impostazioni dell’esplora file (albero dei file) nella barra laterale destra.",

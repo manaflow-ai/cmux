@@ -1112,6 +1112,18 @@ class TerminalController {
             return v2Result(id: request.id, v2SystemMemory(params: request.params))
         case "workspace.env":
             return v2Result(id: request.id, v2WorkspaceEnv(params: request.params))
+        case "workspace.tasks.list":
+            return v2Result(id: request.id, v2WorkspaceTasksList(params: request.params))
+        case "workspace.tasks.add":
+            return v2Result(id: request.id, v2WorkspaceTasksAdd(params: request.params))
+        case "workspace.tasks.archive": return v2Result(id: request.id, v2WorkspaceTasksArchive(params: request.params))
+        case "workspace.tasks.unarchive": return v2Result(id: request.id, v2WorkspaceTasksUnarchive(params: request.params))
+        case "workspace.tasks.remove":
+            return v2Result(id: request.id, v2WorkspaceTasksRemove(params: request.params))
+        case "workspace.tasks.move":
+            return v2Result(id: request.id, v2WorkspaceTasksMove(params: request.params))
+        case "workspace.tasks.open":
+            return v2Result(id: request.id, v2WorkspaceTasksOpen(params: request.params))
         case "workspace.remote.pty_sessions":
             return v2Result(id: request.id, v2WorkspaceRemotePTYSessions(params: request.params))
         case "workspace.remote.pty_close":
@@ -1960,7 +1972,9 @@ class TerminalController {
             "mobile.terminal.input",
             "mobile.terminal.paste",
             "mobile.terminal.replay",
-            "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe",
+            "mobile.terminal.viewport",
+            "mobile.terminal.set_font",
+            "mobile.events.subscribe", "mobile.events.unsubscribe",
             "terminal.create",
             "terminal.input",
             "terminal.paste",
@@ -1987,6 +2001,12 @@ class TerminalController {
             "workspace.list",
             "workspace.create",
             "workspace.env",
+            "workspace.tasks.list",
+            "workspace.tasks.add",
+            "workspace.tasks.archive", "workspace.tasks.unarchive",
+            "workspace.tasks.remove",
+            "workspace.tasks.move",
+            "workspace.tasks.open",
             "workspace.select",
             "workspace.current",
             "workspace.close",
@@ -13304,22 +13324,29 @@ class TerminalController {
     /// initiated from the Mac for automation (`cmux mobile set-font <size>`).
     ///
     /// Params: `{ "font_size": Number, optional "surface_id": String,
-    /// optional "workspace_id": String }`. When `surface_id` is omitted the
-    /// phone applies the size to every mounted surface. `nonisolated` because it
-    /// only touches the Sendable connection registry via
+    /// optional "workspace_id": String }`. A surface scope targets one terminal,
+    /// a workspace scope targets mounted terminals in that workspace, and no
+    /// scope targets every mounted surface. `nonisolated` because it only
+    /// touches the Sendable connection registry via
     /// ``MobileHostService/emitEvent(topic:payload:)``.
     nonisolated func v2MobileTerminalSetFont(params: [String: Any]) -> V2CallResult {
         guard let fontSize = v2Double(params, "font_size") else {
             return .err(
                 code: "invalid_params",
-                message: "Missing or invalid font_size",
+                message: String(
+                    localized: "socket.mobile.setFont.error.missingOrInvalidFontSize",
+                    defaultValue: "Missing or invalid font_size"
+                ),
                 data: nil
             )
         }
         guard fontSize.isFinite, fontSize > 0 else {
             return .err(
                 code: "invalid_params",
-                message: "font_size must be a positive number of points",
+                message: String(
+                    localized: "socket.mobile.setFont.error.positiveFontSizeRequired",
+                    defaultValue: "font_size must be a positive number of points"
+                ),
                 data: ["font_size": fontSize]
             )
         }

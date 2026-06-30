@@ -1265,6 +1265,206 @@ import Testing
         XCTAssertFalse(openArguments.contains(workingDirectory.standardizedFileURL.path), openArguments.joined(separator: " "))
     }
 
+    @Test func testWorkspaceTasksMoveRequiresDestinationBeforeSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let taskId = UUID().uuidString
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["workspace", "tasks", "move", taskId],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("workspace tasks move requires --before, --after, or --index"), result.stdout)
+    }
+
+    @Test func testWorkspaceTasksMissingWorkspaceFlagValueFailsBeforeSocketFallback() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_WORKSPACE_ID"] = "workspace:ambient"
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
+
+        let missingResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["workspace", "tasks", "add", "--title", "Fix CI", "--workspace"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(missingResult.timedOut, missingResult.stdout)
+        XCTAssertEqual(missingResult.status, 1, missingResult.stdout)
+        XCTAssertTrue(
+            missingResult.stdout.contains("workspace tasks add: --workspace requires a value"),
+            missingResult.stdout
+        )
+
+        let emptyResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["workspace", "tasks", "add", "--title", "Fix CI", "--workspace", ""],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(emptyResult.timedOut, emptyResult.stdout)
+        XCTAssertEqual(emptyResult.status, 1, emptyResult.stdout)
+        XCTAssertTrue(
+            emptyResult.stdout.contains("workspace tasks add: --workspace requires a value"),
+            emptyResult.stdout
+        )
+    }
+
+    @Test func testWorkspaceTasksAddResolvesWorkspaceRefBeforeSocketMutation() throws {
+        let cliPath = try bundledCLIPath()
+        let windowId = UUID().uuidString
+        let workspaceId = UUID().uuidString
+        let taskId = UUID().uuidString
+        let socketPath = "/tmp/cmux-workspace-tasks-ref-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath) { request in
+            let requestObject = (try? JSONSerialization.jsonObject(
+                with: Data(request.utf8),
+                options: []
+            )) as? [String: Any]
+            switch requestObject?["method"] as? String {
+            case "window.list":
+                return #"{"ok":true,"result":{"windows":[{"id":"\#(windowId)","ref":"window:1"}]}}"#
+            case "workspace.list":
+                return #"{"ok":true,"result":{"workspaces":[{"id":"\#(workspaceId)","ref":"workspace:1","index":1}]}}"#
+            case "workspace.tasks.add":
+                return #"{"ok":true,"result":{"workspace_id":"\#(workspaceId)","workspace_ref":"workspace:1","task":{"id":"\#(taskId)","title":"Fix CI"}}}"#
+            default:
+                return #"{"ok":false,"error":{"code":"invalid_request","message":"unexpected test request"}}"#
+            }
+        }
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "workspace", "tasks", "add",
+                "--workspace", "workspace:1",
+                "--title", "Fix CI",
+            ],
+            environment: environment,
+            timeout: 15
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let requests = try responder.receivedRequests.map { request in
+            try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(request.utf8), options: []) as? [String: Any]
+            )
+        }
+        XCTAssertEqual(requests.compactMap { $0["method"] as? String }, [
+            "window.list",
+            "workspace.list",
+            "workspace.tasks.add",
+        ])
+        let mutation = try XCTUnwrap(requests.first { ($0["method"] as? String) == "workspace.tasks.add" })
+        let params = try XCTUnwrap(mutation["params"] as? [String: Any])
+        XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+    }
+
+    @Test func testMobileSetFontMissingScopeFlagValueFailsBeforeSocket() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
+
+        let missingSurface = runProcess(
+            executablePath: cliPath,
+            arguments: ["mobile", "set-font", "14", "--surface"],
+            environment: environment,
+            timeout: 15
+        )
+
+        XCTAssertFalse(missingSurface.timedOut, missingSurface.stdout)
+        XCTAssertEqual(missingSurface.status, 1, missingSurface.stdout)
+        XCTAssertTrue(
+            missingSurface.stdout.contains("mobile set-font: --surface requires a value"),
+            missingSurface.stdout
+        )
+
+        let emptyWorkspace = runProcess(
+            executablePath: cliPath,
+            arguments: ["mobile", "set-font", "14", "--workspace="],
+            environment: environment,
+            timeout: 15
+        )
+
+        XCTAssertFalse(emptyWorkspace.timedOut, emptyWorkspace.stdout)
+        XCTAssertEqual(emptyWorkspace.status, 1, emptyWorkspace.stdout)
+        XCTAssertTrue(
+            emptyWorkspace.stdout.contains("mobile set-font: --workspace requires a value"),
+            emptyWorkspace.stdout
+        )
+    }
+
+    @Test func testMobileSetFontAcceptsScopeFlagsBeforePointSize() throws {
+        let cliPath = try bundledCLIPath()
+        let surfaceId = UUID().uuidString
+        let workspaceId = UUID().uuidString
+        let socketPath = "/tmp/cmux-mobile-set-font-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"delivered":true}}"#
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "mobile", "set-font",
+                "--surface", surfaceId,
+                "--workspace", workspaceId,
+                "14",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let request = try XCTUnwrap(responder.receivedRequests.first)
+        let requestObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(request.utf8), options: []) as? [String: Any]
+        )
+        XCTAssertEqual(requestObject["method"] as? String, "mobile.terminal.set_font")
+        let params = try XCTUnwrap(requestObject["params"] as? [String: Any])
+        XCTAssertEqual((params["font_size"] as? NSNumber)?.doubleValue, 14)
+        XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+        XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+    }
+
     func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
     }
@@ -1504,7 +1704,7 @@ import Testing
 
 private final class UnixSocketResponder {
     let path: String
-    private let response: String
+    private let responseForRequest: (String) -> String
     private let responseDelay: TimeInterval
     private let queue = DispatchQueue(label: "com.cmux.tests.unix-socket-responder")
     private let lock = NSLock()
@@ -1512,9 +1712,13 @@ private final class UnixSocketResponder {
     private var requests: [String] = []
     private var listenerFD: Int32 = -1
 
-    init(path: String, response: String, responseDelay: TimeInterval = 0) throws {
+    convenience init(path: String, response: String, responseDelay: TimeInterval = 0) throws {
+        try self.init(path: path, responseDelay: responseDelay) { _ in response }
+    }
+
+    init(path: String, responseDelay: TimeInterval = 0, responseForRequest: @escaping (String) -> String) throws {
         self.path = path
-        self.response = response
+        self.responseForRequest = responseForRequest
         self.responseDelay = responseDelay
 
         unlink(path)
@@ -1612,33 +1816,40 @@ private final class UnixSocketResponder {
 
     private func handle(clientFD: Int32) {
         defer { close(clientFD) }
-        var request = Data()
         while true {
-            var byte: UInt8 = 0
-            let count = read(clientFD, &byte, 1)
-            if count <= 0 {
+            var request = Data()
+            while true {
+                var byte: UInt8 = 0
+                let count = read(clientFD, &byte, 1)
+                if count <= 0 {
+                    return
+                }
+                request.append(byte)
+                if byte == 0x0A {
+                    break
+                }
+            }
+            guard !request.isEmpty else {
+                continue
+            }
+            let line = String(data: request, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !line.isEmpty {
+                lock.lock()
+                requests.append(line)
+                lock.unlock()
+            }
+            if responseDelay > 0 {
+                Thread.sleep(forTimeInterval: responseDelay)
+            }
+            let response = responseForRequest(line)
+            let payload = response + "\n"
+            let wrote = payload.withCString { pointer in
+                write(clientFD, pointer, strlen(pointer))
+            }
+            if wrote <= 0 {
                 return
             }
-            request.append(byte)
-            if byte == 0x0A {
-                break
-            }
-        }
-        guard !request.isEmpty else {
-            return
-        }
-        if let line = String(data: request, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) {
-            lock.lock()
-            requests.append(line)
-            lock.unlock()
-        }
-        if responseDelay > 0 {
-            Thread.sleep(forTimeInterval: responseDelay)
-        }
-        let payload = response + "\n"
-        payload.withCString { pointer in
-            _ = write(clientFD, pointer, strlen(pointer))
         }
     }
 

@@ -167,6 +167,17 @@ extension TerminalController {
                 creationPolicy: .automationPreload,
                 initialDividerPosition: dividerPosition
             )?.id
+        } else if panelType == .workspaceTasks {
+            guard let sourcePaneId = ws.paneId(forPanelId: targetSurfaceId) else {
+                return .createFailed
+            }
+            newId = ws.splitPaneWithWorkspaceTasks(
+                targetPane: sourcePaneId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                focus: focus,
+                initialDividerPosition: dividerPosition
+            )?.id
         } else {
             switch ws.newTerminalSplitOutcome(
                 from: targetSurfaceId,
@@ -377,6 +388,11 @@ extension TerminalController {
                 workingDirectory: inputs.workingDirectory,
                 focus: focus
             )?.id
+        } else if panelType == .workspaceTasks {
+            newPanelId = ws.newWorkspaceTasksSurface(
+                inPane: paneId,
+                focus: focus
+            )?.id
         } else {
             switch ws.newTerminalSurfaceOutcome(
                 inPane: paneId,
@@ -528,6 +544,7 @@ extension TerminalController {
         case "filepreview": return .filePreview
         case "rightsidebartool": return .rightSidebarTool
         case "agentsession": return .agentSession
+        case "workspacetasks": return .workspaceTasks
         default: return nil
         }
     }

@@ -840,7 +840,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
-          "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
+          "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır.",
+          "workspaceControls": "Kenar çubuğundaki çalışma alanı satırlarının üzerine gelindiğinde gösterilen yerleşik kontroller. Kapatma kontrolü her zaman korunur ve en fazla üç kontrol gösterilir."
         },
         "fileExplorer": {
           "description": "Sağ kenar çubuğundaki dosya gezgini (dosya ağacı) ayarları.",

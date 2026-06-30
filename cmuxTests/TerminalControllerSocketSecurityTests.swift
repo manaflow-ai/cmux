@@ -736,6 +736,7 @@ final class TerminalControllerSocketSecurityTests {
                 "terminal.replay",
                 "mobile.terminal.viewport",
                 "terminal.viewport",
+                "mobile.terminal.set_font",
                 "mobile.events.subscribe",
                 "mobile.events.unsubscribe",
             ]
@@ -1328,6 +1329,87 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
         let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
         XCTAssertEqual(error["code"] as? String, "browser_disabled")
+    }
+
+    @Test func testWorkspaceTasksStalePaneTargetDoesNotMutateSelectedWorkspace() async throws {
+        let key = "workspaceTasks.beta.enabled"
+        let defaults = UserDefaults.standard
+        let previousWorkspaceTasksBeta = defaults.object(forKey: key)
+        defaults.set(true, forKey: key)
+        defer {
+            if let previousWorkspaceTasksBeta {
+                defaults.set(previousWorkspaceTasksBeta, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+            TerminalController.shared.stop()
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let socketPath = makeSocketPath("workspace-tasks")
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "workspace.tasks.add",
+            params: [
+                "title": "Should not be added",
+                "pane_id": UUID().uuidString
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(error["code"] as? String, "not_found")
+        XCTAssertEqual(selectedWorkspace.workspaceTasks, [])
+    }
+
+    @Test func testWorkspaceTasksOpenFocusSelectsTargetWorkspace() async throws {
+        let key = "workspaceTasks.beta.enabled"
+        let defaults = UserDefaults.standard
+        let previousWorkspaceTasksBeta = defaults.object(forKey: key)
+        defaults.set(true, forKey: key)
+        defer {
+            if let previousWorkspaceTasksBeta {
+                defaults.set(previousWorkspaceTasksBeta, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+            TerminalController.shared.stop()
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let originalWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let targetWorkspace = manager.addWorkspace(title: "Tasks Target", select: false, autoWelcomeIfNeeded: false)
+        XCTAssertEqual(manager.selectedTabId, originalWorkspace.id)
+        let socketPath = makeSocketPath("workspace-tasks-open")
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "workspace.tasks.open",
+            params: [
+                "workspace_id": targetWorkspace.id.uuidString,
+                "focus": true
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(manager.selectedTabId, targetWorkspace.id)
+        XCTAssertTrue(targetWorkspace.panels.values.contains { $0 is WorkspaceTasksPanel })
     }
 
     @Test func testLegacyCloseSurfaceCommandRecordsRecentlyClosedHistory() throws {

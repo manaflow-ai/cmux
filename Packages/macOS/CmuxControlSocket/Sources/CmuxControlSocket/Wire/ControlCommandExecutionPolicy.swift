@@ -76,6 +76,12 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // env dictionary behind a `v2MainSync` hop, so it runs on the worker
         // lane like the other workspace reads below.
         "workspace.env",
+        "workspace.tasks.list",
+        "workspace.tasks.add",
+        "workspace.tasks.archive",
+        "workspace.tasks.remove",
+        "workspace.tasks.move",
+        "workspace.tasks.open",
         "workspace.remote.pty_sessions",
         "workspace.remote.pty_close",
         "workspace.remote.pty_detach",

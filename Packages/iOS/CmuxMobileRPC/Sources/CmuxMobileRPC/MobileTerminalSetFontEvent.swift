@@ -5,17 +5,16 @@ public import Foundation
 /// The Mac emits this event to live-resize the mirrored terminal font on
 /// connected iOS device(s); the grid reflows automatically once the new point
 /// size is applied. The payload carries the absolute point size and an optional
-/// `surface_id` / `workspace_id` scope. When no `surface_id` is present the
-/// shell applies the size to every mounted surface (mirroring how the Mac's own
-/// font-size change affects all panes).
+/// `surface_id` / `workspace_id` scope.
 public struct MobileTerminalSetFontEvent: Decodable, Sendable {
     /// Absolute terminal font size in points. The iOS surface clamps this to its
     /// supported zoom range before applying.
     public let fontSize: Double
-    /// The target surface id, or `nil` to apply to every mounted surface.
+    /// Optional terminal surface scope. When absent, the event may target a
+    /// workspace or every mounted terminal surface.
     public let surfaceID: String?
-    /// The target workspace id, or `nil`. Informational scope hint; surface
-    /// targeting is by ``surfaceID``.
+    /// Optional workspace scope used when the event should update every mounted
+    /// terminal surface for one workspace.
     public let workspaceID: String?
 
     private enum CodingKeys: String, CodingKey {

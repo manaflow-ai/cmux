@@ -840,7 +840,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
-          "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
+          "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze.",
+          "workspaceControls": "Integrierte Steuerelemente, die beim Bewegen des Mauszeigers über Arbeitsbereichszeilen in der Seitenleiste angezeigt werden. Das Schließen-Steuerelement bleibt immer erhalten, und es werden höchstens drei Steuerelemente angezeigt."
         },
         "fileExplorer": {
           "description": "Einstellungen für den Datei-Explorer (Dateibaum) in der rechten Seitenleiste.",

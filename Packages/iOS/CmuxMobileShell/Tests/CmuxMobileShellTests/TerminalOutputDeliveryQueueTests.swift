@@ -41,6 +41,19 @@ import Testing
     #expect(String(decoding: secondChunk.data, as: UTF8.self) == "new-second")
 }
 
+@MainActor
+@Test func liveFontStreamSurvivesTerminalOutputTrackingReset() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    let stream = store.terminalLiveFontStream(surfaceID: surfaceID)
+
+    store.debugResetTerminalOutputTrackingForTesting()
+    store.debugDeliverTerminalSetFontForTesting(surfaceID: surfaceID, fontSize: 18)
+
+    let delivered = try await firstLiveFontValue(from: stream)
+    #expect(delivered == 18)
+}
+
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
@@ -126,6 +139,25 @@ import Testing
     }
     #expect(queue.completeInFlight() == nil)
     #expect(queue.isIdle)
+}
+
+private func firstLiveFontValue(
+    from stream: AsyncStream<Float32>,
+    timeoutNanoseconds: UInt64 = 1_000_000_000
+) async throws -> Float32? {
+    try await withThrowingTaskGroup(of: Float32?.self) { group in
+        group.addTask {
+            var iterator = stream.makeAsyncIterator()
+            return await iterator.next()
+        }
+        group.addTask {
+            try await Task.sleep(nanoseconds: timeoutNanoseconds)
+            return nil
+        }
+        let value = try await group.next()
+        group.cancelAll()
+        return value ?? nil
+    }
 }
 
 @Test func renderGridViewportPatchIsReplaceableOnlyWhenEveryRowIsCleared() throws {

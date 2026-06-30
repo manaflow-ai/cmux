@@ -196,6 +196,8 @@ extension TerminalController {
             return .rightSidebarTool
         case "agentsession":
             return .agentSession
+        case "workspacetasks":
+            return .workspaceTasks
         default:
             return nil
         }

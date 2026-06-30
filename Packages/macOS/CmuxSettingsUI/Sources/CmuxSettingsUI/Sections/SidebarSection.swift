@@ -37,6 +37,9 @@ public struct SidebarSection: View {
     @State private var showMetadata: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
+    @State private var workspaceControlsBeta: DefaultsValueModel<Bool>
+    @State private var workspaceTasksBeta: DefaultsValueModel<Bool>
+    @State private var workspaceControls: DefaultsValueModel<[WorkspaceRowControlOption]>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
@@ -63,6 +66,9 @@ public struct SidebarSection: View {
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
+        _workspaceControlsBeta = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceControls))
+        _workspaceTasksBeta = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTasks))
+        _workspaceControls = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.workspaceControls))
     }
 
     public var body: some View {
@@ -96,6 +102,9 @@ public struct SidebarSection: View {
             showMetadata,
             rightMaxWidth,
             rememberedRightMaxWidth,
+            workspaceControlsBeta,
+            workspaceTasksBeta,
+            workspaceControls,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -165,6 +174,23 @@ public struct SidebarSection: View {
 
     private func clampedRightMaxWidth(_ value: Double) -> Double {
         rightSidebarWidthSettings.clampedSettingsEditorMaximumWidth(value)
+    }
+
+    private var sanitizedWorkspaceControls: [WorkspaceRowControlOption] {
+        WorkspaceRowControlSanitizer().sanitized(workspaceControls.current)
+    }
+
+    private func workspaceControlBinding(_ option: WorkspaceRowControlOption) -> Binding<Bool> {
+        Binding(
+            get: { sanitizedWorkspaceControls.contains(option) },
+            set: { enabled in
+                var next = sanitizedWorkspaceControls.filter { $0 != option }
+                if enabled {
+                    next.append(option)
+                }
+                workspaceControls.set(WorkspaceRowControlSanitizer().sanitized(next))
+            }
+        )
     }
 
     @ViewBuilder
@@ -248,6 +274,43 @@ public struct SidebarSection: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.workspaceControls"),
+                searchAnchorID: "setting:sidebarAppearance:workspace-controls",
+                String(localized: "settings.sidebar.workspaceControls", defaultValue: "Workspace Controls"),
+                subtitle: workspaceControlsBeta.current
+                    ? String(localized: "settings.sidebar.workspaceControls.subtitleOn", defaultValue: "Choose up to 3 cmux controls for sidebar workspace rows. Close is always included.")
+                    : String(localized: "settings.sidebar.workspaceControls.subtitleOff", defaultValue: "Enable Workspace Controls in Beta Features to customize workspace-row hover controls."),
+                controlWidth: 250
+            ) {
+                VStack(alignment: .trailing, spacing: 6) {
+                    Toggle(
+                        String(localized: "settings.sidebar.workspaceControls.close", defaultValue: "Close"),
+                        isOn: .constant(true)
+                    )
+                    .toggleStyle(.checkbox)
+                    .disabled(true)
+
+                    Toggle(
+                        String(localized: "settings.sidebar.workspaceControls.tasks", defaultValue: "Tasks"),
+                        isOn: workspaceControlBinding(.tasks)
+                    )
+                    .toggleStyle(.checkbox)
+                    .disabled(!workspaceControlsBeta.current || !workspaceTasksBeta.current)
+                    .accessibilityIdentifier("SettingsSidebarWorkspaceControlsTasksToggle")
+
+                    if workspaceControlsBeta.current, !workspaceTasksBeta.current {
+                        Text(String(localized: "settings.sidebar.workspaceControls.tasksDisabled", defaultValue: "Enable Workspace Tasks to add the Tasks control."))
+                            .cmuxFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.trailing)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .disabled(!workspaceControlsBeta.current)
             SettingsCardDivider()
 
             SettingsCardRow(

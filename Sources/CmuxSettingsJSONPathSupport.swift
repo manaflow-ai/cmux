@@ -248,6 +248,8 @@ enum SidebarSettingsFileMapping {
         ),
     ]
 
+    static let workspaceControlsPath = "sidebar.workspaceControls"
+
     static func branchLayoutStoredValue(_ rawValue: String) -> Bool? {
         switch rawValue {
         case "vertical":
@@ -395,6 +397,7 @@ extension CmuxSettingsFileStore {
         "sidebar.showLog",
         "sidebar.showProgress",
         "sidebar.showCustomMetadata",
+        SidebarSettingsFileMapping.workspaceControlsPath,
         RightSidebarWidthSettings.settingsPath,
         "workspaceColors.indicatorStyle",
         "workspaceColors.selectionColor",

@@ -840,7 +840,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
-          "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
+          "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny.",
+          "workspaceControls": "Wbudowane elementy sterujące pokazywane po najechaniu na wiersze obszarów roboczych na pasku bocznym. Element zamykania jest zawsze zachowany, a wyświetlane są najwyżej trzy elementy sterujące."
         },
         "fileExplorer": {
           "description": "Ustawienia eksploratora plików (drzewa plików) w prawym pasku bocznym.",

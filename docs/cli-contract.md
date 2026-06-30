@@ -99,7 +99,7 @@ Environment:
 | `reorder-workspace` | Reorder a workspace inside a window. |
 | `reorder-workspaces` | Atomically reorder workspaces inside pinned and unpinned groups. |
 | `workspace-action` | Run workspace context-menu actions from the CLI. |
-| `workspace` | Namespace for workspace verbs: `list`, `create`, `env`, `close`, `rename`, `select`, `reconnect`, `disconnect`, `group`. `workspace env` prints a workspace's configured environment variables (see [Workspace environment variables](#workspace-environment-variables)); pass `--mask` to redact the values. `workspace reconnect` manually reconnects a remote (SSH) workspace — including one whose automatic reconnect suspended because the host was unreachable — and `workspace disconnect` stops its remote connection. `env`, `reconnect`, and `disconnect` accept a positional workspace handle or `--workspace <id\|ref\|index>`, defaulting to the caller's workspace, then the selected one. |
+| `workspace` | Namespace for workspace verbs: `list`, `create`, `env`, `tasks`, `close`, `rename`, `select`, `reconnect`, `disconnect`, `group`. `workspace env` prints a workspace's configured environment variables (see [Workspace environment variables](#workspace-environment-variables)); pass `--mask` to redact the values. `workspace tasks` manages beta per-workspace task lists (see [Workspace tasks](#workspace-tasks)). `workspace reconnect` manually reconnects a remote (SSH) workspace — including one whose automatic reconnect suspended because the host was unreachable — and `workspace disconnect` stops its remote connection. `env`, `tasks list`, `tasks open`, `reconnect`, and `disconnect` accept a positional workspace handle or `--workspace <id\|ref\|index>`, defaulting to the caller's workspace, then the selected one. |
 | `move-tab-to-new-workspace` | Move a tab or surface into a newly created workspace. |
 | `list-workspaces` | List workspaces. |
 | `new-workspace` | Create a workspace, optionally with cwd, command, description, layout, and per-workspace environment variables (`--env KEY=VALUE` repeatable, `--env-file <path>`). See [Workspace environment variables](#workspace-environment-variables). |
@@ -224,6 +224,33 @@ Workspace and tab action names:
 | --- | --- |
 | `workspace-action` | `pin`, `unpin`, `rename`, `clear-name`, `set-description`, `clear-description`, `move-up`, `move-down`, `move-top`, `close-others`, `close-above`, `close-below`, `mark-read`, `mark-unread`, `set-color`, `clear-color` |
 | `tab-action` | `rename`, `clear-name`, `close-left`, `close-right`, `close-others`, `new-terminal-right`, `new-browser-right`, `reload`, `duplicate`, `pin`, `unpin`, `mark-unread` |
+
+### Workspace tasks
+
+Workspace Tasks are beta-gated, workspace-scoped task lists. A task belongs to
+exactly one workspace and appears in either Open or Archived.
+
+Commands:
+
+- `cmux workspace tasks list [workspace] [--workspace <id|ref|index>] [--window <id|ref|index>]`
+- `cmux workspace tasks add [title] [--title <text>] [--before <task-uuid>|--after <task-uuid>|--index <n>] [--workspace <id|ref|index>]`
+- `cmux workspace tasks archive <task-uuid> [--workspace <id|ref|index>]`
+- `cmux workspace tasks unarchive <task-uuid> [--workspace <id|ref|index>]`
+- `cmux workspace tasks remove <task-uuid> [--workspace <id|ref|index>]`
+- `cmux workspace tasks move <task-uuid> (--before <task-uuid>|--after <task-uuid>|--index <n>) [--workspace <id|ref|index>]`
+- `cmux workspace tasks open [workspace] [--focus <true|false>] [--workspace <id|ref|index>]`
+
+Text output for `list` prints Open and Archived buckets with full task UUIDs.
+Mutation output is `OK task=<uuid> workspace=<handle>`. `open` output is
+`OK surface=<handle> workspace=<handle>`. JSON output returns `open`,
+`archived`, `tasks`, counts, workspace refs, and the changed task or surface when
+applicable.
+
+`archive` is the completion path and moves a task into Archived. `unarchive`
+restores an archived task to the end of Open. `remove` deletes the task. `move`
+reorders only within the task's current bucket. Commands default to
+`CMUX_WORKSPACE_ID` when present, then the selected workspace for the target
+window.
 
 ### Workspace environment variables
 

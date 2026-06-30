@@ -840,7 +840,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
-          "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
+          "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen.",
+          "workspaceControls": "Innebygde kontroller som vises ved peking på arbeidsområderader i sidepanelet. Lukk-kontrollen bevares alltid, og maksimalt tre kontroller vises."
         },
         "fileExplorer": {
           "description": "Innstillinger for filutforskeren (filtreet) i høyre sidepanel.",

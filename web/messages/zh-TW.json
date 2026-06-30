@@ -840,7 +840,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
-          "rightMaxWidth": "右側邊欄的最大寬度（點）。省略時使用內建動態上限。"
+          "rightMaxWidth": "右側邊欄的最大寬度（點）。省略時使用內建動態上限。",
+          "workspaceControls": "在側邊欄工作區列懸停時顯示的內建控制項。關閉控制項一律保留，最多顯示三個控制項。"
         },
         "fileExplorer": {
           "description": "右側邊欄檔案瀏覽器（檔案樹）設定。",

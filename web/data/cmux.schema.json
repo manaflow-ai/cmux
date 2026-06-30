@@ -765,6 +765,18 @@
           "default": true,
           "description": "Show custom metadata pills."
         },
+        "workspaceControls": {
+          "type": "array",
+          "default": ["close"],
+          "maxItems": 3,
+          "uniqueItems": true,
+          "descriptionKey": "schemaDescriptions.sidebar.workspaceControls",
+          "description": "Built-in controls shown on hover in sidebar workspace rows. The close control is always preserved, and at most three controls are shown.",
+          "items": {
+            "type": "string",
+            "enum": ["close", "tasks"]
+          }
+        },
         "rightMaxWidth": {
           "type": "number",
           "exclusiveMinimum": 0,

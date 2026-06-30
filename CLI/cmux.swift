@@ -2757,6 +2757,7 @@ struct CMUXCLI {
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
+    static let workspaceTaskTitleCharacterLimit = 280
     private static let claudeCodeStatusKey = "claude_code"
 
     private static var allowedAgentLifecycleStatusKeys: Set<String> {
@@ -3851,15 +3852,29 @@ struct CMUXCLI {
             )
             switch sub {
             case "set-font":
-                guard let sizeArg = rest.first(where: { !$0.hasPrefix("--") }),
+                try validateWorkspaceTasksRequiredOptionValues(
+                    rest,
+                    commandName: "mobile set-font",
+                    valueFlags: ["--surface", "--workspace"]
+                )
+                let (surfaceOpt, rem0) = parseOption(rest, name: "--surface")
+                let (workspaceOpt, rem1) = parseOption(rem0, name: "--workspace")
+                try rejectUnknownWorkspaceTasksFlags(
+                    rem1,
+                    commandName: "mobile set-font",
+                    knownFlags: ["--surface", "--workspace"]
+                )
+                let positionals = positionalArguments(rem1)
+                guard positionals.count == 1,
+                      let sizeArg = positionals.first,
                       let size = Double(sizeArg), size.isFinite, size > 0 else {
                     throw CLIError(message: mobileUsage)
                 }
                 var params: [String: Any] = ["font_size": size]
-                if let surface = optionValue(rest, name: "--surface") {
+                if let surface = surfaceOpt {
                     params["surface_id"] = surface
                 }
-                if let workspace = optionValue(rest, name: "--workspace") {
+                if let workspace = workspaceOpt {
                     params["workspace_id"] = workspace
                 }
                 let response = try client.sendV2(method: "mobile.terminal.set_font", params: params)
@@ -7921,7 +7936,7 @@ struct CMUXCLI {
         guard let sub = commandArgs.first?.lowercased() else {
             throw CLIError(message: String(
                 localized: "cli.error.workspaceSubcommandRequired",
-                defaultValue: "workspace requires a subcommand. Try: list, create, env, close, rename, select, reconnect, disconnect, group"
+                defaultValue: "workspace requires a subcommand. Try: list, create, env, tasks, close, rename, select, reconnect, disconnect, group"
             ))
         }
         let rest = Array(commandArgs.dropFirst())
@@ -7954,6 +7969,14 @@ struct CMUXCLI {
             )
         case "env":
             try runWorkspaceEnvCommand(
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
+        case "tasks":
+            try runWorkspaceTasksCommand(
                 commandArgs: rest,
                 client: client,
                 jsonOutput: jsonOutput,
@@ -8014,7 +8037,7 @@ struct CMUXCLI {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.error.workspaceSubcommandUnknown",
-                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, reconnect, disconnect, group"
+                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, env, tasks, close, rename, select, reconnect, disconnect, group"
                 ),
                 locale: .current,
                 sub
@@ -13935,7 +13958,7 @@ struct CMUXCLI {
         return isUUID(value) ? value : nil
     }
 
-    private func resolveWorkspaceId(_ raw: String?, client: SocketClient, windowHandle: String? = nil) throws -> String {
+    func resolveWorkspaceId(_ raw: String?, client: SocketClient, windowHandle: String? = nil) throws -> String {
         if let raw, isUUID(raw) {
             return raw
         }
@@ -14833,6 +14856,7 @@ struct CMUXCLI {
               env [workspace] [--mask]
                                       Print a workspace's configured environment
                                       variables (--mask redacts the values)
+              tasks <subcommand>      Manage beta per-workspace tasks
               close <workspace>       Close a workspace
               rename <workspace> --title <new>
               select <workspace>      Make a workspace active
@@ -14842,18 +14866,21 @@ struct CMUXCLI {
               disconnect [workspace]  Stop a remote (SSH) workspace's connection
               group <subcommand>      Workspace group operations (see cmux workspace-group --help)
 
-            env/reconnect/disconnect accept a positional handle or --workspace
-            <id|ref|index>, defaulting to the caller's workspace, then the
-            selected one (of --window's window when given).
+            env/tasks list/tasks open/reconnect/disconnect accept a positional
+            handle or --workspace <id|ref|index>, defaulting to the caller's
+            workspace, then the selected one (of --window's window when given).
 
             Examples:
               cmux workspace list --json
               cmux workspace create --name Build --cwd ~/projects/myapp
               cmux workspace env workspace:3 --mask
+              cmux workspace tasks list
               cmux workspace close workspace:3
               cmux workspace reconnect
               cmux workspace disconnect --workspace workspace:3
             """)
+        case "workspace-tasks":
+            return workspaceTasksUsage()
         case "workspace-group":
             return """
             Usage: cmux workspace-group <subcommand> [flags]
@@ -16099,8 +16126,17 @@ struct CMUXCLI {
     /// Dispatch help for a subcommand. Returns true if help was printed.
     private func dispatchSubcommandHelp(command: String, commandArgs: [String]) -> Bool {
         guard commandArgs.contains("--help") || commandArgs.contains("-h") else { return false }
-        guard let text = subcommandUsage(command) else { return false }
-        print("cmux \(command)")
+        let usageCommand: String
+        let displayCommand: String
+        if command == "workspace", commandArgs.first?.lowercased() == "tasks" {
+            usageCommand = "workspace-tasks"
+            displayCommand = "workspace tasks"
+        } else {
+            usageCommand = command
+            displayCommand = command
+        }
+        guard let text = subcommandUsage(usageCommand) else { return false }
+        print("cmux \(displayCommand)")
         print("")
         print(text)
         return true
@@ -16210,7 +16246,7 @@ struct CMUXCLI {
         return ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
     }
 
-    private func windowFromArgsOrOverride(_ args: [String], windowOverride: String? = nil) -> String? {
+    func windowFromArgsOrOverride(_ args: [String], windowOverride: String? = nil) -> String? {
         optionValue(args, name: "--window") ?? windowOverride
     }
 
@@ -18185,7 +18221,7 @@ struct CMUXCLI {
         return 0
     }
 
-    private func isUUID(_ value: String) -> Bool {
+    func isUUID(_ value: String) -> Bool {
         return UUID(uuidString: value) != nil
     }
 

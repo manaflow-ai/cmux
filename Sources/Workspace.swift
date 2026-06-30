@@ -139,7 +139,8 @@ extension Workspace {
             progress: progressSnapshot,
             gitBranch: gitBranchSnapshot,
             remote: remoteConfiguration?.sessionSnapshot(),
-            environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
+            environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment,
+            tasks: workspaceTasks.isEmpty ? nil : workspaceTasks
         )
     }
 
@@ -185,6 +186,7 @@ extension Workspace {
         // every restored terminal (all of which spawn fresh shells — PTYs do not
         // survive an app restart) inherits it through `newTerminalSurface`.
         workspaceEnvironment = Self.sanitizedWorkspaceEnvironment(snapshot.environment ?? [:])
+        workspaceTasks = Self.sanitizedWorkspaceTasks(snapshot.tasks ?? [])
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
         let leafEntries: [SessionPaneRestoreEntry] = {
@@ -620,6 +622,14 @@ extension Workspace {
             agentSessionSnapshot = nil
         case .extensionBrowser:
             return nil
+        case .workspaceTasks:
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            agentSessionSnapshot = nil
+            projectSnapshot = nil
         }
         return SessionPanelSnapshot(
             id: panelId,
@@ -1560,6 +1570,18 @@ extension Workspace {
             return projectPanel.id
         case .extensionBrowser:
             return nil
+        case .workspaceTasks:
+            guard Self.workspaceTasksBetaEnabled() else {
+                return nil
+            }
+            guard let tasksPanel = newWorkspaceTasksSurface(
+                inPane: paneId,
+                focus: false
+            ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: tasksPanel.id)
+            return tasksPanel.id
         }
     }
 
@@ -2233,6 +2255,14 @@ final class Workspace: Identifiable, ObservableObject {
     /// the variables the daemon relies on (CMUX_WORKSPACE_ID, CMUX_SOCKET_PATH, …).
     /// Persisted in the session manifest and restored before surfaces are rebuilt.
     @Published var workspaceEnvironment: [String: String] = [:]
+    /// User-owned task list scoped to this workspace. Open tasks have no
+    /// `archivedAt`; completed tasks remain in the same list with `archivedAt`
+    /// set so every entry point uses one mutation path.
+    let workspaceTaskList = WorkspaceTaskList()
+    var workspaceTasks: [WorkspaceTask] {
+        get { workspaceTaskList.tasks }
+        set { workspaceTaskList.tasks = newValue }
+    }
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
     @Published private(set) var terminalScrollBarHidden: Bool = false
@@ -3991,6 +4021,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.project.rawValue
         case .extensionBrowser:
             return SurfaceKind.extensionBrowser.rawValue
+        case .workspaceTasks:
+            return SurfaceKind.workspaceTasks.rawValue
         }
     }
 
@@ -8261,6 +8293,81 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func openOrFocusWorkspaceTasksSurface(
+        inPane requestedPaneId: PaneID? = nil,
+        focus: Bool = true
+    ) -> WorkspaceTasksPanel? {
+        guard Self.workspaceTasksBetaEnabled() else { return nil }
+        for (panelId, panel) in panels {
+            guard let tasksPanel = panel as? WorkspaceTasksPanel else { continue }
+            tasksPanel.reattach(to: self)
+            if focus {
+                focusPanel(panelId)
+            }
+            return tasksPanel
+        }
+
+        guard let paneId = requestedPaneId ?? bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else {
+            return nil
+        }
+        return newWorkspaceTasksSurface(inPane: paneId, focus: focus)
+    }
+
+    @discardableResult
+    func newWorkspaceTasksSurface(
+        inPane paneId: PaneID,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> WorkspaceTasksPanel? {
+        guard Self.workspaceTasksBetaEnabled() else { return nil }
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let tasksPanel = WorkspaceTasksPanel(workspace: self)
+        panels[tasksPanel.id] = tasksPanel
+        panelTitles[tasksPanel.id] = tasksPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: tasksPanel.displayTitle,
+            icon: tasksPanel.displayIcon,
+            kind: SurfaceKind.workspaceTasks.rawValue,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: tasksPanel.id)
+            panelTitles.removeValue(forKey: tasksPanel.id)
+            return nil
+        }
+
+        bindSurface(newTabId, toPanelId: tasksPanel.id)
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(
+            tasksPanel.id,
+            paneId: paneId,
+            kind: SurfaceKind.workspaceTasks.rawValue,
+            origin: "workspace_tasks_tab",
+            focused: shouldFocusNewTab
+        )
+
+        if shouldFocusNewTab {
+            focusPanel(tasksPanel.id)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: tasksPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return tasksPanel
+    }
+
+    @discardableResult
     func splitPaneWithMarkdown(
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
@@ -8573,6 +8680,68 @@ final class Workspace: Identifiable, ObservableObject {
         filePreviewPanel.focus()
         installFilePreviewPanelSubscription(filePreviewPanel)
         return filePreviewPanel
+    }
+
+    @discardableResult
+    func splitPaneWithWorkspaceTasks(
+        targetPane paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        focus: Bool = true,
+        initialDividerPosition: CGFloat? = nil
+    ) -> WorkspaceTasksPanel? {
+        guard Self.workspaceTasksBetaEnabled() else { return nil }
+        let tasksPanel = WorkspaceTasksPanel(workspace: self)
+        panels[tasksPanel.id] = tasksPanel
+        panelTitles[tasksPanel.id] = tasksPanel.displayTitle
+
+        let newTab = Bonsplit.Tab(
+            title: tasksPanel.displayTitle,
+            icon: tasksPanel.displayIcon,
+            kind: SurfaceKind.workspaceTasks.rawValue,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false
+        )
+        bindSurface(newTab.id, toPanelId: tasksPanel.id)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard let newPaneId = bonsplitController.splitPane(
+            paneId,
+            orientation: orientation,
+            withTab: newTab,
+            insertFirst: insertFirst
+        ) else {
+            panels.removeValue(forKey: tasksPanel.id)
+            panelTitles.removeValue(forKey: tasksPanel.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
+            return nil
+        }
+        applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
+        publishCmuxSplitCreated(
+            newPaneId,
+            sourcePaneId: paneId,
+            orientation: orientation,
+            surfaceId: tasksPanel.id,
+            kind: SurfaceKind.workspaceTasks.rawValue,
+            origin: "workspace_tasks_split",
+            focused: focus
+        )
+
+        if focus {
+            bonsplitController.selectTab(newTab.id)
+            focusPanel(tasksPanel.id)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: tasksPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+        return tasksPanel
     }
 
     /// Tear down all panels before removing the workspace.
@@ -9276,6 +9445,8 @@ final class Workspace: Identifiable, ObservableObject {
             rightSidebarToolPanel.reattach(to: self)
         } else if let customSidebarPanel = detached.panel as? CustomSidebarPanel {
             customSidebarPanel.reattach(to: self)
+        } else if let workspaceTasksPanel = detached.panel as? WorkspaceTasksPanel {
+            workspaceTasksPanel.reattach(to: self)
         }
         AppDelegate.shared?.notificationStore?.rebindSurfaceNotifications(
             fromTabId: detached.sourceWorkspaceId,

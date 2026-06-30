@@ -840,7 +840,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
-          "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다."
+          "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다.",
+          "workspaceControls": "사이드바의 워크스페이스 행에 마우스를 올렸을 때 표시되는 내장 컨트롤입니다. 닫기 컨트롤은 항상 유지되며 최대 3개의 컨트롤이 표시됩니다."
         },
         "fileExplorer": {
           "description": "오른쪽 사이드바 파일 탐색기(파일 트리) 설정입니다.",

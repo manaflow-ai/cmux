@@ -122,6 +122,13 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: RightSidebarWidthSettings.maxWidthKey
     )
 
+    /// Built-in hover controls exposed on each sidebar workspace row.
+    public let workspaceControls = DefaultsKey<[WorkspaceRowControlOption]>(
+        id: "sidebar.workspaceControls",
+        defaultValue: WorkspaceRowControlOption.defaultControls,
+        userDefaultsKey: "sidebarWorkspaceControls"
+    )
+
     public let rememberedRightMaxWidth = DefaultsKey<Double>(
         id: "sidebar.rightMaxWidth.remembered",
         defaultValue: RightSidebarWidthSettings.defaultConfiguredMaximumWidth,

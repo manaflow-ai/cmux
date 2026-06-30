@@ -5583,6 +5583,13 @@ extension TabManager {
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
             hasher.combine(workspace.isPinned)
+            hasher.combine(workspace.workspaceTasks.count)
+            for task in workspace.workspaceTasks {
+                hasher.combine(task.id)
+                hasher.combine(task.title)
+                hasher.combine(task.createdAt.timeIntervalSince1970)
+                hasher.combine(task.archivedAt?.timeIntervalSince1970)
+            }
             hasher.combine(workspace.panels.count)
             hasher.combine(workspace.statusEntries.count)
             hasher.combine(workspace.metadataBlocks.count)

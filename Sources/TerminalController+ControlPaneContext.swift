@@ -370,6 +370,17 @@ extension TerminalController: ControlPaneContext {
                 creationPolicy: .automationPreload,
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
             )?.id
+        } else if panelType == .workspaceTasks {
+            guard let sourcePaneId = ws.paneId(forPanelId: sourcePanelId) else {
+                return .createFailed
+            }
+            newPanelId = ws.splitPaneWithWorkspaceTasks(
+                targetPane: sourcePaneId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                focus: focus,
+                initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+            )?.id
         } else {
             switch ws.newTerminalSplitOutcome(
                 from: sourcePanelId,
@@ -426,6 +437,8 @@ extension TerminalController: ControlPaneContext {
             return .rightSidebarTool
         case "agentsession":
             return .agentSession
+        case "workspacetasks":
+            return .workspaceTasks
         default:
             return nil
         }

@@ -401,6 +401,34 @@ import Testing
         #expect(store.workspaceID(matchingRemoteWorkspaceID: "shared", macDeviceID: "missing") == nil)
     }
 
+    @Test func terminalSurfaceWorkspaceMatchUsesRemoteWorkspaceIDForScopedRows() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        var workspace = MobileWorkspacePreview(
+            id: "mac-b:shared",
+            macDeviceID: "mac-b",
+            name: "Mac B",
+            terminals: [MobileTerminalPreview(id: "terminal-shared", name: "b")]
+        )
+        workspace.remoteWorkspaceID = "shared"
+        store.setWorkspaceStatesForTesting([
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                workspaces: [workspace],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "mac-b")
+
+        #expect(store.terminalSurfaceMatchesRemoteWorkspace(
+            surfaceID: "terminal-shared",
+            remoteWorkspaceID: "shared"
+        ))
+        #expect(!store.terminalSurfaceMatchesRemoteWorkspace(
+            surfaceID: "terminal-shared",
+            remoteWorkspaceID: "mac-b:shared"
+        ))
+    }
+
     @Test func foregroundNotificationSuppressionRequiresExplicitSelection() {
         let store = MobileShellComposite.preview()
         store.signIn()

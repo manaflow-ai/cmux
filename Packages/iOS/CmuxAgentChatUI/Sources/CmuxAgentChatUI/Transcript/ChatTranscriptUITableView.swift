@@ -7,10 +7,8 @@ final class ChatTranscriptUITableView: UITableView {
     var afterLayout: ((
         _ oldBoundsSize: CGSize,
         _ oldContentSize: CGSize,
-        _ oldViewport: MobileScrollViewportSnapshot?,
-        _ oldAnchor: ChatTranscriptTableAnchor?
+        _ oldViewport: MobileScrollViewportSnapshot?
     ) -> Void)?
-    var anchorBeforeLayout: (() -> ChatTranscriptTableAnchor?)?
     #if DEBUG
     var keyboardDebugEventCount = 0
     var keyboardDebugOverlap: CGFloat = 0
@@ -49,15 +47,10 @@ final class ChatTranscriptUITableView: UITableView {
     }
     #endif
 
-    override var contentOffset: CGPoint {
-        didSet { recordViewport() }
-    }
-
     override func layoutSubviews() {
         let oldBoundsSize = lastBoundsSize
         let oldContentSize = lastContentSize
         let oldViewport = lastViewport
-        let oldAnchor = anchorBeforeLayout?()
         super.layoutSubviews()
         lastBoundsSize = bounds.size
         lastContentSize = contentSize
@@ -65,7 +58,7 @@ final class ChatTranscriptUITableView: UITableView {
         #if DEBUG
         updateDebugAccessibilityValue()
         #endif
-        afterLayout?(oldBoundsSize, oldContentSize, oldViewport, oldAnchor)
+        afterLayout?(oldBoundsSize, oldContentSize, oldViewport)
     }
 
     func applyScrollEdgeEffects(topSoft: Bool, bottomSoft: Bool) {
@@ -105,13 +98,6 @@ final class ChatTranscriptUITableView: UITableView {
         restoreKeyboardViewport(snapshot, boundsHeight: bounds.height)
     }
 
-    func recordCurrentViewport() {
-        recordViewport()
-        #if DEBUG
-        updateDebugAccessibilityValue()
-        #endif
-    }
-
     func restoreKeyboardViewport(
         _ snapshot: MobileScrollViewportSnapshot,
         boundsHeight: CGFloat
@@ -123,7 +109,10 @@ final class ChatTranscriptUITableView: UITableView {
             adjustedBottomInset: adjustedContentInset.bottom
         )
         setContentOffset(CGPoint(x: contentOffset.x, y: targetY), animated: false)
-        recordCurrentViewport()
+        recordViewport()
+        #if DEBUG
+        updateDebugAccessibilityValue()
+        #endif
     }
 
     func applyTranscriptViewportInsets(
@@ -294,10 +283,4 @@ final class ChatTranscriptUITableView: UITableView {
     }
     #endif
 }
-
-struct ChatTranscriptTableAnchor {
-    let id: String
-    let offsetFromRowTop: CGFloat
-}
-
 #endif

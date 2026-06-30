@@ -12,6 +12,8 @@ public struct BetaFeaturesSection: View {
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
+    @State private var workspaceTasks: DefaultsValueModel<Bool>
+    @State private var workspaceControls: DefaultsValueModel<Bool>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
@@ -19,6 +21,8 @@ public struct BetaFeaturesSection: View {
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
+        _workspaceTasks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTasks))
+        _workspaceControls = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceControls))
     }
 
     public var body: some View {
@@ -38,6 +42,10 @@ public struct BetaFeaturesSection: View {
                 customSidebarsRow
                 SettingsCardDivider()
                 remoteTmuxRow
+                SettingsCardDivider()
+                workspaceTasksRow
+                SettingsCardDivider()
+                workspaceControlsRow
             }
         }
         .task { startObservingSettings() }
@@ -50,6 +58,8 @@ public struct BetaFeaturesSection: View {
             extensions,
             customSidebars,
             remoteTmux,
+            workspaceTasks,
+            workspaceControls,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -136,6 +146,40 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaRemoteTmuxToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var workspaceTasksRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:workspaceTasks",
+            String(localized: "settings.betaFeatures.workspaceTasks", defaultValue: "Workspace Tasks"),
+            subtitle: workspaceTasks.current
+                ? String(localized: "settings.betaFeatures.workspaceTasks.subtitleOn", defaultValue: "Shows native per-workspace task lists, the task surface, task popovers, and task CLI/socket commands.")
+                : String(localized: "settings.betaFeatures.workspaceTasks.subtitleOff", defaultValue: "Hides workspace task lists until you enable them here.")
+        ) {
+            Toggle("", isOn: Binding(get: { workspaceTasks.current }, set: { workspaceTasks.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaWorkspaceTasksToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var workspaceControlsRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:workspaceControls",
+            String(localized: "settings.betaFeatures.workspaceControls", defaultValue: "Workspace Controls"),
+            subtitle: workspaceControls.current
+                ? String(localized: "settings.betaFeatures.workspaceControls.subtitleOn", defaultValue: "Lets sidebar workspace rows expose configurable cmux hover controls.")
+                : String(localized: "settings.betaFeatures.workspaceControls.subtitleOff", defaultValue: "Keeps sidebar workspace rows on the existing close-only hover control.")
+        ) {
+            Toggle("", isOn: Binding(get: { workspaceControls.current }, set: { workspaceControls.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaWorkspaceControlsToggle")
         }
     }
 }

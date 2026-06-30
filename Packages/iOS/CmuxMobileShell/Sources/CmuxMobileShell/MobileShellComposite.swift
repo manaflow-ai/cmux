@@ -769,6 +769,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }?.rpcWorkspaceID
     }
 
+    func terminalSurfaceMatchesRemoteWorkspace(surfaceID: String, remoteWorkspaceID: String) -> Bool {
+        self.remoteWorkspaceID(containingTerminalID: surfaceID)?.rawValue == remoteWorkspaceID
+    }
+
     private var selectedTerminal: MobileTerminalPreview? {
         guard let selectedWorkspace else {
             return nil
@@ -4919,6 +4923,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         lastTerminalEventAt = nil
     }
 
+    #if DEBUG
+    func debugResetTerminalOutputTrackingForTesting() {
+        resetTerminalOutputTracking()
+    }
+    #endif
+
     /// The one shared entry every pairing flow funnels through, so it is also the
     /// single `ios_pairing_started` fire-site. `method` is `qr`/`manual`/
     /// `attach_url`; pass `nil` for non-instrumented internal flows (preview).
@@ -6535,7 +6545,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func handleTerminalSetFontEvent(_ event: MobileEventEnvelope) {
         guard
             let json = event.payloadJSON,
-            let payload = try? MobileTerminalSetFontEvent.decode(json)
+            let payload = try? JSONDecoder().decode(MobileTerminalSetFontEvent.self, from: json)
         else {
             return
         }
@@ -6543,10 +6553,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let surfaceID = payload.surfaceID {
             terminalLiveFontContinuationsBySurfaceID[surfaceID]?.yield(points)
         } else if let targetWorkspaceID = payload.workspaceID {
-            // Workspace-scoped: only mounted surfaces in that workspace, so
-            // `set-font --workspace <id>` never resizes unrelated terminals.
+            // Workspace-scoped: only mounted surfaces in that Mac-local workspace,
+            // so `set-font --workspace <id>` never resizes unrelated terminals.
             for (surfaceID, continuation) in terminalLiveFontContinuationsBySurfaceID
-            where workspaceID(forTerminalID: surfaceID)?.rawValue == targetWorkspaceID {
+            where terminalSurfaceMatchesRemoteWorkspace(surfaceID: surfaceID, remoteWorkspaceID: targetWorkspaceID) {
                 continuation.yield(points)
             }
         } else {
@@ -6557,6 +6567,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+
+    #if DEBUG
+    func debugDeliverTerminalSetFontForTesting(
+        surfaceID: String? = nil,
+        workspaceID: String? = nil,
+        fontSize: Double
+    ) {
+        var payload: [String: Any] = ["font_size": fontSize]
+        if let surfaceID {
+            payload["surface_id"] = surfaceID
+        }
+        if let workspaceID {
+            payload["workspace_id"] = workspaceID
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else {
+            return
+        }
+        handleTerminalSetFontEvent(MobileEventEnvelope(
+            topic: "terminal.set_font",
+            payloadJSON: data,
+            streamID: nil
+        ))
+    }
+    #endif
 
     private func handleNotificationDismissedEvent(_ event: MobileEventEnvelope) async {
         guard

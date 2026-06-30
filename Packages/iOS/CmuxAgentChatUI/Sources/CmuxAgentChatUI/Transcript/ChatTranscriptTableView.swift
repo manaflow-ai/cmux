@@ -81,8 +81,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         private var topRequestKey: String?
         private var lastScrollToBottomRequest = 0
         private var isHandlingLayout = false
-        private var isApplyingDataUpdate = false
-        private var pendingContentUpdateAnchor: ChatTranscriptTableAnchor?
         private weak var tableView: ChatTranscriptUITableView?
         private var isAtBottom: Binding<Bool>
         #if DEBUG
@@ -96,18 +94,13 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
         func attach(_ tableView: ChatTranscriptUITableView) {
             self.tableView = tableView
-            tableView.anchorBeforeLayout = { [weak self, weak tableView] in
-                guard let self, let tableView else { return nil }
-                return self.firstVisibleAnchor(in: tableView)
-            }
-            tableView.afterLayout = { [weak self, weak tableView] oldBoundsSize, oldContentSize, oldViewport, oldAnchor in
+            tableView.afterLayout = { [weak self, weak tableView] oldBoundsSize, oldContentSize, oldViewport in
                 guard let self, let tableView else { return }
                 self.handleLayoutChange(
                     in: tableView,
                     oldBoundsSize: oldBoundsSize,
                     oldContentSize: oldContentSize,
-                    oldViewport: oldViewport,
-                    oldAnchor: oldAnchor
+                    oldViewport: oldViewport
                 )
             }
         }
@@ -124,34 +117,29 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 || configuration.agentState != agentState
             let shouldScrollToBottom = scrollToBottomRequest != lastScrollToBottomRequest
             lastScrollToBottomRequest = scrollToBottomRequest
-            let wasAtBottom = distanceFromBottom(in: tableView) <= chatTranscriptAtBottomThreshold
+            let wasAtBottom = isAtBottom.wrappedValue
+                || distanceFromBottom(in: tableView) <= chatTranscriptAtBottomThreshold
             let anchor = firstVisibleAnchor(in: tableView)
 
             guard shouldReload else {
                 if shouldScrollToBottom {
-                    pendingContentUpdateAnchor = nil
                     scrollToBottom(in: tableView, animated: true)
                 }
                 updateBottomState(from: tableView)
                 return
             }
 
-            pendingContentUpdateAnchor = nil
             items = nextItems
             expandedIDs = configuration.expandedIDs
             agentState = configuration.agentState
 
-            isApplyingDataUpdate = true
-            defer { isApplyingDataUpdate = false }
             tableView.reloadData()
             tableView.layoutIfNeeded()
 
             if shouldScrollToBottom || wasAtBottom {
-                pendingContentUpdateAnchor = nil
                 scrollToBottom(in: tableView, animated: false)
             } else if let anchor {
                 restore(anchor, in: tableView)
-                pendingContentUpdateAnchor = anchor
             }
             #if DEBUG
             applyDebugInitialScrollIfNeeded(in: tableView)
@@ -188,25 +176,17 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             requestOlderHistoryIfNeeded(in: tableView)
         }
 
-        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-            pendingContentUpdateAnchor = nil
-        }
-
         private func handleLayoutChange(
             in tableView: ChatTranscriptUITableView,
             oldBoundsSize: CGSize,
             oldContentSize: CGSize,
-            oldViewport: MobileScrollViewportSnapshot?,
-            oldAnchor: ChatTranscriptTableAnchor?
+            oldViewport: MobileScrollViewportSnapshot?
         ) {
             guard !isHandlingLayout else { return }
             let boundsChanged = abs(oldBoundsSize.height - tableView.bounds.height) > 0.5
                 || abs(oldBoundsSize.width - tableView.bounds.width) > 0.5
             let contentChanged = abs(oldContentSize.height - tableView.contentSize.height) > 0.5
             guard boundsChanged || contentChanged else {
-                if !isApplyingDataUpdate {
-                    pendingContentUpdateAnchor = nil
-                }
                 updateBottomState(from: tableView)
                 return
             }
@@ -218,20 +198,11 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 updateBottomState(from: tableView)
                 return
             }
-            if isApplyingDataUpdate {
-                updateBottomState(from: tableView)
-                return
-            }
 
             if boundsChanged, let oldViewport {
                 restoreKeyboardViewport(snapshot: oldViewport, in: tableView)
-            } else if contentChanged, let pendingContentUpdateAnchor {
-                restore(pendingContentUpdateAnchor, in: tableView)
-                self.pendingContentUpdateAnchor = nil
-            } else if oldViewport?.wasAtBottom == true {
+            } else if isAtBottom.wrappedValue {
                 scrollToBottom(in: tableView, animated: false)
-            } else if contentChanged, let oldAnchor {
-                restore(oldAnchor, in: tableView)
             }
             updateBottomState(from: tableView)
         }
@@ -257,14 +228,12 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 y: clampedOffsetY(rect.minY + anchor.offsetFromRowTop, in: tableView)
             )
             tableView.setContentOffset(offset, animated: false)
-            (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
         }
 
         private func scrollToBottom(in tableView: UITableView, animated: Bool) {
             tableView.layoutIfNeeded()
             let targetY = maxOffsetY(in: tableView)
             tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: targetY), animated: animated)
-            (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
             setAtBottom(true)
         }
 
@@ -330,7 +299,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             let maxY = maxOffsetY(in: tableView)
             let targetY = clampedOffsetY(minY + ((maxY - minY) * 0.5), in: tableView)
             tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: targetY), animated: false)
-            (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
             setAtBottom(false)
         }
         #endif
@@ -349,7 +317,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 CGPoint(x: tableView.contentOffset.x, y: offsetY),
                 animated: false
             )
-            (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
             setAtBottom(snapshot.wasAtBottom)
         }
     }
@@ -508,6 +475,11 @@ private enum ChatTranscriptTableItem: Equatable {
             return "bottom-anchor"
         }
     }
+}
+
+private struct ChatTranscriptTableAnchor {
+    let id: String
+    let offsetFromRowTop: CGFloat
 }
 
 #endif

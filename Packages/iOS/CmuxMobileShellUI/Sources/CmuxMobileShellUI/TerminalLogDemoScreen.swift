@@ -17,33 +17,12 @@ struct TerminalLogDemoScreen: View {
     private static let blocks: [TerminalCommandBlock] = [
         TerminalCommandBlock(
             id: 0, command: "ls -la",
-            output: [
-                "total 96",
-                "drwxr-xr-x   8 me  staff   256 Jun 12 22:10 .",
-                "-rw-r--r--   1 me  staff    42 Jun 12 22:10 README.md",
-                "-rw-r--r--   1 me  staff  1024 Jun 12 22:10 main.swift",
-                "-rw-r--r--   1 me  staff   512 Jun 12 22:10 Package.swift",
-                "-rw-r--r--   1 me  staff   256 Jun 12 22:10 Tests.swift",
-                "drwxr-xr-x   4 me  staff   128 Jun 12 22:10 Sources",
-                "drwxr-xr-x   4 me  staff   128 Jun 12 22:10 Fixtures",
-            ].joined(separator: "\n"),
+            output: "total 24\ndrwxr-xr-x   6 me  staff   192 Jun 12 22:10 .\n-rw-r--r--   1 me  staff    42 Jun 12 22:10 README.md\n-rw-r--r--   1 me  staff  1024 Jun 12 22:10 main.swift",
             exitCode: 0, isRunning: false
         ),
         TerminalCommandBlock(
             id: 1, command: "git status",
-            output: """
-            On branch feat-ios-chat-ui
-            Your branch is up to date with 'origin/feat-ios-chat-ui'.
-
-            Changes to be committed:
-              modified: Sources/Transcript/TerminalLogDemoScreen.swift
-
-            Untracked files:
-              tmp/scroll-proof-before.png
-              tmp/scroll-proof-after.png
-
-            nothing else to commit
-            """,
+            output: "On branch feat-ios-chat-ui\nnothing to commit, working tree clean",
             exitCode: 0, isRunning: false
         ),
         TerminalCommandBlock(
@@ -53,40 +32,19 @@ struct TerminalLogDemoScreen: View {
         ),
         TerminalCommandBlock(
             id: 3, command: "cat missing.txt",
-            output: [
-                "cat: missing.txt: No such file or directory",
-                "searched: ./missing.txt",
-                "searched: ./Fixtures/missing.txt",
-                "searched: ./Tests/missing.txt",
-                "hint: regenerate fixtures before rerunning",
-            ].joined(separator: "\n"),
+            output: "cat: missing.txt: No such file or directory",
             exitCode: 1, isRunning: false
         ),
         TerminalCommandBlock(
             id: 4, command: "npm run dev",
-            output: """
-            Starting dev server...
-            Ready in 612ms
-            Route / warmed in 91ms
-            Route /handler/sign-in warmed in 87ms
-            Route /handler/after-sign-in warmed in 82ms
-            Listening on http://localhost:3000
-            """,
+            output: "Starting dev server…\nListening on http://localhost:3000",
             exitCode: nil, isRunning: true
         ),
         TerminalCommandBlock(
             id: 5, command: "vim notes.md",
             output: "", exitCode: nil, isRunning: true, isInteractive: true
         ),
-    ] + (6...12).map { index in
-        TerminalCommandBlock(
-            id: index,
-            command: "script/check-\(index).sh",
-            output: (1...(index == 10 ? 24 : 8)).map { "check \(index).\($0): ok" }.joined(separator: "\n"),
-            exitCode: 0,
-            isRunning: false
-        )
-    }
+    ]
 
     var body: some View {
         NavigationStack {

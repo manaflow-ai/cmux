@@ -23,6 +23,11 @@ struct ControlCommandExecutionPolicyTests {
             "feed.push", "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
+            // Workspace task commands are worker-lane methods whose handlers
+            // resolve workspace state through v2MainSync.
+            "workspace.tasks.list", "workspace.tasks.add",
+            "workspace.tasks.archive", "workspace.tasks.remove",
+            "workspace.tasks.move", "workspace.tasks.open",
             "debug.sidebar.simulate_drag", "mobile.attach_ticket.create",
             "mobile.terminal.set_font",
             // JavaScript-evaluating browser methods block on page JS and must

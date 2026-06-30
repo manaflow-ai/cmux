@@ -991,6 +991,9 @@ struct ContentView: View {
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
+    @StateObject private var sidebarLayoutSettingsStore = SidebarTabItemSettingsStore(
+        initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
+    )
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
@@ -1239,7 +1242,9 @@ struct ContentView: View {
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {
-        CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
+        let configuredMinimum = CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
+        let controlsMinimum = sidebarLayoutSettingsStore.snapshot.workspaceRowControls.layout.minimumSidebarWidth
+        return max(configuredMinimum, controlsMinimum)
     }
 
     private enum SidebarResizerHandle: Hashable {
@@ -5540,6 +5545,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+        case .workspaceTasks:
+            return String(localized: "workspaceTasks.surface.title", defaultValue: "Workspace Tasks")
         }
     }
     private func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
@@ -5562,6 +5569,8 @@ struct ContentView: View {
             return ["project", "xcode", "build", "settings", "schemes", "targets"]
         case .extensionBrowser:
             return ["sidebar", "extensions", "extensionkit", "browser"]
+        case .workspaceTasks:
+            return ["workspace", "tasks", "todos", "goals"]
         }
     }
     private func commandPaletteCachedCommandsContext() -> CommandPaletteCommandsContext {
@@ -9570,6 +9579,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
+    let workspaceRowControls: WorkspaceRowControlsSnapshot
 
     init(
         defaults: UserDefaults = .standard,
@@ -9625,6 +9635,12 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
+        workspaceRowControls = WorkspaceRowControlsSnapshot.resolved(
+            workspaceControlsBetaEnabled: settings.value(for: catalog.betaFeatures.workspaceControls),
+            workspaceTasksBetaEnabled: settings.value(for: catalog.betaFeatures.workspaceTasks),
+            configuredControls: settings.value(for: catalog.sidebar.workspaceControls),
+            fontScale: sidebarFontScale
+        )
     }
 
     private static func bool(
@@ -11105,6 +11121,8 @@ struct VerticalTabsSidebar: View {
             return .project
         case .extensionBrowser:
             return .unknown
+        case .workspaceTasks:
+            return .unknown
         }
     }
 
@@ -12426,6 +12444,11 @@ struct VerticalTabsSidebar: View {
             dragState.beginDragging(tabId: tabId)
             return SidebarTabDragPayload.provider(for: tabId)
         }
+        let workspaceTaskStatus = WorkspaceTaskSidebarStatus(
+            openCount: tab.openWorkspaceTasks.count,
+            archivedCount: tab.archivedWorkspaceTasks.count
+        )
+
         let row = TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
@@ -12440,6 +12463,7 @@ struct VerticalTabsSidebar: View {
             accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: liveUnreadCount,
             latestNotificationText: liveLatestNotificationText,
+            workspaceTaskStatus: workspaceTaskStatus,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
@@ -12496,6 +12520,23 @@ struct SidebarWorkspaceFrameAnchorModifier: ViewModifier {
 extension View {
     func sidebarWorkspaceFrameAnchor(id: UUID, isEnabled: Bool) -> some View {
         modifier(SidebarWorkspaceFrameAnchorModifier(id: id, isEnabled: isEnabled))
+    }
+}
+
+nonisolated struct WorkspaceTaskSidebarStatus: Equatable {
+    let openCount: Int
+    let archivedCount: Int
+
+    var hasTasks: Bool {
+        openCount > 0 || archivedCount > 0
+    }
+
+    var isComplete: Bool {
+        openCount == 0 && archivedCount > 0
+    }
+
+    var openCountDisplayText: String {
+        openCount > 99 ? "99+" : "\(openCount)"
     }
 }
 
@@ -13279,6 +13320,7 @@ struct TabItemView: View, Equatable {
         lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
         lhs.unreadCount == rhs.unreadCount &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
+        lhs.workspaceTaskStatus == rhs.workspaceTaskStatus &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
@@ -13316,6 +13358,7 @@ struct TabItemView: View, Equatable {
     let accessibilityWorkspaceCount: Int
     let unreadCount: Int
     let latestNotificationText: String?
+    let workspaceTaskStatus: WorkspaceTaskSidebarStatus
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
@@ -13352,6 +13395,7 @@ struct TabItemView: View, Equatable {
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
+    @State private var workspaceTasksPopoverPresented = false
 
     private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
@@ -13540,11 +13584,72 @@ struct TabItemView: View, Equatable {
         usesInvertedActiveForeground ? 1.0 : 0.9
     }
 
-    private var showCloseButton: Bool {
-        rowInteractionState.shouldShowCloseButton(
-            canCloseWorkspace: canCloseWorkspace,
+    private var visibleWorkspaceRowControls: [WorkspaceRowControlOption] {
+        settings.workspaceRowControls.controls.filter { option in
+            switch option {
+            case .close:
+                canCloseWorkspace
+            case .tasks:
+                true
+            }
+        }
+    }
+
+    private var showWorkspaceRowControls: Bool {
+        rowInteractionState.shouldShowWorkspaceControls(
+            hasControls: !visibleWorkspaceRowControls.isEmpty,
             shortcutHintModeActive: showsModifierShortcutHints || alwaysShowShortcutHints
         )
+    }
+
+    private var showsWorkspaceTaskStatusBadge: Bool {
+        workspaceTaskStatus.hasTasks && settings.workspaceRowControls.controls.contains(.tasks)
+    }
+
+    private var workspaceTaskStatusHelpText: String {
+        String(
+            format: String(
+                localized: "sidebar.workspaceTasks.status.help",
+                defaultValue: "Workspace Tasks: %d open, %d archived"
+            ),
+            locale: .current,
+            workspaceTaskStatus.openCount,
+            workspaceTaskStatus.archivedCount
+        )
+    }
+
+    @ViewBuilder
+    private var workspaceTaskStatusBadge: some View {
+        if showsWorkspaceTaskStatusBadge {
+            HStack(spacing: 3) {
+                Image(systemName: workspaceTaskStatus.isComplete ? "checkmark.circle.fill" : "checklist")
+                    .font(magnifiedFont(scaledFontSize(8.5), weight: .semibold))
+
+                if workspaceTaskStatus.openCount > 0 {
+                    Text(workspaceTaskStatus.openCountDisplayText)
+                        .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
+            }
+            .foregroundColor(workspaceTaskStatus.isComplete ? activeSecondaryColor(0.82) : workspaceTaskAccentColor)
+            .padding(.horizontal, workspaceTaskStatus.openCount > 0 ? 5 : 0)
+            .frame(height: 16)
+            .frame(minWidth: workspaceTaskStatus.openCount > 0 ? 22 : 12, alignment: .center)
+            .background {
+                if workspaceTaskStatus.openCount > 0 {
+                    Capsule()
+                        .fill(workspaceTaskAccentColor.opacity(usesInvertedActiveForeground ? 0.2 : 0.12))
+                }
+            }
+            .safeHelp(workspaceTaskStatusHelpText)
+            .accessibilityLabel(workspaceTaskStatusHelpText)
+        }
+    }
+
+    private var workspaceTaskAccentColor: Color {
+        Color(red: 0.86, green: 0.25, blue: 0.19)
     }
 
     private var workspaceShortcutLabel: String? {
@@ -13678,6 +13783,44 @@ struct TabItemView: View, Equatable {
         WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(ids)
     }
 
+    @ViewBuilder
+    private func workspaceRowControlButton(
+        _ option: WorkspaceRowControlOption,
+        closeButtonTooltip: String,
+        size: CGFloat
+    ) -> some View {
+        switch option {
+        case .close:
+            WorkspaceRowControlButton(
+                option: option,
+                size: size,
+                foregroundColor: activeSecondaryColor(0.7),
+                closeTooltip: closeButtonTooltip,
+                action: {
+                    #if DEBUG
+                    cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                    #endif
+                    tabManager.closeWorkspaceWithConfirmation(tab)
+                }
+            )
+        case .tasks:
+            WorkspaceRowControlButton(
+                option: option,
+                size: size,
+                foregroundColor: activeSecondaryColor(0.7),
+                closeTooltip: closeButtonTooltip,
+                action: {
+                    workspaceTasksPopoverPresented = true
+                }
+            )
+            .popover(isPresented: $workspaceTasksPopoverPresented, arrowEdge: .trailing) {
+                WorkspaceTasksPopoverView(workspace: tab) {
+                    openWorkspaceTasksFromSidebarRow(tab: tab, tabManager: tabManager, selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, isPopoverPresented: $workspaceTasksPopoverPresented)
+                }
+            }
+        }
+    }
+
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
         settings.visibleAuxiliaryDetails
     }
@@ -13719,11 +13862,8 @@ struct TabItemView: View, Equatable {
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
         )
         let scaledUnreadBadgeSize = 16 * fontScale
-        let scaledCloseButtonHitSize = max(16, 16 * fontScale)
-        let scaledCloseButtonWidth = max(
-            SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,
-            scaledCloseButtonHitSize
-        )
+        let workspaceRowControlsLayout = settings.workspaceRowControls.layout
+        let visibleWorkspaceRowControls = self.visibleWorkspaceRowControls
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 8) {
@@ -13781,6 +13921,8 @@ struct TabItemView: View, Equatable {
                         .accessibilityLabel(cameraInUseTooltip)
                 }
 
+                workspaceTaskStatusBadge
+
                 Text(displayedTitle)
                     .font(magnifiedFont(scaledFontSize(12.5), weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
@@ -13790,28 +13932,27 @@ struct TabItemView: View, Equatable {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
 
-                // The close button is a sibling that always reserves its width
-                // when the workspace is closable, so the title wraps/truncates
-                // before this corner instead of flowing under the hover x. Its
-                // visibility toggles via opacity so hover never re-lays-out the
-                // row. (Matches the group-header plus-button pattern.)
-                if canCloseWorkspace {
-                    Button(action: {
-                        #if DEBUG
-                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                        #endif
-                        tabManager.closeWorkspaceWithConfirmation(tab)
-                    }) {
-                        CmuxSystemSymbolImage(magnified: "xmark", pointSize: scaledFontSize(9), weight: .medium)
-                            .foregroundColor(activeSecondaryColor(0.7))
-                            .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
-                            .contentShape(Rectangle())
+                // Hover controls reserve their configured width so revealing
+                // them never changes title wrapping. Individual rows can filter
+                // unavailable controls, such as close on a non-closable row.
+                if !visibleWorkspaceRowControls.isEmpty {
+                    HStack(spacing: workspaceRowControlsLayout.controlSpacing) {
+                        ForEach(visibleWorkspaceRowControls, id: \.self) { option in
+                            workspaceRowControlButton(
+                                option,
+                                closeButtonTooltip: closeButtonTooltip,
+                                size: workspaceRowControlsLayout.controlHitSize
+                            )
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .safeHelp(closeButtonTooltip)
-                    .opacity(showCloseButton ? 1 : 0)
-                    .allowsHitTesting(showCloseButton)
-                    .accessibilityHidden(!showCloseButton)
+                    .frame(
+                        width: max(workspaceRowControlsLayout.trailingWidth, workspaceRowControlsLayout.controlHitSize),
+                        height: workspaceRowControlsLayout.controlHitSize,
+                        alignment: .trailing
+                    )
+                    .opacity(showWorkspaceRowControls ? 1 : 0)
+                    .allowsHitTesting(showWorkspaceRowControls)
+                    .accessibilityHidden(!showWorkspaceRowControls)
                 }
             }
 

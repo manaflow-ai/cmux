@@ -666,6 +666,15 @@ final class CmuxSettingsFileStore {
             }
         }
 
+        if let rawValues = jsonStringArray(section["workspaceControls"]) {
+            let normalized = WorkspaceRowControlSanitizer().sanitizedRawValues(rawValues)
+            snapshot.managedUserDefaults[
+                SidebarCatalogSection().workspaceControls.userDefaultsKey
+            ] = .stringArray(normalized.map(\.rawValue))
+        } else if section.keys.contains("workspaceControls") {
+            logInvalid(SidebarSettingsFileMapping.workspaceControlsPath, sourcePath: sourcePath)
+        }
+
         if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
             snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(
                 RightSidebarWidthSettings().clampedSettingsEditorMaximumWidth(value)

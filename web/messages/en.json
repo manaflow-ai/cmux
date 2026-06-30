@@ -1033,7 +1033,8 @@
           "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
         },
         "sidebar": {
-          "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
+          "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies.",
+          "workspaceControls": "Built-in controls shown on hover in sidebar workspace rows. The close control is always preserved, and at most three controls are shown."
         },
         "fileExplorer": {
           "description": "Right-sidebar file explorer (file tree) settings.",
