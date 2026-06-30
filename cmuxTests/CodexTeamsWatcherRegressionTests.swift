@@ -243,13 +243,16 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
 
     private func sendHandshakeResponse(key: String, to fd: Int32) {
         let accept = Self.websocketAcceptValue(for: key)
-        let response = """
-        HTTP/1.1 101 Switching Protocols\r
-        Upgrade: websocket\r
-        Connection: Upgrade\r
-        Sec-WebSocket-Accept: \(accept)\r
-        \r
-        """
+        // The response must terminate with a blank line ("\r\n\r\n"). A Swift
+        // multiline string literal drops the final newline before the closing
+        // delimiter, which would emit "\r\n\r" and leave the client's WebSocket
+        // handshake parser waiting forever. Build the terminator explicitly.
+        let response =
+            "HTTP/1.1 101 Switching Protocols\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Sec-WebSocket-Accept: \(accept)\r\n" +
+            "\r\n"
         writeAll(Data(response.utf8), to: fd)
     }
 
