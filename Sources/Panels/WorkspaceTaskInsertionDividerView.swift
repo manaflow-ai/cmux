@@ -46,8 +46,7 @@ struct WorkspaceTaskInsertionDividerView: View {
                 submit: submit
             )
             Button(action: cancel) {
-                Image(systemName: "xmark")
-                    .cmuxSymbolRasterSize(12)
+                CmuxSystemSymbolImage(magnified: "xmark", pointSize: 12)
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
@@ -60,8 +59,7 @@ struct WorkspaceTaskInsertionDividerView: View {
     private var appendButton: some View {
         Button(action: activate) {
             HStack(spacing: 8) {
-                Image(systemName: "plus")
-                    .cmuxSymbolRasterSize(12, weight: .medium)
+                CmuxSystemSymbolImage(magnified: "plus", pointSize: 12, weight: .medium)
                     .foregroundStyle(taskAccent)
                     .frame(width: 18, height: 18)
                 Text(String(localized: "workspaceTasks.add.label", defaultValue: "Add task"))
@@ -101,8 +99,7 @@ struct WorkspaceTaskInsertionDividerView: View {
                 Rectangle()
                     .fill(taskAccent.opacity(isHovering ? 0.34 : 0))
                     .frame(height: 1)
-                Image(systemName: "plus")
-                    .cmuxSymbolRasterSize(11, weight: .semibold)
+                CmuxSystemSymbolImage(magnified: "plus", pointSize: 11, weight: .semibold)
                     .foregroundStyle(taskAccent)
                     .frame(width: 20, height: 20)
                     .background(.thinMaterial, in: Capsule())

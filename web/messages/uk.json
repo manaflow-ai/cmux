@@ -12,7 +12,8 @@
     "toggleTheme": "Перемкнути тему",
     "backToBlog": "Назад до блогу",
     "readTheDocs": "Читати документацію",
-    "viewChangelog": "Переглянути журнал змін"
+    "viewChangelog": "Переглянути журнал змін",
+    "otherPlatforms": "Інші платформи"
   },
   "nav": {
     "docs": "Документація",
@@ -99,7 +100,7 @@
     "faqCustomizeQ": "Чи можу я налаштувати cmux?",
     "faqCustomizeA": "Так. Рендеринг термінала використовує вашу конфігурацію Ghostty, тож теми, шрифти, кольори та курсор переносяться напряму. Власні налаштування cmux у <path>~/.config/cmux/cmux.json</path> керують бічною панеллю, панеллю вкладок, розділеними панелями та поведінкою, і кожне <shortcutsLink>сполучення клавіш</shortcutsLink> можна редагувати. Див. <link>конфігурацію</link>.",
     "faqIosQ": "Чи є застосунок для iOS?",
-    "faqIosA": "Так, у беті. Сполучіть iPhone з Маком у вікні Mobile Connect і під'єднуйтеся до своїх терміналів з телефона, з опціональним пересиланням сповіщень термінала. Розповсюджується в TestFlight як cmux BETA.",
+    "faqIosA": "Так, у беті. Сполучіть iPhone з Маком у вікні Mobile Connect і під'єднуйтеся до своїх терміналів з телефона, з опціональним пересиланням сповіщень термінала. Розповсюджується в TestFlight як cmux BETA. Ранній доступ входить до <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqSkillsQ": "Чи має cmux скіли?",
     "faqSkillsA": "Так. Скіли це багаторазові робочі процеси, які можна дати будь-якому агенту, що працює в cmux, для таких речей, як керування CLI, автоматизація робочих просторів, налаштування та поверхні браузера. Перегляньте відкриту колекцію на <skillsLink>cmux-skills</skillsLink> або прочитайте <link>документацію зі скілів</link>.",
     "faqBrowserQ": "Що вміє вбудований браузер?",
@@ -819,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Типово показує бета-ввід TextBox для новостворених робочих просторів, вкладок термінала й розділень.",
           "focusTextBoxOnNewTerminals": "Типово фокусує бета-ввід TextBox для новостворених робочих просторів, вкладок термінала й розділень. Фокусування також показує TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Коли увімкнено, банер сповіщення автоматично прибирається лише тоді, коли його поверхня є саме сфокусованою поверхнею. Банер, доставлений для несфокусованої поверхні в поточному видимому workspace, залишається показаним, доки ви не сфокусуєте цю поверхню (або не клацнете по ньому/закриєте його), замість того щоб бути прибраним, коли workspace стає видимим. Вимкнено зберігає попередню поведінку прибирання за видимістю workspace."
+        },
         "browser": {
           "defaultSearchEngine": "Пошукова система за замовчуванням для запитів в адресному рядку браузера, які не є URL. Для інших провайдерів використовуйте custom з customSearchEngineURLTemplate.",
           "customSearchEngineName": "Назва для показу, коли defaultSearchEngine має значення custom.",
@@ -847,7 +851,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Необов'язкові контекстні предикати для кожної дії (клаузи `when` у стилі VS Code), індексовані за ідентифікатором дії cmux. Кожне значення — булевий вираз над ключами контексту, поєднаними за допомогою !, &&, || та дужок. Булеві ключі: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Типізовані ключі підтримують порівняння: рядок sidebarMode (files, find, sessions, feed або dock) і цілі числа paneCount та workspaceCount. Оператори порівняння: ==, !=, =~ (регулярний вираз), <, <=, >, >= та `in [a, b]`; невідомий або відсутній ключ вважається false. Також приймаються булеві літерали true і false; `key == false` еквівалентно `!key`. Скорочення дії спрацьовує (і конфліктує з іншими скороченнями) лише тоді, коли клауза істинна. Приклади: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } вибирає робочі простори за допомогою Ctrl+1–9 всюди, крім випадків, коли у фокусі права бічна панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } обмежує прив'язку бічною панеллю пошуку, коли в робочому просторі кілька панелей.",
+          "when": "Необов'язкові контекстні предикати для кожної дії (клаузи `when` у стилі VS Code), індексовані за ідентифікатором дії cmux. Кожне значення — булевий вираз над ключами контексту, поєднаними за допомогою !, &&, || та дужок. Булеві ключі: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Типізовані ключі підтримують порівняння: рядок sidebarMode (files, find, sessions, feed або dock) і цілі числа paneCount та workspaceCount. Оператори порівняння: ==, !=, =~ (регулярний вираз), <, <=, >, >= та `in [a, b]`; невідомий або відсутній ключ вважається false. Також приймаються булеві літерали true і false; `key == false` еквівалентно `!key`. Скорочення дії спрацьовує (і конфліктує з іншими скороченнями) лише тоді, коли клауза істинна. Приклади: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } вибирає робочі простори за допомогою Ctrl+1–9 всюди, крім випадків, коли у фокусі права бічна панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } обмежує прив'язку бічною панеллю пошуку, коли в робочому просторі кілька панелей.",
           "showModifierHoldHints": "Показувати підказки комбінацій клавіш, доки утримується Cmd або Control."
         }
       },
@@ -1069,7 +1073,8 @@
       "closeWorkspaceDesc": "Закрити робочий простір.",
       "splitCommands": "Команди розділення",
       "newSplitDesc": "Створити нову розділену панель. Напрямки: left, right, up, down.",
-      "listSurfacesDesc": "Показати список усіх поверхонь у поточному робочому просторі.",
+      "listPanelsDesc": "Показати список усіх поверхонь у поточному робочому просторі.",
+      "listPaneSurfacesDesc": "Показати список поверхонь в активній панелі.",
       "focusSurfaceDesc": "Сфокусувати конкретну поверхню.",
       "inputCommands": "Команди введення",
       "sendDesc": "Надіслати текстове введення в активний термінал.",
@@ -1952,5 +1957,32 @@
       "faqQ4": "Чи cmux безкоштовний у використанні з Cursor CLI?",
       "faqA4": "Так. cmux безкоштовний і з відкритим кодом для macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Приєднатися до списку очікування {platform}",
+    "titleAny": "Приєднатися до списку очікування",
+    "description": "Підтримка {platform} вже на підході. Залиште email, і ми повідомимо, щойно все буде готово.",
+    "descriptionAny": "Зараз cmux передусім для macOS. Залиште email, і ми повідомимо, щойно з’явиться версія для Linux, Windows чи Android.",
+    "calloutText": "Незабаром на Linux, Windows та Android.",
+    "platformsLabel": "Які платформи?",
+    "selectPlatform": "Виберіть принаймні одну платформу.",
+    "emailLabel": "Електронна пошта",
+    "emailPlaceholder": "you@example.com",
+    "join": "До списку очікування",
+    "joining": "Додаємо…",
+    "cancel": "Скасувати",
+    "invalidEmail": "Введіть дійсну електронну адресу.",
+    "sendError": "Не вдалося надіслати. Спробуйте ще раз.",
+    "successTitle": "Ви у списку",
+    "successBody": "Ми напишемо вам, коли версія для {platform} буде готова.",
+    "successBodyAny": "Ми напишемо вам, коли cmux буде готовий для вашої платформи.",
+    "done": "Готово"
   }
 }

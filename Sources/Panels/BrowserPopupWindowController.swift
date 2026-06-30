@@ -3,6 +3,9 @@ import Bonsplit
 import CmuxFoundation
 import ObjectiveC
 import WebKit
+#if canImport(Security)
+import Security
+#endif
 
 func browserPopupContentRect(
     requestedWidth: CGFloat?,
@@ -88,6 +91,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private let popupNavigationDelegate: PopupNavigationDelegate
     private let downloadDelegate: BrowserDownloadDelegate
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
+    private var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
     private var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
     private static var associatedObjectKey: UInt8 = 0
@@ -219,6 +223,19 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         navDel.downloadDelegate = dlDel
         webView.uiDelegate = uiDel
         webView.navigationDelegate = navDel
+        let sslTrustBypassMessageHandler = BrowserSSLTrustBypassMessageHandler(
+            canHandleToken: { [weak navDel] token in
+                navDel?.canHandleSSLTrustBypassToken(token) ?? false
+            },
+            handleToken: { [weak navDel, weak webView] token in
+                guard let webView else { return }
+                navDel?.handleSSLTrustBypassToken(token, in: webView)
+            }
+        )
+        self.sslTrustBypassMessageHandler = sslTrustBypassMessageHandler
+        let userContentController = webView.configuration.userContentController
+        userContentController.removeScriptMessageHandler(forName: BrowserSSLTrustBypassMessageHandler.name)
+        userContentController.add(sslTrustBypassMessageHandler, name: BrowserSSLTrustBypassMessageHandler.name)
         webAuthnCoordinator.install(on: webView)
 
         // Context menu "Open Link in New Tab" → open in opener's workspace,
@@ -238,10 +255,10 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
                 self?.panel.title = newTitle
             }
         }
-        urlObservation = webView.observe(\.url, options: [.new]) { [weak self] _, change in
-            let displayURL = change.newValue??.absoluteString ?? ""
-            Task { @MainActor [weak self] in
-                self?.urlLabel.stringValue = displayURL
+        urlObservation = webView.observe(\.url, options: [.new]) { [weak self, weak navDel] _, change in
+            let observedDisplayURL = change.newValue??.absoluteString ?? ""
+            Task { @MainActor [weak self, weak navDel] in
+                self?.urlLabel.stringValue = navDel?.activeErrorPageDisplayURL?.absoluteString ?? observedDisplayURL
             }
         }
 
@@ -309,6 +326,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         WebViewInspectorTeardown.closeInspector(for: webView)
         closeAllChildPopups()
+        popupNavigationDelegate.cancelPendingAuthenticationPrompts()
 
         // Invalidate observations
         titleObservation?.invalidate()
@@ -317,8 +335,11 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         urlObservation = nil
 
         // Tear down web view
-        webAuthnCoordinator.uninstall(from: webView)
-        webView.stopLoading()
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: BrowserSSLTrustBypassMessageHandler.name
+        )
+        sslTrustBypassMessageHandler = nil
+        webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
 
@@ -597,15 +618,84 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 
 // MARK: - PopupNavigationDelegate
 
-private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
+@MainActor private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     weak var controller: BrowserPopupWindowController?
     var downloadDelegate: WKDownloadDelegate?
+    private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
+    private let clientCertificateAuthenticationController = BrowserClientCertificateAuthenticationController()
+    private let sslBypassState = BrowserSSLTrustBypassState()
+    private var lastAttemptedURL: URL?
+    private var lastAttemptedRequest: URLRequest?
+    private var lastAttemptedRequestWasDiscardedForReplay = false
+    private var acceptsSSLTrustBypassMessages = false
+    private var activeSSLTrustBypassErrorPageFailedURL: String?
+    private var activeSSLTrustBypassReplayRequest: URLRequest?
+    private(set) var activeErrorPageDisplayURL: URL?
+    private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
+
+    func cancelPendingAuthenticationPrompts() {
+        basicAuthPromptCoordinator.cancelAll()
+        clientCertificateAuthenticationController.cancelAll()
+    }
+
+    private func recordAttemptedRequest(_ request: URLRequest) {
+        sslBypassState.beginObservingServerTrustForNavigation()
+        acceptsSSLTrustBypassMessages = false
+        activeSSLTrustBypassErrorPageFailedURL = nil
+        activeSSLTrustBypassReplayRequest = nil
+        activeErrorPageDisplayURL = nil
+        activeSSLTrustBypassErrorPageRetryRequest = nil
+        lastAttemptedURL = request.url
+        if sslBypassState.canRetainRequestForReplay(request) {
+            lastAttemptedRequest = request
+            lastAttemptedRequestWasDiscardedForReplay = false
+        } else {
+            lastAttemptedRequest = nil
+            lastAttemptedRequestWasDiscardedForReplay = true
+        }
+    }
+
+    private func clearAttemptedRequest(discardPendingBypasses: Bool = false) {
+        if discardPendingBypasses {
+            sslBypassState.clearPendingBypasses()
+            acceptsSSLTrustBypassMessages = false
+            activeSSLTrustBypassErrorPageFailedURL = nil
+        }
+        activeSSLTrustBypassReplayRequest = nil
+        activeErrorPageDisplayURL = nil
+        activeSSLTrustBypassErrorPageRetryRequest = nil
+        lastAttemptedRequest = nil
+        lastAttemptedRequestWasDiscardedForReplay = false
+        lastAttemptedURL = nil
+    }
+
+    private func retryForFailedNavigation(failedURL: String) -> BrowserErrorPageRetry {
+        if let lastAttemptedRequest {
+            guard lastAttemptedRequest.url != nil,
+                  lastAttemptedRequest.browserMatchesFailedNavigationURLString(failedURL) else {
+                return lastAttemptedRequest.browserCanReloadWithURLOnly ? .urlOnly : .disabled
+            }
+            return .request(lastAttemptedRequest)
+        }
+        if lastAttemptedRequestWasDiscardedForReplay {
+            return .disabled
+        }
+        return .urlOnly
+    }
 
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        if let url = navigationAction.request.url,
+           url.scheme == "cmux-browser-action",
+           url.host == "bypass-ssl" {
+            decisionHandler(.cancel)
+            handleSSLTrustBypassAction(url, in: webView)
+            return
+        }
+
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
             return
@@ -613,6 +703,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
 
         // External URL schemes → hand off to macOS
         if browserShouldRouteExternalNavigation(url) {
+            clearAttemptedRequest(discardPendingBypasses: true)
             browserHandleExternalNavigation(
                 url,
                 source: "popupNavDelegate",
@@ -641,11 +732,65 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         }
 
         if navigationAction.shouldPerformDownload {
+            clearAttemptedRequest(discardPendingBypasses: true)
             decisionHandler(.download)
             return
         }
 
+        if shouldPreserveSSLTrustBypassForErrorPageNavigation(navigationAction) {
+            #if DEBUG
+            cmuxDebugLog("popup.nav.preserveSSLBypassErrorPage url=\(url.absoluteString)")
+            #endif
+        } else if let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" {
+            recordAttemptedRequest(navigationAction.request)
+        } else {
+            clearAttemptedRequest()
+        }
         decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        if activeSSLTrustBypassReplayRequest != nil || activeSSLTrustBypassErrorPageRetryRequest != nil {
+            clearAttemptedRequest(discardPendingBypasses: true)
+        } else if activeErrorPageDisplayURL == nil {
+            clearAttemptedRequest()
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if activeErrorPageDisplayURL == nil {
+            clearAttemptedRequest()
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            return
+        }
+        if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
+            return
+        }
+
+        let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
+            ?? lastAttemptedURL?.absoluteString
+            ?? ""
+        activeSSLTrustBypassReplayRequest = nil
+        activeSSLTrustBypassErrorPageRetryRequest = nil
+        activeErrorPageDisplayURL = URL(string: failedURL)
+        let canBypass = BrowserErrorPage(
+            failedURL: failedURL,
+            retry: retryForFailedNavigation(failedURL: failedURL),
+            error: nsError,
+            sslBypassState: sslBypassState
+        ).load(in: webView)
+        acceptsSSLTrustBypassMessages = canBypass
+        activeSSLTrustBypassErrorPageFailedURL = canBypass ? failedURL : nil
     }
 
     func webView(
@@ -675,13 +820,100 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         decisionHandler(.allow)
     }
 
+    func canHandleSSLTrustBypassToken(_ token: String) -> Bool {
+        acceptsSSLTrustBypassMessages && sslBypassState.hasPendingBypassToken(token)
+    }
+
+    func handleSSLTrustBypassToken(_ token: String, in webView: WKWebView) {
+        guard acceptsSSLTrustBypassMessages,
+              let request = sslBypassState.consumePendingBypassToken(token) else {
+            return
+        }
+        acceptsSSLTrustBypassMessages = false
+        activeSSLTrustBypassErrorPageFailedURL = nil
+        recordSSLTrustBypassReplayRequest(request)
+        browserLoadRequest(request, in: webView)
+    }
+
+    func handleSSLTrustBypassAction(_ actionURL: URL, in webView: WKWebView) {
+        guard acceptsSSLTrustBypassMessages,
+              let request = sslBypassState.consumePendingBypassAction(actionURL) else {
+            return
+        }
+        acceptsSSLTrustBypassMessages = false
+        activeSSLTrustBypassErrorPageFailedURL = nil
+        recordSSLTrustBypassReplayRequest(request)
+        browserLoadRequest(request, in: webView)
+    }
+
+    private func recordSSLTrustBypassReplayRequest(_ request: URLRequest) {
+        sslBypassState.clearPendingBypasses()
+        activeSSLTrustBypassReplayRequest = request
+        activeErrorPageDisplayURL = request.url
+        lastAttemptedURL = request.url
+        lastAttemptedRequest = request
+        lastAttemptedRequestWasDiscardedForReplay = false
+    }
+
+    private func shouldPreserveSSLTrustBypassForErrorPageNavigation(_ navigationAction: WKNavigationAction) -> Bool {
+        let request = navigationAction.request
+        guard activeErrorPageDisplayURL != nil, navigationAction.navigationType == .other else {
+            return false
+        }
+
+        guard let url = request.url,
+              let scheme = url.scheme?.lowercased() else {
+            return true
+        }
+        guard scheme == "http" || scheme == "https" else {
+            return true
+        }
+        if let replayRequest = activeSSLTrustBypassReplayRequest,
+           let replayURL = replayRequest.url?.absoluteString {
+            return request.browserMatchesFailedNavigationURLString(replayURL)
+        }
+        guard acceptsSSLTrustBypassMessages,
+              let failedURL = activeSSLTrustBypassErrorPageFailedURL,
+              let lastAttemptedRequest else {
+            return false
+        }
+        let preservesErrorPageRetry = request.browserMatchesFailedNavigationURLString(failedURL)
+            && request.browserMatchesReplayShape(of: lastAttemptedRequest)
+        if preservesErrorPageRetry {
+            activeSSLTrustBypassErrorPageRetryRequest = request
+        }
+        return preservesErrorPageRetry
+    }
+
     func webView(
         _ webView: WKWebView,
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
-        // Parity with main browser: performDefaultHandling enables system keychain
-        // lookups, MDM client certs, and SSO extensions (e.g. Microsoft Entra ID).
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+           let trust = challenge.protectionSpace.serverTrust,
+           BrowserSSLTrustScope(protectionSpace: challenge.protectionSpace) != nil {
+            if sslBypassState.isBypassed(protectionSpace: challenge.protectionSpace, serverTrust: trust) {
+                completionHandler(.useCredential, URLCredential(trust: trust))
+                return
+            }
+            sslBypassState.recordObservedServerTrust(trust, for: challenge.protectionSpace)
+        }
+
+        if basicAuthPromptCoordinator.handle(
+            challenge: challenge,
+            startPrompt: { finishPrompt, registerCancelPrompt in
+                browserHandleHTTPBasicAuthenticationChallenge(
+                    in: webView, challenge: challenge,
+                    registerCancelPrompt: registerCancelPrompt, completionHandler: finishPrompt
+                )
+            },
+            completionHandler: completionHandler
+        ) { return }
+        if clientCertificateAuthenticationController.handle(
+            challenge: challenge, in: webView, completionHandler: completionHandler
+        ) { return }
+
         completionHandler(.performDefaultHandling, nil)
     }
 

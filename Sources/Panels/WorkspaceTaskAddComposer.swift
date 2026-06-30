@@ -12,8 +12,7 @@ struct WorkspaceTaskAddComposer: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "plus")
-                .cmuxSymbolRasterSize(12, weight: .medium)
+            CmuxSystemSymbolImage(magnified: "plus", pointSize: 12, weight: .medium)
                 .foregroundStyle(taskAccent)
                 .frame(width: 18, height: 22)
                 .accessibilityHidden(true)
@@ -24,8 +23,7 @@ struct WorkspaceTaskAddComposer: View {
                 .onSubmit(submit)
 
             Button(action: submit) {
-                Image(systemName: "arrow.up")
-                    .cmuxSymbolRasterSize(11, weight: .semibold)
+                CmuxSystemSymbolImage(magnified: "arrow.up", pointSize: 11, weight: .semibold)
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)

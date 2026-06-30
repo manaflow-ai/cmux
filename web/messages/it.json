@@ -12,7 +12,8 @@
     "toggleTheme": "Cambia tema",
     "backToBlog": "Torna al blog",
     "readTheDocs": "Leggi la documentazione",
-    "viewChangelog": "Vedi il changelog"
+    "viewChangelog": "Vedi il changelog",
+    "otherPlatforms": "Altre piattaforme"
   },
   "nav": {
     "docs": "Docs",
@@ -99,7 +100,7 @@
     "faqCustomizeQ": "Posso personalizzare cmux?",
     "faqCustomizeA": "Sì. Il rendering del terminale usa la tua configurazione di Ghostty, quindi temi, font, colori e cursore vengono ereditati direttamente. Le impostazioni proprie di cmux in <path>~/.config/cmux/cmux.json</path> controllano la barra laterale, la barra dei tab, i pannelli divisi e il comportamento, e ogni <shortcutsLink>scorciatoia da tastiera</shortcutsLink> è modificabile. Vedi <link>configurazione</link>.",
     "faqIosQ": "Esiste un'app per iOS?",
-    "faqIosA": "Sì, in beta. Abbina il tuo iPhone al tuo Mac dalla finestra Mobile Connect e connettiti ai tuoi terminali dal telefono, con inoltro facoltativo delle notifiche del terminale. Viene distribuita su TestFlight come cmux BETA.",
+    "faqIosA": "Sì, in beta. Abbina il tuo iPhone al tuo Mac dalla finestra Mobile Connect e connettiti ai tuoi terminali dal telefono, con inoltro facoltativo delle notifiche del terminale. Viene distribuita su TestFlight come cmux BETA. L’accesso anticipato è incluso con <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqSkillsQ": "cmux ha le skill?",
     "faqSkillsA": "Sì. Le skill sono flussi di lavoro riutilizzabili che puoi assegnare a qualsiasi agente in esecuzione in cmux, per cose come il controllo della CLI, l'automazione dello spazio di lavoro, le impostazioni e le superfici del browser. Sfoglia la raccolta aperta su <skillsLink>cmux-skills</skillsLink>, oppure leggi la <link>documentazione delle skill</link>.",
     "faqBrowserQ": "Cosa può fare il browser integrato?",
@@ -819,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
           "focusTextBoxOnNewTerminals": "Mette a fuoco l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati. Il focus mostra anche TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Quando è attivo, un banner di notifica viene ritirato automaticamente solo quando la sua superficie è esattamente la superficie con il focus. Un banner mostrato per una superficie senza focus nel workspace attualmente visibile resta visibile finché non porti il focus su quella superficie (o ci fai clic/la chiudi), invece di essere ritirato quando il workspace diventa visibile. Disattivato mantiene il vecchio ritiro basato sulla visibilità del workspace."
+        },
         "browser": {
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
           "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
@@ -847,7 +851,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Predicati di contesto opzionali per azione (clausole `when` in stile VS Code), indicizzati per id azione cmux. Ogni valore è un'espressione booleana sulle chiavi di contesto, combinata con !, &&, || e parentesi. Chiavi booleane: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Le chiavi tipizzate supportano i confronti: la stringa sidebarMode (files, find, sessions, feed o dock) e gli interi paneCount e workspaceCount. Gli operatori di confronto sono ==, !=, =~ (espressione regolare), <, <=, >, >= e `in [a, b]`; una chiave sconosciuta o assente vale false. Sono accettati anche i letterali booleani true e false; `key == false` equivale a `!key`. La scorciatoia dell'azione si attiva (ed entra in conflitto con altre scorciatoie) solo quando la clausola è vera. Esempi: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } seleziona gli spazi di lavoro con Ctrl+1–9 ovunque tranne quando la barra laterale destra ha il focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita un'associazione alla barra laterale Trova quando lo spazio di lavoro ha più riquadri.",
+          "when": "Predicati di contesto opzionali per azione (clausole `when` in stile VS Code), indicizzati per id azione cmux. Ogni valore è un'espressione booleana sulle chiavi di contesto, combinata con !, &&, || e parentesi. Chiavi booleane: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Le chiavi tipizzate supportano i confronti: la stringa sidebarMode (files, find, sessions, feed o dock) e gli interi paneCount e workspaceCount. Gli operatori di confronto sono ==, !=, =~ (espressione regolare), <, <=, >, >= e `in [a, b]`; una chiave sconosciuta o assente vale false. Sono accettati anche i letterali booleani true e false; `key == false` equivale a `!key`. La scorciatoia dell'azione si attiva (ed entra in conflitto con altre scorciatoie) solo quando la clausola è vera. Esempi: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } seleziona gli spazi di lavoro con Ctrl+1–9 ovunque tranne quando la barra laterale destra ha il focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita un'associazione alla barra laterale Trova quando lo spazio di lavoro ha più riquadri.",
           "showModifierHoldHints": "Mostra i chip dei suggerimenti delle scorciatoie mentre tieni premuto Cmd o Control."
         }
       },
@@ -1068,7 +1072,8 @@
       "closeWorkspaceDesc": "Chiudi un workspace.",
       "splitCommands": "Comandi di divisione",
       "newSplitDesc": "Crea un nuovo pannello diviso. Direzioni: left, right, up, down.",
-      "listSurfacesDesc": "Elenca tutte le superfici nel workspace attuale.",
+      "listPanelsDesc": "Elenca tutte le superfici nel workspace attuale.",
+      "listPaneSurfacesDesc": "Elenca le superfici nel pannello attivo.",
       "focusSurfaceDesc": "Metti a fuoco una superficie specifica.",
       "inputCommands": "Comandi di input",
       "sendDesc": "Invia testo al terminale attivo.",
@@ -1869,5 +1874,32 @@
       "faqQ4": "cmux è gratuito da usare con Cursor CLI?",
       "faqA4": "Sì. cmux è gratuito e open source per macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Iscriviti alla lista d'attesa per {platform}",
+    "titleAny": "Iscriviti alla lista d'attesa",
+    "description": "Il supporto per {platform} è in arrivo. Lascia la tua email e ti avviseremo appena è pronto.",
+    "descriptionAny": "Per ora cmux è prima di tutto per macOS. Lascia la tua email e ti avviseremo appena Linux, Windows o Android sarà pronto.",
+    "calloutText": "In arrivo su Linux, Windows e Android.",
+    "platformsLabel": "Quali piattaforme?",
+    "selectPlatform": "Scegli almeno una piattaforma.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "join": "Iscriviti alla lista",
+    "joining": "Iscrizione…",
+    "cancel": "Annulla",
+    "invalidEmail": "Inserisci un indirizzo email valido.",
+    "sendError": "Invio non riuscito. Riprova.",
+    "successTitle": "Sei in lista",
+    "successBody": "Ti invieremo un'email quando la versione {platform} sarà pronta.",
+    "successBodyAny": "Ti invieremo un'email quando cmux sarà pronto per la tua piattaforma.",
+    "done": "Fatto"
   }
 }

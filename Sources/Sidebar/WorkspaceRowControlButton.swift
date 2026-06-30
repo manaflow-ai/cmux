@@ -10,8 +10,7 @@ struct WorkspaceRowControlButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemImageName)
-                .cmuxSymbolRasterSize(symbolSize, weight: .medium)
+            CmuxSystemSymbolImage(magnified: systemImageName, pointSize: symbolSize, weight: .medium)
                 .foregroundColor(foregroundColor)
                 .frame(width: size, height: size, alignment: .center)
                 .contentShape(Rectangle())

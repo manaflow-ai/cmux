@@ -12,7 +12,8 @@
     "toggleTheme": "Promijeni temu",
     "backToBlog": "Nazad na blog",
     "readTheDocs": "Pročitaj dokumentaciju",
-    "viewChangelog": "Pogledaj zapisnik promjena"
+    "viewChangelog": "Pogledaj zapisnik promjena",
+    "otherPlatforms": "Druge platforme"
   },
   "nav": {
     "docs": "Dokumentacija",
@@ -99,7 +100,7 @@
     "faqCustomizeQ": "Mogu li prilagoditi cmux?",
     "faqCustomizeA": "Da. Renderiranje terminala koristi vašu Ghostty konfiguraciju, pa se teme, fontovi, boje i kursor prenose direktno. Vlastite postavke cmux-a u <path>~/.config/cmux/cmux.json</path> kontrolišu bočnu traku, traku tabova, podijeljene panele i ponašanje, a svaka <shortcutsLink>tipkovnička prečica</shortcutsLink> je izmjenjiva. Pogledajte <link>konfiguraciju</link>.",
     "faqIosQ": "Postoji li iOS aplikacija?",
-    "faqIosA": "Da, u beta verziji. Uparite svoj iPhone sa svojim Mac-om iz Mobile Connect prozora i povežite se na svoje terminale s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija. Isporučuje se na TestFlight-u kao cmux BETA.",
+    "faqIosA": "Da, u beta verziji. Uparite svoj iPhone sa svojim Mac-om iz Mobile Connect prozora i povežite se na svoje terminale s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija. Isporučuje se na TestFlight-u kao cmux BETA. Rani pristup je uključen uz <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqSkillsQ": "Ima li cmux skills-e?",
     "faqSkillsA": "Da. Skills su ponovo iskoristivi tokovi rada koje možete dati bilo kojem agentu koji radi u cmux-u, za stvari poput kontrole CLI-ja, automatizacije radnog prostora, postavki i panela preglednika. Pregledajte otvorenu kolekciju na <skillsLink>cmux-skills</skillsLink> ili pročitajte <link>dokumentaciju za skills</link>.",
     "faqBrowserQ": "Šta može ugrađeni preglednik?",
@@ -819,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
           "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Kada je uključeno, baner notifikacije se automatski povlači samo kada je njegova površina tačno fokusirana površina. Baner isporučen za nefokusiranu površinu u trenutno vidljivom workspaceu ostaje prikazan dok ne fokusirate tu površinu (ili je kliknete/odbacite), umjesto da bude povučen kada workspace postane vidljiv. Isključeno zadržava staro ponašanje povlačenja na osnovu vidljivosti workspacea."
+        },
         "browser": {
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
           "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
@@ -847,7 +851,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
+          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
           "showModifierHoldHints": "Prikaži oznake s prečicama dok držite Cmd ili Control."
         }
       },
@@ -1068,7 +1072,8 @@
       "closeWorkspaceDesc": "Zatvori radni prostor.",
       "splitCommands": "Komande razdjelnica",
       "newSplitDesc": "Kreiraj novi podijeljeni panel. Smjerovi: left, right, up, down.",
-      "listSurfacesDesc": "Izlistaj sve površine u trenutnom radnom prostoru.",
+      "listPanelsDesc": "Izlistaj sve površine u trenutnom radnom prostoru.",
+      "listPaneSurfacesDesc": "Izlistaj površine u fokusiranom panelu.",
       "focusSurfaceDesc": "Fokusiraj specifičnu površinu.",
       "inputCommands": "Komande unosa",
       "sendDesc": "Pošalji tekstualni unos u fokusirani terminal.",
@@ -1869,5 +1874,32 @@
       "faqQ4": "Je li cmux besplatan za korištenje s Cursor CLI-jem?",
       "faqA4": "Da. cmux je besplatan i otvorenog koda za macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Pridruži se listi čekanja za {platform}",
+    "titleAny": "Pridruži se listi čekanja",
+    "description": "Podrška za {platform} stiže. Ostavi svoj email i javit ćemo ti čim bude spremno.",
+    "descriptionAny": "cmux je trenutno prvenstveno za macOS. Ostavi svoj email i javit ćemo ti čim Linux, Windows ili Android bude spreman.",
+    "calloutText": "Uskoro za Linux, Windows i Android.",
+    "platformsLabel": "Koje platforme?",
+    "selectPlatform": "Odaberi barem jednu platformu.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "join": "Pridruži se listi",
+    "joining": "Pridruživanje…",
+    "cancel": "Otkaži",
+    "invalidEmail": "Unesi ispravnu email adresu.",
+    "sendError": "Slanje nije uspjelo. Pokušaj ponovo.",
+    "successTitle": "Na listi si",
+    "successBody": "Poslat ćemo ti email kada {platform} verzija bude spremna.",
+    "successBodyAny": "Poslat ćemo ti email kada cmux bude spreman za tvoju platformu.",
+    "done": "Gotovo"
   }
 }

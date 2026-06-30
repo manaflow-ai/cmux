@@ -12,7 +12,8 @@
     "toggleTheme": "切換主題",
     "backToBlog": "返回部落格",
     "readTheDocs": "閱讀文件",
-    "viewChangelog": "查看更新日誌"
+    "viewChangelog": "查看更新日誌",
+    "otherPlatforms": "其他平台"
   },
   "nav": {
     "docs": "文件",
@@ -99,7 +100,7 @@
     "faqCustomizeQ": "可以自訂 cmux 嗎？",
     "faqCustomizeA": "可以。終端機渲染使用你的 Ghostty 設定，因此主題、字型、色彩和游標會直接沿用。cmux 本身的設定位於 <path>~/.config/cmux/cmux.json</path>，用於控制側邊欄、分頁列、分割窗格和行為，每個<shortcutsLink>鍵盤快捷鍵</shortcutsLink>都可編輯。請參閱<link>設定</link>。",
     "faqIosQ": "有 iOS 應用程式嗎？",
-    "faqIosA": "有，目前是 beta 版。在 Mobile Connect 視窗中將你的 iPhone 與 Mac 配對，即可從手機連接到你的終端機，並可選擇轉發終端機通知。它透過 TestFlight 以 cmux BETA 的形式發布。",
+    "faqIosA": "有，目前是 beta 版。在 Mobile Connect 視窗中將你的 iPhone 與 Mac 配對，即可從手機連接到你的終端機，並可選擇轉發終端機通知。它透過 TestFlight 以 cmux BETA 的形式發布。<foundersLink>cmux Founders Edition</foundersLink> 包含搶先存取權限。",
     "faqSkillsQ": "cmux 有 skills 嗎？",
     "faqSkillsA": "有。skills 是可重複使用的工作流程，你可以把它交給任何在 cmux 中執行的 agent，用於 CLI 控制、工作區自動化、設定和瀏覽器介面等情境。在 <skillsLink>cmux-skills</skillsLink> 瀏覽開放的集合，或閱讀 <link>skills 文件</link>。",
     "faqBrowserQ": "內建瀏覽器能做什麼？",
@@ -819,6 +820,9 @@
           "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",
           "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦測試版 TextBox 輸入。聚焦也會顯示 TextBox。"
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "啟用後，只有當通知橫幅的 Surface 正好是目前聚焦的 Surface 時，該橫幅才會自動撤回。對於目前可見 workspace 中未聚焦的 Surface 所投遞的橫幅，在你聚焦該 Surface（或點擊／關閉它）之前會持續顯示，而不會在 workspace 變為可見時被撤回。關閉則保留舊有的基於 workspace 可見性的撤回行為。"
+        },
         "browser": {
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
@@ -847,7 +851,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "每個動作可選的內容述詞（VS Code 風格的 `when` 子句），依 cmux 動作 id 建立索引。每個值都是基於內容鍵的布林運算式，可用 !、&&、|| 與括號組合。布林鍵：sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible。型別化鍵支援比較：字串 sidebarMode（files、find、sessions、feed 或 dock）以及整數 paneCount 與 workspaceCount。比較運算子為 ==、!=、=~（正規表示式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的鍵視為 false。也接受布林常值 true 和 false；`key == false` 等同於 `!key`。只有在子句成立時，該動作的快速鍵才會觸發，也只會在這種情況下與其他快速鍵衝突。範例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 讓 Ctrl+1–9 在右側邊欄未聚焦時選取工作區；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作區有多個窗格時，將綁定限制在尋找側邊欄。",
+          "when": "每個動作可選的內容述詞（VS Code 風格的 `when` 子句），依 cmux 動作 id 建立索引。每個值都是基於內容鍵的布林運算式，可用 !、&&、|| 與括號組合。布林鍵：sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型別化鍵支援比較：字串 sidebarMode（files、find、sessions、feed 或 dock）以及整數 paneCount 與 workspaceCount。比較運算子為 ==、!=、=~（正規表示式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的鍵視為 false。也接受布林常值 true 和 false；`key == false` 等同於 `!key`。只有在子句成立時，該動作的快速鍵才會觸發，也只會在這種情況下與其他快速鍵衝突。範例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 讓 Ctrl+1–9 在右側邊欄未聚焦時選取工作區；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作區有多個窗格時，將綁定限制在尋找側邊欄。",
           "showModifierHoldHints": "按住 Cmd 或 Control 時顯示快捷鍵提示標籤。"
         }
       },
@@ -1068,7 +1072,8 @@
       "closeWorkspaceDesc": "關閉工作區。",
       "splitCommands": "分割指令",
       "newSplitDesc": "建立新的分割窗格。方向：left、right、up、down。",
-      "listSurfacesDesc": "列出目前工作區中的所有 surface。",
+      "listPanelsDesc": "列出目前工作區中的所有 surface。",
+      "listPaneSurfacesDesc": "列出目前聚焦窗格中的 surface。",
       "focusSurfaceDesc": "聚焦到指定的 surface。",
       "inputCommands": "輸入指令",
       "sendDesc": "向聚焦的終端機傳送文字輸入。",
@@ -1869,5 +1874,32 @@
       "faqQ4": "搭配 Cursor CLI 使用的 cmux 免費嗎？",
       "faqA4": "免費。cmux 是面向 macOS 的免費開源軟體。"
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "加入 {platform} 候補名單",
+    "titleAny": "加入候補名單",
+    "description": "{platform} 支援即將推出。留下你的電子郵件，準備好後我們會第一時間通知你。",
+    "descriptionAny": "目前 cmux 以 macOS 為優先。留下電子郵件，Linux、Windows 或 Android 版本就緒後我們會通知你。",
+    "calloutText": "即將支援 Linux、Windows 和 Android。",
+    "platformsLabel": "哪些平台？",
+    "selectPlatform": "請至少選擇一個平台。",
+    "emailLabel": "電子郵件",
+    "emailPlaceholder": "you@example.com",
+    "join": "加入候補名單",
+    "joining": "正在加入…",
+    "cancel": "取消",
+    "invalidEmail": "請輸入有效的電子郵件地址。",
+    "sendError": "傳送失敗，請重試。",
+    "successTitle": "你已加入名單",
+    "successBody": "{platform} 版本就緒後，我們會寄電子郵件給你。",
+    "successBodyAny": "cmux 在你的平台上就緒後，我們會寄電子郵件給你。",
+    "done": "完成"
   }
 }

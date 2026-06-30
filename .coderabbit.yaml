@@ -31,6 +31,9 @@ reviews:
     - path: "**/*.{swift,ts,tsx,js,jsx,mjs,cjs}"
       instructions: |
         Apply `.github/review-bot-rules/reliability-single-source-of-truth.md` during review. For correctness-critical detection/identity (which agent is running, agent/session lifecycle and liveness, workspace/pane/surface identity, any value the UI trusts to enable controls or route input), flag deriving the value from a window/pane/terminal title, name, or process-argv heuristic; an "unreliable but better than nothing" fallback branch where a wrong value is a correctness bug; more than one disagreeing source of truth for the same fact; and a throttle/poll interval on the read that introduces a visible staleness window. Pass for reliable structured sources (session id, registered agent descriptor, typed lifecycle event), failing closed when the reliable signal is missing, genuinely cosmetic non-authoritative hints, and coalescing that does not delay the observable value.
+    - path: "web/**/*.{tsx,jsx}"
+      instructions: |
+        Apply `.github/review-bot-rules/react-base-ui-accessibility.md` during review. For custom React UI, require `@base-ui-components/react` or an existing local component when it provides the relevant dialog, popover, menu, checkbox, select, switch, tabs, tooltip, combobox, focus, or keyboard behavior. Pass for native semantic controls and for cases with no relevant primitive where the PR owns complete accessibility and keyboard behavior.
     - path: "**/Package.swift"
       instructions: |
         Apply the cmux custom Swift lint rules in `.github/review-bot-rules/`, especially the concurrency modernization, actor isolation, blocking runtime, file/package boundary, and architectural rethink rules.
@@ -191,6 +194,10 @@ reviews:
         mode: error
         instructions: |
           For production Swift, TypeScript, and JavaScript changes, fail when the diff violates `.github/review-bot-rules/reliability-single-source-of-truth.md`: a correctness-critical fact (which agent is running, agent/session lifecycle and liveness, workspace/pane/surface identity, or any value the UI trusts to enable controls or route input) derived from a window/pane/terminal title, name, or process-argv heuristic; an "unreliable but better than nothing" fallback branch where a wrong value is a correctness bug; more than one disagreeing source of truth for the same fact; or a throttle/poll interval on the read that introduces a visible staleness window. Require a single reliable structured source (session id, registered agent descriptor, typed lifecycle event) and failing closed when it is missing. Pass for genuinely cosmetic non-authoritative hints and coalescing that does not delay the observable value.
+      - name: "cmux React base UI"
+        mode: error
+        instructions: |
+          For React UI changes under `web/**/*.tsx` and `web/**/*.jsx`, fail when the diff violates `.github/review-bot-rules/react-base-ui-accessibility.md`: a custom dialog, popover, menu, context menu, checkbox, select, switch, tabs, tooltip, combobox, command menu, or other composite widget is built from raw elements, ad hoc ARIA, `tabIndex`, or hand-rolled keyboard handlers when `@base-ui-components/react` or an existing local component provides the relevant primitive. Pass for native semantic controls and for cases with no relevant primitive where the PR owns complete accessibility and keyboard behavior.
       - name: "cmux landing page registry parity"
         mode: error
         instructions: |

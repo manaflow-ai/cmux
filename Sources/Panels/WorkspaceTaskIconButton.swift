@@ -10,8 +10,7 @@ struct WorkspaceTaskIconButton: View {
 
     var body: some View {
         Button(role: role, action: action) {
-            Image(systemName: systemName)
-                .cmuxSymbolRasterSize(12)
+            CmuxSystemSymbolImage(magnified: systemName, pointSize: 12)
                 .foregroundStyle(foregroundStyle)
                 .frame(width: 24, height: 24)
         }

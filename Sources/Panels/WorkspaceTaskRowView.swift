@@ -24,8 +24,7 @@ struct WorkspaceTaskRowView: View {
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Image(systemName: "line.3.horizontal")
-                .cmuxSymbolRasterSize(12, weight: .medium)
+            CmuxSystemSymbolImage(magnified: "line.3.horizontal", pointSize: 12, weight: .medium)
                 .foregroundStyle(.tertiary)
                 .frame(width: 18, height: 22)
                 .opacity(isHovering && canArchive ? 0.9 : 0)
@@ -96,10 +95,9 @@ struct WorkspaceTaskRowView: View {
                     .background(
                         Circle()
                             .fill(canArchive ? taskAccent.opacity(isHovering ? 0.1 : 0) : Color.secondary.opacity(0.08))
-                    )
+                )
                 if !canArchive {
-                    Image(systemName: "checkmark")
-                        .cmuxSymbolRasterSize(8, weight: .semibold)
+                    CmuxSystemSymbolImage(magnified: "checkmark", pointSize: 8, weight: .semibold)
                         .foregroundStyle(.secondary)
                 }
             }

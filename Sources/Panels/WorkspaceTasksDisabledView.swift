@@ -3,8 +3,7 @@ import SwiftUI
 struct WorkspaceTasksDisabledView: View {
     var body: some View {
         VStack(spacing: 10) {
-            Image(systemName: "checklist")
-                .cmuxSymbolRasterSize(18)
+            CmuxSystemSymbolImage(magnified: "checklist", pointSize: 18)
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
             Text(String(localized: "workspaceTasks.disabled.title", defaultValue: "Workspace Tasks is disabled"))

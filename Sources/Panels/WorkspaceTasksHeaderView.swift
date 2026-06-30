@@ -15,8 +15,7 @@ struct WorkspaceTasksHeaderView: View {
                 Spacer(minLength: 8)
                 if showsOpenAsTabButton {
                     Button(action: openSurface) {
-                        Image(systemName: "macwindow.badge.plus")
-                            .cmuxSymbolRasterSize(13)
+                        CmuxSystemSymbolImage(magnified: "macwindow.badge.plus", pointSize: 13)
                             .frame(width: 28, height: 26)
                     }
                     .buttonStyle(.plain)

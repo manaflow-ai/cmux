@@ -12,7 +12,8 @@
     "toggleTheme": "Design wechseln",
     "backToBlog": "Zurück zum Blog",
     "readTheDocs": "Dokumentation lesen",
-    "viewChangelog": "Changelog ansehen"
+    "viewChangelog": "Changelog ansehen",
+    "otherPlatforms": "Andere Plattformen"
   },
   "nav": {
     "docs": "Dokumentation",
@@ -99,7 +100,7 @@
     "faqCustomizeQ": "Kann ich cmux anpassen?",
     "faqCustomizeA": "Ja. Das Terminal-Rendering nutzt Ihre Ghostty-Konfiguration, sodass Themes, Schriftarten, Farben und Cursor direkt übernommen werden. Die eigenen Einstellungen von cmux in <path>~/.config/cmux/cmux.json</path> steuern die Seitenleiste, die Tab-Leiste, geteilte Bereiche und das Verhalten, und jeder <shortcutsLink>Tastenkürzel</shortcutsLink> ist editierbar. Siehe <link>Konfiguration</link>.",
     "faqIosQ": "Gibt es eine iOS-App?",
-    "faqIosA": "Ja, in der Beta. Koppeln Sie Ihr iPhone über das Mobile-Connect-Fenster mit Ihrem Mac und verbinden Sie sich von Ihrem Telefon aus mit Ihren Terminals, mit optionaler Weiterleitung der Terminal-Benachrichtigungen. Sie wird über TestFlight als cmux BETA verteilt.",
+    "faqIosA": "Ja, in der Beta. Koppeln Sie Ihr iPhone über das Mobile-Connect-Fenster mit Ihrem Mac und verbinden Sie sich von Ihrem Telefon aus mit Ihren Terminals, mit optionaler Weiterleitung der Terminal-Benachrichtigungen. Sie wird über TestFlight als cmux BETA verteilt. Früher Zugang ist in <foundersLink>cmux Founders Edition</foundersLink> enthalten.",
     "faqSkillsQ": "Hat cmux Skills?",
     "faqSkillsA": "Ja. Skills sind wiederverwendbare Workflows, die Sie jedem in cmux laufenden Agenten geben können, für Dinge wie CLI-Steuerung, Workspace-Automatisierung, Einstellungen und Browser-Oberflächen. Durchstöbern Sie die offene Sammlung unter <skillsLink>cmux-skills</skillsLink> oder lesen Sie die <link>Skills-Dokumentation</link>.",
     "faqBrowserQ": "Was kann der integrierte Browser?",
@@ -819,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Zeigt die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits an.",
           "focusTextBoxOnNewTerminals": "Fokussiert die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits. Fokussieren zeigt die TextBox ebenfalls an."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Wenn aktiviert, wird ein Benachrichtigungsbanner nur dann automatisch zurückgezogen, wenn seine Oberfläche genau die fokussierte Oberfläche ist. Ein Banner, das für eine nicht fokussierte Oberfläche im aktuell sichtbaren Workspace zugestellt wurde, bleibt sichtbar, bis Sie diese Oberfläche fokussieren (oder das Banner anklicken bzw. schließen), anstatt zurückgezogen zu werden, sobald der Workspace sichtbar wird. Deaktiviert bleibt das bisherige Zurückziehen anhand der Workspace-Sichtbarkeit erhalten."
+        },
         "browser": {
           "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
           "customSearchEngineName": "Anzeigename, der verwendet wird, wenn defaultSearchEngine custom ist.",
@@ -847,7 +851,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
+          "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
           "showModifierHoldHints": "Zeigt Kurzbefehl-Hinweis-Chips an, während Cmd oder Control gedrückt gehalten wird."
         }
       },
@@ -1068,7 +1072,8 @@
       "closeWorkspaceDesc": "Einen Workspace schließen.",
       "splitCommands": "Split-Befehle",
       "newSplitDesc": "Einen neuen geteilten Bereich erstellen. Richtungen: left, right, up, down.",
-      "listSurfacesDesc": "Alle Oberflächen im aktuellen Workspace auflisten.",
+      "listPanelsDesc": "Alle Oberflächen im aktuellen Workspace auflisten.",
+      "listPaneSurfacesDesc": "Oberflächen im fokussierten Bereich auflisten.",
       "focusSurfaceDesc": "Eine bestimmte Oberfläche fokussieren.",
       "inputCommands": "Eingabebefehle",
       "sendDesc": "Texteingabe an das fokussierte Terminal senden.",
@@ -1869,5 +1874,32 @@
       "faqQ4": "Ist cmux mit Cursor CLI kostenlos nutzbar?",
       "faqA4": "Ja. cmux ist kostenlos und quelloffen für macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Auf die {platform}-Warteliste",
+    "titleAny": "Auf die Warteliste",
+    "description": "{platform}-Unterstützung ist in Arbeit. Hinterlasse deine E-Mail-Adresse und wir benachrichtigen dich, sobald es so weit ist.",
+    "descriptionAny": "cmux ist derzeit macOS-first. Hinterlasse deine E-Mail-Adresse und wir sagen dir Bescheid, sobald Linux, Windows oder Android verfügbar ist.",
+    "calloutText": "Bald für Linux, Windows und Android.",
+    "platformsLabel": "Welche Plattformen?",
+    "selectPlatform": "Wähle mindestens eine Plattform.",
+    "emailLabel": "E-Mail",
+    "emailPlaceholder": "you@example.com",
+    "join": "Warteliste beitreten",
+    "joining": "Wird eingetragen …",
+    "cancel": "Abbrechen",
+    "invalidEmail": "Gib eine gültige E-Mail-Adresse ein.",
+    "sendError": "Konnte nicht gesendet werden. Bitte versuche es erneut.",
+    "successTitle": "Du bist auf der Liste",
+    "successBody": "Wir benachrichtigen dich per E-Mail, sobald die {platform}-Version bereit ist.",
+    "successBodyAny": "Wir benachrichtigen dich per E-Mail, sobald cmux für deine Plattform bereit ist.",
+    "done": "Fertig"
   }
 }

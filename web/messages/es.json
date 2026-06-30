@@ -12,7 +12,8 @@
     "toggleTheme": "Cambiar tema",
     "backToBlog": "Volver al blog",
     "readTheDocs": "Leer la documentación",
-    "viewChangelog": "Ver Changelog"
+    "viewChangelog": "Ver Changelog",
+    "otherPlatforms": "Otras plataformas"
   },
   "nav": {
     "docs": "Documentación",
@@ -99,7 +100,7 @@
     "faqCustomizeQ": "¿Puedo personalizar cmux?",
     "faqCustomizeA": "Sí. El renderizado del terminal usa tu configuración de Ghostty, así que los temas, las fuentes, los colores y el cursor se trasladan directamente. Los ajustes propios de cmux en <path>~/.config/cmux/cmux.json</path> controlan la barra lateral, la barra de pestañas, los paneles divididos y el comportamiento, y cada <shortcutsLink>atajo de teclado</shortcutsLink> es editable. Consulta <link>configuración</link>.",
     "faqIosQ": "¿Hay una app para iOS?",
-    "faqIosA": "Sí, en beta. Empareja tu iPhone con tu Mac desde la ventana de Mobile Connect y conéctate a tus terminales desde el teléfono, con reenvío opcional de las notificaciones del terminal. Se distribuye en TestFlight como cmux BETA.",
+    "faqIosA": "Sí, en beta. Empareja tu iPhone con tu Mac desde la ventana de Mobile Connect y conéctate a tus terminales desde el teléfono, con reenvío opcional de las notificaciones del terminal. Se distribuye en TestFlight como cmux BETA. El acceso anticipado se incluye con <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqSkillsQ": "¿cmux tiene skills?",
     "faqSkillsA": "Sí. Las skills son flujos de trabajo reutilizables que puedes dar a cualquier agente que se ejecute en cmux, para cosas como control de la CLI, automatización del espacio de trabajo, ajustes y superficies de navegador. Explora la colección abierta en <skillsLink>cmux-skills</skillsLink>, o lee la <link>documentación de skills</link>.",
     "faqBrowserQ": "¿Qué puede hacer el navegador integrado?",
@@ -819,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Muestra la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados.",
           "focusTextBoxOnNewTerminals": "Enfoca la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados. Enfocar también muestra TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Cuando está activado, un banner de notificación se retira automáticamente solo cuando su superficie es exactamente la superficie enfocada. Un banner entregado para una superficie no enfocada en el workspace actualmente visible permanece visible hasta que enfoques esa superficie (o hagas clic en él/lo descartes), en lugar de retirarse cuando el workspace se vuelve visible. Desactivado conserva el comportamiento heredado de retirada según la visibilidad del workspace."
+        },
         "browser": {
           "defaultSearchEngine": "Motor de búsqueda predeterminado para consultas de la barra de direcciones del navegador que no son URL. Usa custom con customSearchEngineURLTemplate para otros proveedores.",
           "customSearchEngineName": "Nombre visible usado cuando defaultSearchEngine es custom.",
@@ -847,7 +851,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Predicados de contexto opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre claves de contexto, combinada con !, &&, || y paréntesis. Claves booleanas: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Las claves tipadas admiten comparaciones: la cadena sidebarMode (files, find, sessions, feed o dock) y los enteros paneCount y workspaceCount. Los operadores de comparación son ==, !=, =~ (expresión regular), <, <=, >, >= e `in [a, b]`; una clave desconocida o ausente se evalúa como false. También se aceptan los literales booleanos true y false; `key == false` equivale a `!key`. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selecciona espacios de trabajo con Ctrl+1–9 en todas partes excepto cuando la barra lateral derecha tiene el foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita una asignación a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles.",
+          "when": "Predicados de contexto opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre claves de contexto, combinada con !, &&, || y paréntesis. Claves booleanas: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Las claves tipadas admiten comparaciones: la cadena sidebarMode (files, find, sessions, feed o dock) y los enteros paneCount y workspaceCount. Los operadores de comparación son ==, !=, =~ (expresión regular), <, <=, >, >= e `in [a, b]`; una clave desconocida o ausente se evalúa como false. También se aceptan los literales booleanos true y false; `key == false` equivale a `!key`. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selecciona espacios de trabajo con Ctrl+1–9 en todas partes excepto cuando la barra lateral derecha tiene el foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita una asignación a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles.",
           "showModifierHoldHints": "Muestra chips de sugerencias de atajos mientras mantienes pulsado Cmd o Control."
         }
       },
@@ -1068,7 +1072,8 @@
       "closeWorkspaceDesc": "Cerrar un workspace.",
       "splitCommands": "Comandos de división",
       "newSplitDesc": "Crear un nuevo panel dividido. Direcciones: left, right, up, down.",
-      "listSurfacesDesc": "Listar todas las superficies en el workspace actual.",
+      "listPanelsDesc": "Listar todas las superficies en el workspace actual.",
+      "listPaneSurfacesDesc": "Listar las superficies en el panel enfocado.",
       "focusSurfaceDesc": "Enfocar una superficie específica.",
       "inputCommands": "Comandos de entrada",
       "sendDesc": "Enviar texto al terminal enfocado.",
@@ -1869,5 +1874,32 @@
       "faqQ4": "¿Es cmux gratuita para usar con Cursor CLI?",
       "faqA4": "Sí. cmux es gratuita y de código abierto para macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Únete a la lista de espera de {platform}",
+    "titleAny": "Únete a la lista de espera",
+    "description": "La compatibilidad con {platform} está en camino. Deja tu correo y te avisaremos en cuanto esté lista.",
+    "descriptionAny": "Por ahora cmux es primero para macOS. Deja tu correo y te avisaremos en cuanto Linux, Windows o Android esté listo.",
+    "calloutText": "Próximamente en Linux, Windows y Android.",
+    "platformsLabel": "¿Qué plataformas?",
+    "selectPlatform": "Elige al menos una plataforma.",
+    "emailLabel": "Correo electrónico",
+    "emailPlaceholder": "you@example.com",
+    "join": "Unirme a la lista",
+    "joining": "Uniéndote…",
+    "cancel": "Cancelar",
+    "invalidEmail": "Introduce un correo electrónico válido.",
+    "sendError": "No se pudo enviar. Inténtalo de nuevo.",
+    "successTitle": "Estás en la lista",
+    "successBody": "Te enviaremos un correo cuando la versión de {platform} esté lista.",
+    "successBodyAny": "Te enviaremos un correo cuando cmux esté listo para tu plataforma.",
+    "done": "Listo"
   }
 }

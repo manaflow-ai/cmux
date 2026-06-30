@@ -12,7 +12,8 @@
     "toggleTheme": "Bytt tema",
     "backToBlog": "Tilbake til bloggen",
     "readTheDocs": "Les dokumentasjonen",
-    "viewChangelog": "Se endringslogg"
+    "viewChangelog": "Se endringslogg",
+    "otherPlatforms": "Andre plattformer"
   },
   "nav": {
     "docs": "Dokumentasjon",
@@ -99,7 +100,7 @@
     "faqCustomizeQ": "Kan jeg tilpasse cmux?",
     "faqCustomizeA": "Ja. Terminalgjengivelsen bruker Ghostty-konfigurasjonen din, så temaer, skrifter, farger og markør overføres direkte. cmux sine egne innstillinger i <path>~/.config/cmux/cmux.json</path> styrer sidefeltet, fanelinjen, delte paneler og oppførsel, og hver <shortcutsLink>hurtigtast</shortcutsLink> kan redigeres. Se <link>konfigurasjon</link>.",
     "faqIosQ": "Finnes det en iOS-app?",
-    "faqIosA": "Ja, i beta. Par iPhonen din med Mac-en fra Mobile Connect-vinduet, og koble deg til terminalene dine fra telefonen, med valgfri videresending av terminalvarsler. Den distribueres på TestFlight som cmux BETA.",
+    "faqIosA": "Ja, i beta. Par iPhonen din med Mac-en fra Mobile Connect-vinduet, og koble deg til terminalene dine fra telefonen, med valgfri videresending av terminalvarsler. Den distribueres på TestFlight som cmux BETA. Tidlig tilgang er inkludert i <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqSkillsQ": "Har cmux skills?",
     "faqSkillsA": "Ja. Skills er gjenbrukbare arbeidsflyter du kan gi til enhver agent som kjører i cmux, for ting som CLI-styring, automatisering av arbeidsområdet, innstillinger og nettleserflater. Bla gjennom den åpne samlingen på <skillsLink>cmux-skills</skillsLink>, eller les <link>skills-dokumentasjonen</link>.",
     "faqBrowserQ": "Hva kan den innebygde nettleseren gjøre?",
@@ -819,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt.",
           "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Når dette er på, trekkes et varselbanner bare automatisk tilbake når overflaten er nøyaktig den fokuserte overflaten. Et banner levert for en ikke-fokusert overflate i det for øyeblikket synlige workspace blir værende til du fokuserer den overflaten (eller klikker/avviser det), i stedet for å bli trukket tilbake når workspace blir synlig. Av beholder den gamle tilbaketrekkingen basert på workspace-synlighet."
+        },
         "browser": {
           "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
           "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
@@ -847,7 +851,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Valgfrie kontekstpredikater per handling (VS Code-lignende `when`-klausuler), indeksert etter cmux-handlings-id. Hver verdi er et boolsk uttrykk over kontekstnøkler, kombinert med !, &&, || og parenteser. Boolske nøkler: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typede nøkler støtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorene er ==, !=, =~ (regulært uttrykk), <, <=, >, >= og `in [a, b]`; en ukjent eller fraværende nøkkel leses som false. De boolske literalene true og false godtas også; `key == false` tilsvarer `!key`. Handlingens snarvei utløses bare (og kolliderer bare med andre snarveier) når klausulen er sann. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } velger arbeidsområder med Ctrl+1–9 overalt unntatt når høyre sidelinje har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrenser en binding til Finn-sidelinjen når arbeidsområdet har flere paneler.",
+          "when": "Valgfrie kontekstpredikater per handling (VS Code-lignende `when`-klausuler), indeksert etter cmux-handlings-id. Hver verdi er et boolsk uttrykk over kontekstnøkler, kombinert med !, &&, || og parenteser. Boolske nøkler: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typede nøkler støtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorene er ==, !=, =~ (regulært uttrykk), <, <=, >, >= og `in [a, b]`; en ukjent eller fraværende nøkkel leses som false. De boolske literalene true og false godtas også; `key == false` tilsvarer `!key`. Handlingens snarvei utløses bare (og kolliderer bare med andre snarveier) når klausulen er sann. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } velger arbeidsområder med Ctrl+1–9 overalt unntatt når høyre sidelinje har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrenser en binding til Finn-sidelinjen når arbeidsområdet har flere paneler.",
           "showModifierHoldHints": "Vis snarveishint-brikker mens Cmd eller Control holdes nede."
         }
       },
@@ -1068,7 +1072,8 @@
       "closeWorkspaceDesc": "Lukk et arbeidsområde.",
       "splitCommands": "Delingskommandoer",
       "newSplitDesc": "Opprett et nytt delt panel. Retninger: left, right, up, down.",
-      "listSurfacesDesc": "List alle overflater i det gjeldende arbeidsområdet.",
+      "listPanelsDesc": "List alle overflater i det gjeldende arbeidsområdet.",
+      "listPaneSurfacesDesc": "List overflater i det fokuserte panelet.",
       "focusSurfaceDesc": "Fokuser en spesifikk overflate.",
       "inputCommands": "Inndatakommandoer",
       "sendDesc": "Send tekstinndata til den fokuserte terminalen.",
@@ -1869,5 +1874,32 @@
       "faqQ4": "Er cmux gratis å bruke med Cursor CLI?",
       "faqA4": "Ja. cmux er gratis og åpen kildekode for macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Bli med på ventelisten for {platform}",
+    "titleAny": "Bli med på ventelisten",
+    "description": "Støtte for {platform} er på vei. Legg igjen e-posten din, så gir vi beskjed så snart den er klar.",
+    "descriptionAny": "cmux er macOS-først akkurat nå. Legg igjen e-posten din, så gir vi beskjed så snart Linux, Windows eller Android er klar.",
+    "calloutText": "Kommer til Linux, Windows og Android.",
+    "platformsLabel": "Hvilke plattformer?",
+    "selectPlatform": "Velg minst én plattform.",
+    "emailLabel": "E-post",
+    "emailPlaceholder": "you@example.com",
+    "join": "Bli med på ventelisten",
+    "joining": "Blir med…",
+    "cancel": "Avbryt",
+    "invalidEmail": "Skriv inn en gyldig e-postadresse.",
+    "sendError": "Kunne ikke sende. Prøv igjen.",
+    "successTitle": "Du er på listen",
+    "successBody": "Vi sender deg en e-post når {platform}-versjonen er klar.",
+    "successBodyAny": "Vi sender deg en e-post når cmux er klar for plattformen din.",
+    "done": "Ferdig"
   }
 }
