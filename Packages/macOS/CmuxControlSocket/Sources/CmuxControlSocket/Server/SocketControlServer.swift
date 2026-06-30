@@ -1,5 +1,4 @@
 public import CmuxSettings
-public import CmuxSocketControl
 internal import Dispatch
 internal import Foundation
 internal import os

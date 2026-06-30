@@ -10,7 +10,6 @@ import Bonsplit
 import UserNotifications
 import Sparkle
 import CmuxUpdater
-import CmuxCommandPaletteUI
 // Selective imports: the app target also defines AppIconMode/StoredShortcut/etc.,
 // so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
 // the settings symbols this file needs.

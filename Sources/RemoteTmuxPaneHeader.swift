@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// A compact per-pane control bar shown above each mirrored tmux pane.
@@ -45,8 +46,7 @@ struct RemoteTmuxPaneHeader: View {
 
     private func button(system: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: system)
-                .font(.system(size: 11, weight: .medium))
+            CmuxSystemSymbolImage(magnified: system, pointSize: 11, weight: .medium)
                 .frame(width: 18, height: 18)
                 .contentShape(Rectangle())
         }

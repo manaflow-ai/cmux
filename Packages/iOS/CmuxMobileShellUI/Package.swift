@@ -59,8 +59,10 @@ let package = Package(
             name: "CmuxMobileShellUITests",
             dependencies: [
                 "CmuxMobileShellUI",
+                "CmuxAgentChat",
                 "CmuxMobileShell",
                 "CmuxMobileWorkspace",
+                .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             swiftSettings: [
                 .define("CMUX_DEV_AUTH", .when(configuration: .debug)),

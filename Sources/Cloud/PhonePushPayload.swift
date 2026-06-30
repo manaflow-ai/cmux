@@ -7,6 +7,8 @@ struct PhonePushPayload: Sendable {
     let body: String
     let workspaceId: String?
     let surfaceId: String?
+    /// Stable Mac device id for routing notification taps in multi-Mac aggregates.
+    let macDeviceId: String?
     /// Stable notification id (the Mac store ``TerminalNotification/id``).
     /// Travels to APNs as both an `apns-collapse-id` (so a later Mac->iOS
     /// dismiss can target the delivered banner) and `cmux.notificationId`

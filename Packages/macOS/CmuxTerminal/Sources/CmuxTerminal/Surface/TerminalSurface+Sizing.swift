@@ -1,10 +1,6 @@
 public import AppKit
 public import Foundation
 public import GhosttyKit
-internal import QuartzCore
-#if DEBUG
-internal import CMUXDebugLog
-#endif
 
 // MARK: - Surface sizing, scale, and mobile viewport caps
 
@@ -36,8 +32,89 @@ extension TerminalSurface {
         abs(lhs - rhs) <= epsilon
     }
 
+    /// Returns whether a backing-pixel resize should be forwarded to Ghostty.
+    ///
+    /// Ghostty uses one surface-size API for both renderer pixels and PTY
+    /// geometry. During AppKit live resize, pixel churn can arrive without a
+    /// terminal grid change; coalescing those pixel-only updates avoids
+    /// redundant PTY resizes while preserving ordinary layout and scale changes.
+    ///
+    /// - Parameter currentColumns: The current terminal grid column count.
+    /// - Parameter currentRows: The current terminal grid row count.
+    /// - Parameter currentWidthPx: The current raw surface width in pixels.
+    /// - Parameter currentHeightPx: The current raw surface height in pixels.
+    /// - Parameter currentCellWidthPx: The current terminal cell width in pixels.
+    /// - Parameter currentCellHeightPx: The current terminal cell height in pixels.
+    /// - Parameter targetWidthPx: The candidate surface width in pixels.
+    /// - Parameter targetHeightPx: The candidate surface height in pixels.
+    /// - Parameter coalescePixelOnlyResize: Whether same-grid pixel-only resizes should be skipped.
+    /// - Parameter hasAppliedPixelSize: Whether a previous runtime pixel size has been applied.
+    /// - Returns: `true` when Ghostty should receive the new pixel size.
+    public static func shouldApplySurfacePixelSizeChange(
+        currentColumns: UInt32,
+        currentRows: UInt32,
+        currentWidthPx: UInt32,
+        currentHeightPx: UInt32,
+        currentCellWidthPx: UInt32,
+        currentCellHeightPx: UInt32,
+        targetWidthPx: UInt32,
+        targetHeightPx: UInt32,
+        coalescePixelOnlyResize: Bool,
+        hasAppliedPixelSize: Bool
+    ) -> Bool {
+        guard hasAppliedPixelSize else { return true }
+        guard coalescePixelOnlyResize else { return true }
+        guard currentColumns > 0,
+              currentRows > 0,
+              currentCellWidthPx > 0,
+              currentCellHeightPx > 0 else {
+            return true
+        }
+
+        let cellWidth = UInt64(currentCellWidthPx)
+        let cellHeight = UInt64(currentCellHeightPx)
+        let currentColumnCount = UInt64(currentColumns)
+        let currentRowCount = UInt64(currentRows)
+        func mayChangeGrid(
+            currentCount: UInt64,
+            currentPixels: UInt64,
+            cellPixels: UInt64,
+            targetPixels: UInt64
+        ) -> Bool {
+            let currentGridPixels = currentCount * cellPixels
+            guard targetPixels >= currentGridPixels else { return true }
+
+            let nextGridPixels = currentGridPixels + cellPixels
+            let paddingLower = currentPixels >= nextGridPixels ? currentPixels - nextGridPixels + 1 : 0
+            let paddingUpper = currentPixels > currentGridPixels ? currentPixels - currentGridPixels : 0
+            let unchangedLower = targetPixels >= nextGridPixels ? targetPixels - nextGridPixels + 1 : 0
+            let unchangedUpper = targetPixels - currentGridPixels
+            // Coalesce only when every padding value compatible with the current grid stays same-grid.
+            return unchangedLower > paddingLower || unchangedUpper < paddingUpper
+        }
+
+        return mayChangeGrid(
+            currentCount: currentColumnCount,
+            currentPixels: UInt64(currentWidthPx),
+            cellPixels: cellWidth,
+            targetPixels: UInt64(targetWidthPx)
+        ) || mayChangeGrid(
+            currentCount: currentRowCount,
+            currentPixels: UInt64(currentHeightPx),
+            cellPixels: cellHeight,
+            targetPixels: UInt64(targetHeightPx)
+        )
+    }
+
     /// Applies a new backing size/scale to the runtime surface.
     ///
+    /// - Parameter width: The logical surface width in points.
+    /// - Parameter height: The logical surface height in points.
+    /// - Parameter xScale: The horizontal backing scale.
+    /// - Parameter yScale: The vertical backing scale.
+    /// - Parameter layerScale: The backing scale assigned to the hosting layer.
+    /// - Parameter backingSize: The precomputed backing size in pixels, if available.
+    /// - Parameter coalescePixelOnlyResize: Whether same-grid pixel-only resizes should be skipped.
     /// - Returns: Whether a runtime size or scale change was applied.
     @discardableResult
     @MainActor
@@ -47,7 +124,8 @@ extension TerminalSurface {
         xScale: CGFloat,
         yScale: CGFloat,
         layerScale: CGFloat,
-        backingSize: CGSize? = nil
+        backingSize: CGSize? = nil,
+        coalescePixelOnlyResize: Bool = false
     ) -> Bool {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
         _ = layerScale
@@ -88,13 +166,50 @@ extension TerminalSurface {
         }
         #endif
 
-        if scaleChanged {
+        // Apply the cell-size (set_content_scale) and screen-px (set_size) updates
+        // in an order that never transiently shrinks the grid (= screen_px /
+        // cell_px). Scale-first is fine except on a DPI increase, where the bigger
+        // cell over the not-yet-resized screen collapses the grid and truncates a
+        // manual-IO mirror's buffer — and a DPI move leaves the remote PTY size
+        // unchanged, so nothing repaints it back. Defer the scale past set_size in
+        // that case.
+        let deferScaleUntilResized = scaleChanged && sizeChanged && (xScale > lastXScale || yScale > lastYScale)
+        if scaleChanged && !deferScaleUntilResized {
             ghostty_surface_set_content_scale(surface, xScale, yScale)
             lastXScale = xScale
             lastYScale = yScale
         }
 
         if sizeChanged {
+            // Coalesce pixel-only resizes first: if the candidate pixel size
+            // doesn't change the terminal grid, skip the resize entirely. This
+            // must run before any DECAWM toggling below so a coalesced (skipped)
+            // resize never leaves a manual-I/O pane with DECAWM disabled.
+            let currentSize = ghostty_surface_size(surface)
+            let shouldApplySizeChange = Self.shouldApplySurfacePixelSizeChange(
+                currentColumns: UInt32(currentSize.columns),
+                currentRows: UInt32(currentSize.rows),
+                currentWidthPx: currentSize.width_px,
+                currentHeightPx: currentSize.height_px,
+                currentCellWidthPx: currentSize.cell_width_px,
+                currentCellHeightPx: currentSize.cell_height_px,
+                targetWidthPx: wpx,
+                targetHeightPx: hpx,
+                coalescePixelOnlyResize: coalescePixelOnlyResize && !scaleChanged,
+                hasAppliedPixelSize: lastPixelWidth > 0 && lastPixelHeight > 0
+            )
+            guard shouldApplySizeChange else {
+                #if DEBUG
+                Self.sizeLog(
+                    "updateSize-skip-pixel-only surface=\(id.uuidString.prefix(8)) " +
+                    "size=\(wpx)x\(hpx) prev=\(lastPixelWidth)x\(lastPixelHeight) " +
+                    "grid=\(currentSize.columns)x\(currentSize.rows) " +
+                    "cell=\(currentSize.cell_width_px)x\(currentSize.cell_height_px)"
+                )
+                #endif
+                return scaleChanged
+            }
+
             // Mirror (manual-I/O) surfaces must not reflow their primary screen
             // on resize. tmux is authoritative for pane reflow and streams only
             // incremental post-SIGWINCH redraws, so a local reflow diverges from
@@ -117,6 +232,14 @@ extension TerminalSurface {
                     writeProcessOutputData(Self.decawmEnableSequence, to: surface)
                 }
             }
+        }
+
+        // Deferred from above on a DPI increase: now that set_size grew the grid,
+        // applying the larger cell only shrinks it back to the final width.
+        if deferScaleUntilResized {
+            ghostty_surface_set_content_scale(surface, xScale, yScale)
+            lastXScale = xScale
+            lastYScale = yScale
         }
 
         // Remote tmux display surfaces: keep the remote tmux client sized to
@@ -325,64 +448,5 @@ extension TerminalSurface {
             drawRight: drawRightBorder,
             drawBottom: drawBottomBorder
         )
-    }
-
-    /// Force a full size recalculation and surface redraw.
-    @MainActor
-    public func forceRefresh(reason: String = "unspecified") {
-#if DEBUG
-        let hasSurface = surface != nil
-        let viewState: String
-        if let view = attachedView {
-            let inWindow = uiWindow != nil
-            let bounds = view.bounds
-            let metalOK = (view.layer as? CAMetalLayer) != nil
-            viewState = "inWindow=\(inWindow) bounds=\(bounds) metalOK=\(metalOK) hasSurface=\(hasSurface)"
-        } else {
-            viewState = "NO_ATTACHED_VIEW hasSurface=\(hasSurface)"
-        }
-        logDebugEvent("forceRefresh: \(id) reason=\(reason) \(viewState)")
-#endif
-        guard let view = attachedView,
-              let window = uiWindow,
-              view.bounds.width > 0,
-              view.bounds.height > 0 else {
-            return
-        }
-#if DEBUG
-        recordDebugForceRefresh()
-#endif
-        // Re-read self.surface before each ghostty call to guard against the surface
-        // being freed during wake-from-sleep geometry reconciliation (issue #432).
-        // The surface can be invalidated between calls when AppKit layout triggers
-        // view lifecycle changes (e.g., forceRefreshSurface → layout → deinit → free).
-
-        // Reassert display id on topology churn (split close/reparent) before forcing a refresh.
-        // This avoids a first-run stuck-vsync state where Ghostty believes vsync is active
-        // but callbacks have not resumed for the current display.
-        let displayID = (window.screen ?? NSScreen.main)?.displayID
-#if DEBUG
-        let accessReason = "forceRefresh.\(reason)"
-#else
-        let accessReason = "forceRefresh"
-#endif
-        guard let currentSurface = liveSurfaceForGhosttyAccess(reason: accessReason) else {
-            return
-        }
-        if let displayID,
-           displayID != 0 {
-            ghostty_surface_set_display_id(currentSurface, displayID)
-        }
-
-        view.forceRefreshSurface()
-#if DEBUG
-        let refreshReason = "forceRefresh.refresh.\(reason)"
-#else
-        let refreshReason = "forceRefresh.refresh"
-#endif
-        guard let surface = liveSurfaceForGhosttyAccess(reason: refreshReason) else {
-            return
-        }
-        ghostty_surface_refresh(surface)
     }
 }

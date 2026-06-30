@@ -333,6 +333,15 @@
           "default": true,
           "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
         },
+        "globalFontMagnification": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 200,
+          "multipleOf": 10,
+          "default": 100,
+          "descriptionKey": "schemaDescriptions.app.globalFontMagnification",
+          "description": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
+        },
         "reorderOnNotification": {
           "type": "boolean",
           "default": true,
@@ -401,11 +410,19 @@
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
         },
+        "scrollSpeed": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 3.0,
+          "default": 1.0,
+          "descriptionKey": "schemaDescriptions.terminal.scrollSpeed",
+          "description": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower."
+        },
         "copyOnSelect": {
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
-          "description": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
+          "description": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior."
         },
         "autoResumeAgentSessions": {
           "type": "boolean",
@@ -578,6 +595,12 @@
           "type": "boolean",
           "default": true,
           "description": "Flash the focused pane when requested."
+        },
+        "suppressOnlyFocusedSurface": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.notifications.suppressOnlyFocusedSurface",
+          "description": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw."
         },
         "sound": {
           "type": "string",
@@ -1252,7 +1275,24 @@
               "equalizeSplits",
               "splitBrowserRight",
               "splitBrowserDown",
+              "toggleCanvasLayout",
+              "canvasRevealFocusedPane",
+              "canvasOverview",
+              "canvasZoomIn",
+              "canvasZoomOut",
+              "canvasZoomReset",
+              "canvasTidy",
+              "canvasAlignLeft",
+              "canvasAlignRight",
+              "canvasAlignTop",
+              "canvasAlignBottom",
+              "canvasEqualizeWidths",
+              "canvasEqualizeHeights",
+              "canvasDistributeHorizontally",
+              "canvasDistributeVertically",
               "toggleFileExplorer",
+              "fileExplorerOpenSelection",
+              "fileExplorerOpenSelectionFinderAlias",
               "saveFilePreview",
               "openBrowser",
               "focusBrowserAddressBar",
@@ -1285,20 +1325,26 @@
             ]
           },
           "properties": {
+            "fileExplorerOpenSelection": {
+              "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
+            },
+            "fileExplorerOpenSelectionFinderAlias": {
+              "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
+            },
             "diffViewerScrollDown": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollUp": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollToBottom": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollToTop": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerOpenFileSearch": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },
           "additionalProperties": {
@@ -1308,7 +1354,7 @@
         "when": {
           "type": "object",
           "default": {},
-          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "descriptionKey": "schemaDescriptions.shortcuts.when",
           "additionalProperties": {
             "type": "string"
@@ -1370,15 +1416,38 @@
         }
       ]
     },
-    "diffViewerShortcutBinding": {
+    "singleBareFirstStrokeShortcutBinding": {
       "oneOf": [
         {
           "$ref": "#/$defs/unboundShortcutBinding",
           "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
         },
         {
-          "$ref": "#/$defs/diffViewerShortcutFirstStroke",
-          "description": "Single-stroke diff viewer shortcut, for example j, k, /, or shift+g."
+          "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
+          "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
+        }
+      ]
+    },
+    "singleBareFirstStrokeShortcutBindingNullable": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/singleBareFirstStrokeShortcutBinding"
+        },
+        {
+          "type": "null",
+          "description": "Unbind this shortcut."
+        }
+      ]
+    },
+    "bareFirstStrokeShortcutBinding": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/unboundShortcutBinding",
+          "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
+        },
+        {
+          "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
+          "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
         },
         {
           "type": "array",
@@ -1386,20 +1455,20 @@
           "maxItems": 2,
           "prefixItems": [
             {
-              "$ref": "#/$defs/diffViewerShortcutFirstStroke"
+              "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
             },
             {
               "$ref": "#/$defs/shortcutStroke"
             }
           ],
-          "description": "Chorded diff viewer shortcut. Example: [\"g\", \"g\"]."
+          "description": "Chorded shortcut. Bare first strokes are accepted for this action. Example: [\"g\", \"g\"]."
         }
       ]
     },
-    "diffViewerShortcutBindingNullable": {
+    "bareFirstStrokeShortcutBindingNullable": {
       "oneOf": [
         {
-          "$ref": "#/$defs/diffViewerShortcutBinding"
+          "$ref": "#/$defs/bareFirstStrokeShortcutBinding"
         },
         {
           "type": "null",
@@ -1429,7 +1498,7 @@
       ],
       "description": "First or only shortcut stroke. Must include a modifier unless the key is Space."
     },
-    "diffViewerShortcutFirstStroke": {
+    "bareFirstStrokeShortcutFirstStroke": {
       "allOf": [
         {
           "$ref": "#/$defs/shortcutStroke"
@@ -1443,12 +1512,18 @@
               "pattern": "^(?: |[sS][pP][aA][cC][eE]|[sS][pP][aA][cC][eE][bB][aA][rR]|<[sS][pP][aA][cC][eE]>)$"
             },
             {
+              "pattern": "^(?:[rR][eE][tT][uU][rR][nN]|[eE][nN][tT][eE][rR]|↩)$"
+            },
+            {
+              "pattern": "^(?:[lL][eE][fF][tT]|[aA][rR][rR][oO][wW][lL][eE][fF][tT]|[lL][eE][fF][tT][aA][rR][rR][oO][wW]|←|[rR][iI][gG][hH][tT]|[aA][rR][rR][oO][wW][rR][iI][gG][hH][tT]|[rR][iI][gG][hH][tT][aA][rR][rR][oO][wW]|→|[uU][pP]|[aA][rR][rR][oO][wW][uU][pP]|[uU][pP][aA][rR][rR][oO][wW]|↑|[dD][oO][wW][nN]|[aA][rR][rR][oO][wW][dD][oO][wW][nN]|[dD][oO][wW][nN][aA][rR][rR][oO][wW]|↓)$"
+            },
+            {
               "pattern": "^(?:[A-Za-z0-9]|[,./\\\\;'`=\\[\\]-]|[cC][oO][mM][mM][aA]|[pP][eE][rR][iI][oO][dD]|[dD][oO][tT]|[sS][lL][aA][sS][hH]|[bB][aA][cC][kK][sS][lL][aA][sS][hH]|[sS][eE][mM][iI][cC][oO][lL][oO][nN]|[qQ][uU][oO][tT][eE]|[aA][pP][oO][sS][tT][rR][oO][pP][hH][eE]|[bB][aA][cC][kK][tT][iI][cC][kK]|[gG][rR][aA][vV][eE]|[mM][iI][nN][uU][sS]|[hH][yY][pP][hH][eE][nN]|[pP][lL][uU][sS]|[eE][qQ][uU][aA][lL][sS]|[lL][eE][fF][tT][bB][rR][aA][cC][kK][eE][tT]|[oO][pP][eE][nN][bB][rR][aA][cC][kK][eE][tT]|[rR][iI][gG][hH][tT][bB][rR][aA][cC][kK][eE][tT]|[cC][lL][oO][sS][eE][bB][rR][aA][cC][kK][eE][tT])$"
             }
           ]
         }
       ],
-      "description": "First or only diff viewer shortcut stroke. Bare printable keys are accepted."
+      "description": "First or only shortcut stroke. Bare printable keys are accepted for actions that opt into bare first strokes."
     },
     "shortcutStroke": {
       "type": "string",

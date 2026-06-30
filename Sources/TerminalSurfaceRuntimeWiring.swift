@@ -3,7 +3,7 @@ import Foundation
 import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
-import CmuxSocketControl
+import CmuxSettings
 import struct CmuxSettings.AgentIntegrationSettingsStore
 
 // The app-side conformances and bridges injected into the CmuxTerminal
@@ -44,6 +44,7 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
         return TerminalSurfaceSpawnPolicy(
             claudeHooksEnabled: integrations.claudeCodeHooksEnabled,
+            codexHooksEnabled: integrations.codexHooksEnabled,
             customClaudePath: integrations.customClaudePath,
             subagentNotificationEnvironmentKey: AgentIntegrationSettingsStore.subagentSuppressionEnvironmentKey,
             suppressSubagentNotifications: integrations.suppressesSubagentNotifications,

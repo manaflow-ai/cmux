@@ -33,14 +33,16 @@ extension TerminalController {
         switch method {
         case "mobile.chat.sessions":
             return v2MobileChatSessions(params: params)
+        case "mobile.chat.session":
+            return v2MobileChatSession(params: params)
         case "mobile.chat.history":
             return await v2MobileChatHistory(params: params)
         case "mobile.chat.send":
-            return v2MobileChatSend(params: params)
+            return await v2MobileChatSend(params: params)
         case "mobile.chat.interrupt":
-            return v2MobileChatInterrupt(params: params)
+            return await v2MobileChatInterrupt(params: params)
         case "mobile.chat.answer":
-            return v2MobileChatAnswer(params: params)
+            return await v2MobileChatAnswer(params: params)
         default:
             return .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": method
@@ -60,72 +62,127 @@ extension TerminalController {
 
     /// `mobile.chat.sessions`: list chat-capable coding-agent sessions,
     /// optionally scoped to one workspace.
+    ///
+    /// When a `workspace_id` W is given, sessions are scoped by the SURFACE'S
+    /// CURRENT workspace, never the record's stored `workspaceID`. cmux
+    /// workspace ids regenerate on every Mac relaunch while surface ids are
+    /// stable, so a session created before the last relaunch carries a stale
+    /// stored `workspaceID` and would otherwise be dropped from its terminal's
+    /// current workspace. We resolve W once, collect W's live terminal surface
+    /// ids once, then return every session whose surface is one of them and that
+    /// still matches its agent against THAT workspace+panel. Each returned
+    /// session is re-stamped to W so its seed and live `descriptorChanged`
+    /// pushes both scope to the current workspace.
     func v2MobileChatSessions(params: [String: Any]) -> V2CallResult {
         let workspaceID = v2String(params, "workspace_id")
         guard let service = agentChatTranscriptService else {
             return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
         }
-        // Register coding agents cmux detects by terminal title but that never
-        // ran a hook (e.g. launched through a shell wrapper that bypasses
-        // cmux's hook injection), so they get a chat session and toggle like
-        // hook-registered agents.
-        if let workspaceID {
-            adoptDetectedAgentSessions(workspaceID: workspaceID)
+        // Observe-floor detection: kick a throttled, off-main process-table scan
+        // so a live codex/claude launched through any indirection (a subrouter, a
+        // wrapper) that fired no hook is still discovered. Fire-and-forget: a new
+        // detection creates a record that pushes itself to subscribers via
+        // onRecordChanged, so it lands without blocking this list pull.
+        Task { await service.observeAgentProcesses() }
+        guard let workspaceID else {
+            // No filter: return all current-agent sessions across workspaces,
+            // resolving each via its stored binding as before.
+            let descriptors = service.sessionRecords(workspaceID: nil)
+                .filter { mobileChatBindingIsCurrentAgent($0) }
+                .map(\.descriptor)
+            let encoded = descriptors.compactMap { service.wirePayload($0) }
+            #if DEBUG
+            cmuxDebugLog("agentChat.list workspace=nil records=\(service.sessionRecords(workspaceID: nil).count) returned=\(encoded.count)")
+            #endif
+            return .ok(["sessions": encoded])
         }
-        let descriptors = service.sessionRecords(workspaceID: workspaceID)
-            .filter { mobileChatBindingIsCurrentAgent($0) }
-            .map(\.descriptor)
-        let encoded = descriptors.compactMap { service.wirePayload($0) }
-        return .ok(["sessions": encoded])
-    }
-
-    /// Scans a workspace's terminals for a running coding agent that has no
-    /// chat session yet (title- or launch-metadata-detected, no hook) and
-    /// adopts it. Adoption is a no-op once the surface has a session, so this
-    /// only touches the filesystem the first time an agent is seen. Called
-    /// both on a mobile session-list request and live from the terminal
-    /// title-change observer, so the toggle appears the moment an agent
-    /// launches, not only when the workspace is next opened.
-    func adoptDetectedAgentSessions(workspaceID: String) {
+        // Resolve W to its live Workspace once; build the set of its live
+        // terminal surface ids once, then filter sessions against that set.
         guard let resolved = mobileResolveWorkspaceAndSurface(
             params: ["workspace_id": workspaceID],
             requireTerminal: false
-        ) else { return }
-        adoptDetectedAgentSessions(workspace: resolved.workspace)
+        ) else {
+            #if DEBUG
+            cmuxDebugLog("agentChat.list workspace=\(workspaceID.prefix(8)) RESOLVE_FAILED returned=0")
+            #endif
+            return .ok(["sessions": []])
+        }
+        let workspace = resolved.workspace
+        var encoded: [[String: Any]] = []
+        #if DEBUG
+        var dropNotInWorkspace = 0, dropDeadPID = 0, kept = 0
+        let allRecords = service.sessionRecords(workspaceID: nil)
+        #endif
+        for record in service.sessionRecords(workspaceID: nil) {
+            guard let surfaceID = record.surfaceID,
+                  let surfaceUUID = UUID(uuidString: surfaceID),
+                  workspace.terminalPanel(for: surfaceUUID) != nil else {
+                #if DEBUG
+                dropNotInWorkspace += 1
+                #endif
+                continue
+            }
+            // A LIVE session must still be the current agent on the terminal, so
+            // a reused/restored terminal never exposes a false live toggle. An
+            // ENDED session is RETAINED whenever its surface is a live terminal
+            // in W, regardless of what the terminal runs now: the GUI keeps a
+            // finished conversation visible read-only (input bar disabled), so a
+            // fresh pull must not drop it — dropping it is what made the toggle
+            // go stale and vanish on tap after the agent exited.
+            if record.state != .ended,
+               !mobileChatRecordMatchesAgent(record: record) {
+                #if DEBUG
+                dropDeadPID += 1
+                cmuxDebugLog("agentChat.list drop=deadPID session=\(record.sessionID.prefix(8)) kind=\(record.agentKind.sourceName) surface=\(record.surfaceID?.prefix(8) ?? "nil") pid=\(record.pid.map(String.init) ?? "nil")")
+                #endif
+                continue
+            }
+            #if DEBUG
+            kept += 1
+            #endif
+            // Re-stamp stale-workspace records to W so the seed and live pushes
+            // both scope to the current workspace, then encode the re-stamped
+            // descriptor.
+            if record.workspaceID != workspaceID {
+                service.updateSessionWorkspace(sessionID: record.sessionID, workspaceID: workspaceID)
+            }
+            let descriptor = service.sessionRecord(sessionID: record.sessionID)?.descriptor ?? record.descriptor
+            if let payload = service.wirePayload(descriptor) {
+                encoded.append(payload)
+            }
+        }
+        #if DEBUG
+        cmuxDebugLog("agentChat.list workspace=\(workspaceID.prefix(8)) total=\(allRecords.count) dropNotInWS=\(dropNotInWorkspace) dropDeadPID=\(dropDeadPID) kept=\(kept) returned=\(encoded.count)")
+        #endif
+        return .ok(["sessions": encoded])
     }
 
-    /// Workspace-typed core of ``adoptDetectedAgentSessions(workspaceID:)``,
-    /// for callers that already hold the `Workspace` (the workspace-list RPC
-    /// enumerates every workspace and adopts inline, so the toggle is known
-    /// before the user enters the workspace — no per-open resolution and no
-    /// pop-in). Each `adoptDetectedClaudeSession` short-circuits in memory
-    /// once the surface has a session, so a repeat scan of an already-adopted
-    /// workspace touches no filesystem.
-    func adoptDetectedAgentSessions(workspace: Workspace) {
-        let workspaceID = workspace.id.uuidString
-        guard let service = agentChatTranscriptService else { return }
-        for panel in workspace.panels.values.compactMap({ $0 as? TerminalPanel }) {
-            let context = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
-            let title = workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle
-            let normalizedTitle = title.lowercased()
-            // Claude is the case the wrapper-launched workflow hits; detect by
-            // launch metadata (hook PID key / initial command) or the live
-            // terminal title claude sets ("✳ Claude Code", then "✳ <ai-title>").
-            let isClaude = TextBoxAgentDetection.isClaudeCode(context: context)
-                || normalizedTitle.contains("claude")
-                || title.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("✳")
-            guard isClaude else { continue }
-            let cwd = workspace.panelDirectories[panel.id]
-                ?? (panel.directory.isEmpty ? nil : panel.directory)
-                ?? (workspace.currentDirectory.isEmpty ? nil : workspace.currentDirectory)
-            guard let cwd, !cwd.isEmpty else { continue }
-            service.adoptDetectedClaudeSession(
-                workspaceID: workspaceID,
-                surfaceID: panel.id.uuidString,
-                workingDirectory: cwd,
-                titleHint: title
+    /// `mobile.chat.session`: authoritative snapshot of one session by id.
+    ///
+    /// The client's pull path: on (re)connect, foreground, a detected version
+    /// gap, or manual refresh, the phone fetches the current descriptor (with
+    /// its monotonic `version`) and reconciles wholesale, so a missed or
+    /// out-of-order best-effort push self-heals. `not_found` means the session
+    /// is unknown to the host (e.g. cleared); the client drops it.
+    func v2MobileChatSession(params: [String: Any]) -> V2CallResult {
+        guard let sessionID = v2String(params, "session_id"), !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "session_id required", data: nil)
+        }
+        guard let service = agentChatTranscriptService else {
+            return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
+        }
+        guard let record = service.sessionRecord(sessionID: sessionID),
+              let encoded = service.wirePayload(record.descriptor) else {
+            return .err(
+                code: "not_found",
+                message: String(
+                    localized: "mobile.chat.error.sessionNotFound",
+                    defaultValue: "That agent session is no longer available."
+                ),
+                data: ["session_id": sessionID]
             )
         }
+        return .ok(["session": encoded])
     }
 
     /// `mobile.chat.history`: one transcript page for a session.
@@ -148,7 +205,7 @@ extension TerminalController {
             #if DEBUG
             cmuxDebugLog("mobile.chat.history transcript unresolved session=\(sessionID.prefix(8)); refreshing bindings")
             #endif
-            let refreshed = service.refreshSessionBindings(sessionID: sessionID)
+            let refreshed = await service.refreshSessionBindings(sessionID: sessionID)
             if refreshed?.transcriptPath != staleRecord.transcriptPath
                 || refreshed?.workingDirectory != staleRecord.workingDirectory {
                 page = await service.history(sessionID: sessionID, beforeSeq: beforeSeq, limit: limit)
@@ -160,7 +217,7 @@ extension TerminalController {
             #endif
             return .err(code: "not_found", message: String(
                 localized: "mobile.chat.error.transcriptNotReadable",
-                defaultValue: "This conversation's transcript isn't readable on the Mac yet. Send the agent a prompt from its terminal, then retry."
+                defaultValue: "The Mac can't find a transcript file for this conversation. If the agent just started in a project folder, send it a prompt and tap Retry. If it's running in your home directory, it doesn't keep a transcript, so use the Terminal tab to interact."
             ), data: [
                 "session_id": sessionID
             ])
@@ -173,7 +230,7 @@ extension TerminalController {
 
     /// `mobile.chat.send`: deliver attachments then inject the prompt into
     /// the session's terminal (bracketed paste + submit key).
-    func v2MobileChatSend(params: [String: Any]) -> V2CallResult {
+    func v2MobileChatSend(params: [String: Any]) async -> V2CallResult {
         guard let sessionID = v2RawString(params, "session_id") else {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
@@ -182,12 +239,12 @@ extension TerminalController {
         guard !text.isEmpty || !attachments.isEmpty else {
             return .err(code: "invalid_params", message: "Nothing to send", data: nil)
         }
-        guard let terminalParams = mobileChatTerminalParams(sessionID: sessionID) else {
+        guard let terminalParams = await mobileChatTerminalParams(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
         }
-        guard let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) else {
+        guard let terminalPanel = await mobileChatTerminalPanel(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
@@ -253,12 +310,12 @@ extension TerminalController {
 
     /// `mobile.chat.interrupt`: polite (Esc) or hard (ctrl-C) interrupt of
     /// the session's agent.
-    func v2MobileChatInterrupt(params: [String: Any]) -> V2CallResult {
+    func v2MobileChatInterrupt(params: [String: Any]) async -> V2CallResult {
         guard let sessionID = v2RawString(params, "session_id") else {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
         let hard = (params["hard"] as? Bool) ?? false
-        guard let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) else {
+        guard let terminalPanel = await mobileChatTerminalPanel(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
@@ -276,18 +333,23 @@ extension TerminalController {
 
     /// `mobile.chat.answer`: answer an in-terminal choice by display index
     /// (agent TUIs accept the option's number key).
-    func v2MobileChatAnswer(params: [String: Any]) -> V2CallResult {
+    func v2MobileChatAnswer(params: [String: Any]) async -> V2CallResult {
         guard let sessionID = v2RawString(params, "session_id"),
               let optionIndex = v2Int(params, "option_index"), optionIndex >= 0, optionIndex < 9 else {
             return .err(code: "invalid_params", message: "Missing session_id or option_index", data: nil)
         }
-        guard let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) else {
+        guard let terminalPanel = await mobileChatTerminalPanel(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
         }
+        // Claude's picker submits on the digit alone; Codex's `request_user_input`
+        // picker highlights on the digit and needs Enter to submit ("enter to
+        // submit answer"), so append a carriage return for codex.
         let digit = String(optionIndex + 1)
-        let sendResult = terminalPanel.surface.sendInputResult(digit)
+        let isCodex = agentChatTranscriptService?.sessionRecord(sessionID: sessionID)?.agentKind == .codex
+        let answerKeys = isCodex ? "\(digit)\r" : digit
+        let sendResult = terminalPanel.surface.sendInputResult(answerKeys)
         switch sendResult {
         case .sent, .queued:
             terminalPanel.surface.forceRefresh(reason: "mobileHost.chatAnswer")
@@ -309,7 +371,7 @@ extension TerminalController {
     /// hook store (every hook event rewrites it with the current panel) and
     /// retried. If it still doesn't resolve we fail with an actionable error
     /// rather than redirect the prompt to some other terminal.
-    private func mobileChatTerminalParams(sessionID: String) -> [String: Any]? {
+    private func mobileChatTerminalParams(sessionID: String) async -> [String: Any]? {
         guard let service = agentChatTranscriptService else { return nil }
         guard let record = service.sessionRecord(sessionID: sessionID),
               let workspaceID = record.workspaceID else {
@@ -323,7 +385,7 @@ extension TerminalController {
         #if DEBUG
         cmuxDebugLog("mobile.chat binding stale session=\(sessionID.prefix(8)) surface=\(record.surfaceID?.prefix(8) ?? "nil"); refreshing from hook store")
         #endif
-        if let refreshed = service.refreshSessionBindings(sessionID: sessionID),
+        if let refreshed = await service.refreshSessionBindings(sessionID: sessionID),
            let surfaceID = refreshed.surfaceID,
            mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID),
            mobileChatBindingIsCurrentAgent(refreshed) {
@@ -350,6 +412,13 @@ extension TerminalController {
     /// represents. This prevents a stale registry surface id from exposing a
     /// chat toggle or routing prompts into a plain shell after a terminal was
     /// restored/reused.
+    ///
+    /// Resolves the terminal via the record's STORED `workspaceID`, which is
+    /// the very value that goes stale after a Mac relaunch — so use this only
+    /// for the no-filter path. The workspace-filtered path
+    /// (``v2MobileChatSessions``) resolves the surface to its CURRENT workspace
+    /// and calls ``mobileChatRecordMatchesAgent(record:workspace:terminalPanel:)``
+    /// directly.
     private func mobileChatBindingIsCurrentAgent(_ record: AgentChatSessionRecord) -> Bool {
         guard let workspaceID = record.workspaceID,
               let surfaceID = record.surfaceID,
@@ -358,30 +427,33 @@ extension TerminalController {
                   requireTerminal: true
               ),
               let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+              resolved.workspace.terminalPanel(for: surfaceId) != nil else {
             return false
         }
-        let title = resolved.workspace.panelTitle(panelId: terminalPanel.id) ?? terminalPanel.displayTitle
-        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let context = WorkspaceContentView.terminalAgentContext(panel: terminalPanel, workspace: resolved.workspace)
-        switch record.agentKind {
-        case .claude:
-            return TextBoxAgentDetection.isClaudeCode(context: context)
-                || normalizedTitle.contains("claude")
-                || title.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("✳")
-        case .codex:
-            return TextBoxAgentDetection.codex.matches(context: context)
-                || normalizedTitle.contains("codex")
-        case .other(let source):
-            return !source.isEmpty && (
-                context.localizedCaseInsensitiveContains(source)
-                    || normalizedTitle.contains(source.lowercased())
-            )
-        }
+        return mobileChatRecordMatchesAgent(record: record)
     }
 
-    private func mobileChatTerminalPanel(sessionID: String) -> TerminalPanel? {
-        guard let terminalParams = mobileChatTerminalParams(sessionID: sessionID),
+    /// Agent-match core: whether the record's bound surface (already resolved to
+    /// a live terminal by the caller) still hosts the agent.
+    ///
+    /// Deterministic per the agent-session spec (principle 2): the surface
+    /// binding is authoritative — NEVER the terminal title or screen-scraped
+    /// agent detection, which can both hide a correctly-bound live session (a
+    /// renamed title or a scrolled-off banner) and mis-attribute. The reliable
+    /// signal is process liveness: when cmux knows the agent pid, a live pid
+    /// means the agent is still here and a dead pid means it is gone (the
+    /// process-exit watcher ends it). When the pid is unknown — a session
+    /// re-bound on resume from cmux's own authority, whose pid is not backfilled
+    /// until the agent's own hooks arrive (e.g. an `sr codex resume` that
+    /// bypasses the hook-injecting shim) — trust the durable surface binding
+    /// rather than inventing a negative that would wrongly hide a live session.
+    private func mobileChatRecordMatchesAgent(record: AgentChatSessionRecord) -> Bool {
+        guard let pid = record.pid else { return true }
+        return kill(pid_t(pid), 0) == 0 || errno == EPERM
+    }
+
+    private func mobileChatTerminalPanel(sessionID: String) async -> TerminalPanel? {
+        guard let terminalParams = await mobileChatTerminalParams(sessionID: sessionID),
               let resolved = mobileResolveWorkspaceAndSurface(params: terminalParams, requireTerminal: true),
               let surfaceId = resolved.surfaceId else {
             #if DEBUG

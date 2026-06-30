@@ -149,6 +149,23 @@ _cmux_report_tty_via_relay() {
     _cmux_relay_rpc "surface.report_tty" "$params"
 }
 
+_cmux_report_pwd_via_relay() {
+    local pwd="$1"
+    _cmux_socket_uses_remote_relay || return 1
+    [[ -n "$pwd" ]] || return 1
+    local workspace_id=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+
+    local pwd_json params
+    pwd_json="$(_cmux_json_escape "$pwd")"
+    params="{\"workspace_id\":\"$workspace_id\",\"path\":\"$pwd_json\""
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc_bg "surface.report_pwd" "$params"
+}
+
 _cmux_ports_kick_via_relay() {
     local reason="${1:-command}"
     _cmux_socket_uses_remote_relay || return 1
@@ -228,10 +245,46 @@ _cmux_install_cli_command_shim() {
     {
         printf '%s\n' '#!/usr/bin/env bash'
         if [[ "$command_name" == "claude" ]]; then
+            printf 'cmux_wrapper="%s"\n' "$escaped_wrapper"
+            printf '%s\n' 'if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then'
+            printf '%s\n' '    cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/cmux-claude-wrapper"'
+            printf '%s\n' '    if [[ -x "$cmux_candidate" ]]; then'
+            printf '%s\n' '        cmux_wrapper="$cmux_candidate"'
+            printf '%s\n' '    fi'
+            printf '%s\n' 'fi'
+            printf '%s\n' 'if [[ ! -x "$cmux_wrapper" ]]; then'
+            printf '%s\n' '    cmux_cli="$(command -v cmux 2>/dev/null || true)"'
+            printf '%s\n' '    if [[ -n "$cmux_cli" ]]; then'
+            printf '%s\n' '        cmux_candidate="$(dirname "$cmux_cli")/cmux-claude-wrapper"'
+            printf '%s\n' '        if [[ -x "$cmux_candidate" ]]; then'
+            printf '%s\n' '            cmux_wrapper="$cmux_candidate"'
+            printf '%s\n' '        fi'
+            printf '%s\n' '    fi'
+            printf '%s\n' 'fi'
             printf 'export CMUX_CLAUDE_WRAPPER_SHIM="%s"\n' "$shim_path"
             printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="%s"\n' "$shim_root"
+            printf '%s\n' 'if [[ -x "$cmux_wrapper" ]]; then'
+            printf '%s\n' '    exec "$cmux_wrapper" "$@"'
+            printf '%s\n' 'fi'
+            printf '%s\n' 'cmux_path_without_shim=""'
+            printf '%s\n' 'cmux_old_ifs="$IFS"'
+            printf '%s\n' 'IFS=:'
+            printf '%s\n' 'for cmux_entry in ${PATH:-}; do'
+            printf '%s\n' '    if [[ "$cmux_entry" == "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT" || "$cmux_entry" == */cmux-cli-shims/* || "$cmux_entry" == */cmux-cli-shims ]]; then'
+            printf '%s\n' '        continue'
+            printf '%s\n' '    fi'
+            printf '%s\n' '    if [[ -z "$cmux_path_without_shim" ]]; then'
+            printf '%s\n' '        cmux_path_without_shim="$cmux_entry"'
+            printf '%s\n' '    else'
+            printf '%s\n' '        cmux_path_without_shim="$cmux_path_without_shim:$cmux_entry"'
+            printf '%s\n' '    fi'
+            printf '%s\n' 'done'
+            printf '%s\n' 'IFS="$cmux_old_ifs"'
+            printf '%s\n' 'export PATH="$cmux_path_without_shim"'
+            printf '%s\n' 'exec claude "$@"'
+        else
+            printf 'exec "%s" "$@"\n' "$escaped_wrapper"
         fi
-        printf 'exec "%s" "$@"\n' "$escaped_wrapper"
     } >"$shim_path" 2>/dev/null || return 0
     /bin/chmod 0700 "$shim_path" >/dev/null 2>&1 || return 0
 
@@ -242,6 +295,15 @@ _cmux_install_cli_command_shim() {
 
     PATH="$(_cmux_path_prepend_unique_directory "$shim_root" "${PATH-}")"
     hash -r >/dev/null 2>&1 || true
+}
+_cmux_claude_wrapper_command() {
+    if [[ -x "${CMUX_CLAUDE_WRAPPER_SHIM:-}" ]]; then
+        "$CMUX_CLAUDE_WRAPPER_SHIM" "$@"
+    elif [[ -x "${_CMUX_CLAUDE_WRAPPER:-}" ]]; then
+        "$_CMUX_CLAUDE_WRAPPER" "$@"
+    else
+        command claude "$@"
+    fi
 }
 _cmux_install_cli_wrapper() {
     local command_name="$1"
@@ -270,7 +332,11 @@ _cmux_install_cli_wrapper() {
     # Keep the bundled wrapper ahead of later PATH mutations. Install it
     # via eval so an existing alias cannot break parsing.
     unalias "$command_name" >/dev/null 2>&1 || true
-    eval "$command_name() { \"\${$wrapper_variable}\" \"\$@\"; }"
+    if [[ "$command_name" == "claude" ]]; then
+        eval "$command_name() { _cmux_claude_wrapper_command \"\$@\"; }"
+    else
+        eval "$command_name() { \"\${$wrapper_variable}\" \"\$@\"; }"
+    fi
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
@@ -1453,7 +1519,11 @@ _cmux_prompt_command() {
 
     local now
     now="$(_cmux_now)"
+    local pwd="$PWD"
     if (( ! cmux_has_unix_socket )); then
+        if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
+            _cmux_report_pwd_via_relay "$pwd" && _CMUX_PWD_LAST_PWD="$pwd"
+        fi
         if (( now - _CMUX_PORTS_LAST_RUN >= 10 )); then
             _cmux_ports_kick refresh
         fi
@@ -1461,7 +1531,6 @@ _cmux_prompt_command() {
     fi
 
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    local pwd="$PWD"
     _cmux_set_git_active_pwd "$pwd"
 
     # Post-wake socket writes can occasionally leave a probe process wedged.

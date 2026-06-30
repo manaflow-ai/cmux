@@ -85,19 +85,10 @@
          location = "group:CMUXAgentLaunch">
       </FileRef>
       <FileRef
-         location = "group:CMUXAgentVault">
-      </FileRef>
-      <FileRef
          location = "group:CmuxAppKitSupportUI">
       </FileRef>
       <FileRef
          location = "group:CmuxBrowser">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxBrowserImport">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxBrowserPanel">
       </FileRef>
       <FileRef
          location = "group:CmuxCanvas">
@@ -109,9 +100,6 @@
          location = "group:CmuxCommandPalette">
       </FileRef>
       <FileRef
-         location = "group:CmuxCommandPaletteUI">
-      </FileRef>
-      <FileRef
          location = "group:CmuxControlSocket">
       </FileRef>
       <FileRef
@@ -121,31 +109,16 @@
          location = "group:CMUXDebugLog">
       </FileRef>
       <FileRef
-         location = "group:CMUXExtensionHostSupport">
-      </FileRef>
-      <FileRef
          location = "group:CmuxExtensionKit">
       </FileRef>
       <FileRef
          location = "group:CmuxFeedback">
       </FileRef>
       <FileRef
-         location = "group:CmuxFeedbackUI">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxFileOpen">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxFileWatch">
-      </FileRef>
-      <FileRef
          location = "group:CmuxFoundation">
       </FileRef>
       <FileRef
          location = "group:CmuxGit">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxIPCService">
       </FileRef>
       <FileRef
          location = "group:CmuxLiveEval">
@@ -155,12 +128,6 @@
       </FileRef>
       <FileRef
          location = "group:CmuxPanes">
-      </FileRef>
-      <FileRef
-         location = "group:CMUXPasteboardFidelity">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxProcess">
       </FileRef>
       <FileRef
          location = "group:CMUXProjectModel">
@@ -173,9 +140,6 @@
       </FileRef>
       <FileRef
          location = "group:CmuxRemoteWorkspace">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxSession">
       </FileRef>
       <FileRef
          location = "group:CmuxSettings">
@@ -196,9 +160,6 @@
          location = "group:CmuxSidebarProviderKit">
       </FileRef>
       <FileRef
-         location = "group:CmuxSocketControl">
-      </FileRef>
-      <FileRef
          location = "group:CmuxSwiftRender">
       </FileRef>
       <FileRef
@@ -208,16 +169,7 @@
          location = "group:CmuxTerminal">
       </FileRef>
       <FileRef
-         location = "group:CmuxTerminalCopyMode">
-      </FileRef>
-      <FileRef
          location = "group:CmuxTerminalCore">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxTerminalEngine">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxTerminalServices">
       </FileRef>
       <FileRef
          location = "group:CmuxTestSupport">
@@ -232,19 +184,7 @@
          location = "group:CmuxWindowing">
       </FileRef>
       <FileRef
-         location = "group:CmuxWorkspaceCore">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxWorkspaceNavigation">
-      </FileRef>
-      <FileRef
          location = "group:CmuxWorkspaces">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxWorkspaceWindow">
-      </FileRef>
-      <FileRef
-         location = "group:CMUXWorkstream">
       </FileRef>
    </Group>
    <Group

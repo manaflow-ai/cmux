@@ -1,9 +1,8 @@
 import XCTest
-import CmuxTerminalEngine
+import CmuxTerminal
 import Bonsplit
 import AppKit
 import SwiftUI
-import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

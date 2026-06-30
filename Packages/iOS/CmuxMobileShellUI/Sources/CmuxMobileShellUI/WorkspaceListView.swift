@@ -3,7 +3,6 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 #if os(iOS)
-@preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
 #endif
@@ -30,6 +29,7 @@ struct WorkspaceListView: View {
     var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
+    var canCreateWorkspace = true
     /// Pull-to-refresh action. Awaits the real workspace-list re-sync from the
     /// paired Mac so the system refresh spinner reflects actual completion (and
     /// ends gracefully, leaving the list intact, when the Mac is offline). Passed
@@ -42,9 +42,24 @@ struct WorkspaceListView: View {
     /// previews), the menu is hidden.
     var rescanQR: (() -> Void)?
     var signOut: (() -> Void)?
+    /// Manual reconnect for the offline status row. `nil` in previews.
+    var reconnect: (() -> Void)?
+    /// Present the add-device (pairing) flow from the Computers screen. `nil`
+    /// hides the add affordance there.
+    var showAddDevice: (() -> Void)?
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
     /// `nil` in previews.
     var store: CMUXMobileShellStore?
+
+    /// Machines present in the (aggregated) workspace list, for the filter's
+    /// machine multi-select. Single-machine yields no machine section. Names
+    /// come from the device tree (registry or paired Macs), falling back to id.
+    private var filterMachines: [WorkspaceFilterMachine] {
+        let ids = MobileWorkspaceListFilter.machineIDs(in: workspaces)
+        guard ids.count > 1 else { return [] }
+        let names = macDisplayNamesByID()
+        return ids.map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? fallbackMacPickerName) }
+    }
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
@@ -62,13 +77,25 @@ struct WorkspaceListView: View {
     /// disclosure indicator. Grouped rendering itself is gated on `groups`, not
     /// on this closure.
     var toggleGroupCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
+    /// Whether the root scene is still trying the first stored-Mac reconnect.
+    /// The list stays visible and owns this loading state so startup never gets
+    /// trapped behind a full-screen spinner.
+    var isInitialConnectionLoading = false
+    /// Whether the first stored-Mac reconnect exceeded the root-scene deadline.
+    /// The status row then exposes recovery actions instead of staying silent.
+    var initialConnectionTimedOut = false
+    var retryInitialConnection: (() -> Void)?
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
     @State private var showingDeviceTree = false
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
-    @State private var filter: MobileWorkspaceListFilter = .all
+    @State var filter: MobileWorkspaceListFilter = .all
+    /// Which Mac's workspaces the list is focused on. Starts at "All Macs" so
+    /// aggregation is explicit in the title picker and can be narrowed from
+    /// there.
+    @State var macSelection: WorkspaceMacSelection = .all
     /// The workspace whose destructive close action is awaiting confirmation.
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
@@ -87,9 +114,15 @@ struct WorkspaceListView: View {
     /// action). A search flattens to a single matched, pinned-first list so
     /// members can be found across groups; floating pinned members out of their
     /// group is acceptable while filtering. An active row filter (Unread)
-    /// flattens the same way, for the same reason.
+    /// flattens the same way, for the same reason. A single-Mac picker scope
+    /// still renders groups only for the foreground Mac whose group metadata is
+    /// available here; "All Macs" and secondary Mac selections flatten because
+    /// group ids are Mac-local. Non-iOS builds keep the pre-picker behavior.
     private var rendersGroupedSections: Bool {
-        !groups.isEmpty && trimmedQuery.isEmpty && !filter.isActive
+        !groups.isEmpty
+            && trimmedQuery.isEmpty
+            && filter.readState == .all
+            && canRenderGroupsForSelection
     }
 
     private func matchesQuery(_ workspace: MobileWorkspacePreview, query: String) -> Bool {
@@ -105,7 +138,7 @@ struct WorkspaceListView: View {
     private var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = trimmedQuery
         let matches = workspaces.filter { workspace in
-            filter.matches(workspace)
+            activeFilter.matches(workspace)
                 && (query.isEmpty || matchesQuery(workspace, query: query))
         }
         return matches.enumerated()
@@ -122,14 +155,49 @@ struct WorkspaceListView: View {
     /// member order and contiguity (no pinned-first flattening, which would
     /// scatter group members).
     private var groupedListItems: [MobileWorkspaceListItem] {
-        MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        MobileWorkspaceListItem.items(workspaces: groupedWorkspaces, groups: groups)
+    }
+
+    private var groupedWorkspaces: [MobileWorkspacePreview] {
+        workspaces.filter { activeFilter.matches($0) }
     }
 
     var body: some View {
         List {
+            if let store, showsConnectionRecoveryRow {
+                Section {
+                    MobileConnectionRecoveryBanner(
+                        connectionRequiresReauth: store.connectionRequiresReauth,
+                        connectionRecoveryFailed: store.connectionRecoveryFailed,
+                        isRecoveringConnection: store.isRecoveringConnection,
+                        connectionError: store.connectionError,
+                        retry: { store.retryMobileConnection() },
+                        signOut: signOut,
+                        rendersInline: true
+                    )
+                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                    .listRowSeparator(.hidden)
+                }
+            }
             if connectionStatus != .connected {
                 Section {
-                    MobileMacConnectionStatusRow(host: host, status: connectionStatus)
+                    MobileMacConnectionStatusRow(
+                        host: host,
+                        status: connectionStatus,
+                        showsSpinner: isInitialConnectionLoading,
+                        titleOverride: initialConnectionTimedOut
+                            ? L10n.string("mobile.loading.timeout.title", defaultValue: "Still loading")
+                            : nil,
+                        descriptionOverride: initialConnectionTimedOut
+                            ? L10n.string(
+                                "mobile.loading.timeout.message",
+                                defaultValue: "cmux could not finish restoring this session. Check that the Mac app is running, then retry or add this Mac again."
+                            )
+                            : nil,
+                        retry: initialConnectionTimedOut ? retryInitialConnection : nil,
+                        addDevice: initialConnectionTimedOut ? showAddDevice : nil,
+                        reconnect: reconnect
+                    )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
                 }
@@ -137,12 +205,15 @@ struct WorkspaceListView: View {
             Section {
                 if rendersGroupedSections {
                     groupedRows
-                } else if filter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
+                } else if activeFilter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
                     // The filter alone (not the Mac, and not a search query)
                     // emptied the list; offer the way back. While searching, the
                     // standard empty search result is shown instead, since "Show
                     // All" would not resolve a query that matches nothing.
-                    WorkspaceListFilterEmptyRow(filter: filter) { filter = .all }
+                    WorkspaceListFilterEmptyRow(filter: activeFilter) {
+                        filter = .all
+                        macSelection = .all
+                    }
                         .listRowSeparator(.hidden)
                 } else {
                     flatRows
@@ -151,6 +222,14 @@ struct WorkspaceListView: View {
         }
         .listStyle(.plain)
         .workspaceListRefreshable(refresh)
+        .onChange(of: MobileWorkspaceListFilter.machineIDs(in: workspaces)) { _, present in
+            // Drop machine filters whose Mac left the aggregated list (a secondary
+            // Mac disconnected, or the list fell below two machines so the filter
+            // menu's machine section hid). Otherwise a stale machine id rejects
+            // every row and strands the user on a blank list with no visible
+            // control to clear the filter.
+            filter.pruneMachines(notIn: present)
+        }
         .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
         .mobileInlineNavigationTitle()
         .searchable(text: $searchText)
@@ -159,19 +238,26 @@ struct WorkspaceListView: View {
             ToolbarItem(placement: .topBarLeading) {
                 settingsMenu
             }
-            if store != nil {
+            ToolbarItem(placement: .principal) {
+                macTitlePicker
+            }
+            if showsDevicesButton {
                 ToolbarItem(placement: .topBarLeading) {
                     devicesButton
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                WorkspaceListFilterMenu(filter: $filter)
-                newWorkspaceButton
+                WorkspaceListFilterMenu(filter: $filter, machines: [])
+                if canCreateWorkspace {
+                    newWorkspaceButton
+                }
             }
             #else
             ToolbarItemGroup {
-                WorkspaceListFilterMenu(filter: $filter)
-                newWorkspaceButton
+                WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
+                if canCreateWorkspace {
+                    newWorkspaceButton
+                }
             }
             #endif
         }
@@ -194,10 +280,17 @@ struct WorkspaceListView: View {
         // leaving a parent sheet covering it.
         .sheet(isPresented: $showingDeviceTree) {
             if let store {
-                DeviceTreeView(store: store, selectWorkspace: selectWorkspace)
+                DeviceTreeView(store: store, selectWorkspace: selectWorkspace, showAddDevice: showAddDevice)
             }
         }
         #endif
+    }
+
+    private var showsConnectionRecoveryRow: Bool {
+        guard let store else { return false }
+        return store.connectionRequiresReauth
+            || store.connectionRecoveryFailed
+            || store.isRecoveringConnection
     }
 
     #if os(iOS)
@@ -205,9 +298,9 @@ struct WorkspaceListView: View {
         Button {
             showingDeviceTree = true
         } label: {
-            Image(systemName: "rectangle.stack")
+            Image(systemName: "desktopcomputer")
         }
-        .accessibilityLabel(L10n.string("mobile.settings.devices", defaultValue: "Devices"))
+        .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
         .accessibilityIdentifier("MobileWorkspaceDevicesButton")
     }
     #endif
@@ -248,9 +341,10 @@ struct WorkspaceListView: View {
 
     @ViewBuilder
     private func workspaceRow(_ workspace: MobileWorkspacePreview, indented: Bool) -> some View {
+        let capabilities = workspace.actionCapabilities
         WorkspaceNavigationRow(
             workspace: workspace,
-            connectionStatus: connectionStatus,
+            connectionStatus: workspace.macConnectionStatus ?? connectionStatus,
             isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
             navigationStyle: navigationStyle,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
@@ -259,23 +353,27 @@ struct WorkspaceListView: View {
             profilePictureLeftShift: profilePictureLeftShift,
             profilePictureSize: profilePictureSize,
             selectWorkspace: selectWorkspace,
-            renameWorkspace: renameWorkspace,
-            setPinned: setPinned,
-            setUnread: setUnread,
-            closeWorkspace: requestWorkspaceClose,
+            renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
+            setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,
+            setUnread: capabilities.supportsReadStateActions ? setUnread : nil,
+            closeWorkspace: capabilities.supportsCloseActions ? requestWorkspaceClose : nil,
             isConfirmingClose: closeConfirmationBinding(for: workspace.id),
-            confirmCloseWorkspace: closeWorkspace == nil ? nil : { _ in
+            confirmCloseWorkspace: capabilities.supportsCloseActions && closeWorkspace != nil ? { _ in
                 confirmCloseWorkspace()
-            }
+            } : nil
         )
         .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
         .listRowSeparator(.hidden)
     }
 
     private var newWorkspaceButton: some View {
-        Button(action: createWorkspace) {
+        Button {
+            guard canCreateWorkspace else { return }
+            createWorkspace()
+        } label: {
             Image(systemName: "plus")
         }
+        .disabled(!canCreateWorkspace)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
     }

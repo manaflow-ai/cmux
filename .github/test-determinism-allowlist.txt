@@ -1,0 +1,24 @@
+# Test-determinism gate allowlist (grandfathered legacy debt).
+# Format: relpath<TAB>rule<TAB>short reason
+# A finding whose (path, rule) appears here is suppressed.
+# Remove a line once the underlying test is determinized.
+Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/HostBrowserSignInFlowTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxBrowser/Tests/CmuxBrowserTests/Omnibar/BrowserOmnibarPageFocusRepositoryTests.swift	sleep-then-assert	grandfathered
+Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/SocketTransportIOTests.swift	assert-on-duration	grandfathered
+Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/Process/CommandRunnerTests.swift	assert-on-duration	grandfathered
+Packages/macOS/CmuxSettings/Tests/CmuxSettingsTests/UserDefaultsSettingsStoreTests.swift	sleep-then-assert	grandfathered
+cmuxTests/CMUXOpenCommandTests.swift	assert-on-duration	grandfathered
+cmuxTests/FileExplorerStoreTests.swift	sleep-then-assert	grandfathered
+cmuxTests/MobileHostAuthorizationTests.swift	sleep-then-assert	grandfathered
+cmuxTests/NotificationAndMenuBarTests.swift	assert-on-duration	grandfathered
+cmuxTests/OmnibarAndToolsTests.swift	assert-on-duration	grandfathered
+cmuxTests/RovoDevSessionIndexTests.swift	sleep-then-assert	grandfathered
+cmuxTests/TabManagerSessionSnapshotTests.swift	assert-on-duration	grandfathered
+cmuxUITests/FeedSidebarUITests.swift	sleep-then-assert	grandfathered
+tests/test_multi_workspace_focus.py	sleep-then-assert	grandfathered
+tests_v2/test_browser_api_extended_families.py	sleep-then-assert	grandfathered
+tests_v2/test_pane_break_swap_preserve_focus.py	sleep-then-assert	grandfathered
+tests_v2/test_surface_list_custom_titles.py	sleep-then-assert	grandfathered
+tests_v2/test_tmux_compat_geometry.py	sleep-then-assert	grandfathered
+tests_v2/test_tmux_compat_matrix.py	sleep-then-assert	grandfathered
+tests_v2/test_v1_panel_creation_preserves_focus.py	sleep-then-assert	grandfathered

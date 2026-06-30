@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 import Testing
 @testable import CmuxControlSocket
 
@@ -72,5 +73,96 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(workspace["title"] == .string("Terminal"))
         #expect(workspace["custom_title"] == .null)
         #expect(workspace["has_custom_title"] == .bool(false))
+    }
+
+    @Test func workspaceGroupAddForwardsPlacementAndReference() throws {
+        let (coordinator, context) = coordinator()
+        let groupID = UUID()
+        let workspaceID = UUID()
+        let referenceWorkspaceID = UUID()
+        context.addWorkspaceToGroupResolution = .added
+
+        guard case .ok(.object(let payload)) = coordinator.handle(request("workspace.group.add", [
+            "group_id": .string(groupID.uuidString),
+            "workspace_id": .string(workspaceID.uuidString),
+            "placement": .string("after-current"),
+            "reference_workspace_id": .string(referenceWorkspaceID.uuidString),
+        ])) else {
+            Issue.record("unexpected workspace.group.add result")
+            return
+        }
+
+        #expect(payload["group_id"] == .string(groupID.uuidString))
+        #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
+        #expect(context.addWorkspaceToGroupCall?.groupID == groupID)
+        #expect(context.addWorkspaceToGroupCall?.workspaceID == workspaceID)
+        #expect(context.addWorkspaceToGroupCall?.placement == .afterCurrent)
+        #expect(context.addWorkspaceToGroupCall?.referenceWorkspaceID == referenceWorkspaceID)
+    }
+
+    @Test func workspaceGroupAddAcceptsNullReferenceWorkspaceID() throws {
+        let (coordinator, context) = coordinator()
+        let groupID = UUID()
+        let workspaceID = UUID()
+        context.addWorkspaceToGroupResolution = .added
+
+        guard case .ok(.object(let payload)) = coordinator.handle(request("workspace.group.add", [
+            "group_id": .string(groupID.uuidString),
+            "workspace_id": .string(workspaceID.uuidString),
+            "placement": .string("top"),
+            "reference_workspace_id": .null,
+        ])) else {
+            Issue.record("unexpected workspace.group.add result")
+            return
+        }
+
+        #expect(payload["group_id"] == .string(groupID.uuidString))
+        #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
+        #expect(context.addWorkspaceToGroupCall?.groupID == groupID)
+        #expect(context.addWorkspaceToGroupCall?.workspaceID == workspaceID)
+        #expect(context.addWorkspaceToGroupCall?.placement == .top)
+        #expect(context.addWorkspaceToGroupCall?.referenceWorkspaceID == nil)
+    }
+
+    @Test func workspaceGroupAddRejectsReferenceOutsideTargetGroup() throws {
+        let (coordinator, context) = coordinator()
+        let groupID = UUID()
+        let workspaceID = UUID()
+        let referenceWorkspaceID = UUID()
+        context.addWorkspaceToGroupResolution = .invalidReferenceWorkspace
+
+        guard case .err(let code, let message, let data) = coordinator.handle(request("workspace.group.add", [
+            "group_id": .string(groupID.uuidString),
+            "workspace_id": .string(workspaceID.uuidString),
+            "placement": .string("afterCurrent"),
+            "reference_workspace_id": .string(referenceWorkspaceID.uuidString),
+        ])) else {
+            Issue.record("unexpected workspace.group.add result")
+            return
+        }
+
+        #expect(code == "invalid_params")
+        #expect(message == "invalid reference workspace")
+        #expect(data == .object(["reference_workspace_id": .string(referenceWorkspaceID.uuidString)]))
+        #expect(context.addWorkspaceToGroupCall?.referenceWorkspaceID == referenceWorkspaceID)
+    }
+
+    @Test func workspaceGroupAddRejectsInvalidPlacement() throws {
+        let (coordinator, context) = coordinator()
+        let groupID = UUID()
+        let workspaceID = UUID()
+
+        guard case .err(let code, let message, _) = coordinator.handle(request("workspace.group.add", [
+            "group_id": .string(groupID.uuidString),
+            "workspace_id": .string(workspaceID.uuidString),
+            "placement": .string("middle"),
+        ])) else {
+            Issue.record("unexpected workspace.group.add result")
+            return
+        }
+
+        #expect(code == "invalid_params")
+        #expect(message == "Invalid placement")
+        #expect(context.addWorkspaceToGroupCall == nil)
     }
 }

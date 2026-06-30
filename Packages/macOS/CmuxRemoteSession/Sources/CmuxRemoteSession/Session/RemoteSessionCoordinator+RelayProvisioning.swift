@@ -62,7 +62,7 @@ extension RemoteSessionCoordinator {
           esac
           cmux_child_pids="$(printf '%s\\n' "$cmux_ps_output" | awk -v parent="$cmux_listener_pid" -v slot="$cmux_persistent_slot" '
             function clean_token(value) {
-              gsub(/'\''/, "", value)
+              gsub(/\\047/, "", value)
               gsub(/"/, "", value)
               gsub(/\\\\/, "", value)
               return value
