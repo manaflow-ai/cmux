@@ -97,7 +97,7 @@ struct WorkspaceShellView: View {
                 host: store.connectedHostName,
                 connectionStatus: listConnectionStatus,
                 canCreateWorkspace: canCreateWorkspace,
-                canCreateTerminal: canCreateWorkspace,
+                canCreateTerminal: canCreateTerminal,
                 selectWorkspace: selectWorkspaceFromSurfaceGrid,
                 openTerminal: openTerminalFromSurfaceGrid,
                 openBrowser: openBrowserFromSurfaceGrid,
@@ -324,6 +324,10 @@ struct WorkspaceShellView: View {
     }
 
     private var canCreateWorkspace: Bool {
+        canCreateWorkspaceOnForegroundConnection
+    }
+
+    private var canCreateTerminal: Bool {
         canCreateWorkspaceOnForegroundConnection
     }
 
