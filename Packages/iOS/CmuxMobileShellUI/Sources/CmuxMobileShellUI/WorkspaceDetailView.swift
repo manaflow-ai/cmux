@@ -143,11 +143,10 @@ struct WorkspaceDetailView: View {
             ToolbarItem(placement: .topBarLeading) {
                 HStack(spacing: 8) {
                     workspaceBackToolbarButton
-                    WorkspaceTitleMenu(
+                    WorkspaceToolbarTitleControl(
                         contentWidth: contentWidth,
                         hasBackButton: backButtonConfiguration != nil,
-                        hasChatToggle: shouldShowChatToggle,
-                        menuContent: { titleMenuContent }
+                        hasChatToggle: shouldShowChatToggle
                     ) {
                         Text(browser.title ?? workspace.name)
                             .font(.headline)
@@ -308,11 +307,10 @@ struct WorkspaceDetailView: View {
             ToolbarItem(placement: .topBarLeading) {
                 HStack(spacing: 8) {
                     workspaceBackToolbarButton
-                    WorkspaceTitleMenu(
+                    WorkspaceToolbarTitleControl(
                         contentWidth: contentWidth,
                         hasBackButton: backButtonConfiguration != nil,
-                        hasChatToggle: shouldShowChatToggle,
-                        menuContent: { titleMenuContent }
+                        hasChatToggle: shouldShowChatToggle
                     ) {
                         WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
                     }
@@ -403,13 +401,13 @@ struct WorkspaceDetailView: View {
             terminalPickerMenuContent
         } label: {
             Label(
-                selectedTerminal?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
+                L10n.string("mobile.terminal.picker.menuTitle", defaultValue: "Workspace and Terminals"),
                 systemImage: "rectangle.stack"
             )
             .labelStyle(.iconOnly)
         }
         .foregroundStyle(TerminalPalette.foreground)
-        .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
+        .accessibilityLabel(L10n.string("mobile.terminal.picker.menuTitle", defaultValue: "Workspace and Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
     }
@@ -431,6 +429,8 @@ struct WorkspaceDetailView: View {
                 .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
             }
         }
+
+        titleMenuContent
 
         Section {
             Button(action: createWorkspaceFromToolbar) {
