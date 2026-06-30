@@ -8436,6 +8436,27 @@ func browserNavigationShouldOpenInNewTab(
     return false
 }
 
+func browserNavigationShouldOpenInDefaultBrowserForModifierBypass(
+    navigationType: WKNavigationType,
+    modifierFlags: NSEvent.ModifierFlags,
+    buttonNumber: Int,
+    hasRecentMiddleClickIntent: Bool = false,
+    currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
+    currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber
+) -> Bool {
+    guard OpenRoutingModifierPolicy().shouldBypassCmuxOpenRouting(modifierFlags: modifierFlags) else {
+        return false
+    }
+    return browserNavigationShouldOpenInNewTab(
+        navigationType: navigationType,
+        modifierFlags: modifierFlags,
+        buttonNumber: buttonNumber,
+        hasRecentMiddleClickIntent: hasRecentMiddleClickIntent,
+        currentEventType: currentEventType,
+        currentEventButtonNumber: currentEventButtonNumber
+    )
+}
+
 func browserNavigationShouldCreatePopup(
     navigationType: WKNavigationType,
     modifierFlags: NSEvent.ModifierFlags,
@@ -8690,6 +8711,23 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         }
 
         let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+        if let url = navigationAction.request.url,
+           browserNavigationShouldOpenInDefaultBrowserForModifierBypass(
+               navigationType: navigationAction.navigationType,
+               modifierFlags: navigationAction.modifierFlags,
+               buttonNumber: navigationAction.buttonNumber,
+               hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
+           ) {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.nav.createWebView.action kind=openDefaultBrowserModifierBypass " +
+                "url=\(browserNavigationDebugURL(url))"
+            )
+#endif
+            NSWorkspace.shared.open(url)
+            return nil
+        }
+
         let popupFeaturesWereSpecified = browserNavigationPopupFeaturesWereSpecified(windowFeatures: windowFeatures)
         let shouldOpenSimpleUserGesturePopupInCurrentTab = browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
             navigationType: navigationAction.navigationType,

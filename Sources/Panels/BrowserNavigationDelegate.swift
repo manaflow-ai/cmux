@@ -239,6 +239,12 @@ import WebKit
             buttonNumber: navigationAction.buttonNumber,
             hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
         )
+        let shouldOpenInDefaultBrowserForModifierBypass = browserNavigationShouldOpenInDefaultBrowserForModifierBypass(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
+        )
 #if DEBUG
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
@@ -252,9 +258,24 @@ import WebKit
             "targetMain=\(targetMainFrame) method=\(requestMethod) url=\(requestURL) " +
             "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
             "recentMiddleIntent=\(hasRecentMiddleClickIntent ? 1 : 0) " +
+            "openDefaultBypass=\(shouldOpenInDefaultBrowserForModifierBypass ? 1 : 0) " +
             "openInNewTab=\(shouldOpenInNewTab ? 1 : 0)"
         )
 #endif
+
+        if shouldOpenInDefaultBrowserForModifierBypass,
+           let requestURL = navigationAction.request.url {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.nav.decidePolicy.action kind=openDefaultBrowserModifierBypass " +
+                "url=\(browserNavigationDebugURL(requestURL))"
+            )
+#endif
+            clearAttemptedRequest(discardPendingBypasses: true)
+            NSWorkspace.shared.open(requestURL)
+            decisionHandler(.cancel)
+            return
+        }
 
         if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,

@@ -2057,6 +2057,46 @@ final class BrowserNavigationNewTabDecisionTests: XCTestCase {
         )
     }
 
+    func testLinkActivatedCommandShiftClickBypassesCmuxNewTabForDefaultBrowser() {
+        XCTAssertTrue(
+            browserNavigationShouldOpenInDefaultBrowserForModifierBypass(
+                navigationType: .linkActivated,
+                modifierFlags: [.command, .shift],
+                buttonNumber: 0
+            )
+        )
+    }
+
+    func testLinkActivatedCommandClickWithoutShiftDoesNotBypassToDefaultBrowser() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenInDefaultBrowserForModifierBypass(
+                navigationType: .linkActivated,
+                modifierFlags: [.command],
+                buttonNumber: 0
+            )
+        )
+    }
+
+    func testMiddleClickDoesNotBypassToDefaultBrowser() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenInDefaultBrowserForModifierBypass(
+                navigationType: .linkActivated,
+                modifierFlags: [],
+                buttonNumber: 2
+            )
+        )
+    }
+
+    func testCommandShiftNonLinkNavigationDoesNotBypassToDefaultBrowser() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenInDefaultBrowserForModifierBypass(
+                navigationType: .reload,
+                modifierFlags: [.command, .shift],
+                buttonNumber: 0
+            )
+        )
+    }
+
     func testLinkActivatedMiddleClickOpensInNewTab() {
         XCTAssertTrue(
             browserNavigationShouldOpenInNewTab(
@@ -5212,6 +5252,14 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
 
         defaults.set(true, forKey: BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
         XCTAssertTrue(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(defaults: defaults))
+    }
+    func testBrowserOpenRoutingPolicyBypassesCmuxBrowserOnlyForCommandShift() {
+        let policy = BrowserOpenRoutingPolicy()
+        XCTAssertTrue(policy.shouldOpenInCmuxBrowser(settingEnabled: true, modifierFlags: [.command]))
+        XCTAssertFalse(policy.shouldOpenInCmuxBrowser(settingEnabled: true, modifierFlags: [.command, .shift]))
+        XCTAssertTrue(policy.shouldOpenInCmuxBrowser(settingEnabled: true, modifierFlags: [.command, .shift, .option]))
+        XCTAssertFalse(policy.shouldOpenInCmuxBrowser(settingEnabled: false, modifierFlags: [.command]))
+        XCTAssertFalse(policy.shouldOpenInCmuxBrowser(settingEnabled: false, modifierFlags: [.command, .shift]))
     }
     func testSidebarPullRequestClickabilityDefaultAndStoredValues() {
         let key = SettingCatalog().sidebar.makePullRequestsClickable

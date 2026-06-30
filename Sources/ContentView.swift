@@ -13986,7 +13986,12 @@ struct TabItemView: View, Equatable {
                         .foregroundColor(pullRequestForegroundColor)
                         .opacity(pullRequest.isStale ? 0.5 : 1)
                         if settings.makesPullRequestsClickable {
-                            Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
+                            Button(action: {
+                                openPullRequestLink(
+                                    pullRequest.url,
+                                    modifierFlags: currentClickModifierFlags()
+                                )
+                            }) { rowContent }
                                 .buttonStyle(.plain)
                                 .tint(pullRequestForegroundColor)
                                 .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequestTitle)"))
@@ -14005,7 +14010,7 @@ struct TabItemView: View, Equatable {
                         let portLabel = SidebarPortDisplayText.label(for: port)
                         let portTooltip = SidebarPortDisplayText.openTooltip(for: port)
                         Button(action: {
-                            openPortLink(port)
+                            openPortLink(port, modifierFlags: currentClickModifierFlags())
                         }) {
                             Text(portLabel)
                                 .underline()
@@ -14988,9 +14993,19 @@ struct TabItemView: View, Equatable {
         isActive ? activeSecondaryColor(0.75) : .secondary
     }
 
-    private func openPullRequestLink(_ url: URL) {
+    private func currentClickModifierFlags() -> NSEvent.ModifierFlags {
+        NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+    }
+
+    private func openPullRequestLink(
+        _ url: URL,
+        modifierFlags: NSEvent.ModifierFlags = []
+    ) {
         updateSelection()
-        if openSidebarPullRequestLinksInCmuxBrowser {
+        if BrowserOpenRoutingPolicy().shouldOpenInCmuxBrowser(
+            settingEnabled: openSidebarPullRequestLinksInCmuxBrowser,
+            modifierFlags: modifierFlags
+        ) {
             if tabManager.openBrowser(
                 inWorkspace: tab.id,
                 url: url,
@@ -15004,10 +15019,16 @@ struct TabItemView: View, Equatable {
         NSWorkspace.shared.open(url)
     }
 
-    private func openPortLink(_ port: Int) {
+    private func openPortLink(
+        _ port: Int,
+        modifierFlags: NSEvent.ModifierFlags = []
+    ) {
         guard let url = URL(string: "http://localhost:\(port)") else { return }
         updateSelection()
-        if openSidebarPortLinksInCmuxBrowser {
+        if BrowserOpenRoutingPolicy().shouldOpenInCmuxBrowser(
+            settingEnabled: openSidebarPortLinksInCmuxBrowser,
+            modifierFlags: modifierFlags
+        ) {
             if tabManager.openBrowser(
                 inWorkspace: tab.id,
                 url: url,

@@ -489,12 +489,30 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             return nil
         }
 
+        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+        if let url = navigationAction.request.url,
+           browserNavigationShouldOpenInDefaultBrowserForModifierBypass(
+               navigationType: navigationAction.navigationType,
+               modifierFlags: navigationAction.modifierFlags,
+               buttonNumber: navigationAction.buttonNumber,
+               hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
+           ) {
+#if DEBUG
+            cmuxDebugLog(
+                "popup.nav.createWebView.action kind=openDefaultBrowserModifierBypass " +
+                "url=\(browserNavigationDebugURL(url))"
+            )
+#endif
+            NSWorkspace.shared.open(url)
+            return nil
+        }
+
         let isScriptedPopup = browserNavigationShouldCreatePopup(
             navigationType: navigationAction.navigationType,
             modifierFlags: navigationAction.modifierFlags,
             buttonNumber: navigationAction.buttonNumber,
             popupFeaturesWereSpecified: browserNavigationPopupFeaturesWereSpecified(windowFeatures: windowFeatures),
-            hasRecentMiddleClickIntent: CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
         )
 
         if isScriptedPopup {

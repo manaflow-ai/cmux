@@ -3020,6 +3020,9 @@ class GhosttyApp {
                 data: Data(bytes: cstr, count: Int(openUrl.len)),
                 encoding: .utf8
             ) ?? ""
+            let openURLModifierFlags = performOnMain {
+                surfaceView.modifierFlagsForOpenURLAction()
+            }
             #if DEBUG
             cmuxDebugLog("link.openURL raw=\(urlString)")
             #endif
@@ -3029,8 +3032,8 @@ class GhosttyApp {
             // slashes or dots (e.g. "docs/spec.md." or "/tmp/spec.md.") as URLs.
             // Attempt to resolve the raw string as a local file first
             // (with trailing-punctuation trimming via TerminalPathResolver's quicklook resolution).
-            // If the file exists and cmux can handle it, route through the
-            // file viewer instead of the browser.
+            // If the file exists and cmux can handle it, use the shared file
+            // route decision instead of treating the token as a browser URL.
             let trimmedUrlString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
             var normalizedOpenURLString = urlString
             if !trimmedUrlString.isEmpty {
@@ -3047,21 +3050,22 @@ class GhosttyApp {
                     guard let resolvedPath = TerminalPathResolver().resolveOpenURLFilePath(trimmedUrlString, cwd: cwd) else {
                         return (false, nil)
                     }
-                    guard CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
+                    let fileURL = URL(fileURLWithPath: resolvedPath)
+                    guard CommandClickFileOpenRouter.deferredOpenFileIfRouted(
+                        workspace: workspace,
+                        preferredWorkspaceId: workspace.id,
+                        surfaceId: termSurface.id,
+                        filePath: resolvedPath,
+                        modifierFlags: openURLModifierFlags,
+                        fallback: {
+                            NSWorkspace.shared.open(fileURL)
+                        }
+                    ) else {
                         return (false, resolvedPath)
                     }
                     #if DEBUG
                     cmuxDebugLog("link.openURL resolvedAsFilePath=\(resolvedPath)")
                     #endif
-                    let fileURL = URL(fileURLWithPath: resolvedPath)
-                    CommandClickFileOpenRouter.deferredOpenFileInCmux(
-                        workspace: workspace,
-                        preferredWorkspaceId: workspace.id,
-                        surfaceId: termSurface.id,
-                        filePath: resolvedPath
-                    ) {
-                        NSWorkspace.shared.open(fileURL)
-                    }
                     return (true, resolvedPath)
                 }
                 if let fallbackPath = filePathResolution.fallbackPath {
@@ -3100,19 +3104,19 @@ class GhosttyApp {
                 let routed: Bool = performOnMain {
                     guard let termSurface = surfaceView.terminalSurface,
                           let workspace = termSurface.owningWorkspace(),
-                          !workspace.isRemoteTerminalSurface(termSurface.id),
-                          CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path) else {
+                          !workspace.isRemoteTerminalSurface(termSurface.id) else {
                         return false
                     }
-                    CommandClickFileOpenRouter.deferredOpenFileInCmux(
+                    return CommandClickFileOpenRouter.deferredOpenFileIfRouted(
                         workspace: workspace,
                         preferredWorkspaceId: workspace.id,
                         surfaceId: termSurface.id,
-                        filePath: fileURL.path
-                    ) {
-                        NSWorkspace.shared.open(fileURL)
-                    }
-                    return true
+                        filePath: fileURL.path,
+                        modifierFlags: openURLModifierFlags,
+                        fallback: {
+                            NSWorkspace.shared.open(fileURL)
+                        }
+                    )
                 }
                 if routed {
                     return true
@@ -3120,9 +3124,13 @@ class GhosttyApp {
                 // Fall through to the existing NSWorkspace path below.
             }
 
-            if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
+            let shouldOpenTerminalLinksInCmuxBrowser = BrowserOpenRoutingPolicy().shouldOpenInCmuxBrowser(
+                settingEnabled: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(),
+                modifierFlags: openURLModifierFlags
+            )
+            if !shouldOpenTerminalLinksInCmuxBrowser {
                 #if DEBUG
-                cmuxDebugLog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
+                cmuxDebugLog("link.openURL cmuxBrowser=disabledOrBypassed, opening externally url=\(target.url)")
                 #endif
                 return performOnMain {
                     NSWorkspace.shared.open(target.url)
@@ -3417,6 +3425,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let _renderedFrameLock = NSLock()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
+    private var activeMouseOpenURLModifierFlags: NSEvent.ModifierFlags?
 
     static func retainRenderedFrameNotifications() -> () -> Void {
         // See GhosttyApp.retainTickNotifications() on the idempotent release.
@@ -6337,6 +6346,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.hostedView.syncKeyStateIndicator(text: currentKeyStateIndicatorText)
     }
 
+    func modifierFlagsForOpenURLAction() -> NSEvent.ModifierFlags {
+        activeMouseOpenURLModifierFlags ?? NSEvent.modifierFlags
+    }
+
+    private func withMouseOpenURLModifierFlags<T>(
+        _ flags: NSEvent.ModifierFlags,
+        _ work: () -> T
+    ) -> T {
+        let previous = activeMouseOpenURLModifierFlags
+        activeMouseOpenURLModifierFlags = flags
+        defer { activeMouseOpenURLModifierFlags = previous }
+        return work()
+    }
+
     // MARK: - Mouse Handling
 
     #if DEBUG
@@ -6429,7 +6452,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if event.clickCount == 1 {
             ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
         }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
+        _ = withMouseOpenURLModifierFlags(event.modifierFlags) {
+            ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
+        }
         hasPendingLeftMouseRelease = true
     }
 
@@ -6455,7 +6480,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         hasPendingLeftMouseRelease = false
         guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
-        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
+        let consumed = withMouseOpenURLModifierFlags(event.modifierFlags) {
+            ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
+        }
         _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
         return true
     }
@@ -6889,16 +6916,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Remote-surface guard runs before shouldRoute so we never stat a local
         // path on the main thread for a remote workspace. When the cmux route
         // is applicable but split creation fails, fall back to the preferred
-        // editor so the click never silently no-ops.
+        // editor so the click never silently no-ops. Cmd+Shift on a cmux-routed
+        // file is handled by the route decision and opens the default app.
         if let termSurface = terminalSurface,
            let workspace = termSurface.owningWorkspace(),
-           !workspace.isRemoteTerminalSurface(termSurface.id),
-           CommandClickFileOpenRouter.openInCmux(
-               workspace: workspace,
-               sourcePanelId: termSurface.id,
-               filePath: resolution.path
-           ) {
-            return resolution
+           !workspace.isRemoteTerminalSurface(termSurface.id) {
+            switch CommandClickFileOpenRouter.route(path: resolution.path, modifierFlags: modifierFlags) {
+            case .cmux:
+                if CommandClickFileOpenRouter.openInCmux(
+                    workspace: workspace,
+                    sourcePanelId: termSurface.id,
+                    filePath: resolution.path
+                ) {
+                    return resolution
+                }
+            case .defaultApplication:
+                if CommandClickFileOpenRouter.openInDefaultApplication(filePath: resolution.path) {
+                    return resolution
+                }
+            case .fallback:
+                break
+            }
         }
 
         PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))

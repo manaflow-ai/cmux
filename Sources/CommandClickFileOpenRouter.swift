@@ -2,11 +2,53 @@ import AppKit
 import CmuxSettings
 import Foundation
 
+struct OpenRoutingModifierPolicy {
+    func shouldBypassCmuxOpenRouting(modifierFlags: NSEvent.ModifierFlags) -> Bool {
+        let flags = modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains(.command), flags.contains(.shift) else { return false }
+        return flags.isDisjoint(with: [.control, .option])
+    }
+}
+
+struct BrowserOpenRoutingPolicy {
+    private let modifierPolicy: OpenRoutingModifierPolicy
+
+    init(modifierPolicy: OpenRoutingModifierPolicy = OpenRoutingModifierPolicy()) {
+        self.modifierPolicy = modifierPolicy
+    }
+
+    func shouldOpenInCmuxBrowser(
+        settingEnabled: Bool,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        settingEnabled && !modifierPolicy.shouldBypassCmuxOpenRouting(modifierFlags: modifierFlags)
+    }
+}
+
+enum CommandClickFileOpenRoute: Equatable {
+    case cmux
+    case defaultApplication
+    case fallback
+}
+
 enum CommandClickFileOpenRouter {
+    nonisolated static func route(
+        path: String,
+        modifierFlags: NSEvent.ModifierFlags,
+        routeSettings: any FileRouteSettingsReading = FileRouteSettingsStore(defaults: .standard),
+        modifierPolicy: OpenRoutingModifierPolicy = OpenRoutingModifierPolicy()
+    ) -> CommandClickFileOpenRoute {
+        let shouldRoute = routeSettings.shouldRouteMarkdown(path: path)
+            || routeSettings.shouldRouteSupportedFile(path: path)
+        guard shouldRoute else { return .fallback }
+        if modifierPolicy.shouldBypassCmuxOpenRouting(modifierFlags: modifierFlags) {
+            return .defaultApplication
+        }
+        return .cmux
+    }
+
     nonisolated static func shouldRouteInCmux(path: String) -> Bool {
-        let store = FileRouteSettingsStore(defaults: .standard)
-        return store.shouldRouteMarkdown(path: path)
-            || store.shouldRouteSupportedFile(path: path)
+        route(path: path, modifierFlags: []) == .cmux
     }
 
     @MainActor
@@ -25,6 +67,12 @@ enum CommandClickFileOpenRouter {
             return false
         }
         return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil
+    }
+
+    @MainActor
+    @discardableResult
+    static func openInDefaultApplication(filePath: String) -> Bool {
+        FileExternalOpenAction.openDefault(fileURL: URL(fileURLWithPath: filePath))
     }
 
     /// Resolve the working directory for a terminal surface, preferring the
@@ -51,6 +99,52 @@ enum CommandClickFileOpenRouter {
         return dir.isEmpty ? nil : dir
     }
 
+    @MainActor
+    @discardableResult
+    static func deferredOpenFileIfRouted(
+        workspace: Workspace,
+        preferredWorkspaceId: UUID,
+        surfaceId: UUID,
+        filePath: String,
+        modifierFlags: NSEvent.ModifierFlags,
+        fallback: (@MainActor @Sendable () -> Void)? = nil
+    ) -> Bool {
+        guard route(path: filePath, modifierFlags: modifierFlags) != .fallback else {
+            return false
+        }
+        // Ghostty's open-url callback holds a runtime lock; split creation and
+        // native app handoff both run after the callback returns.
+        DispatchQueue.main.async {
+            let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
+                panelId: surfaceId,
+                preferredWorkspaceId: preferredWorkspaceId
+            )?.workspace ?? workspace
+            guard !resolvedWorkspace.isRemoteTerminalSurface(surfaceId) else {
+                fallback?()
+                return
+            }
+
+            switch route(path: filePath, modifierFlags: modifierFlags) {
+            case .cmux:
+                if openInCmux(
+                    workspace: resolvedWorkspace,
+                    sourcePanelId: surfaceId,
+                    filePath: filePath
+                ) {
+                    return
+                }
+                fallback?()
+            case .defaultApplication:
+                if !openInDefaultApplication(filePath: filePath) {
+                    fallback?()
+                }
+            case .fallback:
+                fallback?()
+            }
+        }
+        return true
+    }
+
     /// Schedule a file open in cmux, deferred to the next runloop tick.
     ///
     /// Ghostty's `Surface.openUrl` holds an internal `os_unfair_lock` when it
@@ -67,27 +161,13 @@ enum CommandClickFileOpenRouter {
         filePath: String,
         fallback: (@MainActor @Sendable () -> Void)? = nil
     ) {
-        DispatchQueue.main.async {
-            let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
-                panelId: surfaceId,
-                preferredWorkspaceId: preferredWorkspaceId
-            )?.workspace ?? workspace
-            guard !resolvedWorkspace.isRemoteTerminalSurface(surfaceId) else {
-                fallback?()
-                return
-            }
-            guard shouldRouteInCmux(path: filePath) else {
-                fallback?()
-                return
-            }
-            if openInCmux(
-                workspace: resolvedWorkspace,
-                sourcePanelId: surfaceId,
-                filePath: filePath
-            ) {
-                return
-            }
-            fallback?()
-        }
+        _ = deferredOpenFileIfRouted(
+            workspace: workspace,
+            preferredWorkspaceId: preferredWorkspaceId,
+            surfaceId: surfaceId,
+            filePath: filePath,
+            modifierFlags: [],
+            fallback: fallback
+        )
     }
 }
