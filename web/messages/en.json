@@ -1005,10 +1005,14 @@
           "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
           "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw."
+        },
         "browser": {
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
-          "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL."
+          "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
+          "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",
@@ -1270,7 +1274,8 @@
       "closeWorkspaceDesc": "Close a workspace.",
       "splitCommands": "Split commands",
       "newSplitDesc": "Create a new split pane. Directions: left, right, up, down.",
-      "listSurfacesDesc": "List all surfaces in the current workspace.",
+      "listPanelsDesc": "List all surfaces in the current workspace.",
+      "listPaneSurfacesDesc": "List surfaces in the focused pane.",
       "focusSurfaceDesc": "Focus a specific surface.",
       "inputCommands": "Input commands",
       "sendDesc": "Send text input to the focused terminal.",

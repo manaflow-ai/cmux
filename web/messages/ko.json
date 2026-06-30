@@ -820,6 +820,9 @@
           "showTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력을 기본으로 표시합니다.",
           "focusTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력에 기본으로 포커스합니다. 포커스하면 TextBox도 표시됩니다."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "활성화하면 알림 배너는 해당 서피스가 정확히 포커스된 서피스일 때만 자동으로 철회됩니다. 현재 표시 중인 workspace에서 포커스되지 않은 서피스로 전달된 배너는 workspace가 표시될 때 철회되지 않고, 해당 서피스에 포커스할 때까지(또는 클릭/해제할 때까지) 계속 표시됩니다. 끄면 기존의 workspace 표시 여부 기반 철회 동작이 유지됩니다."
+        },
         "browser": {
           "defaultSearchEngine": "브라우저 주소 표시줄에서 URL이 아닌 입력에 사용할 기본 검색 엔진입니다. 다른 제공자는 custom과 customSearchEngineURLTemplate을 사용하세요.",
           "customSearchEngineName": "defaultSearchEngine이 custom일 때 사용할 표시 이름입니다.",
@@ -1068,7 +1071,8 @@
       "closeWorkspaceDesc": "워크스페이스를 닫습니다.",
       "splitCommands": "분할 명령",
       "newSplitDesc": "새 분할 패널을 생성합니다. 방향: left, right, up, down.",
-      "listSurfacesDesc": "현재 워크스페이스의 모든 서피스를 나열합니다.",
+      "listPanelsDesc": "현재 워크스페이스의 모든 서피스를 나열합니다.",
+      "listPaneSurfacesDesc": "포커스된 패널의 서피스를 나열합니다.",
       "focusSurfaceDesc": "특정 서피스에 포커스합니다.",
       "inputCommands": "입력 명령",
       "sendDesc": "포커스된 터미널에 텍스트 입력을 전송합니다.",

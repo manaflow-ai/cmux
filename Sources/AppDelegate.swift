@@ -2108,6 +2108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self?.paneMemoryGuardrailDescriptors() ?? []
         }
         guardrail.onSystemMemoryPressure = { [weak self] in
+            RendererRealizationController.shared.reclaimForSystemMemoryPressure(now: Date())
             self?.discardHiddenBrowserWebViewsForSystemMemoryPressure()
         }
         guardrail.start()
@@ -8717,7 +8718,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func applyUpdateIfAvailable(_ sender: Any?) {
         updateController.model.setOverrideState(nil)
-        updateController.installUpdate()
+        updateController.attemptUpdate() // re-resolve to the latest version at install time (#6366)
     }
 
     @objc func attemptUpdate(_ sender: Any?) {

@@ -964,10 +964,14 @@
           "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
           "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。"
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "有効にすると、通知バナーはその対象がまさにフォーカス中のサーフェスである場合のみ自動的に取り下げられます。現在表示中のワークスペース内でフォーカスされていないサーフェス向けに配信されたバナーは、ワークスペースが表示されたときに取り消されるのではなく、そのサーフェスをフォーカスする（またはクリック／消去する）まで表示され続けます。オフの場合は従来のワークスペース表示時の取り下げ動作を維持します。"
+        },
         "browser": {
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。",
+          "askWhereToSaveDownloads": "ブラウザのダウンロードを直接「ダウンロード」に保存せず、保存パネルを表示します。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "グループ内で Cmd-N、グループヘッダーの + ボタン、設定済みグループアクションが新しいワークスペースを配置する場所のグローバル既定値です: `afterCurrent` (アクティブなグループ内ワークスペースの直後。ない場合は top)、`top` (アンカー直後の2番目の位置)、`end` (最後のメンバーの後)。",
@@ -1228,7 +1232,8 @@
       "closeWorkspaceDesc": "ワークスペースを閉じる。",
       "splitCommands": "分割コマンド",
       "newSplitDesc": "新しい分割ペインを作成。方向：left、right、up、down。",
-      "listSurfacesDesc": "現在のワークスペースのすべてのサーフェスを一覧表示。",
+      "listPanelsDesc": "現在のワークスペースのすべてのサーフェスを一覧表示。",
+      "listPaneSurfacesDesc": "フォーカスされたペイン内のサーフェスを一覧表示。",
       "focusSurfaceDesc": "特定のサーフェスにフォーカス。",
       "inputCommands": "入力コマンド",
       "sendDesc": "フォーカス中のターミナルにテキスト入力を送信。",
