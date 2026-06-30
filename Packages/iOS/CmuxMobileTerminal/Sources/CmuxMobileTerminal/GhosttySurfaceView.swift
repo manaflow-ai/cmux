@@ -2293,8 +2293,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 byteCount: data.count,
                 continuation: continuation
             )
-            processOutput(data) { applied in
-                self.completePendingOutputApply(id: operationID, returning: applied)
+            processOutput(data) { [weak self] applied in
+                self?.completePendingOutputApply(id: operationID, returning: applied)
             }
         }
     }
@@ -2380,11 +2380,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 stalledMs: elapsedMs,
                 replay: .callerWillRequestReplay
             )
-            if recovered || !renderPipelineRecoveryBlocked {
-                pending.continuation.resume(returning: false)
-            } else {
-                pendingOutputApply = pending
-            }
+            pending.continuation.resume(returning: false)
             return recovered
         }
 
@@ -2398,11 +2394,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 stalledMs: elapsedMs,
                 replay: .callerWillRequestReplay
             )
-            if recovered || !renderPipelineRecoveryBlocked {
-                pending.continuation.resume(returning: false)
-            } else {
-                pendingGeometryApply = pending
-            }
+            pending.continuation.resume(returning: false)
             return recovered
         }
 
@@ -2477,9 +2469,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             completion?(true)
             return
         }
-        // A blocked recovery will rebuild this surface once the prior free drains.
-        // Leave wait-style callers pending so recovery or the deadline pump resumes false.
+        // A blocked recovery will rebuild this surface if the prior free drains.
+        // Do not park wait-style callers behind that free: the free is queued on
+        // the same surface queue that may already be wedged.
         guard !renderPipelineRecoveryBlocked else {
+            completion?(false)
             return
         }
         #if DEBUG
@@ -2886,6 +2880,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             stopDisplayLink()
             skipPendingVisibleSnapshot()
             skipPendingCopyableTextRead()
+            completePendingSurfaceOperations(returning: false)
             renderInFlight = false
             renderInFlightSince = nil
             needsAnotherRender = false
@@ -3504,8 +3499,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingGeometryReassert = false
         return await withCheckedContinuation { continuation in
             let operationID = registerPendingGeometryApply(continuation: continuation)
-            syncSurfaceGeometry(shouldReassertNaturalSize: shouldReassertNaturalSize) { applied in
-                self.completePendingGeometryApply(id: operationID, returning: applied)
+            syncSurfaceGeometry(shouldReassertNaturalSize: shouldReassertNaturalSize) { [weak self] applied in
+                self?.completePendingGeometryApply(id: operationID, returning: applied)
             }
         }
     }
@@ -3521,6 +3516,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // The current surface is scheduled for deferred recovery; geometry
         // cannot be acknowledged against it without risking a stale replay ack.
         guard !renderPipelineRecoveryBlocked else {
+            completion?(false)
             return
         }
 
