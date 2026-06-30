@@ -33,9 +33,12 @@ import Testing
         #expect(withoutToggle > withToggle)
     }
 
-    @Test func measuredCapNeverExceedsSafeCenteredSlot() {
+    @Test func measuredCapReservesLeadingAndTrailingChrome() {
         let trailing = MobileNavTitleWidth.trailingReserveBase + MobileNavTitleWidth.chatToggleReserve
-        #expect(cap(320) == 320 - 2 * trailing)
+        let leading = MobileNavTitleWidth.leadingMargin
+            + MobileNavTitleWidth.backButtonReserve
+            + MobileNavTitleWidth.interControlSpacing
+        #expect(cap(320) == 320 - leading - trailing - MobileNavTitleWidth.trailingSafetyGap)
     }
 
     @Test func moreRoomWithoutBackButton() {
@@ -44,12 +47,15 @@ import Testing
         #expect(withoutBack > withBack)
     }
 
-    @Test func centeredCapReservesWiderSideSymmetrically() {
+    @Test func leadingCapDoesNotReserveSymmetrically() {
         let measured = cap(393)
-        let expected = 393 - 2 * max(
-            MobileNavTitleWidth.leadingReserve,
-            MobileNavTitleWidth.trailingReserveBase + MobileNavTitleWidth.chatToggleReserve
-        )
+        let expected = 393
+            - MobileNavTitleWidth.leadingMargin
+            - MobileNavTitleWidth.backButtonReserve
+            - MobileNavTitleWidth.interControlSpacing
+            - MobileNavTitleWidth.trailingReserveBase
+            - MobileNavTitleWidth.chatToggleReserve
+            - MobileNavTitleWidth.trailingSafetyGap
         #expect(measured == expected)
     }
 
@@ -64,12 +70,19 @@ import Testing
     @Test func noTrailingClusterDoesNotReserveChatToggle() {
         let withTrailing = cap(393)
         let withoutTrailing = cap(393, hasTrailingCluster: false)
+        let expected = 393
+            - MobileNavTitleWidth.leadingMargin
+            - MobileNavTitleWidth.backButtonReserve
+            - MobileNavTitleWidth.interControlSpacing
+            - MobileNavTitleWidth.trailingSafetyGap
 
-        #expect(withoutTrailing == 393 - 2 * MobileNavTitleWidth.leadingReserve)
+        #expect(withoutTrailing == expected)
         #expect(withoutTrailing > withTrailing)
     }
 
     @Test func noSideClustersCanUseMeasuredWidth() {
-        #expect(cap(393, hasBackButton: false, hasTrailingCluster: false) == 393)
+        #expect(cap(393, hasBackButton: false, hasTrailingCluster: false) == 393
+            - MobileNavTitleWidth.leadingMargin
+            - MobileNavTitleWidth.trailingSafetyGap)
     }
 }

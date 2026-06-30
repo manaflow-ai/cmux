@@ -2159,7 +2159,7 @@ final class cmuxUITests: XCTestCase {
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         _ = app
-        let horizontalGapRange: ClosedRange<CGFloat> = 18...42
+        let horizontalGapRange: ClosedRange<CGFloat> = 4...18
         var lastTitleFrame = titleMenu.frame
         var lastBackFrame = backButton.frame
         var lastTrailingFrame = trailingControl.frame

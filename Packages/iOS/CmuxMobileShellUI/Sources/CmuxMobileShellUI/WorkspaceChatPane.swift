@@ -38,7 +38,7 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
 
     @State private var accessoryConfiguration = TerminalAccessoryConfiguration.shared
     @State private var isShowingShortcutSettings = false
-    /// Full content width, used to bound the centered toolbar header so a long
+    /// Full content width, used to bound the leading toolbar header so a long
     /// workspace name truncates before the trailing toolbar buttons.
     @State private var contentWidth: CGFloat = 0
 
@@ -58,48 +58,29 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
             // which would be dropped under the workspace's own chrome.
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .toolbar {
-                if backButtonConfiguration != nil {
-                    ToolbarItem(placement: .topBarLeading) {
-                        workspaceBackToolbarButton
-                    }
-                }
-                ToolbarItem(placement: .principal) {
-                    // WorkspaceDetailView mounts the terminal picker/chat
-                    // toggle in a sibling trailing toolbar item.
-                    WorkspaceTitleMenu(
-                        contentWidth: contentWidth,
-                        hasBackButton: backButtonConfiguration != nil,
-                        hasTrailingCluster: true,
-                        hasChatToggle: true,
-                        isEnabled: isTitleMenuEnabled,
-                        menuContent: titleMenuContent
-                    ) {
-                        ChatSessionHeaderView(
-                            descriptor: conversation.descriptor,
-                            agentState: conversation.agentState,
-                            isConnected: conversation.isConnected,
-                            titleOverride: workspaceName,
-                            subtitle: tabName,
-                            style: .toolbarCompact
-                        )
-                    }
+                // WorkspaceDetailView mounts the terminal picker/chat toggle in a
+                // sibling trailing toolbar item.
+                WorkspaceLeadingToolbarChrome(
+                    backButtonConfiguration: backButtonConfiguration,
+                    contentWidth: contentWidth,
+                    hasTrailingCluster: true,
+                    hasChatToggle: true,
+                    isTitleMenuEnabled: isTitleMenuEnabled,
+                    menuContent: titleMenuContent
+                ) {
+                    ChatSessionHeaderView(
+                        descriptor: conversation.descriptor,
+                        agentState: conversation.agentState,
+                        isConnected: conversation.isConnected,
+                        titleOverride: workspaceName,
+                        subtitle: tabName,
+                        style: .toolbarCompact
+                    )
                 }
             }
         }
         .sheet(isPresented: $isShowingShortcutSettings) {
             TerminalShortcutsSettingsView(scope: .agentChat)
-        }
-    }
-
-    @ViewBuilder
-    private var workspaceBackToolbarButton: some View {
-        if let backButtonConfiguration {
-            WorkspaceBackButton(
-                unreadCount: backButtonConfiguration.unreadCount,
-                badgeContrast: backButtonConfiguration.badgeContrast,
-                action: backButtonConfiguration.action
-            )
-            .mobileGlassCompactToolbarControl()
         }
     }
 

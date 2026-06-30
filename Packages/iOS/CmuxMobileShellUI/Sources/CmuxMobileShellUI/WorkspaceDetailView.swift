@@ -49,7 +49,7 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
-    /// Live pane width, used to width-cap the centered glass title pill so a long
+    /// Live pane width, used to width-cap the leading glass title pill so a long
     /// workspace name truncates instead of underlapping the toolbar buttons.
     @State private var contentWidth: CGFloat = 0
     /// Captured at the moment the "View as Text" action is tapped so the
@@ -140,24 +140,19 @@ struct WorkspaceDetailView: View {
         .navigationTitle("")
         .mobileTerminalNavigationChrome()
         .toolbar {
-            if backButtonConfiguration != nil {
-                ToolbarItem(placement: .topBarLeading) { workspaceBackToolbarButton }
-            }
-            ToolbarItem(placement: .principal) {
-                WorkspaceTitleMenu(
-                    contentWidth: contentWidth,
-                    hasBackButton: backButtonConfiguration != nil,
-                    hasTrailingCluster: true,
-                    hasChatToggle: shouldShowChatToggle,
-                    isEnabled: hasTitleMenuActions,
-                    menuContent: { titleMenuContent }
-                ) {
-                    Text(browser.title ?? workspace.name)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .foregroundStyle(TerminalPalette.foreground)
-                }
+            WorkspaceLeadingToolbarChrome(
+                backButtonConfiguration: backButtonConfiguration,
+                contentWidth: contentWidth,
+                hasTrailingCluster: true,
+                hasChatToggle: shouldShowChatToggle,
+                isTitleMenuEnabled: hasTitleMenuActions,
+                menuContent: { titleMenuContent }
+            ) {
+                Text(browser.title ?? workspace.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(TerminalPalette.foreground)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 toolbarTrailingCluster
@@ -307,20 +302,15 @@ struct WorkspaceDetailView: View {
         #endif
         .toolbar {
             #if os(iOS)
-            if backButtonConfiguration != nil {
-                ToolbarItem(placement: .topBarLeading) { workspaceBackToolbarButton }
-            }
-            ToolbarItem(placement: .principal) {
-                WorkspaceTitleMenu(
-                    contentWidth: contentWidth,
-                    hasBackButton: backButtonConfiguration != nil,
-                    hasTrailingCluster: true,
-                    hasChatToggle: shouldShowChatToggle,
-                    isEnabled: hasTitleMenuActions,
-                    menuContent: { titleMenuContent }
-                ) {
-                    WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
-                }
+            WorkspaceLeadingToolbarChrome(
+                backButtonConfiguration: backButtonConfiguration,
+                contentWidth: contentWidth,
+                hasTrailingCluster: true,
+                hasChatToggle: shouldShowChatToggle,
+                isTitleMenuEnabled: hasTitleMenuActions,
+                menuContent: { titleMenuContent }
+            ) {
+                WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 toolbarTrailingCluster
@@ -357,19 +347,6 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// Compact-stack back button rendered as its own leading toolbar island.
-    @ViewBuilder
-    private var workspaceBackToolbarButton: some View {
-        if let backButtonConfiguration {
-            WorkspaceBackButton(
-                unreadCount: backButtonConfiguration.unreadCount,
-                badgeContrast: backButtonConfiguration.badgeContrast,
-                action: backButtonConfiguration.action
-            )
-            .mobileGlassCompactToolbarControl()
-        }
-    }
-
     var titleMenuContent: some View {
         WorkspaceTitleMenuContent(
             workspace: workspace,

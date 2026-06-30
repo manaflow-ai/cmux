@@ -15,8 +15,8 @@ extension WorkspaceDetailView {
 
     var terminalTopPadding: CGFloat { 4 }
 
-    /// iOS renders the workspace title as a custom principal toolbar item. Keep
-    /// the system title empty there so it does not draw a second centered title.
+    /// iOS renders the workspace title as custom toolbar chrome. Keep the system
+    /// title empty there so it does not draw a second centered title.
     var systemNavigationTitle: String {
         #if os(iOS)
         ""

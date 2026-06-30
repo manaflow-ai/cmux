@@ -62,27 +62,24 @@ struct AgentChatDemoScreen: View {
             baseChatScreen(for: stack)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        WorkspaceBackButton(
+                    WorkspaceLeadingToolbarChrome(
+                        backButtonConfiguration: WorkspaceBackButtonConfiguration(
                             unreadCount: 0,
                             badgeContrast: .darkBackground,
                             action: {}
-                        )
-                    }
-                    ToolbarItem(placement: .principal) {
-                        WorkspaceTitleMenu(
-                            contentWidth: contentWidth,
-                            hasBackButton: true,
-                            hasTrailingCluster: true,
-                            hasChatToggle: true
-                        ) {
+                        ),
+                        contentWidth: contentWidth,
+                        hasTrailingCluster: true,
+                        hasChatToggle: true,
+                        isTitleMenuEnabled: true,
+                        menuContent: {
                             Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
                                 .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
                             Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
                                 .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")
-                        } label: {
-                            header(for: stack)
                         }
+                    ) {
+                        header(for: stack)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
