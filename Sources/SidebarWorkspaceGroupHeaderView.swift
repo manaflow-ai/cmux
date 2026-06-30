@@ -328,65 +328,62 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 action: onTogglePinned
             )
             Divider()
-            Menu(String(localized: "workspaceGroup.contextMenu.notifications", defaultValue: "Notifications")) {
-                Button(
-                    String(
-                        localized: "workspaceGroup.contextMenu.markRead",
-                        defaultValue: "Mark Group as Read"
-                    ),
-                    action: onMarkRead
-                )
-                .disabled(!canMarkRead)
-                Button(
-                    String(
-                        localized: "workspaceGroup.contextMenu.markUnread",
-                        defaultValue: "Mark Group as Unread"
-                    ),
-                    action: onMarkUnread
-                )
-                .disabled(!canMarkUnread)
-                Button(
-                    String(
-                        localized: "workspaceGroup.contextMenu.clearLatestNotifications",
-                        defaultValue: "Clear Latest Notifications"
-                    ),
-                    action: onClearLatestNotifications
-                )
-                .disabled(!hasLatestNotifications)
-                Divider()
-                Button(
-                    String(
-                        localized: "workspaceGroup.contextMenu.markAllRead",
-                        defaultValue: "Mark All Workspaces in Group as Read"
-                    ),
-                    action: onMarkAllRead
-                )
-                .disabled(!canMarkAllRead)
-                Button(
-                    String(
-                        localized: "workspaceGroup.contextMenu.markAllUnread",
-                        defaultValue: "Mark All Workspaces in Group as Unread"
-                    ),
-                    action: onMarkAllUnread
-                )
-                .disabled(!canMarkAllUnread)
-            }
-            Menu(String(localized: "workspaceGroup.contextMenu.configuration", defaultValue: "Configuration")) {
-                Button(
-                    String(
-                        localized: "workspaceGroup.contextMenu.editConfig",
-                        defaultValue: "Edit Group Config..."
-                    ),
-                    action: onEditConfig
-                )
-                Button(
-                    String(
-                        localized: "workspaceGroup.contextMenu.openDocs",
-                        defaultValue: "Open Workspace Groups Docs"
-                    ),
-                    action: onOpenDocs
-                )
-            }
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.markRead",
+                    defaultValue: "Mark Group as Read"
+                ),
+                action: onMarkRead
+            )
+            .disabled(!canMarkRead)
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.markUnread",
+                    defaultValue: "Mark Group as Unread"
+                ),
+                action: onMarkUnread
+            )
+            .disabled(!canMarkUnread)
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.clearLatestNotifications",
+                    defaultValue: "Clear Latest Notifications"
+                ),
+                action: onClearLatestNotifications
+            )
+            .disabled(!hasLatestNotifications)
+            Divider()
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.markAllRead",
+                    defaultValue: "Mark All Workspaces in Group as Read"
+                ),
+                action: onMarkAllRead
+            )
+            .disabled(!canMarkAllRead)
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.markAllUnread",
+                    defaultValue: "Mark All Workspaces in Group as Unread"
+                ),
+                action: onMarkAllUnread
+            )
+            .disabled(!canMarkAllUnread)
+            Divider()
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.editConfig",
+                    defaultValue: "Edit Group Config..."
+                ),
+                action: onEditConfig
+            )
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.openDocs",
+                    defaultValue: "Open Workspace Groups Docs"
+                ),
+                action: onOpenDocs
+            )
             Divider()
             Button(
                 String(
