@@ -6281,9 +6281,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func shouldDeliverRenderGridEvent(_ renderGrid: MobileTerminalRenderGridFrame) -> Bool {
-        let previous = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
-        terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
+    private func shouldDeliverRenderGridEvent(
+        _ renderGrid: MobileTerminalRenderGridFrame,
+        previous: MobileTerminalRenderGridFrame.Screen?
+    ) -> Bool {
         guard terminalOutputTransport == .hybrid,
               renderGrid.activeScreen == .primary else {
             return true
@@ -6300,17 +6301,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }
-        guard source != "event" || shouldDeliverRenderGridEvent(renderGrid) else {
-            deliverTerminalViewportPolicy(renderGrid.mobileViewportPolicy, surfaceID: renderGrid.surfaceID)
-            MobileDebugLog.anchormux(
-                "sync.render_grid_advisory source=\(source) surface=\(renderGrid.surfaceID) screen=\(renderGrid.activeScreen.rawValue) seq=\(renderGrid.stateSeq)"
-            )
-            return
-        }
         if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
            deliveredSeq > renderGrid.stateSeq {
             MobileDebugLog.anchormux(
                 "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(deliveredSeq) frame=\(renderGrid.stateSeq)"
+            )
+            return
+        }
+        let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
+        terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
+        guard source != "event" || shouldDeliverRenderGridEvent(renderGrid, previous: previousScreen) else {
+            deliverTerminalViewportPolicy(renderGrid.mobileViewportPolicy, surfaceID: renderGrid.surfaceID)
+            MobileDebugLog.anchormux(
+                "sync.render_grid_advisory source=\(source) surface=\(renderGrid.surfaceID) screen=\(renderGrid.activeScreen.rawValue) seq=\(renderGrid.stateSeq)"
             )
             return
         }

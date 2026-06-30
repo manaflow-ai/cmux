@@ -101,16 +101,20 @@ import Testing
     let transport = try #require(box.get())
 
     await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 3, text: "grid"))
-    let gridDelivered = try await pollUntil(attempts: 30) { collector.lines.contains { $0.contains("grid") } }
-    #expect(gridDelivered == false, "primary render-grid events are advisory in hybrid mode; raw bytes own full-height primary rendering")
+    let policyDelivered = try await pollUntil { collector.viewportPolicies.last == .natural }
+    #expect(policyDelivered, "advisory primary render-grid events must still deliver their viewport policy")
     #expect(
-        collector.viewportPolicies.last == .natural,
-        "advisory primary render-grid events must still clear any stale remote-grid pin so primary output can use the phone's full height"
+        collector.lines.contains { $0.contains("grid") } == false,
+        "primary render-grid events are advisory in hybrid mode; raw bytes own full-height primary rendering"
     )
 
     await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 0, text: "raw"))
     let rawDelivered = try await pollUntil { collector.lines.contains { $0.contains("raw") } }
     #expect(rawDelivered, "advisory primary render-grid must not advance delivered seq and starve overlapping raw bytes")
+    #expect(
+        collector.lines.contains { $0.contains("grid") } == false,
+        "primary render-grid events are advisory in hybrid mode; raw bytes own full-height primary rendering"
+    )
     #expect(collector.viewportPolicies.last == .natural)
     collector.unmount()
 }
@@ -140,8 +144,44 @@ import Testing
 
     let deliveredCount = collector.lines.count
     await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 3, text: "dup"))
-    let duplicateDelivered = try await pollUntil(attempts: 30) { collector.lines.count > deliveredCount }
-    #expect(duplicateDelivered == false, "raw bytes are suppressed while the authoritative screen is alternate")
+    await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 6, text: "primary"))
+    let primaryDelivered = try await pollUntil { collector.lines.contains { $0.contains("primary") } }
+    #expect(primaryDelivered)
+    #expect(collector.lines.count == deliveredCount + 1)
+    #expect(
+        collector.lines.contains { $0.contains("dup") } == false,
+        "raw bytes are suppressed while the authoritative screen is alternate"
+    )
+    collector.unmount()
+}
+
+@MainActor
+@Test func staleAlternateRenderGridDoesNotSuppressPrimaryRawBytes() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 0, text: "raw-a"))
+    let firstRawDelivered = try await pollUntil { collector.lines.contains { $0.contains("raw-a") } }
+    #expect(firstRawDelivered)
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 1,
+        text: "stale-alt",
+        activeScreen: .alternate
+    ))
+    await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 5, text: "raw-b"))
+    let secondRawDelivered = try await pollUntil { collector.lines.contains { $0.contains("raw-b") } }
+    #expect(secondRawDelivered, "a stale alternate render-grid frame must not flip active-screen state and suppress later primary bytes")
+    #expect(collector.lines.contains { $0.contains("stale-alt") } == false)
     collector.unmount()
 }
 

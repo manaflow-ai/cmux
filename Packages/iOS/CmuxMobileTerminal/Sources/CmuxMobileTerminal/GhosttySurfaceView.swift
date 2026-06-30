@@ -2975,9 +2975,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     public func applyViewSize(cols: Int, rows: Int) {
-        guard cols > 0, rows > 0 else { return }
-        // A value came back from the Mac, so the round-trip recovered.
+        applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: false)
+    }
+
+    public func applyConfirmedViewSize(cols: Int, rows: Int) {
+        applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: true)
+    }
+
+    public func markViewportReportConfirmed() {
         viewportReportRetries = 0
+    }
+
+    private func applyViewSize(cols: Int, rows: Int, confirmedViewportEcho: Bool) {
+        guard cols > 0, rows > 0 else { return }
+        if confirmedViewportEcho {
+            markViewportReportConfirmed()
+        }
         if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return }
         MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
         effectiveGrid = (cols, rows)
@@ -2991,8 +3004,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     public func useNaturalViewSize() {
-        // A value came back from the Mac, so the round-trip recovered.
-        viewportReportRetries = 0
         guard effectiveGrid != nil else { return }
         MobileDebugLog.anchormux("zoom.useNaturalViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->nil")
         effectiveGrid = nil

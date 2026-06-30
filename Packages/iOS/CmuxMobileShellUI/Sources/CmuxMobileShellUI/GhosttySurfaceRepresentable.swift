@@ -112,6 +112,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
         private var composerController: UIHostingController<TerminalComposerView>?
         private var composerMounted = false
+        private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
         /// Bumped on every mount/unmount transition so a deferred close completion
         /// can tell whether it is still the latest transition. Guards the
         /// close-then-quickly-reopen race: an interrupted close animation still runs
@@ -139,8 +140,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     guard let surfaceView else { return }
                     switch chunk.viewportPolicy {
                     case .natural:
+                        activeViewportPolicy = .natural
                         surfaceView.useNaturalViewSize()
                     case .remoteGrid(let columns, let rows):
+                        activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
                         surfaceView.applyViewSize(cols: columns, rows: rows)
                     case nil:
                         break
@@ -314,7 +317,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             guard size.columns > 0, size.rows > 0 else { return }
             Task { @MainActor [weak self, weak surfaceView] in
                 guard let self, let store = self.store else { return }
-                guard await store.updateTerminalViewport(
+                guard let effectiveGrid = await store.updateTerminalViewport(
                     surfaceID: self.surfaceID,
                     columns: size.columns,
                     rows: size.rows
@@ -329,6 +332,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     MobileDebugLog.anchormux("zoom.viewport.noEffective grid=\(size.columns)x\(size.rows)")
                     surfaceView?.retryViewportReport()
                     return
+                }
+                surfaceView?.markViewportReportConfirmed()
+                if case .remoteGrid = self.activeViewportPolicy {
+                    surfaceView?.applyConfirmedViewSize(
+                        cols: effectiveGrid.columns,
+                        rows: effectiveGrid.rows
+                    )
                 }
             }
         }
