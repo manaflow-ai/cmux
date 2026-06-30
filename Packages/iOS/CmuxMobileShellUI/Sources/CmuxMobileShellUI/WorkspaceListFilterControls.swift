@@ -74,6 +74,30 @@ extension MobileWorkspaceReadStateFilter {
 }
 
 extension MobileWorkspaceListFilter {
+    /// Keep the menu-owned machine selection visible and recoverable. The
+    /// machine section hides below two present machines, so any selected machine
+    /// must be cleared before it becomes hidden state.
+    @discardableResult
+    mutating func pruneMachinesForFilterMenu(presentMachineIDs: [String]) -> Bool {
+        let presentMachineIDSet = Set(presentMachineIDs)
+        guard presentMachineIDSet.count > 1 else {
+            guard !machines.isEmpty else { return false }
+            machines.removeAll()
+            return true
+        }
+        return pruneMachines(notIn: Array(presentMachineIDSet))
+    }
+
+    /// The Mac title picker owns the machine dimension when it is scoped to one
+    /// Mac, so filter-menu machine selections would be hidden no-ops.
+    @discardableResult
+    mutating func pruneMachinesForFilterMenu(visibleMacSelection: WorkspaceMacSelection) -> Bool {
+        guard case .machine = visibleMacSelection else { return false }
+        guard !machines.isEmpty else { return false }
+        machines.removeAll()
+        return true
+    }
+
     /// The localized copy for "this filter hid every workspace". `nil` for the
     /// identity filter, which can never hide anything. Reflects whichever
     /// dimension(s) are active.

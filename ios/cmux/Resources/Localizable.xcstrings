@@ -5917,23 +5917,6 @@
         }
       }
     },
-    "mobile.terminal.picker.menuTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace and Terminals"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースとターミナル"
-          }
-        }
-      }
-    },
     "mobile.terminal.select": {
       "extractionState": "manual",
       "localizations": {
