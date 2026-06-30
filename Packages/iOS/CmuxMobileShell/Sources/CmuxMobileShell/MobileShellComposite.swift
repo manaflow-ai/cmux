@@ -6725,6 +6725,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     ]
                 )
                 let data = try await client.sendRequest(request)
+                guard self.terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] == replayRequestID else {
+                    MobileDebugLog.anchormux("CMUX_REPLAY stale_request surface=\(surfaceID)")
+                    return
+                }
                 guard self.remoteClient === client else {
                     self.clearTerminalReplayBarrierIfCurrent(
                         surfaceID: surfaceID,
@@ -6836,6 +6840,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                 }
             } catch {
+                guard self.terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] == replayRequestID else {
+                    MobileDebugLog.anchormux("CMUX_REPLAY stale_request_failed surface=\(surfaceID)")
+                    return
+                }
                 mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .private)")
                 guard self.remoteClient === client else {
                     self.clearTerminalReplayBarrierIfCurrent(
