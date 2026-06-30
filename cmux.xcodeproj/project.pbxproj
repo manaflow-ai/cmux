@@ -467,6 +467,7 @@
 		DCDC1000000000000000B00F /* DockTrustRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B010 /* DockTrustRequest.swift */; };
 		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
 		D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */; };
+		5732A0095732A0095732A009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */; };
 		E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */; };
 		E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */; };
 		E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
@@ -652,6 +653,7 @@
 		3865A0033865A0033865A003 /* MenubarSearchPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0033865B0033865B003 /* MenubarSearchPopover.swift */; };
 		E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */; };
 		5732A0015732A0015732A001 /* MinimalModeInvalidationProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0015732B0015732B001 /* MinimalModeInvalidationProbe.swift */; };
+		5732A0085732A0085732A008 /* MinimalModeInvalidationProbeKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0085732B0085732B008 /* MinimalModeInvalidationProbeKey.swift */; };
 		C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */; };
 		5732A0025732A0025732A002 /* MinimalModeSidebarTitlebarControlsOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0025732B0025732B002 /* MinimalModeSidebarTitlebarControlsOverlay.swift */; };
 		5732A0035732A0035732A003 /* MinimalModeTitlebarEventSurfaceLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0035732B0035732B003 /* MinimalModeTitlebarEventSurfaceLayer.swift */; };
@@ -1687,6 +1689,7 @@
 		DCDC1000000000000000B010 /* DockTrustRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockTrustRequest.swift; sourceTree = "<group>"; };
 		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
 		D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableTextViewArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
+		5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/EnvironmentValues+MinimalModeInvalidationProbe.swift"; sourceTree = "<group>"; };
 		E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorkspaceRowView.swift; sourceTree = "<group>"; };
 		E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreePrototype.swift; sourceTree = "<group>"; };
 		E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
@@ -1870,6 +1873,7 @@
 		3865B0033865B0033865B003 /* MenubarSearchPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/MenubarSearchPopover.swift; sourceTree = "<group>"; };
 		E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
 		5732B0015732B0015732B001 /* MinimalModeInvalidationProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/MinimalModeInvalidationProbe.swift; sourceTree = "<group>"; };
+		5732B0085732B0085732B008 /* MinimalModeInvalidationProbeKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/MinimalModeInvalidationProbeKey.swift; sourceTree = "<group>"; };
 		C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/MinimalModeSidebarControls.swift; sourceTree = "<group>"; };
 		5732B0025732B0025732B002 /* MinimalModeSidebarTitlebarControlsOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinimalModeSidebarTitlebarControlsOverlay.swift; sourceTree = "<group>"; };
 		5732B0035732B0035732B003 /* MinimalModeTitlebarEventSurfaceLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinimalModeTitlebarEventSurfaceLayer.swift; sourceTree = "<group>"; };
@@ -2713,6 +2717,8 @@
 					C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */,
 					A5001012 /* ContentView.swift */,
 					5732B0015732B0015732B001 /* MinimalModeInvalidationProbe.swift */,
+					5732B0085732B0085732B008 /* MinimalModeInvalidationProbeKey.swift */,
+					5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */,
 					5732B0025732B0025732B002 /* MinimalModeSidebarTitlebarControlsOverlay.swift */,
 					5732B0035732B0035732B003 /* MinimalModeTitlebarEventSurfaceLayer.swift */,
 					5732B0045732B0045732B004 /* WorkspaceContentMinimalModeSafeAreaModifier.swift */,
@@ -4408,6 +4414,7 @@
 				DCDC1000000000000000B00D /* DockSurfaceKind.swift in Sources */,
 				DCDC1000000000000000B00F /* DockTrustRequest.swift in Sources */,
 				D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */,
+					5732A0095732A0095732A009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift in Sources */,
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
 				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
 				FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,
@@ -4529,6 +4536,7 @@
 					C0DE70590000000000000002 /* MenuBarProfilingSubmissionActions.swift in Sources */,
 					3865A0033865A0033865A003 /* MenubarSearchPopover.swift in Sources */,
 					5732A0015732A0015732A001 /* MinimalModeInvalidationProbe.swift in Sources */,
+					5732A0085732A0085732A008 /* MinimalModeInvalidationProbeKey.swift in Sources */,
 				C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */,
 					5732A0025732A0025732A002 /* MinimalModeSidebarTitlebarControlsOverlay.swift in Sources */,
 					5732A0035732A0035732A003 /* MinimalModeTitlebarEventSurfaceLayer.swift in Sources */,

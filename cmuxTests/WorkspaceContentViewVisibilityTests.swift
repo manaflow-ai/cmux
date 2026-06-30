@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 import AppKit
 import CoreGraphics
 import SwiftUI
@@ -10,7 +10,8 @@ import Bonsplit
 @testable import cmux
 #endif
 
-final class WorkspaceContentViewVisibilityTests: XCTestCase {
+@Suite(.serialized)
+final class WorkspaceContentViewVisibilityTests {
     private final class MinimalModeBodyProbeCounts {
         var contentViewBody = 0
         var workspaceContentBody = 0
@@ -23,6 +24,7 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         }
     }
 
+    @Test
     @MainActor
     func testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies() async {
         _ = NSApplication.shared
@@ -77,9 +79,9 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         }
 
         await Self.drainMainRunLoop(for: window)
-        XCTAssertGreaterThan(counts.contentViewBody, 0)
-        XCTAssertGreaterThan(counts.workspaceContentBody, 0)
-        XCTAssertGreaterThan(counts.verticalTabsSidebarBody, 0)
+        #expect(counts.contentViewBody > 0)
+        #expect(counts.workspaceContentBody > 0)
+        #expect(counts.verticalTabsSidebarBody > 0)
 
         counts.reset()
         defaults.set(
@@ -88,19 +90,16 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
         await Self.drainMainRunLoop(for: window)
 
-        XCTAssertEqual(
-            counts.contentViewBody,
-            0,
+        #expect(
+            counts.contentViewBody == 0,
             "Minimal-mode toggles must not re-evaluate the whole ContentView body."
         )
-        XCTAssertEqual(
-            counts.workspaceContentBody,
-            0,
+        #expect(
+            counts.workspaceContentBody == 0,
             "Minimal-mode toggles must not re-evaluate WorkspaceContentView/Bonsplit content."
         )
-        XCTAssertEqual(
-            counts.verticalTabsSidebarBody,
-            0,
+        #expect(
+            counts.verticalTabsSidebarBody == 0,
             "Minimal-mode toggles must not rebuild the vertical sidebar render context."
         )
     }
@@ -122,12 +121,13 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         }
     }
 
+    @Test
     func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {
-        XCTAssertEqual(
+        #expect(
             MountedWorkspacePresentation.resolve(
                 isSelectedWorkspace: false,
                 isRetiringWorkspace: false
-            ),
+            ) ==
             MountedWorkspacePresentation(
                 isRenderedVisible: false,
                 isPanelVisible: false,
@@ -136,12 +136,13 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    @Test
     func testRetiringWorkspaceStaysPanelVisibleDuringHandoff() {
-        XCTAssertEqual(
+        #expect(
             MountedWorkspacePresentation.resolve(
                 isSelectedWorkspace: false,
                 isRetiringWorkspace: true
-            ),
+            ) ==
             MountedWorkspacePresentation(
                 isRenderedVisible: true,
                 isPanelVisible: true,
@@ -150,9 +151,10 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    @Test
     func testPanelVisibleInUIReturnsFalseWhenWorkspaceHidden() {
-        XCTAssertFalse(
-            WorkspaceContentView.panelVisibleInUI(
+        #expect(
+            !WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: false,
                 isSelectedInPane: true,
                 isFocused: true
@@ -160,8 +162,9 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    @Test
     func testPanelVisibleInUIReturnsTrueForSelectedPanel() {
-        XCTAssertTrue(
+        #expect(
             WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: true,
                 isSelectedInPane: true,
@@ -170,8 +173,9 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    @Test
     func testPanelVisibleInUIReturnsTrueForFocusedPanelDuringTransientSelectionGap() {
-        XCTAssertTrue(
+        #expect(
             WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: true,
                 isSelectedInPane: false,
@@ -180,9 +184,10 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    @Test
     func testPanelVisibleInUIReturnsFalseWhenNeitherSelectedNorFocused() {
-        XCTAssertFalse(
-            WorkspaceContentView.panelVisibleInUI(
+        #expect(
+            !WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: true,
                 isSelectedInPane: false,
                 isFocused: false
@@ -190,6 +195,7 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    @Test
     func testTmuxWorkspacePaneOverlayRectReturnsMatchingPaneFrame() {
         let paneID = PaneID(id: UUID())
         let snapshot = LayoutSnapshot(
@@ -206,17 +212,18 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
             timestamp: 0
         )
 
-        XCTAssertEqual(
+        #expect(
             WorkspaceContentView.tmuxWorkspacePaneOverlayRect(
                 layoutSnapshot: snapshot,
                 paneId: paneID
-            ),
+            ) ==
             CGRect(x: 677.5, y: 28, width: 500, height: 292)
         )
     }
 
+    @Test
     @MainActor
-    func testTmuxWorkspacePaneUnreadRectsIncludeFocusedReadIndicator() {
+    func testTmuxWorkspacePaneUnreadRectsIncludeFocusedReadIndicator() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
         let store = TerminalNotificationStore.shared
@@ -236,13 +243,10 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
             appDelegate.notificationStore = originalNotificationStore
         }
 
-        guard let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let surfaceId = workspace.surfaceIdFromPanelId(panelId),
-              let paneId = workspace.paneId(forPanelId: panelId) else {
-            XCTFail("Expected selected workspace geometry")
-            return
-        }
+        let workspace = try #require(manager.selectedWorkspace, "Expected selected workspace geometry")
+        let panelId = try #require(workspace.focusedPanelId, "Expected selected workspace geometry")
+        let surfaceId = try #require(workspace.surfaceIdFromPanelId(panelId), "Expected selected workspace geometry")
+        let paneId = try #require(workspace.paneId(forPanelId: panelId), "Expected selected workspace geometry")
 
         store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
 
@@ -260,12 +264,12 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
             timestamp: 0
         )
 
-        XCTAssertEqual(
+        #expect(
             WorkspaceContentView.tmuxWorkspacePaneUnreadRects(
                 workspace: workspace,
                 notificationStore: store,
                 layoutSnapshot: snapshot
-            ),
+            ) ==
             [CGRect(x: 677.5, y: 28, width: 500, height: 292)]
         )
     }
