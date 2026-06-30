@@ -26,7 +26,7 @@ import Testing
         #expect(resolver.transcriptPath(for: wedgedRecord) == nil)
 
         let liveRecord = Self.codexRecord(sessionID: liveSessionID)
-        #expect(resolver.transcriptPath(for: liveRecord) == liveRollout.path)
+        #expect(Self.resolvedPathsMatch(resolver.transcriptPath(for: liveRecord), liveRollout))
     }
 
     @Test("Codex fallback fails closed when session_meta id is unavailable")
@@ -60,7 +60,7 @@ import Testing
         )
         let resolver = Self.codexResolver(home: home)
 
-        #expect(resolver.transcriptPath(for: Self.codexRecord(sessionID: sessionID)) == rollout.path)
+        #expect(Self.resolvedPathsMatch(resolver.transcriptPath(for: Self.codexRecord(sessionID: sessionID)), rollout))
     }
 
     @Test("Codex fallback only scans bounded recent day directories")
@@ -88,7 +88,7 @@ import Testing
         let resolver = Self.codexResolver(home: home)
 
         #expect(resolver.transcriptPath(for: Self.codexRecord(sessionID: staleSessionID)) == nil)
-        #expect(resolver.transcriptPath(for: Self.codexRecord(sessionID: recentSessionID)) == recentRollout.path)
+        #expect(Self.resolvedPathsMatch(resolver.transcriptPath(for: Self.codexRecord(sessionID: recentSessionID)), recentRollout))
     }
 
     @MainActor
@@ -121,7 +121,7 @@ import Testing
         let page = await service.history(sessionID: sessionID, beforeSeq: nil, limit: 20)
 
         #expect(page != nil)
-        #expect(service.sessionRecord(sessionID: sessionID)?.transcriptPath == rollout.path)
+        #expect(Self.resolvedPathsMatch(service.sessionRecord(sessionID: sessionID)?.transcriptPath, rollout))
     }
 
     private static func codexRecord(sessionID: String) -> AgentChatSessionRecord {
@@ -147,22 +147,32 @@ import Testing
         )
     }
 
-    /// Unique temp home for a Codex resolver test, with symlinks resolved up
-    /// front. The resolver returns paths from `contentsOfDirectory`, which on
-    /// some macOS versions/runners canonicalizes `/var` -> `/private/var`;
-    /// resolving the home keeps the paths the resolver returns equal to the
-    /// rollout paths the test writes, so the exact-path `#expect` is not a
-    /// macOS-version flake.
-    ///
-    /// `resolvingSymlinksInPath()` only canonicalizes the portion of a path that
-    /// already exists, so it MUST run on `temporaryDirectory` (which exists)
-    /// BEFORE appending the not-yet-created leaf. Calling it afterward (on a path
-    /// whose leaf does not exist yet) leaves `/var` unresolved, which is the bug
-    /// that made the resolver's `/private/var` output mismatch the test's `/var`.
+    /// Unique temp home for a Codex resolver test. Depending on the runner,
+    /// `temporaryDirectory` reports the path under `/var` or `/private/var`;
+    /// tests compare resolved real paths (`resolvedPathsMatch`) so the surface
+    /// representation does not matter.
     private static func makeTemporaryHome(_ label: String) -> URL {
         FileManager.default.temporaryDirectory
-            .resolvingSymlinksInPath()
             .appendingPathComponent("\(label)-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    /// Canonicalizes an existing path with `realpath(3)`. `URL`'s
+    /// `resolvingSymlinksInPath()` does NOT resolve `/var` -> `/private/var` on
+    /// some macOS versions, but `realpath` reliably resolves it the same way
+    /// `FileManager.contentsOfDirectory` (which the resolver uses) does — so the
+    /// resolver's `/private/var` output and a test's `/var` rollout path compare
+    /// equal regardless of which form `temporaryDirectory` reports.
+    private static func canonicalExistingPath(_ path: String) -> String {
+        guard let resolved = realpath(path, nil) else { return path }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
+    /// True when a resolver-returned path and the expected rollout URL refer to
+    /// the same on-disk file, compared by fully symlink-resolved real paths.
+    private static func resolvedPathsMatch(_ actual: String?, _ expected: URL) -> Bool {
+        guard let actual else { return false }
+        return canonicalExistingPath(actual) == canonicalExistingPath(expected.path)
     }
 
     private static func writeCodexRollout(
