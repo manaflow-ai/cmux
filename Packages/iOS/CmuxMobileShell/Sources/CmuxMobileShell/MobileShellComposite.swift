@@ -2538,6 +2538,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             port: port,
             pairedMacDeviceID: previousActive.macDeviceID
         )
+        let restored = connectionState == .connected
+            && remoteClient != nil
+            && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
+        guard restored, let pairedMacStore else { return }
+        let scope = await currentScopeSnapshot()
+        if let scope {
+            guard await isScopeCurrent(scope) else { return }
+        }
+        do {
+            try await pairedMacStore.setActive(
+                macDeviceID: previousActive.macDeviceID,
+                stackUserID: scope?.userID,
+                teamID: scope?.teamID
+            )
+            await loadPairedMacs()
+        } catch {
+            mobileShellLog.error("restorePreviousMacIfNeeded: setActive failed mac=\(previousActive.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
     }
 
     func clearSavedMacHintAfterDeletingLastVisibleMacIfNeeded() {

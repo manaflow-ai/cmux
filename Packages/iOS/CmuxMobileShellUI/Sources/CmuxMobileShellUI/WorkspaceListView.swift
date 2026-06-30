@@ -425,7 +425,8 @@ struct WorkspaceListView: View {
                     navigationStyle: navigationStyle,
                     isAnchorSelected: navigationStyle == .sidebar
                         && selectedWorkspaceID == group.anchorWorkspaceID,
-                    selectWorkspace: selectWorkspace,
+                    prepareWorkspaceSelection: prepareWorkspaceSelectionFromList,
+                    selectWorkspace: selectWorkspaceFromList,
                     toggleCollapsed: toggleGroupCollapsed,
                     unreadIndicatorLeftShift: unreadIndicatorLeftShift
                 )
@@ -450,7 +451,8 @@ struct WorkspaceListView: View {
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
             profilePictureLeftShift: profilePictureLeftShift,
             profilePictureSize: profilePictureSize,
-            selectWorkspace: selectWorkspace,
+            prepareWorkspaceSelection: prepareWorkspaceSelectionFromList,
+            selectWorkspace: selectWorkspaceFromList,
             renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
             setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,
             setUnread: capabilities.supportsReadStateActions ? setUnread : nil,
@@ -474,6 +476,17 @@ struct WorkspaceListView: View {
         .disabled(!canCreateWorkspaceForMacSelection)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
+    }
+
+    func prepareWorkspaceSelectionFromList() {
+        #if os(iOS)
+        cancelMacTitlePickerSwitch()
+        #endif
+    }
+
+    func selectWorkspaceFromList(_ id: MobileWorkspacePreview.ID) {
+        prepareWorkspaceSelectionFromList()
+        selectWorkspace(id)
     }
 
     private var settingsMenu: some View {

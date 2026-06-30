@@ -19,7 +19,9 @@ struct WorkspaceGroupHeaderRow: View {
     let navigationStyle: WorkspaceNavigationStyle
     /// Whether the anchor workspace is the current selection (sidebar style only).
     let isAnchorSelected: Bool
-    /// Select (and, in push style, navigate to) the anchor workspace.
+    /// Prepare for selecting the anchor workspace, without mutating navigation.
+    let prepareWorkspaceSelection: () -> Void
+    /// Select the anchor workspace in sidebar layouts.
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Toggle the group's collapsed state on the Mac. When `nil` (previews, or a
     /// Mac without the groups capability), the chevron renders without a tap
@@ -91,6 +93,9 @@ struct WorkspaceGroupHeaderRow: View {
             NavigationLink(value: group.anchorWorkspaceID) {
                 nameLabel
             }
+            .simultaneousGesture(TapGesture().onEnded {
+                prepareWorkspaceSelection()
+            })
         case .sidebar:
             Button {
                 selectWorkspace(group.anchorWorkspaceID)
