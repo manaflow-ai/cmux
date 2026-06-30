@@ -114,24 +114,25 @@ ensure_gitleaks() {
     return
   fi
 
-  local system_gitleaks installed_version
+  local os arch cache_dir bin expected_bin_sha system_gitleaks
+  os="$(platform_name)"
+  arch="$(arch_name)"
+  expected_bin_sha="$(gitleaks_pinned_binary_sha256 "$os" "$arch")" || return 1
+  cache_dir="$(gitleaks_cache_dir "$os" "$arch")"
+  bin="$cache_dir/gitleaks"
+
+  # Use a gitleaks already on PATH only if it is byte-identical to the pinned
+  # release binary. A matching version string is not trusted on its own: a
+  # poisoned scanner on a persistent/self-hosted runner could simply print the
+  # expected version to take over this required gate.
   system_gitleaks="$(command -v gitleaks || true)"
   if [[ -n "$system_gitleaks" ]]; then
-    installed_version="$("$system_gitleaks" version 2>/dev/null | awk 'NR == 1 { print $1 }')"
-    installed_version="${installed_version#v}"
-    if [[ "$installed_version" == "$GITLEAKS_VERSION" ]]; then
+    if verify_sha256 "$expected_bin_sha" "$system_gitleaks" >/dev/null 2>&1; then
       printf '%s\n' "$system_gitleaks"
       return
     fi
-    echo "Ignoring system gitleaks ${installed_version:-unknown}; using pinned ${GITLEAKS_VERSION}" >&2
+    echo "System gitleaks does not match pinned ${GITLEAKS_VERSION} binary; using pinned download." >&2
   fi
-
-  local os arch cache_dir bin expected_bin_sha
-  os="$(platform_name)"
-  arch="$(arch_name)"
-  cache_dir="$(gitleaks_cache_dir "$os" "$arch")"
-  bin="$cache_dir/gitleaks"
-  expected_bin_sha="$(gitleaks_pinned_binary_sha256 "$os" "$arch")" || return 1
 
   # Reuse a cached binary only if it matches the repo-pinned binary checksum, so a
   # stale or poisoned cache entry (e.g. one seeded by an earlier job on a
