@@ -901,6 +901,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelRemoteOperationTasks()
         teardownSecondaryMacSubscriptions()
         replaceRemoteClient(with: nil)
+        // `shutdown()` runs from the reversible SwiftUI `onDisappear`. If SwiftUI
+        // reuses this view's identity and re-appears with the same `@State` store,
+        // the reconnect-on-appear gate (`MobileRootAuthGate.shouldReconnectStoredMac`)
+        // only fires when `connectionState != .connected`. Leave the store
+        // consistently disconnected so a reused store can never report `.connected`
+        // with the `remoteClient` just nilled above — otherwise terminal/workspace
+        // actions would have no transport and the gate would never re-dial. Suppress
+        // the outage edge so this intentional teardown is not logged as
+        // `ios_connection_lost`.
+        if connectionState == .connected {
+            suppressNextConnectionOutageEdge = true
+            connectionState = .disconnected
+        }
+        macConnectionStatus = .unavailable
     }
 
     public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
