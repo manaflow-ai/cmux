@@ -30,6 +30,9 @@ struct WorkspaceListView: View {
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
     var canCreateWorkspace = true
+    /// Which Mac's workspaces the list is focused on. Owned by the shell so
+    /// every create-workspace entrypoint shares the same selected-Mac gate.
+    @Binding var macSelection: WorkspaceMacSelection
     /// Pull-to-refresh action. Awaits the real workspace-list re-sync from the
     /// paired Mac so the system refresh spinner reflects actual completion (and
     /// ends gracefully, leaving the list intact, when the Mac is offline). Passed
@@ -92,10 +95,6 @@ struct WorkspaceListView: View {
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
     @State var filter: MobileWorkspaceListFilter = .all
-    /// Which Mac's workspaces the list is focused on. Starts at "All Macs" so
-    /// aggregation is explicit in the title picker and can be narrowed from
-    /// there.
-    @State var macSelection: WorkspaceMacSelection = .all
     /// The workspace whose destructive close action is awaiting confirmation.
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
@@ -137,8 +136,9 @@ struct WorkspaceListView: View {
     /// presentation.
     private var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = trimmedQuery
+        let currentFilter = activeFilter
         let matches = workspaces.filter { workspace in
-            activeFilter.matches(workspace)
+            currentFilter.matches(workspace)
                 && (query.isEmpty || matchesQuery(workspace, query: query))
         }
         return matches.enumerated()
@@ -159,7 +159,8 @@ struct WorkspaceListView: View {
     }
 
     private var groupedWorkspaces: [MobileWorkspacePreview] {
-        workspaces.filter { activeFilter.matches($0) }
+        let currentFilter = activeFilter
+        return workspaces.filter { currentFilter.matches($0) }
     }
 
     var body: some View {
@@ -368,12 +369,12 @@ struct WorkspaceListView: View {
 
     private var newWorkspaceButton: some View {
         Button {
-            guard canCreateWorkspace else { return }
+            guard canCreateWorkspaceForMacSelection else { return }
             createWorkspace()
         } label: {
             Image(systemName: "plus")
         }
-        .disabled(!canCreateWorkspace)
+        .disabled(!canCreateWorkspaceForMacSelection)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
     }
