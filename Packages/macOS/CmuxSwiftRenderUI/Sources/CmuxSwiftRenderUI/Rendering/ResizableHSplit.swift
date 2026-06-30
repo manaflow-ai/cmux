@@ -2,11 +2,11 @@ import AppKit
 import CmuxSwiftRender
 import SwiftUI
 
-/// A two-column horizontally resizable split with a draggable divider.
+/// A horizontally split sidebar root.
 ///
-/// The split fraction is persisted in `@AppStorage` so it survives the sidebar
-/// re-interpreting its source (which happens on every workspace change) and
-/// across launches. Each column scrolls independently.
+/// Two children keep the original draggable split. Three or more children render
+/// as Finder-style fixed-width columns inside a horizontal scroll view. In both
+/// modes each column scrolls independently.
 struct ResizableHSplit: View {
     let columns: [RenderNode]
 
@@ -15,9 +15,18 @@ struct ResizableHSplit: View {
     @Environment(\.customSidebarContentInsets) private var contentInsets
 
     private let minColumnWidth: CGFloat = 80
+    private let maxFinderColumnWidth: CGFloat = 168
     private let handleWidth: CGFloat = 10
 
     var body: some View {
+        if columns.count > 2 {
+            multiColumnBody
+        } else {
+            twoColumnBody
+        }
+    }
+
+    private var twoColumnBody: some View {
         GeometryReader { geo in
             let total = max(geo.size.width, 1)
             let lowerBound = Double(minColumnWidth / total)
@@ -30,6 +39,29 @@ struct ResizableHSplit: View {
                 divider(total: total)
                 column(columns.count > 1 ? columns[1] : nil)
                     .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private var multiColumnBody: some View {
+        GeometryReader { geo in
+            let visibleColumns = CGFloat(min(columns.count, 3))
+            let dividerWidth = CGFloat(max(columns.count - 1, 0))
+            let columnWidth = min(
+                maxFinderColumnWidth,
+                max(minColumnWidth, floor((geo.size.width - dividerWidth) / visibleColumns))
+            )
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    ForEach(columns.indices, id: \.self) { index in
+                        if index > columns.startIndex {
+                            Divider()
+                        }
+                        column(columns[index])
+                            .frame(width: columnWidth)
+                    }
+                }
+                .frame(height: geo.size.height)
             }
         }
     }
