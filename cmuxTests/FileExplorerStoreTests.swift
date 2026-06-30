@@ -724,6 +724,15 @@ struct FileExplorerStoreTests {
         let danglingRoot = try makeDirectory("dangling")
         try writeGitPointer("gitdir: \(workspace.appendingPathComponent("missing").path)\n", in: danglingRoot)
         #expect(FileExplorerStore.gitMetadataDirectory(under: danglingRoot.path) == nil)
+
+        // Oversized `.git` file: a valid pointer buried past the read cap is not
+        // parsed, so the read stays bounded → nil.
+        let oversizedRoot = try makeDirectory("oversized")
+        let oversizedTargetDir = try makeDirectory("oversized-gitdir")
+        try populateGitMetadata(oversizedTargetDir, marker: "config")
+        let padding = String(repeating: "#\n", count: 40_000) // > 64 KiB
+        try writeGitPointer(padding + "gitdir: \(oversizedTargetDir.path)\n", in: oversizedRoot)
+        #expect(FileExplorerStore.gitMetadataDirectory(under: oversizedRoot.path) == nil)
     }
 }
 

@@ -1012,6 +1012,24 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
+    /// Maximum bytes read from a non-directory `.git` entry. A real `gitdir:`
+    /// pointer is tiny (`gitdir: <path>`); the cap stops a huge
+    /// workspace-controlled `.git` regular file from hanging the UI or
+    /// exhausting memory during watcher setup on the main actor.
+    private static let maximumGitPointerFileBytes = 64 * 1024
+
+    /// Reads up to ``maximumGitPointerFileBytes`` from the `.git` pointer file at
+    /// `path`, so a malformed or malicious oversized file can't be loaded whole.
+    private static func readGitPointerFile(at path: String) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else {
+            return nil
+        }
+        let data = try? handle.read(upToCount: maximumGitPointerFileBytes)
+        try? handle.close()
+        guard let data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
     /// Resolves the directory holding the repository's Git metadata for
     /// `rootPath`. When `.git` is a directory it is the metadata directory; when
     /// `.git` is a file (the layout Git uses for worktrees and submodules, where
@@ -1036,7 +1054,7 @@ final class FileExplorerStore: ObservableObject {
         if isDirectory.boolValue {
             candidate = gitPath
         } else {
-            guard let contents = try? String(contentsOfFile: gitPath, encoding: .utf8) else {
+            guard let contents = Self.readGitPointerFile(at: gitPath) else {
                 return nil
             }
             let gitdirPrefix = "gitdir:"
