@@ -343,7 +343,8 @@ struct WorkspaceListView: View {
 
     func cancelMacTitlePickerSwitch(restorePreviousOnCancel: Bool = true) {
         let hadPendingSwitch = macTitlePickerSwitchTask != nil
-        macTitlePickerSwitchTask?.cancel()
+        // Leave the task uncancelled: the store may need that continuation to
+        // restore the foreground Mac after invalidating a destructive switch.
         macTitlePickerSwitchTask = nil
         macTitlePickerSwitchGeneration &+= 1
         if hadPendingSwitch {

@@ -2511,8 +2511,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // the user is not left stranded on a failed switch.
             // The target switch is over before this restore starts; picker
             // cancellation must not invalidate the restore's connection generation.
+            let restoreTarget = macSwitchRestoreBaseline ?? previousForegroundMac
             finishMacSwitchAttempt(switchAttemptID)
-            if await restorePreviousMacIfNeeded(macSwitchRestoreBaseline ?? previousForegroundMac) {
+            if await restorePreviousMacIfNeeded(restoreTarget) {
                 macSwitchRestoreBaseline = nil
             }
         }
@@ -5203,6 +5204,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if macSwitchAttemptID == attemptID {
             macSwitchAttemptID = nil
             macSwitchAttemptSignInGeneration = nil
+            macSwitchRestoreBaseline = nil
         }
         macSwitchRestorePreviousOnCancelAttemptIDs.remove(attemptID)
     }
@@ -5226,9 +5228,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> Bool {
         guard consumeMacSwitchRestorePreviousOnCancel(attemptID) else { return false }
         let restored = await restorePreviousMacIfNeeded(macSwitchRestoreBaseline ?? fallback)
-        if restored {
-            macSwitchRestoreBaseline = nil
-        }
+        macSwitchRestoreBaseline = nil
         return restored
     }
 
