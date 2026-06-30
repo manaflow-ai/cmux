@@ -69,6 +69,58 @@ final class CmuxMainWindow: NSWindow {
         return frame
     }
 
+    /// cmux creates its main window programmatically (never from a nib), so it
+    /// cannot inherit fullscreen capability from Interface Builder and instead
+    /// relied on AppKit *implicitly* granting `.fullScreenPrimary` to a
+    /// resizable, titled window. That implicit grant is not reliable across
+    /// macOS versions / display arrangements: on macOS 26 (Tahoe) a
+    /// freshly-created window reports an empty collection behavior
+    /// (`rawValue == 0`) and AppKit does not treat it as fullscreen-capable, so
+    /// Toggle Full Screen / ⌃⌘F / the green traffic-light button all fail to
+    /// enter a native fullscreen Space — the green button only zooms (#5933).
+    ///
+    /// Declaring `.fullScreenPrimary` here makes native fullscreen reachable
+    /// regardless of the OS's implicit default. It is idempotent where AppKit
+    /// would have granted it anyway, and composes with the temporary
+    /// `.fullScreenDisallowsTiling` opt-out the window factory applies when
+    /// spawning a window out of an existing fullscreen Space.
+    override init(
+        contentRect: NSRect,
+        styleMask: NSWindow.StyleMask,
+        backing: NSWindow.BackingStoreType,
+        defer flag: Bool
+    ) {
+        super.init(
+            contentRect: contentRect,
+            styleMask: styleMask,
+            backing: backing,
+            defer: flag
+        )
+        collectionBehavior = Self.canonicalCollectionBehavior(collectionBehavior)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Returns `base` guaranteed to carry `.fullScreenPrimary` (and never
+    /// `.fullScreenNone`) so a cmux main window can always enter a native
+    /// fullscreen Space. Pure and `nonisolated` so it can be unit-tested
+    /// without constructing a window; see ``init(contentRect:styleMask:backing:defer:)``
+    /// for why declaring the capability explicitly is required.
+    nonisolated static func canonicalCollectionBehavior(
+        _ base: NSWindow.CollectionBehavior
+    ) -> NSWindow.CollectionBehavior {
+        var behavior = base
+        // `.fullScreenNone` and `.fullScreenPrimary` are mutually exclusive;
+        // drop any stale "none" before declaring primary so fullscreen is not
+        // suppressed.
+        behavior.remove(.fullScreenNone)
+        behavior.insert(.fullScreenPrimary)
+        return behavior
+    }
+
     private var isSoftHiddenForVisibilityController = false
 
     func setSoftHiddenForVisibilityController(_ isSoftHidden: Bool) {

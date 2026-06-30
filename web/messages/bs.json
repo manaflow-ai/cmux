@@ -820,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
           "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Kada je uključeno, baner notifikacije se automatski povlači samo kada je njegova površina tačno fokusirana površina. Baner isporučen za nefokusiranu površinu u trenutno vidljivom workspaceu ostaje prikazan dok ne fokusirate tu površinu (ili je kliknete/odbacite), umjesto da bude povučen kada workspace postane vidljiv. Isključeno zadržava staro ponašanje povlačenja na osnovu vidljivosti workspacea."
+        },
         "browser": {
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
           "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
@@ -1071,7 +1074,8 @@
       "closeWorkspaceDesc": "Zatvori radni prostor.",
       "splitCommands": "Komande razdjelnica",
       "newSplitDesc": "Kreiraj novi podijeljeni panel. Smjerovi: left, right, up, down.",
-      "listSurfacesDesc": "Izlistaj sve površine u trenutnom radnom prostoru.",
+      "listPanelsDesc": "Izlistaj sve površine u trenutnom radnom prostoru.",
+      "listPaneSurfacesDesc": "Izlistaj površine u fokusiranom panelu.",
       "focusSurfaceDesc": "Fokusiraj specifičnu površinu.",
       "inputCommands": "Komande unosa",
       "sendDesc": "Pošalji tekstualni unos u fokusirani terminal.",

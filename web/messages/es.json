@@ -820,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Muestra la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados.",
           "focusTextBoxOnNewTerminals": "Enfoca la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados. Enfocar también muestra TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Cuando está activado, un banner de notificación se retira automáticamente solo cuando su superficie es exactamente la superficie enfocada. Un banner entregado para una superficie no enfocada en el workspace actualmente visible permanece visible hasta que enfoques esa superficie (o hagas clic en él/lo descartes), en lugar de retirarse cuando el workspace se vuelve visible. Desactivado conserva el comportamiento heredado de retirada según la visibilidad del workspace."
+        },
         "browser": {
           "defaultSearchEngine": "Motor de búsqueda predeterminado para consultas de la barra de direcciones del navegador que no son URL. Usa custom con customSearchEngineURLTemplate para otros proveedores.",
           "customSearchEngineName": "Nombre visible usado cuando defaultSearchEngine es custom.",
@@ -1071,7 +1074,8 @@
       "closeWorkspaceDesc": "Cerrar un workspace.",
       "splitCommands": "Comandos de división",
       "newSplitDesc": "Crear un nuevo panel dividido. Direcciones: left, right, up, down.",
-      "listSurfacesDesc": "Listar todas las superficies en el workspace actual.",
+      "listPanelsDesc": "Listar todas las superficies en el workspace actual.",
+      "listPaneSurfacesDesc": "Listar las superficies en el panel enfocado.",
       "focusSurfaceDesc": "Enfocar una superficie específica.",
       "inputCommands": "Comandos de entrada",
       "sendDesc": "Enviar texto al terminal enfocado.",

@@ -820,6 +820,9 @@
           "showTextBoxOnNewTerminals": "แสดงอินพุต TextBox รุ่นเบต้าเป็นค่าเริ่มต้นสำหรับเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลที่สร้างใหม่",
           "focusTextBoxOnNewTerminals": "โฟกัสอินพุต TextBox รุ่นเบต้าเป็นค่าเริ่มต้นสำหรับเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลที่สร้างใหม่ การโฟกัสจะแสดง TextBox ด้วย"
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "เมื่อเปิดใช้งาน แบนเนอร์การแจ้งเตือนจะถูกถอนออกอัตโนมัติเฉพาะเมื่อ Surface ของมันเป็น Surface ที่โฟกัสอยู่พอดีเท่านั้น แบนเนอร์ที่ส่งให้ Surface ที่ไม่ได้โฟกัสใน workspace ที่กำลังแสดงอยู่จะยังคงแสดงอยู่จนกว่าคุณจะโฟกัส Surface นั้น (หรือคลิก/ปิดมัน) แทนที่จะถูกถอนออกเมื่อ workspace แสดงขึ้น ปิด จะคงพฤติกรรมการถอนแบบเดิมที่อิงตามการมองเห็น workspace"
+        },
         "browser": {
           "defaultSearchEngine": "เครื่องมือค้นหาเริ่มต้นสำหรับคำค้นในแถบที่อยู่ของเบราว์เซอร์ที่ไม่ใช่ URL ใช้ custom กับ customSearchEngineURLTemplate สำหรับผู้ให้บริการอื่น",
           "customSearchEngineName": "ชื่อที่แสดงเมื่อ defaultSearchEngine เป็น custom",
@@ -1071,7 +1074,8 @@
       "closeWorkspaceDesc": "ปิด workspace",
       "splitCommands": "คำสั่งแยกหน้าจอ",
       "newSplitDesc": "สร้างพาเนลแยกใหม่ ทิศทาง: left, right, up, down",
-      "listSurfacesDesc": "แสดงรายการ surface ทั้งหมดใน workspace ปัจจุบัน",
+      "listPanelsDesc": "แสดงรายการ surface ทั้งหมดใน workspace ปัจจุบัน",
+      "listPaneSurfacesDesc": "แสดงรายการ surface ในพาเนลที่โฟกัสอยู่",
       "focusSurfaceDesc": "โฟกัส surface ที่ระบุ",
       "inputCommands": "คำสั่ง input",
       "sendDesc": "ส่งข้อความไปยังเทอร์มินัลที่โฟกัสอยู่",

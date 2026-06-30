@@ -820,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Affiche l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés.",
           "focusTextBoxOnNewTerminals": "Place le focus sur l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés. Le focus affiche aussi TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Lorsque cette option est activée, une bannière de notification n'est retirée automatiquement que lorsque sa surface est exactement la surface ayant le focus. Une bannière affichée pour une surface sans focus dans le workspace actuellement visible reste affichée jusqu'à ce que vous donniez le focus à cette surface (ou que vous cliquiez dessus / la fermiez), au lieu d'être retirée lorsque le workspace devient visible. Désactivée, cette option conserve l'ancien retrait basé sur la visibilité du workspace."
+        },
         "browser": {
           "defaultSearchEngine": "Moteur de recherche par défaut pour les saisies de la barre d’adresse du navigateur qui ne sont pas des URL. Utilisez custom avec customSearchEngineURLTemplate pour d’autres fournisseurs.",
           "customSearchEngineName": "Nom affiché lorsque defaultSearchEngine vaut custom.",
@@ -1071,7 +1074,8 @@
       "closeWorkspaceDesc": "Fermer un espace de travail.",
       "splitCommands": "Commandes de division",
       "newSplitDesc": "Créer un nouveau panneau divisé. Directions : left, right, up, down.",
-      "listSurfacesDesc": "Lister toutes les surfaces dans l'espace de travail actuel.",
+      "listPanelsDesc": "Lister toutes les surfaces dans l'espace de travail actuel.",
+      "listPaneSurfacesDesc": "Lister les surfaces du panneau actif.",
       "focusSurfaceDesc": "Mettre le focus sur une surface spécifique.",
       "inputCommands": "Commandes de saisie",
       "sendDesc": "Envoyer du texte au terminal actif.",

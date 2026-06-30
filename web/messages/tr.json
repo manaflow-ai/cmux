@@ -820,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",
           "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Etkinleştirildiğinde, bir bildirim banner'ı yalnızca yüzeyi tam olarak odaklanmış yüzey olduğunda otomatik olarak geri çekilir. Şu anda görünür olan workspace içinde odaklanmamış bir yüzey için gönderilen bir banner, workspace görünür olduğunda geri çekilmek yerine, siz o yüzeye odaklanana (ya da tıklayana/kapatana) kadar görünür kalır. Kapalı, eski workspace görünürlüğüne dayalı geri çekme davranışını korur."
+        },
         "browser": {
           "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
           "customSearchEngineName": "defaultSearchEngine custom olduğunda kullanılan görünen ad.",
@@ -1071,7 +1074,8 @@
       "closeWorkspaceDesc": "Bir çalışma alanını kapat.",
       "splitCommands": "Bölme komutları",
       "newSplitDesc": "Yeni bir bölünmüş panel oluştur. Yönler: left, right, up, down.",
-      "listSurfacesDesc": "Geçerli çalışma alanındaki tüm yüzeyleri listele.",
+      "listPanelsDesc": "Geçerli çalışma alanındaki tüm yüzeyleri listele.",
+      "listPaneSurfacesDesc": "Odaklanmış paneldeki yüzeyleri listele.",
       "focusSurfaceDesc": "Belirli bir yüzeye odaklan.",
       "inputCommands": "Girdi komutları",
       "sendDesc": "Odaklanılan terminale metin girdisi gönder.",
