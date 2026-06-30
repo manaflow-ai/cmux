@@ -300,6 +300,17 @@ struct TerminalLetterboxGeometryTests {
         #expect(rect.height == 360)
     }
 
+    @Test("stale natural render stays bottom attached during viewport growth")
+    func renderRectStaleNaturalRenderStaysBottomAttached() {
+        let rect = TerminalLetterboxGeometry.renderRect(
+            in: CGRect(x: 0, y: 0, width: 402, height: 700),
+            size: CGSize(width: 402, height: 360),
+            allowsLargeTopGapCorrection: false
+        )
+        #expect(rect.minY == 340)
+        #expect(rect.maxY == 700)
+    }
+
     @Test("small whole-cell remainder stays bottom attached")
     func renderRectSmallRemainderStaysBottomAttached() {
         let rect = TerminalLetterboxGeometry.renderRect(

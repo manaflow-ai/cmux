@@ -223,12 +223,16 @@ public struct TerminalLetterboxGeometry {
     /// - Parameters:
     ///   - viewport: The terminal viewport in host-view coordinates.
     ///   - size: The rendered terminal box size in points.
+    ///   - allowsLargeTopGapCorrection: True when this render size is known to
+    ///     come from an effective-grid letterbox. False keeps stale natural
+    ///     renders bottom-attached during live viewport transitions.
     ///   - largeTopGapThreshold: Vertical slack above which the render is
     ///     anchored to the viewport top instead of bottom-attached.
     /// - Returns: The render rectangle in host-view coordinates.
     public static func renderRect(
         in viewport: CGRect,
         size: CGSize,
+        allowsLargeTopGapCorrection: Bool = true,
         largeTopGapThreshold: CGFloat = 48
     ) -> CGRect {
         let renderSize = CGSize(
@@ -236,7 +240,7 @@ public struct TerminalLetterboxGeometry {
             height: max(1, size.height)
         )
         let verticalSlack = viewport.height - renderSize.height
-        let y = verticalSlack > max(0, largeTopGapThreshold)
+        let y = allowsLargeTopGapCorrection && verticalSlack > max(0, largeTopGapThreshold)
             ? viewport.minY
             : viewport.maxY - renderSize.height
         return CGRect(

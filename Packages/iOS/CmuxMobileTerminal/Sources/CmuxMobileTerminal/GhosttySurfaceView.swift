@@ -834,6 +834,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// coordinate space. Kept so the border layer can match it without a
     /// second set_size round-trip.
     private var lastRenderRect: CGRect = .zero
+    /// Whether `lastRenderRect` came from an effective-grid letterbox and should
+    /// keep using the large-gap top-anchor correction during viewport-only relayouts.
+    private var lastRenderRectAllowsTopGapCorrection = false
     private var keyboardHeightAnimation: TerminalKeyboardHeightAnimation?
     private var keyboardHeightAnimationID = 0
 
@@ -1430,22 +1433,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Place the rendered terminal inside the live viewport.
     ///
     /// During keyboard show the old render layer is taller than the shrinking
-    /// viewport, so it remains bottom-pinned and clips from the top. Small
-    /// whole-cell remainder also stays bottom-attached to avoid a toolbar seam.
-    /// A substantially shorter render box, however, is top-anchored so a stale
-    /// or smaller effective grid cannot leave a large blank spacer above the
-    /// terminal when opening directly into a surface.
-    private func renderRectAlignedToCurrentViewport(size: CGSize) -> CGRect {
+    /// viewport, so it remains bottom-pinned and clips from the top. A fresh
+    /// effective-grid letterbox may top-anchor when it is substantially shorter
+    /// than the viewport, but stale natural render sizes stay bottom-attached
+    /// while async geometry catches up to live viewport transitions.
+    private func renderRectAlignedToCurrentViewport(
+        size: CGSize,
+        allowsLargeTopGapCorrection: Bool
+    ) -> CGRect {
         TerminalLetterboxGeometry.renderRect(
             in: terminalViewportRect,
-            size: size
+            size: size,
+            allowsLargeTopGapCorrection: allowsLargeTopGapCorrection
         )
     }
 
     private func layoutRenderedTerminalForCurrentViewport() {
         snapshotFallbackView.frame = terminalViewportRect
         guard !lastRenderRect.isEmpty else { return }
-        let renderRect = renderRectAlignedToCurrentViewport(size: lastRenderRect.size)
+        let renderRect = renderRectAlignedToCurrentViewport(
+            size: lastRenderRect.size,
+            allowsLargeTopGapCorrection: lastRenderRectAllowsTopGapCorrection
+        )
         guard renderRect != lastRenderRect else { return }
         lastRenderRect = renderRect
         syncRendererLayerFrame(scale: preferredScreenScale, renderRect: renderRect)
@@ -3166,10 +3175,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             width: max(1, CGFloat(result.naturalSize.pixelWidth) / scale),
             height: max(1, CGFloat(result.naturalSize.pixelHeight) / scale)
         )
+        let allowsLargeTopGapCorrection = result.pinnedSize != nil
         let measuredRenderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
             ?? CGRect(origin: .zero, size: naturalRenderSize)
-        let renderRect = renderRectAlignedToCurrentViewport(size: measuredRenderRect.size)
+        let renderRect = renderRectAlignedToCurrentViewport(
+            size: measuredRenderRect.size,
+            allowsLargeTopGapCorrection: allowsLargeTopGapCorrection
+        )
         lastRenderRect = renderRect
+        lastRenderRectAllowsTopGapCorrection = allowsLargeTopGapCorrection
         // Re-seat the whole bottom dock after geometry readback so any composer
         // or safe-area changes that landed while the async resize was running are
         // reflected with the same viewport edge used by the render layer.
