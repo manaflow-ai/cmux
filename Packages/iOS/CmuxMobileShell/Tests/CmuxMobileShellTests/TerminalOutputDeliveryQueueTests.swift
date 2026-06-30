@@ -335,6 +335,100 @@ import Testing
 }
 
 @MainActor
+@Test func terminalReplayInFlightClearsWhenOutputStreamUnmountsBeforeResponse() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.holdNextReplayResponses()
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: surfaceID)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    #expect(store.terminalReplaySurfaceIDsInFlight.contains(surfaceID))
+
+    collector.unmount()
+    let unregistered = await waitForReplayBarrierFailureToSettle {
+        store.terminalByteContinuationsBySurfaceID[surfaceID] == nil
+    }
+    #expect(unregistered)
+    #expect(!store.terminalReplaySurfaceIDsInFlight.contains(surfaceID))
+
+    let replayCountAfterUnmount = await router.count(of: "mobile.terminal.replay")
+    await router.enqueueReplayTexts(["remount-replay"])
+    let remountCollector = OutputCollector()
+    remountCollector.mount(store: store, surfaceID: surfaceID)
+
+    let remountRequested = await waitForReplayRequestCount(
+        router,
+        atLeast: replayCountAfterUnmount + 1
+    )
+    #expect(remountRequested, "remounting after a cancelled replay must request a fresh replay")
+    if remountRequested {
+        let replayDelivered = try await pollUntil {
+            remountCollector.lines.contains("remount-replay")
+        }
+        #expect(replayDelivered)
+    }
+
+    remountCollector.unmount()
+    await router.releaseAllHeld()
+}
+
+@MainActor
+@Test func genericReplayRequestReusesPreservedBarrierAfterRetryExhaustion() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    #expect(String(decoding: coldReplayChunk.data, as: UTF8.self) == "cold-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+
+    await router.failNextReplay(count: 3)
+    store.deliverTerminalBytes(Data("stalled-first".utf8), surfaceID: surfaceID)
+    let stalledChunk = try #require(await iterator.next())
+    store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
+
+    let exhaustedRetries = await waitForReplayRequestCount(
+        router,
+        atLeast: replayCountAfterMount + 3
+    )
+    #expect(exhaustedRetries, "reset replay should exhaust the initial request plus two retries")
+
+    let failureSettled = await waitForReplayBarrierFailureToSettle {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(failureSettled)
+    let preservedBarrierToken = try #require(store.terminalReplayBarrierTokensBySurfaceID[surfaceID])
+
+    let replayCountAfterExhaustion = await router.count(of: "mobile.terminal.replay")
+    await router.enqueueReplayTexts(["resync-replay"])
+    store.requestTerminalReplay(surfaceID: surfaceID)
+
+    let genericReplayRequested = await waitForReplayRequestCount(
+        router,
+        atLeast: replayCountAfterExhaustion + 1
+    )
+    #expect(genericReplayRequested, "generic resync must not be blocked by a preserved barrier")
+
+    if genericReplayRequested {
+        let replayChunk = try #require(await iterator.next())
+        #expect(String(decoding: replayChunk.data, as: UTF8.self) == "resync-replay")
+        #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == preservedBarrierToken)
+        store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+        #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+    }
+}
+
+@MainActor
 @Test func terminalReplayBarrierRetriesWhenReplayAckChunkResets() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
