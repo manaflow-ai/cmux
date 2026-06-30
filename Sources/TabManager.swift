@@ -453,6 +453,12 @@ class TabManager: ObservableObject {
     // the legacy shared limiter; tests inject their own instance.
     private static let sharedWorkspaceGitProbeLimiter = WorkspaceGitMetadataProbeLimiter(limit: 2)
 
+    // Process-wide git probe limiter for this window, shared with the sidebar
+    // git metadata service so cwd-based workspace auto-color resolution stays
+    // within the same bounded permit pool instead of fanning out one blocking
+    // filesystem/Git scan per workspace creation.
+    let workspaceGitProbeLimiter: WorkspaceGitMetadataProbeLimiter
+
     // The sidebar git/PR subsystem (extracted to CmuxSidebarGit). TabManager
     // is the per-window composition point: it constructs the concrete
     // services, stores only the seams, implements SidebarGitHosting
@@ -507,11 +513,13 @@ class TabManager: ObservableObject {
             debugLog: sidebarGitDebugLog
         )
         self.pullRequestProbing = pullRequestPollService
+        let resolvedGitProbeLimiter = gitProbeLimiter ?? Self.sharedWorkspaceGitProbeLimiter
+        self.workspaceGitProbeLimiter = resolvedGitProbeLimiter
         self.sidebarGitMetadataService = SidebarGitMetadataService(
             workspaceGitMetadataReader: workspaceGitMetadataReader ?? gitMetadataService,
             gitMetadataService: gitMetadataService,
             pullRequestProbing: pullRequestPollService,
-            probeLimiter: gitProbeLimiter ?? Self.sharedWorkspaceGitProbeLimiter,
+            probeLimiter: resolvedGitProbeLimiter,
             clock: gitPollClock,
             debugLog: sidebarGitDebugLog
         )

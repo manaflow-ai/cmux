@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxSidebarGit
 
 extension TabManager {
     func applyAutoWorkspaceColorIfNeeded(
@@ -10,8 +11,22 @@ extension TabManager {
             return
         }
         let directory = workingDirectory ?? newWorkspace.currentDirectory
+        // Resolving the seed walks the filesystem to the Git root and reads
+        // `.git/config`. Route it through the shared workspace git probe limiter
+        // so a burst of workspace creations (e.g. session restore) cannot fan
+        // out into one unbounded blocking scan per workspace; the sidebar git
+        // metadata path uses the same bounded permit pool.
+        let probeLimiter = workspaceGitProbeLimiter
         Task.detached(priority: .utility) { [weak self, weak newWorkspace, directory] in
-            guard let color = WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: directory) else {
+            guard await probeLimiter.acquire() else { return }
+            defer {
+                Task {
+                    await probeLimiter.release()
+                }
+            }
+
+            guard !Task.isCancelled,
+                  let color = WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: directory) else {
                 return
             }
             await MainActor.run { [weak self, weak newWorkspace] in
