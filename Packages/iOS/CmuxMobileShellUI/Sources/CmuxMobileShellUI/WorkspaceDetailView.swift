@@ -429,7 +429,7 @@ struct WorkspaceDetailView: View {
                 } label: {
                     Label(
                         terminal.name,
-                        systemImage: terminal.id == store.selectedTerminalID && activeBrowser == nil
+                        systemImage: terminal.id == terminalPickerSelectedID && activeBrowser == nil
                             ? "checkmark.circle.fill"
                             : "terminal"
                     )

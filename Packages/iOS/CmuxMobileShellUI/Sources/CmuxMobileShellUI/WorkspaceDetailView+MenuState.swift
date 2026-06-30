@@ -19,8 +19,17 @@ extension WorkspaceDetailView {
         terminalPickerRows.isEmpty ? terminalPickerLiveRows : terminalPickerRows
     }
 
+    var terminalPickerSelectedID: MobileTerminalPreview.ID? {
+        if let selectedID = store.selectedTerminalID,
+           terminalPickerRowsForMenu.contains(where: { $0.id == selectedID }) {
+            return selectedID
+        }
+        return terminalPickerRowsForMenu.first?.id
+    }
+
     var terminalPickerSelectedName: String? {
-        terminalPickerRowsForMenu.first { $0.id == store.selectedTerminalID }?.name
+        guard let terminalPickerSelectedID else { return nil }
+        return terminalPickerRowsForMenu.first { $0.id == terminalPickerSelectedID }?.name
     }
 
     func syncTerminalPickerRows() {
