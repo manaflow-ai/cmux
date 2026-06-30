@@ -827,7 +827,15 @@
             "running": { "$ref": "#/$defs/colorHexOrNull" },
             "needsInput": { "$ref": "#/$defs/colorHexOrNull" },
             "idle": { "$ref": "#/$defs/colorHexOrNull" },
-            "unknown": { "$ref": "#/$defs/colorHexOrNull" }
+            "unknown": { "$ref": "#/$defs/colorHexOrNull" },
+            "waiting": {
+              "$ref": "#/$defs/colorHexOrNull",
+              "description": "Deprecated alias for needsInput."
+            },
+            "needs-input": {
+              "$ref": "#/$defs/colorHexOrNull",
+              "description": "Deprecated alias for needsInput."
+            }
           },
           "additionalProperties": false
         },
