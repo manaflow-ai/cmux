@@ -133,17 +133,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // Drive every output chunk into the libghostty surface. Ending this
             // task terminates the stream, which unregisters the surface and
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
-            outputTask = Task { @MainActor [weak surfaceView, weak store] in
+            outputTask = Task { @MainActor [weak self, weak surfaceView, weak store] in
                 guard let store else { return }
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
+                    guard let self else { return }
                     guard let surfaceView else { return }
                     switch chunk.viewportPolicy {
                     case .natural:
-                        activeViewportPolicy = .natural
+                        self.activeViewportPolicy = .natural
                         surfaceView.useNaturalViewSize()
                     case .remoteGrid(let columns, let rows):
-                        activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
+                        self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
                         surfaceView.applyViewSize(cols: columns, rows: rows)
                     case nil:
                         break
@@ -321,7 +322,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     surfaceID: self.surfaceID,
                     columns: size.columns,
                     rows: size.rows
-                ) != nil else {
+                ) else {
                     // No effective grid came back (RPC timed out or returned
                     // nil). Left unhandled, the render stays pinned to the prior
                     // effective grid and looks like a frozen / letterboxed
