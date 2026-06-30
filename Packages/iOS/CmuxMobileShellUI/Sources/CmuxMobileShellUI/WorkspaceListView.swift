@@ -368,12 +368,12 @@ struct WorkspaceListView: View {
 
     private var newWorkspaceButton: some View {
         Button {
-            guard canCreateWorkspace else { return }
+            guard canCreateWorkspaceForMacSelection else { return }
             createWorkspace()
         } label: {
             Image(systemName: "plus")
         }
-        .disabled(!canCreateWorkspace)
+        .disabled(!canCreateWorkspaceForMacSelection)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
     }

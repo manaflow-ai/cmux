@@ -36,6 +36,44 @@ import Testing
         #expect(view.activeFilter.matches(aliasWorkspace))
     }
 
+    @Test func pickerUsesCoalescedCustomNameForRepresentativeMachine() async throws {
+        let route = try route(host: "100.82.214.112")
+        let store = await shellStore(pairedMacs: [
+            pairedMac(
+                id: "mac-old",
+                name: "Desk Mac",
+                route: route,
+                lastSeenAt: 10,
+                customName: "Desk setup"
+            ),
+            pairedMac(id: "mac-fresh", name: "Desk Mac", route: route, lastSeenAt: 20, isActive: true),
+        ])
+
+        let view = workspaceListView(workspaces: [], store: store)
+
+        #expect(view.macPickerMachines.map(\.name) == ["Desk setup"])
+    }
+
+    @Test func createWorkspaceIsGatedWhenSpecificSelectedMacIsNotForeground() async throws {
+        let store = await shellStore(
+            pairedMacs: [
+                pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
+                pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+            ],
+            connectionState: .connected
+        )
+        var view = workspaceListView(workspaces: [], store: store)
+
+        view.macSelection = .machine("mac-b")
+        #expect(!view.canCreateWorkspaceForMacSelection)
+
+        view.macSelection = .machine("mac-a")
+        #expect(view.canCreateWorkspaceForMacSelection)
+
+        view.macSelection = .all
+        #expect(view.canCreateWorkspaceForMacSelection)
+    }
+
     private func workspaceListView(
         workspaces: [MobileWorkspacePreview],
         store: CMUXMobileShellStore
@@ -53,11 +91,15 @@ import Testing
         )
     }
 
-    private func shellStore(pairedMacs: [MobilePairedMac]) async -> CMUXMobileShellStore {
+    private func shellStore(
+        pairedMacs: [MobilePairedMac],
+        connectionState: MobileConnectionState = .disconnected
+    ) async -> CMUXMobileShellStore {
         let suiteName = "WorkspaceMacSelectionTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName) ?? .standard
         let store = MobileShellComposite(
             isSignedIn: true,
+            connectionState: connectionState,
             pairedMacStore: WorkspaceMacSelectionPairedMacStore(pairedMacs),
             clientIDRepository: MobileClientIDRepository(defaults: defaults),
             identityProvider: WorkspaceMacSelectionIdentityProvider(userID: "user-1"),
@@ -83,7 +125,8 @@ import Testing
         name: String,
         route: CmxAttachRoute? = nil,
         lastSeenAt: TimeInterval,
-        isActive: Bool = false
+        isActive: Bool = false,
+        customName: String? = nil
     ) -> MobilePairedMac {
         MobilePairedMac(
             macDeviceID: id,
@@ -93,7 +136,8 @@ import Testing
             lastSeenAt: Date(timeIntervalSince1970: lastSeenAt),
             isActive: isActive,
             stackUserID: "user-1",
-            teamID: "team-a"
+            teamID: "team-a",
+            customName: customName
         )
     }
 

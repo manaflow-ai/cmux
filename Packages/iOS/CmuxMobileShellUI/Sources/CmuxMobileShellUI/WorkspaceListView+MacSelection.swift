@@ -101,7 +101,21 @@ extension WorkspaceListView {
         for mac in store?.pairedMacs ?? [] {
             names[mac.macDeviceID] = mac.resolvedName
         }
+        for mac in store?.displayPairedMacs ?? [] {
+            names[mac.macDeviceID] = mac.resolvedName
+        }
         return names
+    }
+
+    var canCreateWorkspaceForMacSelection: Bool {
+        guard canCreateWorkspace else { return false }
+        switch visibleMacSelection {
+        case .machine(let id):
+            guard let connectedID = store?.connectedMacDeviceID else { return false }
+            return macPickerFilterMachineIDs(for: id).contains(connectedID)
+        case .all, .automatic:
+            return true
+        }
     }
 
     #if os(iOS)
