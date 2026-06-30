@@ -53,6 +53,22 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             frame.vtPatchBytes()
         }
     }
+
+    mutating func appendBytes(from delivery: TerminalOutputDelivery) -> Bool {
+        guard replacementScope == nil,
+              delivery.replacementScope == nil,
+              viewportPolicy == delivery.viewportPolicy else {
+            return false
+        }
+        switch (payload, delivery.payload) {
+        case (.bytes(var bytes), .bytes(let nextBytes)):
+            bytes.append(nextBytes)
+            payload = .bytes(bytes)
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.
@@ -112,6 +128,10 @@ struct TerminalOutputDeliveryQueue: Sendable {
            lastIndex >= pendingHeadIndex,
            pending[lastIndex].replacementScope == replacementScope {
             pending[lastIndex] = delivery
+        } else if let lastIndex = pending.indices.last,
+                  lastIndex >= pendingHeadIndex,
+                  pending[lastIndex].appendBytes(from: delivery) {
+            return
         } else {
             pending.append(delivery)
         }
