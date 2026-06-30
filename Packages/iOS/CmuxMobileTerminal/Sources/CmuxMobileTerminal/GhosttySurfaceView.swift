@@ -2793,8 +2793,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 guard !read.cancellation.isCancelled else { return }
                 // SCREEN = scrollback + all written rows. Fall back to the
                 // viewport-only read if the screen read fails outright.
-                let text = Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_SCREEN)
-                    ?? Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
+                let screenText = Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_SCREEN)
+                guard !read.cancellation.isCancelled else { return }
+                let text = screenText ?? Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
                 guard !read.cancellation.isCancelled else { return }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
