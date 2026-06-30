@@ -562,7 +562,7 @@ import Testing
     let retryReplayChunk = try #require(await iterator.next())
     #expect(String(data: retryReplayChunk.data, encoding: .utf8) == "retry-replay")
     let retryBarrierToken = try #require(store.terminalReplayBarrierTokensBySurfaceID[surfaceID])
-    #expect(retryBarrierToken != firstBarrierToken)
+    #expect(retryBarrierToken == firstBarrierToken)
 
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retryReplayChunk.streamToken)
     #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
