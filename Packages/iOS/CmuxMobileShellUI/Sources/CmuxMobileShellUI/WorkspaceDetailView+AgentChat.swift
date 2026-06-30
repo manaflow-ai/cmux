@@ -64,13 +64,13 @@ extension WorkspaceDetailView {
         chosenChatSession ?? chatToggleSession
     }
 
-    /// Identity for the session refetch: workspace, connection epoch, and a
+    /// Identity for the session refetch: workspace, installed chat source, and a
     /// foreground epoch. A change re-runs `.task(id:)`, which re-subscribes to
     /// the push stream and re-pulls the authoritative session list.
     var chatRefreshKey: String {
         let connected = store.connectionState == .connected ? 1 : 0
         let foreground = scenePhase == .background ? 0 : 1
-        return "\(workspace.id.rawValue)#\(connected)#\(foreground)"
+        return "\(workspace.id.rawValue)#\(store.agentChatEventSourceIdentity)#\(connected)#\(foreground)"
     }
 
     /// Identity for the selected chat model's event stream. Descriptor updates
