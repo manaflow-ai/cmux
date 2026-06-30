@@ -149,13 +149,14 @@ scan_dir() {
 }
 
 self_test() {
-  local gitleaks_bin allowed_root blocked_root fixture_token out_file err_file
+  local gitleaks_bin allowed_root blocked_root prod_root fixture_token out_file err_file
   gitleaks_bin="$(ensure_gitleaks)"
   allowed_root="$(mktemp -d)"
   blocked_root="$(mktemp -d)"
+  prod_root="$(mktemp -d)"
   out_file="$(mktemp)"
   err_file="$(mktemp)"
-  trap 'rm -rf "${allowed_root:-}" "${blocked_root:-}"; rm -f "${out_file:-}" "${err_file:-}"' RETURN
+  trap 'rm -rf "${allowed_root:-}" "${blocked_root:-}" "${prod_root:-}"; rm -f "${out_file:-}" "${err_file:-}"' RETURN
   fixture_token="$(printf 'gh%s_%s%s' "p" "0123456789abcdef" "ABCDEF0123456789abcd")"
 
   mkdir -p "$allowed_root/Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests"
@@ -185,6 +186,24 @@ EOF
     cat "$out_file" >&2
     cat "$err_file" >&2
     return "$rc"
+  fi
+
+  # Regression guard for allowlist scope: the production scrubber source is
+  # exempt only for its single generic-api-key doc example, so a private key
+  # accidentally committed to that file must still be caught (not suppressed).
+  mkdir -p "$prod_root/Packages/macOS/CmuxFoundation/Sources/CmuxFoundation"
+  cat > "$prod_root/Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/SentryScrubber.swift" <<'EOF'
+let leaked = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEAsecretbodyabc/def+ghi==\n-----END RSA PRIVATE KEY-----"
+EOF
+  set +e
+  scan_dir "$gitleaks_bin" "$prod_root" >"$out_file" 2>"$err_file"
+  local prod_rc=$?
+  set -e
+  if [[ "$prod_rc" -eq 0 ]]; then
+    echo "Expected a private key in production scrubber source to be caught; the allowlist is too broad." >&2
+    cat "$out_file" >&2
+    cat "$err_file" >&2
+    return 1
   fi
 
   echo "PASS: gitleaks allowlist suppresses only the fixture path and still fails on seeded leaks"

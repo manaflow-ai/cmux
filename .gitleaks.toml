@@ -3,17 +3,19 @@ title = "cmux gitleaks configuration"
 [extend]
 useDefault = true
 
+# The Sentry scrubber fixtures are split per rule and scoped to exactly the
+# files that contain each fixture. Production source (SentryScrubber.swift) only
+# carries a single generic-api-key doc example, so it must NOT be exempt from the
+# github-pat / jwt / private-key rules — otherwise a real key accidentally added
+# to that production file would be silently ignored by the scan.
+
+# This config file embeds every fixture string below (as allowlist regexes), so
+# exempt the config itself from the rules those strings would otherwise trip.
 [[allowlists]]
-description = "Sentry scrubber redaction fixtures and examples"
+description = "Gitleaks config self-reference for embedded Sentry scrubber fixtures"
 targetRules = ["generic-api-key", "github-pat", "jwt", "private-key"]
 condition = "AND"
-paths = [
-  '''^\.gitleaks\.toml$''',
-  '''^Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/SentryScrubber\.swift$''',
-  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/ScrubberDenylistsTests\.swift$''',
-  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/SentryScrubberTests\.swift$''',
-  '''^cmuxTests/SentryEventScrubberTests\.swift$''',
-]
+paths = ['''^\.gitleaks\.toml$''']
 regexTarget = "line"
 regexes = [
   '''token=abcdef0123456789(?:secret|zz)''',
@@ -21,6 +23,73 @@ regexes = [
   '''sk-proj-abcdef0123456789ABCDEF''',
   '''ghp_0123456789abcdefABCDEF0123456789abcd''',
   '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0In0\.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U''',
+  '''-----BEGIN (?:RSA |EC )?(?:PRIVATE|PUBLIC) KEY-----''',
+]
+
+# Production scrubber source: a single doc-comment example token only.
+[[allowlists]]
+description = "Sentry scrubber production source doc-comment example token"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/SentryScrubber\.swift$''']
+regexTarget = "line"
+regexes = [
+  '''token=sk-abc123def456ghij''',
+]
+
+# Generic-api-key example tokens in scrubber tests.
+[[allowlists]]
+description = "Sentry scrubber test generic-api-key fixtures"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/ScrubberDenylistsTests\.swift$''',
+  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/SentryScrubberTests\.swift$''',
+  '''^cmuxTests/SentryEventScrubberTests\.swift$''',
+]
+regexTarget = "line"
+regexes = [
+  '''token=abcdef0123456789(?:secret|zz)''',
+  '''sk-proj-abcdef0123456789ABCDEF''',
+]
+
+# GitHub PAT fixtures in scrubber tests.
+[[allowlists]]
+description = "Sentry scrubber test github-pat fixtures"
+targetRules = ["github-pat"]
+condition = "AND"
+paths = [
+  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/ScrubberDenylistsTests\.swift$''',
+  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/SentryScrubberTests\.swift$''',
+]
+regexTarget = "line"
+regexes = [
+  '''ghp_0123456789abcdefABCDEF0123456789abcd''',
+]
+
+# JWT fixture in scrubber tests.
+[[allowlists]]
+description = "Sentry scrubber test jwt fixture"
+targetRules = ["jwt"]
+condition = "AND"
+paths = [
+  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/SentryScrubberTests\.swift$''',
+]
+regexTarget = "line"
+regexes = [
+  '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0In0\.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U''',
+]
+
+# PEM private/public key fixtures in scrubber tests.
+[[allowlists]]
+description = "Sentry scrubber test private-key (PEM) fixtures"
+targetRules = ["private-key"]
+condition = "AND"
+paths = [
+  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/ScrubberDenylistsTests\.swift$''',
+]
+regexTarget = "line"
+regexes = [
   '''-----BEGIN (?:RSA |EC )?(?:PRIVATE|PUBLIC) KEY-----''',
 ]
 
