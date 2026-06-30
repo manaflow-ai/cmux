@@ -6362,6 +6362,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return true
     }
 
+    @discardableResult
+    private func preserveTerminalReplayBarrierIfCurrent(
+        surfaceID: String,
+        token: UUID?,
+        reason: String
+    ) -> Bool {
+        guard let token,
+              terminalReplayBarrierTokensBySurfaceID[surfaceID] == token else {
+            return false
+        }
+        terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
+        MobileDebugLog.anchormux("terminal.output.replay_barrier_preserved_\(reason) surface=\(surfaceID)")
+        return true
+    }
+
     private func prepareTerminalReplayFailureRetry(
         surfaceID: String,
         replayBarrierToken: UUID?
@@ -6839,11 +6855,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                     return
                 }
-                self.clearTerminalReplayBarrierIfCurrent(
+                self.preserveTerminalReplayBarrierIfCurrent(
                     surfaceID: surfaceID,
                     token: replayBarrierToken,
-                    reason: "failed",
-                    preserveDroppedOutput: true
+                    reason: "failed"
                 )
             }
         }
