@@ -3939,7 +3939,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
               surfaceGeneration == generation else {
             return nil
         }
-        await withCheckedContinuation { continuation in
+        return await withCheckedContinuation { continuation in
             let operationID = makeSurfaceOperationID()
             if let existing = pendingVisibleSnapshot {
                 pendingVisibleSnapshot = nil

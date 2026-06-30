@@ -221,6 +221,45 @@ import Testing
 }
 
 @MainActor
+@Test func terminalReplayBarrierRetriesWhenReplayAckChunkResets() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "first-replay", "retry-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    #expect(String(decoding: coldReplayChunk.data, as: UTF8.self) == "cold-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+
+    store.deliverTerminalBytes(Data("stalled-first".utf8), surfaceID: surfaceID)
+    let stalledChunk = try #require(await iterator.next())
+    store.deliverTerminalBytes(Data("stale-second".utf8), surfaceID: surfaceID)
+
+    store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 1)
+
+    let replayChunk = try #require(await iterator.next())
+    #expect(String(decoding: replayChunk.data, as: UTF8.self) == "first-replay")
+    let firstBarrierToken = try #require(store.terminalReplayBarrierTokensBySurfaceID[surfaceID])
+
+    store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 2)
+
+    let retryReplayChunk = try #require(await iterator.next())
+    #expect(String(decoding: retryReplayChunk.data, as: UTF8.self) == "retry-replay")
+    let retryBarrierToken = try #require(store.terminalReplayBarrierTokensBySurfaceID[surfaceID])
+    #expect(retryBarrierToken != firstBarrierToken)
+
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retryReplayChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+}
+
+@MainActor
 private func waitForReplayBarrierFailureToSettle(
     _ condition: @MainActor () -> Bool
 ) async -> Bool {

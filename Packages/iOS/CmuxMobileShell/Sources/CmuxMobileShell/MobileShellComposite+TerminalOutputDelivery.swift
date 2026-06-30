@@ -140,8 +140,14 @@ extension MobileShellComposite {
     public func terminalOutputDidReset(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               terminalOutputQueuesBySurfaceID[surfaceID] != nil else { return }
-        guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil else {
-            MobileDebugLog.anchormux("terminal.output.reset_barrier_active surface=\(surfaceID)")
+        if terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
+            guard terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken else {
+                MobileDebugLog.anchormux("terminal.output.reset_barrier_active surface=\(surfaceID)")
+                return
+            }
+            let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+            MobileDebugLog.anchormux("terminal.output.reset_replay_ack surface=\(surfaceID)")
+            requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
             return
         }
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
