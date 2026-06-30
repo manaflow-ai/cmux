@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxAgentChatUI
 import CmuxMobileBrowser
 import CmuxMobileDiagnostics
 import CmuxMobileShell
@@ -91,19 +92,96 @@ struct WorkspaceDetailView: View {
     }
 
     var body: some View {
-        Group {
+        let content = Group {
             detailSurfaceContent
         }
+
         #if os(iOS)
-        .task(id: chatConversationWarmKey) {
-            await runWarmChatConversation()
-        }
-        .onChange(of: selectedTerminalID) { _, _ in
-            refreshCachedChatToggleAnchor()
-        }
+        content
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+            .navigationTitle(systemNavigationTitle)
+            .mobileTerminalNavigationChrome()
+            .toolbar { workspaceDetailToolbar }
+            .task(id: chatRefreshKey) { await refreshChatSessions() }
+            .task(id: chatConversationWarmKey) {
+                await runWarmChatConversation()
+            }
+            .onChange(of: selectedTerminalID) { _, _ in
+                refreshCachedChatToggleAnchor()
+            }
+            .closeWorkspaceConfirmation(
+                isPresented: $isConfirmingClose,
+                confirm: confirmCloseWorkspaceFromMenu
+            )
+            .sheet(isPresented: $isFeedbackComposerPresented) {
+                feedbackComposer
+            }
+            .sheet(isPresented: $isTextSheetPresented) {
+                TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+            }
+            .workspaceRenameDialog(
+                isPresented: $isRenamePresented,
+                text: $renameText,
+                onSave: commitRenameFromDialog
+            )
+            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
+        #else
+        content
+            .closeWorkspaceConfirmation(
+                isPresented: $isConfirmingClose,
+                confirm: confirmCloseWorkspaceFromMenu
+            )
+            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #endif
-        .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
     }
+
+    #if os(iOS)
+    @ToolbarContentBuilder
+    private var workspaceDetailToolbar: some ToolbarContent {
+        if backButtonConfiguration != nil {
+            ToolbarItem(placement: .topBarLeading) { workspaceBackToolbarButton }
+        }
+        ToolbarItem(placement: .principal) {
+            WorkspaceTitleMenu(
+                contentWidth: contentWidth,
+                hasBackButton: backButtonConfiguration != nil,
+                hasTrailingCluster: true,
+                hasChatToggle: shouldShowChatToggle,
+                isEnabled: hasTitleMenuActions,
+                menuContent: { titleMenuContent }
+            ) {
+                toolbarTitleLabel
+            }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            toolbarTrailingCluster
+        }
+    }
+
+    @ViewBuilder
+    private var toolbarTitleLabel: some View {
+        if isChatMode,
+           let session = chosenChatSession,
+           let conversation = chatConversationStores[session.id] {
+            ChatSessionHeaderView(
+                descriptor: conversation.descriptor,
+                agentState: conversation.agentState,
+                isConnected: conversation.isConnected,
+                titleOverride: workspace.name,
+                subtitle: tabName(for: session),
+                style: .toolbarCompact
+            )
+        } else if let browser = activeBrowser {
+            Text(browser.title ?? workspace.name)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(TerminalPalette.foreground)
+        } else {
+            WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
+        }
+    }
+    #endif
 
     @ViewBuilder
     private var detailSurfaceContent: some View {
@@ -136,43 +214,6 @@ struct WorkspaceDetailView: View {
         // Key on the surface id so switching/reopening rebuilds the WKWebView.
         .id(browser.id.rawValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
-        .navigationTitle("")
-        .mobileTerminalNavigationChrome()
-        .toolbar {
-            if backButtonConfiguration != nil {
-                ToolbarItem(placement: .topBarLeading) { workspaceBackToolbarButton }
-            }
-            ToolbarItem(placement: .principal) {
-                WorkspaceTitleMenu(
-                    contentWidth: contentWidth,
-                    hasBackButton: backButtonConfiguration != nil,
-                    hasTrailingCluster: true,
-                    hasChatToggle: shouldShowChatToggle,
-                    isEnabled: hasTitleMenuActions,
-                    menuContent: { titleMenuContent }
-                ) {
-                    Text(browser.title ?? workspace.name)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .foregroundStyle(TerminalPalette.foreground)
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                toolbarTrailingCluster
-            }
-        }
-        .task(id: chatRefreshKey) { await refreshChatSessions() }
-        .closeWorkspaceConfirmation(
-            isPresented: $isConfirmingClose,
-            confirm: confirmCloseWorkspaceFromMenu
-        )
-        .workspaceRenameDialog(
-            isPresented: $isRenamePresented,
-            text: $renameText,
-            onSave: commitRenameFromDialog
-        )
     }
     #endif
 
@@ -237,9 +278,6 @@ struct WorkspaceDetailView: View {
             #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        #if os(iOS)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
-        #endif
         .overlay(alignment: .topLeading) {
             MobileMacConnectionStatusPill(host: host, status: connectionStatus)
                 .padding(.top, 10)
@@ -300,53 +338,14 @@ struct WorkspaceDetailView: View {
         #else
         .background(TerminalPalette.background)
         #endif
+        #if !os(iOS)
         .navigationTitle(systemNavigationTitle)
         .mobileTerminalNavigationChrome()
-        #if os(iOS)
-        .task(id: chatRefreshKey) { await refreshChatSessions() }
-        #endif
         .toolbar {
-            #if os(iOS)
-            if backButtonConfiguration != nil {
-                ToolbarItem(placement: .topBarLeading) { workspaceBackToolbarButton }
-            }
-            ToolbarItem(placement: .principal) {
-                WorkspaceTitleMenu(
-                    contentWidth: contentWidth,
-                    hasBackButton: backButtonConfiguration != nil,
-                    hasTrailingCluster: true,
-                    hasChatToggle: shouldShowChatToggle,
-                    isEnabled: hasTitleMenuActions,
-                    menuContent: { titleMenuContent }
-                ) {
-                    WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                toolbarTrailingCluster
-            }
-            #else
             ToolbarItem {
                 terminalToolbarButtons
             }
-        #endif
         }
-        .closeWorkspaceConfirmation(
-            isPresented: $isConfirmingClose,
-            confirm: confirmCloseWorkspaceFromMenu
-        )
-        #if canImport(UIKit)
-        .sheet(isPresented: $isFeedbackComposerPresented) {
-            feedbackComposer
-        }
-        .sheet(isPresented: $isTextSheetPresented) {
-            TerminalTextSheetView(surfaceID: textSheetSurfaceID)
-        }
-        .workspaceRenameDialog(
-            isPresented: $isRenamePresented,
-            text: $renameText,
-            onSave: commitRenameFromDialog
-        )
         #endif
     }
 
