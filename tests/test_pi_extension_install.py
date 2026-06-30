@@ -289,9 +289,11 @@ await handlers.get("agent_end")({
         # scoped identity (here, a workspace) are present, must stay silent when no
         # socket is available, and must skip surface-scoped resume bindings.
         #
-        # Regression (CodeRabbit, PR #6991): when a surface id is present but no socket
-        # is available, sendHook must report a skip so session_start does not still run
-        # ensureResumeBinding and emit a surface-scoped "surface resume set" without a socket.
+        # Regression (CodeRabbit + autoreview, PR #6991): when a surface id is present
+        # but no socket is available, the extension must stay completely silent. A
+        # skipped session_start must not run ensureResumeBinding ("surface resume set"),
+        # and session_shutdown must not run clearResumeBinding ("surface resume clear");
+        # either would otherwise route to the default/wrong cmux socket without a socket.
         no_socket_args_log = root / "fake-cmux-args-surface-no-socket.log"
         no_socket_stdin_log = root / "fake-cmux-stdin-surface-no-socket.log"
         no_socket_env_log = root / "fake-cmux-env-surface-no-socket.log"
@@ -319,14 +321,12 @@ await handlers.get("agent_end")({
         surface_no_socket_args = (
             no_socket_args_log.read_text(encoding="utf-8") if no_socket_args_log.exists() else ""
         )
-        if "surface resume set" in surface_no_socket_args:
+        if surface_no_socket_args.strip():
             print(
-                "FAIL: Pi extension set a surface resume binding without a socket; a skipped "
-                f"session-start hook still ran ensureResumeBinding: {surface_no_socket_args!r}"
+                "FAIL: Pi extension invoked cmux without a socket; with a surface id but no "
+                "CMUX_SOCKET_PATH it must route no session hook and no surface resume "
+                f"set/clear: {surface_no_socket_args!r}"
             )
-            return 1
-        if "hooks pi" in surface_no_socket_args:
-            print(f"FAIL: Pi extension routed a session hook without a socket, got {surface_no_socket_args!r}")
             return 1
 
         no_surface_args_log = root / "fake-cmux-args-no-surface.log"

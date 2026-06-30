@@ -30,6 +30,7 @@ function sendHook(subcommand: string, ctx: ExtensionContext, extra: HookExtra = 
 }
 
 function surfaceTargetArgs(): string[] | null {
+  if (!process.env.CMUX_SOCKET_PATH) return null;
   const surfaceId = firstString(process.env.CMUX_SURFACE_ID);
   if (!surfaceId) return null;
   const args: string[] = [];
