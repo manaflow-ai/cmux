@@ -63,7 +63,11 @@ extension MobileShellComposite {
             terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
             let droppedOutputCount = (terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] ?? 0) &+ 1
             terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] = droppedOutputCount
-            MobileDebugLog.anchormux("terminal.output.drop_replay_barrier surface=\(surfaceID)")
+            if droppedOutputCount == 1 || droppedOutputCount.isMultiple(of: 32) {
+                MobileDebugLog.anchormux(
+                    "terminal.output.drop_replay_barrier surface=\(surfaceID) count=\(droppedOutputCount)"
+                )
+            }
             if remoteClient != nil,
                terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == nil,
                !terminalReplaySurfaceIDsInFlight.contains(surfaceID),
