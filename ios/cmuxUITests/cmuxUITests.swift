@@ -288,6 +288,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["MobileWorkspaceBackButton"].waitForExistence(timeout: 4))
         let titleControl = app.descendants(matching: .any)["MobileWorkspaceTitleMenu"]
         XCTAssertTrue(titleControl.waitForExistence(timeout: 4))
+        XCTAssertFalse(app.buttons["MobileWorkspaceTitleMenu"].exists)
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
         await assertHostSelection(
@@ -561,6 +562,7 @@ final class cmuxUITests: XCTestCase {
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
         XCTAssertTrue(titleControl.waitForExistence(timeout: 8))
+        XCTAssertFalse(app.buttons["MobileWorkspaceTitleMenu"].exists)
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
         XCTAssertTrue(
@@ -592,6 +594,7 @@ final class cmuxUITests: XCTestCase {
         let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
 
         XCTAssertTrue(titleControl.waitForExistence(timeout: 8))
+        XCTAssertFalse(app.buttons["MobileWorkspaceTitleMenu"].exists)
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
 
