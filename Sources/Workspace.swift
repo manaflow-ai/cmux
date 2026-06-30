@@ -481,12 +481,8 @@ extension Workspace {
                 promptForApproval: false,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
-            let closeConfirmationRequired = Self.resolveCloseConfirmation(
-                shellActivityState: panelShellActivityStates[panelId],
-                fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
-            )
             let shouldPersistScrollback = sessionRestorePolicy.shouldPersistSessionScrollback(
-                closeConfirmationRequired: closeConfirmationRequired
+                shellActivityState: panelShellActivityStates[panelId]
             ) && sessionRestorePolicy.shouldReplaySessionScrollback(
                 hasRestorableAgent: effectiveRestorableAgent != nil,
                 tmuxStartCommand: restorableTmuxStartCommand,
@@ -959,15 +955,17 @@ extension Workspace {
         makeSessionRestorePolicyService().restorableTmuxStartCommand(rawCommand)
     }
 
+    /// Whether scrollback should be persisted for a panel at session save.
+    ///
+    /// Persistence depends only on shell-activity state — persist unless a command
+    /// is positively running. It is intentionally NOT coupled to close-confirmation;
+    /// doing so previously dropped scrollback whenever shell-integration state was
+    /// unavailable.
     nonisolated static func shouldPersistSessionScrollback(
-        shellActivityState: PanelShellActivityState?,
-        fallbackNeedsConfirmClose: Bool
+        shellActivityState: PanelShellActivityState?
     ) -> Bool {
         makeSessionRestorePolicyService().shouldPersistSessionScrollback(
-            closeConfirmationRequired: resolveCloseConfirmation(
-                shellActivityState: shellActivityState,
-                fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
-            )
+            shellActivityState: shellActivityState
         )
     }
 

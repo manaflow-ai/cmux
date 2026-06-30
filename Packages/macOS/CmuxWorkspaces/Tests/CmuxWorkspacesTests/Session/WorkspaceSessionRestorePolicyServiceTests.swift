@@ -290,4 +290,18 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(service.restorableTmuxStartCommand("hudson omx") == nil)
         #expect(service.restorableTmuxStartCommand("omx hud") == "omx hud")
     }
+
+    @Test("scrollback persists unless a command is positively running")
+    func scrollbackPersistencePolicy() {
+        let service = makeService()
+
+        // Persist for idle shells.
+        #expect(service.shouldPersistSessionScrollback(shellActivityState: .promptIdle))
+        // Regression: persist when shell-integration state is unavailable, so
+        // terminals don't restore empty. (.unknown and never-reported nil.)
+        #expect(service.shouldPersistSessionScrollback(shellActivityState: .unknown))
+        #expect(service.shouldPersistSessionScrollback(shellActivityState: nil))
+        // Skip only when a command is positively running.
+        #expect(!service.shouldPersistSessionScrollback(shellActivityState: .commandRunning))
+    }
 }
