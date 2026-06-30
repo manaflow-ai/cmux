@@ -94,9 +94,13 @@ enum FileExplorerStyle: Int, CaseIterable {
 
     private static func labelColor(alpha: CGFloat) -> NSColor {
         NSColor(name: nil) { appearance in
-            NSColor.labelColor
-                .resolvedColor(with: appearance)
-                .withAlphaComponent(alpha)
+            // NSColor has no resolvedColor(with:) (that is UIKit); resolve labelColor
+            // against the provided appearance by making it the current drawing appearance.
+            var resolved = NSColor.labelColor
+            appearance.performAsCurrentDrawingAppearance {
+                resolved = NSColor.labelColor.usingColorSpace(.sRGB) ?? resolved
+            }
+            return resolved.withAlphaComponent(alpha)
         }
     }
 
