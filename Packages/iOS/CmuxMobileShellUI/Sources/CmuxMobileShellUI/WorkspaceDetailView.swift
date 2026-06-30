@@ -117,6 +117,24 @@ struct WorkspaceDetailView: View {
         Group {
             detailSurfaceContent
         }
+        #if os(iOS)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+        .navigationTitle(systemNavigationTitle)
+        .mobileTerminalNavigationChrome()
+        .toolbar {
+            workspaceNavigationToolbar
+        }
+        .task(id: chatRefreshKey) { await refreshChatSessions() }
+        .closeWorkspaceConfirmation(
+            isPresented: $isConfirmingClose,
+            confirm: confirmCloseWorkspaceFromMenu
+        )
+        .workspaceRenameDialog(
+            isPresented: $isRenamePresented,
+            text: $renameText,
+            onSave: commitRenameFromDialog
+        )
+        #endif
         .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
     }
 
@@ -144,14 +162,10 @@ struct WorkspaceDetailView: View {
         WorkspaceChatPane(
             session: session,
             store: store,
-            workspaceName: workspace.name,
-            tabName: tabName(for: session),
             draft: Binding(
                 get: { chatDrafts[session.id] ?? "" },
                 set: { chatDrafts[session.id] = $0 }
             ),
-            backButtonConfiguration: backButtonConfiguration,
-            titleMenuContent: { titleMenuContent },
             onExitChat: {
                 withAnimation(.snappy(duration: 0.28)) {
                     isChatMode = false
@@ -162,23 +176,12 @@ struct WorkspaceDetailView: View {
         .id(session.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .mobileChatTopScrollEdgeLayout(legacyTopPadding: terminalTopPadding)
-        .mobileTerminalNavigationChrome()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
                 terminalPickerToolbarButton
             }
         }
-        .task(id: chatRefreshKey) { await refreshChatSessions() }
-        .closeWorkspaceConfirmation(
-            isPresented: $isConfirmingClose,
-            confirm: confirmCloseWorkspaceFromMenu
-        )
-        .workspaceRenameDialog(
-            isPresented: $isRenamePresented,
-            text: $renameText,
-            onSave: commitRenameFromDialog
-        )
     }
 
     @ViewBuilder
@@ -295,47 +298,6 @@ struct WorkspaceDetailView: View {
         // Key on the surface id so switching/reopening rebuilds the WKWebView.
         .id(browser.id.rawValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
-        .navigationTitle("")
-        .mobileTerminalNavigationChrome()
-        .toolbar {
-            if backButtonConfiguration != nil {
-                ToolbarItem(placement: .topBarLeading) {
-                    workspaceBackToolbarButton
-                }
-                if #available(iOS 26.0, *) {
-                    ToolbarSpacer(.fixed, placement: .topBarLeading)
-                }
-            }
-            ToolbarItem(placement: .topBarLeading) {
-                WorkspaceTitleMenu(
-                    contentWidth: contentWidth,
-                    hasBackButton: backButtonConfiguration != nil,
-                    hasChatToggle: isChatMode || sessionForSelectedTerminal != nil,
-                    menuContent: { titleMenuContent }
-                ) {
-                    Text(browser.title ?? workspace.name)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .foregroundStyle(TerminalPalette.foreground)
-                }
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                chatToggleButton
-                terminalPickerToolbarButton
-            }
-        }
-        .task(id: chatRefreshKey) { await refreshChatSessions() }
-        .closeWorkspaceConfirmation(
-            isPresented: $isConfirmingClose,
-            confirm: confirmCloseWorkspaceFromMenu
-        )
-        .workspaceRenameDialog(
-            isPresented: $isRenamePresented,
-            text: $renameText,
-            onSave: commitRenameFromDialog
-        )
     }
     #endif
 
@@ -400,9 +362,6 @@ struct WorkspaceDetailView: View {
             #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        #if os(iOS)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
-        #endif
         .overlay(alignment: .topLeading) {
             MobileMacConnectionStatusPill(host: host, status: connectionStatus)
                 .padding(.top, 10)
@@ -463,45 +422,14 @@ struct WorkspaceDetailView: View {
         #else
         .background(TerminalPalette.background)
         #endif
+        #if os(macOS)
         .navigationTitle(systemNavigationTitle)
-        .mobileTerminalNavigationChrome()
-        #if os(iOS)
-        .task(id: chatRefreshKey) { await refreshChatSessions() }
-        #endif
         .toolbar {
-            #if os(iOS)
-            if backButtonConfiguration != nil {
-                ToolbarItem(placement: .topBarLeading) {
-                    workspaceBackToolbarButton
-                }
-                if #available(iOS 26.0, *) {
-                    ToolbarSpacer(.fixed, placement: .topBarLeading)
-                }
-            }
-            ToolbarItem(placement: .topBarLeading) {
-                WorkspaceTitleMenu(
-                    contentWidth: contentWidth,
-                    hasBackButton: backButtonConfiguration != nil,
-                    hasChatToggle: isChatMode || sessionForSelectedTerminal != nil,
-                    menuContent: { titleMenuContent }
-                ) {
-                    WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
-                }
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                chatToggleButton
-                terminalPickerToolbarButton
-            }
-            #else
             ToolbarItem {
                 terminalToolbarButtons
             }
-        #endif
         }
-        .closeWorkspaceConfirmation(
-            isPresented: $isConfirmingClose,
-            confirm: confirmCloseWorkspaceFromMenu
-        )
+        #endif
         #if canImport(UIKit)
         .sheet(isPresented: $isFeedbackComposerPresented) {
             feedbackComposer
@@ -509,11 +437,6 @@ struct WorkspaceDetailView: View {
         .sheet(isPresented: $isTextSheetPresented) {
             TerminalTextSheetView(surfaceID: textSheetSurfaceID)
         }
-        .workspaceRenameDialog(
-            isPresented: $isRenamePresented,
-            text: $renameText,
-            onSave: commitRenameFromDialog
-        )
         #endif
     }
 
@@ -524,6 +447,47 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
+    @ToolbarContentBuilder
+    private var workspaceNavigationToolbar: some ToolbarContent {
+        if backButtonConfiguration != nil {
+            ToolbarItem(placement: .topBarLeading) {
+                workspaceBackToolbarButton
+            }
+            if #available(iOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .topBarLeading)
+            }
+        }
+        ToolbarItem(placement: .topBarLeading) {
+            WorkspaceTitleMenu(
+                contentWidth: contentWidth,
+                hasBackButton: backButtonConfiguration != nil,
+                hasChatToggle: isChatMode || sessionForSelectedTerminal != nil,
+                menuContent: { titleMenuContent }
+            ) {
+                workspaceTitleToolbarLabel
+            }
+        }
+        if !isChatMode {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                chatToggleButton
+                terminalPickerToolbarButton
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var workspaceTitleToolbarLabel: some View {
+        if let browser = activeBrowser {
+            Text(browser.title ?? workspace.name)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(TerminalPalette.foreground)
+        } else {
+            WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
+        }
+    }
+
     /// Compact-stack back button colocated with the leading title so both
     /// terminal and chat modes share one toolbar order.
     @ViewBuilder
