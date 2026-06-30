@@ -192,10 +192,19 @@ final class AgentChatTranscriptService {
 
     /// Observe-floor detection: discover live codex/claude sessions from the
     /// process table (no hooks required) and fold them into the registry.
-    /// Throttled; intended to run on the iOS list pull so a fresh detection
-    /// appears the moment the GUI asks for the list.
+    /// Awaitable for tests/debug paths that need the updated registry before
+    /// proceeding.
     func observeAgentProcesses() async {
         await registry.observeAgentProcesses()
+    }
+
+    /// Starts one observe-floor scan without blocking the caller. The iOS
+    /// session list registers for `chat.message` pushes before it seeds from
+    /// `mobile.chat.sessions`, so discovered sessions arrive as normal
+    /// `descriptorChanged` frames without turning every seed pull into a full
+    /// process-table walk.
+    func scheduleAgentProcessObservation() {
+        registry.scheduleAgentProcessObservation()
     }
 
     /// The registry record for a session (send path needs the terminal

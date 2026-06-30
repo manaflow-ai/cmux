@@ -169,9 +169,16 @@ final class AgentChatSessionRegistry {
     /// cannot fan out into concurrent process-table walks.
     private var observeInFlight: (id: UUID, task: Task<Void, Never>)?
     func observeAgentProcesses() async {
+        await observeAgentProcessesTask().value
+    }
+
+    func scheduleAgentProcessObservation() {
+        _ = observeAgentProcessesTask()
+    }
+
+    private func observeAgentProcessesTask() -> Task<Void, Never> {
         if let inFlight = observeInFlight {
-            await inFlight.task.value
-            return
+            return inFlight.task
         }
         let id = UUID()
         let task = Task { @MainActor [weak self] in
@@ -183,7 +190,7 @@ final class AgentChatSessionRegistry {
             }
         }
         observeInFlight = (id, task)
-        await task.value
+        return task
     }
 
     /// Folds detections in: create a record for any session not already known

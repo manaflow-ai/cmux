@@ -78,11 +78,11 @@ extension TerminalController {
         guard let service = agentChatTranscriptService else {
             return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
         }
-        // Observe-floor detection: run a fresh off-main process-table scan so a
-        // live codex/claude launched through any indirection (a subrouter, a
-        // wrapper) that fired no hook is discovered before this iOS list pull
-        // filters by live terminal surface.
-        await service.observeAgentProcesses()
+        // Observe-floor detection: schedule one single-flight process-table
+        // scan, but do not block this pull on argv/env/fd inspection. The iOS
+        // list subscribes before seeding, so a newly observed session arrives
+        // through the same descriptorChanged push path as hook-driven sessions.
+        service.scheduleAgentProcessObservation()
         guard let workspaceID else {
             // No filter: return all current-agent sessions across workspaces,
             // resolving each via its stored binding as before.
