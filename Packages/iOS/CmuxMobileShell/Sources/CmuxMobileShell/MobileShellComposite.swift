@@ -6767,6 +6767,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             replayBarrierToken: replayBarrierTokenForRequest
         )
         let replayTask = Task { @MainActor [weak self] in
+            let replayResult: Result<Data, any Error>
+            do {
+                let request = try MobileCoreRPCClient.requestData(
+                    method: "mobile.terminal.replay",
+                    params: [
+                        "workspace_id": remoteWorkspaceID.rawValue,
+                        "surface_id": surfaceID,
+                    ]
+                )
+                replayResult = .success(try await client.sendRequest(request))
+            } catch {
+                replayResult = .failure(error)
+            }
             guard let self else { return }
             var transferredInFlightToRetry = false
             defer {
@@ -6777,15 +6790,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                 }
             }
-            do {
-                let request = try MobileCoreRPCClient.requestData(
-                    method: "mobile.terminal.replay",
-                    params: [
-                        "workspace_id": remoteWorkspaceID.rawValue,
-                        "surface_id": surfaceID,
-                    ]
-                )
-                let data = try await client.sendRequest(request)
+            switch replayResult {
+            case .success(let data):
                 guard self.terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] == replayRequestID else {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale_request surface=\(surfaceID)")
                     return
@@ -6930,7 +6936,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         preserveDroppedOutput: true
                     )
                 }
-            } catch {
+            case .failure(let error):
                 guard self.terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] == replayRequestID else {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale_request_failed surface=\(surfaceID)")
                     return

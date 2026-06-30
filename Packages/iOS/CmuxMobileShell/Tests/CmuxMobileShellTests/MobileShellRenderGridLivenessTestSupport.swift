@@ -58,7 +58,15 @@ actor LivenessHostRouter {
         var topics: [String]?
     }
 
+    private struct CountWaiter {
+        let id: UUID
+        let method: String
+        let expectedCount: Int
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
     private var recorded: [RecordedRequest] = []
+    private var countWaiters: [CountWaiter] = []
     private var hostStatusRequestCount = 0
     private var heldHostStatusRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
@@ -76,20 +84,77 @@ actor LivenessHostRouter {
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
+        resumeSatisfiedCountWaiters()
     }
 
     func count(of method: String) -> Int {
         recorded.filter { $0.method == method }.count
     }
 
-    func waitForCount(of method: String, atLeast expectedCount: Int) async {
-        for _ in 0..<300 {
-            if count(of: method) >= expectedCount {
-                return
+    func waitForCount(
+        of method: String,
+        atLeast expectedCount: Int,
+        timeoutNanoseconds: UInt64 = 3_000_000_000
+    ) async {
+        let reached = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await self.waitUntilCountReached(of: method, atLeast: expectedCount)
+                return true
             }
-            try? await Task.sleep(nanoseconds: 10_000_000)
+            group.addTask {
+                // Test assertion deadline only; request arrival is signaled by record().
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                return false
+            }
+            let reached = await group.next() ?? false
+            group.cancelAll()
+            return reached
         }
-        Issue.record("timed out waiting for \(method) count >= \(expectedCount)")
+        if !reached {
+            Issue.record("timed out waiting for \(method) count >= \(expectedCount)")
+        }
+    }
+
+    private func waitUntilCountReached(of method: String, atLeast expectedCount: Int) async {
+        guard count(of: method) < expectedCount else { return }
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                countWaiters.append(CountWaiter(
+                    id: waiterID,
+                    method: method,
+                    expectedCount: expectedCount,
+                    continuation: continuation
+                ))
+                resumeSatisfiedCountWaiters()
+            }
+        } onCancel: {
+            Task { await self.cancelCountWaiter(id: waiterID) }
+        }
+    }
+
+    private func resumeSatisfiedCountWaiters() {
+        var remaining: [CountWaiter] = []
+        var satisfied: [CheckedContinuation<Void, Never>] = []
+        for waiter in countWaiters {
+            if count(of: waiter.method) >= waiter.expectedCount {
+                satisfied.append(waiter.continuation)
+            } else {
+                remaining.append(waiter)
+            }
+        }
+        countWaiters = remaining
+        for continuation in satisfied {
+            continuation.resume()
+        }
+    }
+
+    private func cancelCountWaiter(id: UUID) {
+        guard let index = countWaiters.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let waiter = countWaiters.remove(at: index)
+        waiter.continuation.resume()
     }
 
     func topics(for method: String) -> [[String]] {
