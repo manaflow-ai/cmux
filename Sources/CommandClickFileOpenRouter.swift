@@ -2,35 +2,6 @@ import AppKit
 import CmuxSettings
 import Foundation
 
-struct OpenRoutingModifierPolicy {
-    nonisolated func shouldBypassCmuxOpenRouting(modifierFlags: NSEvent.ModifierFlags) -> Bool {
-        let flags = modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags.contains(.command), flags.contains(.shift) else { return false }
-        return flags.isDisjoint(with: [.control, .option])
-    }
-}
-
-struct BrowserOpenRoutingPolicy {
-    private let modifierPolicy: OpenRoutingModifierPolicy
-
-    nonisolated init(modifierPolicy: OpenRoutingModifierPolicy = OpenRoutingModifierPolicy()) {
-        self.modifierPolicy = modifierPolicy
-    }
-
-    nonisolated func shouldOpenInCmuxBrowser(
-        settingEnabled: Bool,
-        modifierFlags: NSEvent.ModifierFlags
-    ) -> Bool {
-        settingEnabled && !modifierPolicy.shouldBypassCmuxOpenRouting(modifierFlags: modifierFlags)
-    }
-}
-
-enum CommandClickFileOpenRoute: Equatable {
-    case cmux
-    case defaultApplication
-    case fallback
-}
-
 enum CommandClickFileOpenRouter {
     nonisolated static func route(
         path: String,
