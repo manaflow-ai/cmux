@@ -43,6 +43,17 @@ import Testing
         #expect(command.method == "browser_eval_secret")
     }
 
+    @Test func decodesUnicodeEscapeInMethodNameBeforeSanitizing() {
+        // A unicode escape that maps to ".", an allowed token character, must
+        // decode to a dot rather than survive as the literal characters u002E.
+        let command = observability.command(
+            for: "{\"method\":\"a\\u002Eb\",\"params\":{}}",
+            peerPid: nil
+        )
+
+        #expect(command.method == "a.b")
+    }
+
     @Test func extractsV2MethodWithoutDependingOnFieldOrder() {
         let command = observability.command(
             for: #"{"params":{"script":"({method:'not this one'})"},"method":"browser.eval","id":7}"#,

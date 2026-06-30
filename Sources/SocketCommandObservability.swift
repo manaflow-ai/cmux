@@ -379,17 +379,32 @@ nonisolated struct SocketCommandObservability: Sendable {
         guard index < text.endIndex, text[index] == "\"" else { return nil }
         index = text.index(after: index)
         var result = ""
-        var isEscaped = false
         while index < text.endIndex {
             let char = text[index]
             index = text.index(after: index)
-            if isEscaped {
-                result.append(char)
-                isEscaped = false
-                continue
-            }
             if char == "\\" {
-                isEscaped = true
+                guard index < text.endIndex else { return nil }
+                let escape = text[index]
+                index = text.index(after: index)
+                switch escape {
+                case "\"": result.append("\"")
+                case "\\": result.append("\\")
+                case "/": result.append("/")
+                case "b": result.append("\u{08}")
+                case "f": result.append("\u{0C}")
+                case "n": result.append("\n")
+                case "r": result.append("\r")
+                case "t": result.append("\t")
+                case "u":
+                    // Decode \uXXXX to its scalar. Surrogate halves and malformed
+                    // sequences yield nil and are dropped; the sanitizer guards the label.
+                    if let scalar = Self.scanJSONUnicodeEscape(in: text, index: &index) {
+                        result.unicodeScalars.append(scalar)
+                    }
+                default:
+                    // Unknown escape: keep the literal character (lenient parsing).
+                    result.append(escape)
+                }
                 continue
             }
             if char == "\"" {
@@ -398,6 +413,18 @@ nonisolated struct SocketCommandObservability: Sendable {
             result.append(char)
         }
         return nil
+    }
+
+    private static func scanJSONUnicodeEscape(in text: Substring, index: inout String.Index) -> Unicode.Scalar? {
+        var value: UInt32 = 0
+        var count = 0
+        while count < 4 {
+            guard index < text.endIndex, let digit = text[index].hexDigitValue else { return nil }
+            value = value * 16 + UInt32(digit)
+            index = text.index(after: index)
+            count += 1
+        }
+        return Unicode.Scalar(value)
     }
 
     private static func skipJSONValue(in text: Substring, index: inout String.Index) -> Bool {
