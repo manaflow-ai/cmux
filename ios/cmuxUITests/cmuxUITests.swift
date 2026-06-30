@@ -554,7 +554,7 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testInlineWorkspaceTerminalPickerShowsWorkspaceActions() throws {
         let app = launchAgentChatInlinePreviewApp()
-        let titleControl = app.buttons["MobileWorkspaceTitleMenu"]
+        let titleControl = app.descendants(matching: .any)["MobileWorkspaceTitleMenu"]
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
         XCTAssertTrue(titleControl.waitForExistence(timeout: 8))
@@ -584,7 +584,7 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_INLINE_WORKSPACE_TITLE": "✳️ Claude Code",
             "CMUX_UITEST_INLINE_WORKSPACE_SUBTITLE": "🧑🏽‍💻 Claude Code",
         ])
-        let titleControl = app.buttons["MobileWorkspaceTitleMenu"]
+        let titleControl = app.descendants(matching: .any)["MobileWorkspaceTitleMenu"]
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
 
