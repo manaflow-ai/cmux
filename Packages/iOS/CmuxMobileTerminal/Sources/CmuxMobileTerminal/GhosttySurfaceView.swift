@@ -967,6 +967,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return inputProxy
     }()
 
+    /// Creates a terminal surface view bound to a Ghostty `runtime`.
+    /// - Parameters:
+    ///   - runtime: The Ghostty runtime that owns the underlying C surface.
+    ///   - delegate: Receives surface lifecycle and focus callbacks; held weakly.
+    ///   - fontSize: Initial terminal font size, in points.
+    ///   - keyboardCorrectionPreference: Drives software-keyboard autocorrection,
+    ///     spell-check, and smart punctuation; defaults to corrections off.
     public init(
         runtime: GhosttyRuntime,
         delegate: GhosttySurfaceViewDelegate,
