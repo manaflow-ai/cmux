@@ -6,7 +6,7 @@ struct MinimalModeSidebarTitlebarControlsOverlay: View {
     let leadingInset: CGFloat
     let topPadding: CGFloat
     let onToggleSidebar: () -> Void
-    let onToggleNotifications: (NSView) -> Void
+    let onToggleNotifications: (NSView?) -> Void
     let onNewTab: () -> Void
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
