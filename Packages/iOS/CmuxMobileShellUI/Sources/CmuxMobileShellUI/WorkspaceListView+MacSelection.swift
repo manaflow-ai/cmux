@@ -9,46 +9,34 @@ enum WorkspaceMacSelection: Hashable {
 }
 
 extension WorkspaceListView {
+    var macSelectionScope: WorkspaceMacSelectionScope {
+        let displayPairedMacs = store?.displayPairedMacs ?? []
+        return WorkspaceMacSelectionScope(
+            selection: macSelection,
+            workspaces: workspaces,
+            displayPairedMacs: displayPairedMacs,
+            foregroundMacDeviceID: store?.connectedMacDeviceID ?? store?.activeTicket?.macDeviceID,
+            aliasesFor: { store?.pairedMacAliasIDs(for: $0) ?? [] }
+        )
+    }
+
     var activeFilter: MobileWorkspaceListFilter {
-        var active = filter
-        switch visibleMacSelection {
-        case .automatic:
-            break
-        case .all:
-            active.machines.removeAll()
-        case .machine(let id):
-            active.machines = Set([id])
-        }
-        return active
+        macSelectionScope.activeFilter(base: filter)
     }
 
     var visibleMacSelection: WorkspaceMacSelection {
-        let machineIDs = Set(macPickerMachines.map(\.id))
-        switch macSelection {
-        case .automatic:
-            return .all
-        case .machine(let id):
-            return machineIDs.contains(id) ? .machine(id) : .all
-        case .all:
-            return .all
-        }
+        macSelectionScope.visibleSelection
     }
 
-    var macPickerMachines: [WorkspaceFilterMachine] {
-        let names = macDisplayNamesByID()
-        var ids = Set(MobileWorkspaceListFilter.machineIDs(in: workspaces))
-        if let connectedID = store?.connectedMacDeviceID {
-            ids.insert(connectedID)
-        }
-        return ids
-            .map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? fallbackMacPickerName) }
-            .sorted { lhs, rhs in
-                let nameOrder = lhs.name.localizedStandardCompare(rhs.name)
-                if nameOrder != .orderedSame {
-                    return nameOrder == .orderedAscending
-                }
-                return lhs.id < rhs.id
-            }
+    var liveMachineSnapshots: WorkspaceMachineSnapshots {
+        let scope = macSelectionScope
+        return WorkspaceMachineSnapshots(
+            workspaces: workspaces,
+            filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
+            macPickerMachineIDs: scope.machineIDs,
+            namesByID: macDisplayNamesByID(),
+            fallbackName: fallbackMacPickerName
+        )
     }
 
     var fallbackMacPickerName: String {
@@ -73,47 +61,71 @@ extension WorkspaceListView {
         for mac in store?.pairedMacs ?? [] {
             names[mac.macDeviceID] = mac.resolvedName
         }
+        for mac in store?.displayPairedMacs ?? [] {
+            names[mac.macDeviceID] = mac.resolvedName
+        }
         return names
+    }
+
+    var filterMenuPresentMachineIDs: [String] {
+        let aliasIndex = macSelectionScope.aliasIndex
+        var seen = Set<String>()
+        var present: [String] = []
+        for id in MobileWorkspaceListFilter.machineIDs(in: workspaces) {
+            let representativeID = aliasIndex.representativeID(for: id)
+            if seen.insert(representativeID).inserted {
+                present.append(representativeID)
+            }
+        }
+        return present
+    }
+
+    func filterMenuMachines(
+        machineSnapshots: WorkspaceMachineSnapshots,
+        visibleSelection: WorkspaceMacSelection
+    ) -> [WorkspaceFilterMachine] {
+        switch visibleSelection {
+        case .machine:
+            return []
+        case .all, .automatic:
+            return machineSnapshots.filterMachines
+        }
+    }
+
+    var canCreateWorkspaceForMacSelection: Bool {
+        macSelectionScope.canCreateWorkspace(base: canCreateWorkspace)
     }
 
     #if os(iOS)
     var canRenderGroupsForSelection: Bool {
-        selectedMacCanUseForegroundGroups
+        macSelectionScope.canRenderGroupsForSelection
     }
 
-    private var selectedMacCanUseForegroundGroups: Bool {
-        switch visibleMacSelection {
-        case .machine(let id):
-            return store?.connectedMacDeviceID == id
-        case .all, .automatic:
-            return visibleRowsAreOnlyForegroundMac
-        }
-    }
-
-    private var visibleRowsAreOnlyForegroundMac: Bool {
-        guard !workspaces.isEmpty else { return false }
-        guard let connectedID = store?.connectedMacDeviceID else { return false }
-        return workspaces.allSatisfy { $0.macDeviceID == connectedID }
-    }
-
-    var macTitlePickerTitle: String {
+    func macTitlePickerTitle(machineSnapshots: WorkspaceMachineSnapshots) -> String {
         switch visibleMacSelection {
         case .all, .automatic:
             L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs")
         case .machine(let id):
-            macPickerMachines.first { $0.id == id }?.name ?? fallbackMacPickerName
+            machineSnapshots.macPickerMachines.first { $0.id == id }?.name ?? fallbackMacPickerName
         }
     }
 
-    var macTitlePicker: some View {
+    var macTitlePickerSelection: Binding<WorkspaceMacSelection> {
+        Binding(
+            get: { currentMacTitlePickerSelection },
+            set: { _ = handleMacTitlePickerSelection($0) }
+        )
+    }
+
+    func macTitlePicker(machineSnapshots: WorkspaceMachineSnapshots) -> some View {
         Menu {
             Picker(
                 L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Mac"),
-                selection: $macSelection
+                selection: macTitlePickerSelection
             ) {
                 Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"))
                     .tag(WorkspaceMacSelection.all)
-                ForEach(macPickerMachines) { machine in
+                ForEach(machineSnapshots.macPickerMachines) { machine in
                     Text(machine.name)
                         .tag(WorkspaceMacSelection.machine(machine.id))
                 }
@@ -132,7 +144,7 @@ extension WorkspaceListView {
                 .accessibilityIdentifier("MobileWorkspaceMacPickerAdd")
             }
         } label: {
-            WorkspaceMacTitlePickerLabel(title: macTitlePickerTitle)
+            WorkspaceMacTitlePickerLabel(title: macTitlePickerTitle(machineSnapshots: machineSnapshots))
         }
         .buttonStyle(.plain)
         .tint(.white)

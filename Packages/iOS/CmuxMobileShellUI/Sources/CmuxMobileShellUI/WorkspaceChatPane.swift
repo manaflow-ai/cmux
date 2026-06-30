@@ -25,9 +25,10 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
     /// Composer draft, owned by the parent so it survives toggling back to
     /// the terminal and returning mid-thought.
     @Binding var draft: String
-    /// Compact-stack back button owned by the workspace toolbar, colocated with
-    /// the leading title so their order is deterministic.
+    /// Compact-stack back button owned by the workspace toolbar.
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
+    /// Whether the workspace title pill should open a menu.
+    let isTitleMenuEnabled: Bool
     /// Workspace-scoped actions exposed from the title pill.
     let titleMenuContent: () -> TitleMenuContent
     /// Flips chat mode off (the toggle's "back to terminal" path).
@@ -37,7 +38,7 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
 
     @State private var accessoryConfiguration = TerminalAccessoryConfiguration.shared
     @State private var isShowingShortcutSettings = false
-    /// Full content width, used to bound the leading toolbar header so a long
+    /// Full content width, used to bound the centered toolbar header so a long
     /// workspace name truncates before the trailing toolbar buttons.
     @State private var contentWidth: CGFloat = 0
 
@@ -57,33 +58,30 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
             // which would be dropped under the workspace's own chrome.
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 24) {
+                if backButtonConfiguration != nil {
+                    ToolbarItem(placement: .topBarLeading) {
                         workspaceBackToolbarButton
-                        Menu {
-                            titleMenuContent()
-                        } label: {
-                            ChatSessionHeaderView(
-                                descriptor: conversation.descriptor,
-                                agentState: conversation.agentState,
-                                isConnected: conversation.isConnected,
-                                titleOverride: workspaceName,
-                                subtitle: tabName,
-                                style: .toolbarCompact
-                            )
-                            .frame(
-                                minWidth: MobileNavTitleWidth.floor,
-                                maxWidth: MobileNavTitleWidth(
-                                    contentWidth: contentWidth,
-                                    hasBackButton: backButtonConfiguration != nil,
-                                    hasChatToggle: true
-                                ).leadingCap,
-                                alignment: .leading
-                            )
-                            .layoutPriority(1)
-                        }
-                        .mobileIsolatedGlassCompactToolbarControl(horizontalPadding: 16)
-                        .accessibilityIdentifier("MobileWorkspaceTitleMenu")
+                    }
+                }
+                ToolbarItem(placement: .principal) {
+                    // WorkspaceDetailView mounts the terminal picker/chat
+                    // toggle in a sibling trailing toolbar item.
+                    WorkspaceTitleMenu(
+                        contentWidth: contentWidth,
+                        hasBackButton: backButtonConfiguration != nil,
+                        hasTrailingCluster: true,
+                        hasChatToggle: true,
+                        isEnabled: isTitleMenuEnabled,
+                        menuContent: titleMenuContent
+                    ) {
+                        ChatSessionHeaderView(
+                            descriptor: conversation.descriptor,
+                            agentState: conversation.agentState,
+                            isConnected: conversation.isConnected,
+                            titleOverride: workspaceName,
+                            subtitle: tabName,
+                            style: .toolbarCompact
+                        )
                     }
                 }
             }

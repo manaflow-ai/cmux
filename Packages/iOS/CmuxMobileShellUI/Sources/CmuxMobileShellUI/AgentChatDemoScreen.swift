@@ -64,7 +64,27 @@ struct AgentChatDemoScreen: View {
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        inlineWorkspaceLeadingToolbar(for: stack)
+                        WorkspaceBackButton(
+                            unreadCount: 0,
+                            badgeContrast: .darkBackground,
+                            action: {}
+                        )
+                        .mobileIsolatedGlassCompactToolbarControl(horizontalPadding: 16)
+                    }
+                    ToolbarItem(placement: .principal) {
+                        WorkspaceTitleMenu(
+                            contentWidth: contentWidth,
+                            hasBackButton: true,
+                            hasTrailingCluster: true,
+                            hasChatToggle: true
+                        ) {
+                            Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
+                                .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
+                            Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
+                                .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")
+                        } label: {
+                            header(for: stack)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -82,38 +102,6 @@ struct AgentChatDemoScreen: View {
                         .accessibilityIdentifier("AgentChatInlinePreviewTerminalPicker")
                     }
                 }
-        }
-    }
-
-    private func inlineWorkspaceLeadingToolbar(for stack: DemoStack) -> some View {
-        HStack(spacing: 24) {
-            WorkspaceBackButton(
-                unreadCount: 0,
-                badgeContrast: .darkBackground,
-                action: {}
-            )
-            .mobileIsolatedGlassCompactToolbarControl(horizontalPadding: 16)
-
-            Menu {
-                Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
-                    .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
-                Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
-                    .accessibilityIdentifier("MobileWorkspaceTitleMarkReadMenuItem")
-            } label: {
-                header(for: stack)
-                    .frame(
-                        minWidth: MobileNavTitleWidth.floor,
-                        maxWidth: MobileNavTitleWidth(
-                            contentWidth: contentWidth,
-                            hasBackButton: true,
-                            hasChatToggle: true
-                        ).leadingCap,
-                        alignment: .leading
-                    )
-                    .layoutPriority(1)
-            }
-            .mobileIsolatedGlassCompactToolbarControl(horizontalPadding: 16)
-            .accessibilityIdentifier("MobileWorkspaceTitleMenu")
         }
     }
 

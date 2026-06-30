@@ -49,7 +49,7 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
-    /// Live pane width, used to width-cap the leading glass title pill so a long
+    /// Live pane width, used to width-cap the centered glass title pill so a long
     /// workspace name truncates instead of underlapping the toolbar buttons.
     @State private var contentWidth: CGFloat = 0
     /// Captured at the moment the "View as Text" action is tapped so the
@@ -57,6 +57,7 @@ struct WorkspaceDetailView: View {
     /// workspace selection changes underneath it (e.g. Mac-side sync) while
     /// the sheet is open; the sheet loads its snapshot once per presentation.
     @State private var textSheetSurfaceID: String?
+    @State private var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Chat-mode toggle: when on (and a session exists) the detail renders
     /// the agent chat inline in place of the terminal. The toolbar button
     /// flips this; there is no cover and no Done button.
@@ -84,7 +85,6 @@ struct WorkspaceDetailView: View {
     /// that every push arrived.
     @Environment(\.scenePhase) var scenePhase
     #endif
-
     /// The active browser surface for this workspace, when a browser pane is open.
     private var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
@@ -140,21 +140,23 @@ struct WorkspaceDetailView: View {
         .navigationTitle("")
         .mobileTerminalNavigationChrome()
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                HStack(spacing: 8) {
-                    workspaceBackToolbarButton
-                    WorkspaceTitleMenu(
-                        contentWidth: contentWidth,
-                        hasBackButton: backButtonConfiguration != nil,
-                        hasChatToggle: shouldShowChatToggle,
-                        menuContent: { titleMenuContent }
-                    ) {
-                        Text(browser.title ?? workspace.name)
-                            .font(.headline)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .foregroundStyle(TerminalPalette.foreground)
-                    }
+            if backButtonConfiguration != nil {
+                ToolbarItem(placement: .topBarLeading) { workspaceBackToolbarButton }
+            }
+            ToolbarItem(placement: .principal) {
+                WorkspaceTitleMenu(
+                    contentWidth: contentWidth,
+                    hasBackButton: backButtonConfiguration != nil,
+                    hasTrailingCluster: true,
+                    hasChatToggle: shouldShowChatToggle,
+                    isEnabled: hasTitleMenuActions,
+                    menuContent: { titleMenuContent }
+                ) {
+                    Text(browser.title ?? workspace.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(TerminalPalette.foreground)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -305,17 +307,19 @@ struct WorkspaceDetailView: View {
         #endif
         .toolbar {
             #if os(iOS)
-            ToolbarItem(placement: .topBarLeading) {
-                HStack(spacing: 8) {
-                    workspaceBackToolbarButton
-                    WorkspaceTitleMenu(
-                        contentWidth: contentWidth,
-                        hasBackButton: backButtonConfiguration != nil,
-                        hasChatToggle: shouldShowChatToggle,
-                        menuContent: { titleMenuContent }
-                    ) {
-                        WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
-                    }
+            if backButtonConfiguration != nil {
+                ToolbarItem(placement: .topBarLeading) { workspaceBackToolbarButton }
+            }
+            ToolbarItem(placement: .principal) {
+                WorkspaceTitleMenu(
+                    contentWidth: contentWidth,
+                    hasBackButton: backButtonConfiguration != nil,
+                    hasTrailingCluster: true,
+                    hasChatToggle: shouldShowChatToggle,
+                    isEnabled: hasTitleMenuActions,
+                    menuContent: { titleMenuContent }
+                ) {
+                    WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -353,8 +357,7 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// Compact-stack back button colocated with the leading title so both
-    /// terminal and chat modes share one toolbar order.
+    /// Compact-stack back button rendered as its own leading toolbar island.
     @ViewBuilder
     private var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {
@@ -376,6 +379,7 @@ struct WorkspaceDetailView: View {
             requestClose: requestCloseWorkspaceFromMenu
         )
     }
+
     #endif
 
     private var newWorkspaceToolbarButton: some View {
@@ -399,11 +403,15 @@ struct WorkspaceDetailView: View {
     // because `Menu` has no will-open hook (the menu simply floats over the live
     // keyboard like any nav-bar menu).
     var terminalPickerToolbarButton: some View {
-        Menu {
-            terminalPickerMenuContent
+        let liveRows = terminalPickerLiveRows
+        let rows = terminalPickerRows.isEmpty ? liveRows : terminalPickerRows
+        let selection = rows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
+
+        return Menu {
+            terminalPickerMenuContent(rows: rows, selectedID: selection?.id)
         } label: {
             Label(
-                selectedTerminal?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
+                selection?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
                 systemImage: "rectangle.stack"
             )
             .labelStyle(.iconOnly)
@@ -411,19 +419,24 @@ struct WorkspaceDetailView: View {
         .foregroundStyle(TerminalPalette.foreground)
         .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
-        .accessibilityValue(host)
+        .accessibilityValue(selection?.name ?? "")
+        .onAppear(perform: syncTerminalPickerRows)
+        .onChange(of: liveRows) { _, _ in syncTerminalPickerRows() }
     }
 
     @ViewBuilder
-    private var terminalPickerMenuContent: some View {
+    private func terminalPickerMenuContent(
+        rows: [TerminalPickerMenuRow],
+        selectedID: MobileTerminalPreview.ID?
+    ) -> some View {
         Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
-            ForEach(workspace.terminals) { terminal in
+            ForEach(rows) { terminal in
                 Button {
                     selectTerminalFromPicker(terminal.id)
                 } label: {
                     Label(
                         terminal.name,
-                        systemImage: terminal.id == selectedTerminal?.id && activeBrowser == nil
+                        systemImage: terminal.id == selectedID && activeBrowser == nil
                             ? "checkmark.circle.fill"
                             : "terminal"
                     )
@@ -486,6 +499,12 @@ struct WorkspaceDetailView: View {
             .accessibilityIdentifier("MobileSendFeedbackMenuItem")
         }
         #endif
+    }
+
+    private func syncTerminalPickerRows() {
+        let rows = terminalPickerLiveRows
+        guard terminalPickerRows != rows else { return }
+        terminalPickerRows = rows
     }
 
     #if canImport(UIKit)
