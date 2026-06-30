@@ -295,6 +295,9 @@ final class cmuxUITests: XCTestCase {
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleRenameMenuItem", in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleReadStateMenuItem", in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleCloseMenuItem", in: app)
         tapMenuItem(app.buttons["MobileNewTerminalMenuItem"], in: app)
         await assertHostSelection(
             workspaceID: "workspace-3",
@@ -1652,6 +1655,22 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(
             item.waitForExistence(timeout: 4),
             "Expected terminal menu to contain \(terminalID).",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func assertMenuButtonExists(
+        _ identifier: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let item = app.buttons[identifier]
+        XCTAssertTrue(
+            item.waitForExistence(timeout: 4),
+            "Expected menu to contain \(identifier).",
             file: file,
             line: line
         )
@@ -3419,6 +3438,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         let result: [String: Any]
 
         switch method {
+        case "mobile.host.status":
+            result = mobileHostStatusResult()
         case "workspace.list":
             result = workspaceListResult()
         case "workspace.create":
@@ -3538,6 +3559,18 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         text += terminal.lines.joined(separator: "\r\n")
         text += "\r\n"
         return Data(text.utf8)
+    }
+
+    private func mobileHostStatusResult() -> [String: Any] {
+        [
+            "capabilities": [
+                "workspace.actions.v1",
+                "workspace.read_state.v1",
+                "workspace.close.v1",
+            ],
+            "mac_display_name": "UI Test Mac",
+            "mac_device_id": "ui-test-mac",
+        ]
     }
 
     private func workspaceListResult() -> [String: Any] {

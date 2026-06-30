@@ -149,11 +149,10 @@ struct WorkspaceDetailView: View {
                 }
             }
             ToolbarItem(placement: .topBarLeading) {
-                WorkspaceTitleMenu(
+                WorkspaceToolbarTitleControl(
                     contentWidth: contentWidth,
                     hasBackButton: backButtonConfiguration != nil,
-                    hasChatToggle: shouldShowChatToggle,
-                    menuContent: { titleMenuContent }
+                    hasChatToggle: shouldShowChatToggle
                 ) {
                     Text(browser.title ?? workspace.name)
                         .font(.headline)
@@ -319,11 +318,10 @@ struct WorkspaceDetailView: View {
                 }
             }
             ToolbarItem(placement: .topBarLeading) {
-                WorkspaceTitleMenu(
+                WorkspaceToolbarTitleControl(
                     contentWidth: contentWidth,
                     hasBackButton: backButtonConfiguration != nil,
-                    hasChatToggle: shouldShowChatToggle,
-                    menuContent: { titleMenuContent }
+                    hasChatToggle: shouldShowChatToggle
                 ) {
                     WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
                 }
@@ -440,6 +438,8 @@ struct WorkspaceDetailView: View {
                 .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
             }
         }
+
+        titleMenuContent
 
         Section {
             Button(action: createWorkspaceFromToolbar) {

@@ -12,7 +12,7 @@ import UIKit
 /// The agent chat rendered inline in the workspace detail, in place of the
 /// terminal, when chat mode is toggled on. There is no cover and no Done
 /// button: the same toolbar toggle flips back to the terminal.
-struct WorkspaceChatPane<TitleMenuContent: View>: View {
+struct WorkspaceChatPane: View {
     let session: ChatSessionDescriptor
     let conversation: ChatConversationStore
     let store: CMUXMobileShellStore
@@ -28,8 +28,6 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
     /// Compact-stack back button owned by the workspace toolbar, colocated with
     /// the leading title so their order is deterministic.
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
-    /// Workspace-scoped actions exposed from the title pill.
-    let titleMenuContent: () -> TitleMenuContent
     /// Flips chat mode off (the toggle's "back to terminal" path).
     let onExitChat: () -> Void
 
@@ -66,9 +64,11 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
                     }
                 }
                 ToolbarItem(placement: .topBarLeading) {
-                    Menu {
-                        titleMenuContent()
-                    } label: {
+                    WorkspaceToolbarTitleControl(
+                        contentWidth: contentWidth,
+                        hasBackButton: backButtonConfiguration != nil,
+                        hasChatToggle: true
+                    ) {
                         ChatSessionHeaderView(
                             descriptor: conversation.descriptor,
                             agentState: conversation.agentState,
@@ -77,19 +77,7 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
                             subtitle: tabName,
                             style: .toolbarCompact
                         )
-                        .frame(
-                            minWidth: MobileNavTitleWidth.floor,
-                            maxWidth: MobileNavTitleWidth(
-                                contentWidth: contentWidth,
-                                hasBackButton: backButtonConfiguration != nil,
-                                hasChatToggle: true
-                            ).leadingCap,
-                            alignment: .leading
-                        )
-                        .layoutPriority(1)
                     }
-                    .mobileGlassCompactToolbarControl()
-                    .accessibilityIdentifier("MobileWorkspaceTitleMenu")
                 }
             }
         }
