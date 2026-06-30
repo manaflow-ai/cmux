@@ -19,25 +19,11 @@ struct WorkspaceMachineSnapshots: Equatable {
     ) {
         let filterMachineIDs = Set(MobileWorkspaceListFilter.machineIDs(in: workspaces))
         self.filterMachines = filterMachineIDs.count > 1
-            ? Self.machines(
-                ids: filterMachineIDs,
-                namesByID: namesByID,
-                fallbackName: fallbackName
-            )
+            ? filterMachineIDs
+                .map { WorkspaceFilterMachine(id: $0, namesByID: namesByID, fallbackName: fallbackName) }
+                .sortedForMenuDisplay()
             : []
-        self.macPickerMachines = Self.machines(
-            ids: macPickerMachineIDs,
-            namesByID: namesByID,
-            fallbackName: fallbackName
-        )
-    }
-
-    private static func machines(
-        ids: Set<String>,
-        namesByID: [String: String],
-        fallbackName: String
-    ) -> [WorkspaceFilterMachine] {
-        ids
+        self.macPickerMachines = macPickerMachineIDs
             .map { WorkspaceFilterMachine(id: $0, namesByID: namesByID, fallbackName: fallbackName) }
             .sortedForMenuDisplay()
     }
