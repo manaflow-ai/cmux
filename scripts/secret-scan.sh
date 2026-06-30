@@ -191,10 +191,14 @@ EOF
   # Regression guard for allowlist scope: the production scrubber source is
   # exempt only for its single generic-api-key doc example, so a private key
   # accidentally committed to that file must still be caught (not suppressed).
+  # Assemble the PEM markers at runtime (like fixture_token) so this script does
+  # not itself contain a scannable "-----BEGIN ... PRIVATE KEY-----" literal.
+  local pem_dashes pem_fixture
+  pem_dashes="-----"
+  pem_fixture="${pem_dashes}BEGIN RSA PRIVATE KEY${pem_dashes}\\nMIIEpAIBAAKCAQEAsecretbodyabc/def+ghi==\\n${pem_dashes}END RSA PRIVATE KEY${pem_dashes}"
   mkdir -p "$prod_root/Packages/macOS/CmuxFoundation/Sources/CmuxFoundation"
-  cat > "$prod_root/Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/SentryScrubber.swift" <<'EOF'
-let leaked = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEAsecretbodyabc/def+ghi==\n-----END RSA PRIVATE KEY-----"
-EOF
+  printf 'let leaked = "%s"\n' "$pem_fixture" \
+    > "$prod_root/Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/SentryScrubber.swift"
   set +e
   scan_dir "$gitleaks_bin" "$prod_root" >"$out_file" 2>"$err_file"
   local prod_rc=$?
