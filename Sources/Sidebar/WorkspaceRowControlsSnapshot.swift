@@ -18,6 +18,8 @@ struct WorkspaceRowControlsSnapshot: Equatable {
                 ? configuredControls
                 : configuredControls.filter { $0 != .tasks }
             controls = WorkspaceRowControlSanitizer().sanitized(taskFiltered)
+        } else if workspaceTasksBetaEnabled {
+            controls = [.tasks, .close]
         } else {
             controls = WorkspaceRowControlOption.defaultControls
         }

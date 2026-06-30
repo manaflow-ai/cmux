@@ -360,7 +360,7 @@ import Testing
             configuredControls: [.tasks, .close],
             fontScale: 1
         )
-        #expect(controlsDisabled.controls == [.close])
+        #expect(controlsDisabled.controls == [.tasks, .close])
 
         let tasksDisabled = WorkspaceRowControlsSnapshot.resolved(
             workspaceControlsBetaEnabled: true,
@@ -377,6 +377,24 @@ import Testing
             fontScale: 1
         )
         #expect(enabled.controls == [.tasks, .close])
+    }
+
+    @Test func workspaceTaskSidebarStatusSummarizesOpenAndCompletedState() {
+        let empty = WorkspaceTaskSidebarStatus(openCount: 0, archivedCount: 0)
+        #expect(!empty.hasTasks)
+        #expect(!empty.isComplete)
+
+        let open = WorkspaceTaskSidebarStatus(openCount: 3, archivedCount: 4)
+        #expect(open.hasTasks)
+        #expect(!open.isComplete)
+        #expect(open.openCountDisplayText == "3")
+
+        let capped = WorkspaceTaskSidebarStatus(openCount: 120, archivedCount: 0)
+        #expect(capped.openCountDisplayText == "99+")
+
+        let complete = WorkspaceTaskSidebarStatus(openCount: 0, archivedCount: 2)
+        #expect(complete.hasTasks)
+        #expect(complete.isComplete)
     }
 
     @Test func workspaceRowControlsLayoutKeepsMinimumWidthWhenControlsIncrease() {

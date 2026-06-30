@@ -12164,6 +12164,10 @@ struct VerticalTabsSidebar: View {
                 dragAutoScrollController: dragAutoScrollController
             )
         }
+        let workspaceTaskStatus = WorkspaceTaskSidebarStatus(
+            openCount: tab.openWorkspaceTasks.count,
+            archivedCount: tab.archivedWorkspaceTasks.count
+        )
 
         let row = TabItemView(
             tabManager: tabManager,
@@ -12179,6 +12183,7 @@ struct VerticalTabsSidebar: View {
             accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: liveUnreadCount,
             latestNotificationText: liveLatestNotificationText,
+            workspaceTaskStatus: workspaceTaskStatus,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
@@ -12233,6 +12238,23 @@ struct SidebarWorkspaceFrameAnchorModifier: ViewModifier {
 extension View {
     func sidebarWorkspaceFrameAnchor(id: UUID, isEnabled: Bool) -> some View {
         modifier(SidebarWorkspaceFrameAnchorModifier(id: id, isEnabled: isEnabled))
+    }
+}
+
+nonisolated struct WorkspaceTaskSidebarStatus: Equatable {
+    let openCount: Int
+    let archivedCount: Int
+
+    var hasTasks: Bool {
+        openCount > 0 || archivedCount > 0
+    }
+
+    var isComplete: Bool {
+        openCount == 0 && archivedCount > 0
+    }
+
+    var openCountDisplayText: String {
+        openCount > 99 ? "99+" : "\(openCount)"
     }
 }
 
@@ -12977,6 +12999,7 @@ struct TabItemView: View, Equatable {
         lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
         lhs.unreadCount == rhs.unreadCount &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
+        lhs.workspaceTaskStatus == rhs.workspaceTaskStatus &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
@@ -13013,6 +13036,7 @@ struct TabItemView: View, Equatable {
     let accessibilityWorkspaceCount: Int
     let unreadCount: Int
     let latestNotificationText: String?
+    let workspaceTaskStatus: WorkspaceTaskSidebarStatus
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
@@ -13257,6 +13281,56 @@ struct TabItemView: View, Equatable {
             hasControls: !visibleWorkspaceRowControls.isEmpty,
             shortcutHintModeActive: showsModifierShortcutHints || alwaysShowShortcutHints
         )
+    }
+
+    private var showsWorkspaceTaskStatusBadge: Bool {
+        workspaceTaskStatus.hasTasks && settings.workspaceRowControls.controls.contains(.tasks)
+    }
+
+    private var workspaceTaskStatusHelpText: String {
+        String(
+            format: String(
+                localized: "sidebar.workspaceTasks.status.help",
+                defaultValue: "Workspace Tasks: %d open, %d archived"
+            ),
+            locale: .current,
+            workspaceTaskStatus.openCount,
+            workspaceTaskStatus.archivedCount
+        )
+    }
+
+    @ViewBuilder
+    private var workspaceTaskStatusBadge: some View {
+        if showsWorkspaceTaskStatusBadge {
+            HStack(spacing: 3) {
+                Image(systemName: workspaceTaskStatus.isComplete ? "checkmark.circle.fill" : "checklist")
+                    .font(magnifiedFont(scaledFontSize(8.5), weight: .semibold))
+
+                if workspaceTaskStatus.openCount > 0 {
+                    Text(workspaceTaskStatus.openCountDisplayText)
+                        .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
+            }
+            .foregroundColor(workspaceTaskStatus.isComplete ? activeSecondaryColor(0.82) : workspaceTaskAccentColor)
+            .padding(.horizontal, workspaceTaskStatus.openCount > 0 ? 5 : 0)
+            .frame(height: 16)
+            .frame(minWidth: workspaceTaskStatus.openCount > 0 ? 22 : 12, alignment: .center)
+            .background {
+                if workspaceTaskStatus.openCount > 0 {
+                    Capsule()
+                        .fill(workspaceTaskAccentColor.opacity(usesInvertedActiveForeground ? 0.2 : 0.12))
+                }
+            }
+            .safeHelp(workspaceTaskStatusHelpText)
+            .accessibilityLabel(workspaceTaskStatusHelpText)
+        }
+    }
+
+    private var workspaceTaskAccentColor: Color {
+        Color(red: 0.86, green: 0.25, blue: 0.19)
     }
 
     private var workspaceShortcutLabel: String? {
@@ -13531,6 +13605,8 @@ struct TabItemView: View, Equatable {
                         .safeHelp(cameraInUseTooltip)
                         .accessibilityLabel(cameraInUseTooltip)
                 }
+
+                workspaceTaskStatusBadge
 
                 Text(displayedTitle)
                     .font(magnifiedFont(scaledFontSize(12.5), weight: titleFontWeight))
