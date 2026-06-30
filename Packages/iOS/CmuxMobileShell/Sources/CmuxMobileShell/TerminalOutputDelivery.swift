@@ -4,32 +4,44 @@ import Foundation
 
 /// One terminal-output chunk waiting to be applied by a mounted mobile surface.
 struct TerminalOutputDelivery: Equatable, Sendable {
+    enum ReplacementScope: Equatable, Sendable {
+        case byteViewport
+        case renderGridViewport
+        case viewportPolicy
+    }
+
     private enum Payload: Equatable, Sendable {
         case bytes(Data)
         case renderGrid(MobileTerminalRenderGridFrame)
     }
 
     private var payload: Payload
-    var replaceable: Bool
+    var replacementScope: ReplacementScope?
     var viewportPolicy: MobileTerminalOutputViewportPolicy?
+
+    var replaceable: Bool {
+        replacementScope != nil
+    }
 
     init(
         bytes: Data,
         replaceable: Bool,
+        replacementScope: ReplacementScope? = nil,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
     ) {
         self.payload = .bytes(bytes)
-        self.replaceable = replaceable
+        self.replacementScope = replaceable ? (replacementScope ?? .byteViewport) : nil
         self.viewportPolicy = viewportPolicy
     }
 
     init(
         renderGrid frame: MobileTerminalRenderGridFrame,
         replaceable: Bool,
+        replacementScope: ReplacementScope? = nil,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
     ) {
         self.payload = .renderGrid(frame)
-        self.replaceable = replaceable
+        self.replacementScope = replaceable ? (replacementScope ?? .renderGridViewport) : nil
         self.viewportPolicy = viewportPolicy
     }
 
@@ -95,10 +107,10 @@ struct TerminalOutputDeliveryQueue: Sendable {
     }
 
     private mutating func appendPending(_ delivery: TerminalOutputDelivery) {
-        if delivery.replaceable,
+        if let replacementScope = delivery.replacementScope,
            let lastIndex = pending.indices.last,
            lastIndex >= pendingHeadIndex,
-           pending[lastIndex].replaceable {
+           pending[lastIndex].replacementScope == replacementScope {
             pending[lastIndex] = delivery
         } else {
             pending.append(delivery)

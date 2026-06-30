@@ -144,6 +144,37 @@ import Testing
 }
 
 @MainActor
+@Test func hybridPrimaryInputBehindRequestsReplayInsteadOfWaitingOnAdvisoryRenderGrid() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 0, text: "raw"))
+    let rawDelivered = try await pollUntil { collector.lines.contains { $0.contains("raw") } }
+    #expect(rawDelivered)
+
+    await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
+    let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
+    #expect(inputSent)
+    let replayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCountAfterMount
+    }
+    #expect(
+        replayRequested,
+        "hybrid primary output is advanced by terminal.bytes, so input recovery must request replay instead of waiting on advisory render-grid frames"
+    )
+    collector.unmount()
+}
+
+@MainActor
 @Test func alternateRenderGridPinsGridAndSuppressesRawBytes() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()

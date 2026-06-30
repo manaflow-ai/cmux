@@ -171,6 +171,10 @@ actor LivenessHostRouter {
             ])
         case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
+        case "terminal.input":
+            return try? Self.resultFrame(id: id, result: [
+                "terminal_seq": 100,
+            ])
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
         }

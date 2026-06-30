@@ -31,6 +31,7 @@ extension MobileShellComposite {
             TerminalOutputDelivery(
                 bytes: Data(),
                 replaceable: true,
+                replacementScope: .viewportPolicy,
                 viewportPolicy: policy
             ),
             surfaceID: surfaceID

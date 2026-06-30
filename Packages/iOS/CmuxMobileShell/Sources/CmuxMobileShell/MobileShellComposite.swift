@@ -6241,8 +6241,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let localSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
         guard remoteSeq > localSeq else { return }
-        if terminalOutputTransport.usesRenderGrid,
-           terminalEventListenerTask != nil {
+        let canRenderGridAdvancePendingSeq = terminalOutputTransport == .renderGrid
+            || (terminalOutputTransport == .hybrid && terminalActiveScreenBySurfaceID[surfaceID] == .alternate)
+        if canRenderGridAdvancePendingSeq, terminalEventListenerTask != nil {
             let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID]
             pendingTerminalByteEndSeqBySurfaceID[surfaceID] = max(remoteSeq, pendingSeq ?? 0)
             if let pendingSeq, localSeq < pendingSeq {
