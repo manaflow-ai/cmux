@@ -254,6 +254,47 @@ import Testing
 }
 
 @MainActor
+@Test func terminalReplayBarrierStaysActiveAfterRetryExhaustionWithoutDroppedOutput() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    #expect(String(decoding: coldReplayChunk.data, as: UTF8.self) == "cold-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+
+    await router.failNextReplay(count: 3)
+    store.deliverTerminalBytes(Data("stalled-first".utf8), surfaceID: surfaceID)
+    let stalledChunk = try #require(await iterator.next())
+    store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
+
+    let exhaustedRetries = await waitForReplayRequestCount(
+        router,
+        atLeast: replayCountAfterMount + 3
+    )
+    #expect(exhaustedRetries, "reset replay should exhaust the initial request plus two retries")
+
+    let failureSettled = await waitForReplayBarrierFailureToSettle {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(failureSettled)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil)
+
+    let acceptedAfterExhaustion = store.deliverTerminalBytes(
+        Data("live-after-exhausted-replay".utf8),
+        surfaceID: surfaceID
+    )
+    #expect(acceptedAfterExhaustion == false)
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+}
+
+@MainActor
 @Test func terminalReplayBarrierRetriesWhenReplayAckChunkResets() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
