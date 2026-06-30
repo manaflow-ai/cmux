@@ -73,26 +73,18 @@ struct AgentChatDemoScreen: View {
                         ToolbarSpacer(.fixed, placement: .topBarLeading)
                     }
                     ToolbarItem(placement: .topBarLeading) {
-                        Menu {
+                        WorkspaceTitleMenu(
+                            contentWidth: contentWidth,
+                            hasBackButton: true,
+                            hasChatToggle: true
+                        ) {
                             Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
                                 .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
                             Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
-                                .accessibilityIdentifier("MobileWorkspaceTitleMarkReadMenuItem")
+                                .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")
                         } label: {
                             header(for: stack)
-                                .frame(
-                                    minWidth: MobileNavTitleWidth.floor,
-                                    maxWidth: MobileNavTitleWidth(
-                                        contentWidth: contentWidth,
-                                        hasBackButton: true,
-                                        hasChatToggle: true
-                                    ).leadingCap,
-                                    alignment: .leading
-                                )
-                                .layoutPriority(1)
                         }
-                        .mobileGlassCompactToolbarControl()
-                        .accessibilityIdentifier("MobileWorkspaceTitleMenu")
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

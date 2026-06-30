@@ -60,9 +60,12 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
                 ToolbarItem(placement: .topBarLeading) {
                     HStack(spacing: 8) {
                         workspaceBackToolbarButton
-                        Menu {
-                            titleMenuContent()
-                        } label: {
+                        WorkspaceTitleMenu(
+                            contentWidth: contentWidth,
+                            hasBackButton: backButtonConfiguration != nil,
+                            hasChatToggle: true,
+                            menuContent: titleMenuContent
+                        ) {
                             ChatSessionHeaderView(
                                 descriptor: conversation.descriptor,
                                 agentState: conversation.agentState,
@@ -71,19 +74,7 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
                                 subtitle: tabName,
                                 style: .toolbarCompact
                             )
-                            .frame(
-                                minWidth: MobileNavTitleWidth.floor,
-                                maxWidth: MobileNavTitleWidth(
-                                    contentWidth: contentWidth,
-                                    hasBackButton: backButtonConfiguration != nil,
-                                    hasChatToggle: true
-                                ).leadingCap,
-                                alignment: .leading
-                            )
-                            .layoutPriority(1)
                         }
-                        .mobileGlassCompactToolbarControl()
-                        .accessibilityIdentifier("MobileWorkspaceTitleMenu")
                     }
                 }
             }

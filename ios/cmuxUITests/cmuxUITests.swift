@@ -591,9 +591,9 @@ final class cmuxUITests: XCTestCase {
 
         tapCompactToolbarTitleMenu(titleMenu, in: app)
 
-        XCTAssertTrue(app.buttons["Rename Workspace"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.buttons["Mark as Read"].exists)
-        XCTAssertFalse(app.buttons["New Terminal"].exists)
+        XCTAssertTrue(app.buttons["MobileWorkspaceTitleRenameMenuItem"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileWorkspaceTitleReadStateMenuItem"].exists)
+        XCTAssertFalse(app.buttons["MobileNewTerminalMenuItem"].exists)
     }
 
     @MainActor
@@ -626,8 +626,8 @@ final class cmuxUITests: XCTestCase {
         add(screenshotAttachment)
 
         tapCompactToolbarTitleMenu(titleMenu, in: app)
-        XCTAssertTrue(app.buttons["Rename Workspace"].waitForExistence(timeout: 4))
-        XCTAssertFalse(app.buttons["New Terminal"].exists)
+        XCTAssertTrue(app.buttons["MobileWorkspaceTitleRenameMenuItem"].waitForExistence(timeout: 4))
+        XCTAssertFalse(app.buttons["MobileNewTerminalMenuItem"].exists)
     }
 
     /// Regression for WhatsApp-style chat keyboard tracking: focusing the chat
