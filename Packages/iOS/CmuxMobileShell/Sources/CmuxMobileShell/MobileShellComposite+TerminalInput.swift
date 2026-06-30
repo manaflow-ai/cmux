@@ -8,6 +8,10 @@ private let terminalInputLog = Logger(
 )
 
 extension MobileShellComposite {
+    /// Queue raw text to the currently selected terminal.
+    ///
+    /// Enqueues synchronously so input enters the FIFO in submission order; a
+    /// no-op when no workspace or terminal is currently selected.
     public func sendTerminalRawInput(_ text: String) {
         #if DEBUG
         terminalInputLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
