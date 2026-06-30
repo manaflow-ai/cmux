@@ -37,23 +37,28 @@ sha256_check() {
   fi
 }
 
-sha256_sum() {
-  local target="$1"
+# Verify that file $2 matches the expected SHA-256 $1, feeding the check list on
+# stdin so no attacker-writable checksum file is involved in the comparison.
+verify_sha256() {
+  local expected="$1" file="$2"
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$target"
+    printf '%s  %s\n' "$expected" "$file" | sha256sum -c -
   else
-    shasum -a 256 "$target"
+    printf '%s  %s\n' "$expected" "$file" | shasum -a 256 -c -
   fi
 }
 
-# Repo-pinned SHA-256 checksums for the gitleaks release archives. Committed here
-# (and reviewed in PRs) so this required CI gate verifies the downloaded binary
-# against a trust anchor inside the repository rather than a checksum fetched
-# from the same mutable release: if the upstream release assets are later
-# replaced or the account is compromised, the archive will no longer match and
-# the scan fails closed instead of executing an attacker-controlled binary.
-# Update these when bumping GITLEAKS_VERSION (values come from the upstream
-# gitleaks_<version>_checksums.txt).
+# Repo-pinned SHA-256 trust anchors for gitleaks, committed here (and reviewed in
+# PRs) so this required CI gate verifies what it executes against a checksum
+# inside the repository rather than one fetched from the same mutable release: if
+# the upstream assets are later replaced or the account is compromised, the
+# download no longer matches and the scan fails closed instead of running an
+# attacker-controlled binary. The archive hash gives a fail-fast check on the
+# download; the binary hash is the anchor for the executable itself and is
+# re-checked on every cache reuse so a poisoned cache entry can never run.
+# Update BOTH when bumping GITLEAKS_VERSION: the archive value comes from the
+# upstream gitleaks_<version>_checksums.txt, the binary value is the sha256 of
+# the `gitleaks` file inside that archive.
 gitleaks_pinned_sha256() {
   local os="$1" arch="$2"
   case "${GITLEAKS_VERSION}_${os}_${arch}" in
@@ -62,8 +67,23 @@ gitleaks_pinned_sha256() {
     8.30.1_linux_arm64) echo "e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080" ;;
     8.30.1_linux_x64) echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb" ;;
     *)
-      echo "No pinned gitleaks checksum for version ${GITLEAKS_VERSION} on ${os}/${arch}." >&2
+      echo "No pinned gitleaks archive checksum for version ${GITLEAKS_VERSION} on ${os}/${arch}." >&2
       echo "Add it to gitleaks_pinned_sha256() in scripts/secret-scan.sh when bumping the version." >&2
+      return 1
+      ;;
+  esac
+}
+
+gitleaks_pinned_binary_sha256() {
+  local os="$1" arch="$2"
+  case "${GITLEAKS_VERSION}_${os}_${arch}" in
+    8.30.1_darwin_arm64) echo "ba52fb1bfabbcde42f032afad3d6e0b19dff8ed105229a16e7caa338bbc0e84f" ;;
+    8.30.1_darwin_x64) echo "cee01fea7173f1b779dff188e1c26ecbcb4027d394acc573b23aaf0be260e291" ;;
+    8.30.1_linux_arm64) echo "00e91bbe655bd7c47753e8cfe61cb76ea1a5d7e7702fe161ee40102b46b3823b" ;;
+    8.30.1_linux_x64) echo "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509" ;;
+    *)
+      echo "No pinned gitleaks binary checksum for version ${GITLEAKS_VERSION} on ${os}/${arch}." >&2
+      echo "Add it to gitleaks_pinned_binary_sha256() in scripts/secret-scan.sh when bumping the version." >&2
       return 1
       ;;
   esac
@@ -106,16 +126,18 @@ ensure_gitleaks() {
     echo "Ignoring system gitleaks ${installed_version:-unknown}; using pinned ${GITLEAKS_VERSION}" >&2
   fi
 
-  local os arch cache_dir bin
+  local os arch cache_dir bin expected_bin_sha
   os="$(platform_name)"
   arch="$(arch_name)"
   cache_dir="$(gitleaks_cache_dir "$os" "$arch")"
   bin="$cache_dir/gitleaks"
+  expected_bin_sha="$(gitleaks_pinned_binary_sha256 "$os" "$arch")" || return 1
 
-  # Reuse a cached binary only after re-verifying its recorded checksum, so a
-  # tampered or corrupted file at this path is never executed without validation.
-  if [[ -x "$bin" && -f "$cache_dir/gitleaks.sha256" ]] \
-    && (cd "$cache_dir" && sha256_check gitleaks.sha256 >/dev/null 2>&1); then
+  # Reuse a cached binary only if it matches the repo-pinned binary checksum, so a
+  # stale or poisoned cache entry (e.g. one seeded by an earlier job on a
+  # persistent/self-hosted runner) is never executed without re-checking the
+  # repository trust anchor.
+  if [[ -x "$bin" ]] && verify_sha256 "$expected_bin_sha" "$bin" >/dev/null 2>&1; then
     printf '%s\n' "$bin"
     return
   fi
@@ -128,11 +150,12 @@ ensure_gitleaks() {
   expected_sha="$(gitleaks_pinned_sha256 "$os" "$arch")" || return 1
   work="$(mktemp -d)"
 
-  # Download and verify into a private, unpredictable work dir (mktemp -d is mode
-  # 0700), then install atomically into the cache. Nothing is executed from a
-  # shared or attacker-writable location, and the archive is verified against the
-  # repo-pinned checksum (not one fetched from the same release) before
-  # extraction. The && chain stops at the first failure so a network error never
+  # Download into a private, unpredictable work dir (mktemp -d is mode 0700),
+  # verify the archive against the repo-pinned archive checksum (a fail-fast
+  # check on the download, not one fetched from the same release), extract, then
+  # verify the extracted binary against the repo-pinned binary checksum before
+  # installing it. Nothing is executed from a shared or attacker-writable
+  # location. The && chain stops at the first failure so a network error never
   # runs later steps or installs a partial binary, and the subshell EXIT trap is
   # local, so it never disturbs the RETURN trap that self_test installs in the
   # parent shell. errexit is not inherited into the $(ensure_gitleaks) command
@@ -145,11 +168,10 @@ ensure_gitleaks() {
       sha256_check "$asset.sha256" >&2 &&
       tar -xzf "$asset" gitleaks &&
       chmod 0755 gitleaks &&
-      sha256_sum gitleaks > gitleaks.sha256 &&
+      verify_sha256 "$expected_bin_sha" gitleaks >&2 &&
       mkdir -p "$cache_dir" &&
       { chmod 0700 "$cache_dir" 2>/dev/null || true; } &&
-      mv -f gitleaks "$bin" &&
-      mv -f gitleaks.sha256 "$cache_dir/gitleaks.sha256"
+      mv -f gitleaks "$bin"
   ) || {
     echo "Failed to download and verify pinned gitleaks ${GITLEAKS_VERSION}." >&2
     return 1
