@@ -2577,7 +2577,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let previousStillForeground = connectionState == .connected
             && remoteClient != nil
             && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
-        guard !previousStillForeground else { return true }
+        if cancelRestoreGeneration == nil {
+            guard !previousStillForeground else { return true }
+        }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let (host, port) = Self.firstReconnectHostPortRoute(
             previousActive.routes,
