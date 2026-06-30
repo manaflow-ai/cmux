@@ -43,6 +43,9 @@ final class AgentChatTranscriptService {
         registry.onRecordChanged = { [weak self] record, previous in
             self?.handleRecordChange(record, previous: previous)
         }
+        registry.onRecordRemoved = { [weak self] record in
+            self?.handleRecordRemoval(record)
+        }
         self.proseStreamer = AgentChatProseStreamer(
             emit: { [weak self] frame in self?.emit(frame: frame) },
             snapshot: { surfaceID in Self.screenRows(surfaceID: surfaceID) },
@@ -430,6 +433,16 @@ final class AgentChatTranscriptService {
         if Self.descriptorChangedMeaningfully(previous: previous, current: record) {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .descriptorChanged(record.descriptor)))
         }
+    }
+
+    private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
+        proseStreamer.turnEnded(sessionID: record.sessionID)
+        if let tailer = tailers.removeValue(forKey: record.sessionID) {
+            Task { await tailer.stop() }
+        }
+        failedResolutions.remove(record.sessionID)
+        guard MobileHostService.hasEventSubscribers(topic: Self.eventTopic) else { return }
+        emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved))
     }
 
     private static func descriptorChangedMeaningfully(

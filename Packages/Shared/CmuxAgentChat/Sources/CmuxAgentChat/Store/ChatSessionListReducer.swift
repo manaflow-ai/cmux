@@ -67,6 +67,8 @@ public struct ChatSessionListReducer: Sendable {
             // conversation's `ChatConversationStore` still consumes `stateChanged`
             // directly for its own live state (it is not version-reconciled).
             return sessions
+        case .sessionRemoved:
+            return sessions.filter { $0.id != frame.sessionID }
         case .appended, .updated, .terminalBlocks, .streamingProse, .reset, .unknown:
             // Transcript-content frames don't affect the session list.
             return sessions

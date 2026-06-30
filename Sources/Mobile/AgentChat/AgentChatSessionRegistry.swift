@@ -29,7 +29,7 @@ final class AgentChatSessionRegistry {
     /// brand-new record), so the owner derives state/descriptor deltas in
     /// one place instead of hand-maintained flags.
     var onRecordChanged: ((AgentChatSessionRecord, _ previous: AgentChatSessionRecord?) -> Void)?
-
+    var onRecordRemoved: ((AgentChatSessionRecord) -> Void)?
     /// Per-session timestamp of the last hook-store file consult, bounding
     /// main-actor disk reads during tool storms.
     private var hookStoreConsultedAt: [String: Date] = [:]
@@ -557,10 +557,12 @@ final class AgentChatSessionRegistry {
             .map(\.sessionID)
         guard !aliases.isEmpty else { return }
         for alias in aliases {
+            guard let record = records.removeValue(forKey: alias) else { continue }
             exitWatchers[alias]?.source.cancel()
             exitWatchers[alias] = nil
             hookStoreConsultedAt.removeValue(forKey: alias)
-            records.removeValue(forKey: alias)
+            updateLiveSessionIndex(previous: record, current: nil)
+            onRecordRemoved?(record)
         }
         if let indexed = liveSessionIDBySurfaceID[surfaceID],
            aliases.contains(indexed) {
@@ -674,7 +676,7 @@ final class AgentChatSessionRegistry {
 
     private func updateLiveSessionIndex(
         previous: AgentChatSessionRecord?,
-        current: AgentChatSessionRecord
+        current: AgentChatSessionRecord?
     ) {
         let previousSurfaceID = Self.liveSurfaceID(previous)
         let currentSurfaceID = Self.liveSurfaceID(current)
@@ -684,7 +686,7 @@ final class AgentChatSessionRegistry {
             liveSessionIDBySurfaceID.removeValue(forKey: previousSurfaceID)
             rebuildLiveSessionIndex(surfaceID: previousSurfaceID)
         }
-        guard let currentSurfaceID else { return }
+        guard let current, let currentSurfaceID else { return }
         guard let indexedSessionID = liveSessionIDBySurfaceID[currentSurfaceID],
               let indexed = records[indexedSessionID],
               indexed.surfaceID == currentSurfaceID,

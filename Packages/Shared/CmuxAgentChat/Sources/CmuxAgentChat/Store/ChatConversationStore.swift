@@ -600,8 +600,8 @@ public final class ChatConversationStore {
             if case .idle = state {} else { didFlushThisIdleWindow = false }
         case .descriptorChanged(let descriptor):
             self.descriptor = descriptor
-            agentState = descriptor.state
-            if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
+            agentState = descriptor.state; if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
+        case .sessionRemoved: agentState = .ended
         case .terminalBlocks(let blocks):
             // Upsert by id: a new id appends to the order; an existing id
             // replaces in place (output grew / command finished). Whole-block

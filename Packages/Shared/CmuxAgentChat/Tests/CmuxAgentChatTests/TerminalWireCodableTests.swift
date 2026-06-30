@@ -40,6 +40,14 @@ struct TerminalWireCodableTests {
         #expect(try decoder.decode(ChatSessionEvent.self, from: data) == event)
     }
 
+    @Test("ChatSessionEvent.sessionRemoved round-trips")
+    func sessionRemovedEventRoundTrip() throws {
+        let event = ChatSessionEvent.sessionRemoved
+        let data = try encoder.encode(event)
+        #expect(String(decoding: data, as: UTF8.self).contains("\"session_removed\""))
+        #expect(try decoder.decode(ChatSessionEvent.self, from: data) == event)
+    }
+
     @Test("ChatHistoryPage carries terminal blocks and stays backward-compatible")
     func historyPageTerminal() throws {
         let page = ChatHistoryPage(

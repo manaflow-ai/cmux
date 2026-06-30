@@ -215,6 +215,8 @@ struct AgentChatSessionRegistryObservationTests {
         let surfaceID = UUID().uuidString
         let pendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID)
         let realSessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        var removedIDs: [String] = []
+        registry.onRecordRemoved = { removedIDs.append($0.sessionID) }
 
         registry.noteResumeInitiated(
             sessionID: pendingID,
@@ -245,6 +247,7 @@ struct AgentChatSessionRegistryObservationTests {
 
         let record = try #require(registry.record(sessionID: realSessionID))
         #expect(registry.record(sessionID: pendingID) == nil)
+        #expect(removedIDs == [pendingID])
         #expect(record.pid == 555)
         #expect(registry.liveSession(surfaceID: surfaceID)?.sessionID == realSessionID)
     }
