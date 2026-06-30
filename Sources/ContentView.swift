@@ -12438,18 +12438,14 @@ struct VerticalTabsSidebar: View {
         targets: [SidebarWorkspaceReorderDropOverlay.Target],
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceReorderDropPlan? {
-        // A tag-filtered sidebar renders only the matching subset of
-        // workspaces, so the drag overlay's targets/frames describe the
-        // filtered row order. The resolver plans an insertion index in that
-        // filtered space, but `reorderSidebarWorkspace` commits the index
-        // against the full `tabs` order (and clamps it against the full pin
-        // tiers / group membership). With hidden rows between positions those
-        // spaces diverge, so committing a filtered index would drop the
-        // workspace at the wrong absolute slot and feed wrong neighbors to the
-        // drag-driven group inference. Refuse to plan a reorder/drop while a
-        // filter is active — the row stays put and no indicator is drawn. The
-        // user can clear the filter to reorder; socket/CLI reorders are
-        // unaffected because they operate on full-list ids directly.
+        // A tag filter renders only the matching workspaces, so the drag
+        // overlay plans an insertion index in that filtered row order while
+        // `reorderSidebarWorkspace` commits against the full `tabs` order.
+        // Hidden rows make those spaces diverge, so a filtered drop would land
+        // the workspace at the wrong slot (and feed wrong neighbors to group
+        // inference). Refuse to reorder while filtered — no indicator is drawn
+        // and the row stays put; clear the filter to reorder. Keyboard and
+        // socket/CLI reorders use full-list ids and are unaffected.
         guard renderContext.activeWorkspaceTagFilter == nil else { return nil }
         guard let draggedTabId = dragState.draggedTabId else { return nil }
         return SidebarWorkspaceReorderDropResolver().plan(
