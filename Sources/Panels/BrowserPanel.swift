@@ -3030,6 +3030,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private var pendingDistinctPortalHostReplacementPaneId: UUID?
     private var lockedPortalHost: PortalHostLock?
     private var webViewCancellables = Set<AnyCancellable>()
+    /// App-wide appearance/proxy broadcast center (injectable; `.default` in production).
+    private let notificationCenter: NotificationCenter
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
     private var downloadDelegate: BrowserDownloadDelegate?
@@ -3955,13 +3957,15 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
-        remoteWebsiteDataStoreIdentifier: UUID? = nil
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        notificationCenter: NotificationCenter = .default
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
         self.workspaceId = workspaceId
+        self.notificationCenter = notificationCenter
         let requestedProfileID = profileID ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
         let resolvedProfileID = BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil
             ? requestedProfileID
@@ -4796,7 +4800,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let initialIsUsingMicrophone = webView.microphoneCaptureState != .none
         setMediaActivity(isUsingMicrophone: initialIsUsingMicrophone, isUsingCamera: initialIsUsingCamera, reason: "media_capture_changed")
 
-        NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
+        notificationCenter.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
                 self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
@@ -4805,7 +4809,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Keep the local-workspace system-proxy mirror fresh when the user
         // toggles a global proxy or switches network locations mid-session.
-        NotificationCenter.default.publisher(for: .browserSystemProxySettingsDidChange)
+        notificationCenter.publisher(for: .browserSystemProxySettingsDidChange)
             .sink { [weak self] _ in self?.applyProxyConfigurationIfAvailable() }
             .store(in: &webViewCancellables)
 
