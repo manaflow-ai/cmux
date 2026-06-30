@@ -298,7 +298,7 @@ struct WorkspaceShellView: View {
             selection: macSelection,
             workspaces: store.workspaces,
             displayPairedMacs: store.displayPairedMacs,
-            connectedMacDeviceID: store.connectedMacDeviceID,
+            foregroundMacDeviceID: store.connectedMacDeviceID ?? store.activeTicket?.macDeviceID,
             aliasesFor: { store.pairedMacAliasIDs(for: $0) }
         )
     }

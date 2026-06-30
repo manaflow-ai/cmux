@@ -82,13 +82,27 @@ import Testing
             displayPairedMacs: [
                 pairedMac(id: "mac-fresh", name: "Desk Mac", lastSeenAt: 20),
             ],
-            connectedMacDeviceID: "mac-old",
+            foregroundMacDeviceID: "mac-old",
             aliasesFor: { id in
                 id == "mac-fresh" ? ["mac-fresh", "mac-old"] : [id]
             }
         )
 
         #expect(scope.visibleSelection == .machine("mac-fresh"))
+        #expect(scope.canCreateWorkspace(base: true))
+    }
+
+    @Test func sharedSelectionScopeAllowsCreateWhenManualForegroundMacIsSelected() {
+        let manualID = "manual-127.0.0.1:50922"
+        let scope = WorkspaceMacSelectionScope(
+            selection: .machine(manualID),
+            workspaces: [workspace(id: "ws-manual", macDeviceID: manualID)],
+            displayPairedMacs: [],
+            foregroundMacDeviceID: manualID,
+            aliasesFor: { [$0] }
+        )
+
+        #expect(scope.visibleSelection == .machine(manualID))
         #expect(scope.canCreateWorkspace(base: true))
     }
 

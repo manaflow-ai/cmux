@@ -5,14 +5,14 @@ struct WorkspaceMacSelectionScope {
     let selection: WorkspaceMacSelection
     let aliasIndex: WorkspaceMacPickerAliasIndex
     let machineIDs: Set<String>
-    let connectedMacDeviceID: String?
+    let foregroundMachineIDs: Set<String>
     let workspaces: [MobileWorkspacePreview]
 
     init(
         selection: WorkspaceMacSelection,
         workspaces: [MobileWorkspacePreview],
         displayPairedMacs: [MobilePairedMac],
-        connectedMacDeviceID: String?,
+        foregroundMacDeviceID: String?,
         aliasesFor: (String) -> [String]
     ) {
         let aliasIndex = WorkspaceMacPickerAliasIndex(
@@ -26,14 +26,18 @@ struct WorkspaceMacSelectionScope {
         for mac in displayPairedMacs {
             machineIDs.insert(mac.macDeviceID)
         }
-        if let connectedMacDeviceID {
-            machineIDs.insert(aliasIndex.representativeID(for: connectedMacDeviceID))
+        let foregroundMachineIDs: Set<String>
+        if let foregroundMacDeviceID {
+            foregroundMachineIDs = aliasIndex.filterMachineIDs(for: foregroundMacDeviceID)
+            machineIDs.insert(aliasIndex.representativeID(for: foregroundMacDeviceID))
+        } else {
+            foregroundMachineIDs = []
         }
 
         self.selection = selection
         self.aliasIndex = aliasIndex
         self.machineIDs = machineIDs
-        self.connectedMacDeviceID = connectedMacDeviceID
+        self.foregroundMachineIDs = foregroundMachineIDs
         self.workspaces = workspaces
     }
 
@@ -66,8 +70,7 @@ struct WorkspaceMacSelectionScope {
         guard canCreateWorkspace else { return false }
         switch visibleSelection {
         case .machine(let id):
-            guard let connectedMacDeviceID else { return false }
-            return aliasIndex.filterMachineIDs(for: id).contains(connectedMacDeviceID)
+            return !foregroundMachineIDs.isDisjoint(with: aliasIndex.filterMachineIDs(for: id))
         case .all, .automatic:
             return true
         }
@@ -76,8 +79,7 @@ struct WorkspaceMacSelectionScope {
     var canRenderGroupsForSelection: Bool {
         switch visibleSelection {
         case .machine(let id):
-            guard let connectedMacDeviceID else { return false }
-            return aliasIndex.filterMachineIDs(for: id).contains(connectedMacDeviceID)
+            return !foregroundMachineIDs.isDisjoint(with: aliasIndex.filterMachineIDs(for: id))
         case .all, .automatic:
             return visibleRowsAreOnlyForegroundMac
         }
@@ -85,11 +87,10 @@ struct WorkspaceMacSelectionScope {
 
     private var visibleRowsAreOnlyForegroundMac: Bool {
         guard !workspaces.isEmpty else { return false }
-        guard let connectedMacDeviceID else { return false }
-        let foregroundIDs = aliasIndex.filterMachineIDs(for: connectedMacDeviceID)
+        guard !foregroundMachineIDs.isEmpty else { return false }
         return workspaces.allSatisfy { workspace in
             guard let macDeviceID = workspace.macDeviceID else { return false }
-            return foregroundIDs.contains(macDeviceID)
+            return foregroundMachineIDs.contains(macDeviceID)
         }
     }
 }
