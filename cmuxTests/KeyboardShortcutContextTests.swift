@@ -399,6 +399,12 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
         KeyboardShortcutSettings.resetAll()
 
+        // Pane focus left/right now own Cmd+[ / Cmd+] by default with higher
+        // routing priority; unbind them so this test isolates the focus-history
+        // vs. browser-history menu suppression it asserts.
+        KeyboardShortcutSettings.clearShortcut(for: .focusLeft)
+        KeyboardShortcutSettings.clearShortcut(for: .focusRight)
+
         let focusBack = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
         let focusForward = KeyboardShortcutSettings.shortcut(for: .focusHistoryForward)
 
