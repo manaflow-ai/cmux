@@ -2406,6 +2406,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if let pending = pendingCopyableTextRead,
            now - pending.startedAt >= Self.copyableTextTimeout {
             pendingCopyableTextRead = nil
+            pending.cancel()
             pending.continuation.resume(returning: nil)
         }
         return false
@@ -2438,6 +2439,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func skipPendingCopyableTextRead() {
         guard let pending = pendingCopyableTextRead else { return }
         pendingCopyableTextRead = nil
+        pending.cancel()
         pending.continuation.resume(returning: nil)
     }
 
@@ -2453,6 +2455,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func completePendingCopyableTextRead(id: UInt64, returning text: String?) -> Bool {
         guard let pending = pendingCopyableTextRead, pending.id == id else { return false }
         pendingCopyableTextRead = nil
+        pending.cancel()
         pending.continuation.resume(returning: text)
         return true
     }
@@ -2769,20 +2772,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let operationID = makeSurfaceOperationID()
             if let existing = pendingCopyableTextRead {
                 pendingCopyableTextRead = nil
+                existing.cancel()
                 existing.continuation.resume(returning: nil)
             }
+            let cancellation = SurfaceOperationCancellationToken()
             pendingCopyableTextRead = PendingCopyableTextRead(
                 id: operationID,
                 startedAt: CACurrentMediaTime(),
+                cancellation: cancellation,
                 continuation: continuation
             )
             ensureSurfaceOperationDeadlinePump()
-            let read = CopyableTextRead(surface: expectedSurface, generation: generation)
+            let read = CopyableTextRead(
+                surface: expectedSurface,
+                generation: generation,
+                cancellation: cancellation
+            )
             outputQueue.async { [weak self] in
+                guard !read.cancellation.isCancelled else { return }
                 // SCREEN = scrollback + all written rows. Fall back to the
                 // viewport-only read if the screen read fails outright.
                 let text = Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_SCREEN)
                     ?? Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
+                guard !read.cancellation.isCancelled else { return }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     guard self.surface == read.surface,
@@ -4186,7 +4198,12 @@ nonisolated private struct PendingVisibleSnapshot {
 nonisolated private struct PendingCopyableTextRead {
     let id: UInt64
     let startedAt: CFTimeInterval
+    let cancellation: SurfaceOperationCancellationToken
     let continuation: CheckedContinuation<String?, Never>
+
+    func cancel() {
+        cancellation.cancel()
+    }
 }
 
 /// One surface's request for the bounded visible-terminal snapshot.
@@ -4216,6 +4233,27 @@ nonisolated private struct VisibleSnapshotRead: @unchecked Sendable {
 nonisolated private struct CopyableTextRead: @unchecked Sendable {
     let surface: ghostty_surface_t
     let generation: UInt64
+    let cancellation: SurfaceOperationCancellationToken
+}
+
+nonisolated private final class SurfaceOperationCancellationToken: @unchecked Sendable {
+    // lint:allow lock - tiny cross-queue cancellation flag for already-enqueued
+    // libghostty work; actor hops would put the serial surface queue back behind
+    // the main actor and defeat the stale-read fast path.
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
 }
 
 private class DisplayLinkProxy {
