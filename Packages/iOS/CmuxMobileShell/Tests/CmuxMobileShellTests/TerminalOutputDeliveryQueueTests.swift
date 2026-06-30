@@ -56,18 +56,35 @@ import Testing
     store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
 
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil)
 
-    store.deliverTerminalBytes(Data("fresh-after-reset".utf8), surfaceID: surfaceID)
-    let freshChunk = try #require(await iterator.next())
-    #expect(String(decoding: freshChunk.data, as: UTF8.self) == "fresh-after-reset")
-    #expect(freshChunk.streamToken != stalledChunk.streamToken)
+    store.deliverTerminalBytes(Data("live-before-replay".utf8), surfaceID: surfaceID)
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
 
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
-    store.deliverTerminalBytes(Data("after-stale-ack".utf8), surfaceID: surfaceID)
-    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: freshChunk.streamToken)
 
-    let afterStaleAck = try #require(await iterator.next())
-    #expect(String(decoding: afterStaleAck.data, as: UTF8.self) == "after-stale-ack")
+    store.deliverTerminalBytes(
+        Data("authoritative-replay".utf8),
+        surfaceID: surfaceID,
+        bypassReplayBarrier: true
+    )
+    let replayChunk = try #require(await iterator.next())
+    #expect(String(decoding: replayChunk.data, as: UTF8.self) == "authoritative-replay")
+    #expect(replayChunk.streamToken != stalledChunk.streamToken)
+
+    store.deliverTerminalBytes(Data("live-before-replay-ack".utf8), surfaceID: surfaceID)
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == 0)
+
+    store.deliverTerminalBytes(Data("after-stale-ack".utf8), surfaceID: surfaceID)
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == 0)
+
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+
+    store.deliverTerminalBytes(Data("after-replay-ack".utf8), surfaceID: surfaceID)
+
+    let afterReplayAck = try #require(await iterator.next())
+    #expect(String(decoding: afterReplayAck.data, as: UTF8.self) == "after-replay-ack")
 }
 
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {

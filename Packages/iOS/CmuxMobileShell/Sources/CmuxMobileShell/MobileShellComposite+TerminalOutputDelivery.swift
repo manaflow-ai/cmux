@@ -5,25 +5,35 @@ public import Foundation
 
 extension MobileShellComposite {
     /// Yield a raw PTY byte chunk to the surface stream, if one is attached.
-    func deliverTerminalBytes(_ bytes: Data, surfaceID: String) {
+    func deliverTerminalBytes(
+        _ bytes: Data,
+        surfaceID: String,
+        bypassReplayBarrier: Bool = false
+    ) {
         deliverTerminalOutput(
             TerminalOutputDelivery(
                 bytes: bytes,
                 replaceable: false,
                 viewportPolicy: .natural
             ),
-            surfaceID: surfaceID
+            surfaceID: surfaceID,
+            bypassReplayBarrier: bypassReplayBarrier
         )
     }
 
-    func deliverTerminalRenderGrid(_ frame: MobileTerminalRenderGridFrame, surfaceID: String) {
+    func deliverTerminalRenderGrid(
+        _ frame: MobileTerminalRenderGridFrame,
+        surfaceID: String,
+        bypassReplayBarrier: Bool = false
+    ) {
         deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,
                 replaceable: frame.isReplaceableViewportPatchForMobileDelivery,
                 viewportPolicy: frame.mobileViewportPolicy
             ),
-            surfaceID: surfaceID
+            surfaceID: surfaceID,
+            bypassReplayBarrier: bypassReplayBarrier
         )
     }
 
@@ -39,13 +49,26 @@ extension MobileShellComposite {
         )
     }
 
-    private func deliverTerminalOutput(_ delivery: TerminalOutputDelivery, surfaceID: String) {
+    private func deliverTerminalOutput(
+        _ delivery: TerminalOutputDelivery,
+        surfaceID: String,
+        bypassReplayBarrier: Bool = false
+    ) {
         guard let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
               let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] else { return }
+        if terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil, !bypassReplayBarrier {
+            MobileDebugLog.anchormux("terminal.output.drop_replay_barrier surface=\(surfaceID)")
+            return
+        }
         var queue = terminalOutputQueuesBySurfaceID[surfaceID] ?? TerminalOutputDeliveryQueue()
         let immediate = queue.enqueue(delivery)
         let pendingCount = queue.pendingCount
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        if bypassReplayBarrier,
+           immediate != nil,
+           terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
+            terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] = streamToken
+        }
         if pendingCount >= 32, pendingCount.isMultiple(of: 32) {
             MobileDebugLog.anchormux(
                 "terminal.output.pending surface=\(surfaceID) depth=\(pendingCount)"
@@ -68,6 +91,11 @@ extension MobileShellComposite {
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
         let next = queue.completeInFlight()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        if terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken {
+            terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+            terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+            MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared surface=\(surfaceID)")
+        }
         guard let next,
               let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
               terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
@@ -89,16 +117,17 @@ extension MobileShellComposite {
     public func terminalOutputDidReset(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               terminalOutputQueuesBySurfaceID[surfaceID] != nil else { return }
-        terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
-        terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
+        let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
         MobileDebugLog.anchormux("terminal.output.reset surface=\(surfaceID)")
-        requestTerminalReplay(surfaceID: surfaceID)
+        requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
 
     /// Ask the Mac to replay the authoritative terminal state for a surface.
     public func terminalOutputNeedsReplay(surfaceID: String) {
         guard terminalByteContinuationsBySurfaceID[surfaceID] != nil else { return }
+        let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_requested surface=\(surfaceID)")
-        requestTerminalReplay(surfaceID: surfaceID)
+        requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
+
 }

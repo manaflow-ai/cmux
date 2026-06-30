@@ -656,6 +656,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var outputQueue = GhosttySurfaceWorkQueue(generation: 0)
     private var outputQueueGeneration: UInt64 = 0
     private var isRecoveringRenderPipeline = false
+    private var renderPipelineRecoveryCount = 0
+    private var renderPipelineStoppedAfterRecoveryLimit = false
+    private static let maxRenderPipelineRecoveries = 1
     private static let renderPipelineStallDeadline: CFTimeInterval = 2.0
     private static let outputApplyTimeoutNanoseconds: UInt64 = 2_000_000_000
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
@@ -2271,6 +2274,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   or `false` when the caller should reset its delivery queue and replay.
     @discardableResult
     public func processOutputAndWait(_ data: Data) async -> Bool {
+        guard !renderPipelineStoppedAfterRecoveryLimit else { return false }
         await withCheckedContinuation { continuation in
             let waiter = SurfaceOperationWaiter()
             let startedAt = CACurrentMediaTime()
@@ -2306,6 +2310,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         _ data: Data,
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
+        guard !renderPipelineStoppedAfterRecoveryLimit else {
+            completion?(false)
+            return
+        }
         guard let surface, !isDismantled else {
             completion?(true)
             return
@@ -2643,8 +2651,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
               surface != nil else {
             return false
         }
+        guard renderPipelineRecoveryCount < Self.maxRenderPipelineRecoveries else {
+            renderPipelineStoppedAfterRecoveryLimit = true
+            stopDisplayLink()
+            renderInFlight = false
+            renderInFlightSince = nil
+            needsAnotherRender = false
+            MobileDebugLog.anchormux(
+                "render.recover.limit reason=\(reason) stalledMs=\(stalledMs) generation=\(surfaceGeneration)"
+            )
+            return false
+        }
         isRecoveringRenderPipeline = true
         defer { isRecoveringRenderPipeline = false }
+        renderPipelineRecoveryCount += 1
 
         MobileDebugLog.anchormux(
             "render.recover reason=\(reason) stalledMs=\(stalledMs) generation=\(surfaceGeneration)"
@@ -2893,7 +2913,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // now bounded in libghostty (so a foreground stall self-heals as a
         // skipped frame the display link re-drives), but we still gate on
         // suspension; `resumeRendering` clears it on the next active transition.
-        guard !renderingSuspended, let surface, !isDismantled else { return }
+        guard !renderPipelineStoppedAfterRecoveryLimit,
+              !renderingSuspended,
+              let surface,
+              !isDismantled else { return }
         // Coalesce: never let more than one render_now sit on the serial queue.
         // (Called on main from the display link.)
         if renderInFlight {
@@ -3196,6 +3219,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func syncSurfaceGeometryAndWait(shouldReassertNaturalSize: Bool = true) async -> Bool {
+        guard !renderPipelineStoppedAfterRecoveryLimit else { return false }
         needsGeometrySync = false
         pendingGeometryReassert = false
         await withCheckedContinuation { continuation in
