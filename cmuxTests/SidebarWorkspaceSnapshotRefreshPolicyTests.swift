@@ -379,6 +379,23 @@ import Testing
         )
     }
 
+    @Test func swiftUIOnlyFastContextMenuDismissalKeepsInitialHoverFallback() {
+        var state = SidebarWorkspaceRowInteractionState()
+
+        state.setPointerHovering(true)
+        state.contextMenuDidAppear()
+        state.setPointerHovering(false)
+        state.contextMenuDidDisappear()
+
+        #expect(
+            state.shouldShowCloseButton(
+                canCloseWorkspace: true,
+                shortcutHintModeActive: false
+            ),
+            "A SwiftUI hover-exit caused by the menu taking focus must not erase the initial hover fallback before the AppKit reconciler mounts."
+        )
+    }
+
     @Test func noHoverDoesNotRevealCloseButtonWhileContextMenuIsVisible() {
         var state = SidebarWorkspaceRowInteractionState()
 
