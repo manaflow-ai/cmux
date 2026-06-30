@@ -214,9 +214,10 @@ public final class ShortcutListModel {
         for other in ShortcutAction.allCases where other != action {
             // Two bindings on the same keystroke only collide when some focus
             // state activates both effective `when` clauses AND router priority
-            // cannot decide the overlap. Context-disjoint clauses coexist.
-            // outright so the factory Select Surface ⌃1…9 coexists with the
-            // sidebar's ⌃1…5 — matching the app target's authoritative check.
+            // cannot decide the overlap. Context-disjoint clauses (or ones a
+            // priority router separates) coexist outright — so the factory
+            // Select Surface ⌃1…9 coexists with the sidebar's ⌃1…5 — matching
+            // the app target's authoritative check.
             guard ShortcutWhenClause.bindingsCollide(
                 proposedClause,
                 lhsHasPriority: action.hasPriorityShortcutRouting,
@@ -397,17 +398,6 @@ public final class ShortcutListModel {
     func restoreBinding(_ shortcut: StoredShortcut, for action: ShortcutAction) async {
         var updated = bindings
         updated[action.rawValue] = shortcut
-        restoreShortcuts.removeValue(forKey: action.rawValue)
-        bareKeyRejections.remove(action.rawValue)
-        numberedDigitRejections.remove(action.rawValue)
-        conflictRejections.removeValue(forKey: action.rawValue)
-        bumpRemeasure(action.rawValue)
-        await write(updated)
-    }
-
-    func resetToDefault(action: ShortcutAction) async {
-        var updated = bindings
-        updated.removeValue(forKey: action.rawValue)
         restoreShortcuts.removeValue(forKey: action.rawValue)
         bareKeyRejections.remove(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)

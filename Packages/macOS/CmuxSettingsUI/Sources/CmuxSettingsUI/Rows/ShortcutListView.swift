@@ -155,7 +155,7 @@ final class ShortcutListCellView: NSTableCellView {
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero); self.identifier = identifier
     }
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
     func configure(model: ShortcutListModel, action: ShortcutAction, isLast: Bool) {
         // Reused for a different action: cancel any armed recording before re-pointing.
