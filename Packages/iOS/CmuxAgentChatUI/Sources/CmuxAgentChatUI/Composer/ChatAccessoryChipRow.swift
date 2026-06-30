@@ -4,7 +4,7 @@ import SwiftUI
 
 /// The horizontal shortcut row above the composer field.
 public struct ChatAccessoryChipRow: View {
-    private static let scrollEdgeFadeWidth: CGFloat = 34
+    private static let scrollTrailingFadeWidth: CGFloat = 34
 
     private let agentState: ChatAgentState
     private let leadingShortcuts: [ChatAccessoryShortcut]
@@ -57,15 +57,16 @@ public struct ChatAccessoryChipRow: View {
                     .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
                         scrollContentWidth = width
                     }
-                    .padding(.horizontal, scrollNeedsEdgeFade ? Self.scrollEdgeFadeWidth : 2)
+                    .padding(.trailing, scrollNeedsTrailingFade ? Self.scrollTrailingFadeWidth : 2)
                 }
                 .frame(height: 32)
                 .layoutPriority(1)
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
                     scrollViewportWidth = width
                 }
+                .clipped()
                 .mask {
-                    scrollEdgeFadeMask
+                    scrollTrailingFadeMask
                 }
             }
         }
@@ -96,7 +97,7 @@ public struct ChatAccessoryChipRow: View {
         !leadingShortcuts.isEmpty || !shortcuts.isEmpty
     }
 
-    private var scrollNeedsEdgeFade: Bool {
+    private var scrollNeedsTrailingFade: Bool {
         scrollContentWidth > scrollViewportWidth + 1
     }
 
@@ -171,16 +172,9 @@ public struct ChatAccessoryChipRow: View {
     }
 
     @ViewBuilder
-    private var scrollEdgeFadeMask: some View {
-        if scrollNeedsEdgeFade {
+    private var scrollTrailingFadeMask: some View {
+        if scrollNeedsTrailingFade {
             HStack(spacing: 0) {
-                LinearGradient(
-                    colors: [.clear, .black],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                .frame(width: Self.scrollEdgeFadeWidth)
-
                 Rectangle()
                     .fill(.black)
 
@@ -189,7 +183,7 @@ public struct ChatAccessoryChipRow: View {
                     startPoint: .leading,
                     endPoint: .trailing
                 )
-                .frame(width: Self.scrollEdgeFadeWidth)
+                .frame(width: Self.scrollTrailingFadeWidth)
             }
         } else {
             Rectangle()
