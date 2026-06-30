@@ -226,7 +226,7 @@ struct WorkspaceListView: View {
             // menu's machine section hid). Otherwise a stale machine id rejects
             // every row and strands the user on a blank list with no visible
             // control to clear the filter.
-            filter.pruneMachines(notIn: present)
+            filter.pruneMachinesForFilterMenu(presentMachineIDs: present)
         }
         .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
         .mobileInlineNavigationTitle()

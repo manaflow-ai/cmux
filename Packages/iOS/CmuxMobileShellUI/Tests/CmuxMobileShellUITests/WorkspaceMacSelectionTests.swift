@@ -122,6 +122,22 @@ import Testing
         #expect(active.machines == ["mac-b"])
     }
 
+    @Test func filterMenuPruningClearsSelectionWhenMachineSectionWouldHide() {
+        var filter = MobileWorkspaceListFilter(machines: ["mac-a"])
+        let changed = filter.pruneMachinesForFilterMenu(presentMachineIDs: ["mac-a"])
+
+        #expect(changed)
+        #expect(filter.machines.isEmpty)
+    }
+
+    @Test func filterMenuPruningKeepsVisibleMachineSelection() {
+        var filter = MobileWorkspaceListFilter(machines: ["mac-a"])
+        let changed = filter.pruneMachinesForFilterMenu(presentMachineIDs: ["mac-a", "mac-b"])
+
+        #expect(!changed)
+        #expect(filter.machines == ["mac-a"])
+    }
+
     private func workspaceListView(
         workspaces: [MobileWorkspacePreview],
         store: CMUXMobileShellStore
