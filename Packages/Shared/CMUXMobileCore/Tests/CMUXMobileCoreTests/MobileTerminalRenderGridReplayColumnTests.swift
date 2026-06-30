@@ -29,20 +29,51 @@ import Testing
         }
     }
 
-    let expectedCells: [(column: Int, character: Character)] = [
-        (0, "A"),
-        (1, "▶"),
-        (3, "B"),
-        (4, "界"),
-        (6, "C"),
-        (7, "🏁"),
-        (9, "D"),
-        (10, "e\u{301}"),
-        (11, "Z"),
+    let expectedRow: [Character?] = [
+        "A", "▶", nil, "B", "界", nil, "C", "🏁",
+        nil, "D", "e\u{301}", "Z", nil, nil, nil, nil,
     ]
-    for expected in expectedCells {
-        #expect(cells[0][expected.column] == expected.character)
-    }
+    #expect(cells[0] == expectedRow)
+}
+
+@Test func renderGridReplayDoesNotInferColumnsFromAmbiguousAggregateWidth() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 49,
+        columns: 4,
+        rows: 1,
+        full: false,
+        clearedRows: [0],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "α🇰🇷B", cellWidth: 4),
+        ]
+    )
+
+    #expect(String(data: frame.vtPatchBytes(), encoding: .utf8) ==
+        "\u{1B}[0m\u{1B}[1;1H\u{1B}[2K" +
+        "\u{1B}[1;1H\u{1B}[0mα🇰🇷B" +
+        "\u{1B}[0m"
+    )
+}
+
+@Test func renderGridReplaySanitizesC1ControlScalars() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 50,
+        columns: 3,
+        rows: 1,
+        full: false,
+        clearedRows: [0],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "A\u{9B}B", cellWidth: 3),
+        ]
+    )
+
+    #expect(String(data: frame.vtPatchBytes(), encoding: .utf8) ==
+        "\u{1B}[0m\u{1B}[1;1H\u{1B}[2K" +
+        "\u{1B}[1;1H\u{1B}[0mA B" +
+        "\u{1B}[0m"
+    )
 }
 
 private func replayedCells(
