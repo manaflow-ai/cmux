@@ -48,15 +48,14 @@ struct RenderableSystemSymbolTests {
         #expect(image.size == NSSize(width: 1, height: 1))
     }
 
-    @Test @MainActor func configuredAppKitImagePreservesNonSquareSymbolAspectRatio() throws {
+    @Test @MainActor func configuredAppKitImageKeepsRequestedRasterFrameForNonSquareSymbols() throws {
         RenderableSystemSymbol.resetRenderabilityCacheForTesting()
         let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
             systemName: "arrow.right",
             pointSize: 16,
             weight: .regular
         ))
-        #expect(abs(image.size.width - 16) < 0.001)
-        #expect(image.size.height < 16)
+        #expect(image.size == NSSize(width: 16, height: 16))
     }
 
     @Test func fittedSymbolSizeScalesLongerDimensionToRasterSize() {
