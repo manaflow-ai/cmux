@@ -436,7 +436,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             )
             return nil
         }
-        if BrowserNavigationModifierBypassPolicy().openDefaultBrowserIfNeeded(navigationAction: navigationAction, webView: webView, debugEventName: "popup.nav.createWebView.action") { return nil }
+        if let url = navigationAction.request.url, !browserShouldBlockInsecureHTTPURL(url), BrowserNavigationModifierBypassPolicy().openDefaultBrowserIfNeeded(navigationAction: navigationAction, webView: webView, debugEventName: "popup.nav.createWebView.action") { return nil }
         let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
         let isScriptedPopup = browserNavigationShouldCreatePopup(
             navigationType: navigationAction.navigationType,
@@ -667,6 +667,14 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         let hasUserActivation = browserNavigationHasSimpleUserActivation()
         subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
 
+        // Insecure HTTP → show same prompt as main browser
+        if navigationAction.targetFrame?.isMainFrame != false, browserShouldBlockInsecureHTTPURL(url) {
+            #if DEBUG
+            cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
+            #endif
+            controller?.presentInsecureHTTPAlert(for: url, in: webView, decisionHandler: decisionHandler)
+            return
+        }
         if BrowserNavigationModifierBypassPolicy().openDefaultBrowserIfNeeded(navigationAction: navigationAction, webView: webView, debugEventName: "popup.nav.decidePolicy.action") { clearAttemptedRequest(discardPendingBypasses: true); decisionHandler(.cancel); return }
         guard navigationAction.targetFrame?.isMainFrame != false else {
             if navigationAction.shouldPerformDownload {
@@ -676,15 +684,6 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
                 return
             }
             decisionHandler(.allow)
-            return
-        }
-
-        // Insecure HTTP → show same prompt as main browser
-        if browserShouldBlockInsecureHTTPURL(url) {
-            #if DEBUG
-            cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
-            #endif
-            controller?.presentInsecureHTTPAlert(for: url, in: webView, decisionHandler: decisionHandler)
             return
         }
 

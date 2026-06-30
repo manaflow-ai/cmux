@@ -268,7 +268,6 @@ import WebKit
             "openInNewTab=\(shouldOpenInNewTab ? 1 : 0)"
         )
 #endif
-        if BrowserNavigationModifierBypassPolicy().openDefaultBrowserIfNeeded(navigationAction: navigationAction, webView: webView, debugEventName: "browser.nav.decidePolicy.action") { clearAttemptedRequest(discardPendingBypasses: true); decisionHandler(.cancel); return }
         if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
            shouldBlockInsecureHTTPNavigation?(url) == true {
@@ -288,6 +287,7 @@ import WebKit
             decisionHandler(.cancel)
             return
         }
+        if BrowserNavigationModifierBypassPolicy().openDefaultBrowserIfNeeded(navigationAction: navigationAction, webView: webView, debugEventName: "browser.nav.decidePolicy.action") { clearAttemptedRequest(discardPendingBypasses: true); decisionHandler(.cancel); return }
 
         // WebKit cannot open app-specific deeplinks (discord://, slack://, zoommtg://, etc.).
         // Hand these off to macOS so the owning app can handle them.
