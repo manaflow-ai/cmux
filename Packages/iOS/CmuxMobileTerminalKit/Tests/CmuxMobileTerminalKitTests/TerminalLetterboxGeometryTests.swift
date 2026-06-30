@@ -289,4 +289,34 @@ struct TerminalLetterboxGeometryTests {
         )
         #expect(clamped == CGSize(width: 402, height: 700))
     }
+
+    @Test("large shorter render starts at the viewport top")
+    func renderRectLargeShorterRenderStartsAtTop() {
+        let rect = TerminalLetterboxGeometry.renderRect(
+            in: CGRect(x: 0, y: 0, width: 402, height: 700),
+            size: CGSize(width: 402, height: 360)
+        )
+        #expect(rect.minY == 0)
+        #expect(rect.height == 360)
+    }
+
+    @Test("small whole-cell remainder stays bottom attached")
+    func renderRectSmallRemainderStaysBottomAttached() {
+        let rect = TerminalLetterboxGeometry.renderRect(
+            in: CGRect(x: 0, y: 0, width: 402, height: 700),
+            size: CGSize(width: 402, height: 680)
+        )
+        #expect(rect.minY == 20)
+        #expect(rect.maxY == 700)
+    }
+
+    @Test("oversized render stays bottom pinned for keyboard shrink")
+    func renderRectOversizedRenderStaysBottomPinned() {
+        let rect = TerminalLetterboxGeometry.renderRect(
+            in: CGRect(x: 0, y: 0, width: 402, height: 400),
+            size: CGSize(width: 402, height: 700)
+        )
+        #expect(rect.minY == -300)
+        #expect(rect.maxY == 400)
+    }
 }

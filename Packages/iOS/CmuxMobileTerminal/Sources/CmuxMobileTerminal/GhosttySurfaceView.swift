@@ -1427,25 +1427,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         CGRect(x: 0, y: 0, width: max(1, bounds.width), height: terminalViewportHeight)
     }
 
-    /// Keep the rendered terminal's bottom edge attached to the live viewport edge.
+    /// Place the rendered terminal inside the live viewport.
+    ///
     /// During keyboard show the old render layer is taller than the shrinking
-    /// viewport, so this translates it upward and clips from the top. During
-    /// keyboard hide the old render layer is shorter than the expanding viewport,
-    /// so it remains bottom-pinned until the async resize result catches up.
-    private func renderRectPinnedToCurrentViewport(size: CGSize) -> CGRect {
-        let viewport = terminalViewportRect
-        return CGRect(
-            x: viewport.minX,
-            y: viewport.maxY - size.height,
-            width: size.width,
-            height: size.height
+    /// viewport, so it remains bottom-pinned and clips from the top. Small
+    /// whole-cell remainder also stays bottom-attached to avoid a toolbar seam.
+    /// A substantially shorter render box, however, is top-anchored so a stale
+    /// or smaller effective grid cannot leave a large blank spacer above the
+    /// terminal when opening directly into a surface.
+    private func renderRectAlignedToCurrentViewport(size: CGSize) -> CGRect {
+        TerminalLetterboxGeometry.renderRect(
+            in: terminalViewportRect,
+            size: size
         )
     }
 
     private func layoutRenderedTerminalForCurrentViewport() {
         snapshotFallbackView.frame = terminalViewportRect
         guard !lastRenderRect.isEmpty else { return }
-        let renderRect = renderRectPinnedToCurrentViewport(size: lastRenderRect.size)
+        let renderRect = renderRectAlignedToCurrentViewport(size: lastRenderRect.size)
         guard renderRect != lastRenderRect else { return }
         lastRenderRect = renderRect
         syncRendererLayerFrame(scale: preferredScreenScale, renderRect: renderRect)
@@ -3158,15 +3158,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // layer is up to ~one cell larger than the surface and EVERY frame is
         // discarded (blank terminal). Using the measured surface size makes
         // them match so frames present. Pinned (letterboxed) sizes are already
-        // derived from the fitted surface px. Left-align + top-anchor either
-        // way; any leftover container space is the letterbox margin.
+        // derived from the fitted surface px. Left-align either way; small
+        // whole-cell vertical slack stays bottom-attached, while a large slack
+        // anchors at the viewport top so letterboxing cannot turn into a blank
+        // top spacer.
         let naturalRenderSize = CGSize(
             width: max(1, CGFloat(result.naturalSize.pixelWidth) / scale),
             height: max(1, CGFloat(result.naturalSize.pixelHeight) / scale)
         )
         let measuredRenderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
             ?? CGRect(origin: .zero, size: naturalRenderSize)
-        let renderRect = renderRectPinnedToCurrentViewport(size: measuredRenderRect.size)
+        let renderRect = renderRectAlignedToCurrentViewport(size: measuredRenderRect.size)
         lastRenderRect = renderRect
         // Re-seat the whole bottom dock after geometry readback so any composer
         // or safe-area changes that landed while the async resize was running are

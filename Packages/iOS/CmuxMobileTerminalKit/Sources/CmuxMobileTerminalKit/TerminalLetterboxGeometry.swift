@@ -211,6 +211,42 @@ public struct TerminalLetterboxGeometry {
         )
     }
 
+    /// Position a rendered terminal box inside the live viewport.
+    ///
+    /// The renderer should keep small whole-cell remainder attached to the bottom
+    /// chrome, but a substantially shorter render box must not be bottom-pinned:
+    /// that produces a large blank region above the terminal when a stale or
+    /// smaller effective grid is applied. Oversized render boxes remain
+    /// bottom-pinned so keyboard-show shrink clips from the top instead of
+    /// hiding the prompt/input edge.
+    ///
+    /// - Parameters:
+    ///   - viewport: The terminal viewport in host-view coordinates.
+    ///   - size: The rendered terminal box size in points.
+    ///   - largeTopGapThreshold: Vertical slack above which the render is
+    ///     anchored to the viewport top instead of bottom-attached.
+    /// - Returns: The render rectangle in host-view coordinates.
+    public static func renderRect(
+        in viewport: CGRect,
+        size: CGSize,
+        largeTopGapThreshold: CGFloat = 48
+    ) -> CGRect {
+        let renderSize = CGSize(
+            width: max(1, size.width),
+            height: max(1, size.height)
+        )
+        let verticalSlack = viewport.height - renderSize.height
+        let y = verticalSlack > max(0, largeTopGapThreshold)
+            ? viewport.minY
+            : viewport.maxY - renderSize.height
+        return CGRect(
+            x: viewport.minX,
+            y: y,
+            width: renderSize.width,
+            height: renderSize.height
+        )
+    }
+
     /// The cell size in device pixels derived from a measured surface size.
     ///
     /// Returns `.zero` when any measured dimension is non-positive, matching the
