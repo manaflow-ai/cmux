@@ -274,50 +274,7 @@ import Testing
 }
 
 @Suite struct SidebarWorkspaceRowInteractionStateTests {
-    @Test func hoverRevealIsIndependentFromStaleContextMenuVisibility() {
-        var state = SidebarWorkspaceRowInteractionState()
-
-        state.contextMenuDidAppear()
-        state.contextMenuTrackingDidEnd()
-        state.setPointerHovering(true)
-
-        #expect(
-            state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "A stale SwiftUI context-menu lifecycle flag must not permanently suppress hover-only close affordances after AppKit menu tracking has ended."
-        )
-
-        state.setPointerHovering(false)
-
-        #expect(
-            !state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "The stale SwiftUI menu flag must not make the close affordance visible when the pointer is no longer hovering."
-        )
-    }
-
-    @Test func contextMenuTrackingBeginHidesExistingCloseButtonBeforeSwiftUIMenuAppears() {
-        var state = SidebarWorkspaceRowInteractionState()
-
-        state.setPointerHovering(true)
-        #expect(state.shouldShowCloseButton(canCloseWorkspace: true, shortcutHintModeActive: false))
-
-        state.contextMenuTrackingDidBegin()
-
-        #expect(
-            !state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "Right-click menu tracking must hide an already-visible close affordance even before SwiftUI reports the context menu appearance."
-        )
-    }
-
-    @Test func hoverDuringContextMenuTrackingStaysHiddenUntilTrackingEnds() {
+    @Test func hoverDuringContextMenuStaysHiddenUntilDismissal() {
         var state = SidebarWorkspaceRowInteractionState()
 
         state.contextMenuDidAppear()
@@ -328,70 +285,17 @@ import Testing
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
             ),
-            "Pointer hover updates observed during context-menu tracking must not reveal the close affordance under the menu."
+            "Pointer hover updates observed during the context-menu lifecycle must not reveal the close affordance under the menu."
         )
 
-        state.contextMenuTrackingDidEnd()
+        state.contextMenuDidDisappear()
 
         #expect(
             state.shouldShowCloseButton(
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
             ),
-            "Once AppKit menu tracking ends, the last reconciled pointer position may reveal the close affordance even if SwiftUI menu state is stale."
-        )
-    }
-
-    @Test func coordinatorPreservesHoverExitWhileMenuTrackingSuppressesCloseButton() {
-        var state = SidebarWorkspaceRowInteractionState()
-        let binding = Binding<SidebarWorkspaceRowInteractionState>(
-            get: { state },
-            set: { state = $0 }
-        )
-        let coordinator = SidebarWorkspaceRowHoverTracker.Coordinator(
-            rowInteractionState: binding
-        )
-
-        coordinator.menuTrackingChanged(true)
-        coordinator.pointerHoverChanged(true)
-        coordinator.pointerHoverChanged(false)
-        coordinator.menuTrackingChanged(false)
-
-        #expect(
-            !state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "A pointer exit observed during menu tracking must overwrite any earlier deferred hover enter before the menu dismisses."
-        )
-    }
-
-    @Test func menuTrackingSuppressionOnlyAppliesToPointerMenusInsideRow() {
-        #expect(SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
-            pointerInsideRow: true,
-            eventType: .rightMouseDown,
-            modifierFlags: []
-        ))
-        #expect(SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
-            pointerInsideRow: true,
-            eventType: .leftMouseDown,
-            modifierFlags: .control
-        ))
-        #expect(
-            !SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
-                pointerInsideRow: false,
-                eventType: .rightMouseDown,
-                modifierFlags: []
-            ),
-            "A menu opened outside this row must not suppress this row's hover state."
-        )
-        #expect(
-            !SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
-                pointerInsideRow: true,
-                eventType: .keyDown,
-                modifierFlags: []
-            ),
-            "Keyboard-driven or app-level menu tracking must not be treated like this row's pointer context menu."
+            "Once the context menu dismisses, the last observed pointer position may reveal the close affordance."
         )
     }
 

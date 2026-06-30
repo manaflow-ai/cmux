@@ -12428,6 +12428,7 @@ struct VerticalTabsSidebar: View {
             isBeingDragged: isBeingDragged,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
+            isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive,
             onDragStart: onDragStart,
             contextMenuWorkspaceIds: contextMenuWorkspaceIds,
             remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
@@ -13269,6 +13270,7 @@ struct TabItemView: View, Equatable {
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
         lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible &&
+        lhs.isBonsplitWorkspaceDropActive == rhs.isBonsplitWorkspaceDropActive &&
         lhs.settings == rhs.settings
     }
 
@@ -13310,6 +13312,7 @@ struct TabItemView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
+    let isBonsplitWorkspaceDropActive: Bool
     let onDragStart: () -> NSItemProvider
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
@@ -13329,7 +13332,6 @@ struct TabItemView: View, Equatable {
     @State private var observedIsActive: Bool?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
-    @State private var rowHeight: CGFloat = 1
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
     private static let maxWrappedTitleLines = 8
@@ -13589,18 +13591,6 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    private var rowHeightProbe: some View {
-        GeometryReader { proxy in
-            Color.clear
-                .onAppear {
-                    rowHeight = max(proxy.size.height, 1)
-                }
-                .onChange(of: proxy.size.height) { _, newHeight in
-                    rowHeight = max(newHeight, 1)
-                }
-        }
-    }
-
     @ViewBuilder
     private var remoteWorkspaceSection: some View {
         let workspaceSnapshot = self.workspaceSnapshot
@@ -13856,15 +13846,15 @@ struct TabItemView: View, Equatable {
 
             if detailVisibility.showsProgress, let progress = workspaceSnapshot.progress {
                 VStack(alignment: .leading, spacing: 2) {
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule()
-                                .fill(activeProgressTrackColor)
-                            Capsule()
-                                .fill(activeProgressFillColor)
-                                .frame(width: max(0, geo.size.width * CGFloat(progress.value)))
-                        }
+                    let progressFraction = CGFloat(max(0, min(progress.value, 1)))
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(activeProgressTrackColor)
+                        Capsule()
+                            .fill(activeProgressFillColor)
+                            .scaleEffect(x: progressFraction, y: 1, anchor: .leading)
                     }
+                    .frame(maxWidth: .infinity)
                     .frame(height: max(3, 3 * fontScale))
 
                     if let label = progress.label {
@@ -14059,18 +14049,19 @@ struct TabItemView: View, Equatable {
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
-        .background { rowHeightProbe }
         .contentShape(Rectangle())
+        .onHover { hovering in
+            rowInteractionState.setPointerHovering(hovering)
+        }
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
-            SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
-        }
-        .overlay {
-            MiddleClickCapture {
-                #if DEBUG
-                cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
-                #endif
-                tabManager.closeWorkspaceWithConfirmation(tab)
+            if rowInteractionState.isPointerHovering {
+                MiddleClickCapture {
+                    #if DEBUG
+                    cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
+                    #endif
+                    tabManager.closeWorkspaceWithConfirmation(tab)
+                }
             }
         }
         .overlay(alignment: .top) {
@@ -14091,6 +14082,9 @@ struct TabItemView: View, Equatable {
         .onAppear {
             updateObservedActiveState(tabManager.selectedTabId == tab.id)
             refreshWorkspaceSnapshot(force: true)
+        }
+        .onDisappear {
+            rowInteractionState.setPointerHovering(false)
         }
         .onReceive(
             tabManager.selectedTabIdPublisher
@@ -14147,7 +14141,8 @@ struct TabItemView: View, Equatable {
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
+        .modifier(SidebarBonsplitWorkspaceRowDropModifier(
+            isEnabled: isBonsplitWorkspaceDropActive,
             targetWorkspaceId: tab.id,
             tabManager: tabManager,
             selectedTabIds: $selectedTabIds,
@@ -15709,58 +15704,6 @@ enum BonsplitTabDragPayload {
         }
 
         return nil
-    }
-}
-
-private struct SidebarBonsplitTabDropDelegate: DropDelegate {
-    let targetWorkspaceId: UUID
-    let tabManager: TabManager
-    @Binding var selectedTabIds: Set<UUID>
-    @Binding var lastSidebarSelectionIndex: Int?
-
-    func validateDrop(info: DropInfo) -> Bool {
-        guard info.hasItemsConforming(to: [BonsplitTabDragPayload.typeIdentifier]) else { return false }
-        return BonsplitTabDragPayload.currentTransfer() != nil
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        guard validateDrop(info: info) else { return nil }
-        return DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard validateDrop(info: info),
-              let transfer = BonsplitTabDragPayload.currentTransfer(),
-              let app = AppDelegate.shared else {
-            return false
-        }
-
-        if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
-           source.workspaceId == targetWorkspaceId {
-            syncSidebarSelection()
-            return true
-        }
-
-        guard app.moveBonsplitTab(
-            tabId: transfer.tab.id,
-            toWorkspace: targetWorkspaceId,
-            focus: true,
-            focusWindow: true
-        ) else {
-            return false
-        }
-
-        selectedTabIds = [targetWorkspaceId]
-        syncSidebarSelection()
-        return true
-    }
-
-    private func syncSidebarSelection() {
-        if let selectedId = tabManager.selectedTabId {
-            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
-        } else {
-            lastSidebarSelectionIndex = nil
-        }
     }
 }
 
