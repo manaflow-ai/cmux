@@ -288,6 +288,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .onDisappear {
             rowInteractionState.setPointerHovering(false)
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)) { _ in
+            rowInteractionState.contextMenuTrackingDidEnd()
+        }
         .contextMenu {
             Button(
                 String(

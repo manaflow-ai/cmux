@@ -14086,6 +14086,11 @@ struct TabItemView: View, Equatable {
         .onDisappear {
             rowInteractionState.setPointerHovering(false)
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)) { _ in
+            guard rowInteractionState.contextMenuTrackingDidEnd() else { return }
+            onContextMenuDisappear()
+            flushDeferredWorkspaceObservationInvalidation()
+        }
         .onReceive(
             tabManager.selectedTabIdPublisher
                 .map { $0 == tab.id }

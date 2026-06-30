@@ -113,6 +113,14 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
         applyDeferredPointerHovering()
     }
 
+    @discardableResult
+    mutating func contextMenuTrackingDidEnd() -> Bool {
+        guard contextMenuVisible else { return false }
+        contextMenuVisible = false
+        applyDeferredPointerHovering()
+        return true
+    }
+
     func shouldShowCloseButton(
         canCloseWorkspace: Bool,
         shortcutHintModeActive: Bool

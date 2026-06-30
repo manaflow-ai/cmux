@@ -274,6 +274,24 @@ import Testing
 }
 
 @Suite struct SidebarWorkspaceRowInteractionStateTests {
+    @Test func appKitMenuTrackingEndClearsStaleContextMenuVisibility() {
+        var state = SidebarWorkspaceRowInteractionState()
+
+        state.contextMenuDidAppear()
+        #expect(state.contextMenuVisible)
+
+        #expect(state.contextMenuTrackingDidEnd())
+        state.setPointerHovering(true)
+
+        #expect(
+            state.shouldShowCloseButton(
+                canCloseWorkspace: true,
+                shortcutHintModeActive: false
+            ),
+            "AppKit menu tracking ending must clear stale SwiftUI context-menu visibility so later hover can reveal row affordances."
+        )
+    }
+
     @Test func hoverDuringContextMenuStaysHiddenUntilDismissal() {
         var state = SidebarWorkspaceRowInteractionState()
 
