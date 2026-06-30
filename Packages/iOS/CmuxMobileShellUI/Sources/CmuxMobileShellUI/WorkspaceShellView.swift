@@ -1,4 +1,5 @@
 import Foundation
+import CmuxMobileBrowser
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileWorkspace
@@ -19,10 +20,13 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(BrowserSurfaceStore.self) private var browserStore
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var showingCompactSettings = false
+    @State private var showingCompactDeviceTree = false
     @State private var macSelection: WorkspaceMacSelection = .all
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -87,36 +91,23 @@ struct WorkspaceShellView: View {
 
     private var stackLayout: some View {
         NavigationStack(path: $compactNavigationPath) {
-            WorkspaceListView(
+            WorkspaceSurfaceGridView(
                 workspaces: store.workspaces,
-                groups: store.workspaceGroups,
-                selectedWorkspaceID: store.selectedWorkspaceID,
+                selectedWorkspaceID: compactSurfaceGridSelectedWorkspaceID,
+                selectedTerminalID: store.selectedTerminalID,
                 host: store.connectedHostName,
                 connectionStatus: listConnectionStatus,
-                navigationStyle: .push,
-                wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
-                previewLineLimit: displaySettings.workspacePreviewLineCount,
-                unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
-                profilePictureLeftShift: displaySettings.profilePictureLeftShift,
-                profilePictureSize: displaySettings.profilePictureSize,
-                selectWorkspace: selectWorkspace,
-                createWorkspace: createWorkspaceInCompactStack,
                 canCreateWorkspace: canCreateWorkspaceForMacSelection,
-                macSelection: $macSelection,
-                refresh: refreshWorkspacesClosure,
-                rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: signOut,
-                reconnect: reconnectClosure,
-                showAddDevice: showAddDevice,
-                store: store,
-                renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure,
-                setUnread: setWorkspaceUnreadClosure,
-                closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure,
-                isInitialConnectionLoading: isInitialConnectionLoading,
-                initialConnectionTimedOut: initialConnectionTimedOut,
-                retryInitialConnection: retryInitialConnection
+                canCreateTerminal: canCreateTerminal,
+                selectWorkspace: selectWorkspaceFromSurfaceGrid,
+                openTerminal: openTerminalFromSurfaceGrid,
+                openBrowser: openBrowserFromSurfaceGrid,
+                closeBrowser: closeBrowserFromSurfaceGrid,
+                createWorkspace: createWorkspaceInCompactStack,
+                createTerminal: createTerminalFromSurfaceGrid,
+                showSettings: { showingCompactSettings = true },
+                showDevices: { showingCompactDeviceTree = true },
+                reconnect: reconnectClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
@@ -136,6 +127,17 @@ struct WorkspaceShellView: View {
                     .navigationBarBackButtonHidden(true)
                     .background(InteractiveSwipeBackEnabler())
             }
+        }
+        .sheet(isPresented: $showingCompactSettings) {
+            MobileSettingsView(
+                connectedHostName: store.connectedHostName,
+                rescanQR: { store.disconnectAndForgetActiveMac() },
+                signOut: signOut,
+                store: store
+            )
+        }
+        .sheet(isPresented: $showingCompactDeviceTree) {
+            DeviceTreeView(store: store, selectWorkspace: openWorkspaceFromDeviceTree, showAddDevice: showAddDevice)
         }
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
             if let createdPath = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
@@ -241,6 +243,43 @@ struct WorkspaceShellView: View {
         }
     }
 
+    private func selectWorkspaceFromSurfaceGrid(_ id: MobileWorkspacePreview.ID) {
+        pendingCompactCreateNavigationWorkspaceIDs = nil
+        store.selectedWorkspaceID = id
+        compactNavigationPath = []
+    }
+
+    private func openWorkspaceFromDeviceTree(_ id: MobileWorkspacePreview.ID) {
+        showingCompactDeviceTree = false
+        selectWorkspace(id)
+    }
+
+    private func openTerminalFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID, terminalID: MobileTerminalPreview.ID) {
+        pendingCompactCreateNavigationWorkspaceIDs = nil
+        browserStore.closeBrowser(for: workspaceID.rawValue)
+        store.selectedWorkspaceID = workspaceID
+        store.selectTerminalFromChrome(terminalID)
+        compactNavigationPath = [workspaceID]
+    }
+
+    private func openBrowserFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
+        pendingCompactCreateNavigationWorkspaceIDs = nil
+        store.selectedWorkspaceID = workspaceID
+        browserStore.openBrowser(for: workspaceID.rawValue)
+        compactNavigationPath = [workspaceID]
+    }
+
+    private func closeBrowserFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
+        browserStore.closeBrowser(for: workspaceID.rawValue)
+    }
+
+    private func createTerminalFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
+        pendingCompactCreateNavigationWorkspaceIDs = nil
+        browserStore.closeBrowser(for: workspaceID.rawValue)
+        store.createTerminal(in: workspaceID)
+        compactNavigationPath = [workspaceID]
+    }
+
     /// Workspace action closures, always present for the real store. Row and
     /// detail affordances gate themselves on each workspace's owning-Mac
     /// capability snapshot, so a secondary Mac is not hidden behind the
@@ -287,6 +326,18 @@ struct WorkspaceShellView: View {
 
     private var canCreateWorkspace: Bool {
         canCreateWorkspaceOnForegroundConnection
+    }
+
+    private var canCreateTerminal: Bool {
+        canCreateWorkspaceOnForegroundConnection
+    }
+
+    private var compactSurfaceGridSelectedWorkspaceID: MobileWorkspacePreview.ID? {
+        if let selectedWorkspaceID = store.selectedWorkspaceID,
+           store.workspaces.contains(where: { $0.id == selectedWorkspaceID }) {
+            return selectedWorkspaceID
+        }
+        return store.workspaces.first?.id
     }
 
     private var canCreateWorkspaceForMacSelection: Bool {
@@ -382,25 +433,38 @@ struct WorkspaceShellView: View {
 }
 
 #if os(iOS)
+struct InteractiveSwipeBackGesturePolicy {
+    func shouldBegin(navigationController: UINavigationController?) -> Bool {
+        (navigationController?.viewControllers.count ?? 0) > 1
+    }
+
+    func shouldRecognizeSimultaneously(
+        gestureRecognizer: UIGestureRecognizer,
+        navigationController: UINavigationController?
+    ) -> Bool {
+        gestureRecognizer == navigationController?.interactivePopGestureRecognizer
+    }
+}
+
 /// Re-enables the interactive swipe-from-edge back gesture, which UIKit disables
 /// whenever a custom leading bar button replaces the system back button (we do
 /// that to fold the unread count into the back control). Owns the pop gesture's
 /// delegate and only lets it begin when there is actually a screen to pop, so it
 /// never fires on the root list.
-/// `internal` (not `private`) so `cmuxFeatureTests` can drive
-/// `GestureHostController`'s delegate decisions directly.
-struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
+private struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController { GestureHostController() }
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
 
-    final class GestureHostController: UIViewController, UIGestureRecognizerDelegate {
+    private final class GestureHostController: UIViewController, UIGestureRecognizerDelegate {
+        private let policy = InteractiveSwipeBackGesturePolicy()
+
         override func didMove(toParent parent: UIViewController?) {
             super.didMove(toParent: parent)
             navigationController?.interactivePopGestureRecognizer?.delegate = self
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            (navigationController?.viewControllers.count ?? 0) > 1
+            policy.shouldBegin(navigationController: navigationController)
         }
 
         // The pushed workspace detail hosts surfaces with their own pan/scroll
@@ -416,7 +480,10 @@ struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
-            gestureRecognizer == navigationController?.interactivePopGestureRecognizer
+            policy.shouldRecognizeSimultaneously(
+                gestureRecognizer: gestureRecognizer,
+                navigationController: navigationController
+            )
         }
     }
 }

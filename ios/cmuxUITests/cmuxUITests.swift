@@ -278,6 +278,37 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSurfaceGridPreviewShowsBrowserTerminalCardsAndToolbar() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.scrollViews["MobileWorkspaceSurfaceGrid"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["MobileSurfaceGridSettingsButton"].exists)
+        XCTAssertTrue(app.buttons["MobileSurfaceGridDevicesButton"].exists)
+        XCTAssertTrue(app.buttons["MobileSurfaceGridSearchButton"].exists)
+        XCTAssertTrue(app.buttons["MobileSurfaceGridAddButton"].exists)
+
+        let workspacePicker = app.buttons["MobileSurfaceGridWorkspacePicker"]
+        XCTAssertTrue(workspacePicker.exists)
+        XCTAssertLessThanOrEqual(
+            workspacePicker.frame.width,
+            190,
+            "The bottom-center workspace picker should stay bounded so long workspace names truncate."
+        )
+        XCTAssertTrue(app.buttons["MobileSurfaceGridDoneButton"].exists)
+
+        XCTAssertTrue(app.staticTexts["MobileSurfaceGridWorkspaceTitle"].exists)
+        XCTAssertTrue(app.staticTexts["Browser"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["MobileSurfaceGridCard-terminal-terminal-build"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["MobileSurfaceGridCard-terminal-terminal-agent"].exists)
+
+        tap(app.buttons["MobileSurfaceGridSearchButton"], in: app)
+        XCTAssertTrue(app.textFields["MobileSurfaceGridSearchField"].waitForExistence(timeout: 2))
+    }
+
+    @MainActor
     func testWorkspaceToolbarCreatesWorkspaceAndTerminal() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()

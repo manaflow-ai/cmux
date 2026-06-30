@@ -5,49 +5,10 @@ import UIKit
 @testable import CmuxMobileBrowser
 @testable import CmuxMobileShellUI
 
-/// Regression coverage for issue #6634: the left-edge swipe-back must return to
-/// the workspace list even when a terminal or browser surface is on screen.
-///
-/// The full end-to-end gesture coexistence is a UIKit-runtime behavior that only
-/// a driven UI test could exercise, and `cmuxUITests` is skipped on the
-/// pull-request simulator lane. These tests instead lock the two code-level
-/// decisions the fix turns on:
-///   1. the navigation pop gesture recognizes simultaneously with the pushed
-///      surface's own scroll/pan recognizers (the terminal's full-bounds
-///      scroll-mechanics `UIScrollView`, the browser's `WKWebView` scroll view),
-///      which UIKit's default coexistence rule provided until we replaced the
-///      pop gesture's delegate; and
-///   2. the browser's web view does not install its own competing left-edge
-///      back-swipe.
+/// Regression coverage for browser-side edge-swipe ownership.
 @MainActor
 @Suite("iOS swipe-back over terminal/browser surfaces")
 struct MobileSwipeBackGestureTests {
-    /// Builds a navigation controller whose root view controller hosts a
-    /// `GestureHostController`, mirroring how `InteractiveSwipeBackEnabler` is
-    /// mounted inside the pushed workspace detail. The host is attached to the
-    /// root view controller (not the navigation controller) so
-    /// `host.navigationController` resolves up the containment chain without
-    /// pushing the host onto — and so inflating — the navigation stack.
-    private func makeHostedNavigation() -> (
-        nav: UINavigationController,
-        host: InteractiveSwipeBackEnabler.GestureHostController,
-        popGesture: UIGestureRecognizer
-    )? {
-        let host = InteractiveSwipeBackEnabler.GestureHostController()
-        let root = UIViewController()
-        let nav = UINavigationController(rootViewController: root)
-        // Load the navigation controller's view first so its
-        // `interactivePopGestureRecognizer` exists, then complete containment.
-        // This exercises the production wiring in `GestureHostController.didMove`
-        // (`interactivePopGestureRecognizer?.delegate = self`) instead of letting
-        // it no-op against a not-yet-created recognizer.
-        nav.loadViewIfNeeded()
-        root.addChild(host)
-        host.didMove(toParent: root)
-        guard let popGesture = nav.interactivePopGestureRecognizer else { return nil }
-        return (nav, host, popGesture)
-    }
-
     /// The browser pane is pushed onto the workspace `NavigationStack`. With the
     /// web view's own edge gesture enabled, a left-edge swipe is eaten by the web
     /// view (going nowhere when there is no web history) instead of popping back
@@ -58,40 +19,40 @@ struct MobileSwipeBackGestureTests {
         #expect(webView.allowsBackForwardNavigationGestures == false)
     }
 
-    /// `InteractiveSwipeBackEnabler.GestureHostController` re-arms the swipe by
-    /// taking over the pop gesture's delegate when it moves into the navigation
-    /// controller. Lock that registration so the wiring — not just the delegate
-    /// logic the other tests call directly — cannot silently regress.
-    @Test("enabler registers as the interactive pop gesture delegate")
-    func enablerBecomesPopGestureDelegate() throws {
-        let hosted = try #require(makeHostedNavigation())
-        #expect(hosted.popGesture.delegate === hosted.host)
-    }
-
-    /// The custom back button hides the system one (which disables the swipe), so
-    /// the enabler re-arms the pop gesture — but only when there is actually a
-    /// pushed screen to pop, never on the root workspace list.
+    /// The custom back button hides the system one, so the enabler re-arms the
+    /// pop gesture only when there is actually a pushed screen to pop.
     @Test("pop gesture begins only when a screen is pushed")
     func popGestureBeginsOnlyWithPushedScreen() throws {
-        let hosted = try #require(makeHostedNavigation())
-        #expect(hosted.host.gestureRecognizerShouldBegin(hosted.popGesture) == false)
-        hosted.nav.pushViewController(UIViewController(), animated: false)
-        #expect(hosted.host.gestureRecognizerShouldBegin(hosted.popGesture) == true)
+        let policy = InteractiveSwipeBackGesturePolicy()
+        let nav = UINavigationController(rootViewController: UIViewController())
+        nav.loadViewIfNeeded()
+
+        #expect(policy.shouldBegin(navigationController: nav) == false)
+        nav.pushViewController(UIViewController(), animated: false)
+        #expect(policy.shouldBegin(navigationController: nav) == true)
     }
 
-    /// Replacing the pop gesture's delegate dropped UIKit's built-in rule that
-    /// lets the edge swipe-back coexist with scroll views, so the swipe died over
-    /// the terminal and browser. The delegate must allow the pop gesture to
-    /// recognize simultaneously with a surface's pan/scroll recognizer.
+    /// The terminal and browser surfaces have their own pan/scroll recognizers;
+    /// the edge swipe must be allowed to recognize with them so it can pop back.
     @Test("pop gesture coexists with surface scroll/pan recognizers")
     func popGestureRecognizesSimultaneouslyWithSurfaceGestures() throws {
-        let hosted = try #require(makeHostedNavigation())
+        let policy = InteractiveSwipeBackGesturePolicy()
+        let nav = UINavigationController(rootViewController: UIViewController())
+        nav.loadViewIfNeeded()
+        let popGesture = try #require(nav.interactivePopGestureRecognizer)
         let surfacePan = UIPanGestureRecognizer()
+
         #expect(
-            hosted.host.gestureRecognizer(
-                hosted.popGesture,
-                shouldRecognizeSimultaneouslyWith: surfacePan
+            policy.shouldRecognizeSimultaneously(
+                gestureRecognizer: popGesture,
+                navigationController: nav
             ) == true
+        )
+        #expect(
+            policy.shouldRecognizeSimultaneously(
+                gestureRecognizer: surfacePan,
+                navigationController: nav
+            ) == false
         )
     }
 }
