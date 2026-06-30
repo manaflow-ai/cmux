@@ -12717,12 +12717,22 @@ private struct SidebarFooter: View {
 private struct SidebarFooterButtons: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
+    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     let onSendFeedback: () -> Void
     @State private var extensionBrowserAnchorView: NSView?
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
 
     var body: some View {
+        let _ = keyboardShortcutSettingsObserver.revision
         HStack(spacing: 4) {
+            SidebarFileExplorerButton(
+                isSelected: fileExplorerState.isVisible && fileExplorerState.mode == .files,
+                title: KeyboardShortcutSettings.Action.switchRightSidebarToFiles.label,
+                helpText: KeyboardShortcutSettings.Action.switchRightSidebarToFiles.tooltip(
+                    KeyboardShortcutSettings.Action.switchRightSidebarToFiles.label
+                ),
+                action: showFileExplorer
+            )
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
             // The puzzle button opens the extensions browser; it only shows
             // while the experimental Extensions feature is enabled.
@@ -12749,6 +12759,44 @@ private struct SidebarFooterButtons: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func showFileExplorer() {
+        let preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
+        guard AppDelegate.shared?.showRightSidebarModeInActiveMainWindow(
+            mode: .files,
+            focusFirstItem: true,
+            preferredWindow: preferredWindow
+        ) == true else {
+            NSSound.beep()
+            return
+        }
+    }
+}
+
+private struct SidebarFileExplorerButton: View {
+    let isSelected: Bool
+    let title: String
+    let helpText: String
+    let action: () -> Void
+
+    private let buttonSize: CGFloat = 22
+    private let iconSize: CGFloat = 11
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "folder")
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: iconSize, weight: .medium))
+                .foregroundStyle(isSelected ? Color.accentColor : Color(nsColor: .secondaryLabelColor))
+                .frame(width: buttonSize, height: buttonSize, alignment: .center)
+        }
+        .buttonStyle(SidebarFooterIconButtonStyle())
+        .frame(width: buttonSize, height: buttonSize, alignment: .center)
+        .accessibilityElement(children: .ignore)
+        .safeHelp(helpText)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier("SidebarFileExplorerButton")
     }
 }
 
