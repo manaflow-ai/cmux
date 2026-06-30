@@ -211,6 +211,7 @@ extension WorkspaceDetailView {
               let session = warmChatSession,
               let conversation = ensureChatConversationStore(for: session, requiresCurrentSource: true)
         else { return }
+        pruneCachedChatConversations()
         await conversation.run()
     }
 
