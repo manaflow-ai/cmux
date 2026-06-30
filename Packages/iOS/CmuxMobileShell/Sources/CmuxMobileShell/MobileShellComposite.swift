@@ -1459,14 +1459,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         name: String,
         host: String,
         port: Int,
-        pairedMacDeviceID: String
+        pairedMacDeviceID: String,
+        ifStillCurrent: (() -> Bool)? = nil
     ) async {
         await connectManualHost(
             name: name,
             host: host,
             port: port,
             pairedMacDeviceID: pairedMacDeviceID,
-            recordsPairingAttempt: false
+            recordsPairingAttempt: false,
+            ifStillCurrent: ifStillCurrent
         )
     }
 
@@ -1852,9 +1854,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Prefers the active attach ticket's real `macDeviceID`. A manual (`manual-…`)
     /// ticket has no real device id (the host lacks `mobile.attach_ticket.create`,
     /// so the connect synthesizes a manual ticket even on success); in that case,
-    /// fall back to the active paired Mac's device id, which the registry/switch
-    /// connect paths persist on success. This keeps the connected device — and its
-    /// live workspaces — visible in the tree even when the live ticket is manual.
+    /// fall back to the live foreground id stamped by switch/reconnect paths before
+    /// using the persisted active row. This keeps the connected device — and its
+    /// live workspaces — visible even while the active-row write is still settling.
     /// Yields `nil` only when there is genuinely no real device id to correlate.
     public var connectedMacDeviceID: String? {
         guard connectionState == .connected else { return nil }
@@ -1863,8 +1865,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            !macDeviceID.hasPrefix("manual-") {
             return macDeviceID
         }
-        // Manual/synthetic ticket but a live connection: correlate via the active
-        // paired Mac the connect path persisted (its id is the real device id).
+        if let foregroundMacID = foregroundMacDeviceID,
+           !foregroundMacID.isEmpty,
+           !foregroundMacID.hasPrefix("manual-") {
+            return foregroundMacID
+        }
+        // Manual/synthetic ticket but a live connection without a foreground id:
+        // correlate via the active paired Mac the connect path persisted.
         if let activeMacID = pairedMacs.first(where: { $0.isActive })?.macDeviceID,
            !activeMacID.isEmpty,
            !activeMacID.hasPrefix("manual-") {
@@ -2446,7 +2453,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let refreshedTarget = storeMacs.first(where: { $0.macDeviceID == macDeviceID })
             ?? pairedMacs.first(where: { $0.macDeviceID == macDeviceID }) else {
             if !hasActiveMacConnection,
-               await restorePreviousMacIfNeeded(macSwitchRestoreBaseline) {
+               await restorePreviousMacIfNeeded(macSwitchRestoreBaseline, switchAttemptID: switchAttemptID) {
                 macSwitchRestoreBaseline = nil
             }
             return false
@@ -2485,7 +2492,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ), MobileShellRouteAuthPolicy.normalizedManualHost(host) != nil else {
             mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .private)")
             if !hasActiveMacConnection,
-               await restorePreviousMacIfNeeded(macSwitchRestoreBaseline ?? previousForegroundMac) {
+               await restorePreviousMacIfNeeded(
+                   macSwitchRestoreBaseline ?? previousForegroundMac,
+                   switchAttemptID: switchAttemptID
+               ) {
                 macSwitchRestoreBaseline = nil
             }
             return false
@@ -2513,12 +2523,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if switched {
             macSwitchRestoreBaseline = nil
             finishMacSwitchAttempt(switchAttemptID)
-            enqueueActivePairedMacWrite(
+            if let task = enqueueActivePairedMacWrite(
                 macDeviceID: macDeviceID,
                 scope: scope,
                 reloadAfterWrite: true
-            )
-            return true
+            ) {
+                await task.value
+            }
+            return connectionState == .connected
+                && remoteClient != nil
+                && foregroundMacDeviceID == macDeviceID
         } else if macSwitchRestoreBaseline != nil || previousForegroundMac != nil, !hasActiveMacConnection {
             // The switch did not connect and the destructive connect path dropped
             // the previous session; reconnect to the still-active previous Mac so
@@ -2527,7 +2541,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // picker selection can either cancel this rollback while preserving
             // its baseline, or replace it with a new live foreground baseline.
             let restoreTarget = macSwitchRestoreBaseline ?? previousForegroundMac
-            if await restorePreviousMacIfNeeded(restoreTarget) {
+            if await restorePreviousMacIfNeeded(restoreTarget, switchAttemptID: switchAttemptID) {
                 macSwitchRestoreBaseline = nil
             }
         }
@@ -2572,19 +2586,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @discardableResult
     private func restorePreviousMacIfNeeded(
         _ previousActive: MobilePairedMac?,
+        switchAttemptID: UUID? = nil,
         cancelRestoreGeneration: UInt64? = nil
     ) async -> Bool {
-        func isCancelRestoreCurrent() -> Bool {
+        func isRestoreCurrent() -> Bool {
+            guard isSignedIn else { return false }
+            if let switchAttemptID {
+                return isCurrentMacSwitchAttempt(switchAttemptID)
+            }
             guard let cancelRestoreGeneration else { return true }
             return macSwitchCancelRestoreGeneration == cancelRestoreGeneration
                 && macSwitchAttemptID == nil
-                && isSignedIn
         }
-        guard isCancelRestoreCurrent() else { return false }
-        guard isSignedIn else { return false }
+        guard isRestoreCurrent() else { return false }
         guard let previousActive else { return false }
         guard let restoreScope = await currentScopeSnapshot() else { return false }
-        guard await isScopeCurrent(restoreScope), isCancelRestoreCurrent() else { return false }
+        guard await isScopeCurrent(restoreScope), isRestoreCurrent() else { return false }
         let previousIDs = Set(pairedMacAliasIDs(for: previousActive.macDeviceID))
         let previousStillForeground = connectionState == .connected
             && remoteClient != nil
@@ -2599,15 +2616,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.error("restorePreviousMacIfNeeded: no reconnectable route mac=\(previousActive.macDeviceID, privacy: .private)")
             return false
         }
-        guard await isScopeCurrent(restoreScope), isCancelRestoreCurrent() else { return false }
+        guard await isScopeCurrent(restoreScope), isRestoreCurrent() else { return false }
         await connectStoredMacHost(
             name: previousActive.displayName ?? host,
             host: host,
             port: port,
-            pairedMacDeviceID: previousActive.macDeviceID
+            pairedMacDeviceID: previousActive.macDeviceID,
+            ifStillCurrent: isRestoreCurrent
         )
         let restoreScopeIsCurrent = await isScopeCurrent(restoreScope)
-        guard restoreScopeIsCurrent, isCancelRestoreCurrent() else {
+        guard restoreScopeIsCurrent, isRestoreCurrent() else {
             if !restoreScopeIsCurrent,
                connectionState == .connected,
                remoteClient != nil,
@@ -2624,7 +2642,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && remoteClient != nil
             && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
         guard restored else { return restored }
-        guard await isScopeCurrent(restoreScope), isCancelRestoreCurrent() else { return restored }
+        guard await isScopeCurrent(restoreScope), isRestoreCurrent() else { return restored }
         if let task = enqueueActivePairedMacWrite(
             macDeviceID: previousActive.macDeviceID,
             scope: restoreScope,
@@ -5348,7 +5366,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         fallback: MobilePairedMac? = nil
     ) async -> Bool {
         guard consumeMacSwitchRestorePreviousOnCancel(attemptID) else { return false }
-        let restored = await restorePreviousMacIfNeeded(macSwitchRestoreBaseline ?? fallback)
+        let restoreGeneration = macSwitchCancelRestoreGeneration
+        let restored = await restorePreviousMacIfNeeded(
+            macSwitchRestoreBaseline ?? fallback,
+            cancelRestoreGeneration: restoreGeneration
+        )
         macSwitchRestoreBaseline = nil
         return restored
     }
