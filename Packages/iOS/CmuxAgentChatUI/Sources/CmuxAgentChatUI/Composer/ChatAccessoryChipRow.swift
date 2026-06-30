@@ -54,13 +54,10 @@ public struct ChatAccessoryChipRow: View {
                             chip(shortcut)
                         }
                     }
-                    // Inset the row content slightly so the fade reveals/clips
-                    // chips rather than cropping the very first/last chip flush
-                    // at the edge.
-                    .padding(.horizontal, 2)
                     .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
                         scrollContentWidth = width
                     }
+                    .padding(.horizontal, scrollNeedsEdgeFade ? Self.scrollEdgeFadeWidth : 2)
                 }
                 .frame(height: 32)
                 .layoutPriority(1)
