@@ -50,17 +50,24 @@ def expect_fail(exit_code: int, log_text: str) -> None:
 
 
 def test_accepts_nonzero_runner_cleanup_after_zero_unexpected_summaries() -> None:
+    # Genuine cleanup noise: every suite ran (terminal completion marker present)
+    # and only the runner teardown made the exit non-zero.
     expect_pass(
         65,
         """
 Test Suite 'cmuxTests.xctest' started
     Executed 4 tests, with 0 failures (0 unexpected) in 1.000 seconds
     Executed 2 tests, with 0 failures (0 unexpected) in 0.500 seconds
+Test Suite 'Selected tests' passed at 2026-06-29 00:00:00.000
+    Executed 6 tests, with 0 failures (0 unexpected) in 1.500 seconds
+** TEST SUCCEEDED **
 """,
     )
 
 
 def test_accepts_zero_unexpected_failures_when_all_summaries_report_zero_unexpected() -> None:
+    # Expected failures (0 unexpected) on a completed run stay tolerated, proven
+    # by the terminal completion marker.
     expect_pass(
         65,
         """
@@ -68,6 +75,9 @@ Test Suite 'AppDelegateShortcutRoutingTests' failed
     Executed 2 tests, with 1 failure (0 unexpected) in 0.125 seconds
 Test Suite 'LaterSuite' passed
     Executed 1 test, with 0 failures (0 unexpected) in 0.010 seconds
+Test Suite 'Selected tests' passed at 2026-06-29 00:00:00.000
+    Executed 3 tests, with 1 failure (0 unexpected) in 0.140 seconds
+** TEST SUCCEEDED **
 """,
     )
 
@@ -158,11 +168,16 @@ Test Suite 'LaterSuite' passed
 
 
 def test_rejects_zero_test_summaries_without_any_executed_tests() -> None:
+    # Even a completed run (terminal marker present) is rejected when no suite
+    # actually executed a test -- a filter that matched nothing must not pass.
     expect_fail(
         65,
         """
 Test Suite 'SkippedBundle' started
     Executed 0 tests, with 0 failures (0 unexpected) in 0.000 seconds
+Test Suite 'Selected tests' passed at 2026-06-29 00:00:00.000
+    Executed 0 tests, with 0 failures (0 unexpected) in 0.000 seconds
+** TEST SUCCEEDED **
 """,
     )
 

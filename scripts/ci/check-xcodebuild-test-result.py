@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
 """Decide whether a non-zero xcodebuild test exit can be accepted.
 
-Xcode can occasionally return non-zero after XCTest has already printed
-terminal summaries, usually from app-host cleanup on shared macOS runners.
-The legacy workflow accepted that shape when the final summary had
-``(0 unexpected)``. Keep that contract, but inspect every summary so an earlier
-suite with unexpected failures cannot be hidden by a later clean summary.
+Xcode can return non-zero after a test action *completed* -- app-host cleanup
+noise on shared macOS runners, or a watchdog killing a process that lingered
+after every suite finished. The legacy workflow accepted that shape when the
+final summary had ``(0 unexpected)``, but a bare summary scan cannot tell
+"completed, then cleanup noise" apart from "aborted/hung partway through": both
+can show only early clean summaries while later suites never ran. That is
+exactly the masking #5641 is about.
 
-A timeout is not cleanup noise. The CI watchdogs
+So a non-zero exit is accepted only when (a) every parsed XCTest summary reports
+zero unexpected failures, (b) at least one summary executed tests, and (c) the
+log proves xcodebuild reached its terminal completion marker, which guarantees
+every selected suite ran rather than an early prefix. The CI watchdogs
 (``scripts/ci/xcodebuild_noninteractive.py`` and ci.yml's ``run_unit_tests``)
-return exit code 124 when they kill xcodebuild. If that kill landed before
-xcodebuild reached a terminal completion marker, the run was still executing
-(or hung) and an arbitrary subset of suites never ran, so an early clean
-summary would re-mask exactly the partial/hung runs this gate exists to catch
-(#5641). A timeout is therefore only tolerated with proof that xcodebuild
-reached its terminal summary first -- the genuine "tests finished, app-host
-cleanup lingered" case, which the inner wrapper already converts to exit 0/125
-when ``POST_TEST_TIMEOUT`` is set but which surfaces as a raw 124 elsewhere.
+return exit code 124 when they kill xcodebuild; that and other mid-run aborts
+fail (c) unless terminal completion was already reached.
 """
 
 from __future__ import annotations
@@ -43,9 +42,9 @@ TIMEOUT_MARKERS = (
 )
 
 # xcodebuild prints one of these only once the test action runs to completion.
-# Their presence proves every selected suite finished, so a post-completion
-# cleanup timeout is safe to accept; their absence after a kill means the run
-# was truncated.
+# Their presence proves every selected suite finished, so a subsequent non-zero
+# exit (cleanup noise or a watchdog kill of a lingering process) is safe to
+# accept; their absence means the run was truncated before finishing.
 COMPLETION_MARKERS = (
     "** TEST SUCCEEDED **",
     "** TEST FAILED **",
@@ -75,16 +74,6 @@ def main(argv: list[str]) -> int:
 
     output = args.log_path.read_text(encoding="utf-8", errors="replace")
 
-    timed_out = args.exit_code == TIMEOUT_EXIT_CODE or any(
-        marker in output for marker in TIMEOUT_MARKERS
-    )
-    if timed_out and not reached_terminal_completion(output):
-        print(
-            "Unexpected test failures detected: xcodebuild was killed by a timeout "
-            "watchdog before reaching a terminal test summary"
-        )
-        return 1
-
     summaries: list[tuple[int, int, int, str]] = []
     for line in output.splitlines():
         summary_match = SUMMARY_RE.search(line)
@@ -109,11 +98,30 @@ def main(argv: list[str]) -> int:
             print(f"  {line}")
         return 1
 
+    # The clean summaries above only prove the suites we can see passed. A
+    # non-zero exit is cleanup noise (safe to accept) only if xcodebuild also
+    # reached its terminal completion marker; otherwise the run was aborted or
+    # killed before finishing, the visible summaries may be just an early prefix,
+    # and the un-run remainder would be silently skipped -- the #5641 masking.
+    if not reached_terminal_completion(output):
+        timed_out = args.exit_code == TIMEOUT_EXIT_CODE or any(
+            marker in output for marker in TIMEOUT_MARKERS
+        )
+        cause = "was killed by a timeout watchdog" if timed_out else "exited non-zero"
+        print(
+            f"Unexpected test failures detected: xcodebuild {cause} before reaching a "
+            "terminal test summary; cannot confirm every selected suite ran"
+        )
+        return 1
+
     if not any(tests > 0 for tests, _failures, _unexpected, _line in summaries):
         print("Unexpected test failures detected: no XCTest summary executed any tests")
         return 1
 
-    print("XCTest summaries reported zero unexpected failures; accepting non-zero xcodebuild exit")
+    print(
+        "XCTest summaries reported zero unexpected failures and xcodebuild reached "
+        "terminal completion; accepting non-zero xcodebuild exit"
+    )
     return 0
 
 
