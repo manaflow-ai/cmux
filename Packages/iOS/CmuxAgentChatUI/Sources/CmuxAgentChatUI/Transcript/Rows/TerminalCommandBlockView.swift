@@ -73,29 +73,7 @@ public struct TerminalCommandBlockView: View {
                     .frame(width: 2.5)
             }
         }
-        .accessibilityElement(children: .combine)
         .accessibilityIdentifier("TerminalCommandBlock-\(block.id)")
-        .accessibilityLabel(accessibilityLabel)
-        // `.combine` absorbs the inline "more lines" button, so expose the
-        // toggle as a VoiceOver custom action when the output is collapsible.
-        .accessibilityActions {
-            if lines.count > Self.collapseThreshold {
-                Button(
-                    isExpanded
-                        ? String(
-                            localized: "chat.terminal.collapse.action",
-                            defaultValue: "Show less output",
-                            bundle: .module
-                        )
-                        : String(
-                            localized: "chat.terminal.expand.action",
-                            defaultValue: "Show all output",
-                            bundle: .module
-                        ),
-                    action: onToggleExpanded
-                )
-            }
-        }
     }
 
     private var commandRow: some View {
@@ -111,14 +89,13 @@ public struct TerminalCommandBlockView: View {
         }
     }
 
+    @ViewBuilder
     private func outputBlock(_ lines: [String]) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                if !isExpanded, lines.count > Self.collapseThreshold {
-                    collapsedOutput(lines)
-                } else {
-                    outputText(lines)
-                }
+        if !isExpanded, lines.count > Self.collapseThreshold {
+            collapsedOutput(lines)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                outputText(lines)
             }
         }
     }
@@ -126,7 +103,9 @@ public struct TerminalCommandBlockView: View {
     @ViewBuilder
     private func collapsedOutput(_ lines: [String]) -> some View {
         let hidden = lines.count - Self.collapsedHeadCount - Self.collapsedTailCount
-        outputText(Array(lines.prefix(Self.collapsedHeadCount)))
+        ScrollView(.horizontal, showsIndicators: false) {
+            outputText(Array(lines.prefix(Self.collapsedHeadCount)))
+        }
         Button(action: onToggleExpanded) {
             Text(
                 String(
@@ -137,12 +116,23 @@ public struct TerminalCommandBlockView: View {
             )
             .font(.system(size: 12, design: .monospaced))
             .foregroundStyle(theme.accent)
-            .padding(.vertical, 1)
+            .padding(.vertical, 4)
+            .frame(minHeight: 28, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            isExpanded
+                ? String(localized: "chat.terminal.collapse.action", defaultValue: "Show less output", bundle: .module)
+                : String(localized: "chat.terminal.expand.action", defaultValue: "Show all output", bundle: .module)
+        )
         .accessibilityIdentifier("TerminalCommandBlockToggle-\(block.id)")
-        outputText(Array(lines.suffix(Self.collapsedTailCount)))
-            .opacity(0.55)
+        .accessibilityAddTraits(.isButton)
+        ScrollView(.horizontal, showsIndicators: false) {
+            outputText(Array(lines.suffix(Self.collapsedTailCount)))
+                .opacity(0.55)
+        }
     }
 
     private func outputText(_ lines: [String]) -> some View {

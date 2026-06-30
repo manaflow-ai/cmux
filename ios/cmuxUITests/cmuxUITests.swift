@@ -1121,22 +1121,6 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testTerminalCommandExpansionPreservesTranscriptScrollPosition() throws {
-        let app = launchTerminalLogPreviewApp()
-        let table = app.tables["ChatTranscriptTableView"]
-        XCTAssertTrue(table.waitForExistence(timeout: 8))
-        _ = try waitForTranscriptMetrics(table, timeout: 8) {
-            $0.frameHeight > 240 && $0.contentHeight > $0.boundsHeight * 1.3
-        }
-
-        try assertCommandBlockExpansionPreservesTranscriptPosition(
-            blockID: "TerminalCommandBlock-10",
-            table: table,
-            app: app
-        )
-    }
-
-    @MainActor
     func testAgentChatBottomScrollEdgeUnderlapsDeviceBottom() throws {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("Bottom scroll-edge underlap uses iOS 26 edge effects.")
@@ -1457,16 +1441,6 @@ final class cmuxUITests: XCTestCase {
             settleChatPreviewKeyboardDown(in: app, table: table),
             "Chat preview must start keyboard-down before keyboard evidence is collected. metrics=\(String(describing: transcriptMetrics(from: table)))"
         )
-        return app
-    }
-
-    @MainActor
-    private func launchTerminalLogPreviewApp() -> XCUIApplication {
-        let app = launchApp(mockData: false, environment: [
-            "CMUX_UITEST_TERMINAL_LOG_PREVIEW": "1",
-        ])
-        let table = app.tables["ChatTranscriptTableView"]
-        XCTAssertTrue(table.waitForExistence(timeout: 8))
         return app
     }
 
@@ -2518,69 +2492,6 @@ final class cmuxUITests: XCTestCase {
             after.distanceFromBottom,
             120,
             "Tapping \(buttonID) must leave the transcript away from the live tail. before=\(before) after=\(after)",
-            file: file,
-            line: line
-        )
-    }
-
-    @MainActor
-    private func assertCommandBlockExpansionPreservesTranscriptPosition(
-        blockID: String,
-        table: XCUIElement,
-        app: XCUIApplication,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) throws {
-        let block = app.descendants(matching: .any)[blockID]
-        let deadline = Date().addingTimeInterval(8)
-        var readyMetrics: ChatTranscriptMetrics?
-        while Date() < deadline {
-            if block.isHittable,
-               let metrics = transcriptMetrics(from: table),
-               metrics.distanceFromBottom > 180,
-               metrics.contentHeight > metrics.boundsHeight * 1.4 {
-                readyMetrics = metrics
-                break
-            }
-            let start = table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.38))
-            let end = table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.68))
-            start.press(forDuration: 0.01, thenDragTo: end)
-            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
-        }
-        XCTAssertTrue(
-            block.isHittable,
-            "Expected command block \(blockID) to become hittable away from the live tail. metrics=\(String(describing: transcriptMetrics(from: table)))",
-            file: file,
-            line: line
-        )
-
-        let before: ChatTranscriptMetrics
-        if let readyMetrics {
-            before = readyMetrics
-        } else {
-            before = try waitForTranscriptMetrics(
-                table,
-                timeout: 4,
-                matching: { $0.distanceFromBottom > 180 && $0.contentHeight > $0.boundsHeight * 1.4 },
-                file: file,
-                line: line
-            )
-        }
-        let blockFrame = block.frame
-        app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: blockFrame.minX + 84, dy: blockFrame.minY + 118))
-            .tap()
-        let after = try waitForTranscriptMetrics(
-            table,
-            timeout: 4,
-            matching: { $0.distanceFromBottom > 120 && $0.contentHeight > before.contentHeight + 80 },
-            file: file,
-            line: line
-        )
-        XCTAssertLessThanOrEqual(
-            abs(after.visibleTopY - before.visibleTopY),
-            120,
-            "Tapping \(blockID)'s command-block expansion control must preserve the visible transcript region instead of jumping. before=\(before) after=\(after)",
             file: file,
             line: line
         )

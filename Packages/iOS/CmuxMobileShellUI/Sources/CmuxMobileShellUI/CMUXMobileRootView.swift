@@ -62,14 +62,6 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    private var shouldShowTerminalLogPreview: Bool {
-        #if os(iOS) && DEBUG
-        return UITestConfig.terminalLogPreviewEnabled
-        #else
-        return false
-        #endif
-    }
-
     private var shouldShowWorkspaceListLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.workspaceListLayoutPreviewEnabled
@@ -97,14 +89,6 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
-        #else
-        EmptyView()
-        #endif
-    }
-
-    @ViewBuilder private var terminalLogPreview: some View {
-        #if os(iOS) && DEBUG
-        TerminalLogDemoScreen()
         #else
         EmptyView()
         #endif
@@ -218,8 +202,6 @@ struct CMUXMobileRootView: View {
             agentChatDemoPreview
         } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
-        } else if shouldShowTerminalLogPreview {
-            terminalLogPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
         } else if shouldShowStreamingChatPreview {

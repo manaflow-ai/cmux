@@ -139,6 +139,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 return
             }
 
+            pendingContentUpdateAnchor = nil
             items = nextItems
             expandedIDs = configuration.expandedIDs
             agentState = configuration.agentState
@@ -190,6 +191,10 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             requestOlderHistoryIfNeeded(in: tableView)
         }
 
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            pendingContentUpdateAnchor = nil
+        }
+
         private func handleLayoutChange(
             in tableView: ChatTranscriptUITableView,
             oldBoundsSize: CGSize,
@@ -202,6 +207,9 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 || abs(oldBoundsSize.width - tableView.bounds.width) > 0.5
             let contentChanged = abs(oldContentSize.height - tableView.contentSize.height) > 0.5
             guard boundsChanged || contentChanged else {
+                if !isApplyingDataUpdate {
+                    pendingContentUpdateAnchor = nil
+                }
                 updateBottomState(from: tableView)
                 return
             }
