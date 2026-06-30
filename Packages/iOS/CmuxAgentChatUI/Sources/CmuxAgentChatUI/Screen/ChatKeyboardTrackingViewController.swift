@@ -22,7 +22,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     var excludedKeyboardDismissFrame: CGRect = .zero
 
     private let keyboardContentView = UIView(frame: .zero)
-    private let transcriptClipView = UIView(frame: .zero)
+    let transcriptClipView = UIView(frame: .zero)
     private let composerBackgroundView = UIVisualEffectView(effect: nil)
     let transcriptHostingController: UIHostingController<Transcript>
     let composerHostingController: UIHostingController<Composer>
@@ -31,6 +31,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private var transcriptClipTopConstraint: NSLayoutConstraint?
     private var transcriptClipBottomConstraint: NSLayoutConstraint?
     private var transcriptHeightConstraint: NSLayoutConstraint?
+    private var composerBottomConstraint: NSLayoutConstraint?
     private let scrollEdgeCoordinator = ChatScrollEdgeCoordinator()
 
     var keyboardOverlap: CGFloat = 0
@@ -128,12 +129,14 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private func installLayoutConstraints() {
         let composerHeightConstraint = composerHostingController.view.heightAnchor.constraint(equalToConstant: 0)
         let transcriptClipTopConstraint = transcriptClipView.topAnchor.constraint(equalTo: keyboardContentView.topAnchor)
-        let transcriptClipBottomConstraint = transcriptClipView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        let transcriptClipBottomConstraint = transcriptClipView.bottomAnchor.constraint(equalTo: composerHostingController.view.topAnchor)
         let transcriptHeightConstraint = transcriptHostingController.view.heightAnchor.constraint(equalToConstant: 0)
+        let composerBottomConstraint = composerHostingController.view.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor)
         self.composerHeightConstraint = composerHeightConstraint
         self.transcriptClipTopConstraint = transcriptClipTopConstraint
         self.transcriptClipBottomConstraint = transcriptClipBottomConstraint
         self.transcriptHeightConstraint = transcriptHeightConstraint
+        self.composerBottomConstraint = composerBottomConstraint
 
         NSLayoutConstraint.activate([
             keyboardContentView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -148,7 +151,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
             transcriptHostingController.view.leadingAnchor.constraint(equalTo: transcriptClipView.leadingAnchor),
             transcriptHostingController.view.trailingAnchor.constraint(equalTo: transcriptClipView.trailingAnchor),
-            transcriptHostingController.view.bottomAnchor.constraint(equalTo: transcriptClipView.bottomAnchor),
+            transcriptHostingController.view.topAnchor.constraint(equalTo: transcriptClipView.topAnchor),
             transcriptHeightConstraint,
 
             composerBackgroundView.topAnchor.constraint(equalTo: composerHostingController.view.topAnchor),
@@ -158,7 +161,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
             composerHostingController.view.leadingAnchor.constraint(equalTo: keyboardContentView.leadingAnchor),
             composerHostingController.view.trailingAnchor.constraint(equalTo: keyboardContentView.trailingAnchor),
-            composerHostingController.view.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor),
+            composerBottomConstraint,
             composerHeightConstraint,
         ])
     }
@@ -319,7 +322,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         let fullTranscriptHeight = max(0, layoutHeight)
         updateConstraint(composerHeightConstraint, to: composerHeight)
         updateConstraint(transcriptClipTopConstraint, to: 0)
-        updateConstraint(transcriptClipBottomConstraint, to: safeAreaUnderlap)
+        updateConstraint(transcriptClipBottomConstraint, to: 0)
         updateConstraint(transcriptHeightConstraint, to: fullTranscriptHeight)
         if let transcriptOverlayGeometry,
            abs(transcriptOverlayGeometry.composerBottomInset - overlayBottomInset) > 0.5 {
@@ -334,7 +337,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private func applyKeyboardOverlap(_ overlap: CGFloat) {
         let clampedOverlap = min(max(0, overlap), max(0, view.bounds.height))
         keyboardOverlap = clampedOverlap
-        keyboardContentView.transform = CGAffineTransform(translationX: 0, y: -clampedOverlap)
+        updateConstraint(composerBottomConstraint, to: -clampedOverlap)
     }
 
     private func pinAnimationToVisibleOverlap(_ overlap: CGFloat) {
@@ -349,22 +352,16 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     }
 
     func currentVisibleKeyboardOverlap() -> CGFloat {
-        if let rawTranslation = keyboardContentView.layer.presentation()?.value(
-            forKeyPath: "transform.translation.y"
-        ) {
-            let translation: CGFloat?
-            if let value = rawTranslation as? CGFloat {
-                translation = value
-            } else if let value = rawTranslation as? NSNumber {
-                translation = CGFloat(truncating: value)
-            } else {
-                translation = nil
-            }
-            if let translation {
-                return min(max(0, -translation), max(0, view.bounds.height))
-            }
+        if let composerFrame = presentationFrameInOwnViewCoordinates(for: composerHostingController.view) {
+            return min(max(0, view.bounds.maxY - composerFrame.maxY), max(0, view.bounds.height))
         }
         return keyboardOverlap
+    }
+
+    private func presentationFrameInOwnViewCoordinates(for targetView: UIView) -> CGRect? {
+        let sourceLayer = targetView.layer.presentation() ?? targetView.layer
+        let targetLayer = view.layer.presentation() ?? view.layer
+        return sourceLayer.convert(targetView.bounds, to: targetLayer)
     }
 
     private var bottomSafeAreaUnderlap: CGFloat {

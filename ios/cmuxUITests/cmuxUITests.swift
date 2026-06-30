@@ -654,7 +654,7 @@ final class cmuxUITests: XCTestCase {
     /// stays full height behind a keyboard-owned clip view, so the bottom content
     /// remains visible and keyboard motion clips only from the top.
     @MainActor
-    func testAgentChatTranscriptFrameMovesUpWithKeyboardAcrossScrollPositions() throws {
+    func testAgentChatTranscriptKeepsTopEdgeVisibleWithKeyboardAcrossScrollPositions() throws {
         do {
             let app = launchAgentChatInlinePreviewApp()
             let table = app.tables["ChatTranscriptTableView"]
@@ -1323,7 +1323,8 @@ final class cmuxUITests: XCTestCase {
             line: line
         )
         let afterKeyboard = try waitForTranscriptMetrics(table, timeout: 6) {
-            $0.frameMaxY < beforeKeyboard.frameMaxY - 120
+            $0.keyboardOverlap > 120
+                && $0.presentationFrameMaxY < beforeKeyboard.presentationFrameMaxY - 120
         }
         let metricsAttachment = XCTAttachment(
             string: "scrollPosition=\(scrollPosition)\nbefore=\(beforeKeyboard)\nafter=\(afterKeyboard)"
@@ -1347,6 +1348,14 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
+        XCTAssertEqual(
+            afterKeyboard.frameMinY,
+            beforeKeyboard.frameMinY,
+            accuracy: 4,
+            "Chat transcript UITableView top must stay at the visible nav underlap while the keyboard is up from \(scrollPosition). Moving the table to a negative Y keeps the flags enabled but renders the native top edge blur offscreen. before=\(beforeKeyboard) after=\(afterKeyboard)",
+            file: file,
+            line: line
+        )
         let keyboardFrame = keyboardFrameAfterFocus(
             in: app,
             overlap: afterKeyboard.keyboardOverlap,
@@ -1363,9 +1372,9 @@ final class cmuxUITests: XCTestCase {
         }
 
         XCTAssertLessThan(
-            afterKeyboard.frameMaxY,
-            beforeKeyboard.frameMaxY - 120,
-            "Chat transcript UITableView bottom must move up with the keyboard from \(scrollPosition). before=\(beforeKeyboard) after=\(afterKeyboard) keyboard=\(keyboardFrame)",
+            afterKeyboard.presentationFrameMaxY,
+            beforeKeyboard.presentationFrameMaxY - 120,
+            "Chat transcript visible clipped bottom must move up with the keyboard from \(scrollPosition). The table frame itself stays at the top so the native top scroll-edge blur remains visible. before=\(beforeKeyboard) after=\(afterKeyboard) keyboard=\(keyboardFrame)",
             file: file,
             line: line
         )
@@ -1417,14 +1426,6 @@ final class cmuxUITests: XCTestCase {
             composerFieldFrame.height,
             18,
             "Chat composer field must retain a usable text-entry frame after keyboard opens from \(scrollPosition). field=\(composerFieldFrame)",
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            afterKeyboard.visibleBottomY,
-            beforeKeyboard.visibleBottomY,
-            accuracy: 36,
-            "Visible transcript bottom should stay pinned while the keyboard opens from \(scrollPosition). before=\(beforeKeyboard) after=\(afterKeyboard)",
             file: file,
             line: line
         )
@@ -2208,7 +2209,7 @@ final class cmuxUITests: XCTestCase {
         }
 
         var effectiveFrameMaxY: CGFloat {
-            frameMaxY - composerOverlayBottomInset
+            composerPresentationMinY
         }
 
         init?(_ rawValue: String) {
