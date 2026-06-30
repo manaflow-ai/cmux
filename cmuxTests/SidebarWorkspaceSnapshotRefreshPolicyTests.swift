@@ -175,6 +175,11 @@ import Testing
             showsBranchDirectory: true,
             showsPullRequests: true,
             showsPorts: true
+        ),
+        workspaceStateColorResolver: WorkspaceStateColorResolver = WorkspaceStateColorResolver(
+            isEnabled: false,
+            mode: .replace,
+            colorHexByState: [:]
         )
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
@@ -182,7 +187,8 @@ import Testing
             usesVerticalBranchLayout: usesVerticalBranchLayout,
             showsGitBranch: showsGitBranch,
             usesViewportAwarePath: usesViewportAwarePath,
-            visibleAuxiliaryDetails: visibleAuxiliaryDetails
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails,
+            workspaceStateColorResolver: workspaceStateColorResolver
         )
     }
 }
