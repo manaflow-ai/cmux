@@ -150,10 +150,15 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
     }
 }
 
+/// Errors thrown while validating or decoding a ``CmxAttachTicket``.
 public enum CmxAttachTicketError: Error, Equatable, Sendable {
+    /// The encoded ticket used a grammar version this build cannot decode.
     case unsupportedVersion(Int)
+    /// The ticket carried no routes, so the phone has nowhere to attach.
     case noRoutes
+    /// The ticket declared a ticket reference whose value was empty.
     case emptyTicketRef
+    /// The ticket declared an attach token whose value was empty.
     case emptyAuthToken
 }
 
