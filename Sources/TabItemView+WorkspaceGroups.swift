@@ -11,15 +11,18 @@ extension TabItemView {
             localized: "contextMenu.workspaceGroup.newEmpty",
             defaultValue: "New Empty Workspace Group"
         )
+        let canCreateEmptyWorkspaceGroup = tabManager.selectedTab?.isRemoteTmuxMirror != true
         if let key = newWorkspaceGroupShortcut.keyEquivalent {
             Button(newWorkspaceGroupLabel) {
                 _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
             }
             .keyboardShortcut(key, modifiers: newWorkspaceGroupShortcut.eventModifiers)
+            .disabled(!canCreateEmptyWorkspaceGroup)
         } else {
             Button(newWorkspaceGroupLabel) {
                 _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
             }
+            .disabled(!canCreateEmptyWorkspaceGroup)
         }
 
         let targetWorkspaces = targetIds.compactMap { id in
