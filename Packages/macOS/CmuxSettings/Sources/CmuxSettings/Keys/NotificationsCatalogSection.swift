@@ -44,6 +44,17 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationCustomCommand"
     )
 
+    /// When enabled, the implicit notification auto-withdraw fires only for the
+    /// exact focused surface, so a banner delivered for a non-focused surface in
+    /// the currently visible workspace is not retroactively withdrawn when the
+    /// workspace becomes visible/active. Off preserves the legacy
+    /// workspace-visibility withdraw. See issue #6601.
+    public let suppressOnlyFocusedSurface = DefaultsKey<Bool>(
+        id: "notifications.suppressOnlyFocusedSurface",
+        defaultValue: false,
+        userDefaultsKey: "notificationsSuppressOnlyFocusedSurface"
+    )
+
     public let hooks = JSONKey<[String: String]>(
         id: "notifications.hooks",
         defaultValue: [:]

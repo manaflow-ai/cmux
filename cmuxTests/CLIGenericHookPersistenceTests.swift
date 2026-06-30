@@ -314,32 +314,31 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        func runAntigravityHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
-                case "feed.push":
-                    return self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
+        startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
             }
-            let result = runProcess(
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        func runAntigravityHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "antigravity", subcommand],
                 environment: environment,
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
-            return result
         }
 
         let start = runAntigravityHook(

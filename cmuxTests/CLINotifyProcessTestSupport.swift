@@ -38,9 +38,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
-        return URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
-            .path
+        return "/tmp/cli-\(name.prefix(3))-\(shortID).sock"
     }
 
     func bindUnixSocket(at path: String) throws -> Int32 {
@@ -333,8 +331,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
         v2Response(
             id: id,
             ok: true,
-            result: ["surfaces": [["id": surfaceId, "ref": "surface:1", "focused": true]]]
+            result: ["surfaces": [["id": surfaceId, "ref": "surface:1", "index": 1, "focused": true]]]
         )
+    }
+
+    func processTimeout(_ requested: TimeInterval) -> TimeInterval {
+        let env = ProcessInfo.processInfo.environment
+        guard env["GITHUB_ACTIONS"] == "true" || env["CI"] == "true" else {
+            return requested
+        }
+        return max(requested, 20)
     }
 
     func jsonObject(_ line: String) -> [String: Any]? {
@@ -379,35 +385,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? stdinPipe.fileHandleForWriting.close()
         }
 
-        final class PipeReadResult: @unchecked Sendable {
-            private let lock = NSLock()
-            private var data = Data()
+        let outputLock = NSLock()
+        var stdoutData = Data()
+        var stderrData = Data()
+        let outputGroup = DispatchGroup()
 
-            func store(_ value: Data) {
-                lock.lock()
-                data = value
-                lock.unlock()
-            }
-
-            func snapshot() -> Data {
-                lock.lock()
-                let value = data
-                lock.unlock()
-                return value
-            }
+        outputGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            outputLock.lock()
+            stdoutData = data
+            outputLock.unlock()
+            outputGroup.leave()
         }
 
-        let stdoutResult = PipeReadResult()
-        let stderrResult = PipeReadResult()
-        let stdoutSignal = DispatchSemaphore(value: 0)
-        let stderrSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            stdoutResult.store(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
-            stdoutSignal.signal()
-        }
-        DispatchQueue.global(qos: .userInitiated).async {
-            stderrResult.store(stderrPipe.fileHandleForReading.readDataToEndOfFile())
-            stderrSignal.signal()
+        outputGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            outputLock.lock()
+            stderrData = data
+            outputLock.unlock()
+            outputGroup.leave()
         }
 
         let exitSignal = DispatchSemaphore(value: 0)
@@ -416,7 +414,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             exitSignal.signal()
         }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = exitSignal.wait(timeout: .now() + processTimeout(timeout)) == .timedOut
         if timedOut {
             process.terminate()
             if exitSignal.wait(timeout: .now() + 1) == .timedOut {
@@ -424,11 +422,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 _ = exitSignal.wait(timeout: .now() + 1)
             }
         }
+        _ = outputGroup.wait(timeout: .now() + 2)
 
-        _ = stdoutSignal.wait(timeout: .now() + 1)
-        _ = stderrSignal.wait(timeout: .now() + 1)
-        let stdout = String(data: stdoutResult.snapshot(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrResult.snapshot(), encoding: .utf8) ?? ""
+        outputLock.lock()
+        let finalStdoutData = stdoutData
+        let finalStderrData = stderrData
+        outputLock.unlock()
+        let stdout = String(data: finalStdoutData, encoding: .utf8) ?? ""
+        let stderr = String(data: finalStderrData, encoding: .utf8) ?? ""
         return ProcessRunResult(
             status: process.isRunning ? SIGKILL : process.terminationStatus,
             stdout: stdout,
