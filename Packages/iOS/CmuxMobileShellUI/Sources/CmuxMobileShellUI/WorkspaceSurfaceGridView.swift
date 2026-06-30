@@ -171,7 +171,7 @@ struct WorkspaceSurfaceGridView: View {
                         .fontWeight(.semibold)
                 }
                 .accessibilityIdentifier("MobileSurfaceGridDoneButton")
-                .disabled(gridContent.selectedWorkspace == nil)
+                .disabled(!canOpenSelectedSurface(in: gridContent.selectedWorkspace))
             }
         }
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -372,6 +372,17 @@ struct WorkspaceSurfaceGridView: View {
     private func close(_ item: WorkspaceSurfaceGridItem) {
         guard case .browser = item.kind else { return }
         closeBrowser(item.workspaceID)
+    }
+
+    private func canOpenSelectedSurface(in workspace: MobileWorkspacePreview?) -> Bool {
+        guard let workspace else { return false }
+        if browserStore.activeBrowser(for: workspace.id.rawValue) != nil {
+            return true
+        }
+        return WorkspaceSurfaceGridSelection(
+            workspace: workspace,
+            selectedTerminalID: selectedTerminalID
+        ).terminalIDToOpen() != nil
     }
 
     private func openSelectedSurface(in workspace: MobileWorkspacePreview?) {

@@ -38,4 +38,19 @@ import CmuxMobileShellModel
 
         #expect(selection.terminalIDToOpen() == "terminal-build")
     }
+
+    @Test func returnsNilWhenWorkspaceHasNoTerminals() {
+        let workspace = MobileWorkspacePreview(
+            id: "workspace-empty",
+            name: "Empty",
+            terminals: []
+        )
+
+        let selection = WorkspaceSurfaceGridSelection(
+            workspace: workspace,
+            selectedTerminalID: "terminal-from-other-workspace"
+        )
+
+        #expect(selection.terminalIDToOpen() == nil)
+    }
 }
