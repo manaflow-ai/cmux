@@ -1,7 +1,6 @@
-import Combine
 import CmuxSettings
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,14 +8,16 @@ import XCTest
 @testable import cmux
 #endif
 
-final class WorkspaceAutoColorUnitTests: XCTestCase {
-    private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
+@Suite(.serialized)
+struct WorkspaceAutoColorUnitTests {
+    private static let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
 
-    func testSettingsFileStoreAppliesWorkspaceAutoColorFromCwd() throws {
+    @Test
+    func settingsFileStoreAppliesWorkspaceAutoColorFromCwd() throws {
         let defaults = UserDefaults.standard
         let autoColorKey = SettingCatalog().workspaceColors.autoColorFromCwd.userDefaultsKey
         let previousAutoColor = defaults.object(forKey: autoColorKey)
-        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        let previousBackups = defaults.data(forKey: Self.settingsFileBackupsDefaultsKey)
         defer {
             if let previousAutoColor {
                 defaults.set(previousAutoColor, forKey: autoColorKey)
@@ -24,14 +25,14 @@ final class WorkspaceAutoColorUnitTests: XCTestCase {
                 defaults.removeObject(forKey: autoColorKey)
             }
             if let previousBackups {
-                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+                defaults.set(previousBackups, forKey: Self.settingsFileBackupsDefaultsKey)
             } else {
-                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+                defaults.removeObject(forKey: Self.settingsFileBackupsDefaultsKey)
             }
         }
 
         defaults.removeObject(forKey: autoColorKey)
-        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        defaults.removeObject(forKey: Self.settingsFileBackupsDefaultsKey)
 
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -54,7 +55,7 @@ final class WorkspaceAutoColorUnitTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertTrue(
+        #expect(
             UserDefaultsSettingsClient(defaults: defaults)
                 .value(for: SettingCatalog().workspaceColors.autoColorFromCwd)
         )
@@ -66,13 +67,14 @@ final class WorkspaceAutoColorUnitTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertFalse(
-            UserDefaultsSettingsClient(defaults: defaults)
+        #expect(
+            !UserDefaultsSettingsClient(defaults: defaults)
                 .value(for: SettingCatalog().workspaceColors.autoColorFromCwd)
         )
     }
 
-    func testAutoColorUsesGithubRemoteSlugForStableRepoSeed() throws {
+    @Test
+    func autoColorUsesGithubRemoteSlugForStableRepoSeed() throws {
         let firstRepository = try makeGitRepository(remoteURL: "https://github.com/manaflow-ai/cmux.git")
         let secondRepository = try makeGitRepository(remoteURL: "git@github.com:manaflow-ai/cmux.git")
         defer {
@@ -85,39 +87,37 @@ final class WorkspaceAutoColorUnitTests: XCTestCase {
         try FileManager.default.createDirectory(at: firstNested, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: secondNested, withIntermediateDirectories: true)
 
-        XCTAssertEqual(
-            WorkspaceTabColorSettings.autoColorSeed(forWorkingDirectory: firstNested.path),
-            "github:manaflow-ai/cmux"
+        #expect(
+            WorkspaceTabColorSettings.autoColorSeed(forWorkingDirectory: firstNested.path)
+                == "github:manaflow-ai/cmux"
         )
-        XCTAssertEqual(
-            WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: firstNested.path),
-            WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: secondNested.path)
+        #expect(
+            WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: firstNested.path)
+                == WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: secondNested.path)
         )
-        XCTAssertNotNil(
-            WorkspaceTabColorSettings.normalizedHex(
-                try XCTUnwrap(WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: firstNested.path))
-            )
-        )
+        let hex = try #require(WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: firstNested.path))
+        #expect(WorkspaceTabColorSettings.normalizedHex(hex) != nil)
     }
 
-    func testAutoColorUsesGitRootForNestedDirectoriesWithoutRemote() throws {
+    @Test
+    func autoColorUsesGitRootForNestedDirectoriesWithoutRemote() throws {
         let repository = try makeGitRepository(remoteURL: nil)
         defer { try? FileManager.default.removeItem(at: repository) }
 
         let nested = repository.appendingPathComponent("packages/app", isDirectory: true)
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
 
-        XCTAssertEqual(
-            WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: repository.path),
-            WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: nested.path)
+        #expect(
+            WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: repository.path)
+                == WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: nested.path)
         )
-        XCTAssertTrue(
+        #expect(
             WorkspaceTabColorSettings.autoColorSeed(forWorkingDirectory: nested.path)?.hasPrefix("git:") == true
         )
     }
 
-    @MainActor
-    func testAutoColorFromCwdAppliesToInitialAndCreatedWorkspaces() async throws {
+    @Test @MainActor
+    func autoColorFromCwdAppliesToInitialAndCreatedWorkspaces() async throws {
         let defaultsFixture = try makeIsolatedDefaults()
         defer { defaultsFixture.defaults.removePersistentDomain(forName: defaultsFixture.suiteName) }
         let settings = UserDefaultsSettingsClient(defaults: defaultsFixture.defaults)
@@ -127,7 +127,7 @@ final class WorkspaceAutoColorUnitTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: repository) }
         let nested = repository.appendingPathComponent("Sources", isDirectory: true)
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
-        let expected = try XCTUnwrap(WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: nested.path))
+        let expected = try #require(WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: nested.path))
 
         let manager = TabManager(
             initialWorkingDirectory: nested.path,
@@ -135,7 +135,7 @@ final class WorkspaceAutoColorUnitTests: XCTestCase {
             settings: settings
         )
 
-        let initial = try XCTUnwrap(manager.tabs.first)
+        let initial = try #require(manager.tabs.first)
         await waitForAutoColor(expected, on: initial)
         let added = manager.addWorkspace(
             workingDirectory: nested.path,
@@ -145,8 +145,8 @@ final class WorkspaceAutoColorUnitTests: XCTestCase {
         await waitForAutoColor(expected, on: added)
     }
 
-    @MainActor
-    func testAutoColorFromCwdIsOptInAndManualColorsStillWin() async throws {
+    @Test @MainActor
+    func autoColorFromCwdIsOptInAndManualColorsStillWin() async throws {
         let defaultsFixture = try makeIsolatedDefaults()
         defer { defaultsFixture.defaults.removePersistentDomain(forName: defaultsFixture.suiteName) }
         let settings = UserDefaultsSettingsClient(defaults: defaultsFixture.defaults)
@@ -159,7 +159,7 @@ final class WorkspaceAutoColorUnitTests: XCTestCase {
             autoWelcomeIfNeeded: false,
             settings: settings
         )
-        XCTAssertNil(disabledManager.tabs.first?.customColor)
+        #expect(disabledManager.tabs.first?.customColor == nil)
 
         settings.set(true, for: SettingCatalog().workspaceColors.autoColorFromCwd)
         let enabledManager = TabManager(
@@ -167,12 +167,12 @@ final class WorkspaceAutoColorUnitTests: XCTestCase {
             autoWelcomeIfNeeded: false,
             settings: settings
         )
-        let workspace = try XCTUnwrap(enabledManager.tabs.first)
-        let expected = try XCTUnwrap(WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: repository.path))
+        let workspace = try #require(enabledManager.tabs.first)
+        let expected = try #require(WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: repository.path))
         await waitForAutoColor(expected, on: workspace)
 
         workspace.setCustomColor("#C0392B")
-        XCTAssertEqual(workspace.customColor, "#C0392B")
+        #expect(workspace.customColor == "#C0392B")
     }
 
     private func makeTemporaryDirectory() throws -> URL {
@@ -206,7 +206,7 @@ final class WorkspaceAutoColorUnitTests: XCTestCase {
 
     private func makeIsolatedDefaults() throws -> (suiteName: String, defaults: UserDefaults) {
         let suiteName = "WorkspaceAutoColorUnitTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         return (suiteName, defaults)
     }
@@ -215,20 +215,14 @@ final class WorkspaceAutoColorUnitTests: XCTestCase {
     private func waitForAutoColor(
         _ expected: String,
         on workspace: Workspace,
-        file: StaticString = #filePath,
-        line: UInt = #line
+        sourceLocation: SourceLocation = #_sourceLocation
     ) async {
-        guard workspace.customColor != expected else { return }
-        let expectation = expectation(description: "workspace auto color")
-        var cancellable: AnyCancellable?
-        cancellable = workspace.$customColor.sink { color in
-            if color == expected {
-                expectation.fulfill()
-                cancellable?.cancel()
-            }
+        // The color is applied asynchronously after an off-main probe, so poll
+        // the published value (up to ~2s) instead of using XCTest expectations.
+        for _ in 0..<200 {
+            if workspace.customColor == expected { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
         }
-        await fulfillment(of: [expectation], timeout: 2.0)
-        XCTAssertEqual(workspace.customColor, expected, file: file, line: line)
-        _ = cancellable
+        #expect(workspace.customColor == expected, sourceLocation: sourceLocation)
     }
 }
