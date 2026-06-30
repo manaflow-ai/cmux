@@ -657,9 +657,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var outputQueue = GhosttySurfaceWorkQueue(generation: 0)
     private var outputQueueGeneration: UInt64 = 0
     private var pendingSurfaceFreeCount = 0
-    private var renderPipelineRecoveryBlocked = false
-    private var deferredRenderPipelineRecovery: DeferredRenderPipelineRecovery?
-    private static let maxPendingSurfaceFrees = 1
     private static let renderPipelineStallDeadline: CFTimeInterval = 2.0
     private static let outputApplyTimeout: CFTimeInterval = 2.0
     private static let visibleSnapshotTimeout: CFTimeInterval = 0.6
@@ -669,7 +666,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var pendingGeometryApply: PendingSurfaceOperation?
     private var pendingVisibleSnapshot: PendingVisibleSnapshot?
     private var pendingCopyableTextRead: PendingCopyableTextRead?
-    private var pendingRenderRecoveryWaiters: [PendingRenderRecoveryWaiter] = []
     private var hasPendingSurfaceOperationDeadline: Bool {
         pendingOutputApply != nil || pendingGeometryApply != nil || pendingVisibleSnapshot != nil
             || pendingCopyableTextRead != nil
@@ -2062,7 +2058,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// would pump it, so apply immediately.
     private func scheduleDisplayLinkWork() {
         needsDraw = true
-        if displayLink == nil, !renderPipelineRecoveryBlocked {
+        if displayLink == nil {
             applyPendingFontSizeIfNeeded()
         }
     }
@@ -2289,9 +2285,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   or `false` when the caller should reset its delivery queue and replay.
     @discardableResult
     public func processOutputAndWait(_ data: Data) async -> Bool {
-        if await waitForDeferredRenderPipelineRecoveryIfBlocked() {
-            return false
-        }
         return await withCheckedContinuation { continuation in
             let operationID = registerPendingOutputApply(
                 byteCount: data.count,
@@ -2473,13 +2466,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             completion?(true)
             return
         }
-        // A blocked recovery will rebuild this surface if the prior free drains.
-        // Do not park wait-style callers behind that free: the free is queued on
-        // the same surface queue that may already be wedged.
-        guard !renderPipelineRecoveryBlocked else {
-            completion?(false)
-            return
-        }
         #if DEBUG
         if lastInputTimestamp > 0 {
             let elapsed = (CACurrentMediaTime() - lastInputTimestamp) * 1000.0
@@ -2650,9 +2636,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// tree. Does not set ``isDismantled`` so a transient detach can re-attach
     /// and resume; only ``prepareForDismantle()`` marks the surface dead.
     private func prepareForReuseAfterDetach() {
-        renderPipelineRecoveryBlocked = false
-        deferredRenderPipelineRecovery = nil
-        resumePendingRenderRecoveryWaiters()
         completePendingSurfaceOperations(returning: false)
         renderInFlight = false
         renderInFlightSince = nil
@@ -2875,28 +2858,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
               surface != nil else {
             return false
         }
-        guard pendingSurfaceFreeCount < Self.maxPendingSurfaceFrees else {
-            renderPipelineRecoveryBlocked = true
-            deferredRenderPipelineRecovery = DeferredRenderPipelineRecovery(
-                reason: reason,
-                stalledMs: stalledMs,
-                replay: replay
-            )
-            stopDisplayLink()
-            skipPendingVisibleSnapshot()
-            skipPendingCopyableTextRead()
-            completePendingSurfaceOperations(returning: false)
-            renderInFlight = false
-            renderInFlightSince = nil
-            needsAnotherRender = false
-            MobileDebugLog.anchormux(
-                "render.recover.blocked reason=\(reason) stalledMs=\(stalledMs) pendingFrees=\(pendingSurfaceFreeCount)"
-            )
-            return false
-        }
-
         MobileDebugLog.anchormux(
-            "render.recover reason=\(reason) stalledMs=\(stalledMs) generation=\(surfaceGeneration)"
+            "render.recover reason=\(reason) stalledMs=\(stalledMs) generation=\(surfaceGeneration) pendingFrees=\(pendingSurfaceFreeCount)"
         )
         let completedFailedOperation = completePendingSurfaceOperations(returning: false)
 
@@ -2914,12 +2877,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 MobileDebugLog.anchormux(
                     "render.recover.free_drained pendingFrees=\(self.pendingSurfaceFreeCount)"
                 )
-                self.retryDeferredRenderPipelineRecoveryIfNeeded()
             }
         }
 
         surface = nil
-        deferredRenderPipelineRecovery = nil
         renderInFlight = false
         renderInFlightSince = nil
         needsAnotherRender = false
@@ -2939,65 +2900,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             delegate?.ghosttySurfaceViewDidResetRenderPipeline(self)
         }
         return true
-    }
-
-    private func retryDeferredRenderPipelineRecoveryIfNeeded() {
-        guard pendingSurfaceFreeCount < Self.maxPendingSurfaceFrees,
-              let deferred = deferredRenderPipelineRecovery else { return }
-        deferredRenderPipelineRecovery = nil
-        renderPipelineRecoveryBlocked = false
-        guard !isDismantled, surface != nil else {
-            resumePendingRenderRecoveryWaiters()
-            completePendingSurfaceOperations(returning: false)
-            return
-        }
-        MobileDebugLog.anchormux(
-            "render.recover.retry_after_free reason=\(deferred.reason) stalledMs=\(deferred.stalledMs)"
-        )
-        _ = recoverRenderPipeline(
-            reason: deferred.reason,
-            stalledMs: deferred.stalledMs,
-            replay: deferred.replay
-        )
-        resumePendingRenderRecoveryWaiters()
-    }
-
-    private func waitForDeferredRenderPipelineRecoveryIfBlocked() async -> Bool {
-        guard renderPipelineRecoveryBlocked else { return false }
-        let waiterID = UUID()
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                guard renderPipelineRecoveryBlocked else {
-                    continuation.resume()
-                    return
-                }
-                pendingRenderRecoveryWaiters.append(PendingRenderRecoveryWaiter(
-                    id: waiterID,
-                    continuation: continuation
-                ))
-            }
-        } onCancel: {
-            Task { @MainActor [weak self] in
-                self?.cancelPendingRenderRecoveryWaiter(id: waiterID)
-            }
-        }
-        return true
-    }
-
-    private func cancelPendingRenderRecoveryWaiter(id: UUID) {
-        guard let index = pendingRenderRecoveryWaiters.firstIndex(where: { $0.id == id }) else {
-            return
-        }
-        let waiter = pendingRenderRecoveryWaiters.remove(at: index)
-        waiter.continuation.resume()
-    }
-
-    private func resumePendingRenderRecoveryWaiters() {
-        let waiters = pendingRenderRecoveryWaiters
-        pendingRenderRecoveryWaiters = []
-        for waiter in waiters {
-            waiter.continuation.resume()
-        }
     }
 
     private var preferredScreenScale: CGFloat {
@@ -3032,7 +2934,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let app = runtime?.app else { return }
         surface = makeSurface(app: app)
         if let surface {
-            renderPipelineRecoveryBlocked = false
             GhosttySurfaceView.register(surface: surface, for: self)
             if let config = runtime?.config {
                 applyBackgroundColorFromConfig(config)
@@ -3048,12 +2949,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func startDisplayLink() {
         guard displayLink == nil else { return }
-        guard !renderPipelineRecoveryBlocked || hasPendingSurfaceOperationDeadline else { return }
         let link = CADisplayLink(target: DisplayLinkProxy(target: self), selector: #selector(DisplayLinkProxy.handleDisplayLink))
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
         displayLink = link
-        guard !renderPipelineRecoveryBlocked else { return }
         cursorBlinkState.start(now: CACurrentMediaTime())
         needsDraw = true
         updateCursorOverlay()
@@ -3076,12 +2975,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @objc func handleDisplayLinkFire() {
         let now = CACurrentMediaTime()
         if checkSurfaceOperationDeadlines(now: now) {
-            return
-        }
-        if renderPipelineRecoveryBlocked {
-            if !hasPendingSurfaceOperationDeadline {
-                stopDisplayLink()
-            }
             return
         }
         guard surface != nil else {
@@ -3234,8 +3127,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // now bounded in libghostty (so a foreground stall self-heals as a
         // skipped frame the display link re-drives), but we still gate on
         // suspension; `resumeRendering` clears it on the next active transition.
-        guard !renderPipelineRecoveryBlocked,
-              !renderingSuspended,
+        guard !renderingSuspended,
               let surface,
               !isDismantled else { return }
         // Coalesce: never let more than one render_now sit on the serial queue.
@@ -3280,7 +3172,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         needsDraw = true
         // A geometry sync (for any reason) satisfies a pending post-zoom resync.
         zoomSettleFrames = nil
-        if displayLink == nil, window != nil, !renderPipelineRecoveryBlocked {
+        if displayLink == nil, window != nil {
             // No frame pump while detached/backgrounded; apply directly so the
             // surface still gets sized before the next render path resumes.
             needsGeometrySync = false
@@ -3540,9 +3432,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func syncSurfaceGeometryAndWait(shouldReassertNaturalSize: Bool = true) async -> Bool {
-        if await waitForDeferredRenderPipelineRecoveryIfBlocked() {
-            return false
-        }
         needsGeometrySync = false
         pendingGeometryReassert = false
         return await withCheckedContinuation { continuation in
@@ -3559,12 +3448,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ) {
         guard let surface else {
             completion?(true)
-            return
-        }
-        // The current surface is scheduled for deferred recovery; geometry
-        // cannot be acknowledged against it without risking a stale replay ack.
-        guard !renderPipelineRecoveryBlocked else {
-            completion?(false)
             return
         }
 
@@ -4227,13 +4110,6 @@ nonisolated private enum RenderPipelineRecoveryReplay {
     case delegateWhenNoCaller
 }
 
-/// Recovery request deferred only while an older surface free is still draining.
-nonisolated private struct DeferredRenderPipelineRecovery {
-    let reason: String
-    let stalledMs: Int
-    let replay: RenderPipelineRecoveryReplay
-}
-
 /// One output/geometry operation awaiting either its output-queue completion or
 /// the display-link deadline that rebuilds the stalled render pipeline.
 nonisolated private struct PendingSurfaceOperation {
@@ -4241,12 +4117,6 @@ nonisolated private struct PendingSurfaceOperation {
     let startedAt: CFTimeInterval
     let byteCount: Int?
     let continuation: CheckedContinuation<Bool, Never>
-}
-
-/// One apply caller waiting for a blocked deferred recovery to rebuild first.
-nonisolated private struct PendingRenderRecoveryWaiter {
-    let id: UUID
-    let continuation: CheckedContinuation<Void, Never>
 }
 
 /// One visible-terminal snapshot read awaiting output-queue completion or its
