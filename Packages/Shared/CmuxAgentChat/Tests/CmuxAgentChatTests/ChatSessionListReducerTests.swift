@@ -129,6 +129,17 @@ struct ChatSessionListReducerTests {
         #expect(reducer.applying(newer, to: afterRemoval).map(\.id) == ["s1"])
     }
 
+    @Test("an unversioned sessionRemoved deletes without permanently tombstoning")
+    func unversionedSessionRemovedDoesNotTombstoneFutureDescriptors() {
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        let seed = [descriptor("s1", version: 4)]
+        let removed = ChatSessionEventFrame(sessionID: "s1", event: .sessionRemoved(version: Int.max))
+        let replacement = ChatSessionEventFrame(sessionID: "s1", event: .descriptorChanged(descriptor("s1", version: 4)))
+        let afterRemoval = reducer.applying(removed, to: seed)
+        #expect(afterRemoval.isEmpty)
+        #expect(reducer.applying(replacement, to: afterRemoval).map(\.id) == ["s1"])
+    }
+
     @Test("transcript-content frames leave the list untouched")
     func ignoresContentFrames() {
         var reducer = ChatSessionListReducer(workspaceID: "ws-1")

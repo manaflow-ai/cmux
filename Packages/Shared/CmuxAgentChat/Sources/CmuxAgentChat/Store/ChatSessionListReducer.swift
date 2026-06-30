@@ -76,10 +76,12 @@ public struct ChatSessionListReducer: Sendable {
         case .sessionRemoved(let version):
             let currentVersion = sessions.first { $0.id == frame.sessionID }?.version ?? 0
             guard version >= currentVersion else { return sessions }
-            removedVersionBySessionID[frame.sessionID] = max(
-                removedVersionBySessionID[frame.sessionID] ?? 0,
-                version
-            )
+            if version != Int.max {
+                removedVersionBySessionID[frame.sessionID] = max(
+                    removedVersionBySessionID[frame.sessionID] ?? 0,
+                    version
+                )
+            }
             return sessions.filter { $0.id != frame.sessionID }
         case .appended, .updated, .terminalBlocks, .streamingProse, .reset, .unknown:
             // Transcript-content frames don't affect the session list.

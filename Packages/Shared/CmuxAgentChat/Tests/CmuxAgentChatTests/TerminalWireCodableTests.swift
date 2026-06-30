@@ -49,6 +49,12 @@ struct TerminalWireCodableTests {
         #expect(try decoder.decode(ChatSessionEvent.self, from: data) == event)
     }
 
+    @Test("ChatSessionEvent.sessionRemoved decodes missing version compatibly")
+    func sessionRemovedMissingVersionDecodesAsUnversioned() throws {
+        let data = #"{"event":"session_removed"}"#.data(using: .utf8)!
+        #expect(try decoder.decode(ChatSessionEvent.self, from: data) == .sessionRemoved(version: Int.max))
+    }
+
     @Test("ChatHistoryPage carries terminal blocks and stays backward-compatible")
     func historyPageTerminal() throws {
         let page = ChatHistoryPage(
