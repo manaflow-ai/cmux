@@ -480,7 +480,7 @@ func TestCLINewWindow(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("new-window should return 0, got %d", code)
 	}
-	req := <-requests
+	req := receiveRequest(t, requests)
 	if req["method"] != "window.create" {
 		t.Fatalf("new-window: expected method window.create, got %v", req["method"])
 	}

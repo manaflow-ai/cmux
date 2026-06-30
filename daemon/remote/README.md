@@ -160,7 +160,7 @@ Integration additions for the relay path:
 
 ### Protocol and flags
 
-All relay commands use v2 JSON-RPC. Flags map to JSON params via `flagToParamKey` (e.g. `--workspace` → `workspace_id`). Boolean flags (`--focus`) accept `true`/`false`/`1`/`0` and are sent as JSON booleans.
+All relay commands use v2 JSON-RPC. Flags map to JSON params via `flagToParamKey` (e.g. `--workspace` → `workspace_id`). Boolean flags (`--focus`) accept `true`/`false`/`1`/`0`/`yes`/`no` and are sent as JSON booleans.
 
 Environment fallbacks:
 - `CMUX_WORKSPACE_ID` — used as `workspace_id` when `--workspace` is not provided
