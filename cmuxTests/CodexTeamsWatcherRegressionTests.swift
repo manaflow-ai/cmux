@@ -45,7 +45,11 @@ final class CodexTeamsWatcherRegressionTests {
         process.standardError = stderrPipe
 
         try process.run()
-        let openedSplit = cmuxSocket.waitForMethod("surface.split", timeout: 4)
+        // The watcher opens a real URLSessionWebSocketTask to the fake app server;
+        // its connection timeout is 10s and it retries every 1s. Wait well past
+        // that so a slow CI WebSocket connect still completes (and so a genuine
+        // connect failure surfaces in stderr) instead of being killed mid-handshake.
+        let openedSplit = cmuxSocket.waitForMethod("surface.split", timeout: 25)
         process.terminate()
         process.waitUntilExit()
 
