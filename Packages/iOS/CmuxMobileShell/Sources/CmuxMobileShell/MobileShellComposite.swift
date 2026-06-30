@@ -718,6 +718,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalReplayBarrierTokensBySurfaceID: [String: UUID]
     var terminalReplayBarrierAckStreamTokensBySurfaceID: [String: UUID]
     var terminalReplayBarrierDroppedOutputSurfaceIDs: Set<String>
+    var terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs: Set<String>
     private var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
@@ -912,6 +913,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalReplayBarrierTokensBySurfaceID = [:]
         self.terminalReplayBarrierAckStreamTokensBySurfaceID = [:]
         self.terminalReplayBarrierDroppedOutputSurfaceIDs = []
+        self.terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs = []
         self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
@@ -4942,6 +4944,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierTokensBySurfaceID = [:]
         terminalReplayBarrierAckStreamTokensBySurfaceID = [:]
         terminalReplayBarrierDroppedOutputSurfaceIDs = []
+        terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs = []
         terminalOutputQueuesBySurfaceID = [:]
         terminalOutputStreamTokensBySurfaceID = terminalOutputStreamTokensBySurfaceID.mapValues { _ in UUID() }
         terminalScrollQueueTokensBySurfaceID = [:]
@@ -6311,6 +6314,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierTokensBySurfaceID[surfaceID] = token
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
+        terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs.remove(surfaceID)
         return token
     }
 
@@ -6318,15 +6322,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func clearTerminalReplayBarrierIfCurrent(
         surfaceID: String,
         token: UUID?,
-        reason: String
+        reason: String,
+        preserveDroppedOutput: Bool = false
     ) -> Bool {
         guard let token,
               terminalReplayBarrierTokensBySurfaceID[surfaceID] == token else {
             return false
         }
+        if preserveDroppedOutput,
+           terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID) {
+            MobileDebugLog.anchormux("terminal.output.replay_barrier_preserved_\(reason) surface=\(surfaceID)")
+            return false
+        }
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
+        terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs.remove(surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared_\(reason) surface=\(surfaceID)")
         return true
     }
@@ -6427,6 +6438,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
+        terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalScrollQueueTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
@@ -6552,7 +6564,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resume. The VT snapshot and raw byte ring remain fallbacks, but neither
     /// is the target architecture: a byte tail is not a complete screen state
     /// for TUIs, and a VT export is still a replay stream rather than state.
-    func requestTerminalReplay(surfaceID: String, replayBarrierToken: UUID? = nil) {
+    func requestTerminalReplay(
+        surfaceID: String,
+        replayBarrierToken: UUID? = nil,
+        coversReplayBarrierDroppedOutput: Bool = false
+    ) {
         guard let client = remoteClient else {
             clearTerminalReplayBarrierIfCurrent(
                 surfaceID: surfaceID,
@@ -6657,9 +6673,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         self.clearTerminalReplayBarrierIfCurrent(
                             surfaceID: surfaceID,
                             token: replayBarrierToken,
-                            reason: "not_delivered"
+                            reason: "not_delivered",
+                            preserveDroppedOutput: true
                         )
                         return
+                    }
+                    if self.terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] != nil {
+                        if coversReplayBarrierDroppedOutput {
+                            self.terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs.insert(surfaceID)
+                        } else {
+                            self.terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs.remove(surfaceID)
+                        }
                     }
                     self.terminalActiveScreenBySurfaceID[surfaceID] = renderGrid.activeScreen
                     if let replaySeq {
@@ -6671,7 +6695,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.clearTerminalReplayBarrierIfCurrent(
                         surfaceID: surfaceID,
                         token: replayBarrierToken,
-                        reason: "empty"
+                        reason: "empty",
+                        preserveDroppedOutput: true
                     )
                     return
                 }
@@ -6680,13 +6705,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     surfaceID: surfaceID,
                     bypassReplayBarrier: replayBarrierToken != nil
                 )
+                if accepted,
+                   self.terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] != nil {
+                    if coversReplayBarrierDroppedOutput {
+                        self.terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs.insert(surfaceID)
+                    } else {
+                        self.terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs.remove(surfaceID)
+                    }
+                }
                 if accepted, let replaySeq {
                     self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
                 } else if !accepted {
                     self.clearTerminalReplayBarrierIfCurrent(
                         surfaceID: surfaceID,
                         token: replayBarrierToken,
-                        reason: "not_delivered"
+                        reason: "not_delivered",
+                        preserveDroppedOutput: true
                     )
                 }
             } catch {
@@ -6694,7 +6728,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.clearTerminalReplayBarrierIfCurrent(
                     surfaceID: surfaceID,
                     token: replayBarrierToken,
-                    reason: "failed"
+                    reason: "failed",
+                    preserveDroppedOutput: true
                 )
                 // The replay request is the view-only/foreground-resume path. A
                 // definitive auth failure here (after the RPC layer's

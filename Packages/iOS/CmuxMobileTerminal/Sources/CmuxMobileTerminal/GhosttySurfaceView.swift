@@ -655,6 +655,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the same FIFO-before-dispose ordering discipline.
     var outputQueue = GhosttySurfaceWorkQueue(generation: 0)
     private var outputQueueGeneration: UInt64 = 0
+    private var pendingSurfaceFreeCount = 0
+    private static let maxPendingSurfaceFrees = 1
     private static let renderPipelineStallDeadline: CFTimeInterval = 2.0
     private static let outputApplyTimeout: CFTimeInterval = 2.0
     private static let visibleSnapshotTimeout: CFTimeInterval = 0.6
@@ -2749,12 +2751,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func enqueueSurfaceFree(
         _ surface: ghostty_surface_t,
         bridge: GhosttySurfaceBridge,
-        on queue: GhosttySurfaceWorkQueue
+        on queue: GhosttySurfaceWorkQueue,
+        completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         let retainedBridge = Unmanaged.passRetained(bridge)
         queue.async {
             ghostty_surface_free(surface)
             retainedBridge.release()
+            if let completion {
+                Task { @MainActor in completion() }
+            }
         }
     }
 
@@ -2766,6 +2772,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ) -> Bool {
         guard !isDismantled,
               surface != nil else {
+            return false
+        }
+        guard pendingSurfaceFreeCount < Self.maxPendingSurfaceFrees else {
+            renderInFlight = false
+            renderInFlightSince = nil
+            needsAnotherRender = false
+            MobileDebugLog.anchormux(
+                "render.recover.blocked reason=\(reason) stalledMs=\(stalledMs) pendingFrees=\(pendingSurfaceFreeCount)"
+            )
             return false
         }
 
@@ -2780,7 +2795,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let oldQueue = outputQueue
         if let oldSurface {
             GhosttySurfaceView.unregister(surface: oldSurface)
-            enqueueSurfaceFree(oldSurface, bridge: oldBridge, on: oldQueue)
+            pendingSurfaceFreeCount += 1
+            enqueueSurfaceFree(oldSurface, bridge: oldBridge, on: oldQueue) { [weak self] in
+                guard let self else { return }
+                self.pendingSurfaceFreeCount = max(0, self.pendingSurfaceFreeCount - 1)
+                MobileDebugLog.anchormux(
+                    "render.recover.free_drained pendingFrees=\(self.pendingSurfaceFreeCount)"
+                )
+            }
         }
         oldBridge.detach()
 
