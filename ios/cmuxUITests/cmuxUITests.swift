@@ -285,6 +285,8 @@ final class cmuxUITests: XCTestCase {
 
         let app = try launchConnectedApp(port: port)
         try openSelectedWorkspaceIfNeeded(app)
+        XCTAssertTrue(app.buttons["MobileWorkspaceBackButton"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileWorkspaceTitleMenu"].waitForExistence(timeout: 4))
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
         await assertHostSelection(
@@ -1112,6 +1114,10 @@ final class cmuxUITests: XCTestCase {
                 && $0.adjustedTopInset > 20
                 && $0.contentHeight > $0.boundsHeight * 1.6
         }
+        XCTAssertTrue(
+            topMetrics.topContentScrollViewRegistered,
+            "When the keyboard is not active, the chat transcript should remain registered as the navigation bar's top content scroll view so the normal top underlap effect works. metrics=\(topMetrics)"
+        )
         XCTAssertEqual(
             topMetrics.offsetY,
             -topMetrics.adjustedTopInset,
@@ -1157,6 +1163,27 @@ final class cmuxUITests: XCTestCase {
         _ = try waitForTranscriptMetrics(table, timeout: 4) {
             $0.distanceFromBottom < 60
         }
+    }
+
+    @MainActor
+    func testAgentChatExpansionControlsPreserveTranscriptScrollPosition() throws {
+        let app = launchAgentChatInlinePreviewApp()
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        _ = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.frameHeight > 240 && $0.contentHeight > $0.boundsHeight * 1.6
+        }
+
+        try assertExpansionTogglePreservesTranscriptPosition(
+            buttonID: "ChatToolUseToggle-msg-fixture-4",
+            table: table,
+            app: app
+        )
+        try assertExpansionTogglePreservesTranscriptPosition(
+            buttonID: "ChatTerminalToggle-msg-fixture-6",
+            table: table,
+            app: app
+        )
     }
 
     @MainActor
@@ -1260,6 +1287,28 @@ final class cmuxUITests: XCTestCase {
         let afterKeyboard = try waitForTranscriptMetrics(table, timeout: 6) {
             $0.frameMaxY < beforeKeyboard.frameMaxY - 120
         }
+        let metricsAttachment = XCTAttachment(
+            string: "scrollPosition=\(scrollPosition)\nbefore=\(beforeKeyboard)\nafter=\(afterKeyboard)"
+        )
+        metricsAttachment.name = "keyboard-top-edge-metrics-\(scrollPosition)"
+        metricsAttachment.lifetime = .keepAlways
+        add(metricsAttachment)
+        let screenshotAttachment = XCTAttachment(screenshot: app.screenshot())
+        screenshotAttachment.name = "keyboard-top-edge-screenshot-\(scrollPosition)"
+        screenshotAttachment.lifetime = .keepAlways
+        add(screenshotAttachment)
+        XCTAssertTrue(
+            afterKeyboard.topEdgeEffectSoft,
+            "Chat transcript must keep the iOS 26 top scroll-edge effect while the keyboard clips the transcript from \(scrollPosition). The keyboard may move the viewport, but it must not remove the top fade under the navigation chrome. before=\(beforeKeyboard) after=\(afterKeyboard)",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            afterKeyboard.topContentScrollViewRegistered,
+            "Chat transcript must keep driving the navigation bar's top content scroll view while the keyboard clips the transcript from \(scrollPosition). Deregistering it removes the top scroll-edge treatment shown in the keyboard repro. before=\(beforeKeyboard) after=\(afterKeyboard)",
+            file: file,
+            line: line
+        )
         let keyboardFrame = keyboardFrameAfterFocus(
             in: app,
             overlap: afterKeyboard.keyboardOverlap,
@@ -2032,9 +2081,12 @@ final class cmuxUITests: XCTestCase {
         let keyboardTransitionDuration: TimeInterval
         let maxAnimationPresentationGap: CGFloat
         let keyboardAnimationSamples: Int
+        let topEdgeEffectSoft: Bool
+        let bottomEdgeEffectSoft: Bool
+        let topContentScrollViewRegistered: Bool
 
         var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples), topEdgeEffectSoft=\(topEdgeEffectSoft), bottomEdgeEffectSoft=\(bottomEdgeEffectSoft), topContentScrollViewRegistered=\(topContentScrollViewRegistered)"
         }
 
         var effectiveFrameMaxY: CGFloat {
@@ -2086,6 +2138,9 @@ final class cmuxUITests: XCTestCase {
             self.keyboardTransitionDuration = TimeInterval(values["keyboardTransitionDuration"] ?? 0)
             self.maxAnimationPresentationGap = values["maxAnimationPresentationGap"] ?? 0
             self.keyboardAnimationSamples = Int(values["keyboardAnimationSamples"] ?? 0)
+            self.topEdgeEffectSoft = (values["topEdgeEffectSoft"] ?? 0) >= 0.5
+            self.bottomEdgeEffectSoft = (values["bottomEdgeEffectSoft"] ?? 0) >= 0.5
+            self.topContentScrollViewRegistered = (values["topContentScrollViewRegistered"] ?? 0) >= 0.5
         }
     }
 
@@ -2552,6 +2607,57 @@ final class cmuxUITests: XCTestCase {
             line: line
         )
         return lastMetrics
+    }
+
+    @MainActor
+    private func assertExpansionTogglePreservesTranscriptPosition(
+        buttonID: String,
+        table: XCUIElement,
+        app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let button = app.buttons[buttonID]
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline, !button.isHittable {
+            table.swipeDown(velocity: .fast)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
+        }
+        XCTAssertTrue(button.isHittable, "Expected expansion control \(buttonID) to become hittable", file: file, line: line)
+
+        let before = try waitForTranscriptMetrics(
+            table,
+            timeout: 4,
+            matching: { $0.distanceFromBottom > 180 && $0.contentHeight > $0.boundsHeight * 1.4 },
+            file: file,
+            line: line
+        )
+        button.tap()
+        let predicate = NSPredicate(format: "value == %@", "Expanded")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: button)
+        let result = XCTWaiter.wait(for: [expectation], timeout: 4)
+        XCTAssertEqual(result, .completed, "Expected \(buttonID) to expand", file: file, line: line)
+        let after = try waitForTranscriptMetrics(
+            table,
+            timeout: 4,
+            matching: { $0.distanceFromBottom > 120 },
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            abs(after.visibleTopY - before.visibleTopY),
+            120,
+            "Tapping \(buttonID) must preserve the visible transcript region instead of jumping. before=\(before) after=\(after)",
+            file: file,
+            line: line
+        )
+        XCTAssertGreaterThan(
+            after.distanceFromBottom,
+            120,
+            "Tapping \(buttonID) must leave the transcript away from the live tail. before=\(before) after=\(after)",
+            file: file,
+            line: line
+        )
     }
 
     @MainActor

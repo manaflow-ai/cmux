@@ -7,63 +7,6 @@ import WebKit
 import Security
 #endif
 
-func browserPopupContentRect(
-    requestedWidth: CGFloat?,
-    requestedHeight: CGFloat?,
-    requestedX: CGFloat?,
-    requestedTopY: CGFloat?,
-    visibleFrame: NSRect,
-    defaultWidth: CGFloat = 800,
-    defaultHeight: CGFloat = 600,
-    minWidth: CGFloat = 200,
-    minHeight: CGFloat = 150
-) -> NSRect {
-    let clampedWidth = min(max(requestedWidth ?? defaultWidth, minWidth), visibleFrame.width)
-    let clampedHeight = min(max(requestedHeight ?? defaultHeight, minHeight), visibleFrame.height)
-
-    let x: CGFloat
-    let y: CGFloat
-    if let requestedX, let requestedTopY {
-        x = max(visibleFrame.minX, min(requestedX, visibleFrame.maxX - clampedWidth))
-
-        // Web content expresses popup Y as distance from the screen's top edge,
-        // while AppKit window origins are bottom-up.
-        let appKitY = visibleFrame.maxY - requestedTopY - clampedHeight
-        y = max(visibleFrame.minY, min(appKitY, visibleFrame.maxY - clampedHeight))
-    } else {
-        x = visibleFrame.midX - clampedWidth / 2
-        y = visibleFrame.midY - clampedHeight / 2
-    }
-
-    return NSRect(x: x, y: y, width: clampedWidth, height: clampedHeight)
-}
-
-private func browserPopupPanelShouldSuppressStaleCloseTabShortcut(_ event: NSEvent) -> Bool {
-    let closeTabShortcut = KeyboardShortcutSettings.shortcut(for: .closeTab)
-    guard closeTabShortcut.isUnbound || closeTabShortcut != KeyboardShortcutSettings.Action.closeTab.defaultShortcut else {
-        return false
-    }
-    return KeyboardShortcutSettings.Action.closeTab.defaultShortcut.matches(event: event)
-}
-
-/// NSPanel subclass that intercepts the configured Close Tab shortcut before the swizzled
-/// `cmux_performKeyEquivalent` can dispatch it to the main menu's
-/// "Close Tab" action (which would close the parent browser tab).
-final class BrowserPopupPanel: NSPanel {
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if AppDelegate.shared?.handleBrowserPopupCloseShortcutKeyEquivalent(event: event, popupWindow: self) == true {
-            return true
-        }
-        if browserPopupPanelShouldSuppressStaleCloseTabShortcut(event) {
-            #if DEBUG
-            cmuxDebugLog("popup.panel.closeShortcut suppressStaleDefault")
-            #endif
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
-}
-
 /// Hosts a popup `CmuxWebView` in a standalone `NSPanel`, created when a page
 /// calls `window.open()` (scripted new-window requests).
 ///
@@ -221,6 +164,11 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         uiDel.controller = self
         navDel.controller = self
         navDel.downloadDelegate = dlDel
+        dlDel.savePanelParentWindow = { [weak panel] in
+            panel
+        }
+        webView.cmuxDownloadDelegate = dlDel
+        webView.onSubframeDownloadIntent = { [weak navDel] in navDel?.recordSubframeDownloadIntent($0) }
         webView.uiDelegate = uiDel
         webView.navigationDelegate = navDel
         let sslTrustBypassMessageHandler = BrowserSSLTrustBypassMessageHandler(
@@ -621,6 +569,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 @MainActor private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     weak var controller: BrowserPopupWindowController?
     var downloadDelegate: WKDownloadDelegate?
+    private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
     private let clientCertificateAuthenticationController = BrowserClientCertificateAuthenticationController()
     private let sslBypassState = BrowserSSLTrustBypassState()
@@ -715,9 +664,17 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             decisionHandler(.cancel)
             return
         }
+        let hasUserActivation = browserNavigationHasSimpleUserActivation()
+        subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
 
         if BrowserNavigationModifierBypassPolicy().openDefaultBrowserIfNeeded(navigationAction: navigationAction, webView: webView, debugEventName: "popup.nav.decidePolicy.action") { clearAttemptedRequest(discardPendingBypasses: true); decisionHandler(.cancel); return }
         guard navigationAction.targetFrame?.isMainFrame != false else {
+            if navigationAction.shouldPerformDownload {
+                let hasRecordedIntent = subframeDownloadIntents.consume(for: url)
+                guard hasUserActivation || hasRecordedIntent else { decisionHandler(.cancel); return }
+                decisionHandler(browserShouldBlockInsecureHTTPURL(url) ? .cancel : .download)
+                return
+            }
             decisionHandler(.allow)
             return
         }
@@ -798,11 +755,6 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
-        if !navigationResponse.isForMainFrame {
-            decisionHandler(.allow)
-            return
-        }
-
         if let scheme = navigationResponse.response.url?.scheme?.lowercased(),
            scheme != "http", scheme != "https" {
             decisionHandler(.allow)
@@ -810,13 +762,39 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         }
 
         let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
-        if BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
-            mimeType: navigationResponse.response.mimeType, canShowMIMEType: navigationResponse.canShowMIMEType, contentDisposition: contentDisposition
+        let filenameResolver = BrowserDownloadFilenameResolver()
+        let isUserActivatedPreviouslyRenderedSubframePDF = subframeDownloadIntents
+            .consumeUserActivatedPreviouslyRenderedSubframePDF(
+                responseURL: navigationResponse.response.url,
+                mimeType: navigationResponse.response.mimeType,
+                isForMainFrame: navigationResponse.isForMainFrame
+            )
+        let allowsSubframeDownload = navigationResponse.isForMainFrame
+            || subframeDownloadIntents.consume(for: navigationResponse.response.url)
+            || isUserActivatedPreviouslyRenderedSubframePDF
+        if filenameResolver.navigationResponseDownloadReason(
+            mimeType: navigationResponse.response.mimeType,
+            canShowMIMEType: navigationResponse.canShowMIMEType,
+            contentDisposition: contentDisposition,
+            isForMainFrame: navigationResponse.isForMainFrame,
+            allowsSubframeDownload: allowsSubframeDownload,
+            isUserActivatedPreviouslyRenderedSubframePDF: isUserActivatedPreviouslyRenderedSubframePDF
         ) != nil {
+            if !navigationResponse.isForMainFrame,
+               let url = navigationResponse.response.url,
+               browserShouldBlockInsecureHTTPURL(url) {
+                decisionHandler(.cancel)
+                return
+            }
             decisionHandler(.download)
             return
         }
 
+        subframeDownloadIntents.markRenderedSubframePDFIfNeeded(
+            responseURL: navigationResponse.response.url,
+            mimeType: navigationResponse.response.mimeType,
+            isForMainFrame: navigationResponse.isForMainFrame
+        )
         decisionHandler(.allow)
     }
 
@@ -919,6 +897,9 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         controller?.handleWebContentProcessTermination(for: webView)
+    }
+    func recordSubframeDownloadIntent(_ url: URL) {
+        subframeDownloadIntents.record(url)
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
