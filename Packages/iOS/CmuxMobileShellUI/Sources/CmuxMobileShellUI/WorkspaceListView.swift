@@ -94,6 +94,7 @@ struct WorkspaceListView: View {
     @State var filter: MobileWorkspaceListFilter = .all
     @State private var macTitlePickerSwitchTask: Task<Void, Never>?
     @State private var macTitlePickerSwitchGeneration: UInt64 = 0
+    @State private var macTitlePickerPendingSelection: WorkspaceMacSelection?
     /// Stable machine-menu content. Kept as value state so live workspace or
     /// device-tree updates that do not change the actual machine set/name
     /// snapshot do not rebuild an open native Menu. `nil` only before the first
@@ -107,6 +108,10 @@ struct WorkspaceListView: View {
 
     private var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var currentMacTitlePickerSelection: WorkspaceMacSelection {
+        macTitlePickerPendingSelection ?? visibleMacSelection
     }
 
     /// Whether the list renders grouped sections. Groups are honored whenever the
@@ -326,9 +331,11 @@ struct WorkspaceListView: View {
         cancelMacTitlePickerSwitch(restorePreviousOnCancel: !startsMachineSwitch)
         let generation = macTitlePickerSwitchGeneration
         guard startsMachineSwitch else {
+            macTitlePickerPendingSelection = nil
             macSelection = selection
             return nil
         }
+        macTitlePickerPendingSelection = selection
         let task = Task { @MainActor in
             defer {
                 if macTitlePickerSwitchGeneration == generation {
@@ -346,6 +353,7 @@ struct WorkspaceListView: View {
         // Leave the task uncancelled: the store may need that continuation to
         // restore the foreground Mac after invalidating a destructive switch.
         macTitlePickerSwitchTask = nil
+        macTitlePickerPendingSelection = nil
         macTitlePickerSwitchGeneration &+= 1
         if hadPendingSwitch {
             cancelMacSwitch?(restorePreviousOnCancel)
@@ -366,14 +374,19 @@ struct WorkspaceListView: View {
         switch selection {
         case .all, .automatic:
             guard isCurrentSwitchRequest() else { return }
+            macTitlePickerPendingSelection = nil
             macSelection = selection
         case .machine(let id):
             guard isCurrentSwitchRequest() else { return }
             guard let switchMac else {
+                macTitlePickerPendingSelection = nil
                 macSelection = selection
                 return
             }
-            guard await switchMac(id), isCurrentSwitchRequest() else { return }
+            let switched = await switchMac(id)
+            guard isCurrentSwitchRequest() else { return }
+            macTitlePickerPendingSelection = nil
+            guard switched else { return }
             macSelection = .machine(id)
         }
     }

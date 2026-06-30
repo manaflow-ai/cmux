@@ -2496,6 +2496,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && foregroundMacDeviceID == macDeviceID
         if switched {
             macSwitchRestoreBaseline = nil
+            // The foreground connection has already landed on the target Mac. From
+            // here on, persistence/list refresh should not be cancellable as a switch.
+            finishMacSwitchAttempt(switchAttemptID)
             do {
                 try await pairedMacStore.setActive(
                     macDeviceID: macDeviceID,

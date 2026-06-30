@@ -112,7 +112,7 @@ extension WorkspaceListView {
 
     var macTitlePickerSelection: Binding<WorkspaceMacSelection> {
         Binding(
-            get: { visibleMacSelection },
+            get: { currentMacTitlePickerSelection },
             set: { _ = handleMacTitlePickerSelection($0) }
         )
     }

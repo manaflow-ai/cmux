@@ -134,6 +134,68 @@ import Testing
         #expect(selected == .all)
     }
 
+    @Test func pendingTitlePickerMachineSelectionLetsAllMacsCancelSwitch() async throws {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+        ])
+        var selected = WorkspaceMacSelection.all
+        var requestedSwitches: [String] = []
+        var cancelRestoreRequests: [Bool] = []
+        var switchContinuation: CheckedContinuation<Bool, Never>?
+        var switchDidStart = false
+        var switchStartedContinuation: CheckedContinuation<Void, Never>?
+        func markSwitchStarted() {
+            guard !switchDidStart else { return }
+            switchDidStart = true
+            switchStartedContinuation?.resume()
+            switchStartedContinuation = nil
+        }
+        func waitForSwitchStart() async {
+            guard !switchDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if switchDidStart {
+                    continuation.resume()
+                } else {
+                    switchStartedContinuation = continuation
+                }
+            }
+        }
+        let view = workspaceListView(
+            workspaces: [workspace(id: "ws-a", macDeviceID: "mac-a")],
+            store: store,
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { macDeviceID in
+                requestedSwitches.append(macDeviceID)
+                markSwitchStarted()
+                return await withCheckedContinuation { continuation in
+                    switchContinuation = continuation
+                }
+            },
+            cancelMacSwitch: { restorePreviousOnCancel in
+                cancelRestoreRequests.append(restorePreviousOnCancel)
+            }
+        )
+
+        let pendingSwitchTask = view.handleMacTitlePickerSelection(.machine("mac-b"))
+        await waitForSwitchStart()
+
+        #expect(view.macTitlePickerSelection.wrappedValue == .machine("mac-b"))
+        view.macTitlePickerSelection.wrappedValue = .all
+
+        #expect(requestedSwitches == ["mac-b"])
+        #expect(cancelRestoreRequests == [true])
+        #expect(selected == .all)
+
+        switchContinuation?.resume(returning: true)
+        await pendingSwitchTask?.value
+
+        #expect(selected == .all)
+    }
+
     @Test func selectingWorkspaceCancelsPendingTitlePickerSwitch() async throws {
         let workspaceID = MobileWorkspacePreview.ID(rawValue: "ws-a")
         let store = await shellStore(pairedMacs: [
