@@ -11582,21 +11582,19 @@ class TerminalController {
                 result = "ERROR: Tab not found"
                 return
             }
-            guard let panelId = UUID(uuidString: panelArg) else {
+            // Name/index selectors are resolved live at command time, so the
+            // panel must belong to the explicitly selected workspace. Only the
+            // UUID path above re-resolves a (possibly stale) moved-surface
+            // workspace; re-resolving here would let `notify_target <name> <panel>`
+            // deliver to whatever workspace currently owns the panel, silently
+            // ignoring the selected workspace.
+            guard let panelId = UUID(uuidString: panelArg),
+                  tab.panels[panelId] != nil else {
                 result = "ERROR: Panel not found"
                 return
             }
-            let containingWorkspace = AppDelegate.shared?.workspaceContainingPanel(
-                panelId: panelId,
-                preferredWorkspaceId: tab.id
-            )
-            guard tab.panels[panelId] != nil || containingWorkspace != nil else {
-                result = "ERROR: Panel not found"
-                return
-            }
-            let resolvedTabId = containingWorkspace?.workspace.id ?? tab.id
             deliverNotificationSynchronously(
-                tabId: resolvedTabId,
+                tabId: tab.id,
                 surfaceId: panelId,
                 title: title,
                 subtitle: subtitle,
