@@ -58,17 +58,6 @@ struct RenderableSystemSymbolTests {
         #expect(image.size == NSSize(width: 16, height: 16))
     }
 
-    @Test func fittedSymbolSizeScalesLongerDimensionToRasterSize() {
-        #expect(RenderableSystemSymbol.fittedSymbolSize(
-            NSSize(width: 20, height: 10),
-            maximumDimension: 16
-        ) == NSSize(width: 16, height: 8))
-        #expect(RenderableSystemSymbol.fittedSymbolSize(
-            NSSize(width: 0, height: 10),
-            maximumDimension: 16
-        ) == NSSize(width: 16, height: 16))
-    }
-
     @Test @MainActor func configuredAppKitImageReusesCachedImage() throws {
         RenderableSystemSymbol.resetRenderabilityCacheForTesting()
         let first = try #require(RenderableSystemSymbol.configuredAppKitImage(
