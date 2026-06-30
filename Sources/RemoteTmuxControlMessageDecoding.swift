@@ -9,6 +9,75 @@ import Foundation
 /// context; ``RemoteTmuxControlConnection`` owns an instance and routes its
 /// internal call sites through it.
 struct RemoteTmuxControlMessageDecoding {
+    /// Builds the seed paint that replays a `capture-pane -p -e -S` result onto a
+    /// freshly-created mirror surface: home, clear the visible screen (ESC[2J) AND
+    /// clear the scrollback (ESC[3J), then write every captured row joined by CR LF.
+    ///
+    /// The scrollback clear (ESC[3J) is correctness, not cosmetics. A mirror surface
+    /// receives live `%output` from the moment it mounts — BEFORE this capture result
+    /// lands — and tmux control mode forwards the raw, pre-emulation pty bytes. That
+    /// early stream carries zsh's PROMPT_SP / PROMPT_EOL_MARK partial-line marker (an
+    /// inverse-video "%" zsh paints at the cursor, then erases with CR+space+CR):
+    /// tmux's own grid model collapses it to a clean final state, but on the mirror
+    /// the marker can scroll up into the surface's scrollback, stranding a spurious
+    /// "%" on its own line ABOVE the seeded prompt. ESC[3J wipes that pre-seed garbage.
+    ///
+    /// ESC[3J does NOT erase the rows we are about to seed: it runs BEFORE the writes,
+    /// so the captured rows that overflow the screen scroll into a FRESH scrollback
+    /// afterward and the mirrored tab stays scrollable from the start (the reconnect
+    /// re-seed path already clears scrollback the same way and remains scrollable).
+    ///
+    /// The last row gets no trailing newline so the cursor lands at its END, lining up
+    /// with tmux's real prompt cursor; the `.paneState` seed then repositions it.
+    ///
+    /// `paneHeight`/`surfaceHeight` fix the "stacked prompts + misplaced cursor" bug:
+    /// `capture-pane -S` returns the pane's SCROLLBACK history followed by its visible
+    /// screen as one block (`historyLines + paneHeight` rows — tmux does NOT trim
+    /// trailing blanks, so the split is exact). Replaying that block relies on overflow
+    /// to scroll history into the surface's scrollback, leaving the visible rows on
+    /// screen. That only lands the visible rows TOP-ALIGNED (row 0) — the invariant the
+    /// absolute cursor restore (`paneStateSeedSequence`) assumes — when the painted
+    /// block overflows the surface by exactly `historyLines`. When the mirror surface is
+    /// TALLER than the captured pane (`surfaceHeight > paneHeight`, common during the
+    /// attach/resize size-sync window) it doesn't, so the history rows sit in the
+    /// visible area and the visible-relative cursor lands `historyLines` rows too high.
+    /// Appending `surfaceHeight - paneHeight` blank rows makes the block `historyLines +
+    /// surfaceHeight` tall, so exactly `historyLines` rows scroll off and the visible
+    /// rows top-align with blank space below — matching a real terminal grown past its
+    /// content. A surface SHORTER than the pane is handled by the caller (it defers the
+    /// seed until the pane resizes down), so no padding is applied there.
+    nonisolated func capturePaneSeedSequence(rows: [String], paneHeight: Int?, surfaceHeight: Int?) -> Data {
+        var seedRows = rows
+        if let p = paneHeight, let h = surfaceHeight, h > p, rows.count >= p {
+            seedRows.append(contentsOf: repeatElement("", count: h - p))
+        }
+        return Data((Self.homeClearScreenAndScrollback + seedRows.joined(separator: "\r\n")).utf8)
+    }
+
+    /// Parses `pane_height` out of a `.paneState` `display-message` line (the same
+    /// `key=value,…` format `paneStateSeedSequence` consumes). Used to pad the capture
+    /// seed so the visible rows land top-aligned (see `capturePaneSeedSequence`).
+    nonisolated func paneHeight(from line: String) -> Int? {
+        for pair in line.split(separator: ",") {
+            let kv = pair.split(separator: "=", maxSplits: 1)
+            if kv.count == 2, kv[0] == "pane_height" {
+                // Clamp to a plausible terminal-row range. The value is untrusted remote
+                // output; a negative or absurd height would otherwise drive a huge (or
+                // negative) blank-row pad in `capturePaneSeedSequence`. An out-of-range
+                // value reads as "unknown", so the caller paints the seed unpadded.
+                // Mirrors the bounded numeric parsing in `paneStateSeedSequence`.
+                return Int(kv[1]).flatMap { (1...65535).contains($0) ? $0 : nil }
+            }
+        }
+        return nil
+    }
+
+    /// Home the cursor + clear the visible screen (ESC[2J) AND the scrollback (ESC[3J).
+    /// The one place this escape sequence is spelled, shared by the capture-pane seed
+    /// paint above and the reconnect re-seed pre-clear in ``RemoteTmuxControlConnection``
+    /// so the two can't drift.
+    nonisolated static let homeClearScreenAndScrollback = "\u{1b}[H\u{1b}[2J\u{1b}[3J"
+
     /// Builds the escape sequence that restores a pane's terminal state onto the
     /// mirror surface, from a `display-message` `key=value,…` line. Sets the scroll
     /// region (DECSTBM), the DEC private modes (wrap/cursor/insert/app-cursor-keys/
