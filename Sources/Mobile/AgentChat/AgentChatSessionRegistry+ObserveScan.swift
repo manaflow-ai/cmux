@@ -67,16 +67,14 @@ extension AgentChatSessionRegistry {
             processPath: process.path,
             arguments: [],
             environment: [:]
-        ), !shouldReadDetails {
+        ) {
             return direct
         }
+        if !shouldReadDetails {
+            return nil
+        }
         guard let details = processArgumentsAndEnvironment(process.pid) else {
-            return CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
-                processName: process.name,
-                processPath: process.path,
-                arguments: [],
-                environment: [:]
-            )
+            return nil
         }
         return CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: process.name,

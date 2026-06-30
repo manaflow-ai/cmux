@@ -130,6 +130,37 @@ struct AgentChatSessionRegistryObservationTests {
         #expect(observed.isEmpty)
     }
 
+    @Test func mobileChatObserverSkipsUnambiguousNonAgentWithoutReadingDetails() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 404,
+                    name: "server",
+                    path: "/usr/local/bin/server",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 400),
+            includesProcessDetails: true
+        )
+
+        var detailReadCount = 0
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: { _ in
+                detailReadCount += 1
+                return nil
+            },
+            codexRolloutPath: { _ in nil }
+        )
+
+        #expect(observed.isEmpty)
+        #expect(detailReadCount == 0)
+    }
+
     private func topProcess(
         pid: Int,
         name: String,

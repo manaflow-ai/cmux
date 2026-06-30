@@ -151,14 +151,8 @@ final class AgentChatSessionRegistry {
     /// identity from the agent's own state (codex: the rollout file it holds
     /// open; claude: `CLAUDE_CODE_SESSION_ID` or `--session-id`/`--resume`),
     /// so a session launched through any indirection (a subrouter, a wrapper)
-    /// is still found and bound.
-    /// Throttled; safe to call coarsely (e.g. on the iOS list pull). The snapshot
-    /// is captured off the main actor.
-    private var observeThrottle: Date?
+    /// is still found and bound. The snapshot is captured off the main actor.
     func observeAgentProcesses() async {
-        let now = Date()
-        if let last = observeThrottle, now.timeIntervalSince(last) < 2.0 { return }
-        observeThrottle = now
         let observed = await Task.detached { Self.scanObservedAgentSessions() }.value
         applyObservedSessions(observed)
     }
