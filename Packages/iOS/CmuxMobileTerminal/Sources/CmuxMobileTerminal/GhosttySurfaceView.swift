@@ -669,6 +669,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var pendingGeometryApply: PendingSurfaceOperation?
     private var pendingVisibleSnapshot: PendingVisibleSnapshot?
     private var pendingCopyableTextRead: PendingCopyableTextRead?
+    private var pendingRenderRecoveryWaiters: [PendingRenderRecoveryWaiter] = []
     private var hasPendingSurfaceOperationDeadline: Bool {
         pendingOutputApply != nil || pendingGeometryApply != nil || pendingVisibleSnapshot != nil
             || pendingCopyableTextRead != nil
@@ -2288,6 +2289,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   or `false` when the caller should reset its delivery queue and replay.
     @discardableResult
     public func processOutputAndWait(_ data: Data) async -> Bool {
+        if await waitForDeferredRenderPipelineRecoveryIfBlocked() {
+            return false
+        }
         return await withCheckedContinuation { continuation in
             let operationID = registerPendingOutputApply(
                 byteCount: data.count,
@@ -2648,6 +2652,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func prepareForReuseAfterDetach() {
         renderPipelineRecoveryBlocked = false
         deferredRenderPipelineRecovery = nil
+        resumePendingRenderRecoveryWaiters()
         completePendingSurfaceOperations(returning: false)
         renderInFlight = false
         renderInFlightSince = nil
@@ -2942,6 +2947,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         deferredRenderPipelineRecovery = nil
         renderPipelineRecoveryBlocked = false
         guard !isDismantled, surface != nil else {
+            resumePendingRenderRecoveryWaiters()
             completePendingSurfaceOperations(returning: false)
             return
         }
@@ -2953,6 +2959,45 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             stalledMs: deferred.stalledMs,
             replay: deferred.replay
         )
+        resumePendingRenderRecoveryWaiters()
+    }
+
+    private func waitForDeferredRenderPipelineRecoveryIfBlocked() async -> Bool {
+        guard renderPipelineRecoveryBlocked else { return false }
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard renderPipelineRecoveryBlocked else {
+                    continuation.resume()
+                    return
+                }
+                pendingRenderRecoveryWaiters.append(PendingRenderRecoveryWaiter(
+                    id: waiterID,
+                    continuation: continuation
+                ))
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelPendingRenderRecoveryWaiter(id: waiterID)
+            }
+        }
+        return true
+    }
+
+    private func cancelPendingRenderRecoveryWaiter(id: UUID) {
+        guard let index = pendingRenderRecoveryWaiters.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let waiter = pendingRenderRecoveryWaiters.remove(at: index)
+        waiter.continuation.resume()
+    }
+
+    private func resumePendingRenderRecoveryWaiters() {
+        let waiters = pendingRenderRecoveryWaiters
+        pendingRenderRecoveryWaiters = []
+        for waiter in waiters {
+            waiter.continuation.resume()
+        }
     }
 
     private var preferredScreenScale: CGFloat {
@@ -3495,6 +3540,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func syncSurfaceGeometryAndWait(shouldReassertNaturalSize: Bool = true) async -> Bool {
+        if await waitForDeferredRenderPipelineRecoveryIfBlocked() {
+            return false
+        }
         needsGeometrySync = false
         pendingGeometryReassert = false
         return await withCheckedContinuation { continuation in
@@ -4191,6 +4239,12 @@ nonisolated private struct PendingSurfaceOperation {
     let startedAt: CFTimeInterval
     let byteCount: Int?
     let continuation: CheckedContinuation<Bool, Never>
+}
+
+/// One apply caller waiting for a blocked deferred recovery to rebuild first.
+nonisolated private struct PendingRenderRecoveryWaiter {
+    let id: UUID
+    let continuation: CheckedContinuation<Void, Never>
 }
 
 /// One visible-terminal snapshot read awaiting output-queue completion or its
