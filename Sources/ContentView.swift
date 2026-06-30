@@ -14055,13 +14055,11 @@ struct TabItemView: View, Equatable {
         }
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
-            if rowInteractionState.isPointerHovering {
-                MiddleClickCapture {
-                    #if DEBUG
-                    cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
-                    #endif
-                    tabManager.closeWorkspaceWithConfirmation(tab)
-                }
+            MiddleClickCapture {
+                #if DEBUG
+                cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
+                #endif
+                tabManager.closeWorkspaceWithConfirmation(tab)
             }
         }
         .overlay {

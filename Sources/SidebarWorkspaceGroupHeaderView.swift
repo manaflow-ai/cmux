@@ -216,6 +216,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     ),
                     action: onTapPlus
                 )
+                .onAppear {
+                    rowInteractionState.contextMenuDidAppear()
+                }
+                .onDisappear {
+                    rowInteractionState.contextMenuDidDisappear()
+                }
                 if !cwdContextMenuItems.isEmpty {
                     Divider()
                     ForEach(cwdContextMenuItems) { item in
