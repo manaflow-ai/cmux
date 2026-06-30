@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import CmuxMobileTerminal
 import SwiftUI
 import UIKit
