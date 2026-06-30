@@ -37,6 +37,8 @@ final class ChatTranscriptUITableView: UITableView {
     private var recordedKeyboardAnimationID = 0
     private var keyboardDebugMaxAnimationPresentationGap: CGFloat = 0
     private var keyboardDebugAnimationSampleCount = 0
+    private var debugTopEdgeEffectSoft = false
+    private var debugBottomEdgeEffectSoft = false
     #endif
 
     #if DEBUG
@@ -63,6 +65,22 @@ final class ChatTranscriptUITableView: UITableView {
         updateDebugAccessibilityValue()
         #endif
         afterLayout?(oldBoundsSize, oldContentSize, oldViewport, oldAnchor)
+    }
+
+    func applyScrollEdgeEffects(topSoft: Bool, bottomSoft: Bool) {
+        #if DEBUG
+        debugTopEdgeEffectSoft = false
+        debugBottomEdgeEffectSoft = false
+        #endif
+        if #available(iOS 26.0, *) {
+            topEdgeEffect.style = topSoft ? .soft : .automatic
+            bottomEdgeEffect.style = bottomSoft ? .soft : .automatic
+            #if DEBUG
+            debugTopEdgeEffectSoft = topSoft
+            debugBottomEdgeEffectSoft = bottomSoft
+            updateDebugAccessibilityValue()
+            #endif
+        }
     }
 
     func keyboardViewportSnapshot() -> MobileScrollViewportSnapshot {
@@ -208,15 +226,6 @@ final class ChatTranscriptUITableView: UITableView {
         let visibleBottomY = contentOffset.y + bounds.height - adjustedContentInset.bottom
         let distanceFromBottom = max(0, contentSize.height - visibleBottomY)
         let presentationGap = composerPresentationMinY - presentationFrameMaxY
-        let topEdgeEffectSoft: Int
-        let bottomEdgeEffectSoft: Int
-        if #available(iOS 26.0, *) {
-            topEdgeEffectSoft = topEdgeEffect.style === UIScrollEdgeEffect.Style.soft ? 1 : 0
-            bottomEdgeEffectSoft = bottomEdgeEffect.style === UIScrollEdgeEffect.Style.soft ? 1 : 0
-        } else {
-            topEdgeEffectSoft = 0
-            bottomEdgeEffectSoft = 0
-        }
         recordKeyboardAnimationGap(presentationGap)
         return String(
             format: "frameMinY=%.2f;frameMaxY=%.2f;frameHeight=%.2f;presentationFrameMaxY=%.2f;boundsHeight=%.2f;offsetY=%.2f;adjustedTopInset=%.2f;adjustedBottomInset=%.2f;visibleTopY=%.2f;visibleBottomY=%.2f;contentHeight=%.2f;distanceFromBottom=%.2f;keyboardEvents=%d;keyboardOverlap=%.2f;keyboardTargetOverlap=%.2f;keyboardGuideOverlap=%.2f;keyboardBottomConstraint=%.2f;composerMinY=%.2f;composerPresentationMinY=%.2f;presentationGap=%.2f;topChromeOverlayInset=%.2f;composerOverlayBottomInset=%.2f;keyboardAnimationActive=%d;keyboardAnimationProgress=%.2f;keyboardTransitionDuration=%.3f;maxAnimationPresentationGap=%.2f;keyboardAnimationSamples=%d;topEdgeEffectSoft=%d;bottomEdgeEffectSoft=%d",
@@ -248,8 +257,8 @@ final class ChatTranscriptUITableView: UITableView {
             keyboardDebugTransitionDuration,
             keyboardDebugMaxAnimationPresentationGap,
             keyboardDebugAnimationSampleCount,
-            topEdgeEffectSoft,
-            bottomEdgeEffectSoft
+            debugTopEdgeEffectSoft ? 1 : 0,
+            debugBottomEdgeEffectSoft ? 1 : 0
         )
     }
 

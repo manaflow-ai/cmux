@@ -28,10 +28,7 @@ final class ChatScrollEdgeCoordinator {
         suppressTopEdgeEffect: Bool
     ) {
         guard let tableView else { return }
-        if #available(iOS 26.0, *) {
-            tableView.topEdgeEffect.style = suppressTopEdgeEffect ? .automatic : .soft
-            tableView.bottomEdgeEffect.style = .soft
-        }
+        tableView.applyScrollEdgeEffects(topSoft: !suppressTopEdgeEffect, bottomSoft: true)
     }
 
     private func configureContentScrollView(
