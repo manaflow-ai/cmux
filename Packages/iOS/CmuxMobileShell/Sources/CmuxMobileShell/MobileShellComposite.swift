@@ -3115,7 +3115,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 guard let self else { return }
                 guard self.isSignedIn,
                       self.signInGeneration == restoreSignInGeneration,
-                      self.secondaryAggregationScopeGeneration == restoreScopeGeneration else { return }
+                      self.secondaryAggregationScopeGeneration == restoreScopeGeneration,
+                      self.macSwitchAttemptID == nil else { return }
                 _ = await self.restorePreviousMacIfNeeded(restoreTarget)
                 if self.macSwitchAttemptID == nil,
                    self.signInGeneration == restoreSignInGeneration,
