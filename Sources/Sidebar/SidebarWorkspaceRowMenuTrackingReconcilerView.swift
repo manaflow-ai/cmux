@@ -38,7 +38,7 @@ final class SidebarWorkspaceRowMenuTrackingReconcilerView: NSView {
         }
     }
 
-    static func shouldReconcileMenuEnd(object: Any?) -> Bool {
+    nonisolated static func shouldReconcileMenuEnd(object: Any?) -> Bool {
         guard let menu = object as? NSMenu else { return false }
         return menu.supermenu == nil
     }
