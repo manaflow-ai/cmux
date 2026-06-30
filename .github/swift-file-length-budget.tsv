@@ -3,9 +3,9 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34427	CLI/cmux.swift
 17908	Sources/AppDelegate.swift
-16515	Sources/ContentView.swift
+16526	Sources/ContentView.swift
 14170	Sources/TerminalController.swift
-12957	Sources/Workspace.swift
+12966	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12214	Sources/GhosttyTerminalView.swift
 11592	Sources/Panels/BrowserPanel.swift
@@ -17,7 +17,7 @@
 6895	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 6359	cmuxTests/SessionPersistenceTests.swift
 6217	cmuxTests/GhosttyConfigTests.swift
-6180	Sources/TabManager.swift
+6184	Sources/TabManager.swift
 6077	Sources/TextBoxInput.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
 5573	cmuxTests/BrowserConfigTests.swift

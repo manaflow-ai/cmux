@@ -4679,6 +4679,15 @@ final class Workspace: Identifiable, ObservableObject {
         // observation model (its setter bumps `changeGeneration`); this signal
         // refreshes the Combine-driven sidebar state coloring.
         agentLifecycleSidebarRefreshSubject.send(())
+        // A collapsed group's members have no mounted row to observe the
+        // per-workspace publisher, so post a sidebar-scoped notification the
+        // default sidebar uses to refresh group-header state colors. Mirrors
+        // the `.workspaceCurrentDirectoryDidChange` group-config refresh.
+        NotificationCenter.default.post(
+            name: .workspaceAgentLifecycleDidChange,
+            object: self,
+            userInfo: ["workspaceId": id]
+        )
         AgentHibernationController.shared.recordAgentLifecycleChange(
             workspaceId: id,
             panelId: panelId

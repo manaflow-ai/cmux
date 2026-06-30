@@ -10728,6 +10728,17 @@ struct VerticalTabsSidebar: View {
                     // unrelated sidebar event fires.
                     anchorCwdRevision &+= 1
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .workspaceAgentLifecycleDidChange)) { notification in
+                    // Mirror anchorCwdRevision for agent-state colors: a collapsed
+                    // group's header aggregates its members' lifecycle, but those
+                    // members have no mounted row to drive a refresh, so the
+                    // header tint would otherwise stay stale until an unrelated
+                    // sidebar event fires. Scope to this window's workspaces so
+                    // agent churn in other windows doesn't invalidate this sidebar.
+                    guard let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
+                          renderContext.workspaceById[workspaceId] != nil else { return }
+                    groupAgentLifecycleRevision &+= 1
+                }
                 .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionDidHideEvent.notificationName)) { notification in
                     // Group collapse hides some workspaces without changing
                     // focus or wiping the rest of the multi-selection. Strip

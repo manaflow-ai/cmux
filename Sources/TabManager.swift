@@ -6172,6 +6172,10 @@ extension Notification.Name {
     /// Posted after TabManager has applied a terminal title to workspace state.
     static let workspaceTitleDidChange = Notification.Name("cmux.workspaceTitleDidChange")
     static let workspaceCurrentDirectoryDidChange = Notification.Name("cmux.workspaceCurrentDirectoryDidChange")
+    /// Posted when a workspace's agent lifecycle state changes. The sidebar uses
+    /// it to refresh group-header state colors even when the member workspace is
+    /// collapsed and has no mounted row to observe the per-workspace publisher.
+    static let workspaceAgentLifecycleDidChange = Notification.Name("cmux.workspaceAgentLifecycleDidChange")
     static let tabManagerFocusHistoryRevisionDidChange = Notification.Name("cmux.tabManagerFocusHistoryRevisionDidChange")
 }
 
