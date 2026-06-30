@@ -32,7 +32,7 @@ extension TerminalController {
     func v2MobileChatDispatch(method: String, params: [String: Any]) async -> V2CallResult {
         switch method {
         case "mobile.chat.sessions":
-            return v2MobileChatSessions(params: params)
+            return await v2MobileChatSessions(params: params)
         case "mobile.chat.session":
             return v2MobileChatSession(params: params)
         case "mobile.chat.history":
@@ -73,17 +73,16 @@ extension TerminalController {
     /// still matches its agent against THAT workspace+panel. Each returned
     /// session is re-stamped to W so its seed and live `descriptorChanged`
     /// pushes both scope to the current workspace.
-    func v2MobileChatSessions(params: [String: Any]) -> V2CallResult {
+    func v2MobileChatSessions(params: [String: Any]) async -> V2CallResult {
         let workspaceID = v2String(params, "workspace_id")
         guard let service = agentChatTranscriptService else {
             return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
         }
-        // Observe-floor detection: kick a throttled, off-main process-table scan
+        // Observe-floor detection: run a throttled, off-main process-table scan
         // so a live codex/claude launched through any indirection (a subrouter, a
-        // wrapper) that fired no hook is still discovered. Fire-and-forget: a new
-        // detection creates a record that pushes itself to subscribers via
-        // onRecordChanged, so it lands without blocking this list pull.
-        Task { await service.observeAgentProcesses() }
+        // wrapper) that fired no hook is still discovered before the first iOS
+        // list pull filters by live terminal surface.
+        await service.observeAgentProcesses()
         guard let workspaceID else {
             // No filter: return all current-agent sessions across workspaces,
             // resolving each via its stored binding as before.
