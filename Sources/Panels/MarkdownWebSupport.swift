@@ -21,6 +21,12 @@ final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
 @MainActor
 final class MarkdownWebView: WKWebView {
     var onPointerDown: (() -> Void)?
+    /// Test-only seam for the preview find path. A headless `WKWebView` with no
+    /// loaded document does not accept the synthesized Cmd+F/G/E find chords, so
+    /// `performKeyEquivalent(with:)` returns `false` and find-routing assertions
+    /// would be non-deterministic. Unit tests assign this to both observe the
+    /// synthesized event and report the chord as handled. Always `nil` in
+    /// production, where WebKit's own key-equivalent handling drives the find UI.
     var performKeyEquivalentHandler: ((NSEvent) -> Bool)?
     var cancelOperationHandler: (() -> Bool)?
     /// Invoked when the view leaves its window (the detach half of a pane

@@ -58,6 +58,17 @@ struct MarkdownPanelView: View {
         .overlay {
             WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
         }
+        .overlay {
+            // Request panel focus on any click in the panel. The preview web
+            // view already reports focus through `onPointerDown`, but the raw
+            // text editor (`FilePreviewTextEditor`) does not, so clicking into
+            // text-edit mode would otherwise leave `focusedPanelId` on the
+            // previously focused panel and route Cmd+F/Cmd+G there. Mirrors
+            // `FilePreviewPanel`, which uses the same editor.
+            if isVisibleInUI {
+                FilePreviewPointerObserver(onPointerDown: onRequestPanelFocus)
+            }
+        }
         .onChange(of: panel.focusFlashToken) {
             triggerFocusFlashAnimation()
         }

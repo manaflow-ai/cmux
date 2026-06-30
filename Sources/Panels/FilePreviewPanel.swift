@@ -4437,7 +4437,7 @@ private struct QuickLookPreviewView: NSViewRepresentable {
     }
 }
 
-private struct FilePreviewPointerObserver: NSViewRepresentable {
+struct FilePreviewPointerObserver: NSViewRepresentable {
     let onPointerDown: () -> Void
 
     func makeNSView(context: Context) -> FilePreviewPointerObserverView {
