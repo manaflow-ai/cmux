@@ -69,9 +69,11 @@ regexes = [
   '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0In0\.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U''',
 ]
 
-# PEM private/public key fixtures in scrubber tests.
+# PEM private-key fixture in scrubber tests. Scoped to the exact synthetic key
+# body so any other (real) private key accidentally committed to this test file
+# is still caught instead of being suppressed by a broad PEM-header exemption.
 [[allowlists]]
-description = "Sentry scrubber test private-key (PEM) fixtures"
+description = "Sentry scrubber test private-key (PEM) fixture (exact synthetic body)"
 targetRules = ["private-key"]
 condition = "AND"
 paths = [
@@ -79,7 +81,8 @@ paths = [
 ]
 regexTarget = "line"
 regexes = [
-  '''-----BEGIN (?:RSA |EC )?(?:PRIVATE|PUBLIC) KEY-----''',
+  '''MIIEpAIBAAKCAQEAsecretbodyabc/def\+ghi==''',
+  '''MIIBVwIBADANBgkqhkiG9w0BAQEFAAS''',
 ]
 
 [[allowlists]]
