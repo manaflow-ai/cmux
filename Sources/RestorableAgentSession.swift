@@ -36,7 +36,12 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
     static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
         guard let workingDirectory = normalized(workingDirectory) else { return nil }
         let quoted = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
-        return "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && "
+        // No POSIX `{ …; }` grouping: this runs verbatim in the user's login shell
+        // (cmux spawns via `/usr/bin/login → $SHELL`), which may be fish — fish has no
+        // brace grouping and errors before the agent launches (issue #6285). `&&`/`||`
+        // are a left-associative, equal-precedence AND-OR list in sh/bash/zsh/fish, so
+        // `cd … || [ ! -d … ] && cmd` == `(cd || test) && cmd` in every shell.
+        return "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && "
     }
 
     static func prefix(_ command: String, workingDirectory: String?) -> String {
@@ -92,6 +97,7 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         var seen = Set<String>()
         for quoted in quotedCandidates where seen.insert(quoted).inserted {
             let prefixes = [
+                "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && ",
                 "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && ",
                 "{ [ ! -d \(quoted) ] || cd -- \(quoted); } && ",
                 "cd -- \(quoted) && ",
