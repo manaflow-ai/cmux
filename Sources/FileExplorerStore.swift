@@ -765,12 +765,18 @@ final class FileExplorerStore: ObservableObject {
     private var gitStateWatcher: RecursivePathWatcher?
     private var gitStateWatchTask: Task<Void, Never>?
 
-    /// Whether a `git status` fetch started by ``refreshGitStatus()`` is still
-    /// running. The recursive watcher can request a refresh once per throttle
-    /// window during a sustained filesystem storm; without this guard each
-    /// request would spawn another uncancelled `git status` process, letting
-    /// slow fetches on a large repo pile up. Only ever read/written on the main
+    /// Bumped whenever the explorer root or provider changes
+    /// (``invalidateGitStatusRefresh()``). A `git status` fetch captures this at
+    /// launch; a result whose generation no longer matches is dropped, so a
+    /// slow/hung fetch for a previous workspace can neither overwrite the current
+    /// workspace's status nor block its refresh. Only read/written on the main
     /// actor.
+    private var gitStatusContextGeneration = 0
+    /// Whether a `git status` fetch is in flight for the current context. The
+    /// recursive watcher can request a refresh once per throttle window during a
+    /// sustained filesystem storm; without this guard each request would spawn
+    /// another uncancelled `git status` process, letting slow fetches on a large
+    /// repo pile up. Only read/written on the main actor.
     private var isGitStatusRefreshInFlight = false
     /// Set when a refresh is requested while one is already in flight, so exactly
     /// one follow-up runs after the current fetch finishes (coalescing a burst of
@@ -862,6 +868,7 @@ final class FileExplorerStore: ObservableObject {
             pendingDescendIntoFirstChildPath = nil
         }
         rootPath = path
+        invalidateGitStatusRefresh()
         reload()
         refreshGitStatus()
         updateDirectoryWatcher()
@@ -885,6 +892,7 @@ final class FileExplorerStore: ObservableObject {
         }
         isGitStatusRefreshInFlight = true
         let path = rootPath
+        let generation = gitStatusContextGeneration
         if let sshProvider = provider as? SSHFileExplorerProvider {
             let dest = sshProvider.destination
             let port = sshProvider.port
@@ -896,14 +904,14 @@ final class FileExplorerStore: ObservableObject {
                     identityFile: identity, sshOptions: opts
                 )
                 DispatchQueue.main.async { [weak self] in
-                    self?.applyGitStatusResult(status)
+                    self?.applyGitStatusResult(status, generation: generation)
                 }
             }
         } else {
             DispatchQueue.global(qos: .utility).async {
                 let status = GitStatusProvider.fetchStatus(directory: path)
                 DispatchQueue.main.async { [weak self] in
-                    self?.applyGitStatusResult(status)
+                    self?.applyGitStatusResult(status, generation: generation)
                 }
             }
         }
@@ -912,14 +920,28 @@ final class FileExplorerStore: ObservableObject {
     /// Applies a completed `git status` result and, if a refresh was requested
     /// while the fetch was in flight, runs exactly one coalesced follow-up so the
     /// final state reflects the latest filesystem change without spawning
-    /// overlapping `git status` processes.
-    private func applyGitStatusResult(_ status: [String: GitFileStatus]) {
+    /// overlapping `git status` processes. Results from a fetch superseded by a
+    /// root/provider change (stale `generation`) are dropped without touching the
+    /// newer fetch's in-flight state.
+    private func applyGitStatusResult(_ status: [String: GitFileStatus], generation: Int) {
+        guard generation == gitStatusContextGeneration else { return }
         gitStatusByPath = status
         isGitStatusRefreshInFlight = false
         if gitStatusRefreshRequestedWhileInFlight {
             gitStatusRefreshRequestedWhileInFlight = false
             refreshGitStatus()
         }
+    }
+
+    /// Invalidates any in-flight `git status` fetch when the explorer root or
+    /// provider changes: the in-flight result is dropped (its generation no
+    /// longer matches) and the in-flight gate is released so a fetch for the new
+    /// context can start immediately instead of waiting behind a slow or hung
+    /// fetch for the previous one.
+    private func invalidateGitStatusRefresh() {
+        gitStatusContextGeneration &+= 1
+        isGitStatusRefreshInFlight = false
+        gitStatusRefreshRequestedWhileInFlight = false
     }
 
     func materializeRemoteFileForPreview(path: String) async throws -> URL {
@@ -1010,6 +1032,7 @@ final class FileExplorerStore: ObservableObject {
         NSLog("[FileExplorer] setProvider: \(type(of: newProvider).self) available=\(newProvider?.isAvailable ?? false)")
         #endif
         provider = newProvider
+        invalidateGitStatusRefresh()
         // Re-expand previously expanded nodes if provider becomes available
         if reloadIfAvailable, newProvider?.isAvailable == true {
             reload()
