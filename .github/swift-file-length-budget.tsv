@@ -2,8 +2,8 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34427	CLI/cmux.swift
-17964	Sources/AppDelegate.swift
-16491	Sources/ContentView.swift
+17978	Sources/AppDelegate.swift
+16521	Sources/ContentView.swift
 14224	Sources/TerminalController.swift
 12917	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
@@ -22,7 +22,7 @@
 5915	cmuxTests/TerminalAndGhosttyTests.swift
 5573	cmuxTests/BrowserConfigTests.swift
 4487	Sources/Panels/FilePreviewPanel.swift
-4476	Sources/cmuxApp.swift
+4483	Sources/cmuxApp.swift
 4367	cmuxTests/BrowserPanelTests.swift
 4121	Sources/BrowserWindowPortal.swift
 3934	Sources/Feed/FeedPanelView.swift
@@ -35,7 +35,7 @@
 3058	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
 2875	Sources/SessionIndexView.swift
-2606	Sources/KeyboardShortcutSettings.swift
+2610	Sources/KeyboardShortcutSettings.swift
 2563	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
@@ -85,7 +85,7 @@
 1110	Sources/AppDelegate+CmuxSSHURL.swift
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
-1031	cmuxTests/WorkspaceGroupTests.swift
+1044	cmuxTests/WorkspaceGroupTests.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift

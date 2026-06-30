@@ -13483,6 +13483,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        if matchConfiguredShortcut(event: event, action: .newWorkspaceGroup) {
+            return createEmptyWorkspaceGroup(
+                preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
+            )
+        }
+
         if matchConfiguredShortcut(event: event, action: .toggleFocusedWorkspaceGroupCollapsed) {
             // Only consume the event when the toggle actually fired (focused
             // workspace was in a group). Otherwise fall through so a rebinding
@@ -14721,6 +14727,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         tabManager.toggleWorkspaceGroupCollapsed(groupId: groupId)
         return true
+    }
+
+    @discardableResult
+    func createEmptyWorkspaceGroup(tabManager explicitTabManager: TabManager? = nil, preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        let resolvedTabs: TabManager? = explicitTabManager ?? contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
+        guard let tabs = resolvedTabs, tabs.selectedTab?.isRemoteTmuxMirror != true else { return false }
+        return tabs.createWorkspaceGroup(name: "") != nil
     }
 
     @discardableResult
