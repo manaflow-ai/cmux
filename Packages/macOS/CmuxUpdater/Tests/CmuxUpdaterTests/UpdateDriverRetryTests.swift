@@ -21,9 +21,7 @@ import Testing
             acknowledgement: { didAcknowledge = true }
         )
 
-        for _ in 0..<5 {
-            await Task.yield()
-        }
+        await actionDelegate.waitForRetryRequests(atLeast: 1)
 
         #expect(didAcknowledge)
         #expect(actionDelegate.retryRequestCount == 1)
@@ -47,9 +45,7 @@ import Testing
             acknowledgement: {}
         )
 
-        for _ in 0..<5 {
-            await Task.yield()
-        }
+        await actionDelegate.waitForRetryRequests(atLeast: 1)
 
         #expect(actionDelegate.retryPreserveInstallIntentValues == [true])
         #expect(model.state == .checking(.init(cancel: {})))
