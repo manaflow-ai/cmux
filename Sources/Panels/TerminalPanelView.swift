@@ -62,6 +62,9 @@ struct TerminalPanelView: View {
 
     private var terminalBody: some View {
         VStack(spacing: 0) {
+            terminalHeader
+            Divider()
+
             // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
             // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
             GhosttyTerminalView(
@@ -131,6 +134,46 @@ struct TerminalPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
         }
+    }
+
+    private var terminalHeader: some View {
+        let state = CollaborationRuntime.shared.state(for: panel)
+        return HStack(spacing: 8) {
+            CmuxSystemSymbolImage(systemName: panel.displayIcon ?? "terminal.fill", pointSize: 16)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text(panel.displayTitle)
+                .cmuxFont(size: 11, design: .monospaced)
+                .foregroundStyle(Color(nsColor: appearance.foregroundColor).opacity(0.68))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 8)
+            if state.isShared {
+                Text(state.peerSummary)
+                    .cmuxFont(size: 10)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            terminalCollaborationButton
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 30)
+        .background(Color.clear)
+    }
+
+    private var terminalCollaborationButton: some View {
+        let state = CollaborationRuntime.shared.state(for: panel)
+        let label = state.isShared ? CollaborationStrings.stopSharingTerminal : CollaborationStrings.shareTerminal
+        return PanelHeaderIconButton(
+            systemName: state.isShared ? "person.2.fill" : "person.2",
+            label: label,
+            isDisabled: false,
+            action: {
+                CollaborationRuntime.shared.configureOrShare(terminal: panel)
+            }
+        )
+        .foregroundColor(state.isShared ? .accentColor : .secondary)
+        .accessibilityIdentifier("TerminalCollaborationButton")
     }
 }
 

@@ -1142,6 +1142,11 @@ class TerminalController {
                 let payload = await CollaborationRuntime.shared.leaveSessionForAutomation()
                 return .ok(payload)
             }
+        case "collaboration.terminal.share_selected":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 5) {
+                let payload = await CollaborationRuntime.shared.shareSelectedTerminalForAutomation()
+                return .ok(payload)
+            }
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
@@ -1873,6 +1878,8 @@ class TerminalController {
             )
         case "collaboration.session.leave":
             return v2Ok(id: id, result: CollaborationRuntime.shared.leaveSessionForAutomation())
+        case "collaboration.terminal.share_selected":
+            return v2Ok(id: id, result: CollaborationRuntime.shared.shareSelectedTerminalForAutomation())
         // mobile.host.status/mobile.workspace.list/mobile.terminal.* (+terminal.*
         // aliases), mobile.terminal.paste/terminal.paste, and chat.sessions.dump
         // handled by ControlCommandCoordinator (bodies stay; shared with
@@ -2018,6 +2025,7 @@ class TerminalController {
             "collaboration.session.create",
             "collaboration.session.join",
             "collaboration.session.leave",
+            "collaboration.terminal.share_selected",
             "system.identify",
             "system.tree",
             "sidebar.custom.open",

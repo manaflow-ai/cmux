@@ -136,6 +136,8 @@ public actor CollaborationSession {
         case let .peerLeft(peerID):
             presenceByPeer.removeValue(forKey: peerID)
             continuation?.yield(.presenceCleared(peerID: peerID))
+        case .terminalOpen, .terminalOutput, .terminalInput, .terminalClose:
+            break
         }
     }
 

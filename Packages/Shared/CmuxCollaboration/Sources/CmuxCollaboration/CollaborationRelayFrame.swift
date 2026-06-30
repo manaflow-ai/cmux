@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Client-side relay frame representation used by tests and transports.
 public enum CollaborationRelayFrame: Codable, Equatable, Sendable {
@@ -12,4 +12,12 @@ public enum CollaborationRelayFrame: Codable, Equatable, Sendable {
     case presence(PresenceState)
     /// A peer disconnected or timed out.
     case peerLeft(peerID: String)
+    /// A terminal surface was shared by a peer.
+    case terminalOpen(terminalID: String, descriptor: SharedTerminalDescriptor)
+    /// Raw PTY output bytes for a shared terminal.
+    case terminalOutput(terminalID: String, sequence: UInt64, data: Data)
+    /// Raw input bytes for a shared terminal's authoritative PTY.
+    case terminalInput(terminalID: String, inputID: String, data: Data)
+    /// A terminal share was closed.
+    case terminalClose(terminalID: String)
 }

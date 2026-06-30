@@ -150,6 +150,10 @@ public let cmuxMobileTerminalByteTeeCallback: @convention(c) (
     bytes.withMemoryRebound(to: UInt8.self, capacity: count) { rebound in
         let buffer = UnsafeBufferPointer(start: rebound, count: count)
         MobileTerminalByteTee.shared.append(surfaceID: box.surfaceID, bytes: buffer)
+        let data = Data(buffer: buffer)
+        Task { @MainActor in
+            CollaborationRuntime.shared.noteTerminalOutput(surfaceID: box.surfaceID, data: data)
+        }
     }
 }
 
