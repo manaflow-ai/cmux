@@ -447,12 +447,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// across terminals, enforced as a hard reject in the same atomic add path.
     public nonisolated static let maxPendingAttachmentCountAllTerminals = 20
     /// Monotonic token bumped by ``signOut()``, identifying the current signed-in
-    /// session. The composer's photo-staging path captures it before its
-    /// (off-main) load + encode and re-checks it just before mutating the store:
-    /// a sign-out that lands while a photo is in flight bumps the token, so the
-    /// stale continuation is dropped instead of re-staging the previous user's
-    /// photo bytes under a terminal id the next account may reuse. Not observed:
-    /// it gates an async hand-back, not view state.
+    /// session. Async paths that can suspend across an auth boundary capture it
+    /// before leaving the main actor and re-check it just before mutating the store:
+    /// a sign-out bumps the token, so stale continuations are dropped instead of
+    /// writing the previous user's state under ids the next account may reuse. Not
+    /// observed: it gates async hand-backs, not view state.
     @ObservationIgnored private var signInGeneration = 0
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
@@ -685,6 +684,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var connectionGeneration: UUID
     private var connectionAttemptGeneration: UUID
     @ObservationIgnored private var macSwitchAttemptID: UUID?
+    @ObservationIgnored private var macSwitchAttemptSignInGeneration: Int?
     @ObservationIgnored private var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
     @ObservationIgnored private var macSwitchRestoreBaseline: MobilePairedMac?
     private var chatEventSourceGeneration: UUID
@@ -976,6 +976,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         suppressNextConnectionOutageEdge = true
         invalidatePairingAttempt()
+        clearMacSwitchAttemptState()
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         isSignedIn = false
@@ -1128,7 +1129,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // (account, team) scope, and a suspended old-team restore can't resume.
         // Invalidate the shared boundary synchronously first; actor cleanup is
         // fire-and-forget (this method is sync) and does not wipe the local store.
-        macSwitchRestoreBaseline = nil
+        clearMacSwitchAttemptState()
         pairedMacRestoreBoundary?.invalidate()
         if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             Task { await refresher.cancelInFlightRestores() }
@@ -3096,6 +3097,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macSwitchRestorePreviousOnCancelAttemptIDs.insert(attemptID)
         }
         macSwitchAttemptID = nil
+        macSwitchAttemptSignInGeneration = nil
         invalidatePairingAttempt()
         connectionAttemptGeneration = UUID()
     }
@@ -5183,20 +5185,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let attemptID = UUID()
         macSwitchRestorePreviousOnCancelAttemptIDs.removeAll(keepingCapacity: true)
         macSwitchAttemptID = attemptID
+        macSwitchAttemptSignInGeneration = signInGeneration
         invalidatePairingAttempt()
         connectionAttemptGeneration = UUID()
         return attemptID
     }
 
     private func isCurrentMacSwitchAttempt(_ attemptID: UUID) -> Bool {
-        macSwitchAttemptID == attemptID && isSignedIn
+        macSwitchAttemptID == attemptID
+            && macSwitchAttemptSignInGeneration == signInGeneration
+            && isSignedIn
     }
 
     private func finishMacSwitchAttempt(_ attemptID: UUID) {
         if macSwitchAttemptID == attemptID {
             macSwitchAttemptID = nil
+            macSwitchAttemptSignInGeneration = nil
         }
         macSwitchRestorePreviousOnCancelAttemptIDs.remove(attemptID)
+    }
+
+    private func clearMacSwitchAttemptState() {
+        macSwitchAttemptID = nil
+        macSwitchAttemptSignInGeneration = nil
+        macSwitchRestorePreviousOnCancelAttemptIDs.removeAll(keepingCapacity: true)
+        macSwitchRestoreBaseline = nil
     }
 
     private func consumeMacSwitchRestorePreviousOnCancel(_ attemptID: UUID) -> Bool {
