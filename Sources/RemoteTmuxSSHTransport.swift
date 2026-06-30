@@ -394,7 +394,11 @@ actor RemoteTmuxSSHTransport {
     /// We capture only the raw fds (`Int32`, `Sendable`) across the task
     /// boundary — never the non-`Sendable` `FileHandle` — and the `Pipe`s stay
     /// alive because `process` retains them until this function returns.
+    #if compiler(>=6.2)
     @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated private static func runProcess(
         executable: String,
         arguments: [String]
