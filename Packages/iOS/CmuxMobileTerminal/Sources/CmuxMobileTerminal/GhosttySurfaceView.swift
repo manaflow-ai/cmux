@@ -1927,11 +1927,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // The transparent UIScrollView supplies native iOS tracking,
         // deceleration, and momentum. The Mac still owns terminal semantics:
         // normal-screen scrollback and alt-screen mouse-wheel delivery.
-        guard deltaY != 0 else { return }
+        guard deltaY != 0,
+              let cell = scrollCell(at: touchPoint) else { return }
         let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
         let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
         pendingScrollLines += -Double(deltaY) / divisor
-        pendingScrollCell = scrollCell(at: touchPoint)
+        pendingScrollCell = cell
     }
 
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
@@ -1940,13 +1941,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
     /// alt-screen mouse-wheel reports at the cell under the finger.
-    private func scrollCell(at point: CGPoint) -> (col: Int, row: Int) {
+    private func scrollCell(at point: CGPoint) -> (col: Int, row: Int)? {
         let scale = max(preferredScreenScale, 1)
-        let cellW = max(cellPixelSize.width / scale, 1)
-        let cellH = max(cellPixelSize.height / scale, 1)
-        let col = max(0, Int((point.x - lastRenderRect.minX) / cellW))
-        let row = max(0, Int((point.y - lastRenderRect.minY) / cellH))
-        return (col, row)
+        return renderPlacement.gridCell(
+            at: point,
+            in: lastRenderRect,
+            cellSize: CGSize(
+                width: cellPixelSize.width / scale,
+                height: cellPixelSize.height / scale
+            )
+        )
     }
 
     private func flushPendingScrollIfNeeded() {
@@ -1974,8 +1978,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if chromeHidden {
             setChromeHidden(false)
         }
-        let cell = scrollCell(at: gesture.location(in: self))
-        delegate?.ghosttySurfaceView(self, didTapAtCol: cell.col, row: cell.row)
+        if let cell = scrollCell(at: gesture.location(in: self)) {
+            delegate?.ghosttySurfaceView(self, didTapAtCol: cell.col, row: cell.row)
+        }
         // A tap inside the composer band is excluded by the gesture recognizer
         // (`gestureRecognizer(_:shouldReceive:)`), so any tap reaching here is a
         // deliberate terminal tap. Only a reveal-from-hide with the composer still
@@ -2992,9 +2997,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public func applyViewSize(cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
         // A value came back from the Mac, so the round-trip recovered.
+        let hadAwaitingViewportEcho = awaitingViewportEcho != nil
         viewportReportRetries = 0
         awaitingViewportEcho = nil
-        if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return }
+        if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows {
+            if hadAwaitingViewportEcho {
+                setNeedsGeometrySync(reassertNaturalSize: false)
+            }
+            return
+        }
         MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
         effectiveGrid = (cols, rows)
         // Mark dirty instead of recomputing synchronously. This breaks the

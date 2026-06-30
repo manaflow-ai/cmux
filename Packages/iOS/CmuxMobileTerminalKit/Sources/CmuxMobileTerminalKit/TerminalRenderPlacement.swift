@@ -90,4 +90,33 @@ public struct TerminalRenderPlacement: Sendable {
             naturalGrid.rows >= awaitingViewportEcho.rows
         return !(awaitingGridOutgrowsPinned && currentNaturalReachedAwaitingGrid)
     }
+
+    /// Map a pointer location to the rendered terminal grid.
+    ///
+    /// Points in the letterbox margin are outside the terminal and should not be
+    /// forwarded as mouse or scroll-wheel events.
+    ///
+    /// - Parameters:
+    ///   - point: Pointer location in host-view coordinates.
+    ///   - renderRect: Rendered terminal rectangle in host-view coordinates.
+    ///   - cellSize: Terminal cell size in points.
+    /// - Returns: The grid cell under `point`, or `nil` outside `renderRect`.
+    public func gridCell(
+        at point: CGPoint,
+        in renderRect: CGRect,
+        cellSize: CGSize
+    ) -> (col: Int, row: Int)? {
+        guard !renderRect.isEmpty,
+              point.x >= renderRect.minX,
+              point.x < renderRect.maxX,
+              point.y >= renderRect.minY,
+              point.y < renderRect.maxY else {
+            return nil
+        }
+        let cellW = max(cellSize.width, 1)
+        let cellH = max(cellSize.height, 1)
+        let col = max(0, Int((point.x - renderRect.minX) / cellW))
+        let row = max(0, Int((point.y - renderRect.minY) / cellH))
+        return (col, row)
+    }
 }

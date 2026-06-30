@@ -91,4 +91,25 @@ struct TerminalRenderPlacementTests {
         )
         #expect(allowed)
     }
+
+    @Test("grid cell maps points inside the rendered terminal")
+    func gridCellMapsInsideRenderRect() {
+        let cell = placement.gridCell(
+            at: CGPoint(x: 42, y: 72),
+            in: CGRect(x: 10, y: 20, width: 200, height: 100),
+            cellSize: CGSize(width: 8, height: 10)
+        )
+        #expect(cell?.col == 4)
+        #expect(cell?.row == 5)
+    }
+
+    @Test("grid cell ignores bottom letterbox margin")
+    func gridCellIgnoresBottomLetterboxMargin() {
+        let cell = placement.gridCell(
+            at: CGPoint(x: 42, y: 150),
+            in: CGRect(x: 10, y: 20, width: 200, height: 100),
+            cellSize: CGSize(width: 8, height: 10)
+        )
+        #expect(cell == nil)
+    }
 }
