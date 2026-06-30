@@ -57,6 +57,7 @@ struct WorkspaceDetailView: View {
     /// workspace selection changes underneath it (e.g. Mac-side sync) while
     /// the sheet is open; the sheet loads its snapshot once per presentation.
     @State private var textSheetSurfaceID: String?
+    @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Chat-mode toggle: when on (and a session exists) the detail renders
     /// the agent chat inline in place of the terminal. The toolbar button
     /// flips this; there is no cover and no Done button.
@@ -403,7 +404,7 @@ struct WorkspaceDetailView: View {
             terminalPickerMenuContent
         } label: {
             Label(
-                selectedTerminal?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
+                terminalPickerSelectedName ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
                 systemImage: "rectangle.stack"
             )
             .labelStyle(.iconOnly)
@@ -412,18 +413,20 @@ struct WorkspaceDetailView: View {
         .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
+        .onAppear(perform: syncTerminalPickerRows)
+        .onChange(of: terminalPickerLiveRows) { _, _ in syncTerminalPickerRows() }
     }
 
     @ViewBuilder
     private var terminalPickerMenuContent: some View {
         Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
-            ForEach(workspace.terminals) { terminal in
+            ForEach(terminalPickerRowsForMenu) { terminal in
                 Button {
                     selectTerminalFromPicker(terminal.id)
                 } label: {
                     Label(
                         terminal.name,
-                        systemImage: terminal.id == selectedTerminal?.id && activeBrowser == nil
+                        systemImage: terminal.id == store.selectedTerminalID && activeBrowser == nil
                             ? "checkmark.circle.fill"
                             : "terminal"
                     )

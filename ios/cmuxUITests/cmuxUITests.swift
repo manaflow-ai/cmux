@@ -297,6 +297,9 @@ final class cmuxUITests: XCTestCase {
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
+        assertMenuButtonDoesNotExist("MobileWorkspaceTitleRenameMenuItem", in: app)
+        assertMenuButtonDoesNotExist("MobileWorkspaceTitleReadStateMenuItem", in: app)
+        assertMenuButtonDoesNotExist("MobileWorkspaceTitleCloseMenuItem", in: app)
         tapMenuItem(app.buttons["MobileNewTerminalMenuItem"], in: app)
         await assertHostSelection(
             workspaceID: "workspace-3",
@@ -306,6 +309,23 @@ final class cmuxUITests: XCTestCase {
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         assertTerminalMenuItemExists("workspace-3-terminal-2", in: app)
+    }
+
+    @MainActor
+    func testTerminalDropdownScrollsLongTerminalList() async throws {
+        let server = try MobileSyncMockHostServer(additionalMainTerminalCount: 24)
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        try openSelectedWorkspaceIfNeeded(app)
+
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        assertTerminalMenuItemExists("terminal-build", in: app)
+        let target = scrollTerminalMenuToItem("terminal-extra-24", in: app)
+        tapMenuItem(target, in: app)
+        await assertHostSelection(workspaceID: "workspace-main", terminalID: "terminal-extra-24", server: server)
+        await assertTerminalReplay(terminalID: "terminal-extra-24", server: server)
     }
 
     @MainActor
@@ -1704,6 +1724,41 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    @MainActor
+    private func assertMenuButtonDoesNotExist(
+        _ identifier: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertFalse(
+            app.buttons[identifier].exists,
+            "Expected menu to exclude \(identifier).",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func scrollTerminalMenuToItem(
+        _ terminalID: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> XCUIElement {
+        let item = app.buttons["MobileTerminalMenuItem-\(terminalID)"]
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline {
+            if item.exists, item.isHittable {
+                return item
+            }
+            app.swipeUp(velocity: .slow)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        }
+        XCTFail("Expected terminal menu to scroll to \(terminalID).", file: file, line: line)
+        return item
     }
 
     @MainActor
@@ -3331,14 +3386,33 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         ),
     ]
 
-    init(defaultTerminalLines: [String]? = nil) throws {
+    init(defaultTerminalLines: [String]? = nil, additionalMainTerminalCount: Int = 0) throws {
         listener = try NWListener(using: .tcp, on: .any)
+        appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
         // dropdown switch).
         if let lines = defaultTerminalLines {
             workspaces[0].terminals[0].lines = lines
             workspaces[0].terminals[0].activeScreen = "primary"
+        }
+    }
+
+    private func appendMainTerminals(count: Int) {
+        guard count > 0 else { return }
+        for index in 1...count {
+            workspaces[0].terminals.append(
+                Terminal(
+                    id: "terminal-extra-\(index)",
+                    title: "Extra Terminal \(index)",
+                    currentDirectory: workspaces[0].currentDirectory,
+                    lines: [
+                        "$ cmux ios",
+                        "workspace: \(workspaces[0].title)",
+                        "terminal: Extra Terminal \(index)",
+                    ]
+                )
+            )
         }
     }
 
