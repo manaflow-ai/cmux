@@ -253,6 +253,17 @@ import Testing
         collector.lines.contains { $0.contains("primary-delta") } == false,
         "the alternate-to-primary transition must not be painted with a delta patch"
     )
+
+    await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 7, text: "raw-after-delta"))
+    await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 8, text: "primary-full"))
+    let fullPrimaryDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("primary-full") }
+    }
+    #expect(fullPrimaryDelivered)
+    #expect(
+        collector.lines.contains { $0.contains("raw-after-delta") } == false,
+        "raw bytes must stay suppressed until a full primary restore switches the local surface out of alternate-screen mode"
+    )
     collector.unmount()
 }
 

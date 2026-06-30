@@ -6317,14 +6317,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
-        terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
         let deliveryDecision: RenderGridEventDeliveryDecision = source == "event"
             ? renderGridEventDeliveryDecision(renderGrid, previous: previousScreen)
             : .deliver
         switch deliveryDecision {
         case .deliver:
+            terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
             break
         case .advisory(let requestReplay):
+            if !requestReplay {
+                terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
+            }
             deliverTerminalViewportPolicy(renderGrid.mobileViewportPolicy, surfaceID: renderGrid.surfaceID)
             MobileDebugLog.anchormux(
                 "sync.render_grid_advisory source=\(source) surface=\(renderGrid.surfaceID) screen=\(renderGrid.activeScreen.rawValue) seq=\(renderGrid.stateSeq) requestReplay=\(requestReplay)"
