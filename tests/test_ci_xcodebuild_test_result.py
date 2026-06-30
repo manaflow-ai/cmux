@@ -155,6 +155,22 @@ xcodebuild: error: Test runner exited before all tests completed.
     )
 
 
+def test_rejects_test_failed_banner_without_aggregate_completion() -> None:
+    # xcodebuild prints "** TEST FAILED **" for an aborted/crashed test action,
+    # not only a completed-but-failed one. With only an early clean summary and
+    # no top-level suite completion line, that banner does not prove every suite
+    # ran, so the non-zero exit must still fail (#5641).
+    expect_fail(
+        65,
+        """
+Test Suite 'EarlySuite' passed
+    Executed 2 tests, with 0 failures (0 unexpected) in 0.125 seconds
+Restarting after unexpected exit, crash, or test timeout in LaterSuite.testThing(); summary will include totals from previous launches.
+** TEST FAILED **
+""",
+    )
+
+
 def test_rejects_unexpected_failure_even_when_last_suite_is_clean() -> None:
     expect_fail(
         65,
@@ -198,6 +214,7 @@ def main() -> int:
     test_accepts_timeout_after_terminal_completion_with_zero_unexpected()
     test_rejects_timeout_marker_without_completion_even_with_nonstandard_exit_code()
     test_rejects_nonzero_abort_after_early_clean_summary_without_completion()
+    test_rejects_test_failed_banner_without_aggregate_completion()
     test_rejects_timeout_when_xcodebuild_prints_only_zero_test_summaries()
     test_rejects_unexpected_failure_even_when_last_suite_is_clean()
     test_rejects_zero_test_summaries_without_any_executed_tests()
