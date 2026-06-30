@@ -55,28 +55,23 @@ struct WorkspaceChatPane: View {
             // which would be dropped under the workspace's own chrome.
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .toolbar {
-                if backButtonConfiguration != nil {
-                    ToolbarItem(placement: .topBarLeading) {
-                        workspaceBackToolbarButton
-                    }
-                    if #available(iOS 26.0, *) {
-                        ToolbarSpacer(.fixed, placement: .topBarLeading)
-                    }
-                }
                 ToolbarItem(placement: .topBarLeading) {
-                    WorkspaceToolbarTitleControl(
-                        contentWidth: contentWidth,
-                        hasBackButton: backButtonConfiguration != nil,
-                        hasChatToggle: true
-                    ) {
-                        ChatSessionHeaderView(
-                            descriptor: conversation.descriptor,
-                            agentState: conversation.agentState,
-                            isConnected: conversation.isConnected,
-                            titleOverride: workspaceName,
-                            subtitle: tabName,
-                            style: .toolbarCompact
-                        )
+                    HStack(spacing: 8) {
+                        workspaceBackToolbarButton
+                        WorkspaceToolbarTitleControl(
+                            contentWidth: contentWidth,
+                            hasBackButton: backButtonConfiguration != nil,
+                            hasChatToggle: true
+                        ) {
+                            ChatSessionHeaderView(
+                                descriptor: conversation.descriptor,
+                                agentState: conversation.agentState,
+                                isConnected: conversation.isConnected,
+                                titleOverride: workspaceName,
+                                subtitle: tabName,
+                                style: .toolbarCompact
+                            )
+                        }
                     }
                 }
             }
@@ -94,6 +89,7 @@ struct WorkspaceChatPane: View {
                 badgeContrast: backButtonConfiguration.badgeContrast,
                 action: backButtonConfiguration.action
             )
+            .mobileGlassCompactToolbarControl()
         }
     }
 
