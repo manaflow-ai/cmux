@@ -113,6 +113,7 @@ All notable changes to cmux are documented here.
 ## [0.64.16] - 2026-06-15
 
 ### Added
+- Tab sidebar position setting: move the vertical tab list to the left or right side of the window ([#6389](https://github.com/manaflow-ai/cmux/pull/6389))
 - Opt-in AI auto-naming of workspaces and tabs from your agent conversations ([#5547](https://github.com/manaflow-ai/cmux/pull/5547)) -- thanks @mvanhorn!
 - Per-workspace environment variables inherited by every shell in the workspace ([#6116](https://github.com/manaflow-ai/cmux/pull/6116))
 - Configurable file explorer double-click action: preview, default editor, or preferred editor ([#5827](https://github.com/manaflow-ai/cmux/pull/5827))

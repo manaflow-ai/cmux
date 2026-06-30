@@ -1256,13 +1256,14 @@ struct ContentView: View {
     ) {
         switch handle {
         case .divider:
+            let dragSign: CGFloat = isSidebarOnRight ? -1 : 1
             return (
                 currentWidth: sidebarWidth,
                 captureStart: { sidebarDragStartWidth = sidebarWidth },
                 updateWidth: { translation in
                     let startWidth = sidebarDragStartWidth ?? sidebarWidth
                     let nextWidth = Self.clampedSidebarWidth(
-                        startWidth + translation,
+                        startWidth + dragSign * translation,
                         maximumWidth: maxSidebarWidth(availableWidth: availableWidth),
                         minimumWidth: minimumSidebarWidth
                     )
@@ -1450,9 +1451,17 @@ struct ContentView: View {
 
     private func dividerBandContains(pointInContent point: NSPoint, contentBounds: NSRect) -> Bool {
         guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
-        if sidebarState.isVisible,
-           SidebarResizeInteraction.Edge.leading.hitRange(dividerX: sidebarWidth).contains(point.x) {
-            return true
+        if sidebarState.isVisible {
+            if isSidebarOnRight {
+                let sidebarDividerX = contentBounds.maxX - sidebarWidth
+                if SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: sidebarDividerX).contains(point.x) {
+                    return true
+                }
+            } else {
+                if SidebarResizeInteraction.Edge.leading.hitRange(dividerX: sidebarWidth).contains(point.x) {
+                    return true
+                }
+            }
         }
 
         let rightDividerX = contentBounds.maxX - rightSidebarWidth
@@ -1658,12 +1667,21 @@ struct ContentView: View {
     }
 
     private var sidebarResizerOverlay: some View {
-        placedSidebarResizerOverlay(
-            handle: .divider,
-            edge: .leading,
-            accessibilityIdentifier: "SidebarResizer",
-            dividerX: { totalWidth in min(max(sidebarWidth, 0), totalWidth) }
-        )
+        if isSidebarOnRight {
+            placedSidebarResizerOverlay(
+                handle: .divider,
+                edge: .trailing,
+                accessibilityIdentifier: "SidebarResizer",
+                dividerX: { totalWidth in totalWidth - min(max(sidebarWidth, 0), totalWidth) }
+            )
+        } else {
+            placedSidebarResizerOverlay(
+                handle: .divider,
+                edge: .leading,
+                accessibilityIdentifier: "SidebarResizer",
+                dividerX: { totalWidth in min(max(sidebarWidth, 0), totalWidth) }
+            )
+        }
     }
 
     private var rightSidebarResizerOverlay: some View {
@@ -1693,7 +1711,7 @@ struct ContentView: View {
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
         .frame(width: sidebarWidth)
-        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxHeight: .infinity, alignment: isSidebarOnRight ? .topTrailing : .topLeading)
     }
 
     /// Native titlebar inset reported by AppKit. Standard mode follows cmux's visual chrome;
@@ -1889,7 +1907,8 @@ struct ContentView: View {
     }
 
     private func sidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
-        sidebarPanelContainer(width: sidebarWidth, alignment: .leading, role: .leftSidebar, appearance: appearance) {
+        let alignment: Alignment = isSidebarOnRight ? .trailing : .leading
+        return sidebarPanelContainer(width: sidebarWidth, alignment: alignment, role: .leftSidebar, appearance: appearance) {
             sidebarView
         }
     }
@@ -1974,6 +1993,9 @@ struct ContentView: View {
     @AppStorage("sidebarState") private var sidebarStateSetting = SidebarStateOption.followWindow.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
+    @AppStorage("sidebarSide") private var sidebarSide = SidebarSideOption.left.rawValue
+
+    private var isSidebarOnRight: Bool { sidebarSide == SidebarSideOption.right.rawValue }
 
     // Background glass settings
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
@@ -2072,10 +2094,12 @@ struct ContentView: View {
 
     private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
         let titlebarContentHeight = max(1, WindowChromeMetrics.appTitlebarHeight - 2)
+        // When the sidebar is on the right it doesn't block the traffic lights,
+        // so pass isSidebarVisible: false to avoid adding unnecessary leading padding.
         let leadingPadding = Self.customTitlebarLeadingPadding(
             isFullScreen: isFullScreen,
-            isSidebarVisible: sidebarState.isVisible,
-            sidebarWidth: sidebarWidth,
+            isSidebarVisible: isSidebarOnRight ? false : sidebarState.isVisible,
+            sidebarWidth: isSidebarOnRight ? 0 : sidebarWidth,
             minimumSidebarWidth: minimumSidebarWidth,
             titlebarLeadingInset: titlebarLeadingInset
         )
@@ -2132,7 +2156,10 @@ struct ContentView: View {
                 refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
                 backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
             )
-                .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
+                .padding(
+                    isSidebarOnRight ? .trailing : .leading,
+                    sidebarState.isVisible ? sidebarWidth : 0
+                )
         }
     }
 
@@ -2159,8 +2186,8 @@ struct ContentView: View {
                     // snaps without animation (`.transaction { $0.animation = nil }`), so we match
                     // that here — otherwise this inset could animate out of step with the panel on
                     // toggle and momentarily expose (or re-cover) the mode bar mid-transition.
-                    .padding(.trailing, rightSidebarWidth)
-                    .animation(nil, value: rightSidebarWidth)
+                    .padding(.trailing, rightSidebarWidth + (isSidebarOnRight && sidebarState.isVisible ? sidebarWidth : 0))
+                    .animation(nil, value: rightSidebarWidth + (isSidebarOnRight && sidebarState.isVisible ? sidebarWidth : 0))
             }
             .overlay(alignment: .topLeading) {
                 if let placement = Self.fullscreenControlsPlacement(
@@ -2435,38 +2462,69 @@ struct ContentView: View {
         let useWithinWindow = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
             && !sidebarMatchTerminalBackground
         if useWithinWindow {
-            // Overlay mode keeps the left sidebar on top, but the right
-            // sidebar stays in an HStack so terminal rows are clipped before
-            // the sidebar backdrop samples the window.
-            layout = AnyView(
-                ZStack(alignment: .leading) {
-                    HStack(spacing: 0) {
-                        terminalContentWithSidebarDropOverlay(appearance: appearance)
-                            .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .layoutPriority(1)
-                        rightSidebarPanelWithBackdrop(appearance: appearance)
+            if isSidebarOnRight {
+                // Right-side overlay mode: push terminal+file-explorer left, overlay tab
+                // sidebar on the trailing edge.
+                layout = AnyView(
+                    ZStack(alignment: .trailing) {
+                        HStack(spacing: 0) {
+                            terminalContentWithSidebarDropOverlay(appearance: appearance)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .layoutPriority(1)
+                            rightSidebarPanelWithBackdrop(appearance: appearance)
+                        }
+                        .padding(.trailing, sidebarState.isVisible ? sidebarWidth : 0)
+                        if sidebarState.isVisible {
+                            sidebarPanelWithBackdrop(appearance: appearance)
+                        }
                     }
-                    if sidebarState.isVisible {
-                        sidebarPanelWithBackdrop(appearance: appearance)
+                )
+            } else {
+                // Overlay mode keeps the left sidebar on top, but the right
+                // sidebar stays in an HStack so terminal rows are clipped before
+                // the sidebar backdrop samples the window.
+                layout = AnyView(
+                    ZStack(alignment: .leading) {
+                        HStack(spacing: 0) {
+                            terminalContentWithSidebarDropOverlay(appearance: appearance)
+                                .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .layoutPriority(1)
+                            rightSidebarPanelWithBackdrop(appearance: appearance)
+                        }
+                        if sidebarState.isVisible {
+                            sidebarPanelWithBackdrop(appearance: appearance)
+                        }
                     }
-                }
-            )
+                )
+            }
         } else {
-            // Standard HStack mode for behindWindow blur
-            layout = AnyView(
-                HStack(spacing: 0) {
-                    if sidebarState.isVisible {
-                        sidebarPanelWithBackdrop(appearance: appearance)
+            if isSidebarOnRight {
+                // Standard HStack mode, tab sidebar on trailing edge
+                layout = AnyView(
+                    HStack(spacing: 0) {
+                        terminalContentWithRightSidebarPanel(appearance: appearance)
+                        if sidebarState.isVisible {
+                            sidebarPanelWithBackdrop(appearance: appearance)
+                        }
                     }
-                    terminalContentWithRightSidebarPanel(appearance: appearance)
-                }
-            )
+                )
+            } else {
+                // Standard HStack mode for behindWindow blur
+                layout = AnyView(
+                    HStack(spacing: 0) {
+                        if sidebarState.isVisible {
+                            sidebarPanelWithBackdrop(appearance: appearance)
+                        }
+                        terminalContentWithRightSidebarPanel(appearance: appearance)
+                    }
+                )
+            }
         }
 
         return AnyView(
             layout
-                .overlay(alignment: .leading) {
+                .overlay(alignment: isSidebarOnRight ? .trailing : .leading) {
                     if sidebarState.isVisible {
                         sidebarResizerOverlay
                             .zIndex(1000)
