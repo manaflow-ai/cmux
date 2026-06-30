@@ -1112,6 +1112,10 @@ final class cmuxUITests: XCTestCase {
                 && $0.adjustedTopInset > 20
                 && $0.contentHeight > $0.boundsHeight * 1.6
         }
+        XCTAssertTrue(
+            topMetrics.topContentScrollViewRegistered,
+            "When the keyboard is not active, the chat transcript should remain registered as the navigation bar's top content scroll view so the normal top underlap effect works. metrics=\(topMetrics)"
+        )
         XCTAssertEqual(
             topMetrics.offsetY,
             -topMetrics.adjustedTopInset,
