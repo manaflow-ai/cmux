@@ -38,10 +38,10 @@ extension WorkspaceTabColorSettings {
                let slug = GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: remoteOutput).first {
                 return "github:\(slug.lowercased())"
             }
-            return "git:\(normalizedAutoColorPath(repository.workTreeRoot).lowercased())"
+            return "git:\(normalizedAutoColorPath(repository.workTreeRoot))"
         }
 
-        return "path:\(normalizedAutoColorPath(normalizedDirectory).lowercased())"
+        return "path:\(normalizedAutoColorPath(normalizedDirectory))"
     }
 
     static func autoColorHex(forSeed seed: String) -> String {
