@@ -153,19 +153,54 @@ extension MobileShellComposite {
     public func terminalOutputDidReset(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               terminalOutputQueuesBySurfaceID[surfaceID] != nil else { return }
-        if terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
+        if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
             guard terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken else {
                 MobileDebugLog.anchormux("terminal.output.reset_barrier_active surface=\(surfaceID)")
                 return
             }
-            let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
-            MobileDebugLog.anchormux("terminal.output.reset_replay_ack surface=\(surfaceID)")
-            requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+            retryTerminalReplayAfterAckReset(
+                surfaceID: surfaceID,
+                replayBarrierToken: replayBarrierToken
+            )
             return
         }
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
         MobileDebugLog.anchormux("terminal.output.reset surface=\(surfaceID)")
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+    }
+
+    private func retryTerminalReplayAfterAckReset(
+        surfaceID: String,
+        replayBarrierToken: UUID
+    ) {
+        guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken else {
+            return
+        }
+        terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
+        terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
+        deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
+        guard let retryToken = prepareTerminalReplayFailureRetry(
+            surfaceID: surfaceID,
+            replayBarrierToken: replayBarrierToken
+        ) else {
+            preserveTerminalReplayBarrierIfCurrent(
+                surfaceID: surfaceID,
+                token: replayBarrierToken,
+                reason: "reset_replay_ack"
+            )
+            return
+        }
+        MobileDebugLog.anchormux("terminal.output.reset_replay_ack surface=\(surfaceID)")
+        requestTerminalReplay(
+            surfaceID: surfaceID,
+            replayBarrierToken: retryToken,
+            coveredReplayBarrierDroppedOutputCount:
+                terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
+        )
     }
 
     /// Ask the Mac to replay the authoritative terminal state for a surface.

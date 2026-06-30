@@ -713,19 +713,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``secondaryAggregationTask``, can reject old-team results after awaits.
     var secondaryAggregationScopeGeneration = 0
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
-    private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
-    private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
+    var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
+    var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var terminalActiveScreenBySurfaceID: [String: MobileTerminalRenderGridFrame.Screen]
     var terminalReplaySurfaceIDsInFlight: Set<String>
     private var terminalReplayRequestIDsInFlightBySurfaceID: [String: UUID]
     private var terminalReplayTasksBySurfaceID: [String: Task<Void, Never>]
-    private var terminalReplayBarrierTokensInFlightBySurfaceID: [String: UUID]
+    var terminalReplayBarrierTokensInFlightBySurfaceID: [String: UUID]
     var terminalReplayBarrierTokensBySurfaceID: [String: UUID]
     var terminalReplayBarrierAckStreamTokensBySurfaceID: [String: UUID]
     var terminalReplayBarrierDroppedOutputSurfaceIDs: Set<String>
     var terminalReplayBarrierDroppedOutputCountsBySurfaceID: [String: UInt64]
     var terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID: [String: UInt64]
-    private var terminalReplayFailureRetryCountsBySurfaceID: [String: Int]
+    var terminalReplayFailureRetryCountsBySurfaceID: [String: Int]
     private var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
@@ -6329,7 +6329,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
-        terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
         let token = UUID()
         terminalReplayBarrierTokensBySurfaceID[surfaceID] = token
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -6369,7 +6368,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     @discardableResult
-    private func preserveTerminalReplayBarrierIfCurrent(
+    func preserveTerminalReplayBarrierIfCurrent(
         surfaceID: String,
         token: UUID?,
         reason: String
@@ -6384,7 +6383,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return true
     }
 
-    private func prepareTerminalReplayFailureRetry(
+    func prepareTerminalReplayFailureRetry(
         surfaceID: String,
         replayBarrierToken: UUID?
     ) -> UUID? {
