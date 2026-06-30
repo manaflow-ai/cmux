@@ -280,7 +280,8 @@ import Testing
         state.contextMenuDidAppear()
         #expect(state.contextMenuVisible)
 
-        #expect(state.contextMenuTrackingDidEnd(pointerInsideRow: true))
+        let didEndTracking = state.contextMenuTrackingDidEnd(pointerInsideRow: true)
+        #expect(didEndTracking)
         state.setPointerHovering(true)
 
         #expect(
@@ -298,7 +299,8 @@ import Testing
         state.setPointerHovering(true)
         state.contextMenuDidAppear()
 
-        #expect(state.contextMenuTrackingDidEnd(pointerInsideRow: false))
+        let didEndTracking = state.contextMenuTrackingDidEnd(pointerInsideRow: false)
+        #expect(didEndTracking)
 
         #expect(
             !state.shouldShowCloseButton(
