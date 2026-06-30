@@ -630,6 +630,13 @@ final class WindowTerminalPortal: NSObject {
     private static let minimumRevealWidth: CGFloat = 24
     private static let minimumRevealHeight: CGFloat = 18
     private static let transientRecoveryRetryBudget: Int = 12
+    // Cumulative cap on transient recovery retries within a single recovery
+    // episode. The per-reason budget above is refreshed whenever the transient
+    // reason changes (so a genuinely new transient phase can still recover), but
+    // this total is only refreshed through resetTransientRecoveryRetryIfNeeded
+    // after a healthy or not-visible sync. That keeps the bound unconditional:
+    // an oscillating reason cannot schedule recovery without limit.
+    private static let transientRecoveryTotalRetryBudget: Int = 60
 
     private weak var window: NSWindow?
     private let hostView = WindowTerminalHostView(frame: .zero)
@@ -654,6 +661,7 @@ final class WindowTerminalPortal: NSObject {
         var zPriority: Int
         var transientRecoveryReason: String?
         var transientRecoveryRetriesRemaining: Int
+        var transientRecoveryTotalRetriesRemaining: Int
     }
 
     private var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
@@ -1089,6 +1097,7 @@ final class WindowTerminalPortal: NSObject {
         entry.visibleInUI = false
         entry.transientRecoveryReason = nil
         entry.transientRecoveryRetriesRemaining = 0
+        entry.transientRecoveryTotalRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
         entry.hostedView?.isHidden = true
 #if DEBUG
@@ -1105,6 +1114,7 @@ final class WindowTerminalPortal: NSObject {
         if !visibleInUI {
             entry.transientRecoveryReason = nil
             entry.transientRecoveryRetriesRemaining = 0
+            entry.transientRecoveryTotalRetriesRemaining = 0
         }
         entriesByHostedId[hostedId] = entry
     }
@@ -1154,7 +1164,8 @@ final class WindowTerminalPortal: NSObject {
             visibleInUI: visibleInUI,
             zPriority: zPriority,
             transientRecoveryReason: nil,
-            transientRecoveryRetriesRemaining: 0
+            transientRecoveryRetriesRemaining: 0,
+            transientRecoveryTotalRetriesRemaining: 0
         )
 
         let didChangeAnchor: Bool = {
@@ -1298,9 +1309,12 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func resetTransientRecoveryRetryIfNeeded(forHostedId hostedId: ObjectIdentifier, entry: inout Entry) {
-        guard entry.transientRecoveryRetriesRemaining != 0 || entry.transientRecoveryReason != nil else { return }
+        guard entry.transientRecoveryRetriesRemaining != 0
+            || entry.transientRecoveryTotalRetriesRemaining != 0
+            || entry.transientRecoveryReason != nil else { return }
         entry.transientRecoveryReason = nil
         entry.transientRecoveryRetriesRemaining = 0
+        entry.transientRecoveryTotalRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
     }
 
@@ -1310,29 +1324,51 @@ final class WindowTerminalPortal: NSObject {
         hostedView: GhosttySurfaceScrollView,
         reason: String
     ) {
+        // Seed the cumulative cap when a fresh recovery episode begins (no
+        // active transient reason). It is only refreshed again through
+        // resetTransientRecoveryRetryIfNeeded after a healthy/not-visible sync,
+        // so it bounds total retries even when the reason oscillates.
         if entry.transientRecoveryReason == nil {
+            entry.transientRecoveryTotalRetriesRemaining = Self.transientRecoveryTotalRetryBudget
+        }
+        // Refresh the per-reason budget whenever the transient reason changes so
+        // a genuinely new transient phase can still schedule recovery after a
+        // prior phase spent its allowance on a different reason. Matches the
+        // browser portal recovery path.
+        if entry.transientRecoveryReason != reason {
             entry.transientRecoveryRetriesRemaining = Self.transientRecoveryRetryBudget
         }
         entry.transientRecoveryReason = reason
+        // The effective allowance is bounded by BOTH the per-reason budget and
+        // the cumulative cap, so a reason change refreshes the former but never
+        // escapes the latter. Persist the updated reason/budgets before the
+        // exhaustion check so repeated exhausted calls don't keep re-seeding.
+        let retriesRemaining = min(
+            entry.transientRecoveryRetriesRemaining,
+            entry.transientRecoveryTotalRetriesRemaining
+        )
+        entriesByHostedId[hostedId] = entry
 #if DEBUG
-        if entry.transientRecoveryRetriesRemaining <= 0 {
+        if retriesRemaining <= 0 {
             cmuxDebugLog(
                 "portal.sync.deferRecover.skip hosted=\(portalDebugToken(hostedView)) " +
                 "reason=\(reason) exhausted=1"
             )
         }
 #endif
-        guard entry.transientRecoveryRetriesRemaining > 0 else { return }
+        guard retriesRemaining > 0 else { return }
 
         entry.transientRecoveryRetriesRemaining -= 1
+        entry.transientRecoveryTotalRetriesRemaining -= 1
         entriesByHostedId[hostedId] = entry
 #if DEBUG
         cmuxDebugLog(
             "portal.sync.deferRecover hosted=\(portalDebugToken(hostedView)) " +
-            "reason=\(reason) remaining=\(entry.transientRecoveryRetriesRemaining)"
+            "reason=\(reason) remaining=\(entry.transientRecoveryRetriesRemaining) " +
+            "total=\(entry.transientRecoveryTotalRetriesRemaining)"
         )
 #endif
-        if entry.transientRecoveryRetriesRemaining > 0 {
+        if min(entry.transientRecoveryRetriesRemaining, entry.transientRecoveryTotalRetriesRemaining) > 0 {
             scheduleDeferredFullSynchronizeAll()
         }
     }
