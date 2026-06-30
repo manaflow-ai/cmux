@@ -359,6 +359,30 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         autoResume == true
     }
 
+    var trustedForSessionRestore: SurfaceResumeBindingSnapshot? {
+        isPoisonedAgentHookShellWrapperResume ? nil : self
+    }
+
+    var isPoisonedAgentHookShellWrapperResume: Bool {
+        guard isAgentHookBinding,
+              let tokens = SurfaceResumeCommandCanonicalizer.tokens(from: command) else {
+            return false
+        }
+        let commandStart = SurfaceResumeCommandCanonicalizer.commandStartIndexAfterCwdGuard(tokens)
+        guard commandStart + 1 < tokens.endIndex else { return false }
+        let executable = (tokens[commandStart] as NSString).lastPathComponent.lowercased()
+        let shells: Set<String> = ["sh", "bash", "zsh", "dash", "fish", "csh", "tcsh", "ksh"]
+        guard shells.contains(executable) else { return false }
+        guard let bindingKind = kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              let restorableKind = RestorableAgentKind(rawValue: bindingKind),
+              restorableKind.customAgentID == nil,
+              bindingKind != executable else {
+            return false
+        }
+        let resumeWord = tokens[commandStart + 1]
+        return resumeWord == "resume" || resumeWord == "--resume" || resumeWord.hasPrefix("--resume=")
+    }
+
     func shouldYieldToDetectedSurfaceResumeBinding(_ detectedBinding: SurfaceResumeBindingSnapshot) -> Bool {
         detectedBinding.isProcessDetected && (isProcessDetected || isAgentHookBinding)
     }
@@ -682,6 +706,17 @@ enum SurfaceResumeCommandCanonicalizer {
             return nil
         }
         return ((rawValue as NSString).expandingTildeInPath as NSString).standardizingPath
+    }
+
+    static func commandStartIndexAfterCwdGuard(_ tokens: [String]) -> Int {
+        guard let first = tokens.first,
+              first == "{" || first == "cd" else {
+            return tokens.startIndex
+        }
+        guard let andIndex = tokens.firstIndex(of: "&&") else {
+            return tokens.startIndex
+        }
+        return tokens.index(after: andIndex)
     }
 
     static func shellQuoted(_ value: String) -> String {
@@ -1916,6 +1951,14 @@ extension AppSessionSnapshot: SessionSnapshotRepresenting {
     /// remove the file instead of writing it), matching the legacy
     /// `!snapshot.windows.isEmpty` usability check.
     var hasWindows: Bool { !windows.isEmpty }
+}
+
+extension AppSessionSnapshot {
+    static func repairLoadedSessionSnapshot(
+        _ snapshot: AppSessionSnapshot
+    ) -> (snapshot: AppSessionSnapshot, didRepair: Bool) {
+        SessionSnapshotRepairer.repair(snapshot)
+    }
 }
 
 enum SessionScrollbackReplayStore {

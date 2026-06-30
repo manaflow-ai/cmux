@@ -778,7 +778,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         AgentResumeCommandBuilder.resumeShellCommand(
             kind: kind,
             sessionId: sessionId,
-            launchCommand: launchCommand,
+            launchCommand: trustedLaunchCommandForSessionRestore,
             workingDirectory: workingDirectory,
             registrationOverride: registration
         )
@@ -788,10 +788,69 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         AgentResumeCommandBuilder.forkShellCommand(
             kind: kind,
             sessionId: sessionId,
-            launchCommand: launchCommand,
+            launchCommand: trustedLaunchCommandForSessionRestore,
             workingDirectory: workingDirectory,
             registrationOverride: registration
         )
+    }
+
+    var trustedLaunchCommandForSessionRestore: AgentLaunchCommandSnapshot? {
+        Self.trustedLaunchCommand(launchCommand, kind: kind)
+    }
+
+    static func trustedLaunchCommand(
+        _ launchCommand: AgentLaunchCommandSnapshot?,
+        kind: RestorableAgentKind
+    ) -> AgentLaunchCommandSnapshot? {
+        guard let launchCommand else { return nil }
+        if let launcher = launchCommand.launcher?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !launcher.isEmpty {
+            guard AgentLaunchCaptureTrust.launcherDescribesKind(launcher, kind: kind.rawValue) else {
+                return nil
+            }
+        } else if launchCommand.executablePath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || !launchCommand.arguments.isEmpty {
+            guard AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: launchCommand.executablePath,
+                arguments: launchCommand.arguments,
+                kind: kind.rawValue
+            ) else {
+                return nil
+            }
+        }
+        guard !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
+            return nil
+        }
+        return launchCommand
+    }
+
+    func repairedForSessionRestore(fallbackWorkingDirectory: String?) -> SessionRestorableAgentSnapshot {
+        let trustedLaunchCommand = trustedLaunchCommandForSessionRestore
+        var repaired = self
+        repaired.launchCommand = trustedLaunchCommand
+
+        let fallbackWorkingDirectory = Self.normalizedWorkingDirectory(fallbackWorkingDirectory)
+        if trustedLaunchCommand == nil {
+            if repaired.workingDirectory == nil
+                || Self.normalizedWorkingDirectory(repaired.workingDirectory)
+                    == Self.normalizedWorkingDirectory(launchCommand?.workingDirectory) {
+                repaired.workingDirectory = fallbackWorkingDirectory
+            }
+        } else if repaired.workingDirectory == nil {
+            repaired.workingDirectory = Self.normalizedWorkingDirectory(
+                trustedLaunchCommand?.workingDirectory
+            ) ?? fallbackWorkingDirectory
+        }
+
+        return repaired
+    }
+
+    private static func normalizedWorkingDirectory(_ workingDirectory: String?) -> String? {
+        guard let trimmed = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return ((trimmed as NSString).expandingTildeInPath as NSString).standardizingPath
     }
 
     func resumeStartupInput(
@@ -825,7 +884,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
                   // the current directory (no cd), so the post-exit shell must not force the launch dir.
                   workingDirectory: registration?.cwd == .ignore
                       ? nil
-                      : (workingDirectory ?? launchCommand?.workingDirectory)
+                      : (workingDirectory ?? trustedLaunchCommandForSessionRestore?.workingDirectory)
               ) else {
             return nil
         }
@@ -1130,7 +1189,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 // Drop untrusted launch captures before ANY derivation: the
                 // working directory below would otherwise inherit the foreign
                 // agent's launch cwd even though the launch command is stripped.
-                effectiveRecord.launchCommand = trustedLaunchCommand(
+                effectiveRecord.launchCommand = SessionRestorableAgentSnapshot.trustedLaunchCommand(
                     effectiveRecord.launchCommand,
                     kind: kind
                 )
@@ -1251,23 +1310,6 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
         normalizedNonEmptyValue(rawValue)
-    }
-
-    /// Drops launch captures that cannot describe this agent kind: a capture
-    /// inherited from a different agent's session (codex started under claude
-    /// carries claude's `CMUX_AGENT_LAUNCH_*`) or the hook dispatch shell's own
-    /// argv. Resume/fork then fall back to the kind's bare verbs instead of
-    /// rendering the foreign binary. Existing poisoned records heal on load.
-    private static func trustedLaunchCommand(
-        _ launchCommand: AgentLaunchCommandSnapshot?,
-        kind: RestorableAgentKind
-    ) -> AgentLaunchCommandSnapshot? {
-        guard let launchCommand else { return nil }
-        guard AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
-              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
-            return nil
-        }
-        return launchCommand
     }
 
     private static func hookRecordIsRestorable(

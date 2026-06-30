@@ -23,6 +23,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     private let schemaVersion: Int
     private let bundleIdentifier: String?
     private let appSupportDirectory: URL?
+    private let repairLoadedSnapshot: @Sendable (SnapshotValue) -> (snapshot: SnapshotValue, didRepair: Bool)
     // Justification: FileManager is documented thread-safe ("the methods of
     // the shared FileManager object can be called from multiple threads
     // safely") but Foundation does not mark it Sendable.
@@ -37,34 +38,53 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     ///     snapshot file name (pass `Bundle.main.bundleIdentifier` at the
     ///     composition root). Falls back to `com.cmuxterm.app` when nil or
     ///     blank.
+    ///   - repairLoadedSnapshot: Optional app-owned repair pass for decoded
+    ///     snapshots. Explicit load paths persist a repaired snapshot when the
+    ///     callback reports a change; `loadOutcome(fileURL:)` remains a
+    ///     read-only inspection path.
     ///   - appSupportDirectory: Overrides the discovered user Application
     ///     Support directory (tests pass a temporary directory).
     ///   - fileManager: File system access, injected for testability.
     public init(
         schemaVersion: Int,
         bundleIdentifier: String?,
+        repairLoadedSnapshot: @escaping @Sendable (SnapshotValue) -> (snapshot: SnapshotValue, didRepair: Bool) = {
+            (snapshot: $0, didRepair: false)
+        },
         appSupportDirectory: URL? = nil,
         fileManager: FileManager = .default
     ) {
         self.schemaVersion = schemaVersion
         self.bundleIdentifier = bundleIdentifier
         self.appSupportDirectory = appSupportDirectory
+        self.repairLoadedSnapshot = repairLoadedSnapshot
         self.fileManager = fileManager
     }
 
     public func loadOutcome(fileURL: URL) -> SessionSnapshotLoadOutcome<SnapshotValue> {
+        loadOutcome(fileURL: fileURL, persistRepair: false)
+    }
+
+    private func loadOutcome(
+        fileURL: URL,
+        persistRepair: Bool
+    ) -> SessionSnapshotLoadOutcome<SnapshotValue> {
         guard fileManager.fileExists(atPath: fileURL.path) else { return .missing }
         guard let data = try? Data(contentsOf: fileURL) else { return .unusable }
         let decoder = JSONDecoder()
         guard let snapshot = try? decoder.decode(SnapshotValue.self, from: data) else { return .unusable }
         guard snapshot.version == schemaVersion else { return .unusable }
         guard snapshot.hasWindows else { return .unusable }
-        return .loaded(snapshot)
+        let repairResult = repairLoadedSnapshot(snapshot)
+        if persistRepair && repairResult.didRepair {
+            _ = save(repairResult.snapshot, fileURL: fileURL)
+        }
+        return .loaded(repairResult.snapshot)
     }
 
     public func load(fileURL: URL? = nil) -> SnapshotValue? {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return nil }
-        guard case .loaded(let snapshot) = loadOutcome(fileURL: fileURL) else { return nil }
+        guard case .loaded(let snapshot) = loadOutcome(fileURL: fileURL, persistRepair: true) else { return nil }
         return snapshot
     }
 
@@ -121,7 +141,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
 
     public func loadStartupSnapshot() -> SnapshotValue? {
         guard let primaryURL = defaultSnapshotFileURL() else { return nil }
-        switch loadOutcome(fileURL: primaryURL) {
+        switch loadOutcome(fileURL: primaryURL, persistRepair: true) {
         case .loaded(let snapshot):
             return snapshot
         case .missing:

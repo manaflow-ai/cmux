@@ -898,7 +898,8 @@ extension Workspace {
         _ binding: SurfaceResumeBindingSnapshot?,
         restorableAgent: SessionRestorableAgentSnapshot?
     ) -> SurfaceResumeBindingSnapshot? {
-        guard let binding, binding.isAgentHookBinding, let restorableAgent else {
+        guard let binding = binding?.trustedForSessionRestore else { return nil }
+        guard binding.isAgentHookBinding, let restorableAgent else {
             return binding
         }
         guard binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) == restorableAgent.sessionId else {
