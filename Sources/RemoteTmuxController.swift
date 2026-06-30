@@ -339,15 +339,14 @@ final class RemoteTmuxController {
         // prompt). A key/agent host — or one with an already-live master — succeeds
         // here and mirrors directly, with no interactive step, so it also works from
         // non-tty callers (scripts). A host that needs interactive auth fails here
-        // (BatchMode can't prompt); classify that via
+        // (BatchMode can't prompt); classify recoverable stderr via
         // ``RemoteTmuxSSHTransport/indicatesInteractiveRetryWillHelp`` and hand back
         // the interactive `ssh` argv so the `cmux ssh-tmux` CLI authenticates in the
-        // user's terminal and retries — the retry then rides the now-open master.
-        // `transport.run()` creates the control-socket dir, so the returned auth
-        // `ssh` can open the master. No window has been created yet — nothing to
-        // tear down here. Both discovery calls (including the create-then-relist
-        // for an empty server) are inside the catch so a recoverable failure on
-        // any preflight/discovery command is classified uniformly.
+        // user's terminal and retries on the now-open master. `transport.run()` creates
+        // the control-socket dir, so the returned auth `ssh` can open the master. No
+        // window has been created yet — nothing to tear down here. Both discovery calls
+        // (including the create-then-relist for an empty server) are inside the catch so
+        // a recoverable failure on any preflight/discovery command is classified uniformly.
         let sessions: [RemoteTmuxSession]
         do {
             sessions = try await transport(for: host).discoverMirrorSessions(createIfEmpty: true)
