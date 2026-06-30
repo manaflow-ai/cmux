@@ -14,9 +14,6 @@ public protocol UpdateActionsHost: AnyObject {
     /// "Install and Relaunch" action on the detected-update popover).
     func attemptUpdate()
 
-    /// Install the currently available update through the shared update controller path.
-    func installUpdate()
-
     /// The filesystem path of the update log, shown in the error popover's details block.
     var updateLogPath: String { get }
 }

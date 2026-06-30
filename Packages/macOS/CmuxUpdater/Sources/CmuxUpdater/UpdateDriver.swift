@@ -15,6 +15,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     let log: any UpdateLogging
     private let clock: any UpdateClock
     private let retryPolicy: UpdateRetryPolicy
+    /// Whether the running build is a cmux DEV/staging build that is not on the public release
+    /// train. When `true`, the driver must never surface the public appcast's update pill (see
+    /// ``UpdateController/isDevLikeBundleIdentifier(_:)``).
+    let isDevLikeBundle: Bool
     /// Host actions the driver delegates upward. Held weak; set by ``UpdateController``.
     weak var actionDelegate: (any UpdateActionDelegate)?
 
@@ -31,11 +35,13 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     init(model: UpdateStateModel,
          log: any UpdateLogging,
          clock: any UpdateClock,
-         retryPolicy: UpdateRetryPolicy = UpdateRetryPolicy()) {
+         retryPolicy: UpdateRetryPolicy = UpdateRetryPolicy(),
+         isDevLikeBundle: Bool = false) {
         self.model = model
         self.log = log
         self.clock = clock
         self.retryPolicy = retryPolicy
+        self.isDevLikeBundle = isDevLikeBundle
         super.init()
     }
 

@@ -434,7 +434,7 @@ struct cmuxApp: App {
                 Button(String(localized: "menu.app.checkForUpdates", defaultValue: "Check for Updates…")) {
                     appDelegate.checkForUpdates(nil)
                 }
-                InstallUpdateMenuItem(model: appDelegate.updateViewModel)
+                InstallUpdateMenuItem(model: appDelegate.updateViewModel, actions: appDelegate)
             }
 
             CommandGroup(replacing: .appTermination) {
@@ -1391,11 +1391,9 @@ struct cmuxApp: App {
     }
 
     private func closePanelOrWindow() {
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow,
-           cmuxWindowShouldOwnCloseShortcut(window) {
-            window.performClose(nil)
-            return
-        }
+        let window = NSApp.keyWindow ?? NSApp.mainWindow
+        if let window, cmuxWindowShouldOwnCloseShortcut(window) { window.performClose(nil); return }
+        if appDelegate.closeFocusedDockPanelForCommand(preferredWindow: window) { return }
         activeTabManager.closeCurrentPanelWithConfirmation()
     }
 
