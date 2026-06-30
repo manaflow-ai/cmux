@@ -2422,9 +2422,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // stale during reconnect/switch races). Trusting it could make `openWorkspace`
         // proceed without switching and route input/mutations to the wrong Mac.
         if foregroundMacDeviceID == macDeviceID, connectionState == .connected { return true }
-        // The currently-active Mac to fall back to if the switch fails.
-        let previousActive = storeMacs.first { $0.isActive && $0.macDeviceID != macDeviceID }
-            ?? pairedMacs.first { $0.isActive && $0.macDeviceID != macDeviceID }
+        // The LIVE foreground Mac to fall back to if the destructive switch fails.
+        // Persisted `isActive` can lag the connection, so use the foreground id
+        // captured before `connectManualHost` clears/replaces the live context.
+        let previousForegroundMacDeviceID = foregroundMacDeviceID
+        let previousForegroundMac = previousForegroundMacForSwitchRestore(
+            previousForegroundMacDeviceID: previousForegroundMacDeviceID,
+            switchingTo: macDeviceID,
+            storeMacs: storeMacs
+        )
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let (host, port) = Self.firstReconnectHostPortRoute(
             refreshedTarget.routes,
@@ -2439,7 +2445,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             pairedMacDeviceID: macDeviceID)
         guard isCurrentMacSwitchAttempt(switchAttemptID) else {
             if consumeMacSwitchRestorePreviousOnCancel(switchAttemptID) {
-                await restorePreviousMacIfNeeded(previousActive)
+                await restorePreviousMacIfNeeded(previousForegroundMac)
             }
             return false
         }
@@ -2460,14 +2466,51 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } catch {
                 mobileShellLog.error("paired mac store setActive failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
             }
-        } else if previousActive != nil, connectionState != .connected {
+        } else if previousForegroundMac != nil, connectionState != .connected {
             // The switch did not connect and the destructive connect path dropped
             // the previous session; reconnect to the still-active previous Mac so
             // the user is not left stranded on a failed switch.
-            await restorePreviousMacIfNeeded(previousActive)
+            // The target switch is over before this restore starts; picker
+            // cancellation must not invalidate the restore's connection generation.
+            finishMacSwitchAttempt(switchAttemptID)
+            await restorePreviousMacIfNeeded(previousForegroundMac)
         }
         await loadPairedMacs()
         return switched
+    }
+
+    /// Resolves the live foreground Mac that a failed destructive switch should restore.
+    func previousForegroundMacForSwitchRestore(
+        previousForegroundMacDeviceID: String?,
+        switchingTo macDeviceID: String,
+        storeMacs: [MobilePairedMac]
+    ) -> MobilePairedMac? {
+        guard let previousForegroundMacDeviceID,
+              !previousForegroundMacDeviceID.isEmpty,
+              previousForegroundMacDeviceID != macDeviceID else { return nil }
+        var seenIDs = Set<String>()
+        // Fresh store rows are authoritative. The in-memory list is appended as a
+        // cold/read-failure fallback and deduped after store rows, so it cannot
+        // override a current store record for the same Mac id.
+        let rawCandidates = storeMacs.isEmpty ? pairedMacs : storeMacs + pairedMacs
+        let candidates = rawCandidates.filter { mac in
+            seenIDs.insert(mac.macDeviceID).inserted
+        }
+        if let direct = candidates.first(where: {
+            $0.macDeviceID == previousForegroundMacDeviceID && $0.macDeviceID != macDeviceID
+        }) {
+            return direct
+        }
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        return candidates.first { candidate in
+            guard candidate.macDeviceID != macDeviceID else { return false }
+            return Self.macDeviceIDsForLogicalPairedMac(
+                candidate.macDeviceID,
+                in: candidates,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: Self.prefersNonLoopbackRoutes
+            ).contains(previousForegroundMacDeviceID)
+        }
     }
 
     private func restorePreviousMacIfNeeded(_ previousActive: MobilePairedMac?) async {
