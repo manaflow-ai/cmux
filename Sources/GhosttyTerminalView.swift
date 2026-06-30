@@ -6880,6 +6880,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                CommandClickFileOpenRouter.openInCmux(workspace: workspace, sourcePanelId: termSurface.id, filePath: resolution.path) {
                 return resolution
             }
+            if route == .defaultApplication, ghosttyConsumed {
+                return resolution
+            }
             if route == .defaultApplication,
                CommandClickFileOpenRouter.openInDefaultApplication(filePath: resolution.path) {
                 return resolution

@@ -51,8 +51,9 @@ struct BrowserPanelSessionRestoreTests {
     }
 
     @Test
-    func linkActivatedCommandShiftClickBypassesCmuxNewTabForDefaultBrowser() {
+    func linkActivatedCommandShiftClickBypassesCmuxNewTabForDefaultBrowser() throws {
         #expect(BrowserNavigationModifierBypassPolicy().shouldOpenInDefaultBrowser(
+            url: try #require(URL(string: "https://example.com")),
             navigationType: .linkActivated,
             modifierFlags: [.command, .shift],
             buttonNumber: 0
@@ -60,8 +61,9 @@ struct BrowserPanelSessionRestoreTests {
     }
 
     @Test
-    func commandClickWithoutShiftDoesNotBypassToDefaultBrowser() {
+    func commandClickWithoutShiftDoesNotBypassToDefaultBrowser() throws {
         #expect(!BrowserNavigationModifierBypassPolicy().shouldOpenInDefaultBrowser(
+            url: try #require(URL(string: "https://example.com")),
             navigationType: .linkActivated,
             modifierFlags: [.command],
             buttonNumber: 0
@@ -69,8 +71,9 @@ struct BrowserPanelSessionRestoreTests {
     }
 
     @Test
-    func middleClickDoesNotBypassToDefaultBrowser() {
+    func middleClickDoesNotBypassToDefaultBrowser() throws {
         #expect(!BrowserNavigationModifierBypassPolicy().shouldOpenInDefaultBrowser(
+            url: try #require(URL(string: "https://example.com")),
             navigationType: .linkActivated,
             modifierFlags: [],
             buttonNumber: 2
@@ -78,9 +81,20 @@ struct BrowserPanelSessionRestoreTests {
     }
 
     @Test
-    func commandShiftNonLinkNavigationDoesNotBypassToDefaultBrowser() {
+    func commandShiftNonLinkNavigationDoesNotBypassToDefaultBrowser() throws {
         #expect(!BrowserNavigationModifierBypassPolicy().shouldOpenInDefaultBrowser(
+            url: try #require(URL(string: "https://example.com")),
             navigationType: .reload,
+            modifierFlags: [.command, .shift],
+            buttonNumber: 0
+        ))
+    }
+
+    @Test
+    func commandShiftExternalAppSchemeDoesNotBypassExternalNavigationPrompt() throws {
+        #expect(!BrowserNavigationModifierBypassPolicy().shouldOpenInDefaultBrowser(
+            url: try #require(URL(string: "slack://channel")),
+            navigationType: .linkActivated,
             modifierFlags: [.command, .shift],
             buttonNumber: 0
         ))

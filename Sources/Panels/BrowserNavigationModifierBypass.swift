@@ -9,6 +9,7 @@ struct BrowserNavigationModifierBypassPolicy {
     }
 
     func shouldOpenInDefaultBrowser(
+        url: URL,
         navigationType: WKNavigationType,
         modifierFlags: NSEvent.ModifierFlags,
         buttonNumber: Int,
@@ -16,6 +17,9 @@ struct BrowserNavigationModifierBypassPolicy {
         currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
         currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber
     ) -> Bool {
+        guard Self.canOpenInDefaultBrowser(url) else {
+            return false
+        }
         guard modifierPolicy.shouldBypassCmuxOpenRouting(modifierFlags: modifierFlags) else {
             return false
         }
@@ -38,6 +42,7 @@ struct BrowserNavigationModifierBypassPolicy {
         let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
         guard let url = navigationAction.request.url,
               shouldOpenInDefaultBrowser(
+                  url: url,
                   navigationType: navigationAction.navigationType,
                   modifierFlags: navigationAction.modifierFlags,
                   buttonNumber: navigationAction.buttonNumber,
@@ -50,5 +55,10 @@ struct BrowserNavigationModifierBypassPolicy {
 #endif
         NSWorkspace.shared.open(url)
         return true
+    }
+
+    private static func canOpenInDefaultBrowser(_ url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased() ?? ""
+        return scheme == "http" || scheme == "https"
     }
 }

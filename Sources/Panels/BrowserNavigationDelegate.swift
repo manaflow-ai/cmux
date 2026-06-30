@@ -256,8 +256,8 @@ import WebKit
         )
 #endif
 
-        if BrowserNavigationModifierBypassPolicy().shouldOpenInDefaultBrowser(navigationType: navigationAction.navigationType, modifierFlags: navigationAction.modifierFlags, buttonNumber: navigationAction.buttonNumber, hasRecentMiddleClickIntent: hasRecentMiddleClickIntent),
-           let url = navigationAction.request.url {
+        if let url = navigationAction.request.url,
+           BrowserNavigationModifierBypassPolicy().shouldOpenInDefaultBrowser(url: url, navigationType: navigationAction.navigationType, modifierFlags: navigationAction.modifierFlags, buttonNumber: navigationAction.buttonNumber, hasRecentMiddleClickIntent: hasRecentMiddleClickIntent) {
 #if DEBUG
             cmuxDebugLog("browser.nav.decidePolicy.action kind=openDefaultBrowserModifierBypass url=\(browserNavigationDebugURL(url))")
 #endif
