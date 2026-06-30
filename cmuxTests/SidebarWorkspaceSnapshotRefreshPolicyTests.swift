@@ -311,7 +311,7 @@ import Testing
         )
     }
 
-    @Test func menuTrackingReconcilerIgnoresSubmenuEndNotifications() {
+    @Test @MainActor func menuTrackingReconcilerIgnoresSubmenuEndNotifications() {
         let rootMenu = NSMenu()
         let submenu = NSMenu()
         let item = NSMenuItem(title: "submenu", action: nil, keyEquivalent: "")

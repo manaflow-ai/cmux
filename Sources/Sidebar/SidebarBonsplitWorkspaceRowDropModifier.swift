@@ -9,20 +9,15 @@ struct SidebarBonsplitWorkspaceRowDropModifier: ViewModifier {
     let syncSidebarSelectionAfterDrop: @MainActor () -> Void
     @Binding var selectedTabIds: Set<UUID>
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if isEnabled {
-            let delegate = SidebarBonsplitTabDropDelegate(
-                isEnabled: isEnabled,
-                targetWorkspaceId: targetWorkspaceId,
-                bonsplitSourceWorkspaceId: bonsplitSourceWorkspaceId,
-                moveBonsplitTabToWorkspace: moveBonsplitTabToWorkspace,
-                syncSidebarSelectionAfterDrop: syncSidebarSelectionAfterDrop,
-                selectedTabIds: $selectedTabIds
-            )
-            content.onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: delegate)
-        } else {
-            content
-        }
+        let delegate = SidebarBonsplitTabDropDelegate(
+            isEnabled: isEnabled,
+            targetWorkspaceId: targetWorkspaceId,
+            bonsplitSourceWorkspaceId: bonsplitSourceWorkspaceId,
+            moveBonsplitTabToWorkspace: moveBonsplitTabToWorkspace,
+            syncSidebarSelectionAfterDrop: syncSidebarSelectionAfterDrop,
+            selectedTabIds: $selectedTabIds
+        )
+        return content.onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: delegate)
     }
 }
