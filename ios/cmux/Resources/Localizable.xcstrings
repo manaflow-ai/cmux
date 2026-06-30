@@ -2296,6 +2296,23 @@
         }
       }
     },
+    "mobile.debug.copyLogs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Debug Logs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバッグログをコピー"
+          }
+        }
+      }
+    },
     "mobile.feedback.cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -5964,6 +5981,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナル画面を起動しています。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.rendererFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal renderer failed to start."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルレンダラーを起動できませんでした。"
           }
         }
       }

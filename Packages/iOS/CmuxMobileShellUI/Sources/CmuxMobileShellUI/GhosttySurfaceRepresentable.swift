@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import CmuxMobileTerminal
 import SwiftUI
 import UIKit
@@ -49,7 +50,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             fallback.numberOfLines = 0
             fallback.textColor = .white
             fallback.backgroundColor = UIColor(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0, alpha: 1)
-            fallback.text = "Ghostty runtime failed to initialise:\n\(error.localizedDescription)"
+            fallback.text = L10n.string(
+                "mobile.terminal.rendererFailed",
+                defaultValue: "Terminal renderer failed to start."
+            )
             return fallback
         }
         let view = GhosttySurfaceView(
@@ -145,20 +149,41 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         if chunk.data.isEmpty {
                             surfaceView.useNaturalViewSize()
                         } else {
-                            await surfaceView.useNaturalViewSizeAndWait()
+                            let applied = await surfaceView.useNaturalViewSizeAndWait()
+                            guard applied else {
+                                store.terminalOutputDidReset(
+                                    surfaceID: surfaceID,
+                                    streamToken: chunk.streamToken
+                                )
+                                continue
+                            }
                         }
                     case .remoteGrid(let columns, let rows):
                         self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
                         if chunk.data.isEmpty {
                             surfaceView.applyViewSize(cols: columns, rows: rows)
                         } else {
-                            await surfaceView.applyViewSizeAndWait(cols: columns, rows: rows)
+                            let applied = await surfaceView.applyViewSizeAndWait(cols: columns, rows: rows)
+                            guard applied else {
+                                store.terminalOutputDidReset(
+                                    surfaceID: surfaceID,
+                                    streamToken: chunk.streamToken
+                                )
+                                continue
+                            }
                         }
                     case nil:
                         break
                     }
                     if !chunk.data.isEmpty {
-                        await surfaceView.processOutputAndWait(chunk.data)
+                        let applied = await surfaceView.processOutputAndWait(chunk.data)
+                        guard applied else {
+                            store.terminalOutputDidReset(
+                                surfaceID: surfaceID,
+                                streamToken: chunk.streamToken
+                            )
+                            continue
+                        }
                     }
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
@@ -399,6 +424,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // composer view observes, so the draft and its focus return together.
             Task { @MainActor [weak store, surfaceID] in
                 store?.presentAndFocusComposer(forTerminalID: surfaceID)
+            }
+        }
+
+        func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {
+            Task { @MainActor [weak self, weak store, surfaceID] in
+                guard let self, self.surfaceView === surfaceView else { return }
+                store?.terminalOutputNeedsReplay(surfaceID: surfaceID)
             }
         }
 
