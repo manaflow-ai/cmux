@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,8 +7,8 @@ import XCTest
 @testable import cmux
 #endif
 
-final class AgentChatSessionRegistryObservationTests: XCTestCase {
-    func testMobileChatObserverDetectsNodeHostedClaudeFromProcessDetails() throws {
+struct AgentChatSessionRegistryObservationTests {
+    @Test func mobileChatObserverDetectsNodeHostedClaudeFromProcessDetails() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()
         let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
@@ -43,17 +44,17 @@ final class AgentChatSessionRegistryObservationTests: XCTestCase {
             codexRolloutPath: { _ in nil }
         )
 
-        let session = try XCTUnwrap(observed.first)
-        XCTAssertEqual(observed.count, 1)
-        XCTAssertEqual(session.sessionID, sessionID)
-        XCTAssertEqual(session.agentKind, .claude)
-        XCTAssertEqual(session.workspaceID, workspaceID.uuidString)
-        XCTAssertEqual(session.surfaceID, surfaceID.uuidString)
-        XCTAssertEqual(session.pid, 101)
-        XCTAssertEqual(session.workingDirectory, "/Users/example/project")
+        let session = try #require(observed.first)
+        #expect(observed.count == 1)
+        #expect(session.sessionID == sessionID)
+        #expect(session.agentKind == .claude)
+        #expect(session.workspaceID == workspaceID.uuidString)
+        #expect(session.surfaceID == surfaceID.uuidString)
+        #expect(session.pid == 101)
+        #expect(session.workingDirectory == "/Users/example/project")
     }
 
-    func testMobileChatObserverStillDetectsDirectCodexFromRolloutFile() throws {
+    @Test func mobileChatObserverStillDetectsDirectCodexFromRolloutFile() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()
         let sessionID = "018ff5fe-3f91-79d0-99aa-a6a2d7c17b22"
@@ -72,20 +73,25 @@ final class AgentChatSessionRegistryObservationTests: XCTestCase {
             includesProcessDetails: true
         )
 
+        var detailReadCount = 0
         let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
             in: snapshot,
-            processArgumentsAndEnvironment: { _ in nil },
+            processArgumentsAndEnvironment: { _ in
+                detailReadCount += 1
+                return nil
+            },
             codexRolloutPath: { pid in pid == 202 ? rolloutPath : nil }
         )
 
-        let session = try XCTUnwrap(observed.first)
-        XCTAssertEqual(observed.count, 1)
-        XCTAssertEqual(session.sessionID, sessionID)
-        XCTAssertEqual(session.agentKind, .codex)
-        XCTAssertEqual(session.workspaceID, workspaceID.uuidString)
-        XCTAssertEqual(session.surfaceID, surfaceID.uuidString)
-        XCTAssertEqual(session.pid, 202)
-        XCTAssertEqual(session.transcriptPath, rolloutPath)
+        let session = try #require(observed.first)
+        #expect(observed.count == 1)
+        #expect(detailReadCount == 0)
+        #expect(session.sessionID == sessionID)
+        #expect(session.agentKind == .codex)
+        #expect(session.workspaceID == workspaceID.uuidString)
+        #expect(session.surfaceID == surfaceID.uuidString)
+        #expect(session.pid == 202)
+        #expect(session.transcriptPath == rolloutPath)
     }
 
     private func topProcess(

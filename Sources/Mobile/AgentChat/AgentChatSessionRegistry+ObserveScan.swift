@@ -11,11 +11,17 @@ extension AgentChatSessionRegistry {
         var result: [ObservedAgentSession] = []
         var seen = Set<String>()
         for process in snapshot.cmuxScopedProcesses() {
-            let details = processArgumentsAndEnvironment(process.pid)
+            var details: CmuxTopProcessArguments?
+            func loadDetails() -> CmuxTopProcessArguments? {
+                if details == nil {
+                    details = processArgumentsAndEnvironment(process.pid)
+                }
+                return details
+            }
             guard let surfaceID = process.cmuxSurfaceID,
                   let def = codingAgentDefinition(
                       for: process,
-                      processArgumentsAndEnvironment: { _ in details }
+                      processArgumentsAndEnvironment: { _ in loadDetails() }
                   ),
                   def.id == "codex" || def.id == "claude" else { continue }
             var sessionID: String?
@@ -25,12 +31,12 @@ extension AgentChatSessionRegistry {
                 sessionID = firstUUIDLike(in: (rollout as NSString).lastPathComponent)
             }
             if def.id == "claude",
-               let envSessionID = details?.environment["CLAUDE_CODE_SESSION_ID"],
+               let envSessionID = loadDetails()?.environment["CLAUDE_CODE_SESSION_ID"],
                let id = firstUUIDLike(in: envSessionID) {
                 sessionID = id
             }
             if sessionID == nil,
-               let argv = details?.arguments {
+               let argv = loadDetails()?.arguments {
                 sessionID = sessionIDFromArguments(argv)
             }
             guard let resolved = sessionID, !seen.contains(resolved) else { continue }
