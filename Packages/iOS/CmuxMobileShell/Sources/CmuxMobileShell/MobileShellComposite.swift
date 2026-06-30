@@ -3495,6 +3495,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         workspaces = derived
+        pruneChatSessionSnapshots(to: derived)
         if let selectedWorkspaceID,
            !derived.contains(where: { $0.id == selectedWorkspaceID }) {
             let remapped = previousSelection.flatMap { previous in
@@ -3507,6 +3508,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         workspaceGroups = workspaceAggregation.derivedGroups(
             statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
+    }
+
+    private func pruneChatSessionSnapshots(to visibleWorkspaces: [MobileWorkspacePreview]) {
+        var validWorkspaceIDs = Set<String>()
+        for workspace in visibleWorkspaces {
+            let remoteID = workspace.remoteWorkspaceID ?? workspace.id
+            validWorkspaceIDs.insert(workspace.id.rawValue)
+            validWorkspaceIDs.insert(remoteID.rawValue)
+            if let macDeviceID = workspace.macDeviceID {
+                validWorkspaceIDs.insert(
+                    workspaceAggregation.rowID(macDeviceID: macDeviceID, workspaceID: remoteID).rawValue
+                )
+            }
+        }
+        chatSessionSnapshotsByWorkspaceID = chatSessionSnapshotsByWorkspaceID.filter {
+            validWorkspaceIDs.contains($0.key)
+        }
     }
 
     /// Set the user's per-Mac customizations (name / color / icon), persist them
