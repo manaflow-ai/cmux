@@ -620,7 +620,11 @@ public final class ChatConversationStore {
             guard descriptor.kind != .terminal else { break }
             let next = message.flatMap { candidate -> ChatMessage? in
                 guard Self.isProse(candidate) else { return nil }
-                guard !Self.previewEchoesLatestUserPrompt(candidate, in: messages) else { return nil }
+                guard !Self.previewEchoesLatestUserPrompt(
+                    candidate,
+                    in: messages,
+                    pending: pending
+                ) else { return nil }
                 return candidate
             }
             guard next != streamingMessage else { break }
@@ -868,23 +872,32 @@ public final class ChatConversationStore {
 
     /// The screen-scraped live preview can momentarily read the wrapped tail of
     /// the user's prompt as agent prose before Claude paints the first answer
-    /// token. Suppress only that transient suffix; committed transcript rows still
-    /// render normally once the agent actually writes them.
+    /// token. Suppress only that transient suffix; committed transcript rows and
+    /// pending sends still render normally once the agent actually writes content.
     private static func previewEchoesLatestUserPrompt(
         _ preview: ChatMessage,
-        in messages: [ChatMessage]
+        in messages: [ChatMessage],
+        pending: [ChatPendingOutbound]
     ) -> Bool {
         guard case .prose(let previewProse) = preview.kind else { return false }
         let previewText = normalizedPromptEchoText(previewProse.text)
         guard !previewText.isEmpty else { return false }
+        if let latestPending = pending.last(where: { !$0.text.isEmpty }),
+           promptText(latestPending.text, hasSuffixPreview: previewText) {
+            return true
+        }
         guard let latestUserIndex = messages.lastIndex(where: { $0.role == .user }) else { return false }
         let hasAgentAfterUser = messages[(latestUserIndex + 1)...].contains { $0.role == .agent }
         guard !hasAgentAfterUser else { return false }
         guard case .prose(let userProse) = messages[latestUserIndex].kind else { return false }
-        let userText = normalizedPromptEchoText(userProse.text)
-        guard userText.count > previewText.count,
-              userText.hasSuffix(previewText) else { return false }
-        let prefix = userText.dropLast(previewText.count)
+        return promptText(userProse.text, hasSuffixPreview: previewText)
+    }
+
+    private static func promptText(_ text: String, hasSuffixPreview previewText: String) -> Bool {
+        let promptText = normalizedPromptEchoText(text)
+        guard promptText.count > previewText.count,
+              promptText.hasSuffix(previewText) else { return false }
+        let prefix = promptText.dropLast(previewText.count)
         guard let boundary = prefix.last else { return false }
         return boundary.isWhitespace || boundary.isNewline
     }
