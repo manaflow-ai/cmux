@@ -37,36 +37,90 @@ struct RenderableSystemSymbolTests {
         ) == 2)
     }
 
-    @Test @MainActor func configuredAppKitImageUsesTemplateImageWithClampedSize() throws {
+    @Test @MainActor func configuredAppKitImageUsesTemplateImageWithClampedRasterInput() throws {
         RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+        let pointSize = CGFloat(0)
+        let clampedPointSize = RenderableSystemSymbol.clampedRasterPointSize(pointSize)
+        let symbolName = "questionmark.circle"
+        let baseImage = try #require(NSImage(systemSymbolName: symbolName, accessibilityDescription: nil))
+        let configuredImage = baseImage.withSymbolConfiguration(NSImage.SymbolConfiguration(
+            pointSize: clampedPointSize,
+            weight: .medium
+        )) ?? baseImage
+
         let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
-            systemName: "questionmark.circle",
-            pointSize: 0,
+            systemName: symbolName,
+            pointSize: pointSize,
             weight: .medium
         ))
         #expect(image.isTemplate)
-        #expect(image.size == NSSize(width: 1, height: 1))
+        #expect(image.size == configuredImage.size)
     }
 
-    @Test @MainActor func configuredAppKitImagePreservesNonSquareSymbolAspectRatio() throws {
+    @Test @MainActor func configuredAppKitImagePreservesNonSquareSymbolNaturalSize() throws {
         RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+        let pointSize = CGFloat(16)
+        let symbolName = "arrow.right"
+        let baseImage = try #require(NSImage(systemSymbolName: symbolName, accessibilityDescription: nil))
+        let configuredImage = baseImage.withSymbolConfiguration(NSImage.SymbolConfiguration(
+            pointSize: pointSize,
+            weight: .regular
+        )) ?? baseImage
+
         let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
-            systemName: "arrow.right",
-            pointSize: 16,
+            systemName: symbolName,
+            pointSize: pointSize,
             weight: .regular
         ))
-        #expect(abs(image.size.width - 16) < 0.001)
-        #expect(image.size.height < 16)
+        #expect(image.size == configuredImage.size)
+        #expect(image.size.width > image.size.height)
     }
 
-    @Test func fittedSymbolSizeScalesLongerDimensionToRasterSize() {
-        #expect(RenderableSystemSymbol.fittedSymbolSize(
+    @Test @MainActor func configuredAppKitImageKeepsNaturalConfiguredSizeWhenItExceedsPointSize() throws {
+        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+        let pointSize = CGFloat(16)
+        let oversizedCandidate = try #require([
+            "bell",
+            "plus",
+            "sidebar.left",
+            "arrow.right",
+            "questionmark.circle",
+            "chevron.left",
+            "chevron.right",
+        ].compactMap { symbolName -> (symbolName: String, configuredImage: NSImage)? in
+            guard let baseImage = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else {
+                return nil
+            }
+            let configuredImage = baseImage.withSymbolConfiguration(NSImage.SymbolConfiguration(
+                pointSize: pointSize,
+                weight: .medium
+            )) ?? baseImage
+            guard max(configuredImage.size.width, configuredImage.size.height) > pointSize else {
+                return nil
+            }
+            return (symbolName, configuredImage)
+        }.first)
+
+        let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
+            systemName: oversizedCandidate.symbolName,
+            pointSize: pointSize,
+            weight: .medium
+        ))
+        #expect(image.size == oversizedCandidate.configuredImage.size)
+    }
+
+    @Test func configuredSymbolImageSizeKeepsValidNaturalSize() {
+        #expect(RenderableSystemSymbol.configuredSymbolImageSize(
             NSSize(width: 20, height: 10),
-            maximumDimension: 16
-        ) == NSSize(width: 16, height: 8))
-        #expect(RenderableSystemSymbol.fittedSymbolSize(
+            fallbackDimension: 16
+        ) == NSSize(width: 20, height: 10))
+        #expect(RenderableSystemSymbol.configuredSymbolImageSize(
             NSSize(width: 0, height: 10),
-            maximumDimension: 16
+            fallbackDimension: 16
+        ) == NSSize(width: 16, height: 16))
+        #expect(RenderableSystemSymbol.configuredSymbolImageSize(
+            NSSize(width: .nan, height: 10),
+            fallbackDimension: 16
         ) == NSSize(width: 16, height: 16))
     }
 
