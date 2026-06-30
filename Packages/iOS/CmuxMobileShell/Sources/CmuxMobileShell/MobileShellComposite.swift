@@ -6642,16 +6642,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplaySurfaceIDsInFlight.insert(surfaceID)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            var retryReplayBarrierToken: UUID?
-            var retryCoveredDroppedOutputCount: UInt64?
+            var transferredInFlightToRetry = false
             defer {
-                self.terminalReplaySurfaceIDsInFlight.remove(surfaceID)
-                if let retryReplayBarrierToken {
-                    self.requestTerminalReplay(
-                        surfaceID: surfaceID,
-                        replayBarrierToken: retryReplayBarrierToken,
-                        coveredReplayBarrierDroppedOutputCount: retryCoveredDroppedOutputCount
-                    )
+                if !transferredInFlightToRetry {
+                    self.terminalReplaySurfaceIDsInFlight.remove(surfaceID)
                 }
             }
             do {
@@ -6785,8 +6779,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     surfaceID: surfaceID,
                     replayBarrierToken: replayBarrierToken
                 ) {
-                    retryReplayBarrierToken = retryToken
-                    retryCoveredDroppedOutputCount = coveredReplayBarrierDroppedOutputCount
+                    self.terminalReplaySurfaceIDsInFlight.remove(surfaceID)
+                    transferredInFlightToRetry = true
+                    self.requestTerminalReplay(
+                        surfaceID: surfaceID,
+                        replayBarrierToken: retryToken,
+                        coveredReplayBarrierDroppedOutputCount: coveredReplayBarrierDroppedOutputCount
+                    )
                     return
                 }
                 self.clearTerminalReplayBarrierIfCurrent(
