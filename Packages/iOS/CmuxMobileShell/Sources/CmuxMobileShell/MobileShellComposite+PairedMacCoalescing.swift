@@ -65,20 +65,32 @@ extension MobileShellComposite {
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool
     ) -> [String: Set<String>] {
+        macDeviceIDAliasesByPairedMacID(
+            in: macs,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        ).mapValues(Set.init)
+    }
+
+    static func macDeviceIDAliasesByPairedMacID(
+        in macs: [MobilePairedMac],
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool
+    ) -> [String: [String]] {
         var groupKeyByMacID: [String: String] = [:]
-        var idsByGroupKey: [String: Set<String>] = [:]
+        var idsByGroupKey: [String: [String]] = [:]
         for mac in macs {
             let key = mac.dialEndpointKey(
                 supportedKinds: supportedKinds,
                 preferNonLoopback: preferNonLoopback
             ) ?? "device:\(mac.macDeviceID)"
             groupKeyByMacID[mac.macDeviceID] = key
-            idsByGroupKey[key, default: Set<String>()].insert(mac.macDeviceID)
+            idsByGroupKey[key, default: []].append(mac.macDeviceID)
         }
 
-        var result: [String: Set<String>] = [:]
+        var result: [String: [String]] = [:]
         for (macID, groupKey) in groupKeyByMacID {
-            result[macID] = idsByGroupKey[groupKey] ?? Set([macID])
+            result[macID] = idsByGroupKey[groupKey] ?? [macID]
         }
         return result
     }

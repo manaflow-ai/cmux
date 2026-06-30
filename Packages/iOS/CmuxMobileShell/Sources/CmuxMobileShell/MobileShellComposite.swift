@@ -2296,14 +2296,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         storedPairedMacs = visibleLoaded
-        let coalesced = Self.coalescePairedMacsByDialEndpoint(visibleLoaded, supportedKinds: runtime?.supportedRouteKinds ?? [], preferNonLoopback: Self.prefersNonLoopbackRoutes)
+        let supportedRouteKinds = runtime?.supportedRouteKinds ?? []
+        let coalesced = Self.coalescePairedMacsByDialEndpoint(
+            visibleLoaded,
+            supportedKinds: supportedRouteKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        )
+        let aliasIDsByMacID = Self.macDeviceIDAliasesByPairedMacID(
+            in: visibleLoaded,
+            supportedKinds: supportedRouteKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        )
         pairedMacAliasIDsByRepresentativeID = coalesced.reduce(into: [String: [String]]()) { result, mac in
-            result[mac.macDeviceID] = Self.macDeviceIDsForLogicalPairedMac(
-                mac.macDeviceID,
-                in: visibleLoaded,
-                supportedKinds: runtime?.supportedRouteKinds ?? [],
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
-            )
+            result[mac.macDeviceID] = aliasIDsByMacID[mac.macDeviceID] ?? [mac.macDeviceID]
         }
         pairedMacs = visibleLoaded
     }
@@ -3500,18 +3505,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func secondaryAggregationCandidateMacs(from visibleLoadedMacs: [MobilePairedMac]) -> [MobilePairedMac] {
+        let supportedRouteKinds = runtime?.supportedRouteKinds ?? []
         let macs = Self.coalescePairedMacsByDialEndpoint(
             visibleLoadedMacs,
-            supportedKinds: runtime?.supportedRouteKinds ?? [],
+            supportedKinds: supportedRouteKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        )
+        let aliasIDsByMacID = Self.macDeviceIDAliasesByPairedMacID(
+            in: visibleLoadedMacs,
+            supportedKinds: supportedRouteKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
         let foregroundMacDeviceIDs = foregroundMacDeviceID.map {
-            Self.macDeviceIDsForLogicalPairedMac(
-                $0,
-                in: visibleLoadedMacs,
-                supportedKinds: runtime?.supportedRouteKinds ?? [],
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
-            )
+            aliasIDsByMacID[$0] ?? [$0]
         } ?? []
         let foregroundIDSet = Set(foregroundMacDeviceIDs)
         return macs.filter { !$0.macDeviceID.isEmpty && !foregroundIDSet.contains($0.macDeviceID) }
