@@ -4025,48 +4025,46 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// terminal surface, for the DEV "Copy Debug Logs" action so a bug report
     /// pairs the on-screen content with the debug log. Reads the VIEWPORT
     /// (visible grid only, not scrollback) via libghostty.
-    public static var visibleTerminalSnapshot: @MainActor () async -> String {
-        {
-            registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
-            // Collect the main-actor state + surface pointers first, then read the
-            // viewport text on the serial output queue. `ghostty_surface_read_text`
-            // takes the same surface lock as `process_output` (which runs off-main);
-            // reading it on the MAIN thread here contends that lock during a render
-            // storm and stalls the present — tapping Copy Debug Logs would itself
-            // blank the terminal. The output queue is never concurrent with
-            // `process_output`, so the read can't wedge. The await is bounded by
-            // the surface's display-link deadline so this diagnostic path does not
-            // add a sleeping timer task or block the main actor.
-            var pending: [VisibleSnapshotRequest] = []
-            for view in registeredSurfaceViews.values.compactMap(\.value) {
-                guard view.window != nil, !view.isHidden, view.alpha > 0.01,
-                      let surface = view.surface else { continue }
-                let grid = view.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "?"
-                pending.append(VisibleSnapshotRequest(
-                    view: view,
-                    grid: grid,
-                    font: Int(view.liveFontSize),
-                    surface: surface,
-                    generation: view.surfaceGeneration
-                ))
-            }
-            if pending.isEmpty {
-                return "===== visible terminal: (no on-screen surface) ====="
-            }
-            var sections: [String] = []
-            for item in pending {
-                guard let section = await item.view.visibleSnapshotSection(
-                    surface: item.surface,
-                    generation: item.generation,
-                    grid: item.grid,
-                    font: item.font
-                ) else {
-                    return "===== visible terminal: (snapshot skipped — render busy) ====="
-                }
-                sections.append(section)
-            }
-            return sections.joined(separator: "\n\n")
+    public static let visibleTerminalSnapshot: @MainActor () async -> String = {
+        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
+        // Collect the main-actor state + surface pointers first, then read the
+        // viewport text on the serial output queue. `ghostty_surface_read_text`
+        // takes the same surface lock as `process_output` (which runs off-main);
+        // reading it on the MAIN thread here contends that lock during a render
+        // storm and stalls the present — tapping Copy Debug Logs would itself
+        // blank the terminal. The output queue is never concurrent with
+        // `process_output`, so the read can't wedge. The await is bounded by
+        // the surface's display-link deadline so this diagnostic path does not
+        // add a sleeping timer task or block the main actor.
+        var pending: [VisibleSnapshotRequest] = []
+        for view in registeredSurfaceViews.values.compactMap(\.value) {
+            guard view.window != nil, !view.isHidden, view.alpha > 0.01,
+                  let surface = view.surface else { continue }
+            let grid = view.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "?"
+            pending.append(VisibleSnapshotRequest(
+                view: view,
+                grid: grid,
+                font: Int(view.liveFontSize),
+                surface: surface,
+                generation: view.surfaceGeneration
+            ))
         }
+        if pending.isEmpty {
+            return "===== visible terminal: (no on-screen surface) ====="
+        }
+        var sections: [String] = []
+        for item in pending {
+            guard let section = await item.view.visibleSnapshotSection(
+                surface: item.surface,
+                generation: item.generation,
+                grid: item.grid,
+                font: item.font
+            ) else {
+                return "===== visible terminal: (snapshot skipped — render busy) ====="
+            }
+            sections.append(section)
+        }
+        return sections.joined(separator: "\n\n")
     }
 
     private func visibleSnapshotSection(
