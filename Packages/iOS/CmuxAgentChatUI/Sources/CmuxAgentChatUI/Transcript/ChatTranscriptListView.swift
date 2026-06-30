@@ -19,6 +19,7 @@ public struct ChatTranscriptListView: View {
     private let hasLoadedInitialHistory: Bool
     private let initialLoadFailed: Bool
     private let historyTruncatedAtHead: Bool
+    private let outboundFocusRowID: String?
     private let actions: ChatRowActions
     private let onReachTop: () -> Void
     private let onRetryInitialLoad: () -> Void
@@ -55,6 +56,7 @@ public struct ChatTranscriptListView: View {
         hasLoadedInitialHistory: Bool = true,
         initialLoadFailed: Bool = false,
         historyTruncatedAtHead: Bool = false,
+        outboundFocusRowID: String? = nil,
         actions: ChatRowActions,
         onReachTop: @escaping () -> Void,
         onRetryInitialLoad: @escaping () -> Void = {}
@@ -66,6 +68,7 @@ public struct ChatTranscriptListView: View {
         self.hasLoadedInitialHistory = hasLoadedInitialHistory
         self.initialLoadFailed = initialLoadFailed
         self.historyTruncatedAtHead = historyTruncatedAtHead
+        self.outboundFocusRowID = outboundFocusRowID
         self.actions = actions
         self.onReachTop = onReachTop
         self.onRetryInitialLoad = onRetryInitialLoad
@@ -85,7 +88,8 @@ public struct ChatTranscriptListView: View {
             onReachTop: onReachTop,
             onRetryInitialLoad: onRetryInitialLoad,
             isAtBottom: $isAtBottom,
-            scrollToBottomRequest: scrollToBottomRequest
+            scrollToBottomRequest: scrollToBottomRequest,
+            outboundFocusRowID: outboundFocusRowID
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .bottomTrailing) {

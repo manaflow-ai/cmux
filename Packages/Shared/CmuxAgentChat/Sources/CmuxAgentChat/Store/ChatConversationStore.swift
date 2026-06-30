@@ -58,6 +58,11 @@ public final class ChatConversationStore {
     /// non-blocking error surface. Cleared on the next success.
     public private(set) var lastErrorDescription: String?
 
+    /// The row id of the latest optimistic outbound prompt, used by chat
+    /// surfaces to focus the just-sent message instead of leaving it buried
+    /// against the composer.
+    public private(set) var latestOutboundFocusRowID: String?
+
     @ObservationIgnored private var messages: [ChatMessage] = []
     @ObservationIgnored private var pending: [ChatPendingOutbound] = []
     /// Live, not-yet-committed preview of the agent's in-progress prose for the
@@ -286,6 +291,7 @@ public final class ChatConversationStore {
             createdAt: now(),
             delivery: queueWhileBusy ? .queued : .sending
         )
+        latestOutboundFocusRowID = ChatTranscriptRow.pendingOutboundRowID(for: item.id)
         pending.append(item)
         reproject()
         guard !queueWhileBusy else { return }
@@ -738,6 +744,10 @@ public final class ChatConversationStore {
             }
             if let index {
                 let removed = pending.remove(at: index)
+                let removedRowID = ChatTranscriptRow.pendingOutboundRowID(for: removed.id)
+                if latestOutboundFocusRowID == removedRowID {
+                    latestOutboundFocusRowID = ChatTranscriptRow.messageRowID(for: message.id)
+                }
                 if let counter = Self.pendingCounter(removed.id) {
                     maxReconciledCounter = max(maxReconciledCounter ?? counter, counter)
                 }
@@ -810,7 +820,11 @@ public final class ChatConversationStore {
                 $0.isReconcilable
                     && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == command
             }) {
-                pending.remove(at: index)
+                let removed = pending.remove(at: index)
+                let removedRowID = ChatTranscriptRow.pendingOutboundRowID(for: removed.id)
+                if latestOutboundFocusRowID == removedRowID {
+                    latestOutboundFocusRowID = ChatTranscriptRow.terminalCommandRowID(for: block.id)
+                }
             }
         }
     }

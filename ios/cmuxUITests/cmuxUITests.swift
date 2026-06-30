@@ -693,6 +693,83 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentChatSendFocusesOutgoingBubbleNearTop() throws {
+        let app = launchAgentChatInlinePreviewApp()
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        let composerBar = app.otherElements["ChatComposerBar"]
+        XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
+        let composerField = chatComposerField(in: app)
+        XCTAssertTrue(composerField.waitForExistence(timeout: 8))
+
+        XCTAssertTrue(tapChatComposerField(composerField, composerBar: composerBar, in: app))
+        composerField.typeText("focus proof")
+        let sendButton = app.buttons["ChatComposerSend"]
+        XCTAssertTrue(sendButton.waitForExistence(timeout: 4))
+        sendButton.tap()
+
+        let sentText = app.staticTexts["focus proof"].firstMatch
+        XCTAssertTrue(sentText.waitForExistence(timeout: 4))
+        let focusedMetrics = try waitForTranscriptMetrics(table, timeout: 4) { metrics in
+            let visibleTopY = table.frame.minY + max(metrics.adjustedTopInset, metrics.topChromeOverlayInset)
+            let visibleBottomY = min(
+                metrics.composerPresentationMinY,
+                table.frame.maxY - metrics.composerOverlayBottomInset
+            )
+            let focusBandHeight = max(1, visibleBottomY - visibleTopY)
+            let sentTopOffset = sentText.frame.minY - visibleTopY
+            let sentBottomGap = visibleBottomY - sentText.frame.maxY
+            return metrics.topChromeOverlayInset > 100
+                && !metrics.keyboardAnimationActive
+                && metrics.keyboardAnimationProgress >= 0.99
+                && sentTopOffset >= 24
+                && sentTopOffset <= max(140, focusBandHeight * 0.72)
+                && sentBottomGap >= 24
+                && metrics.distanceFromBottom > 120
+        }
+        let visibleTopY = table.frame.minY + max(
+            focusedMetrics.adjustedTopInset,
+            focusedMetrics.topChromeOverlayInset
+        )
+        let visibleBottomY = min(
+            focusedMetrics.composerPresentationMinY,
+            table.frame.maxY - focusedMetrics.composerOverlayBottomInset
+        )
+        let focusBandHeight = max(1, visibleBottomY - visibleTopY)
+        let sentTopOffset = sentText.frame.minY - visibleTopY
+        let sentBottomGap = visibleBottomY - sentText.frame.maxY
+        XCTAssertGreaterThan(
+            focusedMetrics.topChromeOverlayInset,
+            100,
+            "Sent bubble focus must account for floating top chrome. metrics=\(focusedMetrics)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            sentTopOffset,
+            24,
+            "Sent bubble should not hide under the floating top chrome. offset=\(sentTopOffset) metrics=\(focusedMetrics)"
+        )
+        XCTAssertFalse(
+            focusedMetrics.keyboardAnimationActive,
+            "Sent bubble focus should be verified after keyboard animation settles. metrics=\(focusedMetrics)"
+        )
+        XCTAssertLessThanOrEqual(
+            sentTopOffset,
+            max(140, focusBandHeight * 0.72),
+            "Sent bubble should be focused near the transcript top. offset=\(sentTopOffset) metrics=\(focusedMetrics)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            sentBottomGap,
+            24,
+            "Sent bubble should remain clear of the composer and keyboard. gap=\(sentBottomGap) metrics=\(focusedMetrics)"
+        )
+        XCTAssertGreaterThan(
+            focusedMetrics.distanceFromBottom,
+            120,
+            "Sent bubble focus should leave breathing room below the outgoing message. metrics=\(focusedMetrics)"
+        )
+    }
+
+    @MainActor
     func testAgentChatMiddleKeyboardVideoEvidence() throws {
         let app = launchAgentChatInlinePreviewApp(environment: [
             "CMUX_UITEST_CHAT_AUTOFOCUS_DELAY": "14.0",

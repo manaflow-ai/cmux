@@ -21,6 +21,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
     let onRetryInitialLoad: () -> Void
     @Binding var isAtBottom: Bool
     let scrollToBottomRequest: Int
+    let outboundFocusRowID: String?
 
     @Environment(\.chatTheme) private var theme
     @Environment(\.chatMarkdownRenderer) private var markdownRenderer
@@ -72,7 +73,8 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 contentCache: contentCache
             ),
             in: tableView,
-            scrollToBottomRequest: scrollToBottomRequest
+            scrollToBottomRequest: scrollToBottomRequest,
+            outboundFocusRowID: outboundFocusRowID
         )
     }
 
@@ -83,6 +85,8 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         private var agentState: ChatAgentState = .idle
         private var topRequestKey: String?
         private var lastScrollToBottomRequest = 0
+        private var lastOutboundFocusRowID: String?
+        private var activeOutboundFocusRowID: String?
         private var isHandlingLayout = false
         private weak var tableView: ChatTranscriptUITableView?
         private var isAtBottom: Binding<Bool>
@@ -111,15 +115,29 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         fileprivate func update(
             configuration: ChatTranscriptTableConfiguration,
             in tableView: ChatTranscriptUITableView,
-            scrollToBottomRequest: Int
+            scrollToBottomRequest: Int,
+            outboundFocusRowID: String?
         ) {
             self.configuration = configuration
-            let nextItems = configuration.makeItems()
+            let shouldScrollToBottom = scrollToBottomRequest != lastScrollToBottomRequest
+            let shouldFocusOutbound = outboundFocusRowID != nil
+                && outboundFocusRowID != lastOutboundFocusRowID
+            lastScrollToBottomRequest = scrollToBottomRequest
+            if shouldScrollToBottom {
+                activeOutboundFocusRowID = nil
+            }
+            if shouldFocusOutbound {
+                lastOutboundFocusRowID = outboundFocusRowID
+                activeOutboundFocusRowID = outboundFocusRowID
+            }
+            let nextItems = configuration.makeItems(
+                outboundFocusSpacerHeight: activeOutboundFocusRowID.map { _ in
+                    outboundFocusSpacerHeight(in: tableView)
+                }
+            )
             let shouldReload = nextItems != items
                 || configuration.expandedIDs != expandedIDs
                 || configuration.agentState != agentState
-            let shouldScrollToBottom = scrollToBottomRequest != lastScrollToBottomRequest
-            lastScrollToBottomRequest = scrollToBottomRequest
             let wasAtBottom = isAtBottom.wrappedValue
                 || distanceFromBottom(in: tableView) <= chatTranscriptAtBottomThreshold
             let anchor = firstVisibleAnchor(in: tableView)
@@ -127,6 +145,8 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             guard shouldReload else {
                 if shouldScrollToBottom {
                     scrollToBottom(in: tableView, animated: true)
+                } else if shouldFocusOutbound, let outboundFocusRowID {
+                    focusOutbound(rowID: outboundFocusRowID, in: tableView, animated: true)
                 }
                 updateBottomState(from: tableView)
                 return
@@ -139,7 +159,9 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             tableView.reloadData()
             tableView.layoutIfNeeded()
 
-            if shouldScrollToBottom || wasAtBottom {
+            if shouldFocusOutbound, let outboundFocusRowID {
+                focusOutbound(rowID: outboundFocusRowID, in: tableView, animated: false)
+            } else if shouldScrollToBottom || wasAtBottom {
                 scrollToBottom(in: tableView, animated: false)
             } else if let anchor {
                 restore(anchor, in: tableView)
@@ -170,6 +192,34 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             return cell
         }
 
+        func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+            guard items.indices.contains(indexPath.row) else {
+                return UITableView.automaticDimension
+            }
+            switch items[indexPath.row] {
+            case .bottomAnchor:
+                return 9
+            case .outboundFocusSpacer(let height):
+                return height
+            default:
+                return UITableView.automaticDimension
+            }
+        }
+
+        func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
+            guard items.indices.contains(indexPath.row) else {
+                return tableView.estimatedRowHeight
+            }
+            switch items[indexPath.row] {
+            case .bottomAnchor:
+                return 9
+            case .outboundFocusSpacer(let height):
+                return height
+            default:
+                return tableView.estimatedRowHeight
+            }
+        }
+
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             guard let tableView = scrollView as? UITableView else { return }
             updateBottomState(from: tableView)
@@ -198,11 +248,16 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             defer { isHandlingLayout = false }
 
             if tableView.isViewportInsetsExternallyDriven {
+                if let activeOutboundFocusRowID {
+                    focusOutbound(rowID: activeOutboundFocusRowID, in: tableView, animated: false)
+                }
                 updateBottomState(from: tableView)
                 return
             }
 
-            if boundsChanged, let oldViewport {
+            if let activeOutboundFocusRowID {
+                focusOutbound(rowID: activeOutboundFocusRowID, in: tableView, animated: false)
+            } else if boundsChanged, let oldViewport {
                 restoreKeyboardViewport(snapshot: oldViewport, in: tableView)
             } else if isAtBottom.wrappedValue {
                 scrollToBottom(in: tableView, animated: false)
@@ -238,6 +293,32 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             let targetY = maxOffsetY(in: tableView)
             tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: targetY), animated: animated)
             setAtBottom(true)
+        }
+
+        private func focusOutbound(rowID: String, in tableView: UITableView, animated: Bool) {
+            guard let row = items.firstIndex(where: { $0.id == rowID }) else { return }
+            tableView.layoutIfNeeded()
+            let indexPath = IndexPath(row: row, section: 0)
+            let rect = tableView.rectForRow(at: indexPath)
+            let visibleTopPadding: CGFloat = 36
+            let chromeInset = (tableView as? ChatTranscriptUITableView)?.topChromeOverlayInset ?? 0
+            let targetRowY = max(0, chromeInset) + visibleTopPadding
+            let targetY = clampedOffsetY(
+                rect.minY - targetRowY,
+                in: tableView
+            )
+            tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: targetY), animated: animated)
+            setAtBottom(false)
+        }
+
+        private func outboundFocusSpacerHeight(in tableView: UITableView) -> CGFloat {
+            let viewportHeight = max(
+                0,
+                tableView.bounds.height
+                    - tableView.adjustedContentInset.top
+                    - tableView.adjustedContentInset.bottom
+            )
+            return max(260, viewportHeight * 1.05)
         }
 
         private func requestOlderHistoryIfNeeded(in tableView: UITableView) {
@@ -340,7 +421,7 @@ private struct ChatTranscriptTableConfiguration {
     let markdownRenderer: ChatMarkdownRenderer?
     let contentCache: ChatContentCache?
 
-    func makeItems() -> [ChatTranscriptTableItem] {
+    func makeItems(outboundFocusSpacerHeight: CGFloat? = nil) -> [ChatTranscriptTableItem] {
         var items: [ChatTranscriptTableItem] = []
         if hasMoreHistory {
             items.append(.loadingMore)
@@ -361,6 +442,9 @@ private struct ChatTranscriptTableConfiguration {
             items.append(.typing)
         }
         items.append(.bottomAnchor)
+        if let outboundFocusSpacerHeight {
+            items.append(.outboundFocusSpacer(height: outboundFocusSpacerHeight))
+        }
         return items
     }
 
@@ -444,6 +528,9 @@ private struct ChatTranscriptTableConfiguration {
         case .bottomAnchor:
             Color.clear
                 .frame(height: 9)
+        case .outboundFocusSpacer(let height):
+            Color.clear
+                .frame(height: height)
         }
     }
 }
@@ -457,6 +544,7 @@ private enum ChatTranscriptTableItem: Equatable {
     case row(ChatTranscriptRow)
     case typing
     case bottomAnchor
+    case outboundFocusSpacer(height: CGFloat)
 
     var id: String {
         switch self {
@@ -476,6 +564,8 @@ private enum ChatTranscriptTableItem: Equatable {
             return "typing"
         case .bottomAnchor:
             return "bottom-anchor"
+        case .outboundFocusSpacer:
+            return "outbound-focus-spacer"
         }
     }
 }
