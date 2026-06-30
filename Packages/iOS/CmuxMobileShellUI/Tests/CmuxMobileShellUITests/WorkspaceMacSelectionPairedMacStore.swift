@@ -10,7 +10,7 @@ actor WorkspaceMacSelectionPairedMacStore: MobilePairedMacStoring {
     }
 
     private func matchesScope(_ mac: MobilePairedMac, stackUserID: String?, teamID: String?) -> Bool {
-        (mac.stackUserID == nil || mac.stackUserID == stackUserID)
+        (stackUserID == nil || mac.stackUserID == stackUserID)
             && (teamID == nil || mac.teamID == nil || mac.teamID == teamID)
     }
 

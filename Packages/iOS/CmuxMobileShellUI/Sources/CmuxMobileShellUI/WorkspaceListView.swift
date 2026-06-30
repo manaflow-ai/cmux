@@ -136,8 +136,9 @@ struct WorkspaceListView: View {
     /// presentation.
     private var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = trimmedQuery
+        let currentFilter = activeFilter
         let matches = workspaces.filter { workspace in
-            activeFilter.matches(workspace)
+            currentFilter.matches(workspace)
                 && (query.isEmpty || matchesQuery(workspace, query: query))
         }
         return matches.enumerated()
@@ -158,7 +159,8 @@ struct WorkspaceListView: View {
     }
 
     private var groupedWorkspaces: [MobileWorkspacePreview] {
-        workspaces.filter { activeFilter.matches($0) }
+        let currentFilter = activeFilter
+        return workspaces.filter { currentFilter.matches($0) }
     }
 
     var body: some View {
