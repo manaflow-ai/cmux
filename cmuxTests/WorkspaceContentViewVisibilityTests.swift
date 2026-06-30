@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import CmuxUpdater
 import CoreGraphics
 import SwiftUI
 import Bonsplit
