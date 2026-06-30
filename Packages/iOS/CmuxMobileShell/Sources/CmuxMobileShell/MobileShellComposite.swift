@@ -82,6 +82,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let storedMacReconnectRestoringDeadlineSeconds: Double = 6
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
+    private static let terminalBytesCapability = "terminal.bytes.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let workspaceReadStateCapability = "workspace.read_state.v1"
     private static let workspaceCloseCapability = "workspace.close.v1"
@@ -5792,8 +5793,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // applying, run the dedicated recovery (it re-asks the token
             // provider and no-ops once an identity is adopted).
             scheduleHostIdentityAdoptionIfNeeded(client: client)
-            let transport: TerminalOutputTransport = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
-                payload.terminalFidelity == "render_grid" ? .hybrid : .rawBytes
+            let supportsRenderGrid = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
+                payload.terminalFidelity == "render_grid"
+            let supportsTerminalBytes = payload.capabilities.contains(Self.terminalBytesCapability)
+            let transport: TerminalOutputTransport
+            if supportsRenderGrid, supportsTerminalBytes {
+                transport = .hybrid
+            } else if supportsRenderGrid {
+                transport = .renderGrid
+            } else {
+                transport = .rawBytes
+            }
             terminalOutputTransport = transport
             MobileDebugLog.anchormux("sync.transport=\(transport.debugName)")
             return transport
@@ -6283,7 +6293,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private enum RenderGridEventDeliveryDecision {
         case deliver
-        case advisory(requestReplay: Bool)
+        case advisory(requestReplay: Bool, updateTrackedScreen: Bool, deliverViewportPolicy: Bool)
     }
 
     private func renderGridEventDeliveryDecision(
@@ -6295,9 +6305,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .deliver
         }
         guard previous == .alternate else {
-            return .advisory(requestReplay: false)
+            return .advisory(requestReplay: false, updateTrackedScreen: true, deliverViewportPolicy: true)
         }
-        return renderGrid.full ? .deliver : .advisory(requestReplay: true)
+        guard !renderGrid.full else { return .deliver }
+        let hasRowDelta = renderGrid.rowSpans.isEmpty == false || renderGrid.clearedRows.isEmpty == false
+        return .advisory(requestReplay: hasRowDelta, updateTrackedScreen: false, deliverViewportPolicy: false)
     }
 
     func deliverAuthoritativeTerminalRenderGrid(
@@ -6324,13 +6336,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case .deliver:
             terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
             break
-        case .advisory(let requestReplay):
-            if !requestReplay {
+        case .advisory(let requestReplay, let updateTrackedScreen, let deliverViewportPolicy):
+            if updateTrackedScreen {
                 terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
             }
-            deliverTerminalViewportPolicy(renderGrid.mobileViewportPolicy, surfaceID: renderGrid.surfaceID)
+            if deliverViewportPolicy {
+                deliverTerminalViewportPolicy(renderGrid.mobileViewportPolicy, surfaceID: renderGrid.surfaceID)
+            }
             MobileDebugLog.anchormux(
-                "sync.render_grid_advisory source=\(source) surface=\(renderGrid.surfaceID) screen=\(renderGrid.activeScreen.rawValue) seq=\(renderGrid.stateSeq) requestReplay=\(requestReplay)"
+                "sync.render_grid_advisory source=\(source) surface=\(renderGrid.surfaceID) screen=\(renderGrid.activeScreen.rawValue) seq=\(renderGrid.stateSeq) requestReplay=\(requestReplay) updateTrackedScreen=\(updateTrackedScreen) deliverViewportPolicy=\(deliverViewportPolicy)"
             )
             if requestReplay {
                 requestTerminalReplay(surfaceID: renderGrid.surfaceID)

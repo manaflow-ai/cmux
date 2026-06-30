@@ -66,7 +66,7 @@ actor LivenessHostRouter {
     private var holdSubscribe = false
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
-    private var capabilities = ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -388,6 +388,29 @@ func terminalBytesEventFrame(surfaceID: String, seq: UInt64, text: String) throw
             "seq": seq,
             "data_b64": Data(text.utf8).base64EncodedString(),
         ],
+    ]
+    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+}
+
+func emptyRenderGridEventFrame(
+    surfaceID: String,
+    seq: UInt64,
+    activeScreen: MobileTerminalRenderGridFrame.Screen,
+    full: Bool = false
+) throws -> Data {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: seq,
+        columns: 16,
+        rows: 4,
+        full: full,
+        rowSpans: [],
+        activeScreen: activeScreen
+    )
+    let envelope: [String: Any] = [
+        "kind": "event",
+        "topic": "terminal.render_grid",
+        "payload": try frame.jsonObject(),
     ]
     return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
 }

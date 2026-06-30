@@ -88,6 +88,30 @@ import Testing
 }
 
 @MainActor
+@Test func renderGridOnlyHostKeepsPrimaryRenderGridDelivery() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    #expect(store.connectionState == .connected)
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must request the server-side subscription")
+    let topics = await router.topics(for: "mobile.events.subscribe").last ?? []
+    #expect(topics.contains("terminal.render_grid"))
+    #expect(topics.contains("terminal.bytes") == false)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let transport = try #require(box.get())
+    await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 3, text: "grid-only"))
+    let gridDelivered = try await pollUntil { collector.lines.contains { $0.contains("grid-only") } }
+    #expect(gridDelivered, "render-grid-only hosts must keep painting primary render-grid frames")
+    collector.unmount()
+}
+
+@MainActor
 @Test func primaryRenderGridEventDoesNotPreemptRawBytes() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
@@ -248,10 +272,13 @@ import Testing
         await router.count(of: "mobile.terminal.replay") > replayCountAfterMount
     }
     #expect(replayRequested, "a primary delta cannot switch the local surface out of alternate-screen mode; request a full replay instead")
-    #expect(collector.viewportPolicies.last == .natural)
     #expect(
         collector.lines.contains { $0.contains("primary-delta") } == false,
         "the alternate-to-primary transition must not be painted with a delta patch"
+    )
+    #expect(
+        collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4),
+        "a primary delta must not clear the remote-grid pin before the full replay restores primary"
     )
 
     await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 7, text: "raw-after-delta"))
@@ -263,6 +290,55 @@ import Testing
     #expect(
         collector.lines.contains { $0.contains("raw-after-delta") } == false,
         "raw bytes must stay suppressed until a full primary restore switches the local surface out of alternate-screen mode"
+    )
+    #expect(collector.viewportPolicies.last == .natural)
+    collector.unmount()
+}
+
+@MainActor
+@Test func emptyPrimaryDeltaWhileAlternateDoesNotReplayOrChangeViewportPolicy() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 3,
+        text: "alt",
+        activeScreen: .alternate
+    ))
+    let altDelivered = try await pollUntil { collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4) }
+    #expect(altDelivered)
+
+    await transport.deliver(try emptyRenderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 6,
+        activeScreen: .primary
+    ))
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 7,
+        text: "still-alt",
+        activeScreen: .alternate
+    ))
+    let laterAltDelivered = try await pollUntil { collector.lines.contains { $0.contains("still-alt") } }
+    #expect(laterAltDelivered)
+    let replayCountAfterEmptyDelta = await router.count(of: "mobile.terminal.replay")
+    #expect(
+        replayCountAfterEmptyDelta == replayCountAfterMount,
+        "empty or cursor-only primary deltas while alternate is active must not create replay storms"
+    )
+    #expect(
+        collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4),
+        "empty primary deltas while alternate is active must not flicker the surface back to natural sizing"
     )
     collector.unmount()
 }
