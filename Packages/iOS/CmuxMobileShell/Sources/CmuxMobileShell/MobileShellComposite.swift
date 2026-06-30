@@ -6308,8 +6308,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .advisory(requestReplay: false, updateTrackedScreen: true, deliverViewportPolicy: true)
         }
         guard !renderGrid.full else { return .deliver }
-        let hasRowDelta = renderGrid.rowSpans.isEmpty == false || renderGrid.clearedRows.isEmpty == false
-        return .advisory(requestReplay: hasRowDelta, updateTrackedScreen: false, deliverViewportPolicy: false)
+        return .advisory(requestReplay: true, updateTrackedScreen: false, deliverViewportPolicy: false)
     }
 
     func deliverAuthoritativeTerminalRenderGrid(

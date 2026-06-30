@@ -2978,6 +2978,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: false)
     }
 
+    public func applyViewSizeAndWait(cols: Int, rows: Int) async {
+        let changed = updateEffectiveGrid(cols: cols, rows: rows, confirmedViewportEcho: false)
+        if changed || needsGeometrySync {
+            await syncSurfaceGeometryAndWait(shouldReassertNaturalSize: false)
+        }
+    }
+
     public func applyConfirmedViewSize(cols: Int, rows: Int) {
         applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: true)
     }
@@ -2987,13 +2994,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func applyViewSize(cols: Int, rows: Int, confirmedViewportEcho: Bool) {
-        guard cols > 0, rows > 0 else { return }
-        if confirmedViewportEcho {
-            markViewportReportConfirmed()
-        }
-        if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return }
-        MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
-        effectiveGrid = (cols, rows)
+        guard updateEffectiveGrid(cols: cols, rows: rows, confirmedViewportEcho: confirmedViewportEcho) else { return }
         // Mark dirty instead of recomputing synchronously. This breaks the
         // feedback loop (didResize → updateTerminalViewport RPC → applyViewSize
         // → syncSurfaceGeometry → didResize …) that, under fast zoom, drove a
@@ -3003,11 +3004,34 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         setNeedsGeometrySync(reassertNaturalSize: false)
     }
 
+    private func updateEffectiveGrid(cols: Int, rows: Int, confirmedViewportEcho: Bool) -> Bool {
+        guard cols > 0, rows > 0 else { return false }
+        if confirmedViewportEcho {
+            markViewportReportConfirmed()
+        }
+        if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return false }
+        MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
+        effectiveGrid = (cols, rows)
+        return true
+    }
+
     public func useNaturalViewSize() {
-        guard effectiveGrid != nil else { return }
+        guard clearEffectiveGrid() else { return }
+        setNeedsGeometrySync(reassertNaturalSize: false)
+    }
+
+    public func useNaturalViewSizeAndWait() async {
+        let changed = clearEffectiveGrid()
+        if changed || needsGeometrySync {
+            await syncSurfaceGeometryAndWait(shouldReassertNaturalSize: false)
+        }
+    }
+
+    private func clearEffectiveGrid() -> Bool {
+        guard effectiveGrid != nil else { return false }
         MobileDebugLog.anchormux("zoom.useNaturalViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->nil")
         effectiveGrid = nil
-        setNeedsGeometrySync(reassertNaturalSize: false)
+        return true
     }
 
     /// Pure libghostty resize refinement; `nonisolated` so it runs on the
@@ -3057,8 +3081,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let pinnedSize: CGSize?
     }
 
-    private func syncSurfaceGeometry(shouldReassertNaturalSize: Bool = true) {
-        guard let surface else { return }
+    private func syncSurfaceGeometryAndWait(shouldReassertNaturalSize: Bool = true) async {
+        needsGeometrySync = false
+        pendingGeometryReassert = false
+        await withCheckedContinuation { continuation in
+            syncSurfaceGeometry(shouldReassertNaturalSize: shouldReassertNaturalSize) {
+                continuation.resume()
+            }
+        }
+    }
+
+    private func syncSurfaceGeometry(
+        shouldReassertNaturalSize: Bool = true,
+        completion: (@MainActor @Sendable () -> Void)? = nil
+    ) {
+        guard let surface else {
+            completion?()
+            return
+        }
 
         // Capture all main-actor inputs as values, then do every libghostty
         // WRITE (set_content_scale / set_size / fit) and its readback on the
@@ -3152,6 +3192,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     containerH: containerH,
                     shouldReassertNaturalSize: shouldReassertNaturalSize
                 )
+                completion?()
             }
         }
     }

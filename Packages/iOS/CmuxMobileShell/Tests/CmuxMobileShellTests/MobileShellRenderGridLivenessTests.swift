@@ -296,7 +296,7 @@ import Testing
 }
 
 @MainActor
-@Test func emptyPrimaryDeltaWhileAlternateDoesNotReplayOrChangeViewportPolicy() async throws {
+@Test func emptyPrimaryDeltaWhileAlternateRequestsOneReplayAndKeepsRemoteGridUntilFullRestore() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     let box = TransportBox()
@@ -323,23 +323,45 @@ import Testing
         seq: 6,
         activeScreen: .primary
     ))
-    await transport.deliver(try renderGridEventFrame(
+    await transport.deliver(try emptyRenderGridEventFrame(
         surfaceID: "live-terminal",
         seq: 7,
+        activeScreen: .primary
+    ))
+    let replayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCountAfterMount
+    }
+    #expect(
+        replayRequested,
+        "an empty primary transition while alternate is active is ambiguous; request one full replay instead of dropping later primary bytes indefinitely"
+    )
+    let replayCountAfterRepeatedEmptyDelta = await router.count(of: "mobile.terminal.replay")
+    #expect(
+        replayCountAfterRepeatedEmptyDelta == replayCountAfterMount + 1,
+        "repeated empty primary deltas must be bounded by the replay in-flight guard"
+    )
+    await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 8, text: "raw-before-full"))
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 9,
         text: "still-alt",
         activeScreen: .alternate
     ))
     let laterAltDelivered = try await pollUntil { collector.lines.contains { $0.contains("still-alt") } }
     #expect(laterAltDelivered)
-    let replayCountAfterEmptyDelta = await router.count(of: "mobile.terminal.replay")
-    #expect(
-        replayCountAfterEmptyDelta == replayCountAfterMount,
-        "empty or cursor-only primary deltas while alternate is active must not create replay storms"
-    )
     #expect(
         collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4),
         "empty primary deltas while alternate is active must not flicker the surface back to natural sizing"
     )
+    #expect(
+        collector.lines.contains { $0.contains("raw-before-full") } == false,
+        "raw bytes stay suppressed until a full primary replay restores the local surface"
+    )
+
+    await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 10, text: "primary-full"))
+    let fullPrimaryDelivered = try await pollUntil { collector.lines.contains { $0.contains("primary-full") } }
+    #expect(fullPrimaryDelivered)
+    #expect(collector.viewportPolicies.last == .natural)
     collector.unmount()
 }
 

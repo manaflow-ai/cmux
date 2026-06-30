@@ -142,10 +142,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     switch chunk.viewportPolicy {
                     case .natural:
                         self.activeViewportPolicy = .natural
-                        surfaceView.useNaturalViewSize()
+                        if chunk.data.isEmpty {
+                            surfaceView.useNaturalViewSize()
+                        } else {
+                            await surfaceView.useNaturalViewSizeAndWait()
+                        }
                     case .remoteGrid(let columns, let rows):
                         self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
-                        surfaceView.applyViewSize(cols: columns, rows: rows)
+                        if chunk.data.isEmpty {
+                            surfaceView.applyViewSize(cols: columns, rows: rows)
+                        } else {
+                            await surfaceView.applyViewSizeAndWait(cols: columns, rows: rows)
+                        }
                     case nil:
                         break
                     }
