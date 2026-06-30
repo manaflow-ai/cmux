@@ -75,6 +75,7 @@ public final class ChatConversationStore {
     @ObservationIgnored private var terminalBlocks: [Int: TerminalCommandBlock] = [:]
     @ObservationIgnored private var terminalBlockOrder: [Int] = []
     @ObservationIgnored private var source: any ChatEventSource
+    @ObservationIgnored private var sourceIdentity: String?
     @ObservationIgnored private let projector: ChatTranscriptProjector
     @ObservationIgnored private let pageSize: Int
     @ObservationIgnored private let maxWindowCount: Int
@@ -93,6 +94,8 @@ public final class ChatConversationStore {
     /// - Parameters:
     ///   - descriptor: The session to show.
     ///   - source: The conversation data seam.
+    ///   - sourceIdentity: Optional producer identity used to accept version
+    ///     resets only when the underlying source changes.
     ///   - lastReadSeq: Highest seq the user has already seen, used to place
     ///     the unread separator on first load; `nil` shows no separator.
     ///   - projector: Row projection policy (grouping interval, calendar).
@@ -103,6 +106,7 @@ public final class ChatConversationStore {
     public init(
         descriptor: ChatSessionDescriptor,
         source: any ChatEventSource,
+        sourceIdentity: String? = nil,
         lastReadSeq: Int? = nil,
         projector: ChatTranscriptProjector = ChatTranscriptProjector(),
         pageSize: Int = 100,
@@ -113,6 +117,7 @@ public final class ChatConversationStore {
         self.descriptor = descriptor
         self.agentState = descriptor.state
         self.source = source
+        self.sourceIdentity = sourceIdentity
         self.projector = projector
         self.pageSize = pageSize
         self.maxWindowCount = maxWindowCount
@@ -411,20 +416,31 @@ public final class ChatConversationStore {
     }
 
     /// Reconciles a fresh session-list descriptor into this conversation cache.
-    public func applyDescriptorSnapshot(_ descriptor: ChatSessionDescriptor) {
+    public func applyDescriptorSnapshot(
+        _ descriptor: ChatSessionDescriptor,
+        allowsVersionReset: Bool = false
+    ) {
         guard descriptor.id == self.descriptor.id else { return }
         let isUnversioned = descriptor.version == 0 && self.descriptor.version == 0
-        guard isUnversioned || descriptor.version != self.descriptor.version else { return }
+        let isNewer = descriptor.version > self.descriptor.version
+        let isProducerReset = allowsVersionReset && descriptor.version != self.descriptor.version
+        guard isUnversioned || isNewer || isProducerReset else { return }
         self.descriptor = descriptor
         agentState = descriptor.state
         if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
     }
 
     /// Rebinds this conversation to the current Mac transport after reconnect.
-    public func replaceSource(_ source: any ChatEventSource, descriptor: ChatSessionDescriptor) {
+    public func replaceSource(
+        _ source: any ChatEventSource,
+        descriptor: ChatSessionDescriptor,
+        sourceIdentity: String? = nil
+    ) {
+        let didChangeSource = sourceIdentity != nil && sourceIdentity != self.sourceIdentity
         self.source = source
+        self.sourceIdentity = sourceIdentity
         wakeBackoff()
-        applyDescriptorSnapshot(descriptor)
+        applyDescriptorSnapshot(descriptor, allowsVersionReset: didChangeSource)
     }
 
     /// After a stream drop, fetches the newest page and merges anything the

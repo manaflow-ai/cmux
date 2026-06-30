@@ -173,7 +173,7 @@ extension WorkspaceDetailView {
         do {
             seedOutcome = .authoritative(try await source.sessions(workspaceID: workspaceID))
         } catch {
-            seedOutcome = .unavailable
+            seedOutcome = .authoritative([])
         }
         let nextSessions = seedOutcome.applying(to: visibleChatSessions)
         withAnimation(.snappy(duration: 0.25)) {
@@ -237,12 +237,20 @@ extension WorkspaceDetailView {
         let source = store.makeChatEventSource()
         if let existing = chatConversationStores[session.id] {
             if let source {
-                existing.replaceSource(source, descriptor: session)
+                existing.replaceSource(
+                    source,
+                    descriptor: session,
+                    sourceIdentity: store.agentChatEventSourceIdentity
+                )
             }
             return existing
         }
         guard let source else { return nil }
-        let conversation = ChatConversationStore(descriptor: session, source: source)
+        let conversation = ChatConversationStore(
+            descriptor: session,
+            source: source,
+            sourceIdentity: store.agentChatEventSourceIdentity
+        )
         chatConversationStores[session.id] = conversation
         return conversation
     }
