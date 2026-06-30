@@ -1188,6 +1188,27 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentChatExpansionControlsPreserveTranscriptScrollPosition() throws {
+        let app = launchAgentChatInlinePreviewApp()
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        _ = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.frameHeight > 240 && $0.contentHeight > $0.boundsHeight * 1.6
+        }
+
+        try assertExpansionTogglePreservesTranscriptPosition(
+            buttonID: "ChatToolUseToggle-msg-fixture-4",
+            table: table,
+            app: app
+        )
+        try assertExpansionTogglePreservesTranscriptPosition(
+            buttonID: "ChatTerminalToggle-msg-fixture-6",
+            table: table,
+            app: app
+        )
+    }
+
+    @MainActor
     func testAgentChatBottomScrollEdgeUnderlapsDeviceBottom() throws {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("Bottom scroll-edge underlap uses iOS 26 edge effects.")
@@ -2580,6 +2601,57 @@ final class cmuxUITests: XCTestCase {
             line: line
         )
         return lastMetrics
+    }
+
+    @MainActor
+    private func assertExpansionTogglePreservesTranscriptPosition(
+        buttonID: String,
+        table: XCUIElement,
+        app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let button = app.buttons[buttonID]
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline, !button.isHittable {
+            table.swipeDown(velocity: .fast)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
+        }
+        XCTAssertTrue(button.isHittable, "Expected expansion control \(buttonID) to become hittable", file: file, line: line)
+
+        let before = try waitForTranscriptMetrics(
+            table,
+            timeout: 4,
+            matching: { $0.distanceFromBottom > 180 && $0.contentHeight > $0.boundsHeight * 1.4 },
+            file: file,
+            line: line
+        )
+        button.tap()
+        let predicate = NSPredicate(format: "value == %@", "Expanded")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: button)
+        let result = XCTWaiter.wait(for: [expectation], timeout: 4)
+        XCTAssertEqual(result, .completed, "Expected \(buttonID) to expand", file: file, line: line)
+        let after = try waitForTranscriptMetrics(
+            table,
+            timeout: 4,
+            matching: { $0.distanceFromBottom > 120 },
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            abs(after.visibleTopY - before.visibleTopY),
+            120,
+            "Tapping \(buttonID) must preserve the visible transcript region instead of jumping. before=\(before) after=\(after)",
+            file: file,
+            line: line
+        )
+        XCTAssertGreaterThan(
+            after.distanceFromBottom,
+            120,
+            "Tapping \(buttonID) must leave the transcript away from the live tail. before=\(before) after=\(after)",
+            file: file,
+            line: line
+        )
     }
 
     @MainActor
