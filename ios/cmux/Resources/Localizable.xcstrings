@@ -5985,19 +5985,19 @@
         }
       }
     },
-    "mobile.terminal.ghosttyRuntimeFailed": {
+    "mobile.terminal.rendererFailed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty runtime failed to initialise:\n%@"
+            "value": "Terminal renderer failed to start."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghosttyランタイムの初期化に失敗しました:\n%@"
+            "value": "ターミナルレンダラーを起動できませんでした。"
           }
         }
       }

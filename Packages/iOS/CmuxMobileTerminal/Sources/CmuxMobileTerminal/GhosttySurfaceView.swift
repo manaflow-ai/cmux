@@ -2467,7 +2467,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ) {
         guard !renderPipelineRecoveryPaused else {
             logRecoveryPausedDrop(kind: "output", byteCount: data.count)
-            completion?(true)
+            completion?(false)
             return
         }
         guard let surface, !isDismantled else {
@@ -3508,7 +3508,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ) {
         guard !renderPipelineRecoveryPaused else {
             logRecoveryPausedDrop(kind: "geometry")
-            completion?(true)
+            completion?(false)
             return
         }
         guard let surface else {

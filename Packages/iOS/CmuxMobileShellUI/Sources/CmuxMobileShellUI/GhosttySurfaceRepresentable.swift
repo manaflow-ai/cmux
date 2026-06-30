@@ -50,12 +50,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             fallback.numberOfLines = 0
             fallback.textColor = .white
             fallback.backgroundColor = UIColor(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0, alpha: 1)
-            fallback.text = String(
-                format: L10n.string(
-                    "mobile.terminal.ghosttyRuntimeFailed",
-                    defaultValue: "Ghostty runtime failed to initialise:\n%@"
-                ),
-                error.localizedDescription
+            fallback.text = L10n.string(
+                "mobile.terminal.rendererFailed",
+                defaultValue: "Terminal renderer failed to start."
             )
             return fallback
         }
