@@ -130,6 +130,80 @@ struct AgentChatSessionRegistryObservationTests {
         #expect(observed.isEmpty)
     }
 
+    @Test func mobileChatLivenessRecognizesNodeHostedClaudeFromProcessDetails() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 505,
+                    name: "node",
+                    path: "/opt/homebrew/bin/node",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 500),
+            includesProcessDetails: true
+        )
+
+        let livePID = AgentChatSessionRegistry.liveAgentPID(
+            in: snapshot,
+            surfaceID: surfaceID.uuidString,
+            kind: .claude,
+            processArgumentsAndEnvironment: { pid in
+                guard pid == 505 else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "node",
+                        "/Users/example/.claude/local/node_modules/@anthropic-ai/claude-code/cli.js",
+                    ],
+                    environment: [
+                        "CLAUDE_CODE_SESSION_ID": "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
+                    ]
+                )
+            }
+        )
+
+        #expect(livePID == 505)
+    }
+
+    @Test func mobileChatLivenessIgnoresClaudeChildProcessWithInheritedEnvironment() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 606,
+                    name: "node",
+                    path: "/opt/homebrew/bin/node",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 600),
+            includesProcessDetails: true
+        )
+
+        let livePID = AgentChatSessionRegistry.liveAgentPID(
+            in: snapshot,
+            surfaceID: surfaceID.uuidString,
+            kind: .claude,
+            processArgumentsAndEnvironment: { pid in
+                guard pid == 606 else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["node", "server.js"],
+                    environment: [
+                        "CMUX_AGENT_LAUNCH_KIND": "claude",
+                        "CLAUDE_CODE_SESSION_ID": "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
+                    ]
+                )
+            }
+        )
+
+        #expect(livePID == nil)
+    }
+
     @Test func mobileChatObserverSkipsUnambiguousNonAgentWithoutReadingDetails() {
         let workspaceID = UUID()
         let surfaceID = UUID()

@@ -119,24 +119,37 @@ final class AgentChatSessionRegistry {
     /// process tree under the surface, never from a single recorded pid that may
     /// be a launcher. Nonisolated and snapshot-based so it runs off the main
     /// actor; callers hop back to the main actor to apply the result. The
-    /// classifier matches by process basename, so only the real agent binary
-    /// matches (a `node …/codex` shim is named `node` and does not).
+    /// classifier is shared with observe-floor detection, so argv-hosted agents
+    /// (`node …/claude-code`, `npx …/codex`) rebind the same way they are first
+    /// discovered.
     private nonisolated static func liveAgentPID(surfaceID: String, kind: ChatAgentKind) -> Int? {
-        guard let surfaceUUID = UUID(uuidString: surfaceID) else { return nil }
         let snapshot = CmuxTopProcessSnapshot.capture(
             includeProcessDetails: true,
             includeCMUXScope: true
         )
+        return liveAgentPID(
+            in: snapshot,
+            surfaceID: surfaceID,
+            kind: kind,
+            processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:)
+        )
+    }
+
+    nonisolated static func liveAgentPID(
+        in snapshot: CmuxTopProcessSnapshot,
+        surfaceID: String,
+        kind: ChatAgentKind,
+        processArgumentsAndEnvironment: (Int) -> CmuxTopProcessArguments?
+    ) -> Int? {
+        guard let surfaceUUID = UUID(uuidString: surfaceID) else { return nil }
         let rootPIDs = snapshot.pids(forCMUXSurfaceID: surfaceUUID)
         guard !rootPIDs.isEmpty else { return nil }
         let wantedID = kind.sourceName
         for pid in snapshot.expandedPIDs(rootPIDs: rootPIDs).sorted() {
             guard let info = snapshot.process(pid: pid),
-                  let def = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
-                      processName: info.name,
-                      processPath: info.path,
-                      arguments: [],
-                      environment: [:]
+                  let def = codingAgentDefinition(
+                      for: info,
+                      processArgumentsAndEnvironment: processArgumentsAndEnvironment
                   ),
                   def.id == wantedID else { continue }
             return pid
