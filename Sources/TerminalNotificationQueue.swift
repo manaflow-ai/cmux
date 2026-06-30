@@ -72,8 +72,15 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
     nonisolated func enqueueClearNotifications(forTabId tabId: UUID, surfaceId: UUID) {
+        // Match pending entries by surface id alone. A surface id is globally
+        // unique to one panel, but a queued notification keeps the (possibly
+        // stale) workspace id it was enqueued with — after the panel moves,
+        // delivery re-resolves to the panel's current workspace while the queued
+        // key still names the old one. Matching on tabId here would skip those
+        // moved-surface entries, so a clear could leave a stale queued
+        // notification that later re-delivers into the current workspace.
         enqueueClear(.clearNotificationsForSurface(tabId, surfaceId)) { notification in
-            notification.key.tabId == tabId && notification.key.surfaceId == surfaceId
+            notification.key.surfaceId == surfaceId
         }
     }
 
@@ -96,9 +103,11 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
     nonisolated func discardPendingNotifications(forTabId tabId: UUID, surfaceId: UUID, through boundary: UInt64) {
+        // Surface-scoped: match by the globally-unique surface id so a moved
+        // panel's stale-keyed queued notifications are discarded too (see
+        // enqueueClearNotifications(forTabId:surfaceId:)).
         discardPendingNotifications { notification, generation in
-            notification.key.tabId == tabId
-                && notification.key.surfaceId == surfaceId
+            notification.key.surfaceId == surfaceId
                 && generation <= boundary
         }
     }
@@ -115,7 +124,14 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     nonisolated func discardPendingNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
         discardPendingNotifications { notification, _ in
-            notification.key.tabId == tabId && notification.key.surfaceId == surfaceId
+            // Surface-scoped discards match by the globally-unique surface id so
+            // a moved panel's stale-keyed queued notification is dropped before a
+            // synchronous delivery re-adds it (avoids a duplicate). Workspace-wide
+            // discards (nil surface) still match the named workspace.
+            if let surfaceId {
+                return notification.key.surfaceId == surfaceId
+            }
+            return notification.key.tabId == tabId && notification.key.surfaceId == nil
         }
     }
 

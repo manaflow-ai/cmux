@@ -428,6 +428,70 @@ final class TerminalNotificationQueueTests: XCTestCase {
         XCTAssertEqual(deliveredTitles, ["Fresh unrelated"])
     }
 
+    func testSurfaceScopedDiscardDropsQueuedNotifyKeyedToStaleWorkspace() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        var deliveredTitles: [String] = []
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredTitles.append(notification.title)
+        }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected a workspace with a focused panel")
+            return
+        }
+        // A workspace id that no longer owns the panel, modelling an async
+        // notify_target whose CMUX_WORKSPACE_ID went stale after the panel moved.
+        let staleWorkspaceId = UUID()
+
+        TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
+        defer { TerminalMutationBus.shared.setDrainsSuspendedForTesting(false) }
+
+        // Queue an async notification carrying the stale workspace id for the panel.
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: staleWorkspaceId,
+            surfaceId: panelId,
+            title: "Stale async",
+            subtitle: "Queued with stale workspace",
+            body: "Body"
+        )
+
+        // A surface-scoped discard for the panel's current workspace must drop the
+        // stale-keyed queued entry too — otherwise it re-delivers on drain after a
+        // synchronous delivery/clear that targeted the current workspace.
+        TerminalMutationBus.shared.discardPendingNotifications(
+            forTabId: workspace.id,
+            surfaceId: panelId
+        )
+
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertTrue(deliveredTitles.isEmpty)
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
+    }
+
     func testQueuedNotificationResolvesWorkspaceInRegisteredWindowContext() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
