@@ -57,39 +57,34 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
             // which would be dropped under the workspace's own chrome.
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .toolbar {
-                if backButtonConfiguration != nil {
-                    ToolbarItem(placement: .topBarLeading) {
-                        workspaceBackToolbarButton
-                    }
-                    if #available(iOS 26.0, *) {
-                        ToolbarSpacer(.fixed, placement: .topBarLeading)
-                    }
-                }
                 ToolbarItem(placement: .topBarLeading) {
-                    Menu {
-                        titleMenuContent()
-                    } label: {
-                        ChatSessionHeaderView(
-                            descriptor: conversation.descriptor,
-                            agentState: conversation.agentState,
-                            isConnected: conversation.isConnected,
-                            titleOverride: workspaceName,
-                            subtitle: tabName,
-                            style: .toolbarCompact
-                        )
-                        .frame(
-                            minWidth: MobileNavTitleWidth.floor,
-                            maxWidth: MobileNavTitleWidth(
-                                contentWidth: contentWidth,
-                                hasBackButton: backButtonConfiguration != nil,
-                                hasChatToggle: true
-                            ).leadingCap,
-                            alignment: .leading
-                        )
-                        .layoutPriority(1)
+                    HStack(spacing: 8) {
+                        workspaceBackToolbarButton
+                        Menu {
+                            titleMenuContent()
+                        } label: {
+                            ChatSessionHeaderView(
+                                descriptor: conversation.descriptor,
+                                agentState: conversation.agentState,
+                                isConnected: conversation.isConnected,
+                                titleOverride: workspaceName,
+                                subtitle: tabName,
+                                style: .toolbarCompact
+                            )
+                            .frame(
+                                minWidth: MobileNavTitleWidth.floor,
+                                maxWidth: MobileNavTitleWidth(
+                                    contentWidth: contentWidth,
+                                    hasBackButton: backButtonConfiguration != nil,
+                                    hasChatToggle: true
+                                ).leadingCap,
+                                alignment: .leading
+                            )
+                            .layoutPriority(1)
+                        }
+                        .mobileGlassCompactToolbarControl()
+                        .accessibilityIdentifier("MobileWorkspaceTitleMenu")
                     }
-                    .mobileGlassCompactToolbarControl()
-                    .accessibilityIdentifier("MobileWorkspaceTitleMenu")
                 }
             }
         }
@@ -106,6 +101,7 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
                 badgeContrast: backButtonConfiguration.badgeContrast,
                 action: backButtonConfiguration.action
             )
+            .mobileGlassCompactToolbarControl()
         }
     }
 

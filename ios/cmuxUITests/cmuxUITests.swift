@@ -285,6 +285,8 @@ final class cmuxUITests: XCTestCase {
 
         let app = try launchConnectedApp(port: port)
         try openSelectedWorkspaceIfNeeded(app)
+        XCTAssertTrue(app.buttons["MobileWorkspaceBackButton"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileWorkspaceTitleMenu"].waitForExistence(timeout: 4))
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
         await assertHostSelection(
