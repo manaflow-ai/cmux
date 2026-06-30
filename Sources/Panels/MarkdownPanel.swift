@@ -279,6 +279,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     }
 
     func attachTextView(_ textView: NSTextView) {
+        // Use the inline find bar rather than the shared editor's default
+        // floating Find panel (`usesFindPanel`). The find bar lives in the
+        // scroll view's `NSTextFinderBarContainer`, so `isFindVisible` can
+        // detect an open raw-text find UI and keep `TabManager.isFindVisible`
+        // (and the Find menu's Hide command) in sync with reality.
+        textView.usesFindBar = true
         self.textView = textView
     }
 
