@@ -27,6 +27,7 @@ struct WorkspaceShellView: View {
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var showingCompactSettings = false
     @State private var showingCompactDeviceTree = false
+    @State private var macSelection: WorkspaceMacSelection = .all
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -96,7 +97,7 @@ struct WorkspaceShellView: View {
                 selectedTerminalID: store.selectedTerminalID,
                 host: store.connectedHostName,
                 connectionStatus: listConnectionStatus,
-                canCreateWorkspace: canCreateWorkspace,
+                canCreateWorkspace: canCreateWorkspaceForMacSelection,
                 canCreateTerminal: canCreateTerminal,
                 selectWorkspace: selectWorkspaceFromSurfaceGrid,
                 openTerminal: openTerminalFromSurfaceGrid,
@@ -109,22 +110,21 @@ struct WorkspaceShellView: View {
                 reconnect: reconnectClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
+                workspaceDestination(
+                    for: workspaceID,
+                    createWorkspace: createWorkspaceInCompactStack,
+                    backButtonConfiguration: WorkspaceBackButtonConfiguration(
+                        unreadCount: unreadWorkspaceCount(excluding: workspaceID),
+                        badgeContrast: .darkBackground,
+                        action: popCompactStack
+                    )
+                )
                     // Only on the pushed compact stack (where a back button
                     // exists): replace the system back button with a custom one
                     // that folds the unread-workspace count INTO the same button
                     // ("‹ 3"). Hiding the system button disables the interactive
                     // swipe-back, so re-enable it via InteractiveSwipeBackEnabler.
                     .navigationBarBackButtonHidden(true)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            WorkspaceBackButton(
-                                unreadCount: unreadWorkspaceCount(excluding: workspaceID),
-                                badgeContrast: .darkBackground,
-                                action: popCompactStack
-                            )
-                        }
-                    }
                     .background(InteractiveSwipeBackEnabler())
             }
         }
@@ -191,7 +191,8 @@ struct WorkspaceShellView: View {
                 profilePictureSize: displaySettings.profilePictureSize,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceIfConnected,
-                canCreateWorkspace: canCreateWorkspace,
+                canCreateWorkspace: canCreateWorkspaceForMacSelection,
+                macSelection: $macSelection,
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
@@ -339,6 +340,20 @@ struct WorkspaceShellView: View {
         return store.workspaces.first?.id
     }
 
+    private var canCreateWorkspaceForMacSelection: Bool {
+        macSelectionScope.canCreateWorkspace(base: canCreateWorkspace)
+    }
+
+    private var macSelectionScope: WorkspaceMacSelectionScope {
+        WorkspaceMacSelectionScope(
+            selection: macSelection,
+            workspaces: store.workspaces,
+            displayPairedMacs: store.displayPairedMacs,
+            foregroundMacDeviceID: store.connectedMacDeviceID ?? store.activeTicket?.macDeviceID,
+            aliasesFor: { store.pairedMacAliasIDs(for: $0) }
+        )
+    }
+
     /// Group collapse/expand closure. Present when the Mac advertises
     /// `workspace.groups.v1` or has actually emitted group sections: a Mac that
     /// emits groups in the workspace list also handles collapse/expand (both
@@ -353,7 +368,7 @@ struct WorkspaceShellView: View {
     }
 
     private func createWorkspaceInCompactStack() {
-        guard canCreateWorkspace else { return }
+        guard canCreateWorkspaceForMacSelection else { return }
         let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
         store.createWorkspace()
@@ -368,7 +383,7 @@ struct WorkspaceShellView: View {
     }
 
     private func createWorkspaceIfConnected() {
-        guard canCreateWorkspace else { return }
+        guard canCreateWorkspaceForMacSelection else { return }
         store.createWorkspace()
     }
 
@@ -402,14 +417,16 @@ struct WorkspaceShellView: View {
     private func workspaceDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
         createWorkspace: @escaping () -> Void,
-        safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth
+        safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth,
+        backButtonConfiguration: WorkspaceBackButtonConfiguration? = nil
     ) -> some View {
         WorkspaceDetailContainer(
             store: store,
             workspaceID: workspaceID,
             createWorkspace: createWorkspace,
-            canCreateWorkspace: canCreateWorkspace,
+            canCreateWorkspace: canCreateWorkspaceForMacSelection,
             safeAreaContext: safeAreaContext,
+            backButtonConfiguration: backButtonConfiguration,
             signOut: signOut
         )
     }

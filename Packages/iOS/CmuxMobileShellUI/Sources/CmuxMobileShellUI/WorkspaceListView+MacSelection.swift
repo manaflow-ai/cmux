@@ -9,38 +9,29 @@ enum WorkspaceMacSelection: Hashable {
 }
 
 extension WorkspaceListView {
+    var macSelectionScope: WorkspaceMacSelectionScope {
+        let displayPairedMacs = store?.displayPairedMacs ?? []
+        return WorkspaceMacSelectionScope(
+            selection: macSelection,
+            workspaces: workspaces,
+            displayPairedMacs: displayPairedMacs,
+            foregroundMacDeviceID: store?.connectedMacDeviceID ?? store?.activeTicket?.macDeviceID,
+            aliasesFor: { store?.pairedMacAliasIDs(for: $0) ?? [] }
+        )
+    }
+
     var activeFilter: MobileWorkspaceListFilter {
-        var active = filter
-        switch visibleMacSelection {
-        case .automatic:
-            break
-        case .all:
-            active.machines.removeAll()
-        case .machine(let id):
-            active.machines = Set([id])
-        }
-        return active
+        macSelectionScope.activeFilter(base: filter)
     }
 
     var visibleMacSelection: WorkspaceMacSelection {
-        let machineIDs = Set(macPickerMachines.map(\.id))
-        switch macSelection {
-        case .automatic:
-            return .all
-        case .machine(let id):
-            return machineIDs.contains(id) ? .machine(id) : .all
-        case .all:
-            return .all
-        }
+        macSelectionScope.visibleSelection
     }
 
     var macPickerMachines: [WorkspaceFilterMachine] {
+        let scope = macSelectionScope
         let names = macDisplayNamesByID()
-        var ids = Set(MobileWorkspaceListFilter.machineIDs(in: workspaces))
-        if let connectedID = store?.connectedMacDeviceID {
-            ids.insert(connectedID)
-        }
-        return ids
+        return scope.machineIDs
             .map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? fallbackMacPickerName) }
             .sorted { lhs, rhs in
                 let nameOrder = lhs.name.localizedStandardCompare(rhs.name)
@@ -73,27 +64,19 @@ extension WorkspaceListView {
         for mac in store?.pairedMacs ?? [] {
             names[mac.macDeviceID] = mac.resolvedName
         }
+        for mac in store?.displayPairedMacs ?? [] {
+            names[mac.macDeviceID] = mac.resolvedName
+        }
         return names
+    }
+
+    var canCreateWorkspaceForMacSelection: Bool {
+        macSelectionScope.canCreateWorkspace(base: canCreateWorkspace)
     }
 
     #if os(iOS)
     var canRenderGroupsForSelection: Bool {
-        selectedMacCanUseForegroundGroups
-    }
-
-    private var selectedMacCanUseForegroundGroups: Bool {
-        switch visibleMacSelection {
-        case .machine(let id):
-            return store?.connectedMacDeviceID == id
-        case .all, .automatic:
-            return visibleRowsAreOnlyForegroundMac
-        }
-    }
-
-    private var visibleRowsAreOnlyForegroundMac: Bool {
-        guard !workspaces.isEmpty else { return false }
-        guard let connectedID = store?.connectedMacDeviceID else { return false }
-        return workspaces.allSatisfy { $0.macDeviceID == connectedID }
+        macSelectionScope.canRenderGroupsForSelection
     }
 
     var macTitlePickerTitle: String {
