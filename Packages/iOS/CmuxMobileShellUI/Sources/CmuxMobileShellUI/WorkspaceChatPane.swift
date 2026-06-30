@@ -12,7 +12,7 @@ import UIKit
 /// The agent chat rendered inline in the workspace detail, in place of the
 /// terminal, when chat mode is toggled on. There is no cover and no Done
 /// button: the same toolbar toggle flips back to the terminal.
-struct WorkspaceChatPane: View {
+struct WorkspaceChatPane<TitleMenuContent: View>: View {
     let session: ChatSessionDescriptor
     let conversation: ChatConversationStore
     let store: CMUXMobileShellStore
@@ -27,6 +27,10 @@ struct WorkspaceChatPane: View {
     @Binding var draft: String
     /// Compact-stack back button owned by the workspace toolbar.
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
+    /// Whether the workspace title pill should open a menu.
+    let isTitleMenuEnabled: Bool
+    /// Workspace-scoped actions exposed from the title pill.
+    let titleMenuContent: () -> TitleMenuContent
     /// Flips chat mode off (the toggle's "back to terminal" path).
     let onExitChat: () -> Void
 
@@ -62,11 +66,13 @@ struct WorkspaceChatPane: View {
                 ToolbarItem(placement: .principal) {
                     // WorkspaceDetailView mounts the terminal picker/chat
                     // toggle in a sibling trailing toolbar item.
-                    WorkspaceToolbarTitleControl(
+                    WorkspaceTitleMenu(
                         contentWidth: contentWidth,
                         hasBackButton: backButtonConfiguration != nil,
                         hasTrailingCluster: true,
-                        hasChatToggle: true
+                        hasChatToggle: true,
+                        isEnabled: isTitleMenuEnabled,
+                        menuContent: titleMenuContent
                     ) {
                         ChatSessionHeaderView(
                             descriptor: conversation.descriptor,

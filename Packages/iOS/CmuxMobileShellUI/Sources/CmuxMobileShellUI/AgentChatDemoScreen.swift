@@ -1,7 +1,6 @@
 #if DEBUG
 import CmuxAgentChat
 import CmuxAgentChatUI
-import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal
 import Foundation
@@ -71,12 +70,17 @@ struct AgentChatDemoScreen: View {
                         )
                     }
                     ToolbarItem(placement: .principal) {
-                        WorkspaceToolbarTitleControl(
+                        WorkspaceTitleMenu(
                             contentWidth: contentWidth,
                             hasBackButton: true,
                             hasTrailingCluster: true,
                             hasChatToggle: true
                         ) {
+                            Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
+                                .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
+                            Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
+                                .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")
+                        } label: {
                             header(for: stack)
                         }
                     }
@@ -90,32 +94,9 @@ struct AgentChatDemoScreen: View {
                             Image(systemName: "bubble.left.and.bubble.right.fill")
                         }
                         .accessibilityIdentifier("AgentChatInlinePreviewChatToggle")
-                        Menu {
-                            WorkspaceTitleMenuContent(
-                                workspace: inlinePreviewWorkspace,
-                                canCloseWorkspace: true,
-                                presentRename: {},
-                                toggleReadState: {},
-                                requestClose: {}
-                            )
-
-                            Section {
-                                Button {} label: {
-                                    Label(
-                                        L10n.string("mobile.terminal.new", defaultValue: "New Terminal"),
-                                        systemImage: "plus"
-                                    )
-                                }
-                                .accessibilityIdentifier("MobileNewTerminalMenuItem")
-                            }
-                        } label: {
-                            Label(
-                                L10n.string("mobile.terminal.picker.menuTitle", defaultValue: "Workspace and Terminals"),
-                                systemImage: "rectangle.stack"
-                            )
-                            .labelStyle(.iconOnly)
+                        Button(action: {}) {
+                            Image(systemName: "rectangle.stack")
                         }
-                        .accessibilityLabel(L10n.string("mobile.terminal.picker.menuTitle", defaultValue: "Workspace and Terminals"))
                         .accessibilityIdentifier("AgentChatInlinePreviewTerminalPicker")
                     }
                 }
@@ -212,28 +193,6 @@ struct AgentChatDemoScreen: View {
             for: "CMUX_UITEST_INLINE_WORKSPACE_TITLE",
             env: ProcessInfo.processInfo.environment
         ) ?? "cmux"
-    }
-
-    private var inlinePreviewWorkspace: MobileWorkspacePreview {
-        var workspace = MobileWorkspacePreview(
-            id: "inline-preview-workspace",
-            name: inlineWorkspaceTitle ?? "cmux",
-            hasUnread: true,
-            terminals: [
-                MobileTerminalPreview(
-                    id: "inline-preview-terminal",
-                    name: inlineWorkspaceSubtitle
-                        ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
-                    isFocused: true
-                ),
-            ]
-        )
-        workspace.actionCapabilities = MobileWorkspaceActionCapabilities(
-            supportsWorkspaceActions: true,
-            supportsReadStateActions: true,
-            supportsCloseActions: true
-        )
-        return workspace
     }
 
     private var inlineWorkspaceSubtitle: String? {
