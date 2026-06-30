@@ -3048,6 +3048,7 @@ class GhosttyApp {
                     guard CommandClickFileOpenRouter.deferredOpenURLFileIfRouted(workspace: workspace, preferredWorkspaceId: workspace.id, surfaceId: termSurface.id, fileURL: URL(fileURLWithPath: resolvedPath), modifierFlags: openURLModifierFlags) else {
                         return (false, resolvedPath)
                     }
+                    surfaceView.noteOpenURLRouteHandledForCurrentMouseEvent()
                     #if DEBUG
                     cmuxDebugLog("link.openURL resolvedAsFilePath=1 pathBytes=\(resolvedPath.utf8.count)")
                     #endif
@@ -3092,7 +3093,9 @@ class GhosttyApp {
                           !workspace.isRemoteTerminalSurface(termSurface.id) else {
                         return false
                     }
-                    return CommandClickFileOpenRouter.deferredOpenURLFileIfRouted(workspace: workspace, preferredWorkspaceId: workspace.id, surfaceId: termSurface.id, fileURL: fileURL, modifierFlags: openURLModifierFlags)
+                    let routed = CommandClickFileOpenRouter.deferredOpenURLFileIfRouted(workspace: workspace, preferredWorkspaceId: workspace.id, surfaceId: termSurface.id, fileURL: fileURL, modifierFlags: openURLModifierFlags)
+                    if routed { surfaceView.noteOpenURLRouteHandledForCurrentMouseEvent() }
+                    return routed
                 }
                 if routed {
                     return true
@@ -3401,6 +3404,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var activeMouseOpenURLModifierFlags: NSEvent.ModifierFlags?
     var recentMouseOpenURLModifierFlags: NSEvent.ModifierFlags?
     var recentMouseOpenURLModifierFlagsDeadline: TimeInterval = 0
+    var recentHandledOpenURLRouteDeadline: TimeInterval = 0
 
     static func retainRenderedFrameNotifications() -> () -> Void {
         // See GhosttyApp.retainTickNotifications() on the idempotent release.
@@ -6408,6 +6412,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
+        recentHandledOpenURLRouteDeadline = 0
         // Only update mouse position on the first click to prevent unwanted cursor
         // movement during double-click selection (issue #1698)
         if event.clickCount == 1 {
@@ -6882,7 +6887,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                CommandClickFileOpenRouter.openInCmux(workspace: workspace, sourcePanelId: termSurface.id, filePath: resolution.path) {
                 return resolution
             }
-            if route == .defaultApplication, ghosttyConsumed {
+            if route == .defaultApplication,
+               shouldSuppressDefaultApplicationFallbackForHandledOpenURL(ghosttyConsumed: ghosttyConsumed) {
                 return resolution
             }
             if route == .defaultApplication,

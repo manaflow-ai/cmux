@@ -23,4 +23,12 @@ extension GhosttyNSView {
         defer { activeMouseOpenURLModifierFlags = previous }
         return work()
     }
+
+    func noteOpenURLRouteHandledForCurrentMouseEvent() {
+        recentHandledOpenURLRouteDeadline = ProcessInfo.processInfo.systemUptime + 2
+    }
+
+    func shouldSuppressDefaultApplicationFallbackForHandledOpenURL(ghosttyConsumed: Bool) -> Bool {
+        ghosttyConsumed && ProcessInfo.processInfo.systemUptime <= recentHandledOpenURLRouteDeadline
+    }
 }
