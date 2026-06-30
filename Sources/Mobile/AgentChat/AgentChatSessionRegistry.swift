@@ -168,19 +168,20 @@ final class AgentChatSessionRegistry {
     /// and overlapping callers share one in-flight scan so list-refresh bursts
     /// cannot fan out into concurrent process-table walks.
     private var observeInFlight: (id: UUID, task: Task<Void, Never>)?
-    private var observeDeferred: (id: UUID, task: Task<Void, Never>)?
     private var observeLastStartedAt: Date?
     private static let observeThrottleInterval: TimeInterval = 2
 
     func observeAgentProcesses() async {
-        await observeAgentProcessesTask(force: true).value
+        if let task = observeAgentProcessesTask(force: true) {
+            await task.value
+        }
     }
 
     func scheduleAgentProcessObservation() {
         _ = observeAgentProcessesTask(force: false)
     }
 
-    private func observeAgentProcessesTask(force: Bool) -> Task<Void, Never> {
+    private func observeAgentProcessesTask(force: Bool) -> Task<Void, Never>? {
         if let inFlight = observeInFlight {
             return inFlight.task
         }
@@ -188,30 +189,9 @@ final class AgentChatSessionRegistry {
            let observeLastStartedAt {
             let elapsed = Date().timeIntervalSince(observeLastStartedAt)
             if elapsed < Self.observeThrottleInterval {
-                if let deferred = observeDeferred {
-                    return deferred.task
-                }
-                let delay = Self.observeThrottleInterval - elapsed
-                let id = UUID()
-                let task = Task { @MainActor [weak self] in
-                    let nanoseconds = UInt64(max(0, delay) * 1_000_000_000)
-                    do {
-                        try await Task.sleep(nanoseconds: nanoseconds)
-                    } catch {
-                        return
-                    }
-                    guard let self else { return }
-                    if self.observeDeferred?.id == id {
-                        self.observeDeferred = nil
-                    }
-                    await self.observeAgentProcessesTask(force: true).value
-                }
-                observeDeferred = (id, task)
-                return task
+                return nil
             }
         }
-        observeDeferred?.task.cancel()
-        observeDeferred = nil
         observeLastStartedAt = Date()
         let id = UUID()
         let task = Task { @MainActor [weak self] in
