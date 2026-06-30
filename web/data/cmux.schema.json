@@ -829,7 +829,7 @@
             "idle": { "$ref": "#/$defs/colorHexOrNull" },
             "unknown": { "$ref": "#/$defs/colorHexOrNull" }
           },
-          "additionalProperties": { "$ref": "#/$defs/colorHexOrNull" }
+          "additionalProperties": false
         },
         "colors": {
           "type": "object",

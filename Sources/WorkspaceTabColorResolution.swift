@@ -1,4 +1,3 @@
-import AppKit
 import CmuxFoundation
 import CmuxSettings
 import Foundation
@@ -52,27 +51,35 @@ struct WorkspaceStateColorResolver: Equatable {
     }
 
     private static func blendedColorHex(_ lhsHex: String, _ rhsHex: String) -> String? {
-        guard let lhs = NSColor(hex: lhsHex)?.usingColorSpace(.sRGB),
-              let rhs = NSColor(hex: rhsHex)?.usingColorSpace(.sRGB) else {
+        // Sidebar row/group-header refresh is a hot path at workspace scale, so
+        // blend the two normalized `#RRGGBB` colors with plain integer byte math
+        // instead of allocating NSColor objects and converting color spaces per
+        // refresh. Averaging the gamma-encoded sRGB bytes with integer division
+        // matches the previous NSColor-based truncation.
+        guard let lhs = sRGBBytes(lhsHex), let rhs = sRGBBytes(rhsHex) else {
             return nil
         }
+        return hexString(
+            red: (lhs.red + rhs.red) / 2,
+            green: (lhs.green + rhs.green) / 2,
+            blue: (lhs.blue + rhs.blue) / 2
+        )
+    }
 
-        var lhsRed: CGFloat = 0
-        var lhsGreen: CGFloat = 0
-        var lhsBlue: CGFloat = 0
-        var lhsAlpha: CGFloat = 0
-        var rhsRed: CGFloat = 0
-        var rhsGreen: CGFloat = 0
-        var rhsBlue: CGFloat = 0
-        var rhsAlpha: CGFloat = 0
-        lhs.getRed(&lhsRed, green: &lhsGreen, blue: &lhsBlue, alpha: &lhsAlpha)
-        rhs.getRed(&rhsRed, green: &rhsGreen, blue: &rhsBlue, alpha: &rhsAlpha)
+    private static func sRGBBytes(_ hex: String) -> (red: Int, green: Int, blue: Int)? {
+        let body = hex.hasPrefix("#") ? hex.dropFirst() : Substring(hex)
+        guard body.count == 6, let value = UInt32(body, radix: 16) else { return nil }
+        return (Int((value >> 16) & 0xFF), Int((value >> 8) & 0xFF), Int(value & 0xFF))
+    }
 
-        return NSColor(
-            srgbRed: (lhsRed + rhsRed) / 2,
-            green: (lhsGreen + rhsGreen) / 2,
-            blue: (lhsBlue + rhsBlue) / 2,
-            alpha: 1
-        ).hexString()
+    private static func hexString(red: Int, green: Int, blue: Int) -> String {
+        // Avoid String(format:) on this hot path: it is the byte-to-hex pattern
+        // that caused unbounded memory growth in cmux PR #5347.
+        let digits: [Character] = Array("0123456789ABCDEF")
+        func byteHex(_ value: Int) -> String {
+            let clamped = max(0, min(255, value))
+            return String([digits[clamped >> 4], digits[clamped & 0x0F]])
+        }
+        return "#" + byteHex(red) + byteHex(green) + byteHex(blue)
     }
 }
