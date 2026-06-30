@@ -151,10 +151,26 @@ final class AgentChatSessionRegistry {
     /// identity from the agent's own state (codex: the rollout file it holds
     /// open; claude: `CLAUDE_CODE_SESSION_ID` or `--session-id`/`--resume`),
     /// so a session launched through any indirection (a subrouter, a wrapper)
-    /// is still found and bound. The snapshot is captured off the main actor.
+    /// is still found and bound. The snapshot is captured off the main actor,
+    /// and overlapping callers share one in-flight scan so list-refresh bursts
+    /// cannot fan out into concurrent process-table walks.
+    private var observeInFlight: (id: UUID, task: Task<Void, Never>)?
     func observeAgentProcesses() async {
-        let observed = await Task.detached { Self.scanObservedAgentSessions() }.value
-        applyObservedSessions(observed)
+        if let inFlight = observeInFlight {
+            await inFlight.task.value
+            return
+        }
+        let id = UUID()
+        let task = Task { @MainActor [weak self] in
+            let observed = await Task.detached { Self.scanObservedAgentSessions() }.value
+            guard let self else { return }
+            self.applyObservedSessions(observed)
+            if self.observeInFlight?.id == id {
+                self.observeInFlight = nil
+            }
+        }
+        observeInFlight = (id, task)
+        await task.value
     }
 
     /// Folds detections in: create a record for any session not already known
