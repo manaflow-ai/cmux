@@ -48,15 +48,23 @@ struct RenderableSystemSymbolTests {
         #expect(image.size == NSSize(width: 1, height: 1))
     }
 
-    @Test @MainActor func configuredAppKitImagePreservesNonSquareSymbolAspectRatio() throws {
+    @Test @MainActor func configuredAppKitImagePreservesNonSquareSymbolNaturalSize() throws {
         RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+        let pointSize = CGFloat(16)
+        let symbolName = "arrow.right"
+        let baseImage = try #require(NSImage(systemSymbolName: symbolName, accessibilityDescription: nil))
+        let configuredImage = baseImage.withSymbolConfiguration(NSImage.SymbolConfiguration(
+            pointSize: pointSize,
+            weight: .regular
+        )) ?? baseImage
+
         let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
-            systemName: "arrow.right",
-            pointSize: 16,
+            systemName: symbolName,
+            pointSize: pointSize,
             weight: .regular
         ))
-        #expect(abs(image.size.width - 16) < 0.001)
-        #expect(image.size.height < 16)
+        #expect(image.size == configuredImage.size)
+        #expect(image.size.width > image.size.height)
     }
 
     @Test @MainActor func configuredAppKitImageKeepsNaturalConfiguredSizeWhenItExceedsPointSize() throws {
@@ -78,14 +86,14 @@ struct RenderableSystemSymbolTests {
         #expect(image.size == configuredImage.size)
     }
 
-    @Test func fittedSymbolSizeScalesLongerDimensionToRasterSize() {
-        #expect(RenderableSystemSymbol.fittedSymbolSize(
+    @Test func configuredSymbolImageSizeKeepsValidNaturalSize() {
+        #expect(RenderableSystemSymbol.configuredSymbolImageSize(
             NSSize(width: 20, height: 10),
-            maximumDimension: 16
-        ) == NSSize(width: 16, height: 8))
-        #expect(RenderableSystemSymbol.fittedSymbolSize(
+            fallbackDimension: 16
+        ) == NSSize(width: 20, height: 10))
+        #expect(RenderableSystemSymbol.configuredSymbolImageSize(
             NSSize(width: 0, height: 10),
-            maximumDimension: 16
+            fallbackDimension: 16
         ) == NSSize(width: 16, height: 16))
     }
 
