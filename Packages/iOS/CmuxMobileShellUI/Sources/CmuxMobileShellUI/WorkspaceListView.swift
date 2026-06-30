@@ -332,7 +332,7 @@ struct WorkspaceListView: View {
         } else {
             startsMachineSwitch = false
         }
-        _ = cancelMacTitlePickerSwitch(restorePreviousOnCancel: !startsMachineSwitch)
+        let cancelTask = cancelMacTitlePickerSwitch(restorePreviousOnCancel: !startsMachineSwitch)
         let generation = macTitlePickerSwitchGeneration
         guard startsMachineSwitch else {
             macTitlePickerPendingSelection = nil
@@ -346,6 +346,7 @@ struct WorkspaceListView: View {
                     macTitlePickerSwitchTask = nil
                 }
             }
+            await cancelTask?.value
             await applyMacTitlePickerSelection(selection, switchGeneration: generation)
         }
         macTitlePickerSwitchTask = task
