@@ -387,6 +387,9 @@ await handlers.get("agent_end")({
         if "surface resume" in no_surface_args:
             print(f"FAIL: Pi extension attempted a surface-scoped resume binding without a surface, got {no_surface_args!r}")
             return 1
+        if "hooks feed" in no_surface_args:
+            print(f"FAIL: Pi extension emitted surface-scoped feed telemetry without a surface, got {no_surface_args!r}")
+            return 1
 
         check_env["CMUX_SOCKET_PATH"] = str(root / "cmux-test.sock")
         check = subprocess.run(
