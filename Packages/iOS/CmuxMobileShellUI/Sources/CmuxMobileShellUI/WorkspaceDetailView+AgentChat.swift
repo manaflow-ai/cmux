@@ -199,7 +199,8 @@ extension WorkspaceDetailView {
     /// Opening chat reuses the same store, so there is only one subscription and
     /// the transcript/history loaded in the background remains available.
     func runWarmChatConversation() async {
-        guard let session = warmChatSession,
+        guard scenePhase != .background,
+              let session = warmChatSession,
               let conversation = ensureChatConversationStore(for: session)
         else { return }
         await conversation.run()
