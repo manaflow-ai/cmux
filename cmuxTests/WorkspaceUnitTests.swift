@@ -3144,6 +3144,31 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         XCTAssertNil(inserted.surfaceResumeBinding(panelId: detached.panelId))
     }
 
+    /// A delimiter-joined history identity ("…|cwd|command") collides for
+    /// distinct bindings whose fields straddle the delimiter: cwd="a|b",
+    /// command="c" and cwd="a", command="b|c" both render "command|cli||a|b|c".
+    /// The structured identity must keep them distinct so neither dedup nor
+    /// removal silently drops an unrelated recoverable history entry.
+    func testResumeBindingHistoryIdentityAvoidsDelimiterCollision() {
+        let first = SurfaceResumeBindingSnapshot(
+            command: "c",
+            cwd: "a|b",
+            source: "cli",
+            updatedAt: 1
+        )
+        let second = SurfaceResumeBindingSnapshot(
+            command: "b|c",
+            cwd: "a",
+            source: "cli",
+            updatedAt: 2
+        )
+
+        let normalized = Workspace.normalizedSurfaceResumeBindingHistory([first, second])
+
+        XCTAssertEqual(normalized.count, 2)
+        XCTAssertEqual(normalized.map { $0.command }, ["c", "b|c"])
+    }
+
     private func withWorkspaceWorkingDirectoryInheritanceSetting(
         _ value: Bool?,
         _ body: () throws -> Void
