@@ -4,7 +4,7 @@ import SwiftUI
 
 /// The horizontal shortcut row above the composer field.
 public struct ChatAccessoryChipRow: View {
-    private static let scrollEdgeBlurWidth: CGFloat = 34
+    private static let scrollEdgeFadeWidth: CGFloat = 34
 
     private let agentState: ChatAgentState
     private let leadingShortcuts: [ChatAccessoryShortcut]
@@ -67,15 +67,8 @@ public struct ChatAccessoryChipRow: View {
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
                     scrollViewportWidth = width
                 }
-                .overlay(alignment: .leading) {
-                    if scrollNeedsEdgeBlur {
-                        scrollEdgeBlur(isLeading: true)
-                    }
-                }
-                .overlay(alignment: .trailing) {
-                    if scrollNeedsEdgeBlur {
-                        scrollEdgeBlur(isLeading: false)
-                    }
+                .mask {
+                    scrollEdgeFadeMask
                 }
             }
         }
@@ -106,7 +99,7 @@ public struct ChatAccessoryChipRow: View {
         !leadingShortcuts.isEmpty || !shortcuts.isEmpty
     }
 
-    private var scrollNeedsEdgeBlur: Bool {
+    private var scrollNeedsEdgeFade: Bool {
         scrollContentWidth > scrollViewportWidth + 1
     }
 
@@ -180,21 +173,30 @@ public struct ChatAccessoryChipRow: View {
         }
     }
 
-    private func scrollEdgeBlur(isLeading: Bool) -> some View {
-        Rectangle()
-            .fill(.regularMaterial)
-            .frame(width: Self.scrollEdgeBlurWidth)
-            .mask {
+    @ViewBuilder
+    private var scrollEdgeFadeMask: some View {
+        if scrollNeedsEdgeFade {
+            HStack(spacing: 0) {
                 LinearGradient(
-                    stops: [
-                        .init(color: isLeading ? .black : .clear, location: 0),
-                        .init(color: isLeading ? .black : .clear, location: 0.18),
-                        .init(color: isLeading ? .clear : .black, location: 1),
-                    ],
+                    colors: [.clear, .black],
                     startPoint: .leading,
                     endPoint: .trailing
                 )
+                .frame(width: Self.scrollEdgeFadeWidth)
+
+                Rectangle()
+                    .fill(.black)
+
+                LinearGradient(
+                    colors: [.black, .clear],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: Self.scrollEdgeFadeWidth)
             }
-            .allowsHitTesting(false)
+        } else {
+            Rectangle()
+                .fill(.black)
+        }
     }
 }
