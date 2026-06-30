@@ -652,6 +652,58 @@ struct FileExplorerStoreTests {
         store.expand(node: node)
         #expect(!(store.isExpanded(node)))
     }
+
+    @Test("gitMetadataDirectory resolves .git dirs, worktree/submodule gitdir files, and missing repos")
+    func testGitMetadataDirectoryResolution() throws {
+        let fileManager = FileManager.default
+        let workspaceBase = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-git-metadata-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: workspaceBase, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: workspaceBase) }
+        // Resolve /var -> /private/var up front so expected paths match the
+        // store's lexical standardization regardless of temp-dir symlinks.
+        let workspace = workspaceBase.resolvingSymlinksInPath()
+
+        func makeDirectory(_ name: String) throws -> URL {
+            let url = workspace.appendingPathComponent(name, isDirectory: true)
+            try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+            return url
+        }
+        func writeGitFile(_ contents: String, in root: URL) throws {
+            try contents.write(
+                to: root.appendingPathComponent(".git"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        // No `.git` entry → nil.
+        let plainRoot = try makeDirectory("plain")
+        #expect(FileExplorerStore.gitMetadataDirectory(under: plainRoot.path) == nil)
+
+        // `.git` directory → the directory itself.
+        let repoRoot = try makeDirectory("repo")
+        let repoGitDir = repoRoot.appendingPathComponent(".git", isDirectory: true)
+        try fileManager.createDirectory(at: repoGitDir, withIntermediateDirectories: true)
+        #expect(FileExplorerStore.gitMetadataDirectory(under: repoRoot.path) == repoGitDir.path)
+
+        // Worktree layout: `.git` file with an absolute `gitdir:` pointer.
+        let worktreeRoot = try makeDirectory("worktree")
+        let externalGitDir = try makeDirectory("main/.git/worktrees/wt")
+        try writeGitFile("gitdir: \(externalGitDir.path)\n", in: worktreeRoot)
+        #expect(FileExplorerStore.gitMetadataDirectory(under: worktreeRoot.path) == externalGitDir.path)
+
+        // Submodule layout: `.git` file with a relative `gitdir:` pointer.
+        let submoduleRoot = try makeDirectory("submodule")
+        let submoduleGitDir = try makeDirectory("shared-modules")
+        try writeGitFile("gitdir: ../shared-modules\n", in: submoduleRoot)
+        #expect(FileExplorerStore.gitMetadataDirectory(under: submoduleRoot.path) == submoduleGitDir.path)
+
+        // `gitdir:` pointing at a non-existent directory → nil.
+        let danglingRoot = try makeDirectory("dangling")
+        try writeGitFile("gitdir: \(workspace.appendingPathComponent("missing").path)\n", in: danglingRoot)
+        #expect(FileExplorerStore.gitMetadataDirectory(under: danglingRoot.path) == nil)
+    }
 }
 
 @MainActor

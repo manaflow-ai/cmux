@@ -986,23 +986,20 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
-    /// Watches the repository's `.git` directory (minus the high-churn
+    /// Watches the repository's Git metadata directory (minus the high-churn
     /// `objects`/`logs` subtrees) so status badges refresh after metadata-only
     /// changes the main tree watcher intentionally excludes. Only refreshes git
-    /// status — `.git` writes don't change the visible file tree, so no
-    /// `reload()`. No-op when `.git` is absent or is a worktree/submodule link
-    /// file rather than a directory.
+    /// status — Git metadata writes don't change the visible file tree, so no
+    /// `reload()`. Resolves the `gitdir:` pointer when `.git` is a file (the
+    /// worktree/submodule layout); no-op when there is no usable `.git` entry.
     private func startGitStateWatcher(under rootPath: String) {
-        let gitDirectory = URL(fileURLWithPath: rootPath, isDirectory: true)
-            .appendingPathComponent(".git", isDirectory: true)
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: gitDirectory.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else { return }
+        guard let gitMetadataDirectory = Self.gitMetadataDirectory(under: rootPath) else { return }
+        let metadata = gitMetadataDirectory as NSString
         guard let watcher = RecursivePathWatcher(
-            paths: [gitDirectory.path],
+            paths: [gitMetadataDirectory],
             excludedPaths: [
-                gitDirectory.appendingPathComponent("objects", isDirectory: true).path,
-                gitDirectory.appendingPathComponent("logs", isDirectory: true).path,
+                metadata.appendingPathComponent("objects"),
+                metadata.appendingPathComponent("logs"),
             ]
         ) else { return }
         gitStateWatcher = watcher
@@ -1013,6 +1010,49 @@ final class FileExplorerStore: ObservableObject {
                 self.refreshGitStatus()
             }
         }
+    }
+
+    /// Resolves the directory holding the repository's Git metadata for
+    /// `rootPath`. When `.git` is a directory it is the metadata directory; when
+    /// `.git` is a file (the layout Git uses for worktrees and submodules, where
+    /// `git add`/`commit`/`reset` update an external gitdir) its `gitdir:`
+    /// pointer is followed and resolved — relative targets against `rootPath`.
+    /// Returns nil when there is no `.git` entry or the resolved target is not a
+    /// directory.
+    static func gitMetadataDirectory(under rootPath: String) -> String? {
+        let gitPath = (rootPath as NSString).appendingPathComponent(".git")
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: gitPath, isDirectory: &isDirectory) else {
+            return nil
+        }
+        if isDirectory.boolValue {
+            return gitPath
+        }
+        guard let contents = try? String(contentsOfFile: gitPath, encoding: .utf8) else {
+            return nil
+        }
+        let gitdirPrefix = "gitdir:"
+        let pointerLine = contents
+            .split(whereSeparator: { $0.isNewline })
+            .lazy
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { $0.hasPrefix(gitdirPrefix) }
+        guard let pointerLine else { return nil }
+        let target = String(pointerLine.dropFirst(gitdirPrefix.count))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !target.isEmpty else { return nil }
+        let absoluteTarget = (target as NSString).isAbsolutePath
+            ? target
+            : (rootPath as NSString).appendingPathComponent(target)
+        // Resolve `.`/`..` lexically without touching symlinks so the watched
+        // path stays consistent with `rootPath`'s own representation.
+        let resolved = URL(fileURLWithPath: absoluteTarget).standardizedFileURL.path
+        var resolvedIsDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: resolved, isDirectory: &resolvedIsDirectory),
+              resolvedIsDirectory.boolValue else {
+            return nil
+        }
+        return resolved
     }
 
     /// Cancels the directory-watch consumers and drops the watchers; each
