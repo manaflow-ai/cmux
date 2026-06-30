@@ -40,7 +40,6 @@
     "oxlint": "^1.68.0",
     "react-doctor": "^0.2.4",
     "tailwindcss": "^4.3.0",
-    "terser": "^5.48.0",
     "typescript": "^5.9.3"
   }
 }
