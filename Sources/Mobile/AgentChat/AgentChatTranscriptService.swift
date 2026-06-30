@@ -15,7 +15,7 @@ final class AgentChatTranscriptService {
     let resolver: AgentChatTranscriptResolver
     private let coding = ChatWireCoding()
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
-    /// Drives the live agent-prose streaming preview (default-off feature flag).
+    /// Drives the live agent-prose streaming preview.
     private var proseStreamer: AgentChatProseStreamer!
     /// Sessions whose transcript could not be resolved; skipped until an
     /// explicit history request retries, so per-hook-event resolution
@@ -157,12 +157,10 @@ final class AgentChatTranscriptService {
             ensureTailer(for: record)
         }
         // Drive the live prose-streaming preview off the turn lifecycle: a
-        // prompt starts the in-flight turn, Stop ends it. Gated by the
-        // default-off flag here so a turn loop is never spawned otherwise.
+        // prompt starts the in-flight turn, Stop ends it.
         switch event.hookEventName {
         case .userPromptSubmit:
-            if AgentChatProseStreamingFlag.isEnabled,
-               record.state != .ended,
+            if record.state != .ended,
                let surfaceID = record.surfaceID.flatMap(UUID.init(uuidString:)) {
                 proseStreamer.turnStarted(
                     sessionID: record.sessionID,
