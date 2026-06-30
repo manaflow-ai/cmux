@@ -97,6 +97,35 @@ import CmuxGit
         #expect(host.workspaces[0].state.panels[panelId]?.badge?.isStale == false)
     }
 
+    /// An unparseable CI rollup must degrade to `.neutral` and still produce a
+    /// badge: the PR's status and URL are authoritative, so the row must not be
+    /// suppressed just because the CI glyph is unavailable.
+    @Test func resolvedBadgeDegradesUnknownCIStatusToNeutral() {
+        let resolved = WorkspacePullRequestResolvedItem(
+            number: 99,
+            urlString: "https://github.com/o/r/pull/99",
+            statusRawValue: PullRequestStatus.open.rawValue,
+            ciStatusRawValue: "totally-unknown-ci-value",
+            branch: "feature/x"
+        )
+        let badge = PullRequestPollService.resolvedPullRequestBadge(from: resolved)
+        #expect(badge?.number == 99)
+        #expect(badge?.status == .open)
+        #expect(badge?.ciStatus == .neutral)
+    }
+
+    /// A resolved item whose status or URL is unusable yields no badge.
+    @Test func resolvedBadgeIsNilWhenStatusOrURLUnusable() {
+        let resolved = WorkspacePullRequestResolvedItem(
+            number: 1,
+            urlString: "",
+            statusRawValue: "not-a-status",
+            ciStatusRawValue: PullRequestCheckStatus.success.rawValue,
+            branch: "feature/x"
+        )
+        #expect(PullRequestPollService.resolvedPullRequestBadge(from: resolved) == nil)
+    }
+
     /// A hint whose target names a different PR number does not reconcile.
     @Test func mismatchedCommandHintTargetIsIgnored() async throws {
         let host = RecordingSidebarGitHost()
