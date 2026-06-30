@@ -285,10 +285,23 @@ final class cmuxUITests: XCTestCase {
 
         let app = try launchConnectedApp(port: port)
         try openSelectedWorkspaceIfNeeded(app)
-        XCTAssertTrue(app.buttons["MobileWorkspaceBackButton"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.buttons["MobileWorkspaceTitleMenu"].waitForExistence(timeout: 4))
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 4))
+        XCTAssertTrue(terminalDropdown.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            waitForWorkspaceTitleLeadingAndSeparated(
+                titleMenu: titleMenu,
+                backButton: backButton,
+                trailingControl: terminalDropdown,
+                in: app,
+                timeout: 4
+            )
+        )
 
-        tapCompactToolbarTitleMenu(app.buttons["MobileWorkspaceTitleMenu"], in: app)
+        tapCompactToolbarTitleMenu(titleMenu, in: app)
         XCTAssertTrue(app.buttons["MobileWorkspaceTitleRenameMenuItem"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.buttons["MobileWorkspaceTitleReadStateMenuItem"].exists)
         XCTAssertTrue(app.buttons["MobileWorkspaceTitleCloseMenuItem"].exists)
@@ -598,7 +611,7 @@ final class cmuxUITests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            waitForWorkspaceTitleCenteredAndSeparated(
+            waitForWorkspaceTitleLeadingAndSeparated(
                 titleMenu: titleMenu,
                 backButton: backButton,
                 trailingControl: chatToggle,
@@ -2135,7 +2148,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func waitForWorkspaceTitleCenteredAndSeparated(
+    private func waitForWorkspaceTitleLeadingAndSeparated(
         titleMenu: XCUIElement,
         backButton: XCUIElement,
         trailingControl: XCUIElement,
@@ -2145,9 +2158,8 @@ final class cmuxUITests: XCTestCase {
         line: UInt = #line
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
-        let window = app.windows.firstMatch
-        let windowFrame = window.exists ? window.frame : app.frame
-        let centerTolerance = max(windowFrame.width * 0.10, 28)
+        _ = app
+        let horizontalGapRange: ClosedRange<CGFloat> = 18...42
         var lastTitleFrame = titleMenu.frame
         var lastBackFrame = backButton.frame
         var lastTrailingFrame = trailingControl.frame
@@ -2156,9 +2168,10 @@ final class cmuxUITests: XCTestCase {
             lastTitleFrame = titleMenu.frame
             lastBackFrame = backButton.frame
             lastTrailingFrame = trailingControl.frame
+            let gap = lastTitleFrame.minX - lastBackFrame.maxX
             if lastTitleFrame.midY > 60,
-               abs(lastTitleFrame.midX - windowFrame.midX) <= centerTolerance,
-               lastTitleFrame.minX > lastBackFrame.maxX + 16,
+               abs(lastTitleFrame.midY - lastBackFrame.midY) <= 4,
+               horizontalGapRange.contains(gap),
                lastTitleFrame.maxX < lastTrailingFrame.minX - 2 {
                 return true
             }
@@ -2166,7 +2179,7 @@ final class cmuxUITests: XCTestCase {
         }
 
         XCTFail(
-            "Workspace title must be centered as its own toolbar island, separated from leading and trailing controls. title=\(lastTitleFrame), back=\(lastBackFrame), trailing=\(lastTrailingFrame), window=\(windowFrame)",
+            "Workspace title must remain a leading glass island immediately after the back button, separated from trailing controls. title=\(lastTitleFrame), back=\(lastBackFrame), trailing=\(lastTrailingFrame)",
             file: file,
             line: line
         )
