@@ -4865,7 +4865,13 @@ final class Workspace: Identifiable, ObservableObject {
         if let checkpointId = binding.checkpointId, !checkpointId.isEmpty {
             return ["checkpoint", source, kind, checkpointId]
         }
-        return ["command", source, kind, binding.cwd ?? "", binding.command]
+        // Environment is part of the replayed startup input, so two otherwise
+        // identical bindings with different env are distinct resume options.
+        // Emit each entry as separate key/value elements (sorted) so element-wise
+        // array comparison stays unambiguous.
+        let environment = (binding.environment ?? [:]).sorted { $0.key < $1.key }
+            .flatMap { [$0.key, $0.value] }
+        return ["command", source, kind, binding.cwd ?? "", binding.command] + environment
     }
 
     nonisolated static func normalizedSurfaceResumeBindingHistory(

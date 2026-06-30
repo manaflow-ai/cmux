@@ -3169,6 +3169,31 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         XCTAssertEqual(normalized.map { $0.command }, ["c", "b|c"])
     }
 
+    /// Two bindings with the same command/cwd but different environment replay
+    /// differently (env assignments are part of the startup input), so they must
+    /// remain distinct recoverable history entries rather than dedup to one.
+    func testResumeBindingHistoryIdentityDistinguishesEnvironment() {
+        let first = SurfaceResumeBindingSnapshot(
+            command: "run",
+            cwd: "/repo",
+            source: "cli",
+            environment: ["MODE": "a"],
+            updatedAt: 1
+        )
+        let second = SurfaceResumeBindingSnapshot(
+            command: "run",
+            cwd: "/repo",
+            source: "cli",
+            environment: ["MODE": "b"],
+            updatedAt: 2
+        )
+
+        let normalized = Workspace.normalizedSurfaceResumeBindingHistory([first, second])
+
+        XCTAssertEqual(normalized.count, 2)
+        XCTAssertEqual(normalized.compactMap { $0.environment?["MODE"] }, ["a", "b"])
+    }
+
     private func withWorkspaceWorkingDirectoryInheritanceSetting(
         _ value: Bool?,
         _ body: () throws -> Void
