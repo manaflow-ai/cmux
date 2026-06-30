@@ -363,8 +363,30 @@ struct ChatConversationStoreTests {
             .compactMap { snapshot -> String? in
                 if case .prose(let prose) = snapshot.message.kind { return prose.text }
                 return nil
-            }
+        }
         #expect(proseTexts == ["The sky is blue"])
+    }
+
+    @Test("live preview suppresses a suffix copied from the latest multi-line user prompt")
+    func livePreviewSuppressesPromptSuffix() async {
+        let source = FixtureChatEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await TestPoller.waitUntil { store.isConnected })
+        let user = Self.prose(seq: 0, role: .user, text: "hihiiii\ntell me a story")
+        await source.emit(.appended([user]))
+        #expect(await TestPoller.waitUntil { Self.snapshots(store.rows).map(\.message.id) == [user.id] })
+
+        await source.emit(.streamingProse(Self.streamingMessage(text: "tell me a story")))
+        #expect(Self.snapshots(store.rows).map(\.message.id) == [user.id])
+
+        let realPreview = Self.streamingMessage(text: "Once upon a time, a tiny terminal learned to listen.")
+        await source.emit(.streamingProse(realPreview))
+        #expect(await TestPoller.waitUntil {
+            Self.snapshots(store.rows).map(\.message.id) == [user.id, realPreview.id]
+        })
     }
 
     @Test("stateChanged event updates agentState")

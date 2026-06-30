@@ -618,7 +618,11 @@ public final class ChatConversationStore {
             // The preview is a whole-value replace; an agent session only. A
             // terminal session has no agent prose, so ignore it there.
             guard descriptor.kind != .terminal else { break }
-            let next = message.flatMap { Self.isProse($0) ? $0 : nil }
+            let next = message.flatMap { candidate -> ChatMessage? in
+                guard Self.isProse(candidate) else { return nil }
+                guard !Self.previewEchoesLatestUserPrompt(candidate, in: messages) else { return nil }
+                return candidate
+            }
             guard next != streamingMessage else { break }
             streamingMessage = next
             reproject()
@@ -860,5 +864,36 @@ public final class ChatConversationStore {
     private static func isProse(_ message: ChatMessage) -> Bool {
         if case .prose = message.kind { return true }
         return false
+    }
+
+    /// The screen-scraped live preview can momentarily read the wrapped tail of
+    /// the user's prompt as agent prose before Claude paints the first answer
+    /// token. Suppress only that transient suffix; committed transcript rows still
+    /// render normally once the agent actually writes them.
+    private static func previewEchoesLatestUserPrompt(
+        _ preview: ChatMessage,
+        in messages: [ChatMessage]
+    ) -> Bool {
+        guard case .prose(let previewProse) = preview.kind else { return false }
+        let previewText = normalizedPromptEchoText(previewProse.text)
+        guard !previewText.isEmpty else { return false }
+        guard let latestUserIndex = messages.lastIndex(where: { $0.role == .user }) else { return false }
+        let hasAgentAfterUser = messages[(latestUserIndex + 1)...].contains { $0.role == .agent }
+        guard !hasAgentAfterUser else { return false }
+        guard case .prose(let userProse) = messages[latestUserIndex].kind else { return false }
+        let userText = normalizedPromptEchoText(userProse.text)
+        guard userText.count > previewText.count,
+              userText.hasSuffix(previewText) else { return false }
+        let prefix = userText.dropLast(previewText.count)
+        guard let boundary = prefix.last else { return false }
+        return boundary.isWhitespace || boundary.isNewline
+    }
+
+    private static func normalizedPromptEchoText(_ text: String) -> String {
+        text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
