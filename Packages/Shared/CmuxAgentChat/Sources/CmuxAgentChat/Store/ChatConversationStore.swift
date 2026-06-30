@@ -720,7 +720,11 @@ public final class ChatConversationStore {
                 $0.isReconcilable
                     && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == command
             }) {
-                pending.remove(at: index)
+                let removed = pending.remove(at: index)
+                let removedRowID = ChatTranscriptRow.pendingOutboundRowID(for: removed.id)
+                if latestOutboundFocusRowID == removedRowID {
+                    latestOutboundFocusRowID = ChatTranscriptRow.terminalCommandRowID(for: block.id)
+                }
             }
         }
     }

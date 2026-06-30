@@ -30,7 +30,7 @@ public enum ChatTranscriptRow: Identifiable, Sendable, Equatable {
         case .pendingOutbound(let pending):
             return Self.pendingOutboundRowID(for: pending.id)
         case .terminalCommand(let block):
-            return "term-\(block.id)"
+            return Self.terminalCommandRowID(for: block.id)
         }
     }
 
@@ -40,5 +40,9 @@ public enum ChatTranscriptRow: Identifiable, Sendable, Equatable {
 
     public static func pendingOutboundRowID(for pendingID: String) -> String {
         "pending-\(pendingID)"
+    }
+
+    public static func terminalCommandRowID(for blockID: Int) -> String {
+        "term-\(blockID)"
     }
 }

@@ -236,21 +236,33 @@ extension TerminalController {
         }
         let text = v2RawString(params, "text") ?? ""
         let attachments = params["attachments"] as? [[String: Any]] ?? []
+        #if DEBUG
+        cmuxDebugLog("mobile.chat.send.start session=\(sessionID.prefix(8)) textLen=\(text.count) attachments=\(attachments.count)")
+        #endif
         guard !text.isEmpty || !attachments.isEmpty else {
             return .err(code: "invalid_params", message: "Nothing to send", data: nil)
         }
         guard let terminalParams = await mobileChatTerminalParams(sessionID: sessionID) else {
+            #if DEBUG
+            cmuxDebugLog("mobile.chat.send.terminalParams.failed session=\(sessionID.prefix(8))")
+            #endif
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
         }
         guard let terminalPanel = await mobileChatTerminalPanel(sessionID: sessionID) else {
+            #if DEBUG
+            cmuxDebugLog("mobile.chat.send.terminalPanel.failed session=\(sessionID.prefix(8))")
+            #endif
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
         }
         let clearResult = mobileChatClearPrompt(terminalPanel)
         guard clearResult.accepted else {
+            #if DEBUG
+            cmuxDebugLog("mobile.chat.send.clear.failed session=\(sessionID.prefix(8))")
+            #endif
             return mobileChatInputError(clearResult)
         }
         for (index, attachment) in attachments.enumerated() {
@@ -289,11 +301,18 @@ extension TerminalController {
             // agent's prompt; submit it so the send actually reaches the
             // agent instead of idling in the line editor.
             let keyResult = terminalPanel.sendNamedKeyResult("return")
+            #if DEBUG
+            cmuxDebugLog("mobile.chat.send.attachmentOnly submitted=\(keyResult.accepted) session=\(sessionID.prefix(8))")
+            #endif
             return .ok(["submitted": keyResult.accepted])
         }
         var pasteParams = terminalParams
         pasteParams["text"] = text
-        return v2MobileTerminalPaste(params: pasteParams)
+        let result = v2MobileTerminalPaste(params: pasteParams)
+        #if DEBUG
+        cmuxDebugLog("mobile.chat.send.paste.result session=\(sessionID.prefix(8)) result=\(result)")
+        #endif
+        return result
     }
 
     /// Clears any stale text already sitting in the agent's terminal prompt

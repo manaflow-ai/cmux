@@ -159,6 +159,10 @@ struct ChatConversationStoreTests {
         ChatSessionDescriptor(id: "session-1", agentKind: .claude, title: "Test")
     }
 
+    private static func terminalDescriptor() -> ChatSessionDescriptor {
+        ChatSessionDescriptor(id: "session-1", agentKind: .claude, kind: .terminal, title: "Test")
+    }
+
     private static func prose(
         seq: Int,
         role: ChatRole = .agent,
@@ -192,12 +196,13 @@ struct ChatConversationStoreTests {
 
     private static func makeStore(
         source: any ChatEventSource,
+        descriptor: ChatSessionDescriptor = descriptor(),
         lastReadSeq: Int? = nil,
         pageSize: Int = 10,
         maxWindowCount: Int = 600
     ) -> ChatConversationStore {
         ChatConversationStore(
-            descriptor: descriptor(),
+            descriptor: descriptor,
             source: source,
             lastReadSeq: lastReadSeq,
             pageSize: pageSize,
@@ -442,6 +447,34 @@ struct ChatConversationStoreTests {
             .id
         #expect(userMessageID != nil)
         #expect(store.latestOutboundFocusRowID == userMessageID.map(ChatTranscriptRow.messageRowID(for:)))
+    }
+
+    @Test("terminal command echo transfers outbound focus to the real command row")
+    func terminalEchoReconcilesPendingFocus() async {
+        let source = SilentSendEventSource()
+        let store = Self.makeStore(source: source, descriptor: Self.terminalDescriptor())
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await TestPoller.waitUntil { store.isConnected })
+        await store.send(text: "pwd")
+
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).first?.delivery == .delivered })
+        #expect(store.latestOutboundFocusRowID == "pending-local-1")
+
+        await source.emit(.terminalBlocks([
+            TerminalCommandBlock(id: 7, command: "pwd", output: "/tmp\n", exitCode: 0, isRunning: false)
+        ]))
+
+        #expect(
+            await TestPoller.waitUntil {
+                Self.pendingItems(store.rows).isEmpty
+                    && store.rows.contains(.terminalCommand(
+                        TerminalCommandBlock(id: 7, command: "pwd", output: "/tmp\n", exitCode: 0, isRunning: false)
+                    ))
+            }
+        )
+        #expect(store.latestOutboundFocusRowID == ChatTranscriptRow.terminalCommandRowID(for: 7))
     }
 
     @Test("send failure marks the pending row failed; retry delivers it")

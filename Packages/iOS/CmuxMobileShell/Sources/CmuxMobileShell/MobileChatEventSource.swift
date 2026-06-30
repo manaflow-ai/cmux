@@ -1,4 +1,5 @@
 public import CmuxAgentChat
+import CmuxMobileDiagnostics
 public import CmuxMobileRPC
 import Foundation
 
@@ -123,6 +124,7 @@ public actor MobileChatEventSource: ChatEventSource {
     }
 
     public func history(sessionID: String, beforeSeq: Int?, limit: Int) async throws -> ChatHistoryPage {
+        MobileDebugLog.anchormux("agentChat.history.start session=\(Self.short(sessionID)) before=\(beforeSeq.map(String.init) ?? "nil") limit=\(limit)")
         var params: [String: Any] = [
             "session_id": sessionID,
             "limit": limit,
@@ -132,7 +134,9 @@ public actor MobileChatEventSource: ChatEventSource {
         }
         let request = try MobileCoreRPCClient.requestData(method: "mobile.chat.history", params: params)
         let result = try await client.sendRequest(request)
-        return try coding.decode(ChatHistoryPage.self, from: result)
+        let page = try coding.decode(ChatHistoryPage.self, from: result)
+        MobileDebugLog.anchormux("agentChat.history.end session=\(Self.short(sessionID)) messages=\(page.messages.count) blocks=\(page.terminalBlocks?.count ?? 0) hasMore=\(page.hasMore)")
+        return page
     }
 
     public func events(sessionID: String) async -> AsyncStream<ChatSessionEvent> {
@@ -140,6 +144,7 @@ public actor MobileChatEventSource: ChatEventSource {
         let client = self.client
         let coding = self.coding
         let streamID = UUID().uuidString
+        MobileDebugLog.anchormux("agentChat.events.localSubscribe session=\(Self.short(sessionID)) stream=\(Self.short(streamID))")
         return AsyncStream { continuation in
             let pump = Task {
                 // Server-side handshake after the local listener exists so no
@@ -156,7 +161,9 @@ public actor MobileChatEventSource: ChatEventSource {
                         ]
                     )
                     _ = try await client.sendRequest(subscribe)
+                    MobileDebugLog.anchormux("agentChat.events.serverSubscribe.ok session=\(Self.short(sessionID)) stream=\(Self.short(streamID))")
                 } catch {
+                    MobileDebugLog.anchormux("agentChat.events.serverSubscribe.failed session=\(Self.short(sessionID)) error=\(error.localizedDescription)")
                     continuation.finish()
                     return
                 }
@@ -166,6 +173,7 @@ public actor MobileChatEventSource: ChatEventSource {
                         continue
                     }
                     guard frame.sessionID == sessionID else { continue }
+                    MobileDebugLog.anchormux("agentChat.events.frame session=\(Self.short(sessionID)) \(Self.eventSummary(frame.event))")
                     continuation.yield(frame.event)
                 }
                 continuation.finish()
@@ -192,6 +200,7 @@ public actor MobileChatEventSource: ChatEventSource {
     }
 
     public func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
+        MobileDebugLog.anchormux("agentChat.send.start session=\(Self.short(sessionID)) textLen=\(text.count) attachments=\(attachments.count)")
         var params: [String: Any] = [
             "session_id": sessionID,
             "text": text,
@@ -206,6 +215,7 @@ public actor MobileChatEventSource: ChatEventSource {
         }
         let request = try MobileCoreRPCClient.requestData(method: "mobile.chat.send", params: params)
         _ = try await client.sendRequest(request)
+        MobileDebugLog.anchormux("agentChat.send.end session=\(Self.short(sessionID))")
     }
 
     public func interrupt(sessionID: String, hard: Bool) async throws {
@@ -228,5 +238,46 @@ public actor MobileChatEventSource: ChatEventSource {
             ]
         )
         _ = try await client.sendRequest(request)
+    }
+
+    private nonisolated static func short(_ value: String) -> String {
+        String(value.prefix(8))
+    }
+
+    private nonisolated static func eventSummary(_ event: ChatSessionEvent) -> String {
+        switch event {
+        case .appended(let messages):
+            return "event=appended messages=\(messages.count) roles=\(roleSummary(messages)) ids=\(messageIDSummary(messages))"
+        case .updated(let messages):
+            return "event=updated messages=\(messages.count) roles=\(roleSummary(messages)) ids=\(messageIDSummary(messages))"
+        case .stateChanged(let state):
+            return "event=stateChanged state=\(state)"
+        case .descriptorChanged(let descriptor):
+            return "event=descriptorChanged kind=\(descriptor.kind) state=\(descriptor.state) version=\(descriptor.version)"
+        case .terminalBlocks(let blocks):
+            return "event=terminalBlocks blocks=\(blocks.count) ids=\(blockIDSummary(blocks)) running=\(blockRunningSummary(blocks))"
+        case .streamingProse(let message):
+            return "event=streamingProse hasMessage=\(message != nil)"
+        case .reset:
+            return "event=reset"
+        case .unknown(let raw):
+            return "event=unknown raw=\(raw)"
+        }
+    }
+
+    private nonisolated static func roleSummary(_ messages: [ChatMessage]) -> String {
+        messages.map { "\($0.role)" }.joined(separator: ",")
+    }
+
+    private nonisolated static func messageIDSummary(_ messages: [ChatMessage]) -> String {
+        messages.map { short($0.id) }.joined(separator: ",")
+    }
+
+    private nonisolated static func blockIDSummary(_ blocks: [TerminalCommandBlock]) -> String {
+        blocks.map { String($0.id) }.joined(separator: ",")
+    }
+
+    private nonisolated static func blockRunningSummary(_ blocks: [TerminalCommandBlock]) -> String {
+        blocks.map { $0.isRunning ? "1" : "0" }.joined(separator: ",")
     }
 }
