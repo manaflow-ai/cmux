@@ -603,6 +603,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     /// `remoteClient` narrowed for `MobileShellComposite+AgentChat.swift`.
     var remoteClientForAgentChat: MobileCoreRPCClient? { remoteClient }
+    /// Identity token that changes when the paired Mac chat event source is rebuilt.
     public var agentChatEventSourceIdentity: String { connectionGeneration.uuidString }
     private var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?

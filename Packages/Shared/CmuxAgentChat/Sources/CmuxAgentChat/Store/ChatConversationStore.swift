@@ -108,7 +108,7 @@ public final class ChatConversationStore {
         pageSize: Int = 100,
         maxWindowCount: Int = 600,
         now: @escaping @Sendable () -> Date = { Date() },
-        idleSleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+        idleSleep: @escaping @Sendable (Duration) async -> Void = { try? await ContinuousClock().sleep(for: $0) }
     ) {
         self.descriptor = descriptor
         self.agentState = descriptor.state
