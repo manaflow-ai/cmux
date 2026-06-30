@@ -41,6 +41,35 @@ import Testing
     #expect(String(decoding: secondChunk.data, as: UTF8.self) == "new-second")
 }
 
+@MainActor
+@Test func terminalOutputResetDropsStalledBacklogAndInvalidatesOldAcks() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.deliverTerminalBytes(Data("stalled-first".utf8), surfaceID: surfaceID)
+    let stalledChunk = try #require(await iterator.next())
+    store.deliverTerminalBytes(Data("stale-second".utf8), surfaceID: surfaceID)
+
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == 1)
+
+    store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
+
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+
+    store.deliverTerminalBytes(Data("fresh-after-reset".utf8), surfaceID: surfaceID)
+    let freshChunk = try #require(await iterator.next())
+    #expect(String(decoding: freshChunk.data, as: UTF8.self) == "fresh-after-reset")
+    #expect(freshChunk.streamToken != stalledChunk.streamToken)
+
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
+    store.deliverTerminalBytes(Data("after-stale-ack".utf8), surfaceID: surfaceID)
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: freshChunk.streamToken)
+
+    let afterStaleAck = try #require(await iterator.next())
+    #expect(String(decoding: afterStaleAck.data, as: UTF8.self) == "after-stale-ack")
+}
+
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
