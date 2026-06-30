@@ -70,13 +70,23 @@ extension SocketCommandObservability {
         }
     }
 
+    private static let maxSampleReadBytes = 4 * 1024 * 1024
+
     private func sampleFileContents(at url: URL) async throws -> String {
         let fileHandle = try FileHandle(forReadingFrom: url)
         defer { try? fileHandle.close() }
 
+        // Bound per-capture memory: `/usr/bin/sample` output grows with thread
+        // count, stack depth, and the trailing Binary Images section, and this runs
+        // while the app is already stalled. The main-thread excerpt lives early in
+        // the call graph, so cap the read instead of loading an unbounded report
+        // into memory. The async byte stream keeps the read off the calling thread.
         var data = Data()
         for try await byte in fileHandle.bytes {
             data.append(byte)
+            if data.count >= Self.maxSampleReadBytes {
+                break
+            }
         }
         return String(decoding: data, as: UTF8.self)
     }
