@@ -36,10 +36,23 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
             label.textColor = .white
             return label
         }
+        let container = UIView()
+        container.backgroundColor = .black
         let view = GhosttySurfaceView(runtime: runtime, delegate: context.coordinator, fontSize: 12)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            view.topAnchor.constraint(equalTo: container.topAnchor),
+            view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        let probe = MobileZoomStressLineProbeView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+        probe.lineSource = context.coordinator
+        container.addSubview(probe)
         context.coordinator.surfaceView = view
         context.coordinator.start()
-        return view
+        return container
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {}
@@ -49,12 +62,15 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
+    final class Coordinator: NSObject, GhosttySurfaceViewDelegate, MobileZoomStressLineProbeSource {
         weak var surfaceView: GhosttySurfaceView?
         private var zoomTimer: Timer?
         private var byteTimer: Timer?
         private var grow = true
+        private let usesColorBands = ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS_COLOR_BANDS"] == "1"
         private var lineCounter = 0
+
+        var zoomStressLineCount: Int { lineCounter }
 
         func start() {
             // (1) Stream bytes like the Mac does, concurrently with zoom.
@@ -63,8 +79,10 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
                 MainActor.assumeIsolated {
                     guard let self, let view = self.surfaceView else { return }
                     self.lineCounter += 1
-                    let line = "stress line \(self.lineCounter) \u{1b}[32mgreen\u{1b}[0m and more text to wrap\r\n"
-                    view.processOutput(Data(line.utf8))
+                    let data = self.usesColorBands
+                        ? mobileZoomStressColorBandFrame(sequence: self.lineCounter)
+                        : Data("stress line \(self.lineCounter) \u{1b}[32mgreen\u{1b}[0m and more text to wrap\r\n".utf8)
+                    view.processOutput(data)
                 }
             }
 
@@ -105,7 +123,11 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
             guard size.columns > 0, size.rows > 0 else { return }
             let cols = max(1, size.columns - 3)
             let rows = max(1, size.rows - 3)
-            surfaceView.processOutput(Self.promptRedrawBurst(cols: size.columns))
+            surfaceView.processOutput(
+                usesColorBands
+                    ? mobileZoomStressColorBandFrame(sequence: lineCounter)
+                    : mobileZoomStressPromptRedrawBurst(cols: size.columns)
+            )
             Task { @MainActor [weak surfaceView] in
                 surfaceView?.applyViewSize(cols: cols, rows: rows)
             }
@@ -121,22 +143,35 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
         /// `process_output` on the serial queue — the device stall the
         /// SGR-only/synthetic-content harness never reproduced. We emit well
         /// past 64 messages per burst to overflow it.
-        private static func promptRedrawBurst(cols: Int) -> Data {
-            var s = "\u{1b}[?2004l\r\u{1b}[0m\u{1b}[J" // reset + clear-to-end
-            let cwd = "\u{1b}]7;file://mac/Users/lawrence/fun/cmuxterm-hq/worktrees/feat-ios-swift-mobile-core/ios\u{07}"
-            for i in 0..<160 {
-                s += "\u{1b}]133;A\u{07}"                                   // prompt start
-                s += cwd                                                    // cwd (OSC 7)
-                s += "\u{1b}]0;lawrence@mac: ~/fun/cmuxterm-hq (\(i))\u{07}" // title (OSC 0)
-                s += "\u{1b}]11;rgb:1d/1f/21\u{07}"                         // bg color (OSC 11)
-                s += "\u{1b}]133;B\u{07}"                                   // prompt end (input start)
-            }
-            // A visible colored prompt line so something also renders.
-            s += "\u{1b}[48;5;31m\u{1b}[38;5;15m lawrence \u{1b}[0m"
-            s += "\u{1b}[48;5;236m\u{1b}[38;5;114m feat-ios-swift-mobile-core \u{1b}[0m"
-            s += "\r\n\u{1b}[38;5;76m❯\u{1b}[0m \u{1b}[K"
-            return Data(s.utf8)
-        }
     }
+}
+
+private func mobileZoomStressPromptRedrawBurst(cols _: Int) -> Data {
+    var s = "\u{1b}[?2004l\r\u{1b}[0m\u{1b}[J" // reset + clear-to-end
+    let cwd = "\u{1b}]7;file://mac/Users/lawrence/fun/cmuxterm-hq/worktrees/feat-ios-swift-mobile-core/ios\u{07}"
+    for i in 0..<160 {
+        s += "\u{1b}]133;A\u{07}"                                   // prompt start
+        s += cwd                                                    // cwd (OSC 7)
+        s += "\u{1b}]0;lawrence@mac: ~/fun/cmuxterm-hq (\(i))\u{07}" // title (OSC 0)
+        s += "\u{1b}]11;rgb:1d/1f/21\u{07}"                         // bg color (OSC 11)
+        s += "\u{1b}]133;B\u{07}"                                   // prompt end (input start)
+    }
+    // A visible colored prompt line so something also renders.
+    s += "\u{1b}[48;5;31m\u{1b}[38;5;15m lawrence \u{1b}[0m"
+    s += "\u{1b}[48;5;236m\u{1b}[38;5;114m feat-ios-swift-mobile-core \u{1b}[0m"
+    s += "\r\n\u{1b}[38;5;76m❯\u{1b}[0m \u{1b}[K"
+    return Data(s.utf8)
+}
+
+private func mobileZoomStressColorBandFrame(sequence: Int) -> Data {
+    let colors: [(r: Int, g: Int, b: Int)] = [(210, 40, 40), (40, 180, 70), (50, 90, 220)]
+    let block = String(repeating: "\u{2588}", count: 220)
+    var s = "\u{1b}[2J\u{1b}[H\u{1b}[?25l"
+    for row in 0..<96 {
+        let c = colors[((row / 2) + sequence) % colors.count]
+        s += "\u{1b}[38;2;\(c.r);\(c.g);\(c.b)m\(block)\r\n"
+    }
+    s += "\u{1b}[0m"
+    return Data(s.utf8)
 }
 #endif
