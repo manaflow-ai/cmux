@@ -978,6 +978,7 @@ final class FileExplorerStore: ObservableObject {
                     guard let self else { break }
                     self.reload()
                     self.refreshGitStatus()
+                    self.installGitStateWatcherIfNeeded()
                 }
             }
             startGitStateWatcher(under: rootPath)
@@ -1010,6 +1011,17 @@ final class FileExplorerStore: ObservableObject {
                 self.refreshGitStatus()
             }
         }
+    }
+
+    /// Installs the git-state watcher if a repository appeared after the folder
+    /// was opened (e.g. `git init`, or adding a worktree/submodule). The main
+    /// tree watcher excludes `.git`, so its creation isn't observed directly;
+    /// instead this re-checks on the next working-tree event and starts watching
+    /// metadata once `.git` exists. A no-op once the watcher is installed or
+    /// while the folder still isn't a repository.
+    private func installGitStateWatcherIfNeeded() {
+        guard gitStateWatcher == nil, let watchPath = directoryWatchPath else { return }
+        startGitStateWatcher(under: watchPath)
     }
 
     /// Maximum bytes read from a non-directory `.git` entry. A real `gitdir:`

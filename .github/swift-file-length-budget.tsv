@@ -55,8 +55,8 @@
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1687	cmuxTests/MarkdownPanelTests.swift
 1680	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
+1671	Sources/FileExplorerStore.swift
 1661	Sources/FileExplorerView.swift
-1659	Sources/FileExplorerStore.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
 1581	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
