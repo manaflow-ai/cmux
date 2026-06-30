@@ -12,7 +12,7 @@ import UIKit
 /// The agent chat rendered inline in the workspace detail, in place of the
 /// terminal, when chat mode is toggled on. There is no cover and no Done
 /// button: the same toolbar toggle flips back to the terminal.
-struct WorkspaceChatPane: View {
+struct WorkspaceChatPane<TitleMenuContent: View>: View {
     let session: ChatSessionDescriptor
     let conversation: ChatConversationStore
     let store: CMUXMobileShellStore
@@ -25,6 +25,11 @@ struct WorkspaceChatPane: View {
     /// Composer draft, owned by the parent so it survives toggling back to
     /// the terminal and returning mid-thought.
     @Binding var draft: String
+    /// Compact-stack back button owned by the workspace toolbar, colocated with
+    /// the leading title so their order is deterministic.
+    let backButtonConfiguration: WorkspaceBackButtonConfiguration?
+    /// Workspace-scoped actions exposed from the title pill.
+    let titleMenuContent: () -> TitleMenuContent
     /// Flips chat mode off (the toggle's "back to terminal" path).
     let onExitChat: () -> Void
 
@@ -32,9 +37,8 @@ struct WorkspaceChatPane: View {
 
     @State private var accessoryConfiguration = TerminalAccessoryConfiguration.shared
     @State private var isShowingShortcutSettings = false
-    /// Full content width, used to bound the toolbar-principal header so a long
-    /// workspace name truncates in the center instead of overflowing under the
-    /// back button / trailing toolbar buttons.
+    /// Full content width, used to bound the leading toolbar header so a long
+    /// workspace name truncates before the trailing toolbar buttons.
     @State private var contentWidth: CGFloat = 0
 
     var body: some View {
@@ -48,38 +52,60 @@ struct WorkspaceChatPane: View {
                 runsStoreTask: false,
                 onOpenTerminal: openTerminal
             )
-            // The host (workspace detail) owns the nav bar, so the
-            // live session-state header is supplied here as a principal
-            // item rather than by ChatScreen, which would be dropped
-            // under the workspace's own chrome.
+            // The host (workspace detail) owns the nav bar, so the live
+            // session-state header is supplied here rather than by ChatScreen,
+            // which would be dropped under the workspace's own chrome.
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    ChatSessionHeaderView(
-                        descriptor: conversation.descriptor,
-                        agentState: conversation.agentState,
-                        isConnected: conversation.isConnected,
-                        titleOverride: workspaceName,
-                        subtitle: tabName
-                    )
-                    // Centered principal item: cap it to the clear center gap
-                    // so a long workspace name truncates instead of
-                    // underlapping the toolbar. The chat view always shows the
-                    // chat toggle in its trailing cluster. Reserve only the
-                    // real side clusters so the middle grows as much as it can.
-                    .frame(maxWidth: MobileNavTitleWidth.cap(
-                        contentWidth: contentWidth,
-                        hasChatToggle: true
-                    ))
-                    // The header bar is cleared on iOS 26 so the transcript
-                    // shows through it; back the header on its own Liquid
-                    // Glass pill so it stays readable over the messages.
-                    .mobileGlassNavigationTitle()
+                if backButtonConfiguration != nil {
+                    ToolbarItem(placement: .topBarLeading) {
+                        workspaceBackToolbarButton
+                    }
+                    if #available(iOS 26.0, *) {
+                        ToolbarSpacer(.fixed, placement: .topBarLeading)
+                    }
+                }
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        titleMenuContent()
+                    } label: {
+                        ChatSessionHeaderView(
+                            descriptor: conversation.descriptor,
+                            agentState: conversation.agentState,
+                            isConnected: conversation.isConnected,
+                            titleOverride: workspaceName,
+                            subtitle: tabName,
+                            style: .toolbarCompact
+                        )
+                        .frame(
+                            minWidth: MobileNavTitleWidth.floor,
+                            maxWidth: MobileNavTitleWidth(
+                                contentWidth: contentWidth,
+                                hasBackButton: backButtonConfiguration != nil,
+                                hasChatToggle: true
+                            ).leadingCap,
+                            alignment: .leading
+                        )
+                        .layoutPriority(1)
+                    }
+                    .mobileGlassCompactToolbarControl()
+                    .accessibilityIdentifier("MobileWorkspaceTitleMenu")
                 }
             }
         }
         .sheet(isPresented: $isShowingShortcutSettings) {
             TerminalShortcutsSettingsView(scope: .agentChat)
+        }
+    }
+
+    @ViewBuilder
+    private var workspaceBackToolbarButton: some View {
+        if let backButtonConfiguration {
+            WorkspaceBackButton(
+                unreadCount: backButtonConfiguration.unreadCount,
+                badgeContrast: backButtonConfiguration.badgeContrast,
+                action: backButtonConfiguration.action
+            )
         }
     }
 

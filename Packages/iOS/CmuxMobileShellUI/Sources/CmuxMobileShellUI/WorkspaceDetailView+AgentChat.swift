@@ -98,6 +98,8 @@ extension WorkspaceDetailView {
                     get: { chatDrafts[session.id] ?? "" },
                     set: { chatDrafts[session.id] = $0 }
                 ),
+                backButtonConfiguration: backButtonConfiguration,
+                titleMenuContent: { titleMenuContent },
                 onExitChat: {
                     withAnimation(.snappy(duration: 0.28)) {
                         isChatMode = false
@@ -115,6 +117,10 @@ extension WorkspaceDetailView {
                 }
             }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
+            .closeWorkspaceConfirmation(
+                isPresented: $isConfirmingClose,
+                confirm: confirmCloseWorkspaceFromMenu
+            )
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
                 text: $renameText,
@@ -187,7 +193,9 @@ extension WorkspaceDetailView {
         }
         reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: seedOutcome.canInvalidateSelection)
         for await frame in stream {
-            let next = reducer.applying(frame, to: visibleChatSessions)
+            let current = visibleChatSessions
+            let next = reducer.applying(frame, to: current)
+            guard next != current else { continue }
             withAnimation(.snappy(duration: 0.25)) {
                 chatSessionsWorkspaceID = workspaceID
                 chatSessions = next
@@ -203,7 +211,7 @@ extension WorkspaceDetailView {
     func runWarmChatConversation() async {
         guard scenePhase != .background,
               let session = warmChatSession,
-              let conversation = ensureChatConversationStore(for: session)
+              let conversation = ensureChatConversationStore(for: session, requiresCurrentSource: true)
         else { return }
         await conversation.run()
     }
@@ -234,7 +242,8 @@ extension WorkspaceDetailView {
     /// projection of state.
     @discardableResult
     private func ensureChatConversationStore(
-        for session: ChatSessionDescriptor
+        for session: ChatSessionDescriptor,
+        requiresCurrentSource: Bool = false
     ) -> ChatConversationStore? {
         let source = store.makeChatEventSource()
         if let existing = chatConversationStores[session.id] {
@@ -244,6 +253,8 @@ extension WorkspaceDetailView {
                     descriptor: session,
                     sourceIdentity: store.agentChatEventSourceIdentity
                 )
+            } else if requiresCurrentSource {
+                return nil
             }
             return existing
         }
@@ -318,9 +329,5 @@ extension WorkspaceDetailView {
         applyChatModeFallback(canInvalidateSelection: seedOutcomeCanInvalidateSelection)
     }
 
-    /// The tab/terminal name for a session, for the chat header subtitle.
-    private func tabName(for session: ChatSessionDescriptor) -> String? {
-        workspace.terminals.first { $0.id.rawValue == session.terminalID }?.name
-    }
 }
 #endif
