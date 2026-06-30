@@ -159,16 +159,19 @@ final class SessionIndexViewTests: XCTestCase {
         )
 
         let command = entry.resumeCommand ?? ""
+        XCTAssertTrue(command.hasPrefix("/bin/zsh -lc "), command)
+        let inner = Self.unwrapPortableShellCommand(Self.unwrapRetryWrappedShellCommand(command))
+        XCTAssertTrue(inner.hasPrefix(AgentResumeArgv.codexWrapperShellExecutableToken), inner)
         XCTAssertEqual(
-            command,
-            codexRetryWrappedForTest("codex resume codex-session-123 -m gpt-5.5 --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high")
+            inner,
+            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-session-123 -m gpt-5.5 --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high"
         )
         XCTAssertFalse(
-            command.contains("-s disabled"),
+            inner.contains("-s disabled"),
             "Codex resume must not emit the invalid `-s disabled` flag (issue #5262)"
         )
         XCTAssertFalse(
-            command.contains("-a never -s"),
+            inner.contains("-a never -s"),
             "The bypass flag must replace, not accompany, -a/-s"
         )
     }
@@ -189,9 +192,14 @@ final class SessionIndexViewTests: XCTestCase {
         )
 
         let command = entry.resumeCommand ?? ""
-        XCTAssertEqual(command, codexRetryWrappedForTest("codex resume codex-session-managed -a on-request"))
+        XCTAssertTrue(command.hasPrefix("/bin/zsh -lc "), command)
+        let inner = Self.unwrapPortableShellCommand(Self.unwrapRetryWrappedShellCommand(command))
+        XCTAssertEqual(
+            inner,
+            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-session-managed -a on-request"
+        )
         XCTAssertFalse(
-            command.contains("-s managed"),
+            inner.contains("-s managed"),
             "Codex resume must not emit the invalid `-s managed` flag (issue #5262)"
         )
     }
@@ -212,8 +220,10 @@ final class SessionIndexViewTests: XCTestCase {
             )
         )
         XCTAssertEqual(
-            readOnly.resumeCommand,
-            codexRetryWrappedForTest("codex resume codex-ro -a untrusted -s read-only")
+            Self.unwrapPortableShellCommand(
+                Self.unwrapRetryWrappedShellCommand(readOnly.resumeCommand ?? "")
+            ),
+            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-ro -a untrusted -s read-only"
         )
 
         let dangerFullAccess = makeEntry(
@@ -228,17 +238,32 @@ final class SessionIndexViewTests: XCTestCase {
             )
         )
         XCTAssertEqual(
-            dangerFullAccess.resumeCommand,
-            codexRetryWrappedForTest("codex resume codex-dfa -m gpt-5.5 -a never -s danger-full-access")
+            Self.unwrapPortableShellCommand(
+                Self.unwrapRetryWrappedShellCommand(dangerFullAccess.resumeCommand ?? "")
+            ),
+            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-dfa -m gpt-5.5 -a never -s danger-full-access"
         )
     }
 
-    private func codexRetryWrappedForTest(_ command: String) -> String {
-        CodexResumeRetryShell().wrappedCommand(command, quote: Self.shellSingleQuoted)
+    static func unwrapRetryWrappedShellCommand(_ command: String) -> String {
+        let prefix = "/bin/zsh -lc "
+        guard command.hasPrefix(prefix) else { return command }
+        var quoted = String(command.dropFirst(prefix.count))
+        guard quoted.hasPrefix("'"), quoted.hasSuffix("'") else { return quoted }
+        quoted = String(quoted.dropFirst().dropLast())
+        return quoted.replacingOccurrences(of: "'\\''", with: "'")
     }
 
-    private static func shellSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    /// Reverses `AgentResumeArgv.portableCodexResumeShellCommand`, recovering the
+    /// inner POSIX command from a `/bin/sh -c '<command>'` wrapper (undoing the
+    /// `'\''` single-quote escaping).
+    static func unwrapPortableShellCommand(_ command: String) -> String {
+        let prefix = "/bin/sh -c "
+        guard command.hasPrefix(prefix) else { return command }
+        var quoted = String(command.dropFirst(prefix.count))
+        guard quoted.hasPrefix("'"), quoted.hasSuffix("'") else { return quoted }
+        quoted = String(quoted.dropFirst().dropLast())
+        return quoted.replacingOccurrences(of: "'\\''", with: "'")
     }
 
     func testCurrentDirectorySetterDoesNotPublishEqualValue() {

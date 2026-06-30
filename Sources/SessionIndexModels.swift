@@ -337,7 +337,18 @@ struct SessionEntry: Identifiable, Hashable {
                 posixCommand: Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
             )
         case let .codex(model, approval, sandbox, effort):
-            var parts = ["codex resume \(sessionId)"]
+            // Route through the codex wrapper-resolver token so a manually- or
+            // auto-resumed codex session re-injects cmux hooks even when the
+            // command runs in a shell where the integration's PATH shim is not
+            // active (e.g. the `$SHELL -lic` restore launcher). Without this the
+            // bare `codex resume <id>` resolves to the real codex binary,
+            // bypassing cmux-codex-wrapper, so no SessionStart fires and the iOS
+            // GUI stays read-only. Mirror of the claude case: the token is
+            // POSIX-only and this command is typed into / copy-pasted into the
+            // user's own shell (fish/csh included), so the rendered command is
+            // wrapped in `/bin/sh -c '…'`; the `cd` guard stays outside in
+            // `resumeCommandWithCwd`. https://github.com/manaflow-ai/cmux/issues/5639
+            var parts = ["\(AgentResumeArgv.codexWrapperShellExecutableToken) resume \(sessionId)"]
             if let model, !model.isEmpty {
                 parts.append("-m \(Self.shellQuote(model))")
             }
@@ -349,7 +360,10 @@ struct SessionEntry: Identifiable, Hashable {
                 parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
             }
             return CodexResumeRetryShell().wrappedCommand(
-                parts.joined(separator: " "),
+                AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                    parts: parts,
+                    quote: Self.shellSingleQuote
+                ),
                 quote: Self.shellSingleQuote
             )
         case let .grok(model, permissionMode, sandboxMode, grokHome):
