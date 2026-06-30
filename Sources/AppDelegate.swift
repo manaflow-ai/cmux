@@ -14671,6 +14671,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// app shortcut dispatcher before terminal-owned non-Command keys go to Ghostty.
     @discardableResult
     func handleRoutableNumberedShortcutKeyEquivalent(_ event: NSEvent) -> Bool {
+        guard eventCouldMatchNumberedShortcutDigit(event) else {
+            return false
+        }
         guard routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) != nil ||
             routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil else {
             return false
@@ -15469,6 +15472,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         guard let digit = Int(normalized), (1...9).contains(digit) else { return nil }
         return digit
+    }
+
+    private func eventCouldMatchNumberedShortcutDigit(_ event: NSEvent) -> Bool {
+        if digitForNumberKeyCode(event.keyCode) != nil {
+            return true
+        }
+        return numberedShortcutDigit(
+            eventCharacter: event.charactersIgnoringModifiers,
+            applyShiftSymbolNormalization: false,
+            eventKeyCode: event.keyCode
+        ) != nil
     }
 
     private func normalizedShortcutEventCharacter(
