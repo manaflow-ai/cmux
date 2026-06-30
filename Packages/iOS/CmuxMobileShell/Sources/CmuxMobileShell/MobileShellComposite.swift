@@ -3186,8 +3186,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Supersede the in-flight paired-Mac switch without applying the broader
     /// pairing-cancel UI teardown. Used by picker surfaces that abandon a switch
     /// request before it reaches the foreground mutation point.
-    public func cancelPendingMacSwitch(restorePreviousOnCancel: Bool = false) {
-        guard let attemptID = macSwitchAttemptID else { return }
+    @discardableResult
+    public func cancelPendingMacSwitch(restorePreviousOnCancel: Bool = false) -> Task<Bool, Never>? {
+        guard let attemptID = macSwitchAttemptID else { return nil }
         let restoreTarget = restorePreviousOnCancel ? macSwitchRestoreBaseline : nil
         let restoreSignInGeneration = signInGeneration
         let restoreScopeGeneration = secondaryAggregationScopeGeneration
@@ -3201,14 +3202,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         invalidatePairingAttempt()
         connectionAttemptGeneration = UUID()
         if let restoreTarget {
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+            return Task { @MainActor [weak self] in
+                guard let self else { return false }
                 guard self.isSignedIn,
                       self.signInGeneration == restoreSignInGeneration,
                       self.secondaryAggregationScopeGeneration == restoreScopeGeneration,
                       self.macSwitchAttemptID == nil,
-                      self.macSwitchCancelRestoreGeneration == restoreGeneration else { return }
-                _ = await self.restorePreviousMacIfNeeded(
+                      self.macSwitchCancelRestoreGeneration == restoreGeneration else { return false }
+                let restored = await self.restorePreviousMacIfNeeded(
                     restoreTarget,
                     cancelRestoreGeneration: restoreGeneration
                 )
@@ -3218,8 +3219,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                    self.macSwitchCancelRestoreGeneration == restoreGeneration {
                     self.macSwitchRestoreBaseline = nil
                 }
+                return restored
             }
         }
+        return nil
     }
 
     /// Accepts the pending version mismatch warning and retries the stored pairing URL.

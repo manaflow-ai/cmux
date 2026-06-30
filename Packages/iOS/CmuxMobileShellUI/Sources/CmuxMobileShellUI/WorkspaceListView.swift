@@ -38,7 +38,7 @@ struct WorkspaceListView: View {
     var switchMac: (@MainActor (String) async -> Bool)? = nil
     /// Cancels a title-picker switch that is still in flight. `nil` in previews,
     /// where no real foreground connection exists.
-    var cancelMacSwitch: (@MainActor (_ restorePreviousOnCancel: Bool) -> Void)? = nil
+    var cancelMacSwitch: (@MainActor (_ restorePreviousOnCancel: Bool) async -> Void)? = nil
     /// Pull-to-refresh action. Awaits the real workspace-list re-sync from the
     /// paired Mac so the system refresh spinner reflects actual completion (and
     /// ends gracefully, leaving the list intact, when the Mac is offline). Passed
@@ -313,7 +313,11 @@ struct WorkspaceListView: View {
         // leaving a parent sheet covering it.
         .sheet(isPresented: $showingDeviceTree) {
             if let store {
-                DeviceTreeView(store: store, selectWorkspace: selectWorkspaceFromList, showAddDevice: showAddDevice)
+                DeviceTreeView(
+                    store: store,
+                    selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
+                    showAddDevice: showAddDevice
+                )
             }
         }
         #endif
@@ -328,7 +332,7 @@ struct WorkspaceListView: View {
         } else {
             startsMachineSwitch = false
         }
-        cancelMacTitlePickerSwitch(restorePreviousOnCancel: !startsMachineSwitch)
+        _ = cancelMacTitlePickerSwitch(restorePreviousOnCancel: !startsMachineSwitch)
         let generation = macTitlePickerSwitchGeneration
         guard startsMachineSwitch else {
             macTitlePickerPendingSelection = nil
@@ -361,15 +365,17 @@ struct WorkspaceListView: View {
         }
     }
 
-    func cancelMacTitlePickerSwitch(restorePreviousOnCancel: Bool = true) {
-        let hadPendingSwitch = macTitlePickerSwitchTask != nil
-        // Leave the task uncancelled: the store may need that continuation to
-        // restore the foreground Mac after invalidating a destructive switch.
+    @discardableResult
+    func cancelMacTitlePickerSwitch(restorePreviousOnCancel: Bool = true) -> Task<Void, Never>? {
+        let pendingSwitchTask = macTitlePickerSwitchTask
+        pendingSwitchTask?.cancel()
         macTitlePickerSwitchTask = nil
         macTitlePickerPendingSelection = nil
         macTitlePickerSwitchGeneration &+= 1
-        if hadPendingSwitch {
-            cancelMacSwitch?(restorePreviousOnCancel)
+        guard pendingSwitchTask != nil else { return nil }
+        let cancelMacSwitch = cancelMacSwitch
+        return Task { @MainActor in
+            await cancelMacSwitch?(restorePreviousOnCancel)
         }
     }
 
@@ -452,7 +458,7 @@ struct WorkspaceListView: View {
                     navigationStyle: navigationStyle,
                     isAnchorSelected: navigationStyle == .sidebar
                         && selectedWorkspaceID == group.anchorWorkspaceID,
-                    selectWorkspace: selectWorkspaceFromList,
+                    selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
                     toggleCollapsed: toggleGroupCollapsed,
                     unreadIndicatorLeftShift: unreadIndicatorLeftShift
                 )
@@ -477,7 +483,7 @@ struct WorkspaceListView: View {
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
             profilePictureLeftShift: profilePictureLeftShift,
             profilePictureSize: profilePictureSize,
-            selectWorkspace: selectWorkspaceFromList,
+            selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
             renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
             setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,
             setUnread: capabilities.supportsReadStateActions ? setUnread : nil,
@@ -503,15 +509,26 @@ struct WorkspaceListView: View {
         .accessibilityIdentifier("MobileNewWorkspaceButton")
     }
 
-    func prepareWorkspaceSelectionFromList() {
+    @discardableResult
+    func prepareWorkspaceSelectionFromList() -> Task<Void, Never>? {
         #if os(iOS)
-        cancelMacTitlePickerSwitch()
+        return cancelMacTitlePickerSwitch()
+        #else
+        return nil
         #endif
     }
 
-    func selectWorkspaceFromList(_ id: MobileWorkspacePreview.ID) {
-        prepareWorkspaceSelectionFromList()
-        selectWorkspace(id)
+    @discardableResult
+    func selectWorkspaceFromList(_ id: MobileWorkspacePreview.ID) -> Task<Void, Never>? {
+        guard let cancelTask = prepareWorkspaceSelectionFromList() else {
+            selectWorkspace(id)
+            return nil
+        }
+        let task = Task { @MainActor in
+            await cancelTask.value
+            selectWorkspace(id)
+        }
+        return task
     }
 
     private var settingsMenu: some View {
