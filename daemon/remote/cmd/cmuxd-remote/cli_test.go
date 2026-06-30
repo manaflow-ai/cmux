@@ -486,7 +486,7 @@ func TestCLINewWindow(t *testing.T) {
 	}
 }
 
-func TestSocketRoundTripV2MultilineResult(t *testing.T) {
+func TestSocketRoundTripV2ListResult(t *testing.T) {
 	windows := []any{
 		map[string]any{"id": "alpha", "ref": "@1"},
 		map[string]any{"id": "beta", "ref": "@2"},
