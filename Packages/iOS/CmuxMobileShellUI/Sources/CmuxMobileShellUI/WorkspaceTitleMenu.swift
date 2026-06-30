@@ -10,21 +10,24 @@ struct WorkspaceToolbarTitleControl<Label: View>: View {
     var body: some View {
         #if os(iOS)
         if #available(iOS 26.0, *) {
-            Button {} label: {
-                fittedLabel
-            }
-            .mobileGlassCompactToolbarControl()
-            .allowsHitTesting(false)
-            .accessibilityRemoveTraits(.isButton)
-            .accessibilityIdentifier("MobileWorkspaceTitleMenu")
+            titleControl
+                .mobileGlassCompactToolbarControl()
         } else {
-            fittedLabel
-                .accessibilityIdentifier("MobileWorkspaceTitleMenu")
+            titleControl
         }
         #else
         fittedLabel
             .accessibilityIdentifier("MobileWorkspaceTitleMenu")
         #endif
+    }
+
+    private var titleControl: some View {
+        Button {} label: {
+            fittedLabel
+        }
+        .buttonStyle(.plain)
+        .allowsHitTesting(false)
+        .accessibilityIdentifier("MobileWorkspaceTitleMenu")
     }
 
     private var fittedLabel: some View {

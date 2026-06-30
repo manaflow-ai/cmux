@@ -410,13 +410,13 @@ struct WorkspaceDetailView: View {
             terminalPickerMenuContent
         } label: {
             Label(
-                selectedTerminal?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
+                L10n.string("mobile.terminal.picker.menuTitle", defaultValue: "Workspace and Terminals"),
                 systemImage: "rectangle.stack"
             )
             .labelStyle(.iconOnly)
         }
         .foregroundStyle(TerminalPalette.foreground)
-        .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
+        .accessibilityLabel(L10n.string("mobile.terminal.picker.menuTitle", defaultValue: "Workspace and Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
     }

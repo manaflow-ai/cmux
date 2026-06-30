@@ -552,17 +552,17 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testInlineWorkspaceTitleMenuShowsWorkspaceActions() throws {
+    func testInlineWorkspaceTerminalPickerShowsWorkspaceActions() throws {
         let app = launchAgentChatInlinePreviewApp()
-        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let titleControl = app.buttons["MobileWorkspaceTitleMenu"]
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
-        XCTAssertTrue(titleMenu.waitForExistence(timeout: 8))
+        XCTAssertTrue(titleControl.waitForExistence(timeout: 8))
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
         XCTAssertTrue(
             waitForCompactToolbarHeightsToMatch(
-                titleMenu: titleMenu,
+                titleMenu: titleControl,
                 backButton: backButton,
                 surfacePicker: surfacePicker,
                 tolerance: 2,
@@ -570,11 +570,12 @@ final class cmuxUITests: XCTestCase {
             )
         )
 
-        tapCompactToolbarTitleMenu(titleMenu, in: app)
+        tap(surfacePicker, in: app)
 
-        XCTAssertTrue(app.buttons["Rename Workspace"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.buttons["Mark as Read"].exists)
-        XCTAssertFalse(app.buttons["New Terminal"].exists)
+        assertMenuButtonExists("MobileWorkspaceTitleRenameMenuItem", in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleReadStateMenuItem", in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleCloseMenuItem", in: app)
+        assertMenuButtonExists("MobileNewTerminalMenuItem", in: app)
     }
 
     @MainActor
@@ -583,17 +584,17 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_INLINE_WORKSPACE_TITLE": "✳️ Claude Code",
             "CMUX_UITEST_INLINE_WORKSPACE_SUBTITLE": "🧑🏽‍💻 Claude Code",
         ])
-        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let titleControl = app.buttons["MobileWorkspaceTitleMenu"]
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
 
-        XCTAssertTrue(titleMenu.waitForExistence(timeout: 8))
+        XCTAssertTrue(titleControl.waitForExistence(timeout: 8))
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
 
         XCTAssertTrue(
             waitForCompactToolbarHeightsToMatch(
-                titleMenu: titleMenu,
+                titleMenu: titleControl,
                 backButton: backButton,
                 surfacePicker: surfacePicker,
                 tolerance: 2,
@@ -606,9 +607,10 @@ final class cmuxUITests: XCTestCase {
         screenshotAttachment.lifetime = .keepAlways
         add(screenshotAttachment)
 
-        tapCompactToolbarTitleMenu(titleMenu, in: app)
-        XCTAssertTrue(app.buttons["Rename Workspace"].waitForExistence(timeout: 4))
-        XCTAssertFalse(app.buttons["New Terminal"].exists)
+        tap(surfacePicker, in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleRenameMenuItem", in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleReadStateMenuItem", in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleCloseMenuItem", in: app)
     }
 
     /// Regression for WhatsApp-style chat keyboard tracking: focusing the chat
@@ -2013,37 +2015,6 @@ final class cmuxUITests: XCTestCase {
             line: line
         )
         return false
-    }
-
-    @MainActor
-    private func tapCompactToolbarTitleMenu(
-        _ titleMenu: XCUIElement,
-        in app: XCUIApplication,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        XCTAssertTrue(titleMenu.waitForExistence(timeout: 4), file: file, line: line)
-        dismissKeyboard(in: app)
-        guard let frame = waitForToolbarFrame(of: titleMenu, timeout: 4) else {
-            XCTFail("Title menu has no usable frame: \(titleMenu.debugDescription)", file: file, line: line)
-            return
-        }
-        app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: frame.minX + min(24, frame.width / 2), dy: frame.midY))
-            .tap()
-    }
-
-    @MainActor
-    private func waitForToolbarFrame(of element: XCUIElement, timeout: TimeInterval) -> CGRect? {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let frame = waitForUsableFrame(of: element, timeout: 0.1),
-               frame.midY > 60 {
-                return frame
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return waitForUsableFrame(of: element, timeout: 0.1)
     }
 
     private struct ChatTranscriptMetrics: CustomStringConvertible {
