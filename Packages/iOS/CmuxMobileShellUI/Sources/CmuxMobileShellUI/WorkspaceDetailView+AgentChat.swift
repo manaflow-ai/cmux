@@ -99,6 +99,7 @@ extension WorkspaceDetailView {
                     set: { chatDrafts[session.id] = $0 }
                 ),
                 backButtonConfiguration: backButtonConfiguration,
+                titleMenuContent: { titleMenuContent },
                 onExitChat: {
                     withAnimation(.snappy(duration: 0.28)) {
                         isChatMode = false
