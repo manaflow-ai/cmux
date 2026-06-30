@@ -22,6 +22,11 @@ import UIKit
 final class TerminalOutputCollector {
     private(set) var lines: [String] = []
     private var task: Task<Void, Never>?
+    /// Continuations parked by ``waitForLines(_:timeoutNanoseconds:)`` keyed by a
+    /// monotonic id, each carrying the line count it requires. Resumed the
+    /// instant the stream delivers enough chunks (or by the watchdog/unmount).
+    private var lineWaiters: [Int: (target: Int, continuation: CheckedContinuation<Void, Never>)] = [:]
+    private var nextWaiterID = 0
 
     /// Begin consuming the surface's output stream into ``lines``.
     func mount(store: CMUXMobileShellStore, surfaceID: String) {
@@ -29,6 +34,7 @@ final class TerminalOutputCollector {
             for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                 guard let self else { break }
                 self.lines.append(String(data: chunk.data, encoding: .utf8) ?? "")
+                self.resumeSatisfiedWaiters()
                 store.terminalOutputDidProcess(
                     surfaceID: surfaceID,
                     streamToken: chunk.streamToken
@@ -37,10 +43,61 @@ final class TerminalOutputCollector {
         }
     }
 
+    /// Suspend until at least `count` lines have been collected, resuming the
+    /// instant the stream delivers the target chunk. This is a deterministic
+    /// synchronization point that replaces fixed-time polling: there is no
+    /// per-platform timing budget for a slow simulator (e.g. the iPad leg) to
+    /// blow through on the success path, which was the root cause of the
+    /// `renderGridTerminalInputWaitsForLiveEventBeforeReplay` flake
+    /// (https://github.com/manaflow-ai/cmux/issues/5911).
+    ///
+    /// A generous watchdog bounds the wait so a genuinely dropped or miscounted
+    /// chunk fails on the assertion (showing the actual collected ``lines``)
+    /// rather than hanging until the global CI test timeout.
+    func waitForLines(_ count: Int, timeoutNanoseconds: UInt64 = 10_000_000_000) async {
+        if lines.count >= count { return }
+        let id = nextWaiterID
+        nextWaiterID += 1
+        let watchdog = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+            self?.resumeWaiter(id)
+        }
+        await withCheckedContinuation { continuation in
+            // No suspension occurs between the top-level check and here (same
+            // actor, synchronous body), so the re-check only guards an unlikely
+            // reentrant case; otherwise register the waiter so it is resumable.
+            if lines.count >= count {
+                continuation.resume()
+                return
+            }
+            lineWaiters[id] = (count, continuation)
+        }
+        watchdog.cancel()
+    }
+
     /// Stop consuming the stream, unregistering the surface from the store.
     func unmount() {
         task?.cancel()
         task = nil
+        // Release any parked waiter so a pending `waitForLines` call doesn't hang.
+        for (id, waiter) in lineWaiters {
+            waiter.continuation.resume()
+            lineWaiters[id] = nil
+        }
+    }
+
+    private func resumeSatisfiedWaiters() {
+        let current = lines.count
+        for (id, waiter) in lineWaiters where current >= waiter.target {
+            waiter.continuation.resume()
+            lineWaiters[id] = nil
+        }
+    }
+
+    private func resumeWaiter(_ id: Int) {
+        guard let waiter = lineWaiters[id] else { return }
+        waiter.continuation.resume()
+        lineWaiters[id] = nil
     }
 }
 
@@ -2460,10 +2517,9 @@ final class TerminalOutputCollector {
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
     // The request-count wait only proves the second replay REQUEST was sent;
     // its response still flows back through the transport asynchronously.
-    // Poll for delivery like the sibling tests do, then assert content.
-    for _ in 0..<200 where collector.lines.count < 2 {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
+    // Await delivery deterministically (resumes the instant both chunks land)
+    // instead of a fixed time budget that the slower iPad simulator overran.
+    await collector.waitForLines(2)
 
     let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
