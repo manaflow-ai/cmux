@@ -149,13 +149,20 @@ import Testing
 
     /// Unique temp home for a Codex resolver test, with symlinks resolved up
     /// front. The resolver returns paths from `contentsOfDirectory`, which on
-    /// some macOS versions canonicalizes `/var` -> `/private/var`; resolving the
-    /// home here keeps the paths the resolver returns equal to the rollout paths
-    /// the test writes, so the exact-path `#expect` is not a macOS-version flake.
+    /// some macOS versions/runners canonicalizes `/var` -> `/private/var`;
+    /// resolving the home keeps the paths the resolver returns equal to the
+    /// rollout paths the test writes, so the exact-path `#expect` is not a
+    /// macOS-version flake.
+    ///
+    /// `resolvingSymlinksInPath()` only canonicalizes the portion of a path that
+    /// already exists, so it MUST run on `temporaryDirectory` (which exists)
+    /// BEFORE appending the not-yet-created leaf. Calling it afterward (on a path
+    /// whose leaf does not exist yet) leaves `/var` unresolved, which is the bug
+    /// that made the resolver's `/private/var` output mismatch the test's `/var`.
     private static func makeTemporaryHome(_ label: String) -> URL {
         FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(label)-\(UUID().uuidString)", isDirectory: true)
             .resolvingSymlinksInPath()
+            .appendingPathComponent("\(label)-\(UUID().uuidString)", isDirectory: true)
     }
 
     private static func writeCodexRollout(
