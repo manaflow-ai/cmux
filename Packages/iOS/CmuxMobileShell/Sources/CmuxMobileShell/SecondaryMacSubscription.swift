@@ -55,4 +55,19 @@ final class SecondaryMacSubscription {
         refreshTask?.cancel()
         refreshTask = nil
     }
+
+    // A subscription dropped without an explicit `cancel()` — e.g. when the
+    // owning store is discarded (previews/tests/rebuilds) and its
+    // `secondaryMacSubscriptions` dictionary is released — must still stop its
+    // consumer loops and disconnect its client; releasing the `Task`/client
+    // references alone does neither. Isolated `deinit` is unavailable on the
+    // build toolchain, but everything touched here is `Sendable`, and
+    // `disconnect()` → `session.tearDown` is idempotent, so running after a
+    // prior `cancel()` is a no-op.
+    deinit {
+        task?.cancel()
+        refreshTask?.cancel()
+        let client = self.client
+        Task { await client.disconnect() }
+    }
 }
