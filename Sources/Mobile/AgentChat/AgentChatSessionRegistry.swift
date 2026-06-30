@@ -405,7 +405,7 @@ final class AgentChatSessionRegistry {
                     pid: entry.pid
                 )
                 stampVersion(&record)
-                records[entry.sessionID] = record
+                records[sessionID] = record
                 syncProcessExitWatch(for: record)
                 updateLiveSessionIndex(previous: nil, current: record)
             }
