@@ -3,6 +3,28 @@ import CmuxAgentChat
 import Foundation
 
 extension AgentChatSessionRegistry {
+    func reviveEndedPendingClaudeSessionIfNeeded(
+        current: AgentChatSessionRecord,
+        observed session: ObservedAgentSession,
+        now: Date
+    ) -> Bool {
+        guard current.state == .ended,
+              session.agentKind == .claude,
+              Self.isPendingClaudeSessionID(current.sessionID) else {
+            return false
+        }
+        update(sessionID: current.sessionID) { record in
+            record.workspaceID = session.workspaceID
+            record.surfaceID = session.surfaceID
+            record.workingDirectory = session.workingDirectory
+            record.transcriptPath = session.transcriptPath
+            record.pid = session.pid
+            record.state = .idle
+            record.lastActivityAt = now
+        }
+        return true
+    }
+
     func observeAgentProcesses() async {
         if let task = observeAgentProcessesTask(force: true) {
             await task.value

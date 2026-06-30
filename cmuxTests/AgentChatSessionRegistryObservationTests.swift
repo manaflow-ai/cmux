@@ -204,7 +204,7 @@ struct AgentChatSessionRegistryObservationTests {
         let record = try #require(registry.record(sessionID: pendingID))
         #expect(registry.record(sessionID: realSessionID) == nil)
         #expect(record.transcriptPath == transcriptPath)
-        #expect(record.pid == 444)
+        #expect(record.pid == nil)
         #expect(registry.liveSession(surfaceID: surfaceID)?.sessionID == pendingID)
     }
 

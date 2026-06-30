@@ -202,6 +202,9 @@ final class AgentChatSessionRegistry {
                 onRecordChanged?(record, nil)
             } else {
                 guard let current = records[targetSessionID] else { continue }
+                if reviveEndedPendingClaudeSessionIfNeeded(current: current, observed: session, now: now) {
+                    continue
+                }
                 let needsBackfill = current.surfaceID == nil
                     || (current.workspaceID == nil && session.workspaceID != nil)
                     || (current.workingDirectory == nil && session.workingDirectory != nil)
@@ -380,14 +383,13 @@ final class AgentChatSessionRegistry {
                 )
                 if let current = records[sessionID] {
                     var candidate = current
-                    candidate.adoptBindings(from: entry)
+                    candidate.adoptBindings(from: entry, includingPID: false)
                     guard candidate.surfaceID != current.surfaceID
                         || candidate.workspaceID != current.workspaceID
                         || candidate.transcriptPath != current.transcriptPath
-                        || candidate.workingDirectory != current.workingDirectory
-                        || candidate.pid != current.pid else { continue }
+                        || candidate.workingDirectory != current.workingDirectory else { continue }
                     update(sessionID: sessionID) { record in
-                        record.adoptBindings(from: entry)
+                        record.adoptBindings(from: entry, includingPID: false)
                     }
                     continue
                 }
