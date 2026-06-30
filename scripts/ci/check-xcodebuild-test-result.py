@@ -41,14 +41,17 @@ TIMEOUT_MARKERS = (
     "Idle timed out after",  # xcodebuild_noninteractive.py idle watchdog
 )
 
-# xcodebuild prints one of these only once the test action runs to completion.
-# Their presence proves every selected suite finished, so a subsequent non-zero
-# exit (cleanup noise or a watchdog kill of a lingering process) is safe to
-# accept; their absence means the run was truncated before finishing.
-COMPLETION_MARKERS = (
-    "** TEST SUCCEEDED **",
-    "** TEST FAILED **",
-)
+# ``** TEST SUCCEEDED **`` is printed only when the whole action passed, which
+# cannot happen unless every selected suite ran -- so it proves completion.
+# ``** TEST FAILED **`` is deliberately NOT here: xcodebuild prints that banner
+# for an aborted/crashed action too, so it can appear after only an early prefix
+# of suites ran and is not proof of completion on its own.
+COMPLETION_MARKERS = ("** TEST SUCCEEDED **",)
+
+# The top-level XCTest aggregate summary ("Selected tests"/"All tests" for a
+# -only-testing / full run). xcodebuild emits it only after every selected suite
+# finishes, so it proves completion for a failed run where ``** TEST SUCCEEDED **``
+# is absent. This mirrors xcodebuild_noninteractive.py's SELECTED_TESTS_DONE_RE.
 COMPLETION_RE = re.compile(
     r"Test Suite '(?:Selected tests|All tests)' (?:passed|failed) at "
 )
