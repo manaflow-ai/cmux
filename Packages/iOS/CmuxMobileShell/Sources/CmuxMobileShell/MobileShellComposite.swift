@@ -589,7 +589,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
     /// it.
     public let diagnosticLog: DiagnosticLog?
-    var remoteClient: MobileCoreRPCClient? {
+    // `@ObservationIgnored` so the nonisolated `deinit` can read this `Sendable`
+    // handle to disconnect a still-connected foreground client. Connection state
+    // is observed through `connectionState`, not this transport handle, so
+    // dropping observation here changes no reactive read (all reads are
+    // imperative: `hasActiveMacConnection`, `chatRPCClient()`, guards).
+    @ObservationIgnored var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
                 stopTerminalRefreshPolling()
@@ -887,14 +892,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     // Isolated `deinit` (SE-0371) is rejected by the iOS build toolchain on CI,
-    // so cleanup runs from this nonisolated `deinit`. Each handle below is
-    // `@ObservationIgnored`, so it is a plain `Sendable` stored property a
-    // nonisolated `deinit` may touch; cancelling it (not releasing it) is what
-    // stops a task parked in `for await client.subscribe(...)`. Cancelling the
-    // listener also releases the captured RPC client, whose session tasks are
-    // `[weak self]`, so the transport tears down without an explicit disconnect
-    // (that would need the `@Observable`-tracked `remoteClient`). The liveness
-    // timer (always `resume()`d, `[weak self]` handler) and the
+    // so cleanup runs from this nonisolated `deinit`, which may only touch
+    // `Sendable` stored state. The long-lived task handles and `remoteClient`
+    // are `@ObservationIgnored` (plain `Sendable` storage), so the deinit can
+    // cancel each task — cancelling, not releasing, is what stops a task parked
+    // in `for await client.subscribe(...)` — and explicitly disconnect the
+    // foreground client, whose `MobileCoreRPCSession` keeps its reader/writer
+    // running until `disconnect()`. Discarded preview/test/rebuilt stores
+    // therefore stop leaking subscriptions, probes, and sockets. The liveness
+    // `DispatchSourceTimer` (always `resume()`d, `[weak self]` handler) and the
     // `SecondaryMacSubscription`s self-release safely once this store drops.
     deinit {
         presenceTask?.cancel()
@@ -908,6 +914,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshTask?.cancel()
         pullToRefreshTask?.cancel()
         secondaryAggregationTask?.cancel()
+        if let remoteClient {
+            Task { await remoteClient.disconnect() }
+        }
     }
 
     public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {

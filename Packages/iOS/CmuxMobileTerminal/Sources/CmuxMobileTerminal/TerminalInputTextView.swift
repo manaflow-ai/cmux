@@ -1511,6 +1511,11 @@ extension TerminalInputTextView {
     /// path as ``insertText(_:)``. A replacement of the marked region supersedes
     /// the in-progress IME composition, so clear it first. An empty replacement is
     /// a pure deletion of the marked composition (no committed text to send).
+    /// This is also why the opt-in autocorrection/spell-check cannot rewrite
+    /// already-sent input: every ``UITextPosition`` clamps to the transient
+    /// ``textInputDocument`` (the delete anchor or active ``markedText``), so
+    /// UIKit can never address — and so never `replace` — bytes that
+    /// ``insertText(_:)`` already forwarded to the terminal.
     func replace(_ range: UITextRange, withText text: String) {
         self.inputDebugLog.log("proxy.replace text=\(self.inputDebugLog.textSummary(text))")
         if markedText != nil {
