@@ -2584,7 +2584,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let previousStillForeground = connectionState == .connected
             && remoteClient != nil
             && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
-            && activeRouteMatchesPairedMac(previousActive)
         guard !previousStillForeground else { return true }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let (host, port) = Self.firstReconnectHostPortRoute(
@@ -2629,20 +2628,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await task.value
         }
         return restored
-    }
-
-    private func activeRouteMatchesPairedMac(_ mac: MobilePairedMac) -> Bool {
-        guard case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
-              let normalizedLiveHost = MobileShellRouteAuthPolicy.normalizedManualHost(liveHost) else {
-            return false
-        }
-        return mac.routes.contains { route in
-            guard case let .hostPort(host, port) = route.endpoint,
-                  let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
-                return false
-            }
-            return normalizedHost == normalizedLiveHost && port == livePort
-        }
     }
 
     func clearSavedMacHintAfterDeletingLastVisibleMacIfNeeded() {
