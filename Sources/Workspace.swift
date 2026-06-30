@@ -2614,17 +2614,6 @@ final class Workspace: Identifiable, ObservableObject {
     lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = makeSidebarImmediateObservationPublisher()
     lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = makeSidebarObservationPublisher()
 
-    // Agent lifecycle transitions are sidebar presentation state, so they must not
-    // invalidate the whole `Workspace` object: that is a hot agent-monitoring path
-    // with many unrelated observers, and broad `objectWillChange` fan-out is the
-    // sidebar CPU-spin class called out in CLAUDE.md. `recordAgentLifecycleChange`
-    // fires this narrow signal instead, and `makeSidebarObservationPublisher` folds
-    // it into the sidebar observation pipeline that drives state coloring.
-    private let agentLifecycleSidebarRefreshSubject = PassthroughSubject<Void, Never>()
-    var agentLifecycleSidebarRefreshPublisher: AnyPublisher<Void, Never> {
-        agentLifecycleSidebarRefreshSubject.eraseToAnyPublisher()
-    }
-
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {
         extensionSidebarProjectRootRefreshID &+= 1
         let refreshID = extensionSidebarProjectRootRefreshID
@@ -4674,15 +4663,13 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func recordAgentLifecycleChange(panelId: UUID) {
-        // Notify only the sidebar observation pipeline, not every `Workspace`
-        // observer. The lifecycle state itself already lives on the runtime
-        // observation model (its setter bumps `changeGeneration`); this signal
-        // refreshes the Combine-driven sidebar state coloring.
-        agentLifecycleSidebarRefreshSubject.send(())
-        // A collapsed group's members have no mounted row to observe the
-        // per-workspace publisher, so post a sidebar-scoped notification the
-        // default sidebar uses to refresh group-header state colors. Mirrors
-        // the `.workspaceCurrentDirectoryDidChange` group-config refresh.
+        // Agent lifecycle is sidebar presentation state, so refresh the sidebar
+        // without broadly invalidating this `Workspace` (a hot agent-monitoring
+        // path with many unrelated observers — the CPU-spin class in CLAUDE.md).
+        // Mounted rows already refresh from the runtime observation model's
+        // change stream; post a sidebar-scoped notification so the default
+        // sidebar can also refresh collapsed group-header state colors whose
+        // members have no mounted row. Mirrors `.workspaceCurrentDirectoryDidChange`.
         NotificationCenter.default.post(
             name: .workspaceAgentLifecycleDidChange,
             object: self,

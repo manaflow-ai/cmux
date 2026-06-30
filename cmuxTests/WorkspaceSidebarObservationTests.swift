@@ -113,12 +113,6 @@ struct WorkspaceSidebarObservationTests {
         }
         defer { objectWillChangeCancellable.cancel() }
 
-        var sidebarPublishCount = 0
-        let sidebarCancellable = workspace.sidebarObservationPublisher.sink {
-            sidebarPublishCount += 1
-        }
-        defer { sidebarCancellable.cancel() }
-
         // The default sidebar refreshes collapsed group-header state colors off
         // this notification, since collapsed members have no mounted row.
         var lifecycleNotificationCount = 0
@@ -127,23 +121,15 @@ struct WorkspaceSidebarObservationTests {
             .sink { _ in lifecycleNotificationCount += 1 }
         defer { lifecycleNotificationCancellable.cancel() }
 
-        // Ignore the initial replay emission a late subscriber receives so the
-        // assertion only sees the refresh caused by the lifecycle change.
-        sidebarPublishCount = 0
-
         workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .needsInput)
 
         #expect(
             workspace.sidebarAgentRuntimeObservation.changeGeneration > generationBeforeRecord,
-            "Agent lifecycle changes must notify the narrow sidebar runtime observation stream."
+            "Agent lifecycle changes must notify the narrow runtime observation stream that mounted sidebar rows observe."
         )
         #expect(
             workspaceWillChangeCount == 0,
             "Agent lifecycle color state is sidebar presentation state and must not broadly invalidate Workspace observers."
-        )
-        #expect(
-            sidebarPublishCount > 0,
-            "Agent lifecycle changes must still refresh sidebar state coloring through the sidebar observation publisher."
         )
         #expect(
             lifecycleNotificationCount > 0,

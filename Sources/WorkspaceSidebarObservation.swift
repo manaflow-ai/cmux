@@ -55,7 +55,6 @@ private struct SidebarObservationState: Equatable {
     let remoteConnectionDetail: String?
     let activeRemoteTerminalSessionCount: Int
     let listeningPorts: [Int]
-    let agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]]
     let browserMediaActivity: BrowserMediaActivity
 }
 
@@ -117,26 +116,19 @@ extension Workspace {
             $activeRemoteTerminalSessionCount
         )
 
-        let agentLifecycleStates = agentLifecycleSidebarRefreshPublisher
-            .prepend(())
-            .map { [weak self] _ in self?.agentLifecycleStatesByPanelId ?? [:] }
-        let workspaceLifecycleFields = Publishers.CombineLatest($listeningPorts, agentLifecycleStates)
-
         return Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,
             gitFields,
             remoteFields
         )
-            .combineLatest(workspaceLifecycleFields)
-            .compactMap { [weak self] groupedFields, workspaceLifecycleFields -> SidebarObservationState? in
+            .combineLatest($listeningPorts)
+            .compactMap { [weak self] groupedFields, listeningPorts -> SidebarObservationState? in
                 guard let self else { return nil }
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
                 let gitFields = groupedFields.2
                 let remoteFields = groupedFields.3
-                let listeningPorts = workspaceLifecycleFields.0
-                let agentLifecycleStatesByPanelId = workspaceLifecycleFields.1
                 return SidebarObservationState(
                     currentDirectory: workspaceFields.0,
                     extensionSidebarProjectRootPath: workspaceFields.1,
@@ -155,7 +147,6 @@ extension Workspace {
                     remoteConnectionDetail: remoteFields.2,
                     activeRemoteTerminalSessionCount: remoteFields.3,
                     listeningPorts: listeningPorts,
-                    agentLifecycleStatesByPanelId: agentLifecycleStatesByPanelId,
                     browserMediaActivity: self.browserMediaActivity
                 )
             }
