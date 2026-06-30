@@ -5977,6 +5977,10 @@ extension TabManager {
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot)
+            // Restore re-applies any saved customColor before this call, so the
+            // `customColor == nil` guard inside means we only auto-color tabs the
+            // snapshot left uncolored; the shared limiter bounds the restore burst.
+            applyAutoWorkspaceColorIfNeeded(to: workspace, workingDirectory: workspace.currentDirectory)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
             restoredPanelIdsByWorkspaceIndex.append(restoredPanelIds)
