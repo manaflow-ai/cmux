@@ -29,6 +29,7 @@ struct WorkspaceListView: View {
     var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
+    var canCreateWorkspace = true
     /// Pull-to-refresh action. Awaits the real workspace-list re-sync from the
     /// paired Mac so the system refresh spinner reflects actual completion (and
     /// ends gracefully, leaving the list intact, when the Mac is offline). Passed
@@ -285,10 +286,6 @@ struct WorkspaceListView: View {
         return store.connectionRequiresReauth
             || store.connectionRecoveryFailed
             || store.isRecoveringConnection
-    }
-
-    private var canCreateWorkspace: Bool {
-        connectionStatus == .connected
     }
 
     #if os(iOS)

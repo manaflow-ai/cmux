@@ -1486,13 +1486,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This removes paired record %@. Other matching records may still appear."
+            "value": "This removes this computer and its matching paired records. Its workspaces stop appearing here. Pair it again to add it back."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリング済みレコード %@ を削除します。一致する他のレコードは引き続き表示される場合があります。"
+            "value": "このコンピュータと一致するペアリング済みレコードを削除します。そのワークスペースは表示されなくなります。再度ペアリングすると追加できます。"
           }
         }
       }
@@ -7766,6 +7766,210 @@
           "stringUnit": {
             "state": "translated",
             "value": "デフォルトに戻す"
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.allRemoved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allRemoved="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allRemoved="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.checkpoint.computers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "computers: "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "computers: "
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.checkpoint.page": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "page "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ "
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.checkpoint.workspacesStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " workspaces, status "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " ワークスペース、ステータス "
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.halfNoDisconnectedBanner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfNoDisconnectedBanner="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfNoDisconnectedBanner="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.halfRemainingPresent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfRemainingPresent="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfRemainingPresent="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.halfRemovedAbsent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfRemovedAbsent="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfRemovedAbsent="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.refreshPreservedEmptyList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "refreshPreservedEmptyList="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "refreshPreservedEmptyList="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.refreshPreservedHalfList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "refreshPreservedHalfList="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "refreshPreservedHalfList="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.status.pass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PASS"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PASS"
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.status.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RUNNING"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RUNNING"
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Computers Verifier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ削除検証"
           }
         }
       }
