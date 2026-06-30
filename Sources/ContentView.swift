@@ -13218,6 +13218,10 @@ struct SidebarWorkspaceSnapshotBuilder {
         let showsGitBranch: Bool
         let usesViewportAwarePath: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+        // Resolves the row's state-derived color, so toggling Agent State Colors,
+        // switching replace/blend, or editing a state color in Settings must
+        // rebuild the cached snapshot instead of reusing a stale customColorHex.
+        let workspaceStateColorResolver: WorkspaceStateColorResolver
     }
 
     struct VerticalBranchDirectoryLine: Equatable {
@@ -13695,7 +13699,8 @@ struct TabItemView: View, Equatable {
             usesVerticalBranchLayout: sidebarBranchVerticalLayout,
             showsGitBranch: sidebarShowGitBranch,
             usesViewportAwarePath: sidebarUsesLastSegmentPath,
-            visibleAuxiliaryDetails: visibleAuxiliaryDetails
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails,
+            workspaceStateColorResolver: settings.workspaceStateColorResolver
         )
     }
 

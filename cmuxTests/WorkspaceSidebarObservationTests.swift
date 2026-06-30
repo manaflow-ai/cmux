@@ -137,6 +137,32 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func repeatedIdenticalAgentLifecycleReportDoesNotReinvalidateSidebar() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+
+        let generationBeforeDuplicate = workspace.sidebarAgentRuntimeObservation.changeGeneration
+        var lifecycleNotificationCount = 0
+        let lifecycleNotificationCancellable = NotificationCenter.default
+            .publisher(for: .workspaceAgentLifecycleDidChange, object: workspace)
+            .sink { _ in lifecycleNotificationCount += 1 }
+        defer { lifecycleNotificationCancellable.cancel() }
+
+        // Agents re-report the same lifecycle on a hot path; a no-op report must
+        // not invalidate the sidebar.
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+
+        #expect(
+            lifecycleNotificationCount == 0,
+            "A repeated identical agent lifecycle report must not re-post the sidebar refresh notification."
+        )
+        #expect(
+            workspace.sidebarAgentRuntimeObservation.changeGeneration == generationBeforeDuplicate,
+            "A repeated identical agent lifecycle report must not bump the runtime observation generation."
+        )
+    }
+
     @Test func sidebarImmediateObservationPublisherEmitsForLateTitleSubscriber() {
         let workspace = Workspace()
         workspace.title = "Restored Workspace"

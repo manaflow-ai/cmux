@@ -4628,6 +4628,11 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
+        // Agents re-report the same lifecycle frequently on a hot path. Skip the
+        // sidebar refresh (notification + group revision) and hibernation record
+        // when nothing actually changed, matching the runtime model's own
+        // duplicate-write guard.
+        guard agentLifecycleStatesByPanelId[targetPanelId]?[key] != lifecycle else { return }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
         recordAgentLifecycleChange(panelId: targetPanelId)
     }
