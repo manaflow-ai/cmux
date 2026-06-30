@@ -73,9 +73,11 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 
 /// Backpressure queue for one mounted mobile terminal output stream.
 ///
-/// Raw byte chunks are nonreplaceable barriers. Render-grid chunks that repaint
-/// the whole viewport are replaceable while the iOS surface is still applying a
-/// prior chunk, so fast scroll gestures can skip obsolete intermediate frames.
+/// Raw byte chunks are nonreplaceable barriers, but contiguous raw chunks with
+/// the same viewport policy can be appended into one VT byte stream while
+/// backpressured. Render-grid chunks that repaint the whole viewport are
+/// replaceable while the iOS surface is still applying a prior chunk, so fast
+/// scroll gestures can skip obsolete intermediate frames.
 struct TerminalOutputDeliveryQueue: Sendable {
     private var inFlight = false
     private var pending: [TerminalOutputDelivery] = []

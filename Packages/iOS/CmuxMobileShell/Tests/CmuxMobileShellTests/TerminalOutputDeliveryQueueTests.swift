@@ -160,6 +160,30 @@ import Testing
     #expect(queue.isIdle)
 }
 
+@Test func terminalOutputQueueDoesNotCoalesceRawBytesAcrossViewportPolicyChanges() {
+    var queue = TerminalOutputDeliveryQueue()
+    let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+    let naturalBytes = TerminalOutputDelivery(
+        bytes: Data("natural".utf8),
+        replaceable: false,
+        viewportPolicy: .natural
+    )
+    let remoteGridBytes = TerminalOutputDelivery(
+        bytes: Data("remote".utf8),
+        replaceable: false,
+        viewportPolicy: .remoteGrid(columns: 16, rows: 4)
+    )
+
+    #expect(queue.enqueue(inFlight) == inFlight)
+    #expect(queue.enqueue(naturalBytes) == nil)
+    #expect(queue.enqueue(remoteGridBytes) == nil)
+
+    #expect(queue.pendingCount == 2)
+    #expect(queue.completeInFlight() == naturalBytes)
+    #expect(queue.completeInFlight() == remoteGridBytes)
+    #expect(queue.completeInFlight() == nil)
+}
+
 @Test func terminalOutputQueueDrainsRawFallbackBacklogInOrder() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
