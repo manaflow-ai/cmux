@@ -188,6 +188,20 @@ jobs:
           # a local-path binaryTarget, so it must exist before package resolve.
           ./scripts/ensure-ghosttykit.sh
 
+      - name: Cache CmuxIrohFFI.xcframework
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux/cmux-iroh
+          key: cmux-iroh-${{ hashFiles('Native/cmux-iroh/**', 'scripts/ensure-cmux-iroh.sh') }}
+
+      - name: Provision CmuxIrohFFI
+        run: |
+          # The iOS app links CmuxIrohFFI.xcframework via a local-path
+          # binaryTarget in Packages/CmuxMobileTransport, so it must exist
+          # before package resolve. Built from Native/cmux-iroh.
+          ./scripts/install-rust-ci.sh
+          ./scripts/ensure-cmux-iroh.sh
+
       - name: Materialize App Store Connect API key
         env:
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
