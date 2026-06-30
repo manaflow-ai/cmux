@@ -30,7 +30,7 @@ extension WorkspaceListView {
 
     var liveMachineSnapshots: WorkspaceMachineSnapshots {
         let scope = macSelectionScope
-        WorkspaceMachineSnapshots(
+        return WorkspaceMachineSnapshots(
             workspaces: workspaces,
             filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
             macPickerMachineIDs: scope.machineIDs,
