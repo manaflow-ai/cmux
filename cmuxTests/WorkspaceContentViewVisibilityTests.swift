@@ -27,22 +27,19 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test
     @MainActor
-    func testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies() async {
+    func testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies() async throws {
         _ = NSApplication.shared
 
-        let defaults = UserDefaults.standard
-        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        let suiteName = "WorkspaceContentViewVisibilityTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
         defaults.set(
             WorkspacePresentationModeSettings.Mode.standard.rawValue,
             forKey: WorkspacePresentationModeSettings.modeKey
         )
-        defer {
-            Self.restoreDefaultsValue(
-                savedMode,
-                forKey: WorkspacePresentationModeSettings.modeKey,
-                defaults: defaults
-            )
-        }
 
         let tabManager = TabManager()
         for _ in 0..<6 {
@@ -66,6 +63,7 @@ final class WorkspaceContentViewVisibilityTests {
                     verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
                 )
             )
+            .defaultAppStorage(defaults)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
@@ -111,14 +109,6 @@ final class WorkspaceContentViewVisibilityTests {
             window.contentView?.layoutSubtreeIfNeeded()
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
             await Task.yield()
-        }
-    }
-
-    private static func restoreDefaultsValue(_ value: Any?, forKey key: String, defaults: UserDefaults) {
-        if let value {
-            defaults.set(value, forKey: key)
-        } else {
-            defaults.removeObject(forKey: key)
         }
     }
 
