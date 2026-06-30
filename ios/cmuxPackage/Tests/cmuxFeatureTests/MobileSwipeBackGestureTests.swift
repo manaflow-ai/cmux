@@ -18,5 +18,42 @@ struct MobileSwipeBackGestureTests {
         let webView = MobileBrowserView.makeConfiguredWebView()
         #expect(webView.allowsBackForwardNavigationGestures == false)
     }
+
+    /// The custom back button hides the system one, so the enabler re-arms the
+    /// pop gesture only when there is actually a pushed screen to pop.
+    @Test("pop gesture begins only when a screen is pushed")
+    func popGestureBeginsOnlyWithPushedScreen() throws {
+        let policy = InteractiveSwipeBackGesturePolicy()
+        let nav = UINavigationController(rootViewController: UIViewController())
+        nav.loadViewIfNeeded()
+
+        #expect(policy.shouldBegin(navigationController: nav) == false)
+        nav.pushViewController(UIViewController(), animated: false)
+        #expect(policy.shouldBegin(navigationController: nav) == true)
+    }
+
+    /// The terminal and browser surfaces have their own pan/scroll recognizers;
+    /// the edge swipe must be allowed to recognize with them so it can pop back.
+    @Test("pop gesture coexists with surface scroll/pan recognizers")
+    func popGestureRecognizesSimultaneouslyWithSurfaceGestures() throws {
+        let policy = InteractiveSwipeBackGesturePolicy()
+        let nav = UINavigationController(rootViewController: UIViewController())
+        nav.loadViewIfNeeded()
+        let popGesture = try #require(nav.interactivePopGestureRecognizer)
+        let surfacePan = UIPanGestureRecognizer()
+
+        #expect(
+            policy.shouldRecognizeSimultaneously(
+                gestureRecognizer: popGesture,
+                navigationController: nav
+            ) == true
+        )
+        #expect(
+            policy.shouldRecognizeSimultaneously(
+                gestureRecognizer: surfacePan,
+                navigationController: nav
+            ) == false
+        )
+    }
 }
 #endif

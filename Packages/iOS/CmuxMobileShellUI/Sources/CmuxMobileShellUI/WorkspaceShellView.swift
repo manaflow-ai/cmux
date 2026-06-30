@@ -416,6 +416,19 @@ struct WorkspaceShellView: View {
 }
 
 #if os(iOS)
+struct InteractiveSwipeBackGesturePolicy {
+    func shouldBegin(navigationController: UINavigationController?) -> Bool {
+        (navigationController?.viewControllers.count ?? 0) > 1
+    }
+
+    func shouldRecognizeSimultaneously(
+        gestureRecognizer: UIGestureRecognizer,
+        navigationController: UINavigationController?
+    ) -> Bool {
+        gestureRecognizer == navigationController?.interactivePopGestureRecognizer
+    }
+}
+
 /// Re-enables the interactive swipe-from-edge back gesture, which UIKit disables
 /// whenever a custom leading bar button replaces the system back button (we do
 /// that to fold the unread count into the back control). Owns the pop gesture's
@@ -426,13 +439,15 @@ private struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
 
     private final class GestureHostController: UIViewController, UIGestureRecognizerDelegate {
+        private let policy = InteractiveSwipeBackGesturePolicy()
+
         override func didMove(toParent parent: UIViewController?) {
             super.didMove(toParent: parent)
             navigationController?.interactivePopGestureRecognizer?.delegate = self
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            (navigationController?.viewControllers.count ?? 0) > 1
+            policy.shouldBegin(navigationController: navigationController)
         }
 
         // The pushed workspace detail hosts surfaces with their own pan/scroll
@@ -448,7 +463,10 @@ private struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
-            gestureRecognizer == navigationController?.interactivePopGestureRecognizer
+            policy.shouldRecognizeSimultaneously(
+                gestureRecognizer: gestureRecognizer,
+                navigationController: navigationController
+            )
         }
     }
 }
