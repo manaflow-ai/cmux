@@ -2438,9 +2438,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             name: refreshedTarget.displayName ?? host, host: host, port: port,
             pairedMacDeviceID: macDeviceID)
         guard isCurrentMacSwitchAttempt(switchAttemptID) else {
-            if consumeMacSwitchRestorePreviousOnCancel(switchAttemptID),
-               previousActive != nil {
-                _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+            if consumeMacSwitchRestorePreviousOnCancel(switchAttemptID) {
+                await restorePreviousMacIfNeeded(previousActive)
             }
             return false
         }
@@ -2465,10 +2464,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // The switch did not connect and the destructive connect path dropped
             // the previous session; reconnect to the still-active previous Mac so
             // the user is not left stranded on a failed switch.
-            _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+            await restorePreviousMacIfNeeded(previousActive)
         }
         await loadPairedMacs()
         return switched
+    }
+
+    private func restorePreviousMacIfNeeded(_ previousActive: MobilePairedMac?) async {
+        guard let previousActive else { return }
+        let previousIDs = Set(pairedMacAliasIDs(for: previousActive.macDeviceID))
+        let previousStillForeground = connectionState == .connected
+            && remoteClient != nil
+            && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
+        guard !previousStillForeground else { return }
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        guard let (host, port) = Self.firstReconnectHostPortRoute(
+            previousActive.routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        ), MobileShellRouteAuthPolicy.normalizedManualHost(host) != nil else {
+            mobileShellLog.error("restorePreviousMacIfNeeded: no reconnectable route mac=\(previousActive.macDeviceID, privacy: .public)")
+            return
+        }
+        await connectStoredMacHost(
+            name: previousActive.displayName ?? host,
+            host: host,
+            port: port,
+            pairedMacDeviceID: previousActive.macDeviceID
+        )
     }
 
     func clearSavedMacHintAfterDeletingLastVisibleMacIfNeeded() {
@@ -5057,6 +5080,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func beginMacSwitchAttempt() -> UUID {
         let attemptID = UUID()
+        macSwitchRestorePreviousOnCancelAttemptIDs.removeAll(keepingCapacity: true)
         macSwitchAttemptID = attemptID
         invalidatePairingAttempt()
         connectionAttemptGeneration = UUID()

@@ -92,8 +92,8 @@ struct WorkspaceListView: View {
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
     @State var filter: MobileWorkspaceListFilter = .all
-    @State var macTitlePickerSwitchTask: Task<Void, Never>?
-    @State var macTitlePickerSwitchGeneration: UInt64 = 0
+    @State private var macTitlePickerSwitchTask: Task<Void, Never>?
+    @State private var macTitlePickerSwitchGeneration: UInt64 = 0
     /// Stable machine-menu content. Kept as value state so live workspace or
     /// device-tree updates that do not change the actual machine set/name
     /// snapshot do not rebuild an open native Menu. `nil` only before the first
@@ -313,6 +313,70 @@ struct WorkspaceListView: View {
         }
         #endif
     }
+
+    #if os(iOS)
+    @discardableResult
+    func handleMacTitlePickerSelection(_ selection: WorkspaceMacSelection) -> Task<Void, Never>? {
+        let startsMachineSwitch: Bool
+        if case .machine = selection, switchMac != nil {
+            startsMachineSwitch = true
+        } else {
+            startsMachineSwitch = false
+        }
+        cancelMacTitlePickerSwitch(restorePreviousOnCancel: !startsMachineSwitch)
+        let generation = macTitlePickerSwitchGeneration
+        guard startsMachineSwitch else {
+            macSelection = selection
+            return nil
+        }
+        let task = Task { @MainActor in
+            defer {
+                if macTitlePickerSwitchGeneration == generation {
+                    macTitlePickerSwitchTask = nil
+                }
+            }
+            await applyMacTitlePickerSelection(selection, switchGeneration: generation)
+        }
+        macTitlePickerSwitchTask = task
+        return task
+    }
+
+    func cancelMacTitlePickerSwitch(restorePreviousOnCancel: Bool = true) {
+        let hadPendingSwitch = macTitlePickerSwitchTask != nil
+        macTitlePickerSwitchTask?.cancel()
+        macTitlePickerSwitchTask = nil
+        macTitlePickerSwitchGeneration &+= 1
+        if hadPendingSwitch {
+            cancelMacSwitch?(restorePreviousOnCancel)
+        }
+    }
+
+    @MainActor
+    func applyMacTitlePickerSelection(
+        _ selection: WorkspaceMacSelection,
+        switchGeneration: UInt64? = nil
+    ) async {
+        func isCurrentSwitchRequest() -> Bool {
+            guard !Task.isCancelled else { return false }
+            guard let switchGeneration else { return true }
+            return macTitlePickerSwitchGeneration == switchGeneration
+        }
+
+        switch selection {
+        case .all, .automatic:
+            guard isCurrentSwitchRequest() else { return }
+            macSelection = selection
+        case .machine(let id):
+            guard isCurrentSwitchRequest() else { return }
+            guard let switchMac else {
+                macSelection = selection
+                return
+            }
+            guard await switchMac(id), isCurrentSwitchRequest() else { return }
+            macSelection = .machine(id)
+        }
+    }
+    #endif
 
     private var showsConnectionRecoveryRow: Bool {
         guard let store else { return false }
