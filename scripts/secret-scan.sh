@@ -209,6 +209,12 @@ EOF
     cat "$err_file" >&2
     return 1
   fi
+  if [[ "$prod_rc" -ne 1 ]]; then
+    echo "Gitleaks failed unexpectedly while checking production scrubber source (exit $prod_rc)." >&2
+    cat "$out_file" >&2
+    cat "$err_file" >&2
+    return "$prod_rc"
+  fi
 
   echo "PASS: gitleaks allowlist suppresses only the fixture path and still fails on seeded leaks"
 }
