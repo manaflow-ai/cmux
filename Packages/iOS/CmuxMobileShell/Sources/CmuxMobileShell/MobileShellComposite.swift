@@ -6833,7 +6833,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             } catch {
                 mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .private)")
-                guard self.remoteClient === client else { return }
+                guard self.remoteClient === client else {
+                    self.clearTerminalReplayBarrierIfCurrent(
+                        surfaceID: surfaceID,
+                        token: replayBarrierToken,
+                        reason: "stale_client"
+                    )
+                    return
+                }
                 // The replay request is the view-only/foreground-resume path. A
                 // definitive auth failure here (after the RPC layer's
                 // force-refresh-and-retry already gave up) must drive the re-auth
