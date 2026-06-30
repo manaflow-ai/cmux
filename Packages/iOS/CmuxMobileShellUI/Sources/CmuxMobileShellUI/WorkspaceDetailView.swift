@@ -493,6 +493,7 @@ struct WorkspaceDetailView: View {
                 badgeContrast: backButtonConfiguration.badgeContrast,
                 action: backButtonConfiguration.action
             )
+            .mobileGlassCompactToolbarControl()
         }
     }
 
