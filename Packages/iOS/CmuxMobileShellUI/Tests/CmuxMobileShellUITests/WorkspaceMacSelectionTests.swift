@@ -22,6 +22,591 @@ import Testing
         #expect(view.liveMachineSnapshots.macPickerMachines.map(\.id) == ["mac-a", "mac-b"])
     }
 
+    @Test func titlePickerMachineSelectionSwitchesBeforeApplyingFilter() async throws {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+        ])
+        var selected = WorkspaceMacSelection.all
+        var requestedSwitches: [String] = []
+        let view = workspaceListView(
+            workspaces: [workspace(id: "ws-a", macDeviceID: "mac-a")],
+            store: store,
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { macDeviceID in
+                requestedSwitches.append(macDeviceID)
+                return true
+            }
+        )
+
+        await view.applyMacTitlePickerSelection(.machine("mac-b"))
+
+        #expect(requestedSwitches == ["mac-b"])
+        #expect(selected == .machine("mac-b"))
+    }
+
+    @Test func titlePickerWorkspaceOnlyMachineSelectionAppliesLocalFilterWithoutSwitch() async throws {
+        let manualID = "manual-127.0.0.1:50922"
+        let store = await shellStore(pairedMacs: [])
+        var selected = WorkspaceMacSelection.all
+        var requestedSwitches: [String] = []
+        let view = workspaceListView(
+            workspaces: [workspace(id: "ws-manual", macDeviceID: manualID)],
+            store: store,
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { macDeviceID in
+                requestedSwitches.append(macDeviceID)
+                return false
+            }
+        )
+
+        let pendingSwitchTask = view.handleMacTitlePickerSelection(.machine(manualID))
+        let startedSwitchTask: Bool
+        if case .some = pendingSwitchTask {
+            startedSwitchTask = true
+        } else {
+            startedSwitchTask = false
+        }
+
+        #expect(!startedSwitchTask)
+        #expect(requestedSwitches.isEmpty)
+        #expect(selected == .machine(manualID))
+    }
+
+    @Test func staleTitlePickerMachineSelectionDoesNotSwitch() async throws {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+        ])
+        var selected = WorkspaceMacSelection.all
+        var requestedSwitches: [String] = []
+        let view = workspaceListView(
+            workspaces: [workspace(id: "ws-a", macDeviceID: "mac-a")],
+            store: store,
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { macDeviceID in
+                requestedSwitches.append(macDeviceID)
+                return true
+            }
+        )
+
+        await view.applyMacTitlePickerSelection(.machine("mac-b"), switchGeneration: 1)
+
+        #expect(requestedSwitches.isEmpty)
+        #expect(selected == .all)
+    }
+
+    @Test func cancelingPendingTitlePickerSwitchCancelsUnderlyingSwitch() async throws {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+        ])
+        var selected = WorkspaceMacSelection.all
+        var requestedSwitches: [String] = []
+        var cancelRestoreRequests: [Bool] = []
+        var cancelDidStart = false
+        var cancelStartedContinuation: CheckedContinuation<Void, Never>?
+        var switchContinuation: CheckedContinuation<Bool, Never>?
+        var switchDidStart = false
+        var switchStartedContinuation: CheckedContinuation<Void, Never>?
+        func markSwitchStarted() {
+            guard !switchDidStart else { return }
+            switchDidStart = true
+            switchStartedContinuation?.resume()
+            switchStartedContinuation = nil
+        }
+        func waitForSwitchStart() async {
+            guard !switchDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if switchDidStart {
+                    continuation.resume()
+                } else {
+                    switchStartedContinuation = continuation
+                }
+            }
+        }
+        func markCancelStarted() {
+            guard !cancelDidStart else { return }
+            cancelDidStart = true
+            cancelStartedContinuation?.resume()
+            cancelStartedContinuation = nil
+        }
+        func waitForCancelStart() async {
+            guard !cancelDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if cancelDidStart {
+                    continuation.resume()
+                } else {
+                    cancelStartedContinuation = continuation
+                }
+            }
+        }
+        let view = workspaceListView(
+            workspaces: [workspace(id: "ws-a", macDeviceID: "mac-a")],
+            store: store,
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { macDeviceID in
+                requestedSwitches.append(macDeviceID)
+                markSwitchStarted()
+                return await withCheckedContinuation { continuation in
+                    switchContinuation = continuation
+                }
+            },
+            cancelMacSwitch: { restorePreviousOnCancel in
+                cancelRestoreRequests.append(restorePreviousOnCancel)
+                markCancelStarted()
+            }
+        )
+
+        let pendingSwitchTask = view.handleMacTitlePickerSelection(.machine("mac-b"))
+        await waitForSwitchStart()
+
+        view.handleMacTitlePickerSelection(.all)
+        await waitForCancelStart()
+        #expect(requestedSwitches == ["mac-b"])
+        #expect(cancelRestoreRequests == [true])
+        #expect(selected == .all)
+
+        switchContinuation?.resume(returning: true)
+        await pendingSwitchTask?.value
+
+        #expect(selected == .all)
+    }
+
+    @Test func pendingTitlePickerMachineSelectionLetsAllMacsCancelSwitch() async throws {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+        ])
+        var selected = WorkspaceMacSelection.all
+        var requestedSwitches: [String] = []
+        var cancelRestoreRequests: [Bool] = []
+        var cancelDidStart = false
+        var cancelStartedContinuation: CheckedContinuation<Void, Never>?
+        var switchContinuation: CheckedContinuation<Bool, Never>?
+        var switchDidStart = false
+        var switchStartedContinuation: CheckedContinuation<Void, Never>?
+        func markSwitchStarted() {
+            guard !switchDidStart else { return }
+            switchDidStart = true
+            switchStartedContinuation?.resume()
+            switchStartedContinuation = nil
+        }
+        func waitForSwitchStart() async {
+            guard !switchDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if switchDidStart {
+                    continuation.resume()
+                } else {
+                    switchStartedContinuation = continuation
+                }
+            }
+        }
+        func markCancelStarted() {
+            guard !cancelDidStart else { return }
+            cancelDidStart = true
+            cancelStartedContinuation?.resume()
+            cancelStartedContinuation = nil
+        }
+        func waitForCancelStart() async {
+            guard !cancelDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if cancelDidStart {
+                    continuation.resume()
+                } else {
+                    cancelStartedContinuation = continuation
+                }
+            }
+        }
+        let view = workspaceListView(
+            workspaces: [workspace(id: "ws-a", macDeviceID: "mac-a")],
+            store: store,
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { macDeviceID in
+                requestedSwitches.append(macDeviceID)
+                markSwitchStarted()
+                return await withCheckedContinuation { continuation in
+                    switchContinuation = continuation
+                }
+            },
+            cancelMacSwitch: { restorePreviousOnCancel in
+                cancelRestoreRequests.append(restorePreviousOnCancel)
+                markCancelStarted()
+            }
+        )
+
+        let pendingSwitchTask = view.handleMacTitlePickerSelection(.machine("mac-b"))
+        await waitForSwitchStart()
+
+        #expect(view.macTitlePickerSelection.wrappedValue == .machine("mac-b"))
+        view.macTitlePickerSelection.wrappedValue = .all
+        await waitForCancelStart()
+
+        #expect(requestedSwitches == ["mac-b"])
+        #expect(cancelRestoreRequests == [true])
+        #expect(selected == .all)
+
+        switchContinuation?.resume(returning: true)
+        await pendingSwitchTask?.value
+
+        #expect(selected == .all)
+    }
+
+    @Test func titlePickerWaitsForAllMacsCancelBeforeStartingNextMachineSwitch() async throws {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 30, isActive: true),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 20),
+            pairedMac(id: "mac-c", name: "Mac C", lastSeenAt: 10),
+        ])
+        var selected = WorkspaceMacSelection.all
+        var requestedSwitches: [String] = []
+        var firstSwitchContinuation: CheckedContinuation<Bool, Never>?
+        var cancelContinuation: CheckedContinuation<Void, Never>?
+        var switchDidStart = false
+        var switchStartedContinuation: CheckedContinuation<Void, Never>?
+        var cancelDidStart = false
+        var cancelStartedContinuation: CheckedContinuation<Void, Never>?
+        func markSwitchStarted() {
+            guard !switchDidStart else { return }
+            switchDidStart = true
+            switchStartedContinuation?.resume()
+            switchStartedContinuation = nil
+        }
+        func waitForSwitchStart() async {
+            guard !switchDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if switchDidStart {
+                    continuation.resume()
+                } else {
+                    switchStartedContinuation = continuation
+                }
+            }
+        }
+        func markCancelStarted() {
+            guard !cancelDidStart else { return }
+            cancelDidStart = true
+            cancelStartedContinuation?.resume()
+            cancelStartedContinuation = nil
+        }
+        func waitForCancelStart() async {
+            guard !cancelDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if cancelDidStart {
+                    continuation.resume()
+                } else {
+                    cancelStartedContinuation = continuation
+                }
+            }
+        }
+        let view = workspaceListView(
+            workspaces: [workspace(id: "ws-a", macDeviceID: "mac-a")],
+            store: store,
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { macDeviceID in
+                requestedSwitches.append(macDeviceID)
+                if macDeviceID == "mac-b" {
+                    markSwitchStarted()
+                    return await withCheckedContinuation { continuation in
+                        firstSwitchContinuation = continuation
+                    }
+                }
+                return true
+            },
+            cancelMacSwitch: { _ in
+                markCancelStarted()
+                await withCheckedContinuation { continuation in
+                    cancelContinuation = continuation
+                }
+            }
+        )
+
+        let firstTask = view.handleMacTitlePickerSelection(.machine("mac-b"))
+        await waitForSwitchStart()
+
+        view.handleMacTitlePickerSelection(.all)
+        await waitForCancelStart()
+
+        let secondTask = view.handleMacTitlePickerSelection(.machine("mac-c"))
+
+        #expect(requestedSwitches == ["mac-b"])
+        #expect(selected == .all)
+
+        cancelContinuation?.resume()
+        await secondTask?.value
+
+        #expect(requestedSwitches == ["mac-b", "mac-c"])
+        #expect(selected == .machine("mac-c"))
+
+        firstSwitchContinuation?.resume(returning: false)
+        await firstTask?.value
+    }
+
+    @Test func replacingPendingTitlePickerMachineSelectionKeepsRollbackArmed() async throws {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 30, isActive: true),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 20),
+            pairedMac(id: "mac-c", name: "Mac C", lastSeenAt: 10),
+        ])
+        var selected = WorkspaceMacSelection.all
+        var requestedSwitches: [String] = []
+        var cancelRestoreRequests: [Bool] = []
+        var firstSwitchContinuation: CheckedContinuation<Bool, Never>?
+        var secondSwitchContinuation: CheckedContinuation<Bool, Never>?
+        var firstSwitchDidStart = false
+        var firstSwitchStartedContinuation: CheckedContinuation<Void, Never>?
+        var cancelDidStart = false
+        var cancelStartedContinuation: CheckedContinuation<Void, Never>?
+        func markFirstSwitchStarted() {
+            guard !firstSwitchDidStart else { return }
+            firstSwitchDidStart = true
+            firstSwitchStartedContinuation?.resume()
+            firstSwitchStartedContinuation = nil
+        }
+        func waitForFirstSwitchStart() async {
+            guard !firstSwitchDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if firstSwitchDidStart {
+                    continuation.resume()
+                } else {
+                    firstSwitchStartedContinuation = continuation
+                }
+            }
+        }
+        func markCancelStarted() {
+            guard !cancelDidStart else { return }
+            cancelDidStart = true
+            cancelStartedContinuation?.resume()
+            cancelStartedContinuation = nil
+        }
+        func waitForCancelStart() async {
+            guard !cancelDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if cancelDidStart {
+                    continuation.resume()
+                } else {
+                    cancelStartedContinuation = continuation
+                }
+            }
+        }
+        let view = workspaceListView(
+            workspaces: [workspace(id: "ws-a", macDeviceID: "mac-a")],
+            store: store,
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { macDeviceID in
+                requestedSwitches.append(macDeviceID)
+                if macDeviceID == "mac-b" {
+                    markFirstSwitchStarted()
+                    return await withCheckedContinuation { continuation in
+                        firstSwitchContinuation = continuation
+                    }
+                }
+                return await withCheckedContinuation { continuation in
+                    secondSwitchContinuation = continuation
+                }
+            },
+            cancelMacSwitch: { restorePreviousOnCancel in
+                cancelRestoreRequests.append(restorePreviousOnCancel)
+                markCancelStarted()
+            }
+        )
+
+        let firstTask = view.handleMacTitlePickerSelection(.machine("mac-b"))
+        await waitForFirstSwitchStart()
+
+        let secondTask = view.handleMacTitlePickerSelection(.machine("mac-c"))
+        await Task.yield()
+
+        #expect(!cancelRestoreRequests.contains(false))
+
+        view.handleMacTitlePickerSelection(.all)
+        await waitForCancelStart()
+
+        #expect(cancelRestoreRequests == [true])
+        #expect(selected == .all)
+
+        firstSwitchContinuation?.resume(returning: false)
+        secondSwitchContinuation?.resume(returning: false)
+        await firstTask?.value
+        await secondTask?.value
+
+        #expect(selected == .all)
+    }
+
+    @Test func selectingWorkspaceCancelsPendingTitlePickerSwitch() async throws {
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "ws-a")
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+        ])
+        var selected = WorkspaceMacSelection.all
+        var selectedWorkspaces: [MobileWorkspacePreview.ID] = []
+        var requestedSwitches: [String] = []
+        var cancelRestoreRequests: [Bool] = []
+        var switchContinuation: CheckedContinuation<Bool, Never>?
+        var switchDidStart = false
+        var switchStartedContinuation: CheckedContinuation<Void, Never>?
+        func markSwitchStarted() {
+            guard !switchDidStart else { return }
+            switchDidStart = true
+            switchStartedContinuation?.resume()
+            switchStartedContinuation = nil
+        }
+        func waitForSwitchStart() async {
+            guard !switchDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if switchDidStart {
+                    continuation.resume()
+                } else {
+                    switchStartedContinuation = continuation
+                }
+            }
+        }
+        let view = workspaceListView(
+            workspaces: [workspace(id: workspaceID.rawValue, macDeviceID: "mac-a")],
+            store: store,
+            selectWorkspace: { selectedWorkspaces.append($0) },
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { macDeviceID in
+                requestedSwitches.append(macDeviceID)
+                markSwitchStarted()
+                return await withCheckedContinuation { continuation in
+                    switchContinuation = continuation
+                }
+            },
+            cancelMacSwitch: { restorePreviousOnCancel in
+                cancelRestoreRequests.append(restorePreviousOnCancel)
+            }
+        )
+
+        let pendingSwitchTask = view.handleMacTitlePickerSelection(.machine("mac-b"))
+        await waitForSwitchStart()
+
+        let selectionTask = view.selectWorkspaceFromList(workspaceID)
+        await selectionTask?.value
+
+        #expect(requestedSwitches == ["mac-b"])
+        #expect(cancelRestoreRequests == [true])
+        #expect(selectedWorkspaces == [workspaceID])
+
+        switchContinuation?.resume(returning: true)
+        await pendingSwitchTask?.value
+
+        #expect(selected == .all)
+    }
+
+    @Test func newerWorkspaceSelectionInvalidatesDeferredRowSelection() async throws {
+        let firstWorkspaceID = MobileWorkspacePreview.ID(rawValue: "ws-a")
+        let secondWorkspaceID = MobileWorkspacePreview.ID(rawValue: "ws-b")
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+        ])
+        var selected = WorkspaceMacSelection.all
+        var selectedWorkspaces: [MobileWorkspacePreview.ID] = []
+        var switchContinuation: CheckedContinuation<Bool, Never>?
+        var switchDidStart = false
+        var switchStartedContinuation: CheckedContinuation<Void, Never>?
+        var cancelContinuation: CheckedContinuation<Void, Never>?
+        var cancelDidStart = false
+        var cancelStartedContinuation: CheckedContinuation<Void, Never>?
+        func markSwitchStarted() {
+            guard !switchDidStart else { return }
+            switchDidStart = true
+            switchStartedContinuation?.resume()
+            switchStartedContinuation = nil
+        }
+        func waitForSwitchStart() async {
+            guard !switchDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if switchDidStart {
+                    continuation.resume()
+                } else {
+                    switchStartedContinuation = continuation
+                }
+            }
+        }
+        func markCancelStarted() {
+            guard !cancelDidStart else { return }
+            cancelDidStart = true
+            cancelStartedContinuation?.resume()
+            cancelStartedContinuation = nil
+        }
+        func waitForCancelStart() async {
+            guard !cancelDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if cancelDidStart {
+                    continuation.resume()
+                } else {
+                    cancelStartedContinuation = continuation
+                }
+            }
+        }
+        let view = workspaceListView(
+            workspaces: [
+                workspace(id: firstWorkspaceID.rawValue, macDeviceID: "mac-a"),
+                workspace(id: secondWorkspaceID.rawValue, macDeviceID: "mac-a"),
+            ],
+            store: store,
+            selectWorkspace: { selectedWorkspaces.append($0) },
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { _ in
+                markSwitchStarted()
+                return await withCheckedContinuation { continuation in
+                    switchContinuation = continuation
+                }
+            },
+            cancelMacSwitch: { _ in
+                markCancelStarted()
+                await withCheckedContinuation { continuation in
+                    cancelContinuation = continuation
+                }
+            }
+        )
+
+        let pendingSwitchTask = view.handleMacTitlePickerSelection(.machine("mac-b"))
+        await waitForSwitchStart()
+
+        let firstSelectionTask = view.selectWorkspaceFromList(firstWorkspaceID)
+        await waitForCancelStart()
+        let secondSelectionTask = view.selectWorkspaceFromList(secondWorkspaceID)
+
+        cancelContinuation?.resume()
+        await firstSelectionTask?.value
+        await secondSelectionTask?.value
+
+        #expect(selectedWorkspaces == [secondWorkspaceID])
+
+        switchContinuation?.resume(returning: true)
+        await pendingSwitchTask?.value
+    }
+
     @Test func selectingCoalescedPairedMacMatchesAliasWorkspaceRows() async throws {
         let route = try route(host: "100.82.214.112")
         let store = await shellStore(pairedMacs: [
@@ -90,6 +675,21 @@ import Testing
 
         #expect(scope.visibleSelection == .machine("mac-fresh"))
         #expect(scope.canCreateWorkspace(base: true))
+    }
+
+    @Test func sharedSelectionScopeDisablesCreateWhileMacSwitchPending() {
+        let scope = WorkspaceMacSelectionScope(
+            selection: .all,
+            workspaces: [workspace(id: "ws-a", macDeviceID: "mac-a")],
+            displayPairedMacs: [
+                pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20),
+                pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+            ],
+            foregroundMacDeviceID: "mac-a",
+            aliasesFor: { [$0] }
+        )
+
+        #expect(!scope.canCreateWorkspace(base: true, switchPending: true))
     }
 
     @Test func sharedSelectionScopeAllowsCreateWhenManualForegroundMacIsSelected() {
@@ -252,7 +852,11 @@ import Testing
 
     private func workspaceListView(
         workspaces: [MobileWorkspacePreview],
-        store: CMUXMobileShellStore
+        store: CMUXMobileShellStore,
+        selectWorkspace: @escaping (MobileWorkspacePreview.ID) -> Void = { _ in },
+        macSelection: Binding<WorkspaceMacSelection>? = nil,
+        switchMac: (@MainActor (String) async -> Bool)? = nil,
+        cancelMacSwitch: (@MainActor (Bool) async -> Void)? = nil
     ) -> WorkspaceListView {
         WorkspaceListView(
             workspaces: workspaces,
@@ -261,9 +865,11 @@ import Testing
             connectionStatus: .unavailable,
             navigationStyle: .push,
             wrapWorkspaceTitles: false,
-            selectWorkspace: { _ in },
+            selectWorkspace: selectWorkspace,
             createWorkspace: {},
-            macSelection: binding(initialValue: .all),
+            macSelection: macSelection ?? binding(initialValue: .all),
+            switchMac: switchMac,
+            cancelMacSwitch: cancelMacSwitch,
             store: store
         )
     }
