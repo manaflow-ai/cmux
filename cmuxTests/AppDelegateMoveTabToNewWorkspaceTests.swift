@@ -295,9 +295,9 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
             store.resetNotificationDeliveryHandlerForTesting()
             store.resetSuppressedNotificationFeedbackHandlerForTesting()
             app.notificationStore = originalNotificationStore
+            AppDelegate.shared = previousShared
             TerminalController.shared.setActiveTabManager(previousControllerManager)
             AppFocusState.overrideIsFocused = originalAppFocusOverride
-            AppDelegate.shared = previousShared
         }
 
         let sourceWorkspace = try #require(manager.selectedWorkspace)
@@ -351,9 +351,9 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
             store.resetNotificationDeliveryHandlerForTesting()
             store.resetSuppressedNotificationFeedbackHandlerForTesting()
             app.notificationStore = originalNotificationStore
+            AppDelegate.shared = previousShared
             TerminalController.shared.setActiveTabManager(previousControllerManager)
             AppFocusState.overrideIsFocused = originalAppFocusOverride
-            AppDelegate.shared = previousShared
         }
 
         let sourceWorkspace = try #require(manager.selectedWorkspace)
