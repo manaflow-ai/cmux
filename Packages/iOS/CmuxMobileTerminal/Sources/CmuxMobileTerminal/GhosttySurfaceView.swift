@@ -2280,7 +2280,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @discardableResult
     public func processOutputAndWait(_ data: Data) async -> Bool {
         guard !renderPipelineStoppedAfterRecoveryLimit else { return true }
-        await withCheckedContinuation { continuation in
+        return await withCheckedContinuation { continuation in
             let operationID = registerPendingOutputApply(
                 byteCount: data.count,
                 continuation: continuation
@@ -3337,7 +3337,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard !renderPipelineStoppedAfterRecoveryLimit else { return true }
         needsGeometrySync = false
         pendingGeometryReassert = false
-        await withCheckedContinuation { continuation in
+        return await withCheckedContinuation { continuation in
             let operationID = registerPendingGeometryApply(continuation: continuation)
             syncSurfaceGeometry(shouldReassertNaturalSize: shouldReassertNaturalSize) { applied in
                 self.completePendingGeometryApply(id: operationID, returning: applied)

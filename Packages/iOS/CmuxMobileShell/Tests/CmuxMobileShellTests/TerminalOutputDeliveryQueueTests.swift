@@ -42,7 +42,7 @@ import Testing
 }
 
 @MainActor
-@Test func terminalOutputResetDropsStalledBacklogAndInvalidatesOldAcks() async throws {
+@Test func terminalReplayBarrierDropsStalledBacklogAndInvalidatesOldAcks() async throws {
     let store = MobileShellComposite.preview()
     let surfaceID = "terminal"
 
@@ -53,10 +53,10 @@ import Testing
 
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == 1)
 
-    store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
+    let replayBarrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
 
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
-    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken)
 
     let liveBeforeReplayAccepted = store.deliverTerminalBytes(
         Data("live-before-replay".utf8),
@@ -97,6 +97,32 @@ import Testing
 
     let afterReplayAck = try #require(await iterator.next())
     #expect(String(decoding: afterReplayAck.data, as: UTF8.self) == "after-replay-ack")
+}
+
+@MainActor
+@Test func terminalOutputResetClearsBarrierWhenReplayCannotStart() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.deliverTerminalBytes(Data("stalled-first".utf8), surfaceID: surfaceID)
+    let stalledChunk = try #require(await iterator.next())
+    store.deliverTerminalBytes(Data("stale-second".utf8), surfaceID: surfaceID)
+
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == 1)
+
+    store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
+
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
+
+    let accepted = store.deliverTerminalBytes(Data("after-aborted-replay".utf8), surfaceID: surfaceID)
+    #expect(accepted == true)
+
+    let afterAbort = try #require(await iterator.next())
+    #expect(String(decoding: afterAbort.data, as: UTF8.self) == "after-aborted-replay")
 }
 
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
