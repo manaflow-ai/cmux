@@ -317,6 +317,22 @@ import Testing
         )
     }
 
+    @Test func contextMenuDismissalRestoresHoverWithoutPointerMovement() {
+        var state = SidebarWorkspaceRowInteractionState()
+
+        state.setPointerHovering(true)
+        state.contextMenuDidAppear()
+        state.contextMenuDidDisappear()
+
+        #expect(
+            state.shouldShowCloseButton(
+                canCloseWorkspace: true,
+                shortcutHintModeActive: false
+            ),
+            "Closing a context menu without moving the pointer must restore the row hover affordance."
+        )
+    }
+
     @Test func pointerExitWhileContextMenuIsVisibleStaysHiddenAfterDismissal() {
         var state = SidebarWorkspaceRowInteractionState()
 

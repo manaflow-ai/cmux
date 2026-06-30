@@ -103,8 +103,8 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
     }
 
     mutating func contextMenuDidAppear() {
+        deferredPointerHoveringWhileContextMenu = isPointerHovering
         contextMenuVisible = true
-        deferredPointerHoveringWhileContextMenu = nil
         isPointerHovering = false
     }
 
