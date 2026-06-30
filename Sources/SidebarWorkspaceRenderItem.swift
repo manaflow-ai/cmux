@@ -1,38 +1,6 @@
 import CmuxWorkspaces
 import Foundation
 
-/// Stable, allocation-free identity for a `SidebarWorkspaceRenderItem`.
-///
-/// ForEach gathers row identifiers on every list diff, so the id must be cheap
-/// to create and hash. The previous `String` form
-/// (`"workspace.\(uuid.uuidString)"`) allocated and formatted a fresh string on
-/// every getter call; with the sidebar re-diffing all rows per update it was a
-/// hot app-owned frame in sidebar livelock samples. Keep the discriminator as a
-/// byte instead of an enum payload so SwiftUI's per-scroll list diff does not
-/// spend time in enum-derived equality/hash witnesses.
-struct SidebarWorkspaceRenderItemID: Hashable {
-    enum Kind: UInt8, Hashable {
-        case group = 1
-        case workspace = 2
-    }
-
-    let kind: Kind
-    let uuid: UUID
-
-    static func group(_ uuid: UUID) -> Self {
-        Self(kind: .group, uuid: uuid)
-    }
-
-    static func workspace(_ uuid: UUID) -> Self {
-        Self(kind: .workspace, uuid: uuid)
-    }
-
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(kind.rawValue)
-        hasher.combine(uuid)
-    }
-}
-
 /// One drawable item in the workspace sidebar.
 @MainActor
 enum SidebarWorkspaceRenderItem {
