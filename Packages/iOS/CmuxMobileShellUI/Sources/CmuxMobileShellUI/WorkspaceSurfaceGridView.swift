@@ -90,11 +90,8 @@ struct WorkspaceSurfaceGridView: View {
     }
 
     private var workspaceCountTitle: String {
-        if workspaces.count == 1 {
-            return L10n.string("mobile.surfaceGrid.workspaceCount.one", defaultValue: "1 Workspace")
-        }
-        return String(
-            format: L10n.string("mobile.surfaceGrid.workspaceCount.other", defaultValue: "%d Workspaces"),
+        String.localizedStringWithFormat(
+            L10n.string("mobile.surfaceGrid.workspaceCount", defaultValue: "%d Workspaces"),
             workspaces.count
         )
     }

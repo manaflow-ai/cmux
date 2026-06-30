@@ -1021,36 +1021,37 @@
         }
       }
     },
-    "mobile.surfaceGrid.workspaceCount.one": {
+    "mobile.surfaceGrid.workspaceCount": {
       "extractionState": "manual",
       "localizations": {
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 Workspace"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%d Workspace"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%d Workspaces"
+                }
+              }
+            }
           }
         },
         "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 個のワークスペース"
-          }
-        }
-      }
-    },
-    "mobile.surfaceGrid.workspaceCount.other": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d Workspaces"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d 個のワークスペース"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%d 個のワークスペース"
+                }
+              }
+            }
           }
         }
       }
