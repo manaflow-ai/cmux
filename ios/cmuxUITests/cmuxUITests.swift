@@ -301,6 +301,25 @@ final class cmuxUITests: XCTestCase {
             terminalID: "workspace-3-terminal-1",
             server: server
         )
+        let freshBackButton = app.buttons["MobileWorkspaceBackButton"]
+        let freshTitleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let freshTerminalDropdown = app.buttons["MobileTerminalDropdown"]
+        assertWorkspaceToolbarVisible(
+            backButton: freshBackButton,
+            titleMenu: freshTitleMenu,
+            terminalDropdown: freshTerminalDropdown,
+            in: app,
+            context: "fresh no-agent workspace immediately after create"
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(5))
+        assertWorkspaceToolbarVisible(
+            backButton: freshBackButton,
+            titleMenu: freshTitleMenu,
+            terminalDropdown: freshTerminalDropdown,
+            in: app,
+            context: "fresh no-agent workspace after 5s"
+        )
+        assertBackButtonFrameStaysCompactAroundPress(freshBackButton, in: app)
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
@@ -2095,6 +2114,71 @@ final class cmuxUITests: XCTestCase {
             line: line
         )
         return false
+    }
+
+    @MainActor
+    private func assertWorkspaceToolbarVisible(
+        backButton: XCUIElement,
+        titleMenu: XCUIElement,
+        terminalDropdown: XCUIElement,
+        in app: XCUIApplication,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4), "\(context): missing back button", file: file, line: line)
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 4), "\(context): missing title menu", file: file, line: line)
+        XCTAssertTrue(terminalDropdown.waitForExistence(timeout: 4), "\(context): missing terminal dropdown", file: file, line: line)
+        XCTAssertTrue(
+            waitForCompactToolbarHeightsToMatch(
+                titleMenu: titleMenu,
+                backButton: backButton,
+                surfacePicker: terminalDropdown,
+                tolerance: 2,
+                timeout: 4,
+                file: file,
+                line: line
+            ),
+            "\(context): toolbar items must keep compact native heights",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func assertBackButtonFrameStaysCompactAroundPress(
+        _ backButton: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let before = waitForToolbarFrame(of: backButton, timeout: 4) else {
+            XCTFail("Back button has no usable frame before press", file: file, line: line)
+            return
+        }
+        let start = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: before.midX, dy: before.midY))
+        let end = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: before.midX, dy: before.midY + 90))
+        start.press(forDuration: 0.25, thenDragTo: end)
+        guard let after = waitForToolbarFrame(of: backButton, timeout: 4) else {
+            XCTFail("Back button disappeared after press", file: file, line: line)
+            return
+        }
+        XCTAssertLessThanOrEqual(
+            after.height,
+            before.height + 4,
+            "Back button press must not leave an enlarged chevron/control frame. before=\(before), after=\(after)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            after.width,
+            before.width + 8,
+            "Back button press must not leave a stretched rectangular control frame. before=\(before), after=\(after)",
+            file: file,
+            line: line
+        )
     }
 
     @MainActor
