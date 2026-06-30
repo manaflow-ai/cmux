@@ -3,6 +3,8 @@ import Foundation
 import WebKit
 
 @MainActor final class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
+    private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
+    private var shouldPrintAfterCurrentNavigationFinishes = false
     var didStartProvisionalNavigation: ((WKWebView) -> Void)?
     var didCommit: ((WKWebView) -> Void)?
     var didFinish: ((WKWebView) -> Void)?
@@ -13,7 +15,10 @@ import WebKit
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
+    var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var didRenderPDFDocument: ((URL, Bool) -> Void)?
+    var didClearPDFDocument: (() -> Void)?
     /// Direct reference to the download delegate - must be set synchronously in didBecome callbacks.
     var downloadDelegate: WKDownloadDelegate?
     /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
@@ -21,6 +26,7 @@ import WebKit
     var lastAttemptedURL: URL?
     private(set) var activeErrorPageDisplayURL: URL?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
+    private let clientCertificateAuthenticationController = BrowserClientCertificateAuthenticationController()
     private let sslBypassState = BrowserSSLTrustBypassState()
     private var lastAttemptedRequest: URLRequest?
     private var lastAttemptedRequestWasDiscardedForReplay = false
@@ -29,8 +35,9 @@ import WebKit
     private var activeSSLTrustBypassReplayRequest: URLRequest?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
 
-    func cancelPendingHTTPBasicAuthPrompts(allowFuturePrompts: Bool = false) {
+    func cancelPendingAuthenticationPrompts(allowFuturePrompts: Bool = false) {
         basicAuthPromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
+        clientCertificateAuthenticationController.cancelAll(allowFuturePrompts: allowFuturePrompts)
     }
 
     func recordAttemptedRequest(_ request: URLRequest, displayURL: URL? = nil) {
@@ -78,6 +85,8 @@ import WebKit
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
+        shouldPrintAfterCurrentNavigationFinishes = false
+        didClearPDFDocument?()
         didStartProvisionalNavigation?(webView)
     }
 
@@ -90,6 +99,10 @@ import WebKit
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         didFinish?(webView)
+        if shouldPrintAfterCurrentNavigationFinishes {
+            shouldPrintAfterCurrentNavigationFinishes = false
+            webView.cmuxRunPrintOperation()
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -161,16 +174,15 @@ import WebKit
             return
         }
 
-        // WKWebView rejects all authentication challenges by default when this
-        // delegate method is not implemented (.rejectProtectionSpace). This
-        // breaks TLS client-certificate flows such as Microsoft Entra ID
-        // Conditional Access, which verifies device compliance via a client
-        // certificate stored in the system keychain by MDM enrollment.
-        //
-        // By returning .performDefaultHandling the system's standard URL-loading
-        // behaviour takes over: the keychain is searched for matching client
-        // identities, MDM-installed root CAs are trusted, and any configured SSO
-        // extensions (e.g. Microsoft Enterprise SSO) can intercept the challenge.
+        if clientCertificateAuthenticationController.handle(
+            challenge: challenge,
+            in: webView,
+            presentAlert: presentAlert,
+            completionHandler: completionHandler
+        ) {
+            return
+        }
+
         completionHandler(.performDefaultHandling, nil)
     }
 
@@ -238,6 +250,8 @@ import WebKit
             buttonNumber: navigationAction.buttonNumber,
             hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
         )
+        let hasUserActivation = browserNavigationHasSimpleUserActivation()
+        subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
 #if DEBUG
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
@@ -294,6 +308,21 @@ import WebKit
         }
 
         if navigationAction.shouldPerformDownload {
+            if navigationAction.targetFrame?.isMainFrame == false {
+                guard let url = navigationAction.request.url else {
+                    decisionHandler(.cancel)
+                    return
+                }
+                let hasRecordedIntent = subframeDownloadIntents.consume(for: url)
+                guard hasUserActivation || hasRecordedIntent else { decisionHandler(.cancel); return }
+                if shouldBlockInsecureHTTPSubframeDownload?(url) == true {
+                    #if DEBUG
+                    cmuxDebugLog("browser.nav.decidePolicy.action kind=cancelDownload reason=insecureHTTPSubframe url=\(url.absoluteString)")
+                    #endif
+                    decisionHandler(.cancel)
+                    return
+                }
+            }
             clearAttemptedRequest(discardPendingBypasses: true)
             decisionHandler(.download)
             return
@@ -424,42 +453,107 @@ import WebKit
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
-        if !navigationResponse.isForMainFrame {
-            decisionHandler(.allow)
-            return
-        }
-
         let mime = navigationResponse.response.mimeType ?? "unknown"
         let canShow = navigationResponse.canShowMIMEType
-        let responseURL = navigationResponse.response.url?.absoluteString ?? "nil"
 
-        // Only classify HTTP(S) top-level responses as downloads.
+        // Only classify HTTP(S) responses as downloads. Subframes are eligible
+        // only for explicit attachment/force-download MIME decisions; the
+        // resolver keeps cannot-show MIME fallback scoped to main-frame loads.
         if let scheme = navigationResponse.response.url?.scheme?.lowercased(),
            scheme != "http", scheme != "https" {
             decisionHandler(.allow)
             return
         }
 
-        NSLog("BrowserPanel navigationResponse: url=%@ mime=%@ canShow=%d isMainFrame=%d",
-              responseURL, mime, canShow ? 1 : 0,
-              navigationResponse.isForMainFrame ? 1 : 0)
+        #if DEBUG
+        cmuxDebugLog(
+            "browser.nav.response mime=\(mime) canShow=\(canShow ? 1 : 0) mainFrame=\(navigationResponse.isForMainFrame ? 1 : 0)"
+        )
+        #endif
 
         let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?
             .value(forHTTPHeaderField: "Content-Disposition")
-        if let reason = BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
+        let filenameResolver = BrowserDownloadFilenameResolver()
+        let hasTrustedPDFPrintIntent = subframeDownloadIntents.consumePDFPrintIntent(
+            responseURL: navigationResponse.response.url,
+            mimeType: mime,
+            isForMainFrame: navigationResponse.isForMainFrame
+        )
+        if filenameResolver.shouldPrintPDFAfterLoad(
+            mimeType: mime,
+            responseURL: navigationResponse.response.url,
+            isForMainFrame: navigationResponse.isForMainFrame,
+            hasTrustedPrintIntent: hasTrustedPDFPrintIntent
+        ) {
+            shouldPrintAfterCurrentNavigationFinishes = true
+        }
+        let isUserActivatedPreviouslyRenderedSubframePDF = subframeDownloadIntents
+            .consumeUserActivatedPreviouslyRenderedSubframePDF(
+                responseURL: navigationResponse.response.url,
+                mimeType: mime,
+                isForMainFrame: navigationResponse.isForMainFrame
+            )
+        let allowsSubframeDownload = navigationResponse.isForMainFrame
+            || subframeDownloadIntents.consume(for: navigationResponse.response.url)
+            || isUserActivatedPreviouslyRenderedSubframePDF
+        if let reason = filenameResolver.navigationResponseDownloadReason(
             mimeType: mime,
             canShowMIMEType: canShow,
-            contentDisposition: contentDisposition
+            contentDisposition: contentDisposition,
+            isForMainFrame: navigationResponse.isForMainFrame,
+            allowsSubframeDownload: allowsSubframeDownload,
+            isUserActivatedPreviouslyRenderedSubframePDF: isUserActivatedPreviouslyRenderedSubframePDF
         ) {
-            NSLog("BrowserPanel download: %@ mime=%@ url=%@", reason, mime, responseURL)
+            if !navigationResponse.isForMainFrame,
+               let url = navigationResponse.response.url,
+               shouldBlockInsecureHTTPSubframeDownload?(url) == true {
+                #if DEBUG
+                cmuxDebugLog("download.policy=cancel reason=insecureHTTPSubframe url=\(url.absoluteString)")
+                #endif
+                decisionHandler(.cancel)
+                return
+            }
             #if DEBUG
-            cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime)")
+            cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime) mainFrame=\(navigationResponse.isForMainFrame ? 1 : 0)")
             #endif
             decisionHandler(.download)
             return
         }
 
+        subframeDownloadIntents.markRenderedSubframePDFIfNeeded(
+            responseURL: navigationResponse.response.url,
+            mimeType: mime,
+            isForMainFrame: navigationResponse.isForMainFrame
+        )
+        if isPDFMIMEType(mime), let url = navigationResponse.response.url {
+            didRenderPDFDocument?(url, navigationResponse.isForMainFrame)
+        } else if navigationResponse.isForMainFrame {
+            didClearPDFDocument?()
+        }
         decisionHandler(.allow)
+    }
+
+    func recordSubframeDownloadIntent(_ url: URL) {
+        subframeDownloadIntents.record(url)
+    }
+
+    func recordPDFPrintIntent(_ url: URL) {
+        subframeDownloadIntents.recordPDFPrintIntent(url)
+    }
+
+    func recordPDFPrintIntentIfNeeded(_ request: URLRequest, sourceFrame: WKFrameInfo?) {
+        guard let url = request.url else { return }
+        subframeDownloadIntents.recordPDFPrintIntent(
+            url,
+            sourceFrameURL: sourceFrame?.request.url,
+            sourceIsMainFrame: sourceFrame?.isMainFrame ?? true
+        )
+    }
+
+    private func isPDFMIMEType(_ mimeType: String?) -> Bool {
+        mimeType?.split(separator: ";", maxSplits: 1).first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare("application/pdf") == .orderedSame
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
@@ -476,5 +570,21 @@ import WebKit
         #endif
         NSLog("BrowserPanel download didBecome from navigationResponse")
         download.delegate = downloadDelegate
+    }
+}
+
+extension WKWebView {
+    @MainActor
+    func cmuxRunPrintOperation() {
+        guard #available(macOS 11.0, *) else { return }
+        let printInfo = (NSPrintInfo.shared.copy() as? NSPrintInfo) ?? NSPrintInfo()
+        let operation = printOperation(with: printInfo)
+        operation.showsPrintPanel = true
+        operation.showsProgressPanel = true
+        if let window {
+            operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+        } else {
+            operation.run()
+        }
     }
 }
