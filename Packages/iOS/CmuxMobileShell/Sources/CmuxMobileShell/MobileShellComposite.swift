@@ -1441,7 +1441,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Connect to a manually-entered Mac host and optionally associate the
     /// resulting session with an existing paired-Mac device id.
     public func connectManualHost(
-        name: String, host: String, port: Int, pairedMacDeviceID: String? = nil
+        name: String,
+        host: String,
+        port: Int,
+        pairedMacDeviceID: String? = nil
     ) async {
         await connectManualHost(
             name: name,
@@ -1477,7 +1480,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         host: String,
         port: Int,
         pairedMacDeviceID: String? = nil,
-        recordsPairingAttempt: Bool
+        recordsPairingAttempt: Bool,
+        ifStillCurrent: (() -> Bool)? = nil
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
@@ -1525,7 +1529,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
             let noThrowFailure = try await connect(
-                ticket: ticket, allowsStackAuthFallback: true, pairedMacDeviceID: pairedMacDeviceID)
+                ticket: ticket,
+                allowsStackAuthFallback: true,
+                pairedMacDeviceID: pairedMacDeviceID,
+                ifStillCurrent: ifStillCurrent
+            )
             guard isCurrentPairingAttempt(attemptID) else { return }
             if connectionState == .connected {
                 recordPairingSucceeded()
@@ -2479,7 +2487,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         await connectManualHost(
             name: refreshedTarget.displayName ?? host, host: host, port: port,
-            pairedMacDeviceID: macDeviceID)
+            pairedMacDeviceID: macDeviceID,
+            recordsPairingAttempt: true,
+            ifStillCurrent: { [weak self] in
+                self?.isCurrentMacSwitchAttempt(switchAttemptID) == true
+            }
+        )
         guard isCurrentMacSwitchAttempt(switchAttemptID) else {
             await restoreMacSwitchBaselineIfCancelled(switchAttemptID, fallback: previousForegroundMac)
             return false
@@ -4825,9 +4838,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func connect(
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool? = nil,
-        pairedMacDeviceID: String? = nil
+        pairedMacDeviceID: String? = nil,
+        ifStillCurrent: (() -> Bool)? = nil
     ) async throws -> MobilePairingFailureCategory? {
         let generation = UUID()
+        func isConnectCurrent() -> Bool {
+            isCurrentConnectionAttempt(generation) && (ifStillCurrent?() ?? true)
+        }
         connectionAttemptGeneration = generation
         connectionGeneration = generation
         diagnosticLog?.record(DiagnosticEvent(.connect))
@@ -4855,7 +4872,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         replaceRemoteClient(with: nil)
 
         guard let runtime else {
-            guard isCurrentConnectionAttempt(generation) else { return nil }
+            guard isConnectCurrent() else { return nil }
             clearPairingError()
             applyPreviewTicket(ticket, route: firstRoute)
             connectionState = .connected
@@ -4902,7 +4919,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         timeoutNanoseconds: requestTimeoutNanoseconds
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-                    guard isCurrentConnectionAttempt(generation) else { return nil }
+                    guard isConnectCurrent() else { return nil }
+                    await persistPairedMacFromTicket(ticket, ifStillCurrent: isConnectCurrent)
+                    guard isConnectCurrent() else { return nil }
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
                     // The connect seam guarantees identity recovery for an
@@ -4918,7 +4937,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         scheduleHostIdentityAdoptionIfNeeded(client: client)
                     }
                     clearPairingError()
-                    await persistPairedMacFromTicket(ticket)
                     // Set the foreground Mac id BEFORE applying the list so the
                     // per-Mac state is keyed to THIS Mac, not the previously-
                     // foreground Mac (or the anonymous key). Otherwise switching
@@ -4977,7 +4995,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return nil
                 } catch {
                     lastError = error
-                    guard isCurrentConnectionAttempt(generation) else { return nil }
+                    guard isConnectCurrent() else { return nil }
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
