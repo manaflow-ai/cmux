@@ -8,18 +8,14 @@ struct SidebarBonsplitWorkspaceRowDropModifier: ViewModifier {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if !isEnabled {
-            content
-        } else {
-            let delegate = SidebarBonsplitTabDropDelegate(
-                targetWorkspaceId: targetWorkspaceId,
-                tabManager: tabManager,
-                selectedTabIds: $selectedTabIds,
-                lastSidebarSelectionIndex: $lastSidebarSelectionIndex
-            )
-            content.onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: delegate)
-        }
+        let delegate = SidebarBonsplitTabDropDelegate(
+            isEnabled: isEnabled,
+            targetWorkspaceId: targetWorkspaceId,
+            tabManager: tabManager,
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+        )
+        return content.onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: delegate)
     }
 }

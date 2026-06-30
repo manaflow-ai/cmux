@@ -2,12 +2,14 @@ import Foundation
 import SwiftUI
 
 struct SidebarBonsplitTabDropDelegate: DropDelegate {
+    let isEnabled: Bool
     let targetWorkspaceId: UUID
     let tabManager: TabManager
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
 
     func validateDrop(info: DropInfo) -> Bool {
+        guard isEnabled else { return false }
         guard info.hasItemsConforming(to: [BonsplitTabDragPayload.typeIdentifier]) else { return false }
         return BonsplitTabDragPayload.currentTransfer() != nil
     }
