@@ -106,6 +106,7 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
 
         check_env = env.copy()
         check_env["CMUX_TEST_AMP_EXTENSION_PATH"] = str(extension_path)
+        check_env.pop("CMUX_SOCKET_PATH", None)
         check_env.pop("CMUX_SURFACE_ID", None)
         check_env.pop("CMUX_PANEL_ID", None)
         check_env["CMUX_WORKSPACE_ID"] = "workspace-amp-test"
