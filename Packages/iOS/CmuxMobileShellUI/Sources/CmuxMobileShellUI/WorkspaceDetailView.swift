@@ -140,26 +140,21 @@ struct WorkspaceDetailView: View {
         .navigationTitle("")
         .mobileTerminalNavigationChrome()
         .toolbar {
-            if backButtonConfiguration != nil {
-                ToolbarItem(placement: .topBarLeading) {
-                    workspaceBackToolbarButton
-                }
-                if #available(iOS 26.0, *) {
-                    ToolbarSpacer(.fixed, placement: .topBarLeading)
-                }
-            }
             ToolbarItem(placement: .topBarLeading) {
-                WorkspaceTitleMenu(
-                    contentWidth: contentWidth,
-                    hasBackButton: backButtonConfiguration != nil,
-                    hasChatToggle: shouldShowChatToggle,
-                    menuContent: { titleMenuContent }
-                ) {
-                    Text(browser.title ?? workspace.name)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .foregroundStyle(TerminalPalette.foreground)
+                HStack(spacing: 8) {
+                    workspaceBackToolbarButton
+                    WorkspaceTitleMenu(
+                        contentWidth: contentWidth,
+                        hasBackButton: backButtonConfiguration != nil,
+                        hasChatToggle: shouldShowChatToggle,
+                        menuContent: { titleMenuContent }
+                    ) {
+                        Text(browser.title ?? workspace.name)
+                            .font(.headline)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .foregroundStyle(TerminalPalette.foreground)
+                    }
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -310,22 +305,17 @@ struct WorkspaceDetailView: View {
         #endif
         .toolbar {
             #if os(iOS)
-            if backButtonConfiguration != nil {
-                ToolbarItem(placement: .topBarLeading) {
-                    workspaceBackToolbarButton
-                }
-                if #available(iOS 26.0, *) {
-                    ToolbarSpacer(.fixed, placement: .topBarLeading)
-                }
-            }
             ToolbarItem(placement: .topBarLeading) {
-                WorkspaceTitleMenu(
-                    contentWidth: contentWidth,
-                    hasBackButton: backButtonConfiguration != nil,
-                    hasChatToggle: shouldShowChatToggle,
-                    menuContent: { titleMenuContent }
-                ) {
-                    WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
+                HStack(spacing: 8) {
+                    workspaceBackToolbarButton
+                    WorkspaceTitleMenu(
+                        contentWidth: contentWidth,
+                        hasBackButton: backButtonConfiguration != nil,
+                        hasChatToggle: shouldShowChatToggle,
+                        menuContent: { titleMenuContent }
+                    ) {
+                        WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
+                    }
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -373,6 +363,7 @@ struct WorkspaceDetailView: View {
                 badgeContrast: backButtonConfiguration.badgeContrast,
                 action: backButtonConfiguration.action
             )
+            .mobileGlassCompactToolbarControl()
         }
     }
 
