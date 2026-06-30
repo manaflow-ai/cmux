@@ -245,6 +245,22 @@ extension PullRequestProbeService {
             return collected
         }
 
+        return Self.foldingBranchLookupResults(
+            branchResults,
+            fetchedCheckStatuses: [:],
+            into: baseEntry,
+            refreshedAt: refreshedAt
+        )
+    }
+
+    /// Folds per-branch lookup results into a refreshed cache entry, applying a
+    /// CI rollup to each found PR (cached lookup only, for now).
+    nonisolated static func foldingBranchLookupResults(
+        _ branchResults: [(String, WorkspacePullRequestBranchFetchResult)],
+        fetchedCheckStatuses: [Int: PullRequestCheckStatus],
+        into baseEntry: WorkspacePullRequestRepoCacheEntry,
+        refreshedAt: Date
+    ) -> WorkspacePullRequestBranchLookupOutcome {
         var pullRequestsByBranch = baseEntry.pullRequestsByBranch
         var knownAbsentBranches = baseEntry.knownAbsentBranches
         var transientBranches: Set<String> = []

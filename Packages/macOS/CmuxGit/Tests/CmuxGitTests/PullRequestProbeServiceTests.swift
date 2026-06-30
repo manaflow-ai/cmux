@@ -219,6 +219,58 @@ import Testing
         #expect(statuses[9] == .neutral)
     }
 
+    // MARK: branch-lookup CI status
+
+    @Test func branchLookupAppliesFetchedCheckStatusToFoundPullRequests() {
+        // A PR resolved only by the targeted `head=` branch lookup is absent
+        // from the recent REST window, so the window-wide GraphQL fetch never
+        // covered it. Its freshly fetched rollup must still be applied instead
+        // of defaulting to `.neutral`.
+        let baseEntry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: Date(),
+            pullRequestsByBranch: [:]
+        )
+        let found = item(
+            number: 4242,
+            state: "OPEN",
+            url: "https://github.com/manaflow-ai/cmux/pull/4242",
+            updatedAt: "2026-03-20T18:00:00Z",
+            headRefName: "feature/branch-lookup"
+        )
+        let outcome = PullRequestProbeService.foldingBranchLookupResults(
+            [("feature/branch-lookup", .found(found))],
+            fetchedCheckStatuses: [4242: .success],
+            into: baseEntry,
+            refreshedAt: Date()
+        )
+        #expect(
+            outcome.cacheEntry.pullRequestsByBranch["feature/branch-lookup"]?.ciStatus == .success
+        )
+    }
+
+    @Test func branchLookupKeepsNeutralWhenNoCheckStatusAvailable() {
+        let baseEntry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: Date(),
+            pullRequestsByBranch: [:]
+        )
+        let found = item(
+            number: 7,
+            state: "OPEN",
+            url: "https://github.com/manaflow-ai/cmux/pull/7",
+            updatedAt: "2026-03-20T18:00:00Z",
+            headRefName: "feature/none"
+        )
+        let outcome = PullRequestProbeService.foldingBranchLookupResults(
+            [("feature/none", .found(found))],
+            fetchedCheckStatuses: [:],
+            into: baseEntry,
+            refreshedAt: Date()
+        )
+        #expect(
+            outcome.cacheEntry.pullRequestsByBranch["feature/none"]?.ciStatus == .neutral
+        )
+    }
+
     @Test func decodesAliasedGraphQLCheckRollupStatuses() throws {
         let json = """
         {
