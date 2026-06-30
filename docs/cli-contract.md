@@ -190,11 +190,10 @@ VM subcommands:
 
 | Command | Contract |
 | --- | --- |
-| `vm ls`, `vm list` | List VMs. |
-| `vm new`, `vm create` | Create a VM. Supports `--image`, `--provider`, `--detach`, and `-d`. |
-| `vm shell`, `vm attach` | Open an interactive shell for an existing VM. |
-| `vm rm`, `vm destroy`, `vm delete` | Destroy a VM. |
-| `vm ssh` | Open a cmux-managed SSH workspace for an existing VM. |
+| `vm ls` | List VMs. Alias: `list`. Prefer `ls` in docs and scripts. |
+| `vm new` | Create a VM. Supports `--image`, `--provider`, `--detach`, and `-d`. Alias: `create`. Prefer `new` in docs and scripts. |
+| `vm ssh` | Open a cmux-managed SSH workspace for an existing VM. Aliases: `shell`, `attach`, `connect`. Prefer `ssh` in docs and scripts. |
+| `vm rm` | Destroy a VM. Aliases: `remove`, `destroy`, `delete`. Prefer `rm` in docs and scripts. |
 | `vm ssh-info` | Print SSH connection info. |
 | `vm ssh-attach` | Internal attach helper. |
 | `vm exec` | Run a shell command inside a VM. |
@@ -453,8 +452,8 @@ the expected text without connecting to a cmux socket.
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
-- `cmux vm --help` -> `Usage: cmux vm <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]`
-- `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]`
+- `cmux vm --help` -> `Usage: cmux vm <new|ls|rm|exec|ssh|ssh-info> [args...]`
+- `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|ssh|ssh-info> [args...]`
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
