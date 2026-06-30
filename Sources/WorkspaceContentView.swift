@@ -119,6 +119,12 @@ struct WorkspaceContentView: View {
     @ObservedObject var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
+    /// True when the right sidebar (Dock / Files / Find) owns keyboard focus in
+    /// this window. The main pane dims its focus ring while this is true so main
+    /// and Dock focus are mutually exclusive. Does not affect input-activeness
+    /// (`isWorkspaceInputActive`) or drag interactivity — only the visual/active
+    /// focus state — so the terminal stays visible (via `isSelectedInPane`).
+    var rightSidebarOwnsInputFocus: Bool = false
     let isFullScreen: Bool
     let workspacePortalPriority: Int
     let windowAppearance: WindowAppearanceSnapshot
@@ -180,12 +186,20 @@ struct WorkspaceContentView: View {
             // Content for each tab in bonsplit
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
             if let panel = workspace.panel(for: tab.id) {
-                let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
+                // Un-gated "is this the workspace's focused panel". Used for the
+                // visibility fallback so the focused panel stays rendered during
+                // transient Bonsplit selection churn (selected=false) EVEN while
+                // the right sidebar owns focus — gating this would reintroduce
+                // blank frames.
+                let isFocusedPanel = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
+                // Gated focus for the ring/active state only: the main pane yields
+                // its focus ring while the right sidebar (Dock) owns focus.
+                let isFocused = isFocusedPanel && !rightSidebarOwnsInputFocus
                 let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
                 let isVisibleInUI = Self.panelVisibleInUI(
                     isWorkspaceVisible: isWorkspaceVisible,
                     isSelectedInPane: isSelectedInPane,
-                    isFocused: isFocused
+                    isFocused: isFocusedPanel
                 )
                 let showsNotificationRing = Workspace.shouldShowUnreadIndicator(
                     hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
@@ -734,30 +748,27 @@ struct EmptyPanelView: View {
         shortcut: StoredShortcut,
         action: @escaping () -> Void
     ) -> some View {
+        let button = Button(action: action) {
+            HStack(spacing: 10) {
+                HStack(spacing: 6) {
+                    CmuxSystemSymbolImage(systemName: systemImage, pointSize: 13)
+                    Text(title)
+                }
+                ShortcutHint(text: shortcut.displayString)
+            }
+        }
+        .buttonStyle(.borderedProminent)
+
         if let key = shortcut.keyEquivalent {
-            Button(action: action) {
-                HStack(spacing: 10) {
-                    Label(title, systemImage: systemImage)
-                    ShortcutHint(text: shortcut.displayString)
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
+            button.keyboardShortcut(key, modifiers: shortcut.eventModifiers)
         } else {
-            Button(action: action) {
-                HStack(spacing: 10) {
-                    Label(title, systemImage: systemImage)
-                    ShortcutHint(text: shortcut.displayString)
-                }
-            }
-            .buttonStyle(.borderedProminent)
+            button
         }
     }
 
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "terminal.fill")
-                .cmuxFont(size: 48)
+            CmuxSystemSymbolImage(magnified: "terminal.fill", pointSize: 48)
                 .foregroundStyle(.tertiary)
 
             Text(String(localized: "emptyPanel.title", defaultValue: "Empty Panel"))
