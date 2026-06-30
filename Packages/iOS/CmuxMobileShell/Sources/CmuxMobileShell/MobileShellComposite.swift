@@ -2421,7 +2421,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // `promoteSecondaryToForeground` writes it via an unawaited Task, and it is
         // stale during reconnect/switch races). Trusting it could make `openWorkspace`
         // proceed without switching and route input/mutations to the wrong Mac.
-        if foregroundMacDeviceID == macDeviceID, connectionState == .connected { return true }
+        if foregroundMacDeviceID == macDeviceID,
+           connectionState == .connected,
+           remoteClient != nil { return true }
         // The LIVE foreground Mac to fall back to if the destructive switch fails.
         // Persisted `isActive` can lag the connection, so use the foreground id
         // captured before `connectManualHost` clears/replaces the live context.
@@ -2455,6 +2457,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // a different foreground id. Trust that identity instead of exact host/port
         // text equality, which can differ across normalized routes.
         let switched = connectionState == .connected
+            && remoteClient != nil
             && foregroundMacDeviceID == macDeviceID
         if switched {
             do {

@@ -321,6 +321,8 @@ struct WorkspaceShellView: View {
 
     @MainActor
     private func cancelMacSwitchFromWorkspacePicker(restorePreviousOnCancel: Bool) {
+        pendingMacSwitchGeneration &+= 1
+        pendingMacSwitchID = nil
         store.cancelPendingMacSwitch(restorePreviousOnCancel: restorePreviousOnCancel)
     }
 
