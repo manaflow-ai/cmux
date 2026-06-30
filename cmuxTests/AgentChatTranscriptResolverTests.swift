@@ -119,6 +119,10 @@ import Testing
         )
 
         let page = await service.history(sessionID: sessionID, beforeSeq: nil, limit: 20)
+        // Tear down the tailer/file-watcher started by `history(...)` so the
+        // kqueue watcher and its task don't outlive this test (a leaked watcher
+        // trips the app-host XCTest post-test memory checker).
+        await service.shutdown()
 
         #expect(page != nil)
         #expect(Self.resolvedPathsMatch(service.sessionRecord(sessionID: sessionID)?.transcriptPath, rollout))

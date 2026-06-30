@@ -554,6 +554,19 @@ final class AgentChatTranscriptService {
         }
     }
 
+    /// Stops every active tailer and cancels in-flight Codex resolution work so
+    /// their file watchers and background tasks do not outlive the service. The
+    /// live singleton normally runs for the app's lifetime; callers that own a
+    /// transient instance (e.g. tests) call this at teardown so kqueue file
+    /// watchers and detached tasks are released deterministically.
+    func shutdown() async {
+        for task in codexTranscriptResolutionTasks.values { task.cancel() }
+        codexTranscriptResolutionTasks.removeAll()
+        codexTranscriptResolutionKeys.removeAll()
+        for tailer in tailers.values { await tailer.stop() }
+        tailers.removeAll()
+    }
+
     /// Encodes a wire value into the `[String: Any]` payload shape the
     /// event fan-out expects.
     func wirePayload<T: Encodable>(_ value: T) -> [String: Any]? {
