@@ -548,6 +548,66 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
     }
 
+    @MainActor
+    func testInlineWorkspaceTitleMenuShowsWorkspaceActions() throws {
+        let app = launchAgentChatInlinePreviewApp()
+        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 8))
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            waitForCompactToolbarHeightsToMatch(
+                titleMenu: titleMenu,
+                backButton: backButton,
+                surfacePicker: surfacePicker,
+                tolerance: 2,
+                timeout: 4
+            )
+        )
+
+        tapCompactToolbarTitleMenu(titleMenu, in: app)
+
+        XCTAssertTrue(app.buttons["Rename Workspace"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["Mark as Read"].exists)
+        XCTAssertFalse(app.buttons["New Terminal"].exists)
+    }
+
+    @MainActor
+    func testInlineWorkspaceTitleKeepsCompactHeightWithTallGlyphs() throws {
+        let app = launchAgentChatInlinePreviewApp(environment: [
+            "CMUX_UITEST_INLINE_WORKSPACE_TITLE": "✳️ Claude Code",
+            "CMUX_UITEST_INLINE_WORKSPACE_SUBTITLE": "🧑🏽‍💻 Claude Code",
+        ])
+        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
+
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 8))
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
+
+        XCTAssertTrue(
+            waitForCompactToolbarHeightsToMatch(
+                titleMenu: titleMenu,
+                backButton: backButton,
+                surfacePicker: surfacePicker,
+                tolerance: 2,
+                timeout: 4
+            )
+        )
+
+        let screenshotAttachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshotAttachment.name = "inline-title-tall-glyph-compact-height"
+        screenshotAttachment.lifetime = .keepAlways
+        add(screenshotAttachment)
+
+        tapCompactToolbarTitleMenu(titleMenu, in: app)
+        XCTAssertTrue(app.buttons["Rename Workspace"].waitForExistence(timeout: 4))
+        XCTAssertFalse(app.buttons["New Terminal"].exists)
+    }
+
     /// Regression for WhatsApp-style chat keyboard tracking: focusing the chat
     /// composer must translate the actual transcript table frame upward with the
     /// composer while preserving the table's own bottom-visible content. The table
@@ -1007,6 +1067,138 @@ final class cmuxUITests: XCTestCase {
                 "\(refocusCase.label) must preserve visible bottom content. before=\(beforeKeyboard) refocused=\(refocused)"
             )
         }
+    }
+
+    @MainActor
+    func testAgentChatTopScrollEdgeUnderlapsNavigationBarEvidence() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("Top scroll-edge underlap uses iOS 26 content scroll view registration.")
+        }
+
+        let app = launchAgentChatInlinePreviewApp()
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        let navigationBar = app.navigationBars.firstMatch
+        XCTAssertTrue(navigationBar.waitForExistence(timeout: 8))
+
+        let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.frameHeight > 240 && $0.contentHeight > $0.boundsHeight * 1.6
+        }
+        let navigationFrame = navigationBar.frame
+        XCTAssertLessThan(
+            loadedMetrics.frameMinY,
+            navigationFrame.maxY - 8,
+            "The chat transcript table must extend under the navigation bar so the native top scroll-edge effect can blend content into the toolbar. metrics=\(loadedMetrics) navigationBar=\(navigationFrame)"
+        )
+
+        captureKeyboardEvidenceFrame(
+            prefix: "top-edge-loaded",
+            index: 0,
+            startedAt: Date(),
+            metrics: loadedMetrics
+        )
+        // Drive the transcript to the very top with XCUI scrolling (the chat
+        // transcript loads anchored at the bottom; there is no app-side
+        // initial-scroll seam in production source). Then re-read once the
+        // momentum settles so the precise top-edge assertions run on a stable
+        // frame.
+        try scrollTranscript(table, direction: .down, timeout: 10) {
+            abs($0.visibleTopY) <= 3
+                && $0.adjustedTopInset > 20
+                && $0.contentHeight > $0.boundsHeight * 1.6
+        }
+        let topMetrics = try waitForTranscriptMetrics(table, timeout: 4) {
+            abs($0.visibleTopY) <= 3
+                && $0.adjustedTopInset > 20
+                && $0.contentHeight > $0.boundsHeight * 1.6
+        }
+        XCTAssertEqual(
+            topMetrics.offsetY,
+            -topMetrics.adjustedTopInset,
+            accuracy: 3,
+            "At the beginning of the chat, UIKit's adjusted top inset must reserve the navigation chrome while the table frame still underlaps it. metrics=\(topMetrics)"
+        )
+        let todayHeader = app.staticTexts["ChatDateHeader"].firstMatch
+        XCTAssertTrue(todayHeader.waitForExistence(timeout: 2))
+        XCTAssertGreaterThanOrEqual(
+            todayHeader.frame.minY,
+            navigationFrame.maxY - 4,
+            "The Today header must be visible below the navigation controls at top scroll. today=\(todayHeader.frame) navigationBar=\(navigationFrame)"
+        )
+        XCTAssertLessThanOrEqual(
+            todayHeader.frame.minY,
+            navigationFrame.maxY + 72,
+            "The Today header should sit near the navigation chrome; a larger gap means top chrome spacing was applied as real content padding. today=\(todayHeader.frame) navigationBar=\(navigationFrame) metrics=\(topMetrics)"
+        )
+        captureTopScrollEdgeEvidenceFrames(table: table, prefix: "top-edge")
+    }
+
+    @MainActor
+    func testAgentChatScrollToBottomButtonClearsFloatingComposer() throws {
+        let app = launchAgentChatInlinePreviewApp()
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        let composerBar = app.otherElements["ChatComposerBar"]
+        XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
+
+        try scrollTranscript(table, direction: .down, timeout: 6) {
+            $0.distanceFromBottom > 180 && $0.contentHeight > $0.boundsHeight * 1.6
+        }
+
+        let button = app.buttons["ChatScrollToBottomButton"]
+        XCTAssertTrue(button.waitForExistence(timeout: 4))
+        XCTAssertLessThanOrEqual(
+            button.frame.maxY,
+            composerBar.frame.minY - 6,
+            "The scroll-to-bottom button must float above the glass composer, not underneath it. button=\(button.frame) composer=\(composerBar.frame)"
+        )
+        XCTAssertTrue(button.isHittable)
+        button.tap()
+        _ = try waitForTranscriptMetrics(table, timeout: 4) {
+            $0.distanceFromBottom < 60
+        }
+    }
+
+    @MainActor
+    func testAgentChatBottomScrollEdgeUnderlapsDeviceBottom() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("Bottom scroll-edge underlap uses iOS 26 edge effects.")
+        }
+
+        let app = launchAgentChatInlinePreviewApp()
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        let composerBar = app.otherElements["ChatComposerBar"]
+        XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
+
+        let metrics = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.frameHeight > 240
+                && $0.contentHeight > $0.boundsHeight * 1.6
+                && $0.composerOverlayBottomInset > 40
+        }
+        let windowFrame = app.windows.firstMatch.frame
+        XCTAssertGreaterThanOrEqual(
+            metrics.frameMaxY,
+            windowFrame.maxY - 2,
+            "The transcript table must physically extend to the device bottom so the bottom scroll-edge effect can continue through the safe area. metrics=\(metrics) window=\(windowFrame)"
+        )
+        XCTAssertLessThanOrEqual(
+            composerBar.frame.maxY,
+            metrics.frameMaxY - 20,
+            "The transcript table should underlap the device bottom independently; the floating composer must keep its original safe-area position instead of following the table underlap. composer=\(composerBar.frame) metrics=\(metrics) window=\(windowFrame)"
+        )
+        XCTAssertEqual(
+            metrics.frameMaxY - metrics.composerOverlayBottomInset,
+            composerBar.frame.minY,
+            accuracy: 8,
+            "The transcript bottom inset must cover the whole obscured region from the underlapped table bottom to the floating composer's top. metrics=\(metrics) composer=\(composerBar.frame)"
+        )
+        XCTAssertEqual(
+            metrics.adjustedBottomInset,
+            metrics.composerOverlayBottomInset,
+            accuracy: 4,
+            "The adjusted transcript inset must equal the physical composer clearance. A larger value double-counts the device bottom safe area. metrics=\(metrics) composer=\(composerBar.frame)"
+        )
     }
 
     @MainActor
@@ -1745,6 +1937,75 @@ final class cmuxUITests: XCTestCase {
         return nil
     }
 
+    @MainActor
+    private func waitForCompactToolbarHeightsToMatch(
+        titleMenu: XCUIElement,
+        backButton: XCUIElement,
+        surfacePicker: XCUIElement,
+        tolerance: CGFloat,
+        timeout: TimeInterval,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastTitleFrame = titleMenu.frame
+        var lastBackFrame = backButton.frame
+        var lastPickerFrame = surfacePicker.frame
+
+        while Date() < deadline {
+            lastTitleFrame = titleMenu.frame
+            lastBackFrame = backButton.frame
+            lastPickerFrame = surfacePicker.frame
+            let nearbyToolbarHeight = max(lastBackFrame.height, lastPickerFrame.height)
+            if lastTitleFrame.midY > 60,
+               lastBackFrame.midY > 60,
+               lastPickerFrame.midY > 60,
+               abs(lastTitleFrame.height - nearbyToolbarHeight) <= tolerance {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        let nearbyToolbarHeight = max(lastBackFrame.height, lastPickerFrame.height)
+        XCTFail(
+            "Tall glyphs must not make the compact title glass taller than nearby toolbar controls. title=\(lastTitleFrame), back=\(lastBackFrame), picker=\(lastPickerFrame), delta=\(abs(lastTitleFrame.height - nearbyToolbarHeight))",
+            file: file,
+            line: line
+        )
+        return false
+    }
+
+    @MainActor
+    private func tapCompactToolbarTitleMenu(
+        _ titleMenu: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 4), file: file, line: line)
+        dismissKeyboard(in: app)
+        guard let frame = waitForToolbarFrame(of: titleMenu, timeout: 4) else {
+            XCTFail("Title menu has no usable frame: \(titleMenu.debugDescription)", file: file, line: line)
+            return
+        }
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.minX + min(24, frame.width / 2), dy: frame.midY))
+            .tap()
+    }
+
+    @MainActor
+    private func waitForToolbarFrame(of element: XCUIElement, timeout: TimeInterval) -> CGRect? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let frame = waitForUsableFrame(of: element, timeout: 0.1),
+               frame.midY > 60 {
+                return frame
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return waitForUsableFrame(of: element, timeout: 0.1)
+    }
+
     private struct ChatTranscriptMetrics: CustomStringConvertible {
         let frameMinY: CGFloat
         let frameMaxY: CGFloat
@@ -1752,6 +2013,9 @@ final class cmuxUITests: XCTestCase {
         let presentationFrameMaxY: CGFloat
         let boundsHeight: CGFloat
         let offsetY: CGFloat
+        let adjustedTopInset: CGFloat
+        let adjustedBottomInset: CGFloat
+        let visibleTopY: CGFloat
         let visibleBottomY: CGFloat
         let contentHeight: CGFloat
         let distanceFromBottom: CGFloat
@@ -1761,6 +2025,7 @@ final class cmuxUITests: XCTestCase {
         let composerMinY: CGFloat
         let composerPresentationMinY: CGFloat
         let presentationGap: CGFloat
+        let topChromeOverlayInset: CGFloat
         let composerOverlayBottomInset: CGFloat
         let keyboardAnimationActive: Bool
         let keyboardAnimationProgress: CGFloat
@@ -1769,7 +2034,7 @@ final class cmuxUITests: XCTestCase {
         let keyboardAnimationSamples: Int
 
         var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
         }
 
         var effectiveFrameMaxY: CGFloat {
@@ -1802,6 +2067,9 @@ final class cmuxUITests: XCTestCase {
             self.presentationFrameMaxY = values["presentationFrameMaxY"] ?? frameMaxY
             self.boundsHeight = boundsHeight
             self.offsetY = offsetY
+            self.adjustedTopInset = values["adjustedTopInset"] ?? 0
+            self.adjustedBottomInset = values["adjustedBottomInset"] ?? 0
+            self.visibleTopY = values["visibleTopY"] ?? offsetY
             self.visibleBottomY = visibleBottomY
             self.contentHeight = contentHeight
             self.distanceFromBottom = distanceFromBottom
@@ -1811,6 +2079,7 @@ final class cmuxUITests: XCTestCase {
             self.composerMinY = values["composerMinY"] ?? frameMaxY
             self.composerPresentationMinY = values["composerPresentationMinY"] ?? self.composerMinY
             self.presentationGap = values["presentationGap"] ?? 0
+            self.topChromeOverlayInset = values["topChromeOverlayInset"] ?? 0
             self.composerOverlayBottomInset = values["composerOverlayBottomInset"] ?? 0
             self.keyboardAnimationActive = (values["keyboardAnimationActive"] ?? 0) >= 0.5
             self.keyboardAnimationProgress = values["keyboardAnimationProgress"] ?? 1
@@ -1957,6 +2226,27 @@ final class cmuxUITests: XCTestCase {
         metricsAttachment.name = "\(basename).metrics"
         metricsAttachment.lifetime = .keepAlways
         add(metricsAttachment)
+    }
+
+    @MainActor
+    private func captureTopScrollEdgeEvidenceFrames(table: XCUIElement, prefix: String) {
+        let captureStart = Date()
+        for index in 0..<8 {
+            if let metrics = transcriptMetrics(from: table) {
+                captureKeyboardEvidenceFrame(
+                    prefix: prefix,
+                    index: index,
+                    startedAt: captureStart,
+                    metrics: metrics
+                )
+            }
+            if index.isMultiple(of: 2) {
+                table.swipeUp(velocity: .slow)
+            } else {
+                table.swipeDown(velocity: .slow)
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.08))
+        }
     }
 
     @MainActor
@@ -2221,6 +2511,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    @discardableResult
     private func scrollTranscript(
         _ table: XCUIElement,
         direction: TranscriptScrollDirection,
@@ -2228,14 +2519,14 @@ final class cmuxUITests: XCTestCase {
         until predicate: @escaping (ChatTranscriptMetrics) -> Bool,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) throws {
+    ) throws -> ChatTranscriptMetrics? {
         let deadline = Date().addingTimeInterval(timeout)
         var lastMetrics: ChatTranscriptMetrics?
         while Date() < deadline {
             if let metrics = transcriptMetrics(from: table) {
                 lastMetrics = metrics
                 if predicate(metrics) {
-                    return
+                    return metrics
                 }
             }
             switch direction {
@@ -2248,18 +2539,19 @@ final class cmuxUITests: XCTestCase {
             if let metrics = transcriptMetrics(from: table) {
                 lastMetrics = metrics
                 if predicate(metrics) {
-                    return
+                    return metrics
                 }
             }
         }
         if let metrics = transcriptMetrics(from: table), predicate(metrics) {
-            return
+            return metrics
         }
         XCTFail(
             "Timed out scrolling transcript \(direction). Last metrics: \(String(describing: transcriptMetrics(from: table) ?? lastMetrics))",
             file: file,
             line: line
         )
+        return lastMetrics
     }
 
     @MainActor
