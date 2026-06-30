@@ -518,6 +518,95 @@ import Testing
         #expect(selected == .all)
     }
 
+    @Test func newerWorkspaceSelectionInvalidatesDeferredRowSelection() async throws {
+        let firstWorkspaceID = MobileWorkspacePreview.ID(rawValue: "ws-a")
+        let secondWorkspaceID = MobileWorkspacePreview.ID(rawValue: "ws-b")
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+        ])
+        var selected = WorkspaceMacSelection.all
+        var selectedWorkspaces: [MobileWorkspacePreview.ID] = []
+        var switchContinuation: CheckedContinuation<Bool, Never>?
+        var switchDidStart = false
+        var switchStartedContinuation: CheckedContinuation<Void, Never>?
+        var cancelContinuation: CheckedContinuation<Void, Never>?
+        var cancelDidStart = false
+        var cancelStartedContinuation: CheckedContinuation<Void, Never>?
+        func markSwitchStarted() {
+            guard !switchDidStart else { return }
+            switchDidStart = true
+            switchStartedContinuation?.resume()
+            switchStartedContinuation = nil
+        }
+        func waitForSwitchStart() async {
+            guard !switchDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if switchDidStart {
+                    continuation.resume()
+                } else {
+                    switchStartedContinuation = continuation
+                }
+            }
+        }
+        func markCancelStarted() {
+            guard !cancelDidStart else { return }
+            cancelDidStart = true
+            cancelStartedContinuation?.resume()
+            cancelStartedContinuation = nil
+        }
+        func waitForCancelStart() async {
+            guard !cancelDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if cancelDidStart {
+                    continuation.resume()
+                } else {
+                    cancelStartedContinuation = continuation
+                }
+            }
+        }
+        let view = workspaceListView(
+            workspaces: [
+                workspace(id: firstWorkspaceID.rawValue, macDeviceID: "mac-a"),
+                workspace(id: secondWorkspaceID.rawValue, macDeviceID: "mac-a"),
+            ],
+            store: store,
+            selectWorkspace: { selectedWorkspaces.append($0) },
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { _ in
+                markSwitchStarted()
+                return await withCheckedContinuation { continuation in
+                    switchContinuation = continuation
+                }
+            },
+            cancelMacSwitch: { _ in
+                markCancelStarted()
+                await withCheckedContinuation { continuation in
+                    cancelContinuation = continuation
+                }
+            }
+        )
+
+        let pendingSwitchTask = view.handleMacTitlePickerSelection(.machine("mac-b"))
+        await waitForSwitchStart()
+
+        let firstSelectionTask = view.selectWorkspaceFromList(firstWorkspaceID)
+        await waitForCancelStart()
+        let secondSelectionTask = view.selectWorkspaceFromList(secondWorkspaceID)
+
+        cancelContinuation?.resume()
+        await firstSelectionTask?.value
+        await secondSelectionTask?.value
+
+        #expect(selectedWorkspaces == [secondWorkspaceID])
+
+        switchContinuation?.resume(returning: true)
+        await pendingSwitchTask?.value
+    }
+
     @Test func selectingCoalescedPairedMacMatchesAliasWorkspaceRows() async throws {
         let route = try route(host: "100.82.214.112")
         let store = await shellStore(pairedMacs: [

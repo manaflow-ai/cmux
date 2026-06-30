@@ -101,6 +101,7 @@ struct WorkspaceListView: View {
     @State private var macTitlePickerSwitchTaskKind: MacTitlePickerTaskKind?
     @State private var macTitlePickerSwitchGeneration: UInt64 = 0
     @State private var macTitlePickerPendingSelection: WorkspaceMacSelection?
+    @State private var deferredWorkspaceSelectionGeneration: UInt64 = 0
     /// Stable machine-menu content. Kept as value state so live workspace or
     /// device-tree updates that do not change the actual machine set/name
     /// snapshot do not rebuild an open native Menu. `nil` only before the first
@@ -114,6 +115,17 @@ struct WorkspaceListView: View {
 
     private var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var deferredWorkspaceSelectionIdentity: [String] {
+        var identity = [
+            "host:\(host)",
+            "mac:\(store?.connectedMacDeviceID ?? "")",
+        ]
+        identity.append(contentsOf: workspaces.map {
+            "workspace:\($0.id.rawValue):mac:\($0.macDeviceID ?? "")"
+        })
+        return identity
     }
 
     var currentMacTitlePickerSelection: WorkspaceMacSelection {
@@ -289,6 +301,7 @@ struct WorkspaceListView: View {
         }
         .accessibilityIdentifier("MobileWorkspaceList")
         .onDisappear {
+            invalidateDeferredWorkspaceSelection()
             cancelMacTitlePickerSwitch()
         }
         .onAppear {
@@ -297,6 +310,9 @@ struct WorkspaceListView: View {
         }
         .onChange(of: currentMachineSnapshots) { _, snapshots in
             updateMachineSnapshots(snapshots)
+        }
+        .onChange(of: deferredWorkspaceSelectionIdentity) { _, _ in
+            invalidateDeferredWorkspaceSelection()
         }
         .onChange(of: currentVisibleMacSelection) { _, selection in
             filter.pruneMachinesForFilterMenu(visibleMacSelection: selection)
@@ -554,15 +570,23 @@ struct WorkspaceListView: View {
 
     @discardableResult
     func selectWorkspaceFromList(_ id: MobileWorkspacePreview.ID) -> Task<Void, Never>? {
+        invalidateDeferredWorkspaceSelection()
+        let selectionGeneration = deferredWorkspaceSelectionGeneration
         guard let cancelTask = prepareWorkspaceSelectionFromList() else {
             selectWorkspace(id)
             return nil
         }
         let task = Task { @MainActor in
             await cancelTask.value
+            guard !Task.isCancelled,
+                  deferredWorkspaceSelectionGeneration == selectionGeneration else { return }
             selectWorkspace(id)
         }
         return task
+    }
+
+    private func invalidateDeferredWorkspaceSelection() {
+        deferredWorkspaceSelectionGeneration &+= 1
     }
 
     private var settingsMenu: some View {
