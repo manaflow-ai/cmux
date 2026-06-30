@@ -254,6 +254,46 @@ import Testing
 }
 
 @MainActor
+@Test func terminalReplayBarrierClearsAfterStaleClientReplayFailure() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    #expect(String(decoding: coldReplayChunk.data, as: UTF8.self) == "cold-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+    await router.holdNextReplayResponses()
+
+    store.deliverTerminalBytes(Data("stalled-first".utf8), surfaceID: surfaceID)
+    let stalledChunk = try #require(await iterator.next())
+    store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 1)
+
+    let replacementRouter = LivenessHostRouter()
+    let replacementBox = TransportBox()
+    try installFreshLivenessRemoteClient(
+        on: store,
+        router: replacementRouter,
+        box: replacementBox,
+        clock: clock
+    )
+    await router.failNextReplay()
+    await router.releaseAllHeld()
+
+    let staleFailureClearedBarrier = await waitForReplayBarrierFailureToSettle {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(staleFailureClearedBarrier, "stale replay failures must clear the tokened barrier")
+}
+
+@MainActor
 @Test func terminalReplayBarrierStaysActiveAfterRetryExhaustionWithoutDroppedOutput() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()

@@ -71,6 +71,9 @@ actor LivenessHostRouter {
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
+    private var replayRequestCount = 0
+    private var heldReplayRequestNumbers: Set<Int> = []
+    private var heldReplayResponsesRemaining = 0
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
@@ -149,6 +152,18 @@ actor LivenessHostRouter {
         heldSubscribeRequestNumbers.insert(number)
     }
 
+    /// Hold the Nth `mobile.terminal.replay` response (1-based), letting a test
+    /// swap clients while the old request is still in flight.
+    func holdReplayRequest(number: Int) {
+        heldReplayRequestNumbers.insert(number)
+    }
+
+    /// Hold the next N `mobile.terminal.replay` responses, independent of any
+    /// replay requests the connect/mount path already used.
+    func holdNextReplayResponses(count: Int = 1) {
+        heldReplayResponsesRemaining += count
+    }
+
     /// Forget the host-side registration, modeling a lost subscription behind
     /// a live RPC channel: the next subscribe reports
     /// `already_subscribed: false`.
@@ -162,6 +177,8 @@ actor LivenessHostRouter {
         holdSubscribe = false
         heldHostStatusRequestNumbers = []
         heldSubscribeRequestNumbers = []
+        heldReplayRequestNumbers = []
+        heldReplayResponsesRemaining = 0
         let continuations = heldContinuations
         heldContinuations = []
         for continuation in continuations {
@@ -215,6 +232,13 @@ actor LivenessHostRouter {
                 "already_subscribed": alreadySubscribed,
             ])
         case "mobile.terminal.replay":
+            replayRequestCount += 1
+            if heldReplayResponsesRemaining > 0 {
+                heldReplayResponsesRemaining -= 1
+                await park()
+            } else if heldReplayRequestNumbers.contains(replayRequestCount) {
+                await park()
+            }
             if replayFailuresRemaining > 0 {
                 replayFailuresRemaining -= 1
                 return try? Self.errorFrame(id: id, message: "replay failed")
@@ -510,4 +534,25 @@ func makeConnectedStore(
     let connected = await store.connectPairingURL(try attachURL(for: ticket))
     #expect(connected, "scripted connect must succeed")
     return store
+}
+
+@MainActor
+func installFreshLivenessRemoteClient(
+    on store: MobileShellComposite,
+    router: LivenessHostRouter,
+    box: TransportBox,
+    clock: TestClock
+) throws {
+    let runtime = LivenessTestRuntime(
+        transportFactory: LivenessTransportFactory(router: router, box: box),
+        now: { clock.now }
+    )
+    let ticket = try makeTicket(clock: clock)
+    let route = try #require(ticket.routes.first)
+    store.remoteClient = MobileCoreRPCClient(
+        runtime: runtime,
+        route: route,
+        ticket: ticket,
+        allowsStackAuthFallback: true
+    )
 }
