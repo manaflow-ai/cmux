@@ -148,9 +148,6 @@ extension Workspace {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
-        let previousIsRestoringSessionSnapshot = isRestoringSessionSnapshot
-        isRestoringSessionSnapshot = true
-        defer { isRestoringSessionSnapshot = previousIsRestoringSessionSnapshot }
 
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
@@ -2566,11 +2563,6 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
     private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
     private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
-    /// True while `restoreSessionSnapshot` rebuilds and focuses panels. The
-    /// restore path focuses the saved focused tab, which would otherwise drive
-    /// the tab-selection auto-resume path; restored agents must stay dormant
-    /// until the user actually visits them, so suppress lazy resume during restore.
-    private var isRestoringSessionSnapshot = false
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
 
     private struct PendingRemoteDisconnectReplacement {
@@ -4778,8 +4770,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     private func requestRestoredAgentAutoResume(panelId: UUID) -> Bool {
-        guard !isRestoringSessionSnapshot,
-              AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults),
+        guard AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults),
               restoredAgentAutoResumeOnVisitPanelIds.contains(panelId),
               let terminalPanel = panels[panelId] as? TerminalPanel,
               !terminalPanel.isAgentHibernated else {
@@ -10688,13 +10679,7 @@ final class Workspace: Identifiable, ObservableObject {
         var didChange = agentHibernationAutoResumePresentationVisible
             ? resumeVisibleAgentHibernationPanels(panelIds: visiblePanelIds)
             : false
-        // Only resume restored agents when this workspace's presentation is visible and
-        // input-active — a layout/portal reconcile must not auto-resume agents while the
-        // workspace is backgrounded or input is owned elsewhere (e.g. the right sidebar),
-        // matching the hibernation gate above and the lazy-on-visit contract.
-        if agentHibernationAutoResumePresentationVisible {
-            didChange = resumeVisibleRestoredAgentPanels(panelIds: visiblePanelIds) || didChange
-        }
+        didChange = resumeVisibleRestoredAgentPanels(panelIds: visiblePanelIds) || didChange
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
