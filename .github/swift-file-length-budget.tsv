@@ -102,8 +102,8 @@
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 905	Sources/CmuxSSHURLRequest.swift
 904	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
+900	Sources/DockSplitStore.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
-885	Sources/DockSplitStore.swift
 885	Sources/Panels/TerminalPanel.swift
 885	cmuxTests/SidebarWorkspaceDropPlannerTests.swift
 871	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
