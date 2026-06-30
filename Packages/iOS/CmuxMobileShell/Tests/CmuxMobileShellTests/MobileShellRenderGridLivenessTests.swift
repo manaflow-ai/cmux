@@ -214,6 +214,48 @@ import Testing
     collector.unmount()
 }
 
+@MainActor
+@Test func primaryDeltaAfterAlternateRequestsReplayInsteadOfPatchingAlternateScreen() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 3,
+        text: "alt",
+        activeScreen: .alternate
+    ))
+    let altDelivered = try await pollUntil { collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4) }
+    #expect(altDelivered)
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 6,
+        text: "primary-delta",
+        activeScreen: .primary,
+        full: false
+    ))
+    let replayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCountAfterMount
+    }
+    #expect(replayRequested, "a primary delta cannot switch the local surface out of alternate-screen mode; request a full replay instead")
+    #expect(collector.viewportPolicies.last == .natural)
+    #expect(
+        collector.lines.contains { $0.contains("primary-delta") } == false,
+        "the alternate-to-primary transition must not be painted with a delta patch"
+    )
+    collector.unmount()
+}
+
 /// A healthy idle stream produces zero events (the Mac dedupes unchanged
 /// frames), so silence alone must not tear the subscription down. The
 /// watchdog may verify the silence with a bounded idempotent re-subscribe

@@ -6281,15 +6281,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func shouldDeliverRenderGridEvent(
+    private enum RenderGridEventDeliveryDecision {
+        case deliver
+        case advisory(requestReplay: Bool)
+    }
+
+    private func renderGridEventDeliveryDecision(
         _ renderGrid: MobileTerminalRenderGridFrame,
         previous: MobileTerminalRenderGridFrame.Screen?
-    ) -> Bool {
+    ) -> RenderGridEventDeliveryDecision {
         guard terminalOutputTransport == .hybrid,
               renderGrid.activeScreen == .primary else {
-            return true
+            return .deliver
         }
-        return previous == .alternate
+        guard previous == .alternate else {
+            return .advisory(requestReplay: false)
+        }
+        return renderGrid.full ? .deliver : .advisory(requestReplay: true)
     }
 
     func deliverAuthoritativeTerminalRenderGrid(
@@ -6310,11 +6318,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
         terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
-        guard source != "event" || shouldDeliverRenderGridEvent(renderGrid, previous: previousScreen) else {
+        let deliveryDecision: RenderGridEventDeliveryDecision = source == "event"
+            ? renderGridEventDeliveryDecision(renderGrid, previous: previousScreen)
+            : .deliver
+        switch deliveryDecision {
+        case .deliver:
+            break
+        case .advisory(let requestReplay):
             deliverTerminalViewportPolicy(renderGrid.mobileViewportPolicy, surfaceID: renderGrid.surfaceID)
             MobileDebugLog.anchormux(
-                "sync.render_grid_advisory source=\(source) surface=\(renderGrid.surfaceID) screen=\(renderGrid.activeScreen.rawValue) seq=\(renderGrid.stateSeq)"
+                "sync.render_grid_advisory source=\(source) surface=\(renderGrid.surfaceID) screen=\(renderGrid.activeScreen.rawValue) seq=\(renderGrid.stateSeq) requestReplay=\(requestReplay)"
             )
+            if requestReplay {
+                requestTerminalReplay(surfaceID: renderGrid.surfaceID)
+            }
             return
         }
         markTerminalBytesDelivered(surfaceID: renderGrid.surfaceID, endSeq: renderGrid.stateSeq)

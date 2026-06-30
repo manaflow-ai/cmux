@@ -352,13 +352,15 @@ func renderGridEventFrame(
     surfaceID: String,
     seq: UInt64,
     text: String,
-    activeScreen: MobileTerminalRenderGridFrame.Screen = .primary
+    activeScreen: MobileTerminalRenderGridFrame.Screen = .primary,
+    full: Bool = true
 ) throws -> Data {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
         stateSeq: seq,
         columns: 16,
         rows: 4,
+        full: full,
         rowSpans: [
             MobileTerminalRenderGridFrame.RowSpan(
                 row: 0,
