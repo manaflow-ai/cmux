@@ -424,7 +424,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {
-            Task { @MainActor [weak store, surfaceID] in
+            Task { @MainActor [weak self, weak store, surfaceID] in
+                guard let self, self.surfaceView === surfaceView else { return }
                 store?.terminalOutputNeedsReplay(surfaceID: surfaceID)
             }
         }

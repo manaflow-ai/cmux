@@ -3804,9 +3804,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // wait the synchronous caller needs.
         // carve-out justification: one-shot cross-queue completion signal with a
         // bounded wait, not a lock guarding shared state.
-        let deadline = DispatchTime.now() + 0.6
         var sections: [String] = []
         for item in pending {
+            let deadline = DispatchTime.now() + 0.6
             let holder = VisibleSnapshotHolder()
             // carve-out justification: one-shot cross-queue completion signal with a bounded wait.
             let done = DispatchSemaphore(value: 0)
