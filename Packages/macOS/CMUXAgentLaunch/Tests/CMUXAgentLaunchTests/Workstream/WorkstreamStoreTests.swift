@@ -173,6 +173,29 @@ struct WorkstreamStoreTests {
         }
     }
 
+    @Test("Codex hook telemetry with a stray app_server_method stays telemetry")
+    func codexHookTelemetryWithStrayAppServerMethodStaysTelemetry() {
+        // A non-bridge Codex hook PermissionRequest (non-blocking; no
+        // `codex-app-server-` request id) must stay tool-use telemetry even if
+        // its opaque tool_input happens to carry an `app_server_method` key.
+        // Promoting it to a pending approval card would strand an actionable
+        // item with no waiter to resolve it.
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            toolName: "Bash",
+            toolInputJSON: #"{"app_server_method":"item/commandExecution/requestApproval","command":"echo hi"}"#,
+            requestId: "codex-session-PermissionRequest-Bash-1730000000000"
+        ))
+
+        #expect(store.items.count == 1)
+        #expect(store.items[0].kind == .toolUse)
+        #expect(store.items[0].status == .telemetry)
+        #expect(store.pending.isEmpty)
+    }
+
     @Test("Codex CLI lifecycle feed events stay telemetry")
     func codexLifecycleFeedEventsStayTelemetry() {
         let store = WorkstreamStore(

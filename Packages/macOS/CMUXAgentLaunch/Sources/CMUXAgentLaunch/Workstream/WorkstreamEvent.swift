@@ -154,14 +154,19 @@ extension WorkstreamEvent {
     ///
     /// Both producers emit `hook_event_name == "PermissionRequest"` with
     /// `_source == "codex"`, so source alone cannot tell them apart. The
-    /// codex-teams approval bridge tags every app-server approval with an
-    /// `app_server_method` field in `tool_input` (the same marker
-    /// `FeedPermissionActionPolicy` keys off); the hook telemetry path never
-    /// sets it. Used to keep app-server approvals on the actionable, blocking
-    /// path while routing hook telemetry to non-blocking tool-use.
+    /// codex-teams approval bridge stamps every app-server approval with two
+    /// unconditional markers the hook telemetry path never produces: a
+    /// `codex-app-server-`-prefixed request id and an `app_server_method`
+    /// field in `tool_input` (the same marker `FeedPermissionActionPolicy`
+    /// keys off). Both are required so an opaque hook `tool_input` that merely
+    /// happens to carry `app_server_method` can't be promoted to an actionable
+    /// — and, on the non-blocking path, unresolvable — pending approval card.
+    /// Used to keep app-server approvals on the actionable, blocking path while
+    /// routing hook telemetry to non-blocking tool-use.
     public var isCodexAppServerApproval: Bool {
         guard source == WorkstreamSource.codex.rawValue,
               hookEventName == .permissionRequest,
+              requestId?.hasPrefix("codex-app-server-") == true,
               let toolInputJSON,
               let data = toolInputJSON.data(using: .utf8),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
