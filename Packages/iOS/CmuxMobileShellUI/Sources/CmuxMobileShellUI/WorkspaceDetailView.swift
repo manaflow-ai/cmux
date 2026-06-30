@@ -449,22 +449,17 @@ struct WorkspaceDetailView: View {
     #if os(iOS)
     @ToolbarContentBuilder
     private var workspaceNavigationToolbar: some ToolbarContent {
-        if backButtonConfiguration != nil {
-            ToolbarItem(placement: .topBarLeading) {
-                workspaceBackToolbarButton
-            }
-            if #available(iOS 26.0, *) {
-                ToolbarSpacer(.fixed, placement: .topBarLeading)
-            }
-        }
         ToolbarItem(placement: .topBarLeading) {
-            WorkspaceTitleMenu(
-                contentWidth: contentWidth,
-                hasBackButton: backButtonConfiguration != nil,
-                hasChatToggle: isChatMode || sessionForSelectedTerminal != nil,
-                menuContent: { titleMenuContent }
-            ) {
-                workspaceTitleToolbarLabel
+            HStack(spacing: 8) {
+                workspaceBackToolbarButton
+                WorkspaceTitleMenu(
+                    contentWidth: contentWidth,
+                    hasBackButton: backButtonConfiguration != nil,
+                    hasChatToggle: isChatMode || sessionForSelectedTerminal != nil,
+                    menuContent: { titleMenuContent }
+                ) {
+                    workspaceTitleToolbarLabel
+                }
             }
         }
         if !isChatMode {
