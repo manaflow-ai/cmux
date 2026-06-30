@@ -5,6 +5,7 @@ import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import GhosttyKit
 import OSLog
+import Synchronization
 import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
@@ -4236,23 +4237,18 @@ nonisolated private struct CopyableTextRead: @unchecked Sendable {
     let cancellation: SurfaceOperationCancellationToken
 }
 
-nonisolated private final class SurfaceOperationCancellationToken: @unchecked Sendable {
+nonisolated private final class SurfaceOperationCancellationToken: Sendable {
     // lint:allow lock - tiny cross-queue cancellation flag for already-enqueued
     // libghostty work; actor hops would put the serial surface queue back behind
     // the main actor and defeat the stale-read fast path.
-    private let lock = NSLock()
-    private var cancelled = false
+    private let cancelled = Mutex(false)
 
     var isCancelled: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return cancelled
+        cancelled.withLock { $0 }
     }
 
     func cancel() {
-        lock.lock()
-        cancelled = true
-        lock.unlock()
+        cancelled.withLock { $0 = true }
     }
 }
 
