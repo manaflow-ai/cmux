@@ -886,7 +886,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairingAttemptID = UUID()
     }
 
-    deinit { MainActor.assumeIsolated {
+    // This non-UIView @MainActor store can have its last reference released off
+    // the main actor (a background continuation/callback/detached task may hold
+    // it), so teardown must HOP to the main actor via `isolated deinit`, not
+    // assert it — `MainActor.assumeIsolated` would trap on an off-main release.
+    // cmux ships on Swift 6.2 (the isolated-deinit path); the #else only keeps
+    // the older compat toolchain, which lacks `isolated deinit`, compiling.
+    #if compiler(>=6.2)
+    isolated deinit {
+        cancelInFlightWorkForTeardown()
+    }
+    #else
+    deinit {
+        MainActor.assumeIsolated {
+            cancelInFlightWorkForTeardown()
+        }
+    }
+    #endif
+
+    private func cancelInFlightWorkForTeardown() {
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
@@ -902,7 +920,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let remoteClient {
             Task { await remoteClient.disconnect() }
         }
-    } }
+    }
 
     public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
         CMUXMobileShellStore(
