@@ -201,7 +201,7 @@ extension WorkspaceDetailView {
                 chatSessions = next
             }
             store.rememberChatSessions(next, workspaceID: workspaceID)
-            reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: false)
+            reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: true)
         }
     }
 
