@@ -656,6 +656,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var outputQueue = GhosttySurfaceWorkQueue(generation: 0)
     private var outputQueueGeneration: UInt64 = 0
     private var pendingSurfaceFreeCount = 0
+    private var renderPipelineRecoveryBlocked = false
     private static let maxPendingSurfaceFrees = 1
     private static let renderPipelineStallDeadline: CFTimeInterval = 2.0
     private static let outputApplyTimeout: CFTimeInterval = 2.0
@@ -2604,6 +2605,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// tree. Does not set ``isDismantled`` so a transient detach can re-attach
     /// and resume; only ``prepareForDismantle()`` marks the surface dead.
     private func prepareForReuseAfterDetach() {
+        renderPipelineRecoveryBlocked = false
         resignInput()
         stopKeyboardHeightAnimation()
         stopDisplayLink()
@@ -2775,6 +2777,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return false
         }
         guard pendingSurfaceFreeCount < Self.maxPendingSurfaceFrees else {
+            renderPipelineRecoveryBlocked = true
+            stopDisplayLink()
+            completePendingSurfaceOperations(returning: false)
             renderInFlight = false
             renderInFlightSince = nil
             needsAnotherRender = false
@@ -2860,6 +2865,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let app = runtime?.app else { return }
         surface = makeSurface(app: app)
         if let surface {
+            renderPipelineRecoveryBlocked = false
             GhosttySurfaceView.register(surface: surface, for: self)
             if let config = runtime?.config {
                 applyBackgroundColorFromConfig(config)
@@ -2874,7 +2880,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func startDisplayLink() {
-        guard displayLink == nil else { return }
+        guard displayLink == nil, !renderPipelineRecoveryBlocked else { return }
         let link = CADisplayLink(target: DisplayLinkProxy(target: self), selector: #selector(DisplayLinkProxy.handleDisplayLink))
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
@@ -3901,7 +3907,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 view: view,
                 grid: grid,
                 font: Int(view.liveFontSize),
-                surface: surface
+                surface: surface,
+                generation: view.surfaceGeneration
             ))
         }
         if pending.isEmpty {
@@ -3911,6 +3918,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         for item in pending {
             guard let section = await item.view.visibleSnapshotSection(
                 surface: item.surface,
+                generation: item.generation,
                 grid: item.grid,
                 font: item.font
             ) else {
@@ -3923,9 +3931,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func visibleSnapshotSection(
         surface: ghostty_surface_t,
+        generation: UInt64,
         grid: String,
         font: Int
     ) async -> String? {
+        guard self.surface == surface,
+              surfaceGeneration == generation else {
+            return nil
+        }
         await withCheckedContinuation { continuation in
             let operationID = makeSurfaceOperationID()
             if let existing = pendingVisibleSnapshot {
@@ -3939,13 +3952,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
             ensureSurfaceOperationDeadlinePump()
             let queue = outputQueue
-            let read = VisibleSnapshotRead(surface: surface, grid: grid, font: font)
+            let read = VisibleSnapshotRead(surface: surface, generation: generation, grid: grid, font: font)
             queue.async {
                 let text = Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
                 let section = "===== visible terminal · grid=\(read.grid) · font=\(read.font) =====\n"
                     + text
                 DispatchQueue.main.async { [weak self] in
-                    self?.completePendingVisibleSnapshot(id: operationID, returning: section)
+                    guard let view = self else { return }
+                    guard view.surface == read.surface,
+                          view.surfaceGeneration == read.generation else {
+                        view.completePendingVisibleSnapshot(id: operationID, returning: nil)
+                        return
+                    }
+                    view.completePendingVisibleSnapshot(id: operationID, returning: section)
                 }
             }
         }
@@ -4011,14 +4030,14 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
     }
 }
 
-private enum RenderPipelineRecoveryReplay {
+nonisolated private enum RenderPipelineRecoveryReplay {
     case callerWillRequestReplay
     case delegateWhenNoCaller
 }
 
 /// One output/geometry operation awaiting either its output-queue completion or
 /// the display-link deadline that rebuilds the stalled render pipeline.
-private struct PendingSurfaceOperation {
+nonisolated private struct PendingSurfaceOperation {
     let id: UInt64
     let startedAt: CFTimeInterval
     let byteCount: Int?
@@ -4027,26 +4046,28 @@ private struct PendingSurfaceOperation {
 
 /// One visible-terminal snapshot read awaiting output-queue completion or its
 /// display-link deadline. A timeout skips only the diagnostic snapshot.
-private struct PendingVisibleSnapshot {
+nonisolated private struct PendingVisibleSnapshot {
     let id: UInt64
     let startedAt: CFTimeInterval
     let continuation: CheckedContinuation<String?, Never>
 }
 
 /// One surface's request for the bounded visible-terminal snapshot.
-private struct VisibleSnapshotRequest {
+nonisolated private struct VisibleSnapshotRequest {
     let view: GhosttySurfaceView
     let grid: String
     let font: Int
     let surface: ghostty_surface_t
+    let generation: UInt64
 }
 
 /// Raw surface read payload captured by the off-main output queue.
 ///
 /// The C surface pointer is dereferenced only on `GhosttySurfaceWorkQueue`,
 /// which is the same FIFO queue that owns `process_output` and surface free.
-private struct VisibleSnapshotRead: @unchecked Sendable {
+nonisolated private struct VisibleSnapshotRead: @unchecked Sendable {
     let surface: ghostty_surface_t
+    let generation: UInt64
     let grid: String
     let font: Int
 }
