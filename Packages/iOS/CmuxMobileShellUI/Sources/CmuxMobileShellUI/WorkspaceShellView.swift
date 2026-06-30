@@ -50,7 +50,7 @@ struct WorkspaceShellView: View {
     }
 
     private var canCreateWorkspaceOnForegroundConnection: Bool {
-        store.hasActiveMacConnection
+        store.connectionState == .connected
     }
 
     var body: some View {
