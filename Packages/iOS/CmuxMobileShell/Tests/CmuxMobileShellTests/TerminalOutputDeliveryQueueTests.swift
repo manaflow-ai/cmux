@@ -221,6 +221,42 @@ import Testing
 }
 
 @MainActor
+@Test func terminalReplayBarrierRetriesAfterReplayFailureWithoutDroppedOutput() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "retry-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    #expect(String(decoding: coldReplayChunk.data, as: UTF8.self) == "cold-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+
+    await router.failNextReplay()
+    store.deliverTerminalBytes(Data("stalled-first".utf8), surfaceID: surfaceID)
+    let stalledChunk = try #require(await iterator.next())
+    store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
+
+    let retryRequested = await waitForReplayRequestCount(
+        router,
+        atLeast: replayCountAfterMount + 2
+    )
+    #expect(retryRequested, "failed reset replay must retry even without a later live-output drop")
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil)
+
+    if retryRequested {
+        let retryReplayChunk = try #require(await iterator.next())
+        #expect(String(decoding: retryReplayChunk.data, as: UTF8.self) == "retry-replay")
+        store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retryReplayChunk.streamToken)
+        #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+    }
+}
+
+@MainActor
 @Test func terminalReplayBarrierRetriesWhenReplayAckChunkResets() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
@@ -326,6 +362,19 @@ private func waitForReplayBarrierFailureToSettle(
         await Task.yield()
     }
     return condition()
+}
+
+private func waitForReplayRequestCount(
+    _ router: LivenessHostRouter,
+    atLeast expectedCount: Int
+) async -> Bool {
+    for _ in 0..<1_000 {
+        if await router.count(of: "mobile.terminal.replay") >= expectedCount {
+            return true
+        }
+        await Task.yield()
+    }
+    return await router.count(of: "mobile.terminal.replay") >= expectedCount
 }
 
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
