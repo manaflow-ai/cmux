@@ -267,7 +267,7 @@ import Testing
         #expect(selected == .all)
     }
 
-    @Test func titlePickerWaitsForCancelBeforeStartingNextMachineSwitch() async throws {
+    @Test func titlePickerWaitsForAllMacsCancelBeforeStartingNextMachineSwitch() async throws {
         let store = await shellStore(pairedMacs: [
             pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 30, isActive: true),
             pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 20),
@@ -341,10 +341,13 @@ import Testing
         let firstTask = view.handleMacTitlePickerSelection(.machine("mac-b"))
         await waitForSwitchStart()
 
-        let secondTask = view.handleMacTitlePickerSelection(.machine("mac-c"))
+        view.handleMacTitlePickerSelection(.all)
         await waitForCancelStart()
 
+        let secondTask = view.handleMacTitlePickerSelection(.machine("mac-c"))
+
         #expect(requestedSwitches == ["mac-b"])
+        #expect(selected == .all)
 
         cancelContinuation?.resume()
         await secondTask?.value
