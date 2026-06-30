@@ -13148,9 +13148,12 @@ private struct SidebarEmptyArea: View {
                 selection = .tabs
             }
         if let tabDropDelegate {
-            base.onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegate)
+            base
+                .sidebarEmptyAreaWorkspaceGroupContextMenu(tabManager: tabManager)
+                .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegate)
         } else {
             base
+                .sidebarEmptyAreaWorkspaceGroupContextMenu(tabManager: tabManager)
         }
     }
 
@@ -13164,6 +13167,28 @@ private struct SidebarEmptyArea: View {
             Color.clear
                 .frame(maxWidth: .infinity, minHeight: minimumHeight ?? 0)
                 .contentShape(Rectangle())
+        }
+    }
+}
+
+private extension View {
+    func sidebarEmptyAreaWorkspaceGroupContextMenu(tabManager: TabManager) -> some View {
+        contextMenu {
+            let newWorkspaceGroupShortcut = KeyboardShortcutSettings.shortcut(for: .newWorkspaceGroup)
+            let newWorkspaceGroupLabel = String(
+                localized: "contextMenu.workspaceGroup.newEmpty",
+                defaultValue: "New Empty Workspace Group"
+            )
+            if let key = newWorkspaceGroupShortcut.keyEquivalent {
+                Button(newWorkspaceGroupLabel) {
+                    _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+                }
+                .keyboardShortcut(key, modifiers: newWorkspaceGroupShortcut.eventModifiers)
+            } else {
+                Button(newWorkspaceGroupLabel) {
+                    _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+                }
+            }
         }
     }
 }
@@ -14414,6 +14439,12 @@ struct TabItemView: View, Equatable {
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
+        let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
+        let moveMenuTitle = targetIds.count > 1
+            ? String(localized: "contextMenu.moveWorkspacesToWindow", defaultValue: "Move Workspaces to Window")
+            : String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")
+
         Button(pinLabel) {
             guard let contextMenuPinState else {
                 NSSound.beep()
@@ -14428,6 +14459,8 @@ struct TabItemView: View, Equatable {
         .disabled(contextMenuPinState == nil)
 
         workspaceGroupContextMenuSection(targetIds: targetIds, isMulti: isMulti)
+
+        Divider()
 
         if let key = renameWorkspaceShortcut.keyEquivalent {
             Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
@@ -14518,6 +14551,8 @@ struct TabItemView: View, Equatable {
         }
 
         if let copyableSidebarSSHError = workspaceSnapshot.copyableSidebarSSHError {
+            Divider()
+
             Button(String(localized: "contextMenu.copySshError", defaultValue: "Copy SSH Error")) {
                 WorkspaceSurfaceIdentifierClipboardText.copy(copyableSidebarSSHError)
             }
@@ -14541,11 +14576,6 @@ struct TabItemView: View, Equatable {
         }
         .disabled(targetIds.isEmpty)
 
-        let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
-        let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
-        let moveMenuTitle = targetIds.count > 1
-            ? String(localized: "contextMenu.moveWorkspacesToWindow", defaultValue: "Move Workspaces to Window")
-            : String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")
         Menu(moveMenuTitle) {
             Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {
                 moveWorkspacesToNewWindow(targetIds)

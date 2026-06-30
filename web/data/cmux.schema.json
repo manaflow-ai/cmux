@@ -1274,6 +1274,7 @@
               "closeTab",
               "closeOtherTabsInPane",
               "closeWorkspace",
+              "newWorkspaceGroup",
               "groupSelectedWorkspaces",
               "toggleFocusedWorkspaceGroupCollapsed",
               "reopenClosedBrowserPanel",

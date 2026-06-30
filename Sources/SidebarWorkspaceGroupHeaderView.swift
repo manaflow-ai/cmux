@@ -111,6 +111,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         return "\(shortcutModifierSymbol)\(shortcutDigit)"
     }
 
+    private var pinnedGroupTooltip: String {
+        String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
+    }
+
     private var rowHeightProbe: some View {
         GeometryReader { proxy in
             Color.clear
@@ -136,6 +140,18 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             hasControls: true,
             shortcutHintModeActive: showsShortcutHint
         )
+    }
+
+    private var pinnedControl: some View {
+        CmuxSystemSymbolImage(
+            magnified: "pin.fill",
+            pointSize: metrics.pinnedIconFontSize,
+            weight: .semibold
+        )
+        .foregroundStyle(Color.secondary.opacity(0.8))
+        .frame(width: metrics.iconFrame, height: metrics.iconFrame)
+        .safeHelp(pinnedGroupTooltip)
+        .accessibilityLabel(Text(pinnedGroupTooltip))
     }
 
     private var disclosureControl: some View {
@@ -367,6 +383,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 
     var body: some View {
         HStack(spacing: 4) {
+            if isPinned {
+                pinnedControl
+            }
             disclosureControl
             anchorControl
             plusControl
