@@ -69,13 +69,11 @@ struct AgentChatDemoScreen: View {
                             action: {}
                         )
                     }
-                    if #available(iOS 26.0, *) {
-                        ToolbarSpacer(.fixed, placement: .topBarLeading)
-                    }
-                    ToolbarItem(placement: .topBarLeading) {
+                    ToolbarItem(placement: .principal) {
                         WorkspaceTitleMenu(
                             contentWidth: contentWidth,
                             hasBackButton: true,
+                            hasTrailingCluster: true,
                             hasChatToggle: true
                         ) {
                             Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}

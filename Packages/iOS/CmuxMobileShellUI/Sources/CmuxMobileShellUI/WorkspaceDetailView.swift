@@ -49,7 +49,7 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
-    /// Live pane width, used to width-cap the leading glass title pill so a long
+    /// Live pane width, used to width-cap the centered glass title pill so a long
     /// workspace name truncates instead of underlapping the toolbar buttons.
     @State private var contentWidth: CGFloat = 0
     /// Captured at the moment the "View as Text" action is tapped so the
@@ -85,7 +85,6 @@ struct WorkspaceDetailView: View {
     /// that every push arrived.
     @Environment(\.scenePhase) var scenePhase
     #endif
-
     /// The active browser surface for this workspace, when a browser pane is open.
     private var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
@@ -141,22 +140,23 @@ struct WorkspaceDetailView: View {
         .navigationTitle("")
         .mobileTerminalNavigationChrome()
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                HStack(spacing: 8) {
-                    workspaceBackToolbarButton
-                    WorkspaceTitleMenu(
-                        contentWidth: contentWidth,
-                        hasBackButton: backButtonConfiguration != nil,
-                        hasChatToggle: shouldShowChatToggle,
-                        isEnabled: hasTitleMenuActions,
-                        menuContent: { titleMenuContent }
-                    ) {
-                        Text(browser.title ?? workspace.name)
-                            .font(.headline)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .foregroundStyle(TerminalPalette.foreground)
-                    }
+            if backButtonConfiguration != nil {
+                ToolbarItem(placement: .topBarLeading) { workspaceBackToolbarButton }
+            }
+            ToolbarItem(placement: .principal) {
+                WorkspaceTitleMenu(
+                    contentWidth: contentWidth,
+                    hasBackButton: backButtonConfiguration != nil,
+                    hasTrailingCluster: true,
+                    hasChatToggle: shouldShowChatToggle,
+                    isEnabled: hasTitleMenuActions,
+                    menuContent: { titleMenuContent }
+                ) {
+                    Text(browser.title ?? workspace.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(TerminalPalette.foreground)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -307,18 +307,19 @@ struct WorkspaceDetailView: View {
         #endif
         .toolbar {
             #if os(iOS)
-            ToolbarItem(placement: .topBarLeading) {
-                HStack(spacing: 8) {
-                    workspaceBackToolbarButton
-                    WorkspaceTitleMenu(
-                        contentWidth: contentWidth,
-                        hasBackButton: backButtonConfiguration != nil,
-                        hasChatToggle: shouldShowChatToggle,
-                        isEnabled: hasTitleMenuActions,
-                        menuContent: { titleMenuContent }
-                    ) {
-                        WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
-                    }
+            if backButtonConfiguration != nil {
+                ToolbarItem(placement: .topBarLeading) { workspaceBackToolbarButton }
+            }
+            ToolbarItem(placement: .principal) {
+                WorkspaceTitleMenu(
+                    contentWidth: contentWidth,
+                    hasBackButton: backButtonConfiguration != nil,
+                    hasTrailingCluster: true,
+                    hasChatToggle: shouldShowChatToggle,
+                    isEnabled: hasTitleMenuActions,
+                    menuContent: { titleMenuContent }
+                ) {
+                    WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -356,8 +357,7 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// Compact-stack back button colocated with the leading title so both
-    /// terminal and chat modes share one toolbar order.
+    /// Compact-stack back button rendered as its own leading toolbar island.
     @ViewBuilder
     private var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {
