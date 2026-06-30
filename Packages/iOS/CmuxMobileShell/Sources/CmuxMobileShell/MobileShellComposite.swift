@@ -687,6 +687,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored private var macSwitchAttemptSignInGeneration: Int?
     @ObservationIgnored private var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
     @ObservationIgnored private var macSwitchRestoreBaseline: MobilePairedMac?
+    @ObservationIgnored private var macSwitchCancelRestoreGeneration: UInt64 = 0
     private var chatEventSourceGeneration: UUID
     /// The per-Mac connection pool (P2 of the multi-Mac work), keyed by
     /// `macDeviceID`. Today it tracks the single foreground connection; P3 adds
@@ -2559,7 +2560,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     @discardableResult
-    private func restorePreviousMacIfNeeded(_ previousActive: MobilePairedMac?) async -> Bool {
+    private func restorePreviousMacIfNeeded(
+        _ previousActive: MobilePairedMac?,
+        cancelRestoreGeneration: UInt64? = nil
+    ) async -> Bool {
+        func isCancelRestoreCurrent() -> Bool {
+            guard let cancelRestoreGeneration else { return true }
+            return macSwitchCancelRestoreGeneration == cancelRestoreGeneration
+                && macSwitchAttemptID == nil
+                && isSignedIn
+        }
+        guard isCancelRestoreCurrent() else { return false }
         guard isSignedIn else { return false }
         guard let previousActive else { return false }
         let previousIDs = Set(pairedMacAliasIDs(for: previousActive.macDeviceID))
@@ -2576,19 +2587,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.error("restorePreviousMacIfNeeded: no reconnectable route mac=\(previousActive.macDeviceID, privacy: .private)")
             return false
         }
+        guard isCancelRestoreCurrent() else { return false }
         await connectStoredMacHost(
             name: previousActive.displayName ?? host,
             host: host,
             port: port,
             pairedMacDeviceID: previousActive.macDeviceID
         )
+        guard isCancelRestoreCurrent() else { return false }
         let restored = connectionState == .connected
             && remoteClient != nil
             && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
         guard restored, let pairedMacStore else { return restored }
+        guard cancelRestoreGeneration == nil else { return restored }
         let scope = await currentScopeSnapshot()
         if let scope {
-            guard await isScopeCurrent(scope) else { return restored }
+            guard await isScopeCurrent(scope), isCancelRestoreCurrent() else { return restored }
         }
         do {
             try await pairedMacStore.setActive(
@@ -2596,6 +2610,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 stackUserID: scope?.userID,
                 teamID: scope?.teamID
             )
+            guard isCancelRestoreCurrent() else { return restored }
             await loadPairedMacs()
         } catch {
             mobileShellLog.error("restorePreviousMacIfNeeded: setActive failed mac=\(previousActive.macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)")
@@ -3103,6 +3118,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let restoreTarget = restorePreviousOnCancel ? macSwitchRestoreBaseline : nil
         let restoreSignInGeneration = signInGeneration
         let restoreScopeGeneration = secondaryAggregationScopeGeneration
+        macSwitchCancelRestoreGeneration &+= 1
+        let restoreGeneration = macSwitchCancelRestoreGeneration
         if restorePreviousOnCancel, restoreTarget == nil {
             macSwitchRestorePreviousOnCancelAttemptIDs.insert(attemptID)
         }
@@ -3116,11 +3133,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 guard self.isSignedIn,
                       self.signInGeneration == restoreSignInGeneration,
                       self.secondaryAggregationScopeGeneration == restoreScopeGeneration,
-                      self.macSwitchAttemptID == nil else { return }
-                _ = await self.restorePreviousMacIfNeeded(restoreTarget)
+                      self.macSwitchAttemptID == nil,
+                      self.macSwitchCancelRestoreGeneration == restoreGeneration else { return }
+                _ = await self.restorePreviousMacIfNeeded(
+                    restoreTarget,
+                    cancelRestoreGeneration: restoreGeneration
+                )
                 if self.macSwitchAttemptID == nil,
                    self.signInGeneration == restoreSignInGeneration,
-                   self.secondaryAggregationScopeGeneration == restoreScopeGeneration {
+                   self.secondaryAggregationScopeGeneration == restoreScopeGeneration,
+                   self.macSwitchCancelRestoreGeneration == restoreGeneration {
                     self.macSwitchRestoreBaseline = nil
                 }
             }
@@ -5208,6 +5230,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func beginMacSwitchAttempt() -> UUID {
         let attemptID = UUID()
+        macSwitchCancelRestoreGeneration &+= 1
         macSwitchRestorePreviousOnCancelAttemptIDs.removeAll(keepingCapacity: true)
         macSwitchAttemptID = attemptID
         macSwitchAttemptSignInGeneration = signInGeneration
@@ -5233,6 +5256,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func clearMacSwitchAttemptState(invalidateUnderlyingConnectionAttempt: Bool = false) {
         let hadAttempt = macSwitchAttemptID != nil
+        macSwitchCancelRestoreGeneration &+= 1
         macSwitchAttemptID = nil
         macSwitchAttemptSignInGeneration = nil
         macSwitchRestorePreviousOnCancelAttemptIDs.removeAll(keepingCapacity: true)
