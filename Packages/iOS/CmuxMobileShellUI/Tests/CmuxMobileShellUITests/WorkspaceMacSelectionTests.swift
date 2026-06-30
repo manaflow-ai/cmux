@@ -193,10 +193,12 @@ private actor WorkspaceMacSelectionPairedMacStore: MobilePairedMacStoring {
     }
 
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
-        records.filter { mac in
-            (mac.stackUserID == nil || mac.stackUserID == stackUserID)
-                && (teamID == nil || mac.teamID == nil || mac.teamID == teamID)
-        }
+        records
+            .filter { mac in
+                (mac.stackUserID == nil || mac.stackUserID == stackUserID)
+                    && (teamID == nil || mac.teamID == nil || mac.teamID == teamID)
+            }
+            .sorted { $0.lastSeenAt > $1.lastSeenAt }
     }
 
     func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {

@@ -10,25 +10,30 @@ enum WorkspaceMacSelection: Hashable {
 
 extension WorkspaceListView {
     var activeFilter: MobileWorkspaceListFilter {
+        let aliasIndex = macPickerAliasIndex
         var active = filter
-        switch visibleMacSelection {
+        switch visibleMacSelection(aliasIndex: aliasIndex) {
         case .automatic:
             break
         case .all:
             active.machines.removeAll()
         case .machine(let id):
-            active.machines = macPickerFilterMachineIDs(for: id)
+            active.machines = aliasIndex.filterMachineIDs(for: id)
         }
         return active
     }
 
     var visibleMacSelection: WorkspaceMacSelection {
-        let machineIDs = Set(macPickerMachines.map(\.id))
+        visibleMacSelection(aliasIndex: macPickerAliasIndex)
+    }
+
+    private func visibleMacSelection(aliasIndex: WorkspaceMacPickerAliasIndex) -> WorkspaceMacSelection {
+        let machineIDs = Set(macPickerMachines(aliasIndex: aliasIndex).map(\.id))
         switch macSelection {
         case .automatic:
             return .all
         case .machine(let id):
-            let representativeID = macPickerRepresentativeID(for: id)
+            let representativeID = aliasIndex.representativeID(for: id)
             return machineIDs.contains(representativeID) ? .machine(representativeID) : .all
         case .all:
             return .all
@@ -36,17 +41,21 @@ extension WorkspaceListView {
     }
 
     var macPickerMachines: [WorkspaceFilterMachine] {
+        macPickerMachines(aliasIndex: macPickerAliasIndex)
+    }
+
+    private func macPickerMachines(aliasIndex: WorkspaceMacPickerAliasIndex) -> [WorkspaceFilterMachine] {
         let names = macDisplayNamesByID()
         var ids = Set<String>()
         for id in MobileWorkspaceListFilter.machineIDs(in: workspaces) {
-            ids.insert(macPickerRepresentativeID(for: id))
+            ids.insert(aliasIndex.representativeID(for: id))
         }
         if let store {
             for mac in store.displayPairedMacs {
                 ids.insert(mac.macDeviceID)
             }
             if let connectedID = store.connectedMacDeviceID {
-                ids.insert(macPickerRepresentativeID(for: connectedID))
+                ids.insert(aliasIndex.representativeID(for: connectedID))
             }
         }
         return ids
@@ -60,23 +69,12 @@ extension WorkspaceListView {
             }
     }
 
-    private func macPickerRepresentativeID(for id: String) -> String {
-        guard let store else { return id }
-        for mac in store.displayPairedMacs {
-            let aliases = store.pairedMacAliasIDs(for: mac.macDeviceID)
-            if mac.macDeviceID == id || aliases.contains(id) {
-                return mac.macDeviceID
-            }
-        }
-        return id
-    }
-
-    private func macPickerFilterMachineIDs(for id: String) -> Set<String> {
-        guard let store else { return [id] }
-        let representativeID = macPickerRepresentativeID(for: id)
-        var ids = Set(store.pairedMacAliasIDs(for: representativeID))
-        ids.insert(representativeID)
-        return ids.isEmpty ? [id] : ids
+    private var macPickerAliasIndex: WorkspaceMacPickerAliasIndex {
+        guard let store else { return .empty }
+        return WorkspaceMacPickerAliasIndex(
+            displayPairedMacs: store.displayPairedMacs,
+            aliasesFor: { store.pairedMacAliasIDs(for: $0) }
+        )
     }
 
     var fallbackMacPickerName: String {
@@ -109,10 +107,11 @@ extension WorkspaceListView {
 
     var canCreateWorkspaceForMacSelection: Bool {
         guard canCreateWorkspace else { return false }
-        switch visibleMacSelection {
+        let aliasIndex = macPickerAliasIndex
+        switch visibleMacSelection(aliasIndex: aliasIndex) {
         case .machine(let id):
             guard let connectedID = store?.connectedMacDeviceID else { return false }
-            return macPickerFilterMachineIDs(for: id).contains(connectedID)
+            return aliasIndex.filterMachineIDs(for: id).contains(connectedID)
         case .all, .automatic:
             return true
         }
@@ -124,19 +123,20 @@ extension WorkspaceListView {
     }
 
     private var selectedMacCanUseForegroundGroups: Bool {
-        switch visibleMacSelection {
+        let aliasIndex = macPickerAliasIndex
+        switch visibleMacSelection(aliasIndex: aliasIndex) {
         case .machine(let id):
             guard let connectedID = store?.connectedMacDeviceID else { return false }
-            return macPickerFilterMachineIDs(for: id).contains(connectedID)
+            return aliasIndex.filterMachineIDs(for: id).contains(connectedID)
         case .all, .automatic:
-            return visibleRowsAreOnlyForegroundMac
+            return visibleRowsAreOnlyForegroundMac(aliasIndex: aliasIndex)
         }
     }
 
-    private var visibleRowsAreOnlyForegroundMac: Bool {
+    private func visibleRowsAreOnlyForegroundMac(aliasIndex: WorkspaceMacPickerAliasIndex) -> Bool {
         guard !workspaces.isEmpty else { return false }
         guard let connectedID = store?.connectedMacDeviceID else { return false }
-        let foregroundIDs = macPickerFilterMachineIDs(for: connectedID)
+        let foregroundIDs = aliasIndex.filterMachineIDs(for: connectedID)
         return workspaces.allSatisfy { workspace in
             guard let macDeviceID = workspace.macDeviceID else { return false }
             return foregroundIDs.contains(macDeviceID)
