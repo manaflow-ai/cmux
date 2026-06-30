@@ -1365,6 +1365,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above the Ghostty renderer's sublayer so a lifted Liquid-Glass button is not
     /// clipped by the terminal render bounds (item 6). Below the zoom HUD (1100).
     private static let bottomChromeZPosition: CGFloat = 1000
+    private let renderPlacement = TerminalRenderPlacement()
 
     /// Whether the always-visible bottom chrome (the docked accessory toolbar and,
     /// when open, the composer band) is currently on screen.
@@ -1444,7 +1445,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         size: CGSize,
         allowsLargeTopGapCorrection: Bool
     ) -> CGRect {
-        TerminalLetterboxGeometry.renderRect(
+        renderPlacement.renderRect(
             in: terminalViewportRect,
             size: size,
             allowsLargeTopGapCorrection: allowsLargeTopGapCorrection
@@ -3200,7 +3201,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             width: max(1, CGFloat(naturalSize.pixelWidth) / scale),
             height: max(1, CGFloat(naturalSize.pixelHeight) / scale)
         )
-        let allowsLargeTopGapCorrection = TerminalLetterboxGeometry.allowsLargeTopGapCorrection(
+        let allowsLargeTopGapCorrection = renderPlacement.allowsLargeTopGapCorrection(
             pinnedGrid: result.pinnedGrid,
             awaitingViewportEcho: awaitingViewportEchoForPlacement,
             naturalGrid: (naturalSize.columns, naturalSize.rows),
