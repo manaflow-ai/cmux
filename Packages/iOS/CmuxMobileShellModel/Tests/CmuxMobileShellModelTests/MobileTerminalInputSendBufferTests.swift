@@ -51,4 +51,34 @@ import Testing
         #expect(buffer.nextBatch() == nil)
         #expect(buffer.enqueue("c", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
     }
+
+    @Test func admitsSingleOversizedPayloadOntoIdleBuffer() {
+        // A foreground paste larger than the cap (e.g. a big clipboard) must be
+        // delivered in one FIFO send, not rejected — rejection disconnects the
+        // mobile terminal. The cap only bounds accumulation once a backlog exists.
+        var buffer = MobileTerminalInputSendBuffer()
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+        let oversizedPaste = String(
+            repeating: "a",
+            count: MobileTerminalInputSendBuffer.maximumPendingByteCount * 2 + 1
+        )
+
+        #expect(
+            buffer.enqueue(oversizedPaste, workspaceID: workspaceID, terminalID: terminalID)
+                == .startDraining
+        )
+        #expect(buffer.pendingByteCount == oversizedPaste.utf8.count)
+        // While the oversized paste is still pending, the cap is back in force:
+        // further input that would grow the backlog is rejected (back-pressure).
+        #expect(buffer.enqueue("b", workspaceID: workspaceID, terminalID: terminalID) == .rejected)
+
+        let batch = buffer.nextBatch()
+        #expect(batch?.text == oversizedPaste)
+        #expect(buffer.pendingByteCount == 0)
+        // Once drained, the idle buffer admits input again.
+        #expect(buffer.enqueue("b", workspaceID: workspaceID, terminalID: terminalID) == .queued)
+        #expect(buffer.nextBatch()?.text == "b")
+        #expect(buffer.nextBatch() == nil)
+    }
 }
