@@ -579,6 +579,11 @@ struct WorkspaceDetailView: View {
         .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
+        #if DEBUG
+        let copyDebugLogsAction: (() -> Void)? = { queueTerminalPickerAction(.copyDebugLogs) }
+        #else
+        let copyDebugLogsAction: (() -> Void)? = nil
+        #endif
         .sheet(isPresented: $isTerminalPickerPresented, onDismiss: performPendingTerminalPickerActionIfNeeded) {
             TerminalPickerSheet(
                 workspace: workspace,
@@ -608,7 +613,7 @@ struct WorkspaceDetailView: View {
                 closeWorkspace: closeWorkspace != nil ? { queueTerminalPickerAction(.closeWorkspace) } : nil,
                 openTextSheet: activeBrowser == nil ? { queueTerminalPickerAction(.openTextSheet) } : nil,
                 #if DEBUG
-                copyDebugLogs: { queueTerminalPickerAction(.copyDebugLogs) },
+                copyDebugLogs: copyDebugLogsAction,
                 #endif
                 openFeedbackComposer: { queueTerminalPickerAction(.openFeedbackComposer) }
             )
