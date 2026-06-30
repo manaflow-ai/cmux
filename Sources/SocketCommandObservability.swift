@@ -176,17 +176,17 @@ nonisolated struct SocketCommandObservability: Sendable {
             let finishedAt = DispatchTime.now().uptimeNanoseconds
             let elapsed = finishedAt >= startedAt ? finishedAt - startedAt : 0
             guard await watchdogSampleCoordinator.beginCaptureIfIdle() else {
-                // A sample for the same main-actor stall is already in flight.
-                // Coalesce onto it instead of spawning another `/usr/bin/sample`:
-                // every command queued behind one hang would otherwise cross the
-                // threshold together and fan out a burst of samplers, disk writes,
-                // and log work against an already-unhealthy app.
+                // A sample for the same stall is already in flight; coalesce onto it
+                // instead of fanning out another `/usr/bin/sample`. Commands queued
+                // behind one hang all cross the threshold together.
                 logMainActorWatchdogCoalesced(command: command, elapsedNanoseconds: elapsed)
                 return
             }
             let sample = await captureWatchdogSample(for: command)
             await watchdogSampleCoordinator.endCapture()
-            guard !Task.isCancelled else { return }
+            // Always log once a sample was captured: the command was still running at
+            // the threshold, so the stall is real even if it finishes during the ~1s
+            // sample window. Dropping the log here would orphan the sample file on disk.
             logMainActorWatchdog(command: command, elapsedNanoseconds: elapsed, sample: sample)
         }
 
