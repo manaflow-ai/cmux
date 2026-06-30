@@ -789,6 +789,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private(set) var surface: ghostty_surface_t?
     private var lastReportedSize: TerminalGridSize?
+    /// Local natural grid waiting for the Mac's effective-grid echo. While set,
+    /// an older smaller effective grid is treated as stale viewport-growth state.
+    private var awaitingViewportEcho: TerminalGridSize?
     /// Latest natural grid awaiting a debounced report to the Mac. The display
     /// link sends it only after the grid has held steady for
     /// `viewportReportSettleThreshold` frames. Reporting every intermediate
@@ -2989,6 +2992,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard cols > 0, rows > 0 else { return }
         // A value came back from the Mac, so the round-trip recovered.
         viewportReportRetries = 0
+        awaitingViewportEcho = nil
         if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return }
         MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
         effectiveGrid = (cols, rows)
@@ -3046,6 +3050,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         /// Pinned render size in points when letterboxed to an effective
         /// grid; nil means fill the container.
         let pinnedSize: CGSize?
+        /// Effective grid used to compute `pinnedSize`; nil when not pinned.
+        let pinnedGrid: (cols: Int, rows: Int)?
     }
 
     private func syncSurfaceGeometry(shouldReassertNaturalSize: Bool = true) {
@@ -3112,6 +3118,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
 
             var pinnedSize: CGSize?
+            var pinnedGrid: (cols: Int, rows: Int)?
             if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
                 let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
                 let withinOneCell = (Int(measured.columns) - eff.cols) <= 1 && (Int(measured.rows) - eff.rows) <= 1
@@ -3125,6 +3132,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                         width: min(CGFloat(aw) / scale, containerW),
                         height: min(CGFloat(ah) / scale, containerH)
                     )
+                    pinnedGrid = eff
                 }
             }
 
@@ -3134,7 +3142,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 pixelWidth: Int(measured.width_px),
                 pixelHeight: Int(measured.height_px)
             )
-            let result = GeometryResult(cellPixelSize: cell, naturalSize: natural, pinnedSize: pinnedSize)
+            let result = GeometryResult(
+                cellPixelSize: cell,
+                naturalSize: natural,
+                pinnedSize: pinnedSize,
+                pinnedGrid: pinnedGrid
+            )
             DispatchQueue.main.async {
                 self?.applyGeometryResult(
                     result,
@@ -3171,11 +3184,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // whole-cell vertical slack stays bottom-attached, while a large slack
         // anchors at the viewport top so letterboxing cannot turn into a blank
         // top spacer.
+        let naturalSize = result.naturalSize
         let naturalRenderSize = CGSize(
-            width: max(1, CGFloat(result.naturalSize.pixelWidth) / scale),
-            height: max(1, CGFloat(result.naturalSize.pixelHeight) / scale)
+            width: max(1, CGFloat(naturalSize.pixelWidth) / scale),
+            height: max(1, CGFloat(naturalSize.pixelHeight) / scale)
         )
-        let allowsLargeTopGapCorrection = result.pinnedSize != nil
+        let allowsLargeTopGapCorrection = TerminalLetterboxGeometry.allowsLargeTopGapCorrection(
+            pinnedGrid: result.pinnedGrid,
+            awaitingViewportEcho: awaitingViewportEcho.map { (cols: $0.columns, rows: $0.rows) },
+            naturalGrid: (naturalSize.columns, naturalSize.rows),
+            previousRenderAllowedTopGapCorrection: lastRenderRectAllowsTopGapCorrection
+        )
         let measuredRenderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
             ?? CGRect(origin: .zero, size: naturalRenderSize)
         let renderRect = renderRectAlignedToCurrentViewport(
@@ -3214,7 +3233,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingRenderFrames = 6
         syncSnapshotFallback()
 
-        let naturalSize = result.naturalSize
         let effectiveMatchesNatural = effectiveGrid.map { grid in
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
@@ -3222,6 +3240,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             (shouldReassertNaturalSize && !effectiveMatchesNatural)
         guard shouldReportNaturalSize, naturalSize.columns > 0, naturalSize.rows > 0 else { return }
         lastReportedSize = naturalSize
+        awaitingViewportEcho = naturalSize
         // Debounce the actual report (a PTY resize on the Mac) until the grid
         // settles; the display link fires it once it stops changing.
         pendingViewportReport = naturalSize

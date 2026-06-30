@@ -311,6 +311,50 @@ struct TerminalLetterboxGeometryTests {
         #expect(rect.maxY == 700)
     }
 
+    @Test("large top-gap correction requires a pinned render")
+    func topGapCorrectionRequiresPinnedRender() {
+        let allowed = TerminalLetterboxGeometry.allowsLargeTopGapCorrection(
+            pinnedGrid: nil,
+            awaitingViewportEcho: nil,
+            naturalGrid: (cols: 100, rows: 40),
+            previousRenderAllowedTopGapCorrection: false
+        )
+        #expect(!allowed)
+    }
+
+    @Test("pinned render can top-anchor when no local viewport echo is pending")
+    func topGapCorrectionAllowsAuthoritativePinnedRender() {
+        let allowed = TerminalLetterboxGeometry.allowsLargeTopGapCorrection(
+            pinnedGrid: (cols: 80, rows: 24),
+            awaitingViewportEcho: nil,
+            naturalGrid: (cols: 100, rows: 40),
+            previousRenderAllowedTopGapCorrection: false
+        )
+        #expect(allowed)
+    }
+
+    @Test("stale local viewport echo keeps pinned render bottom attached")
+    func topGapCorrectionRejectsStaleLocalViewportEcho() {
+        let allowed = TerminalLetterboxGeometry.allowsLargeTopGapCorrection(
+            pinnedGrid: (cols: 100, rows: 24),
+            awaitingViewportEcho: (cols: 100, rows: 40),
+            naturalGrid: (cols: 100, rows: 40),
+            previousRenderAllowedTopGapCorrection: false
+        )
+        #expect(!allowed)
+    }
+
+    @Test("already top-corrected letterbox keeps top correction during relayout")
+    func topGapCorrectionPreservesExistingIntentionalLetterbox() {
+        let allowed = TerminalLetterboxGeometry.allowsLargeTopGapCorrection(
+            pinnedGrid: (cols: 80, rows: 24),
+            awaitingViewportEcho: (cols: 100, rows: 40),
+            naturalGrid: (cols: 100, rows: 40),
+            previousRenderAllowedTopGapCorrection: true
+        )
+        #expect(allowed)
+    }
+
     @Test("small whole-cell remainder stays bottom attached")
     func renderRectSmallRemainderStaysBottomAttached() {
         let rect = TerminalLetterboxGeometry.renderRect(

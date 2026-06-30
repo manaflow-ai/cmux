@@ -251,6 +251,43 @@ public struct TerminalLetterboxGeometry {
         )
     }
 
+    /// Decide whether a pinned render should use the large-gap top-anchor
+    /// correction.
+    ///
+    /// A pinned grid is usually an intentional effective-grid letterbox, but
+    /// during local viewport growth the Mac may still be echoing the old local
+    /// grid while a larger viewport report is pending. In that stale case the
+    /// render must remain bottom-attached so the prompt stays against the
+    /// toolbar until the authoritative echo for the new natural grid arrives.
+    ///
+    /// - Parameters:
+    ///   - pinnedGrid: The effective grid used to compute the pinned render, or
+    ///     `nil` when the render is natural/full-container.
+    ///   - awaitingViewportEcho: The larger local natural grid waiting for a
+    ///     daemon echo.
+    ///   - naturalGrid: The natural grid measured for the current viewport.
+    ///   - previousRenderAllowedTopGapCorrection: Whether the previous render
+    ///     was already known to be an intentional top-corrected letterbox.
+    /// - Returns: True when large-slack top anchoring is allowed.
+    public static func allowsLargeTopGapCorrection(
+        pinnedGrid: (cols: Int, rows: Int)?,
+        awaitingViewportEcho: (cols: Int, rows: Int)?,
+        naturalGrid: (cols: Int, rows: Int),
+        previousRenderAllowedTopGapCorrection: Bool
+    ) -> Bool {
+        guard let pinnedGrid else { return false }
+        guard !previousRenderAllowedTopGapCorrection else { return true }
+        guard let awaitingViewportEcho else { return true }
+
+        let awaitingGridOutgrowsPinned =
+            awaitingViewportEcho.cols > pinnedGrid.cols ||
+            awaitingViewportEcho.rows > pinnedGrid.rows
+        let currentNaturalReachedAwaitingGrid =
+            naturalGrid.cols >= awaitingViewportEcho.cols &&
+            naturalGrid.rows >= awaitingViewportEcho.rows
+        return !(awaitingGridOutgrowsPinned && currentNaturalReachedAwaitingGrid)
+    }
+
     /// The cell size in device pixels derived from a measured surface size.
     ///
     /// Returns `.zero` when any measured dimension is non-positive, matching the
