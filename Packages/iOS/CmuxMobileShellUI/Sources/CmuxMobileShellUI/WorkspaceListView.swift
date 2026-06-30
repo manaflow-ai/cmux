@@ -33,6 +33,12 @@ struct WorkspaceListView: View {
     /// Which Mac's workspaces the list is focused on. Owned by the shell so
     /// every create-workspace entrypoint shares the same selected-Mac gate.
     @Binding var macSelection: WorkspaceMacSelection
+    /// Switch the foreground Mac before applying a machine-scoped title-picker
+    /// filter. `nil` in previews, where the picker remains a pure local filter.
+    var switchMac: (@MainActor (String) async -> Bool)? = nil
+    /// Cancels a title-picker switch that is still in flight. `nil` in previews,
+    /// where no real foreground connection exists.
+    var cancelMacSwitch: (@MainActor (_ restorePreviousOnCancel: Bool) -> Void)? = nil
     /// Pull-to-refresh action. Awaits the real workspace-list re-sync from the
     /// paired Mac so the system refresh spinner reflects actual completion (and
     /// ends gracefully, leaving the list intact, when the Mac is offline). Passed
@@ -95,6 +101,8 @@ struct WorkspaceListView: View {
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
     @State var filter: MobileWorkspaceListFilter = .all
+    @State var macTitlePickerSwitchTask: Task<Void, Never>?
+    @State var macTitlePickerSwitchGeneration: UInt64 = 0
     /// The workspace whose destructive close action is awaiting confirmation.
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
@@ -263,6 +271,9 @@ struct WorkspaceListView: View {
             #endif
         }
         .accessibilityIdentifier("MobileWorkspaceList")
+        .onDisappear {
+            cancelMacTitlePickerSwitch()
+        }
         #if os(iOS)
         .sheet(isPresented: $showingShortcutsSettings) {
             TerminalShortcutsSettingsView()

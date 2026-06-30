@@ -684,6 +684,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
     private var connectionAttemptGeneration: UUID
+    @ObservationIgnored private var macSwitchAttemptID: UUID?
+    @ObservationIgnored private var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
     private var chatEventSourceGeneration: UUID
     /// The per-Mac connection pool (P2 of the multi-Mac work), keyed by
     /// `macDeviceID`. Today it tracks the single foreground connection; P3 adds
@@ -2316,12 +2318,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// any of which strands the user even though a working client to that exact Mac
     /// already sits in `secondaryMacSubscriptions`. Reusing it makes that failure
     /// unrepresentable for an already-aggregated Mac.
-    private func promoteSecondaryToForeground(_ macID: String) async -> Bool {
+    private func promoteSecondaryToForeground(_ macID: String, switchAttemptID: UUID) async -> Bool {
         guard runtime != nil, let sub = secondaryMacSubscriptions[macID] else { return false }
         // Probe the live client so we only promote a connection that responds NOW
         // (the read-only stream can have silently dropped); on failure, re-dial.
         guard let previews = await fetchSecondaryWorkspaces(on: sub.client, macDeviceID: macID),
-              secondaryMacSubscriptions[macID] === sub else { return false }
+              secondaryMacSubscriptions[macID] === sub,
+              isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
+        let activeWriteScope = await currentScopeSnapshot()
+        guard isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
         mobileShellLog.info("promote: reusing live secondary connection as foreground mac=\(macID, privacy: .public)")
         // Take a fresh connection generation so the foreground machinery (polling,
         // event listener, in-flight request guards) treats this client as current.
@@ -2367,12 +2372,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         startTerminalRefreshPolling()
         syncSelectedTerminalForWorkspace()
         if let pairedMacStore {
-            let scope = await currentScopeSnapshot()
             Task {
                 try? await pairedMacStore.setActive(
                     macDeviceID: macID,
-                    stackUserID: scope?.userID,
-                    teamID: scope?.teamID
+                    stackUserID: activeWriteScope?.userID,
+                    teamID: activeWriteScope?.teamID
                 )
             }
         }
@@ -2385,9 +2389,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @discardableResult
     public func switchToMac(macDeviceID: String) async -> Bool {
         guard let pairedMacStore else { return false }
+        let switchAttemptID = beginMacSwitchAttempt()
+        defer { finishMacSwitchAttempt(switchAttemptID) }
         // FAST PATH: if a live read-only connection to this Mac already exists,
         // promote it to the foreground (reuse the client) instead of re-dialing.
-        if await promoteSecondaryToForeground(macDeviceID) { return true }
+        if await promoteSecondaryToForeground(macDeviceID, switchAttemptID: switchAttemptID) { return true }
+        guard isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
         // Refresh routes from the per-user backup so a Mac that relaunched on a
         // new port is reachable — the same freshness guarantee auto-connect and
         // aggregation use — then resolve the target from the STORE (authoritative).
@@ -2397,12 +2404,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // the open and strand the user on a workspace whose Mac never connected.
         if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: identityProvider?.currentUserID)
+            guard isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
         }
         let scope = await currentScopeSnapshot()
+        guard isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
         let storeMacs = (try? await pairedMacStore.loadAll(
             stackUserID: scope?.userID ?? identityProvider?.currentUserID,
             teamID: scope?.teamID
         )) ?? []
+        guard isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
         guard let refreshedTarget = storeMacs.first(where: { $0.macDeviceID == macDeviceID })
             ?? pairedMacs.first(where: { $0.macDeviceID == macDeviceID }) else { return false }
         // Already foreground on this exact Mac: skip the re-dial. Gate on the LIVE
@@ -2420,25 +2430,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             refreshedTarget.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
-        ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
+        ), MobileShellRouteAuthPolicy.normalizedManualHost(host) != nil else {
             mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .public)")
             return false
         }
         await connectManualHost(
             name: refreshedTarget.displayName ?? host, host: host, port: port,
             pairedMacDeviceID: macDeviceID)
-        // The switch succeeded only if the live connection is to THIS Mac's route.
-        // A different switch tapped while this connect was in flight supersedes it
-        // via `beginPairingAttempt`, leaving `connectionState` `.connected` for the
-        // other Mac; matching the live route prevents this superseded task from
-        // persisting a stale active target or reporting a false success.
+        guard isCurrentMacSwitchAttempt(switchAttemptID) else {
+            if consumeMacSwitchRestorePreviousOnCancel(switchAttemptID),
+               previousActive != nil {
+                _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+            }
+            return false
+        }
+        // The switch succeeded only if the live foreground identity is THIS Mac.
+        // `connect(..., pairedMacDeviceID:)` stamps the foreground state with the
+        // target id after a successful connection, while a superseding switch leaves
+        // a different foreground id. Trust that identity instead of exact host/port
+        // text equality, which can differ across normalized routes.
         let switched = connectionState == .connected
-            && {
-                if case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint {
-                    return liveHost == normalizedHost && livePort == port
-                }
-                return false
-            }()
+            && foregroundMacDeviceID == macDeviceID
         if switched {
             do {
                 try await pairedMacStore.setActive(
@@ -2949,6 +2961,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
+    }
+
+    /// Supersede the in-flight paired-Mac switch without applying the broader
+    /// pairing-cancel UI teardown. Used by picker surfaces that abandon a switch
+    /// request before it reaches the foreground mutation point.
+    public func cancelPendingMacSwitch(restorePreviousOnCancel: Bool = false) {
+        guard let attemptID = macSwitchAttemptID else { return }
+        if restorePreviousOnCancel {
+            macSwitchRestorePreviousOnCancelAttemptIDs.insert(attemptID)
+        }
+        macSwitchAttemptID = nil
+        invalidatePairingAttempt()
+        connectionAttemptGeneration = UUID()
     }
 
     /// Accepts the pending version mismatch warning and retries the stored pairing URL.
@@ -5028,6 +5053,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func isCurrentConnectionAttempt(_ generation: UUID) -> Bool {
         generation == connectionAttemptGeneration && isSignedIn
+    }
+
+    private func beginMacSwitchAttempt() -> UUID {
+        let attemptID = UUID()
+        macSwitchAttemptID = attemptID
+        invalidatePairingAttempt()
+        connectionAttemptGeneration = UUID()
+        return attemptID
+    }
+
+    private func isCurrentMacSwitchAttempt(_ attemptID: UUID) -> Bool {
+        macSwitchAttemptID == attemptID && isSignedIn
+    }
+
+    private func finishMacSwitchAttempt(_ attemptID: UUID) {
+        if macSwitchAttemptID == attemptID {
+            macSwitchAttemptID = nil
+        }
+        macSwitchRestorePreviousOnCancelAttemptIDs.remove(attemptID)
+    }
+
+    private func consumeMacSwitchRestorePreviousOnCancel(_ attemptID: UUID) -> Bool {
+        macSwitchRestorePreviousOnCancelAttemptIDs.remove(attemptID) != nil
     }
 
     /// Invalidate the in-flight attempt outside ``beginPairingAttempt(method:)``

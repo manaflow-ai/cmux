@@ -66,8 +66,9 @@ struct WorkspaceMacSelectionScope {
         return active
     }
 
-    func canCreateWorkspace(base canCreateWorkspace: Bool) -> Bool {
+    func canCreateWorkspace(base canCreateWorkspace: Bool, switchPending: Bool = false) -> Bool {
         guard canCreateWorkspace else { return false }
+        guard !switchPending else { return false }
         switch visibleSelection {
         case .machine(let id):
             return !foregroundMachineIDs.isDisjoint(with: aliasIndex.filterMachineIDs(for: id))

@@ -88,11 +88,77 @@ extension WorkspaceListView {
         }
     }
 
+    var macTitlePickerSelection: Binding<WorkspaceMacSelection> {
+        Binding(
+            get: { visibleMacSelection },
+            set: { handleMacTitlePickerSelection($0) }
+        )
+    }
+
+    func handleMacTitlePickerSelection(_ selection: WorkspaceMacSelection) {
+        let startsMachineSwitch: Bool
+        if case .machine = selection, switchMac != nil {
+            startsMachineSwitch = true
+        } else {
+            startsMachineSwitch = false
+        }
+        cancelMacTitlePickerSwitch(restorePreviousOnCancel: !startsMachineSwitch)
+        let generation = macTitlePickerSwitchGeneration
+        guard startsMachineSwitch else {
+            macSelection = selection
+            return
+        }
+        macTitlePickerSwitchTask = Task { @MainActor in
+            defer {
+                if macTitlePickerSwitchGeneration == generation {
+                    macTitlePickerSwitchTask = nil
+                }
+            }
+            await applyMacTitlePickerSelection(selection, switchGeneration: generation)
+        }
+    }
+
+    func cancelMacTitlePickerSwitch(restorePreviousOnCancel: Bool = true) {
+        let hadPendingSwitch = macTitlePickerSwitchTask != nil
+        macTitlePickerSwitchTask?.cancel()
+        macTitlePickerSwitchTask = nil
+        macTitlePickerSwitchGeneration &+= 1
+        if hadPendingSwitch {
+            cancelMacSwitch?(restorePreviousOnCancel)
+        }
+    }
+
+    @MainActor
+    func applyMacTitlePickerSelection(
+        _ selection: WorkspaceMacSelection,
+        switchGeneration: UInt64? = nil
+    ) async {
+        func isCurrentSwitchRequest() -> Bool {
+            guard !Task.isCancelled else { return false }
+            guard let switchGeneration else { return true }
+            return macTitlePickerSwitchGeneration == switchGeneration
+        }
+
+        switch selection {
+        case .all, .automatic:
+            guard isCurrentSwitchRequest() else { return }
+            macSelection = selection
+        case .machine(let id):
+            guard isCurrentSwitchRequest() else { return }
+            guard let switchMac else {
+                macSelection = selection
+                return
+            }
+            guard await switchMac(id), isCurrentSwitchRequest() else { return }
+            macSelection = .machine(id)
+        }
+    }
+
     var macTitlePicker: some View {
         Menu {
             Picker(
                 L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Mac"),
-                selection: $macSelection
+                selection: macTitlePickerSelection
             ) {
                 Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"))
                     .tag(WorkspaceMacSelection.all)

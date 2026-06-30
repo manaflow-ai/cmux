@@ -48,6 +48,93 @@ import Testing
         #expect(selected == .machine("mac-b"))
     }
 
+    @Test func staleTitlePickerMachineSelectionDoesNotSwitch() async throws {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+        ])
+        var selected = WorkspaceMacSelection.all
+        var requestedSwitches: [String] = []
+        let view = workspaceListView(
+            workspaces: [workspace(id: "ws-a", macDeviceID: "mac-a")],
+            store: store,
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { macDeviceID in
+                requestedSwitches.append(macDeviceID)
+                return true
+            }
+        )
+
+        await view.applyMacTitlePickerSelection(.machine("mac-b"), switchGeneration: 1)
+
+        #expect(requestedSwitches.isEmpty)
+        #expect(selected == .all)
+    }
+
+    @Test func cancelingPendingTitlePickerSwitchCancelsUnderlyingSwitch() async throws {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+        ])
+        var selected = WorkspaceMacSelection.all
+        var requestedSwitches: [String] = []
+        var cancelRestoreRequests: [Bool] = []
+        var switchContinuation: CheckedContinuation<Bool, Never>?
+        var switchDidStart = false
+        var switchStartedContinuation: CheckedContinuation<Void, Never>?
+        func markSwitchStarted() {
+            guard !switchDidStart else { return }
+            switchDidStart = true
+            switchStartedContinuation?.resume()
+            switchStartedContinuation = nil
+        }
+        func waitForSwitchStart() async {
+            guard !switchDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if switchDidStart {
+                    continuation.resume()
+                } else {
+                    switchStartedContinuation = continuation
+                }
+            }
+        }
+        let view = workspaceListView(
+            workspaces: [workspace(id: "ws-a", macDeviceID: "mac-a")],
+            store: store,
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { macDeviceID in
+                requestedSwitches.append(macDeviceID)
+                markSwitchStarted()
+                return await withCheckedContinuation { continuation in
+                    switchContinuation = continuation
+                }
+            },
+            cancelMacSwitch: { restorePreviousOnCancel in
+                cancelRestoreRequests.append(restorePreviousOnCancel)
+            }
+        )
+
+        view.handleMacTitlePickerSelection(.machine("mac-b"))
+        await waitForSwitchStart()
+        let pendingSwitchTask = view.macTitlePickerSwitchTask
+
+        view.handleMacTitlePickerSelection(.all)
+        #expect(requestedSwitches == ["mac-b"])
+        #expect(cancelRestoreRequests == [true])
+        #expect(selected == .all)
+
+        switchContinuation?.resume(returning: true)
+        await pendingSwitchTask?.value
+
+        #expect(selected == .all)
+    }
+
     @Test func selectingCoalescedPairedMacMatchesAliasWorkspaceRows() async throws {
         let route = try route(host: "100.82.214.112")
         let store = await shellStore(pairedMacs: [
@@ -118,6 +205,21 @@ import Testing
         #expect(scope.canCreateWorkspace(base: true))
     }
 
+    @Test func sharedSelectionScopeDisablesCreateWhileMacSwitchPending() {
+        let scope = WorkspaceMacSelectionScope(
+            selection: .all,
+            workspaces: [workspace(id: "ws-a", macDeviceID: "mac-a")],
+            displayPairedMacs: [
+                pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20),
+                pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+            ],
+            foregroundMacDeviceID: "mac-a",
+            aliasesFor: { [$0] }
+        )
+
+        #expect(!scope.canCreateWorkspace(base: true, switchPending: true))
+    }
+
     @Test func sharedSelectionScopeAllowsCreateWhenManualForegroundMacIsSelected() {
         let manualID = "manual-127.0.0.1:50922"
         let scope = WorkspaceMacSelectionScope(
@@ -136,7 +238,8 @@ import Testing
         workspaces: [MobileWorkspacePreview],
         store: CMUXMobileShellStore,
         macSelection: Binding<WorkspaceMacSelection>? = nil,
-        switchMac: ((String) async -> Bool)? = nil
+        switchMac: (@MainActor (String) async -> Bool)? = nil,
+        cancelMacSwitch: (@MainActor (Bool) -> Void)? = nil
     ) -> WorkspaceListView {
         WorkspaceListView(
             workspaces: workspaces,
@@ -149,6 +252,7 @@ import Testing
             createWorkspace: {},
             macSelection: macSelection ?? binding(initialValue: .all),
             switchMac: switchMac,
+            cancelMacSwitch: cancelMacSwitch,
             store: store
         )
     }
