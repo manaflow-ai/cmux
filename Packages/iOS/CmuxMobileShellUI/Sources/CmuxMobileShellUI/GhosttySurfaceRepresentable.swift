@@ -2,16 +2,15 @@
 import CMUXMobileCore
 import CmuxMobileDiagnostics
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileTerminal
 import SwiftUI
 import UIKit
 
-/// SwiftUI wrapper that mounts a `GhosttySurfaceView` and routes the
-/// matching surface's PTY bytes (received via `terminal.bytes` events)
-/// into `ghostty_surface_process_output`. The result is that the iPhone
-/// runs the same libghostty terminal core + Metal renderer as the Mac,
-/// fed by the Mac's own read thread byte-for-byte. No Swift VT parser,
-/// no snapshot rehydration, no cell-by-cell SwiftUI tree.
+/// SwiftUI wrapper that mounts a `GhosttySurfaceView` and routes terminal output
+/// chunks into `ghostty_surface_process_output`. Primary-screen output can stay
+/// at the phone's natural height, while alternate-screen render-grid replay can
+/// pin the surface to the Mac's authoritative grid.
 ///
 /// The bottom dock (terminal grid / composer band / accessory toolbar / keyboard)
 /// is owned entirely by the `GhosttySurfaceView` in one coordinate system. The
@@ -113,6 +112,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
         private var composerController: UIHostingController<TerminalComposerView>?
         private var composerMounted = false
+        private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
         /// Bumped on every mount/unmount transition so a deferred close completion
         /// can tell whether it is still the latest transition. Guards the
         /// close-then-quickly-reopen race: an interrupted close animation still runs
@@ -133,12 +133,33 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // Drive every output chunk into the libghostty surface. Ending this
             // task terminates the stream, which unregisters the surface and
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
-            outputTask = Task { @MainActor [weak surfaceView, weak store] in
+            outputTask = Task { @MainActor [weak self, weak surfaceView, weak store] in
                 guard let store else { return }
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
+                    guard let self else { return }
                     guard let surfaceView else { return }
-                    await surfaceView.processOutputAndWait(chunk.data)
+                    switch chunk.viewportPolicy {
+                    case .natural:
+                        self.activeViewportPolicy = .natural
+                        if chunk.data.isEmpty {
+                            surfaceView.useNaturalViewSize()
+                        } else {
+                            await surfaceView.useNaturalViewSizeAndWait()
+                        }
+                    case .remoteGrid(let columns, let rows):
+                        self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
+                        if chunk.data.isEmpty {
+                            surfaceView.applyViewSize(cols: columns, rows: rows)
+                        } else {
+                            await surfaceView.applyViewSizeAndWait(cols: columns, rows: rows)
+                        }
+                    case nil:
+                        break
+                    }
+                    if !chunk.data.isEmpty {
+                        await surfaceView.processOutputAndWait(chunk.data)
+                    }
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
                         streamToken: chunk.streamToken
@@ -299,15 +320,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
-            // Report our natural grid to the Mac and pin our render to the
-            // effective grid it returns (the smallest across every attached
-            // device, capped to the Mac pane). This is the tmux-style shared
-            // resize: the smallest viewport wins and each device letterboxes
-            // its render to match, drawing a border around the live area.
+            // Report our natural grid to the Mac. The output stream decides
+            // whether the phone should keep that natural grid (primary screen)
+            // or pin to the Mac grid (alternate-screen render-grid replay).
             guard size.columns > 0, size.rows > 0 else { return }
             Task { @MainActor [weak self, weak surfaceView] in
                 guard let self, let store = self.store else { return }
-                guard let effective = await store.updateTerminalViewport(
+                guard let effectiveGrid = await store.updateTerminalViewport(
                     surfaceID: self.surfaceID,
                     columns: size.columns,
                     rows: size.rows
@@ -323,7 +342,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     surfaceView?.retryViewportReport()
                     return
                 }
-                surfaceView?.applyViewSize(cols: effective.columns, rows: effective.rows)
+                surfaceView?.markViewportReportConfirmed()
+                if case .remoteGrid = self.activeViewportPolicy {
+                    surfaceView?.applyConfirmedViewSize(
+                        cols: effectiveGrid.columns,
+                        rows: effectiveGrid.rows
+                    )
+                }
             }
         }
 

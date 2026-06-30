@@ -12,14 +12,27 @@ public import Foundation
 ///
 /// This replaces the previous `(Data) -> Void` sink registry so output
 /// propagation is a structured, cancellable `AsyncSequence` instead of a stored
-/// callback.
+/// callback. Chunks may also carry a viewport policy so primary-screen output can
+/// use the phone's natural height while alternate-screen replay remains pinned
+/// to the remote grid.
+public enum MobileTerminalOutputViewportPolicy: Equatable, Sendable {
+    case natural
+    case remoteGrid(columns: Int, rows: Int)
+}
+
 public struct MobileTerminalOutputChunk: Sendable {
     public let data: Data
     public let streamToken: UUID
+    public let viewportPolicy: MobileTerminalOutputViewportPolicy?
 
-    public init(data: Data, streamToken: UUID) {
+    public init(
+        data: Data,
+        streamToken: UUID,
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
+    ) {
         self.data = data
         self.streamToken = streamToken
+        self.viewportPolicy = viewportPolicy
     }
 }
 
