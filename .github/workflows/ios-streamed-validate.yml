@@ -180,6 +180,12 @@ jobs:
           {"hasCompletedOnboarding": true, "theme": "dark", "projects": {"/tmp/cmux-stream-claude": {"hasTrustDialogAccepted": true}, "/private/tmp/cmux-stream-claude": {"hasTrustDialogAccepted": true}}}
           JSON
           echo "seeded ~/.claude.json"
+          # Seed the recorded claude session into its on-disk store at the matching
+          # project cwd (/private/tmp/cmux-stream-claude) so `claude --continue`
+          # replays the real session read-only (no API call).
+          mkdir -p "$HOME/.claude/projects/-private-tmp-cmux-stream-claude"
+          cp ios/fastlane/streamed-sessions/claude/*.jsonl "$HOME/.claude/projects/-private-tmp-cmux-stream-claude/"
+          echo "seeded claude session(s): $(ls "$HOME/.claude/projects/-private-tmp-cmux-stream-claude/")"
 
       - name: Pair simulator + capture one streamed terminal
         env:
@@ -232,7 +238,7 @@ jobs:
           xcrun simctl io "$SIM_ID" screenshot /tmp/streamed-ci/_diag/after-pair.png || true
           idb ui describe-all --udid "$SIM_ID" > /tmp/streamed-ci/_diag/after-pair-a11y.json 2>&1 || true
           set +e
-          python3 ios/scripts/capture-streamed.py --tag cistream --sim-id "$SIM_ID" --agents pi --out /tmp/streamed-ci
+          python3 ios/scripts/capture-streamed.py --tag cistream --sim-id "$SIM_ID" --agents claude --out /tmp/streamed-ci
           CAP_RC=$?
           set -e
           # Post-capture device diagnostics (always), so a failure tells us the

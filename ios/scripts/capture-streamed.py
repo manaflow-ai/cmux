@@ -39,15 +39,17 @@ ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 # agent -> (workspace title, shell launch command, screenshot order index)
 PROMPT = ("Explain what main.swift does, then give 3 concrete improvements with "
           "code blocks (app entry point, readability, and a #Preview). Do not edit any files.")
-# claude authenticates via CLAUDE_CODE_OAUTH_TOKEN; --permission-mode plan keeps
-# it read-only and skips the first-run folder-trust prompt that would otherwise
-# block in a fresh sandbox. The DeepSeek-backed agents read DEEPSEEK_API_KEY from
-# the env (propagated into the GUI session via launchctl setenv).
+# Agent terminals REPLAY real sessions recorded locally (with funded accounts)
+# and seeded into each agent's on-disk session store at the matching project cwd
+# (/private/tmp/cmux-stream-<agent>), then resumed read-only. This gives genuine
+# agent content through the real Mac->device streaming pipeline with no CI billing
+# or nondeterminism. The launch command resumes the seeded session; auth tokens
+# are still set (the CLIs gate launch on them) but resuming makes no API call.
 AGENTS = {
-    "claude": {"title": "App entry point", "launch": f"claude --permission-mode plan {PROMPT!r}", "order": 3},
-    "codex": {"title": "Readability pass", "launch": f"codex {PROMPT!r}", "order": 4},
-    "opencode": {"title": "String catalogs", "launch": "opencode", "order": 5, "type_prompt": True},
-    "pi": {"title": "Ship improvements", "launch": f"pi --provider deepseek {PROMPT!r}", "order": 6},
+    "claude": {"title": "App entry point", "launch": "claude --continue", "order": 3},
+    "codex": {"title": "Readability pass", "launch": "codex resume --last", "order": 4},
+    "opencode": {"title": "String catalogs", "launch": "opencode", "order": 5},
+    "pi": {"title": "Ship improvements", "launch": "pi --continue", "order": 6},
 }
 # response is considered "settled" when the screen shows code + a cost/footer and
 # is no longer actively generating.
