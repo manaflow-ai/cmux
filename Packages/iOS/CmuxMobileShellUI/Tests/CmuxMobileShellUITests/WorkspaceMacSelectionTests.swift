@@ -48,6 +48,37 @@ import Testing
         #expect(selected == .machine("mac-b"))
     }
 
+    @Test func titlePickerWorkspaceOnlyMachineSelectionAppliesLocalFilterWithoutSwitch() async throws {
+        let manualID = "manual-127.0.0.1:50922"
+        let store = await shellStore(pairedMacs: [])
+        var selected = WorkspaceMacSelection.all
+        var requestedSwitches: [String] = []
+        let view = workspaceListView(
+            workspaces: [workspace(id: "ws-manual", macDeviceID: manualID)],
+            store: store,
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { macDeviceID in
+                requestedSwitches.append(macDeviceID)
+                return false
+            }
+        )
+
+        let pendingSwitchTask = view.handleMacTitlePickerSelection(.machine(manualID))
+        let startedSwitchTask: Bool
+        if case .some = pendingSwitchTask {
+            startedSwitchTask = true
+        } else {
+            startedSwitchTask = false
+        }
+
+        #expect(!startedSwitchTask)
+        #expect(requestedSwitches.isEmpty)
+        #expect(selected == .machine(manualID))
+    }
+
     @Test func staleTitlePickerMachineSelectionDoesNotSwitch() async throws {
         let store = await shellStore(pairedMacs: [
             pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),

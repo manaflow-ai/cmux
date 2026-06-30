@@ -323,8 +323,8 @@ struct WorkspaceListView: View {
     @discardableResult
     func handleMacTitlePickerSelection(_ selection: WorkspaceMacSelection) -> Task<Void, Never>? {
         let startsMachineSwitch: Bool
-        if case .machine = selection, switchMac != nil {
-            startsMachineSwitch = true
+        if case .machine(let id) = selection {
+            startsMachineSwitch = shouldSwitchForMacTitlePickerMachine(id)
         } else {
             startsMachineSwitch = false
         }
@@ -346,6 +346,19 @@ struct WorkspaceListView: View {
         }
         macTitlePickerSwitchTask = task
         return task
+    }
+
+    private func shouldSwitchForMacTitlePickerMachine(_ id: String) -> Bool {
+        guard switchMac != nil, let store else { return false }
+        let scope = macSelectionScope
+        let targetIDs = scope.aliasIndex.filterMachineIDs(for: id)
+        if !scope.foregroundMachineIDs.isDisjoint(with: targetIDs) {
+            return false
+        }
+        return store.displayPairedMacs.contains { mac in
+            let pairedMacIDs = scope.aliasIndex.filterMachineIDs(for: mac.macDeviceID)
+            return !pairedMacIDs.isDisjoint(with: targetIDs)
+        }
     }
 
     func cancelMacTitlePickerSwitch(restorePreviousOnCancel: Bool = true) {
@@ -378,7 +391,7 @@ struct WorkspaceListView: View {
             macSelection = selection
         case .machine(let id):
             guard isCurrentSwitchRequest() else { return }
-            guard let switchMac else {
+            guard shouldSwitchForMacTitlePickerMachine(id), let switchMac else {
                 macTitlePickerPendingSelection = nil
                 macSelection = selection
                 return
