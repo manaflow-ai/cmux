@@ -51,7 +51,7 @@
 1900	cmuxTests/NotificationAndMenuBarTests.swift
 1866	Sources/Panels/BrowserWebAuthnSupport.swift
 1810	Sources/SessionIndexStore.swift
-1780	Sources/FileExplorerStore.swift
+1787	Sources/FileExplorerStore.swift
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1687	cmuxTests/MarkdownPanelTests.swift
@@ -63,7 +63,7 @@
 1547	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1500	cmuxUITests/MultiWindowNotificationsUITests.swift
 1499	cmuxTests/OmnibarAndToolsTests.swift
-1468	cmuxTests/FileExplorerStoreTests.swift
+1478	cmuxTests/FileExplorerStoreTests.swift
 1435	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1433	Sources/RemoteTmuxControlConnection.swift
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift

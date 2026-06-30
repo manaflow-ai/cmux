@@ -1253,31 +1253,36 @@ struct FileSearchControllerTests {
 
 // MARK: - SSH remote listing command construction & parsing
 
-/// Regression coverage for the two P1 issues in the date-sort SSH listing
-/// rewrite: the remote command must run under a POSIX shell (not the account's
-/// login shell, which may be fish/csh) and must not spawn `stat` per entry.
+/// Regression coverage for the SSH date-sort listing rewrite: the remote
+/// command must run under a POSIX shell (not the account's login shell, which
+/// may be fish/csh), must not spawn `stat` per entry or overflow `ARG_MAX`,
+/// must keep dangling symlinks visible, and must surface access failures
+/// instead of reporting them as empty directories.
 @Suite
 struct ProcessSSHFileExplorerListingTests {
 
-    // MARK: Batched stat (no per-entry process fan-out)
+    // MARK: Batched stat (no per-entry process fan-out, no ARG_MAX overflow)
 
     @Test
-    func testRemoteListingScriptUsesOneBatchedStatNotPerEntryLoop() {
+    func testRemoteListingScriptBatchesStatViaFindWithoutPerEntryFanout() {
         let script = ProcessSSHFileExplorerTransport.remoteListingScript(
             path: "/srv/app",
             showHidden: false
         )
         // The previous implementation looped over every entry and ran `stat`
-        // (twice) per entry. The fix detects the stat dialect once and runs a
-        // single batched stat, so the script must not contain a per-entry loop.
+        // (twice) per entry. The fix detects the stat dialect once and enumerates
+        // with `find ... -exec stat {} +`, so there is no per-entry loop and no
+        // giant glob that could overflow ARG_MAX in large directories.
         #expect(!script.contains("for entry"))
         #expect(!script.contains("for "))
-        // One GNU branch and one BSD branch, each a single batched stat call.
+        #expect(script.contains("find . -mindepth 1 -maxdepth 1"))
+        #expect(script.contains("-exec stat -c '%F\t%Y\t%W\t%n' {} +"))
+        #expect(script.contains("-exec stat -f '%HT\t%m\t%B\t%N' {} +"))
+        // GNU vs BSD stat is detected once, against a path that always exists.
+        #expect(script.contains("stat -c %Y /"))
+        #expect(script.contains("stat -f %m /"))
         // `stat` must not dereference (no `-L`) so dangling symlinks are listed
         // rather than dropped.
-        #expect(script.contains("stat -c %Y /"))
-        #expect(script.contains("stat -c '%F\t%Y\t%W\t%n'"))
-        #expect(script.contains("stat -f '%HT\t%m\t%B\t%N'"))
         #expect(!script.contains("stat -L"))
         // A readable but empty directory must report success (trailing exit 0),
         // not a non-zero status that would surface as an error.
@@ -1301,19 +1306,18 @@ struct ProcessSSHFileExplorerListingTests {
     }
 
     @Test
-    func testRemoteListingScriptIncludesHiddenGlobsOnlyWhenRequested() {
+    func testRemoteListingScriptFiltersDotfilesUnlessHiddenRequested() {
         let visible = ProcessSSHFileExplorerTransport.remoteListingScript(
             path: "/srv/app",
             showHidden: false
         )
-        #expect(visible.contains("-- *"))
-        #expect(!visible.contains(".[!.]*"))
+        #expect(visible.contains("! -name '.*'"))
 
         let hidden = ProcessSSHFileExplorerTransport.remoteListingScript(
             path: "/srv/app",
             showHidden: true
         )
-        #expect(hidden.contains("-- * .[!.]* ..?*"))
+        #expect(!hidden.contains("-name"))
     }
 
     @Test
@@ -1347,9 +1351,12 @@ struct ProcessSSHFileExplorerListingTests {
         #expect(command.hasPrefix("/bin/sh -c '"))
         #expect(command.contains("base64 -d"))
         #expect(command.contains("base64 -D"))
+        // A failed decode (no/incompatible base64) must error, not run `eval ""`
+        // and report an empty listing.
+        #expect(command.contains("[ -n \"$s\" ] || exit 1"))
         // The raw POSIX script must NOT leak into the login-shell command line.
         #expect(!command.contains("stat -c"))
-        #expect(!command.contains("..?*"))
+        #expect(!command.contains("-mindepth"))
     }
 
     @Test
@@ -1375,13 +1382,14 @@ struct ProcessSSHFileExplorerListingTests {
 
     @Test
     func testParseRemoteListingParsesTypeTimesAndName() {
-        // Lines are `type<TAB>mtime<TAB>btime<TAB>name`. Cover GNU ("directory")
-        // and BSD ("Directory"/"Regular File") type spellings plus a name with a
-        // space.
+        // Lines are `type<TAB>mtime<TAB>btime<TAB>name`. `find .` reports each
+        // entry as `./name`, so only the final component is kept. Cover GNU
+        // ("directory") and BSD ("Directory"/"Regular File") type spellings plus
+        // a name with a space.
         let output = [
-            "Directory\t1700000000\t1690000000\tsub",
-            "regular file\t1700000100\t1690000100\tmain.swift",
-            "Regular File\t1700000200\t1690000200\tfile one.txt",
+            "Directory\t1700000000\t1690000000\t./sub",
+            "regular file\t1700000100\t1690000100\t./main.swift",
+            "Regular File\t1700000200\t1690000200\t./file one.txt",
         ].joined(separator: "\n")
 
         let entries = ProcessSSHFileExplorerTransport.parseRemoteListing(
@@ -1406,8 +1414,8 @@ struct ProcessSSHFileExplorerListingTests {
         // non-dereferencing stat; they must stay listed (so users can manage
         // them) and never be treated as expandable directories.
         let output = [
-            "Symbolic Link\t1700000000\t1690000000\tbroken-link",
-            "Symbolic Link\t1700000000\t1690000000\tdir-link",
+            "Symbolic Link\t1700000000\t1690000000\t./broken-link",
+            "Symbolic Link\t1700000000\t1690000000\t./dir-link",
         ].joined(separator: "\n")
 
         let entries = ProcessSSHFileExplorerTransport.parseRemoteListing(
@@ -1422,11 +1430,13 @@ struct ProcessSSHFileExplorerListingTests {
 
     @Test
     func testParseRemoteListingExcludesDotEntriesAndRespectsHidden() {
+        // `find` never emits `.`/`..`, but the parser excludes them defensively;
+        // the real entries arrive as `find`'s `./name` form.
         let output = [
             "Directory\t1700000000\t1690000000\t.",
             "Directory\t1700000000\t1690000000\t..",
-            "Regular File\t1700000000\t1690000000\t.hidden",
-            "Regular File\t1700000000\t1690000000\tvisible.txt",
+            "Regular File\t1700000000\t1690000000\t./.hidden",
+            "Regular File\t1700000000\t1690000000\t./visible.txt",
         ].joined(separator: "\n")
 
         let visibleOnly = ProcessSSHFileExplorerTransport.parseRemoteListing(
@@ -1448,9 +1458,9 @@ struct ProcessSSHFileExplorerListingTests {
     @Test
     func testParseRemoteListingTreatsMissingOrLowBirthTimeAsUnknown() {
         let output = [
-            "Regular File\t1700000000\t0\tzero-birth.txt",
-            "Regular File\t1700000000\t42\ttiny-birth.txt",
-            "Regular File\t1700000000\t1690000000\treal-birth.txt",
+            "Regular File\t1700000000\t0\t./zero-birth.txt",
+            "Regular File\t1700000000\t42\t./tiny-birth.txt",
+            "Regular File\t1700000000\t1690000000\t./real-birth.txt",
         ].joined(separator: "\n")
 
         let entries = ProcessSSHFileExplorerTransport.parseRemoteListing(

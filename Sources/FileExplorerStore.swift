@@ -866,23 +866,24 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
 
     /// POSIX `sh` script that lists `path` for the file explorer.
     ///
-    /// It detects GNU vs BSD `stat` once, then runs a single batched `stat`
-    /// over the directory's entries, so remote process creation stays O(1)
-    /// regardless of entry count. The previous implementation spawned two or
-    /// more `stat` processes per entry, which could make large remote
-    /// directories appear to hang. Timestamps are always collected so changing
-    /// the sort key re-sorts the cached listing without a re-fetch.
+    /// It detects GNU vs BSD `stat` once, then enumerates the directory with
+    /// `find ... -exec stat {} +`, which batches `stat` over the entries within
+    /// the argument-size limit. The previous implementation spawned two or more
+    /// `stat` processes per entry, which could make large remote directories
+    /// appear to hang; a single glob of every entry would instead overflow
+    /// `ARG_MAX` and truncate large listings. Timestamps are always collected
+    /// so changing the sort key re-sorts the cached listing without a re-fetch.
     ///
     /// Access failures stay distinguishable from empty directories: an
     /// unreadable or missing directory (`cd` fails or `.` is not readable), or
     /// a host without a usable `stat`, exits non-zero so `runSSHCommand` raises
-    /// `sshCommandFailed`. A readable but genuinely empty directory reaches the
-    /// trailing `exit 0` and lists as empty, even though its unmatched glob
-    /// makes `stat` itself exit non-zero.
+    /// `sshCommandFailed`. A readable but genuinely empty directory produces no
+    /// `find` output and reaches the trailing `exit 0`, listing as empty.
     static func remoteListingScript(path: String, showHidden: Bool) -> String {
         let escapedPath = shellSingleQuote(path)
-        // `.[!.]*` and `..?*` match dotfiles while excluding `.` and `..`.
-        let globs = showHidden ? "-- * .[!.]* ..?*" : "-- *"
+        // Exclude dotfiles unless hidden entries are requested. `find` never
+        // yields `.`/`..` because it only descends from `.`.
+        let nameFilter = showHidden ? "" : "! -name '.*' "
         // `stat` does NOT dereference symlinks (no `-L`): a following stat omits
         // dangling symlinks entirely on GNU, hiding them from the explorer. With
         // plain lstat every entry is listed, and symlinks report as their own
@@ -893,9 +894,9 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         cd \(escapedPath) 2>/dev/null || exit 1
         [ -r . ] || exit 1
         if stat -c %Y / >/dev/null 2>&1; then
-          stat -c '%F\t%Y\t%W\t%n' \(globs) 2>/dev/null
+          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -c '%F\t%Y\t%W\t%n' {} + 2>/dev/null
         elif stat -f %m / >/dev/null 2>&1; then
-          stat -f '%HT\t%m\t%B\t%N' \(globs) 2>/dev/null
+          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -f '%HT\t%m\t%B\t%N' {} + 2>/dev/null
         else
           exit 1
         fi
@@ -911,9 +912,13 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     /// `$(...)`. The script is base64-encoded so only `/bin/sh -c` plus a
     /// base64 payload — which contains no shell metacharacters — reaches the
     /// login shell. `base64 -d` (GNU/coreutils) falls back to `-D` (BSD/macOS).
+    ///
+    /// If neither decode works (no/incompatible `base64`), the decoded script is
+    /// empty and the bootstrap exits non-zero rather than running `eval ""` and
+    /// reporting a silently empty directory.
     static func posixShellBootstrap(script: String) -> String {
         let encoded = Data(script.utf8).base64EncodedString()
-        return "/bin/sh -c 'b=\(encoded); eval \"$(printf %s \"$b\" | base64 -d 2>/dev/null || printf %s \"$b\" | base64 -D 2>/dev/null)\"'"
+        return "/bin/sh -c 'b=\(encoded); s=$(printf %s \"$b\" | base64 -d 2>/dev/null || printf %s \"$b\" | base64 -D 2>/dev/null); [ -n \"$s\" ] || exit 1; eval \"$s\"'"
     }
 
     /// Parses the tab-separated output of ``remoteListingScript(path:showHidden:)``.
@@ -921,7 +926,8 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     /// Each line is `type<TAB>mtime<TAB>btime<TAB>name`. The trailing `name`
     /// field is split last so names containing spaces survive; the leading
     /// type description ("directory"/"Directory", "regular file", …) may also
-    /// contain spaces but never a tab.
+    /// contain spaces but never a tab. `find .` reports each entry as `./name`,
+    /// so only the final path component is kept.
     static func parseRemoteListing(
         _ output: String,
         path: String,
@@ -931,8 +937,9 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         return output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
             let parts = line.split(separator: "\t", maxSplits: 3, omittingEmptySubsequences: false)
             guard parts.count == 4 else { return nil }
-            let name = String(parts[3])
-            guard name != "." && name != ".." else { return nil }
+            let rawName = parts[3]
+            let name = String(rawName.split(separator: "/").last ?? rawName)
+            guard !name.isEmpty, name != ".", name != ".." else { return nil }
             guard showHidden || !name.hasPrefix(".") else { return nil }
             let isDirectory = String(parts[0]).caseInsensitiveCompare("directory") == .orderedSame
             return FileExplorerEntry(
