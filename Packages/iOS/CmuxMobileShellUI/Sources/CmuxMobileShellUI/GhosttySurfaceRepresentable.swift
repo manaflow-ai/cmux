@@ -145,20 +145,41 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         if chunk.data.isEmpty {
                             surfaceView.useNaturalViewSize()
                         } else {
-                            await surfaceView.useNaturalViewSizeAndWait()
+                            let applied = await surfaceView.useNaturalViewSizeAndWait()
+                            guard applied else {
+                                store.terminalOutputDidReset(
+                                    surfaceID: surfaceID,
+                                    streamToken: chunk.streamToken
+                                )
+                                continue
+                            }
                         }
                     case .remoteGrid(let columns, let rows):
                         self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
                         if chunk.data.isEmpty {
                             surfaceView.applyViewSize(cols: columns, rows: rows)
                         } else {
-                            await surfaceView.applyViewSizeAndWait(cols: columns, rows: rows)
+                            let applied = await surfaceView.applyViewSizeAndWait(cols: columns, rows: rows)
+                            guard applied else {
+                                store.terminalOutputDidReset(
+                                    surfaceID: surfaceID,
+                                    streamToken: chunk.streamToken
+                                )
+                                continue
+                            }
                         }
                     case nil:
                         break
                     }
                     if !chunk.data.isEmpty {
-                        await surfaceView.processOutputAndWait(chunk.data)
+                        let applied = await surfaceView.processOutputAndWait(chunk.data)
+                        guard applied else {
+                            store.terminalOutputDidReset(
+                                surfaceID: surfaceID,
+                                streamToken: chunk.streamToken
+                            )
+                            continue
+                        }
                     }
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
@@ -399,6 +420,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // composer view observes, so the draft and its focus return together.
             Task { @MainActor [weak store, surfaceID] in
                 store?.presentAndFocusComposer(forTerminalID: surfaceID)
+            }
+        }
+
+        func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {
+            Task { @MainActor [weak store, surfaceID] in
+                store?.terminalOutputNeedsReplay(surfaceID: surfaceID)
             }
         }
 

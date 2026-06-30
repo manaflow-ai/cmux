@@ -49,4 +49,16 @@ public protocol MobileTerminalOutputSinking: Sendable {
     /// - Parameter surfaceID: The terminal surface identifier.
     /// - Parameter streamToken: The token carried by the yielded chunk.
     @MainActor func terminalOutputDidProcess(surfaceID: String, streamToken: UUID)
+
+    /// Abandon the current yielded chunk after the local renderer was reset.
+    ///
+    /// The sink must drop stale pending output, invalidate the old stream token,
+    /// and request an authoritative replay for the same surface.
+    /// - Parameter surfaceID: The terminal surface identifier.
+    /// - Parameter streamToken: The token carried by the abandoned chunk.
+    @MainActor func terminalOutputDidReset(surfaceID: String, streamToken: UUID)
+
+    /// Request an authoritative replay without an abandoned in-flight chunk.
+    /// - Parameter surfaceID: The terminal surface identifier.
+    @MainActor func terminalOutputNeedsReplay(surfaceID: String)
 }

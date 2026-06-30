@@ -6510,7 +6510,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resume. The VT snapshot and raw byte ring remain fallbacks, but neither
     /// is the target architecture: a byte tail is not a complete screen state
     /// for TUIs, and a VT export is still a replay stream rather than state.
-    private func requestTerminalReplay(surfaceID: String) {
+    func requestTerminalReplay(surfaceID: String) {
         guard let client = remoteClient else {
             #if DEBUG
             mobileShellLog.error("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=no_remote_client")
