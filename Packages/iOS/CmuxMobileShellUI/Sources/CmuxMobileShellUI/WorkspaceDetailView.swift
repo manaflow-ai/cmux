@@ -484,10 +484,7 @@ struct WorkspaceDetailView: View {
 
             #if DEBUG
             Button(action: copyDebugLogsFromMenu) {
-                Label(
-                    L10n.string("mobile.debug.copyLogs", defaultValue: "Copy Debug Logs"),
-                    systemImage: "doc.on.clipboard"
-                )
+                Label(L10n.string("mobile.debug.copyLogs", defaultValue: "Copy Debug Logs"), systemImage: "doc.on.clipboard")
             }
             .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
             #endif
