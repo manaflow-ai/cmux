@@ -78,7 +78,15 @@ struct RemoteTmuxControlStreamParser {
         if !inBlock {
             bytes = Self.removingST(bytes)
         }
-        if bytes.isEmpty { return prefixMessages }
+        if bytes.isEmpty {
+            guard inBlock else { return prefixMessages }
+            if blockBufferedBytes + 1 > maxCommandBlockBytes {
+                return prefixMessages + [streamError("command block exceeded \(maxCommandBlockBytes) bytes")]
+            }
+            blockBufferedBytes += 1
+            blockLines.append("")
+            return prefixMessages
+        }
 
         // `%output` is the only notification whose payload carries raw, possibly
         // multi-byte UTF-8 pane bytes. Parse it straight from the raw bytes so a
