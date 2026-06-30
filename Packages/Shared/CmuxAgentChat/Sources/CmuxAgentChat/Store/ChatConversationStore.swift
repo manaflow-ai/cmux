@@ -427,7 +427,11 @@ public final class ChatConversationStore {
         guard isUnversioned || isNewer || isProducerReset else { return }
         self.descriptor = descriptor
         agentState = descriptor.state
-        if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
+        if case .idle = descriptor.state {
+            Task { await flushQueuedSends() }
+        } else {
+            didFlushThisIdleWindow = false
+        }
     }
 
     /// Rebinds this conversation to the current Mac transport after reconnect.
@@ -439,8 +443,27 @@ public final class ChatConversationStore {
         let didChangeSource = sourceIdentity != nil && sourceIdentity != self.sourceIdentity
         self.source = source
         self.sourceIdentity = sourceIdentity
+        if didChangeSource {
+            resetTranscriptAnchorForSourceReplacement()
+        }
         wakeBackoff()
         applyDescriptorSnapshot(descriptor, allowsVersionReset: didChangeSource)
+    }
+
+    /// Clears transcript state that is anchored to the prior event producer.
+    private func resetTranscriptAnchorForSourceReplacement() {
+        messages = []
+        streamingMessage = nil
+        firstUnreadSeq = nil
+        terminalBlocks = [:]
+        terminalBlockOrder = []
+        pending.removeAll { $0.delivery == .delivered }
+        hasMoreHistory = false
+        historyTruncatedAtHead = false
+        initialLoadFailed = false
+        hasLoadedInitialHistory = false
+        isLoadingOlder = false
+        reproject()
     }
 
     /// After a stream drop, fetches the newest page and merges anything the
