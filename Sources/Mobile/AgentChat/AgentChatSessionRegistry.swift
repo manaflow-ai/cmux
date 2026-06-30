@@ -192,6 +192,13 @@ final class AgentChatSessionRegistry {
                 updateLiveSessionIndex(previous: nil, current: record)
                 onRecordChanged?(record, nil)
             } else {
+                guard let current = records[session.sessionID] else { continue }
+                let needsBackfill = current.surfaceID == nil
+                    || (current.workspaceID == nil && session.workspaceID != nil)
+                    || (current.workingDirectory == nil && session.workingDirectory != nil)
+                    || (current.transcriptPath == nil && session.transcriptPath != nil)
+                    || current.pid == nil
+                guard needsBackfill else { continue }
                 update(sessionID: session.sessionID) { rec in
                     if rec.surfaceID == nil { rec.surfaceID = session.surfaceID }
                     if rec.workspaceID == nil { rec.workspaceID = session.workspaceID }
