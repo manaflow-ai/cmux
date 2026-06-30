@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CMUXAgentLaunch
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -52,6 +53,88 @@ struct AgentChatSessionRegistryObservationTests {
         #expect(session.surfaceID == surfaceID.uuidString)
         #expect(session.pid == 101)
         #expect(session.workingDirectory == "/Users/example/project")
+    }
+
+    @Test func mobileChatObserverCreatesPendingClaudeSessionForFreshIdlePrompt() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 111,
+                    name: "claude",
+                    path: "/opt/homebrew/bin/claude",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 110),
+            includesProcessDetails: true
+        )
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: { pid in
+                guard pid == 111 else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "claude",
+                        "--settings",
+                        "{}",
+                    ],
+                    environment: [
+                        "CMUX_AGENT_LAUNCH_CWD": "/Users/example/project",
+                    ]
+                )
+            },
+            codexRolloutPath: { _ in nil }
+        )
+
+        let session = try #require(observed.first)
+        #expect(observed.count == 1)
+        #expect(session.sessionID == AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID.uuidString))
+        #expect(session.agentKind == .claude)
+        #expect(session.workspaceID == workspaceID.uuidString)
+        #expect(session.surfaceID == surfaceID.uuidString)
+        #expect(session.pid == 111)
+        #expect(session.workingDirectory == "/Users/example/project")
+    }
+
+    @MainActor
+    @Test func claudeHooksAdoptSameSurfacePendingSession() throws {
+        let registry = AgentChatSessionRegistry()
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let pendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID)
+        let realSessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let transcriptPath = "/Users/example/.claude/projects/-Users-example-project/\(realSessionID).jsonl"
+
+        registry.noteResumeInitiated(
+            sessionID: pendingID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: "/Users/example/project"
+        )
+
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: realSessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            transcriptPath: transcriptPath,
+            cwd: "/Users/example/project",
+            ppid: 222,
+            receivedAt: Date(timeIntervalSince1970: 120)
+        ))
+
+        let record = try #require(registry.record(sessionID: pendingID))
+        #expect(registry.record(sessionID: realSessionID) == nil)
+        #expect(record.sessionID == pendingID)
+        #expect(record.transcriptPath == transcriptPath)
+        #expect(record.pid == 222)
+        #expect(record.state == .idle)
     }
 
     @Test func mobileChatObserverStillDetectsDirectCodexFromRolloutFile() throws {

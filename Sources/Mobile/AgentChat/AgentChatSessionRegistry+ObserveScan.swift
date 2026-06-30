@@ -39,6 +39,9 @@ extension AgentChatSessionRegistry {
                let argv = loadDetails()?.arguments {
                 sessionID = sessionIDFromArguments(argv)
             }
+            if sessionID == nil, def.id == "claude" {
+                sessionID = pendingClaudeSessionID(surfaceID: surfaceID.uuidString)
+            }
             guard let resolved = sessionID, !seen.contains(resolved) else { continue }
             seen.insert(resolved)
             result.append(ObservedAgentSession(
@@ -93,6 +96,14 @@ extension AgentChatSessionRegistry {
             }
         }
         return nil
+    }
+
+    nonisolated static func pendingClaudeSessionID(surfaceID: String) -> String {
+        "pending-claude-\(surfaceID)"
+    }
+
+    nonisolated static func isPendingClaudeSessionID(_ sessionID: String) -> Bool {
+        sessionID.hasPrefix("pending-claude-")
     }
 
     /// Extracts a session id from an agent's argv (`--session-id <id>`,

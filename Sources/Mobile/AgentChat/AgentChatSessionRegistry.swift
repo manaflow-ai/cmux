@@ -162,11 +162,12 @@ final class AgentChatSessionRegistry {
     /// Off-main scan + main-actor apply: discover live codex/claude sessions by
     /// observing the process table, with no dependency on hooks firing. Resolves
     /// identity from the agent's own state (codex: the rollout file it holds
-    /// open; claude: `CLAUDE_CODE_SESSION_ID` or `--session-id`/`--resume`),
-    /// so a session launched through any indirection (a subrouter, a wrapper)
-    /// is still found and bound. The snapshot is captured off the main actor,
-    /// and overlapping callers share one in-flight scan so list-refresh bursts
-    /// cannot fan out into concurrent process-table walks.
+    /// open; claude: `CLAUDE_CODE_SESSION_ID` or `--session-id`/`--resume`).
+    /// Fresh idle Claude prompts do not expose either signal yet, so they get a
+    /// cmux-owned pending id from their terminal surface and later hooks on that
+    /// surface fill in transcript/state. The snapshot is captured off the main
+    /// actor, and overlapping callers share one in-flight scan so list-refresh
+    /// bursts cannot fan out into concurrent process-table walks.
     private var observeInFlight: (id: UUID, task: Task<Void, Never>)?
     private var observeLastStartedAt: Date?
     private static let observeThrottleInterval: TimeInterval = 2
@@ -489,7 +490,12 @@ final class AgentChatSessionRegistry {
     /// - Returns: The up-to-date record.
     @discardableResult
     func noteHookEvent(_ event: WorkstreamEvent) -> AgentChatSessionRecord {
-        let sessionID = Self.normalizedSessionID(event.sessionId, source: event.source)
+        let hookSessionID = Self.normalizedSessionID(event.sessionId, source: event.source)
+        let sessionID = sessionIDForHookEvent(
+            hookSessionID: hookSessionID,
+            source: event.source,
+            surfaceID: event.surfaceId
+        )
         let kind = ChatAgentKind(source: event.source)
         #if DEBUG
         cmuxDebugLog(
@@ -562,6 +568,25 @@ final class AgentChatSessionRegistry {
             backfillBindingsFromStore(sessionID: sessionID, agentSource: event.source)
         }
         return record
+    }
+
+    private func sessionIDForHookEvent(
+        hookSessionID: String,
+        source: String,
+        surfaceID: String?
+    ) -> String {
+        guard source == "claude",
+              records[hookSessionID] == nil,
+              let surfaceID,
+              let indexedSessionID = liveSessionIDBySurfaceID[surfaceID],
+              Self.isPendingClaudeSessionID(indexedSessionID),
+              let indexed = records[indexedSessionID],
+              indexed.agentKind == .claude,
+              indexed.surfaceID == surfaceID,
+              indexed.state != .ended else {
+            return hookSessionID
+        }
+        return indexedSessionID
     }
 
     /// Records, from cmux's own authority, that it is resuming `rawSessionID`
