@@ -141,6 +141,25 @@ import Testing
     #expect(queue.completeInFlight() == nil)
 }
 
+@Test func terminalOutputQueueCoalescesContiguousRawBytesBehindBackpressure() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+
+    #expect(queue.enqueue(inFlight) == inFlight)
+    for index in 0..<128 {
+        let delivery = TerminalOutputDelivery(bytes: Data("raw-\(index)\n".utf8), replaceable: false)
+        #expect(queue.enqueue(delivery) == nil)
+    }
+
+    #expect(queue.pendingCount == 1)
+    let delivered = try #require(queue.completeInFlight())
+    let deliveredText = String(decoding: delivered.bytes, as: UTF8.self)
+    let expectedText = (0..<128).map { "raw-\($0)\n" }.joined()
+    #expect(deliveredText == expectedText)
+    #expect(queue.completeInFlight() == nil)
+    #expect(queue.isIdle)
+}
+
 @Test func terminalOutputQueueDrainsRawFallbackBacklogInOrder() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
@@ -151,11 +170,10 @@ import Testing
         #expect(queue.enqueue(delivery) == nil)
     }
 
-    #expect(queue.pendingCount == 128)
-    for index in 0..<128 {
-        let expected = TerminalOutputDelivery(bytes: Data("raw-\(index)".utf8), replaceable: false)
-        #expect(queue.completeInFlight() == expected)
-    }
+    #expect(queue.pendingCount == 1)
+    let expectedText = (0..<128).map { "raw-\($0)" }.joined()
+    let delivered = queue.completeInFlight()
+    #expect(delivered?.bytes == Data(expectedText.utf8))
     #expect(queue.completeInFlight() == nil)
     #expect(queue.isIdle)
 }
