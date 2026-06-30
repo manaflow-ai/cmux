@@ -4820,9 +4820,17 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         restoredAgent: SessionRestorableAgentSnapshot?
     ) -> (input: String, kind: String, sessionId: String?)? {
-        if let restoredAgent,
-           let input = restoredAgent.resumeStartupInput() {
-            return (input, restoredAgent.kind.rawValue, restoredAgent.sessionId)
+        if let restoredAgent {
+            // A launcher script lives under the local Mac temp dir, which the remote
+            // shell can't reach, so force oversized remote resume commands inline
+            // (mirrors the eager restore path and the agent-hook branch below).
+            // Local terminals keep the default launcher-script fallback.
+            let input = isRemoteTerminalSurface(panelId)
+                ? restoredAgent.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
+                : restoredAgent.resumeStartupInput()
+            if let input {
+                return (input, restoredAgent.kind.rawValue, restoredAgent.sessionId)
+            }
         }
 
         guard let binding = surfaceResumeBindingsByPanelId[panelId],
