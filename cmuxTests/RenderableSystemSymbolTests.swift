@@ -79,20 +79,34 @@ struct RenderableSystemSymbolTests {
     @Test @MainActor func configuredAppKitImageKeepsNaturalConfiguredSizeWhenItExceedsPointSize() throws {
         RenderableSystemSymbol.resetRenderabilityCacheForTesting()
         let pointSize = CGFloat(16)
-        let symbolName = "bell"
-        let baseImage = try #require(NSImage(systemSymbolName: symbolName, accessibilityDescription: nil))
-        let configuredImage = baseImage.withSymbolConfiguration(NSImage.SymbolConfiguration(
-            pointSize: pointSize,
-            weight: .medium
-        )) ?? baseImage
-        #expect(max(configuredImage.size.width, configuredImage.size.height) > pointSize)
+        let oversizedCandidate = try #require([
+            "bell",
+            "plus",
+            "sidebar.left",
+            "arrow.right",
+            "questionmark.circle",
+            "chevron.left",
+            "chevron.right",
+        ].compactMap { symbolName -> (symbolName: String, configuredImage: NSImage)? in
+            guard let baseImage = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else {
+                return nil
+            }
+            let configuredImage = baseImage.withSymbolConfiguration(NSImage.SymbolConfiguration(
+                pointSize: pointSize,
+                weight: .medium
+            )) ?? baseImage
+            guard max(configuredImage.size.width, configuredImage.size.height) > pointSize else {
+                return nil
+            }
+            return (symbolName, configuredImage)
+        }.first)
 
         let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
-            systemName: symbolName,
+            systemName: oversizedCandidate.symbolName,
             pointSize: pointSize,
             weight: .medium
         ))
-        #expect(image.size == configuredImage.size)
+        #expect(image.size == oversizedCandidate.configuredImage.size)
     }
 
     @Test func configuredSymbolImageSizeKeepsValidNaturalSize() {
