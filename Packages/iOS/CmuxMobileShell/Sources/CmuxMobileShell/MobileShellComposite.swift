@@ -2561,6 +2561,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard isCancelRestoreCurrent() else { return false }
         guard isSignedIn else { return false }
         guard let previousActive else { return false }
+        guard let restoreScope = await currentScopeSnapshot() else { return false }
+        guard await isScopeCurrent(restoreScope), isCancelRestoreCurrent() else { return false }
         let previousIDs = Set(pairedMacAliasIDs(for: previousActive.macDeviceID))
         let previousStillForeground = connectionState == .connected
             && remoteClient != nil
@@ -2576,25 +2578,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.error("restorePreviousMacIfNeeded: no reconnectable route mac=\(previousActive.macDeviceID, privacy: .private)")
             return false
         }
-        guard isCancelRestoreCurrent() else { return false }
+        guard await isScopeCurrent(restoreScope), isCancelRestoreCurrent() else { return false }
         await connectStoredMacHost(
             name: previousActive.displayName ?? host,
             host: host,
             port: port,
             pairedMacDeviceID: previousActive.macDeviceID
         )
-        guard isCancelRestoreCurrent() else { return false }
+        guard await isScopeCurrent(restoreScope), isCancelRestoreCurrent() else {
+            if connectionState == .connected,
+               remoteClient != nil,
+               foregroundMacDeviceID.map({ previousIDs.contains($0) }) == true {
+                disconnectLiveConnection()
+                workspacesByMac = workspacesByMac.filter { !previousIDs.contains($0.key) }
+            }
+            return false
+        }
         let restored = connectionState == .connected
             && remoteClient != nil
             && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
         guard restored else { return restored }
-        let scope = await currentScopeSnapshot()
-        if let scope {
-            guard await isScopeCurrent(scope), isCancelRestoreCurrent() else { return restored }
-        }
+        guard await isScopeCurrent(restoreScope), isCancelRestoreCurrent() else { return restored }
         if let task = enqueueActivePairedMacWrite(
             macDeviceID: previousActive.macDeviceID,
-            scope: scope,
+            scope: restoreScope,
             reloadAfterWrite: true
         ) {
             await task.value
@@ -5301,13 +5308,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func clearMacSwitchAttemptState(invalidateUnderlyingConnectionAttempt: Bool = false) {
-        let hadAttempt = macSwitchAttemptID != nil
         macSwitchCancelRestoreGeneration &+= 1
         macSwitchAttemptID = nil
         macSwitchAttemptSignInGeneration = nil
         macSwitchRestorePreviousOnCancelAttemptIDs.removeAll(keepingCapacity: true)
         macSwitchRestoreBaseline = nil
-        if invalidateUnderlyingConnectionAttempt && hadAttempt {
+        if invalidateUnderlyingConnectionAttempt {
             invalidatePairingAttempt()
             connectionAttemptGeneration = UUID()
         }
