@@ -9,22 +9,11 @@ useDefault = true
 # github-pat / jwt / private-key rules — otherwise a real key accidentally added
 # to that production file would be silently ignored by the scan.
 
-# This config file embeds every fixture string below (as allowlist regexes), so
-# exempt the config itself from the rules those strings would otherwise trip.
-[[allowlists]]
-description = "Gitleaks config self-reference for embedded Sentry scrubber fixtures"
-targetRules = ["generic-api-key", "github-pat", "jwt", "private-key"]
-condition = "AND"
-paths = ['''^\.gitleaks\.toml$''']
-regexTarget = "line"
-regexes = [
-  '''token=abcdef0123456789(?:secret|zz)''',
-  '''token=sk-abc123def456ghij''',
-  '''sk-proj-abcdef0123456789ABCDEF''',
-  '''ghp_0123456789abcdefABCDEF0123456789abcd''',
-  '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0In0\.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U''',
-  '''-----BEGIN (?:RSA |EC )?(?:PRIVATE|PUBLIC) KEY-----''',
-]
+# Note: gitleaks ignores its own config file (.gitleaks.toml is excluded by the
+# default ruleset), so the fixture strings embedded below as allowlist regexes
+# are never scanned in this file. No self-reference allowlist entry is needed,
+# and adding one for a strong rule (e.g. private-key) would read as a deliberate
+# blind spot.
 
 # Production scrubber source: a single doc-comment example token only.
 [[allowlists]]
@@ -98,7 +87,6 @@ description = "Intentional attach-token and relay-token test fixtures"
 targetRules = ["generic-api-key"]
 condition = "AND"
 paths = [
-  '''^\.gitleaks\.toml$''',
   '''^Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxAttachTicketCompactCoderTests\.swift$''',
   '''^Packages/macOS/CmuxRemoteWorkspace/Tests/CmuxRemoteWorkspaceTests/RemoteCLIRelayServerTests\.swift$''',
   '''^cmuxTests/DiffCommentStoreTests\.swift$''',
@@ -120,7 +108,6 @@ description = "Checked-in public client keys"
 targetRules = ["generic-api-key"]
 condition = "AND"
 paths = [
-  '''^\.gitleaks\.toml$''',
   '''^Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthConfig\.swift$''',
   '''^Sources/Auth/AuthEnvironment\.swift$''',
   '''^scripts/setup-team-dev\.sh$''',
@@ -140,7 +127,6 @@ description = "Pinned sentry-cli release checksum"
 targetRules = ["sentry-access-token"]
 condition = "AND"
 paths = [
-  '''^\.gitleaks\.toml$''',
   '''^scripts/ensure-sentry-cli\.sh$''',
   '''^tests/test_ci_self_hosted_guard\.sh$''',
 ]
@@ -154,7 +140,6 @@ description = "Non-secret variable-name and probe-token fixtures"
 targetRules = ["generic-api-key"]
 condition = "AND"
 paths = [
-  '''^\.gitleaks\.toml$''',
   '''^tests_v2/test_command_palette_focus\.py$''',
   '''^web/app/api/notifications/push/route\.ts$''',
 ]
