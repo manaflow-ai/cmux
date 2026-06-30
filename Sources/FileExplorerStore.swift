@@ -1017,42 +1017,70 @@ final class FileExplorerStore: ObservableObject {
     /// `.git` is a file (the layout Git uses for worktrees and submodules, where
     /// `git add`/`commit`/`reset` update an external gitdir) its `gitdir:`
     /// pointer is followed and resolved — relative targets against `rootPath`.
-    /// Returns nil when there is no `.git` entry or the resolved target is not a
-    /// directory.
+    ///
+    /// The resolved candidate is validated to actually look like Git metadata
+    /// before being returned: a `.git` file's pointer (and a `.git` symlink) is
+    /// repository-controlled, so without this check a checked-out workspace could
+    /// aim `gitdir:` at `/`, a home directory, or another large/sensitive tree
+    /// and make cmux watch it recursively. Returns nil when there is no `.git`
+    /// entry, the resolved target is not a directory, or it lacks the Git
+    /// metadata shape.
     static func gitMetadataDirectory(under rootPath: String) -> String? {
         let gitPath = (rootPath as NSString).appendingPathComponent(".git")
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: gitPath, isDirectory: &isDirectory) else {
             return nil
         }
+
+        let candidate: String
         if isDirectory.boolValue {
-            return gitPath
+            candidate = gitPath
+        } else {
+            guard let contents = try? String(contentsOfFile: gitPath, encoding: .utf8) else {
+                return nil
+            }
+            let gitdirPrefix = "gitdir:"
+            let pointerLine = contents
+                .split(whereSeparator: { $0.isNewline })
+                .lazy
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { $0.hasPrefix(gitdirPrefix) }
+            guard let pointerLine else { return nil }
+            let target = String(pointerLine.dropFirst(gitdirPrefix.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !target.isEmpty else { return nil }
+            let absoluteTarget = (target as NSString).isAbsolutePath
+                ? target
+                : (rootPath as NSString).appendingPathComponent(target)
+            // Resolve `.`/`..` lexically without touching symlinks so the watched
+            // path stays consistent with `rootPath`'s own representation.
+            candidate = URL(fileURLWithPath: absoluteTarget).standardizedFileURL.path
         }
-        guard let contents = try? String(contentsOfFile: gitPath, encoding: .utf8) else {
+
+        var candidateIsDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: candidate, isDirectory: &candidateIsDirectory),
+              candidateIsDirectory.boolValue,
+              Self.isPlausibleGitMetadataDirectory(candidate) else {
             return nil
         }
-        let gitdirPrefix = "gitdir:"
-        let pointerLine = contents
-            .split(whereSeparator: { $0.isNewline })
-            .lazy
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { $0.hasPrefix(gitdirPrefix) }
-        guard let pointerLine else { return nil }
-        let target = String(pointerLine.dropFirst(gitdirPrefix.count))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !target.isEmpty else { return nil }
-        let absoluteTarget = (target as NSString).isAbsolutePath
-            ? target
-            : (rootPath as NSString).appendingPathComponent(target)
-        // Resolve `.`/`..` lexically without touching symlinks so the watched
-        // path stays consistent with `rootPath`'s own representation.
-        let resolved = URL(fileURLWithPath: absoluteTarget).standardizedFileURL.path
-        var resolvedIsDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: resolved, isDirectory: &resolvedIsDirectory),
-              resolvedIsDirectory.boolValue else {
-            return nil
+        return candidate
+    }
+
+    /// Whether `path` has the shape of a Git metadata directory: a `HEAD` file
+    /// plus either a `config` (main checkout or submodule) or a `commondir`
+    /// (linked worktree). Used to reject repository-controlled `gitdir:` pointers
+    /// or `.git` symlinks that aim at arbitrary, non-Git directories.
+    private static func isPlausibleGitMetadataDirectory(_ path: String) -> Bool {
+        let directory = path as NSString
+        func containsFile(_ name: String) -> Bool {
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent(name),
+                isDirectory: &isDirectory
+            ) && !isDirectory.boolValue
         }
-        return resolved
+        guard containsFile("HEAD") else { return false }
+        return containsFile("config") || containsFile("commondir")
     }
 
     /// Cancels the directory-watch consumers and drops the watchers; each

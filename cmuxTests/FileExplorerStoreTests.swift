@@ -653,7 +653,7 @@ struct FileExplorerStoreTests {
         #expect(!(store.isExpanded(node)))
     }
 
-    @Test("gitMetadataDirectory resolves .git dirs, worktree/submodule gitdir files, and missing repos")
+    @Test("gitMetadataDirectory resolves plausible .git dirs and worktree/submodule gitdir files, rejecting others")
     func testGitMetadataDirectoryResolution() throws {
         let fileManager = FileManager.default
         let workspaceBase = fileManager.temporaryDirectory
@@ -669,39 +669,60 @@ struct FileExplorerStoreTests {
             try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
             return url
         }
-        func writeGitFile(_ contents: String, in root: URL) throws {
-            try contents.write(
-                to: root.appendingPathComponent(".git"),
-                atomically: true,
-                encoding: .utf8
-            )
+        func write(_ contents: String, to url: URL) throws {
+            try contents.write(to: url, atomically: true, encoding: .utf8)
+        }
+        // Gives `directory` the minimal Git metadata shape the resolver requires.
+        func populateGitMetadata(_ directory: URL, marker: String) throws {
+            try write("ref: refs/heads/main\n", to: directory.appendingPathComponent("HEAD"))
+            try write("", to: directory.appendingPathComponent(marker))
+        }
+        func writeGitPointer(_ contents: String, in root: URL) throws {
+            try write(contents, to: root.appendingPathComponent(".git"))
         }
 
         // No `.git` entry → nil.
         let plainRoot = try makeDirectory("plain")
         #expect(FileExplorerStore.gitMetadataDirectory(under: plainRoot.path) == nil)
 
-        // `.git` directory → the directory itself.
+        // Plausible `.git` directory → the directory itself.
         let repoRoot = try makeDirectory("repo")
         let repoGitDir = repoRoot.appendingPathComponent(".git", isDirectory: true)
         try fileManager.createDirectory(at: repoGitDir, withIntermediateDirectories: true)
+        try populateGitMetadata(repoGitDir, marker: "config")
         #expect(FileExplorerStore.gitMetadataDirectory(under: repoRoot.path) == repoGitDir.path)
+
+        // `.git` directory without the Git metadata shape → nil.
+        let bareRoot = try makeDirectory("bare")
+        try fileManager.createDirectory(
+            at: bareRoot.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        #expect(FileExplorerStore.gitMetadataDirectory(under: bareRoot.path) == nil)
 
         // Worktree layout: `.git` file with an absolute `gitdir:` pointer.
         let worktreeRoot = try makeDirectory("worktree")
         let externalGitDir = try makeDirectory("main/.git/worktrees/wt")
-        try writeGitFile("gitdir: \(externalGitDir.path)\n", in: worktreeRoot)
+        try populateGitMetadata(externalGitDir, marker: "commondir")
+        try writeGitPointer("gitdir: \(externalGitDir.path)\n", in: worktreeRoot)
         #expect(FileExplorerStore.gitMetadataDirectory(under: worktreeRoot.path) == externalGitDir.path)
 
         // Submodule layout: `.git` file with a relative `gitdir:` pointer.
         let submoduleRoot = try makeDirectory("submodule")
         let submoduleGitDir = try makeDirectory("shared-modules")
-        try writeGitFile("gitdir: ../shared-modules\n", in: submoduleRoot)
+        try populateGitMetadata(submoduleGitDir, marker: "config")
+        try writeGitPointer("gitdir: ../shared-modules\n", in: submoduleRoot)
         #expect(FileExplorerStore.gitMetadataDirectory(under: submoduleRoot.path) == submoduleGitDir.path)
+
+        // `gitdir:` aimed at a real but non-Git directory → nil (trust boundary).
+        let untrustedRoot = try makeDirectory("untrusted")
+        let arbitraryDir = try makeDirectory("arbitrary-secrets")
+        try writeGitPointer("gitdir: \(arbitraryDir.path)\n", in: untrustedRoot)
+        #expect(FileExplorerStore.gitMetadataDirectory(under: untrustedRoot.path) == nil)
 
         // `gitdir:` pointing at a non-existent directory → nil.
         let danglingRoot = try makeDirectory("dangling")
-        try writeGitFile("gitdir: \(workspace.appendingPathComponent("missing").path)\n", in: danglingRoot)
+        try writeGitPointer("gitdir: \(workspace.appendingPathComponent("missing").path)\n", in: danglingRoot)
         #expect(FileExplorerStore.gitMetadataDirectory(under: danglingRoot.path) == nil)
     }
 }
