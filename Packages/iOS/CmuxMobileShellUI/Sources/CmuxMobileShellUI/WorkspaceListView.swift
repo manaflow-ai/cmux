@@ -163,7 +163,12 @@ struct WorkspaceListView: View {
 
     var body: some View {
         let currentMachineSnapshots = liveMachineSnapshots
+        let currentVisibleMacSelection = visibleMacSelection
         let displayedMachineSnapshots = machineSnapshots ?? currentMachineSnapshots
+        let displayedFilterMachines = filterMenuMachines(
+            machineSnapshots: displayedMachineSnapshots,
+            visibleSelection: currentVisibleMacSelection
+        )
         List {
             if let store, showsConnectionRecoveryRow {
                 Section {
@@ -248,14 +253,14 @@ struct WorkspaceListView: View {
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                WorkspaceListFilterMenu(filter: $filter, machines: displayedMachineSnapshots.filterMachines)
+                WorkspaceListFilterMenu(filter: $filter, machines: displayedFilterMachines)
                 if canCreateWorkspace {
                     newWorkspaceButton
                 }
             }
             #else
             ToolbarItemGroup {
-                WorkspaceListFilterMenu(filter: $filter, machines: displayedMachineSnapshots.filterMachines)
+                WorkspaceListFilterMenu(filter: $filter, machines: displayedFilterMachines)
                 if canCreateWorkspace {
                     newWorkspaceButton
                 }
@@ -265,9 +270,13 @@ struct WorkspaceListView: View {
         .accessibilityIdentifier("MobileWorkspaceList")
         .onAppear {
             updateMachineSnapshots(currentMachineSnapshots)
+            filter.pruneMachinesForFilterMenu(visibleMacSelection: currentVisibleMacSelection)
         }
         .onChange(of: currentMachineSnapshots) { _, snapshots in
             updateMachineSnapshots(snapshots)
+        }
+        .onChange(of: currentVisibleMacSelection) { _, selection in
+            filter.pruneMachinesForFilterMenu(visibleMacSelection: selection)
         }
         #if os(iOS)
         .sheet(isPresented: $showingShortcutsSettings) {

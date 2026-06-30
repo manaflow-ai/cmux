@@ -65,6 +65,18 @@ extension WorkspaceListView {
         return names
     }
 
+    func filterMenuMachines(
+        machineSnapshots: WorkspaceMachineSnapshots,
+        visibleSelection: WorkspaceMacSelection
+    ) -> [WorkspaceFilterMachine] {
+        switch visibleSelection {
+        case .machine:
+            return []
+        case .all, .automatic:
+            return machineSnapshots.filterMachines
+        }
+    }
+
     var canCreateWorkspaceForMacSelection: Bool {
         macSelectionScope.canCreateWorkspace(base: canCreateWorkspace)
     }

@@ -122,6 +122,65 @@ import Testing
         #expect(active.machines == ["mac-b"])
     }
 
+    @Test func filterMenuMachinesHideWhenMacPickerOwnsMachineScope() async throws {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+        ])
+        var view = workspaceListView(
+            workspaces: [
+                workspace(id: "ws-a", macDeviceID: "mac-a"),
+                workspace(id: "ws-b", macDeviceID: "mac-b"),
+            ],
+            store: store
+        )
+        view.macSelection = .machine("mac-a")
+
+        let machines = view.filterMenuMachines(
+            machineSnapshots: view.liveMachineSnapshots,
+            visibleSelection: view.visibleMacSelection
+        )
+
+        #expect(machines.isEmpty)
+    }
+
+    @Test func filterMenuMachinesShowWhenAllMacsCanUseMachineScope() async throws {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+        ])
+        let view = workspaceListView(
+            workspaces: [
+                workspace(id: "ws-a", macDeviceID: "mac-a"),
+                workspace(id: "ws-b", macDeviceID: "mac-b"),
+            ],
+            store: store
+        )
+
+        let machines = view.filterMenuMachines(
+            machineSnapshots: view.liveMachineSnapshots,
+            visibleSelection: view.visibleMacSelection
+        )
+
+        #expect(machines.map(\.id) == ["mac-a", "mac-b"])
+    }
+
+    @Test func filterMenuPruningClearsMachineSelectionWhenMacPickerOwnsMachineScope() {
+        var filter = MobileWorkspaceListFilter(machines: ["mac-b"])
+        let changed = filter.pruneMachinesForFilterMenu(visibleMacSelection: .machine("mac-a"))
+
+        #expect(changed)
+        #expect(filter.machines.isEmpty)
+    }
+
+    @Test func filterMenuPruningKeepsMachineSelectionWhenAllMacsCanUseMachineScope() {
+        var filter = MobileWorkspaceListFilter(machines: ["mac-b"])
+        let changed = filter.pruneMachinesForFilterMenu(visibleMacSelection: .all)
+
+        #expect(!changed)
+        #expect(filter.machines == ["mac-b"])
+    }
+
     @Test func filterMenuPruningClearsSelectionWhenMachineSectionWouldHide() {
         var filter = MobileWorkspaceListFilter(machines: ["mac-a"])
         let changed = filter.pruneMachinesForFilterMenu(presentMachineIDs: ["mac-a"])
