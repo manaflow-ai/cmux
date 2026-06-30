@@ -79,6 +79,7 @@ actor LivenessHostRouter {
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
+    private var emptyReplayResponsesRemaining = 0
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -133,6 +134,10 @@ actor LivenessHostRouter {
 
     func failNextReplay(count: Int = 1) {
         replayFailuresRemaining += count
+    }
+
+    func enqueueEmptyReplayResponses(count: Int = 1) {
+        emptyReplayResponsesRemaining += count
     }
 
     /// Hold every `mobile.events.subscribe` response until released.
@@ -242,6 +247,10 @@ actor LivenessHostRouter {
             if replayFailuresRemaining > 0 {
                 replayFailuresRemaining -= 1
                 return try? Self.errorFrame(id: id, message: "replay failed")
+            }
+            if emptyReplayResponsesRemaining > 0 {
+                emptyReplayResponsesRemaining -= 1
+                return try? Self.resultFrame(id: id, result: [:])
             }
             guard !replayTexts.isEmpty else {
                 return try? Self.resultFrame(id: id, result: [:])
