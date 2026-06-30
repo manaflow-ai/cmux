@@ -132,9 +132,11 @@ final class AgentChatSessionRegistry {
         let wantedID = kind.sourceName
         for pid in snapshot.expandedPIDs(rootPIDs: rootPIDs).sorted() {
             guard let info = snapshot.process(pid: pid),
-                  let def = codingAgentDefinition(
-                      for: info,
-                      processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:)
+                  let def = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                      processName: info.name,
+                      processPath: info.path,
+                      arguments: [],
+                      environment: [:]
                   ),
                   def.id == wantedID else { continue }
             return pid
