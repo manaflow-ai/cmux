@@ -488,25 +488,8 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             )
             return nil
         }
-
+        if BrowserNavigationModifierBypassPolicy().openDefaultBrowserIfNeeded(navigationAction: navigationAction, webView: webView, debugEventName: "popup.nav.createWebView.action") { return nil }
         let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
-        if let url = navigationAction.request.url,
-           browserNavigationShouldOpenInDefaultBrowserForModifierBypass(
-               navigationType: navigationAction.navigationType,
-               modifierFlags: navigationAction.modifierFlags,
-               buttonNumber: navigationAction.buttonNumber,
-               hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
-           ) {
-#if DEBUG
-            cmuxDebugLog(
-                "popup.nav.createWebView.action kind=openDefaultBrowserModifierBypass " +
-                "url=\(browserNavigationDebugURL(url))"
-            )
-#endif
-            NSWorkspace.shared.open(url)
-            return nil
-        }
-
         let isScriptedPopup = browserNavigationShouldCreatePopup(
             navigationType: navigationAction.navigationType,
             modifierFlags: navigationAction.modifierFlags,
@@ -514,7 +497,6 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             popupFeaturesWereSpecified: browserNavigationPopupFeaturesWereSpecified(windowFeatures: windowFeatures),
             hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
         )
-
         if isScriptedPopup {
             return controller?.createNestedPopup(
                 configuration: configuration,

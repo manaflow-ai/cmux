@@ -145,6 +145,27 @@ enum CommandClickFileOpenRouter {
         return true
     }
 
+    @MainActor
+    @discardableResult
+    static func deferredOpenURLFileIfRouted(
+        workspace: Workspace,
+        preferredWorkspaceId: UUID,
+        surfaceId: UUID,
+        fileURL: URL,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        deferredOpenFileIfRouted(
+            workspace: workspace,
+            preferredWorkspaceId: preferredWorkspaceId,
+            surfaceId: surfaceId,
+            filePath: fileURL.path,
+            modifierFlags: modifierFlags,
+            fallback: {
+                NSWorkspace.shared.open(fileURL)
+            }
+        )
+    }
+
     /// Schedule a file open in cmux, deferred to the next runloop tick.
     ///
     /// Ghostty's `Surface.openUrl` holds an internal `os_unfair_lock` when it

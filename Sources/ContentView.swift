@@ -13986,12 +13986,7 @@ struct TabItemView: View, Equatable {
                         .foregroundColor(pullRequestForegroundColor)
                         .opacity(pullRequest.isStale ? 0.5 : 1)
                         if settings.makesPullRequestsClickable {
-                            Button(action: {
-                                openPullRequestLink(
-                                    pullRequest.url,
-                                    modifierFlags: currentClickModifierFlags()
-                                )
-                            }) { rowContent }
+                            Button(action: { openPullRequestLink(pullRequest.url, modifierFlags: currentClickModifierFlags()) }) { rowContent }
                                 .buttonStyle(.plain)
                                 .tint(pullRequestForegroundColor)
                                 .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequestTitle)"))
@@ -14009,9 +14004,7 @@ struct TabItemView: View, Equatable {
                     ForEach(workspaceSnapshot.listeningPorts, id: \.self) { port in
                         let portLabel = SidebarPortDisplayText.label(for: port)
                         let portTooltip = SidebarPortDisplayText.openTooltip(for: port)
-                        Button(action: {
-                            openPortLink(port, modifierFlags: currentClickModifierFlags())
-                        }) {
+                        Button(action: { openPortLink(port, modifierFlags: currentClickModifierFlags()) }) {
                             Text(portLabel)
                                 .underline()
                         }
@@ -14993,19 +14986,11 @@ struct TabItemView: View, Equatable {
         isActive ? activeSecondaryColor(0.75) : .secondary
     }
 
-    private func currentClickModifierFlags() -> NSEvent.ModifierFlags {
-        NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
-    }
+    private func currentClickModifierFlags() -> NSEvent.ModifierFlags { NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags }
 
-    private func openPullRequestLink(
-        _ url: URL,
-        modifierFlags: NSEvent.ModifierFlags = []
-    ) {
+    private func openPullRequestLink(_ url: URL, modifierFlags: NSEvent.ModifierFlags = []) {
         updateSelection()
-        if BrowserOpenRoutingPolicy().shouldOpenInCmuxBrowser(
-            settingEnabled: openSidebarPullRequestLinksInCmuxBrowser,
-            modifierFlags: modifierFlags
-        ) {
+        if BrowserOpenRoutingPolicy().shouldOpenInCmuxBrowser(settingEnabled: openSidebarPullRequestLinksInCmuxBrowser, modifierFlags: modifierFlags) {
             if tabManager.openBrowser(
                 inWorkspace: tab.id,
                 url: url,
@@ -15019,16 +15004,10 @@ struct TabItemView: View, Equatable {
         NSWorkspace.shared.open(url)
     }
 
-    private func openPortLink(
-        _ port: Int,
-        modifierFlags: NSEvent.ModifierFlags = []
-    ) {
+    private func openPortLink(_ port: Int, modifierFlags: NSEvent.ModifierFlags = []) {
         guard let url = URL(string: "http://localhost:\(port)") else { return }
         updateSelection()
-        if BrowserOpenRoutingPolicy().shouldOpenInCmuxBrowser(
-            settingEnabled: openSidebarPortLinksInCmuxBrowser,
-            modifierFlags: modifierFlags
-        ) {
+        if BrowserOpenRoutingPolicy().shouldOpenInCmuxBrowser(settingEnabled: openSidebarPortLinksInCmuxBrowser, modifierFlags: modifierFlags) {
             if tabManager.openBrowser(
                 inWorkspace: tab.id,
                 url: url,

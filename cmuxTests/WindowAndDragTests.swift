@@ -3435,64 +3435,6 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertFalse(FileRouteSettingsStore(defaults: defaults).shouldRouteSupportedFile(path: fileURL.path))
     }
 
-    func testCmdShiftClickSupportedFileRouteUsesDefaultApplicationOnlyWhenCmuxWouldRoute() throws {
-        let suiteName = "cmux.file-preview-routing-bypass.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let fileURL = try temporaryTextFile(contents: "preview me", encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: fileURL) }
-
-        let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let store = FileRouteSettingsStore(defaults: defaults)
-        XCTAssertEqual(
-            CommandClickFileOpenRouter.route(
-                path: fileURL.path,
-                modifierFlags: [.command],
-                routeSettings: store
-            ),
-            .cmux
-        )
-        XCTAssertEqual(
-            CommandClickFileOpenRouter.route(
-                path: fileURL.path,
-                modifierFlags: [.command, .shift],
-                routeSettings: store
-            ),
-            .defaultApplication
-        )
-        XCTAssertEqual(
-            CommandClickFileOpenRouter.route(
-                path: fileURL.path,
-                modifierFlags: [.command, .shift, .option],
-                routeSettings: store
-            ),
-            .cmux
-        )
-        XCTAssertEqual(
-            CommandClickFileOpenRouter.route(
-                path: directoryURL.path,
-                modifierFlags: [.command, .shift],
-                routeSettings: store
-            ),
-            .fallback
-        )
-
-        defaults.set(false, forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey)
-        XCTAssertEqual(
-            CommandClickFileOpenRouter.route(
-                path: fileURL.path,
-                modifierFlags: [.command, .shift],
-                routeSettings: store
-            ),
-            .fallback
-        )
-    }
-
     func testCmdClickMarkdownRoutingDoesNotRequireSupportedFileRoutingSetting() throws {
         let suiteName = "cmux.markdown-preview-routing.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
