@@ -382,12 +382,18 @@ import Testing
     #expect(failureSettled)
     #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil)
 
+    let replayCountAfterExhaustion = await router.count(of: "mobile.terminal.replay")
     let acceptedAfterExhaustion = store.deliverTerminalBytes(
         Data("live-after-exhausted-replay".utf8),
         surfaceID: surfaceID
     )
     #expect(acceptedAfterExhaustion == false)
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+    let replayRestartedAfterExhaustion = await waitForReplayRequestCount(
+        router,
+        atLeast: replayCountAfterExhaustion + 1
+    )
+    #expect(!replayRestartedAfterExhaustion, "dropped live output must not bypass the replay retry cap")
 }
 
 @MainActor
