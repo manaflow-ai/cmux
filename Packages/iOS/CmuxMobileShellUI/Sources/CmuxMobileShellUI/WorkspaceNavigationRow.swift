@@ -14,7 +14,6 @@ struct WorkspaceNavigationRow: View {
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
     var profilePictureLeftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
     var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
-    let prepareWorkspaceSelection: () -> Void
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
@@ -96,12 +95,12 @@ struct WorkspaceNavigationRow: View {
     private var rowTarget: some View {
         switch navigationStyle {
         case .push:
-            NavigationLink(value: workspace.id) {
+            Button {
+                selectWorkspace(workspace.id)
+            } label: {
                 rowLabel
             }
-            .simultaneousGesture(TapGesture().onEnded {
-                prepareWorkspaceSelection()
-            })
+            .buttonStyle(.plain)
         case .sidebar:
             Button {
                 selectWorkspace(workspace.id)

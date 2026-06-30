@@ -425,7 +425,6 @@ struct WorkspaceListView: View {
                     navigationStyle: navigationStyle,
                     isAnchorSelected: navigationStyle == .sidebar
                         && selectedWorkspaceID == group.anchorWorkspaceID,
-                    prepareWorkspaceSelection: prepareWorkspaceSelectionFromList,
                     selectWorkspace: selectWorkspaceFromList,
                     toggleCollapsed: toggleGroupCollapsed,
                     unreadIndicatorLeftShift: unreadIndicatorLeftShift
@@ -451,7 +450,6 @@ struct WorkspaceListView: View {
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
             profilePictureLeftShift: profilePictureLeftShift,
             profilePictureSize: profilePictureSize,
-            prepareWorkspaceSelection: prepareWorkspaceSelectionFromList,
             selectWorkspace: selectWorkspaceFromList,
             renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
             setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,

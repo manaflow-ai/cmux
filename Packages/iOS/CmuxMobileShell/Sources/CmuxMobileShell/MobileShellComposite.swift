@@ -1129,7 +1129,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // (account, team) scope, and a suspended old-team restore can't resume.
         // Invalidate the shared boundary synchronously first; actor cleanup is
         // fire-and-forget (this method is sync) and does not wipe the local store.
-        clearMacSwitchAttemptState()
+        clearMacSwitchAttemptState(invalidateUnderlyingConnectionAttempt: true)
         pairedMacRestoreBoundary?.invalidate()
         if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             Task { await refresher.cancelInFlightRestores() }
@@ -2466,7 +2466,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         ), MobileShellRouteAuthPolicy.normalizedManualHost(host) != nil else {
-            mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .public)")
+            mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .private)")
             if !hasActiveMacConnection,
                await restorePreviousMacIfNeeded(macSwitchRestoreBaseline ?? previousForegroundMac) {
                 macSwitchRestoreBaseline = nil
@@ -2501,7 +2501,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     teamID: scope?.teamID
                 )
             } catch {
-                mobileShellLog.error("paired mac store setActive failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+                mobileShellLog.error("paired mac store setActive failed mac=\(macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)")
             }
         } else if macSwitchRestoreBaseline != nil || previousForegroundMac != nil, !hasActiveMacConnection {
             // The switch did not connect and the destructive connect path dropped
@@ -2566,7 +2566,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         ), MobileShellRouteAuthPolicy.normalizedManualHost(host) != nil else {
-            mobileShellLog.error("restorePreviousMacIfNeeded: no reconnectable route mac=\(previousActive.macDeviceID, privacy: .public)")
+            mobileShellLog.error("restorePreviousMacIfNeeded: no reconnectable route mac=\(previousActive.macDeviceID, privacy: .private)")
             return false
         }
         await connectStoredMacHost(
@@ -2591,7 +2591,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             await loadPairedMacs()
         } catch {
-            mobileShellLog.error("restorePreviousMacIfNeeded: setActive failed mac=\(previousActive.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            mobileShellLog.error("restorePreviousMacIfNeeded: setActive failed mac=\(previousActive.macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)")
         }
         return restored
     }
@@ -5205,11 +5205,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macSwitchRestorePreviousOnCancelAttemptIDs.remove(attemptID)
     }
 
-    private func clearMacSwitchAttemptState() {
+    private func clearMacSwitchAttemptState(invalidateUnderlyingConnectionAttempt: Bool = false) {
+        let hadAttempt = macSwitchAttemptID != nil
         macSwitchAttemptID = nil
         macSwitchAttemptSignInGeneration = nil
         macSwitchRestorePreviousOnCancelAttemptIDs.removeAll(keepingCapacity: true)
         macSwitchRestoreBaseline = nil
+        if invalidateUnderlyingConnectionAttempt && hadAttempt {
+            invalidatePairingAttempt()
+            connectionAttemptGeneration = UUID()
+        }
     }
 
     private func consumeMacSwitchRestorePreviousOnCancel(_ attemptID: UUID) -> Bool {
