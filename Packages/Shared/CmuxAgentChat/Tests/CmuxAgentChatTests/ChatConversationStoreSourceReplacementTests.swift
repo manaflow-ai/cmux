@@ -3,54 +3,6 @@ import Testing
 
 @testable import CmuxAgentChat
 
-@MainActor
-private enum SourceReplacementPoller {
-    static func waitUntil(
-        iterations: Int = 400,
-        _ condition: () -> Bool
-    ) async -> Bool {
-        for iteration in 0..<iterations {
-            if condition() { return true }
-            await Task.yield()
-            if iteration % 20 == 19 {
-                try? await Task.sleep(nanoseconds: 2_000_000)
-            }
-        }
-        return condition()
-    }
-}
-
-private actor GatedHistoryEventSource: ChatEventSource {
-    private let page: ChatHistoryPage
-    private var released = false
-    private var waiters: [CheckedContinuation<ChatHistoryPage, Never>] = []
-
-    init(page: ChatHistoryPage) {
-        self.page = page
-    }
-
-    func history(sessionID: String, beforeSeq: Int?, limit: Int) async throws -> ChatHistoryPage {
-        guard !released else { return page }
-        return await withCheckedContinuation { waiters.append($0) }
-    }
-
-    func events(sessionID: String) async -> AsyncStream<ChatSessionEvent> {
-        AsyncStream { $0.finish() }
-    }
-
-    func release() {
-        released = true
-        for waiter in waiters { waiter.resume(returning: page) }
-        waiters.removeAll()
-    }
-
-    func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {}
-
-    func interrupt(sessionID: String, hard: Bool) async throws {}
-
-    func answer(optionIndex: Int, sessionID: String) async throws {}
-}
-
 @Suite("ChatConversationStore source replacement")
 @MainActor
 struct ChatConversationStoreSourceReplacementTests {
@@ -80,6 +32,20 @@ struct ChatConversationStoreSourceReplacementTests {
         }
     }
 
+    private static func waitUntil(
+        iterations: Int = 400,
+        _ condition: () -> Bool
+    ) async -> Bool {
+        for iteration in 0..<iterations {
+            if condition() { return true }
+            await Task.yield()
+            if iteration % 20 == 19 {
+                try? await Task.sleep(nanoseconds: 2_000_000)
+            }
+        }
+        return condition()
+    }
+
     @Test("a stale initial history result is discarded after source replacement")
     func staleInitialHistoryResultIsDiscardedAfterSourceReplacement() async {
         let oldSource = GatedHistoryEventSource(
@@ -97,11 +63,11 @@ struct ChatConversationStoreSourceReplacementTests {
         let runTask = Task { await store.run() }
         defer { runTask.cancel() }
 
-        #expect(await SourceReplacementPoller.waitUntil { store.isConnected })
+        #expect(await Self.waitUntil { store.isConnected })
         store.replaceSource(newSource, descriptor: Self.descriptor(), sourceIdentity: "new")
         await oldSource.release()
 
-        #expect(await SourceReplacementPoller.waitUntil {
+        #expect(await Self.waitUntil {
             Self.userProseTexts(store.rows) == ["new history"]
         })
     }
