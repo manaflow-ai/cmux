@@ -181,6 +181,64 @@ export default function CustomCommandsPage() {
       <p>
         {t("buttonEntriesDesc")}
       </p>
+
+      <DocsHeading level={2} id="surface-tab-bar-buttons">{t("surfaceTabBarButtons")}</DocsHeading>
+      <p>
+        {t.rich("surfaceTabBarButtonsDesc", {
+          buttons: (chunks) => <code>{chunks}</code>,
+          actions: (chunks) => <code>{chunks}</code>,
+          cmuxJson: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <CodeBlock title="cmux.json" lang="json">{`{
+  "actions": {
+    "run-tests": {
+      "type": "command",
+      "command": "npm test",
+      "title": "Run Tests",
+      "subtitle": "Run the project test suite",
+      "target": "newTabInCurrentPane",
+      "palette": true,
+      "icon": { "type": "symbol", "name": "play.circle" }
+    }
+  },
+  "ui": {
+    "surfaceTabBar": {
+      "buttons": [
+        "cmux.newTerminal",
+        "cmux.newBrowser",
+        { "action": "run-tests", "title": "Test" },
+        { "builtin": "cmux.splitRight", "tooltip": "Split right" }
+      ]
+    }
+  }
+}`}</CodeBlock>
+      <p>
+        {t.rich("surfaceTabBarReplacementNote", {
+          buttons: (chunks) => <code>{chunks}</code>,
+          newTerminal: (chunks) => <code>{chunks}</code>,
+          newBrowser: (chunks) => <code>{chunks}</code>,
+          splitRight: (chunks) => <code>{chunks}</code>,
+          splitDown: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <p>
+        {t.rich("surfaceTabBarEntryForms", {
+          action: (chunks) => <code>{chunks}</code>,
+          builtin: (chunks) => <code>{chunks}</code>,
+          command: (chunks) => <code>{chunks}</code>,
+          agent: (chunks) => <code>{chunks}</code>,
+          workspaceCommand: (chunks) => <code>{chunks}</code>,
+          target: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <p>
+        {t.rich("surfaceTabBarConfigScope", {
+          localConfig: (chunks) => <code>{chunks}</code>,
+          globalConfig: (chunks) => <code>{chunks}</code>,
+          reload: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
       <p>
         {t.rich("permissionFlagsDesc", {
           target: (chunks) => <code>{chunks}</code>,
