@@ -377,6 +377,49 @@ import Testing
 }
 
 @MainActor
+@Test func staleReplayResponseAfterRemountDoesNotDeliverIntoCurrentStream() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.holdNextReplayResponses()
+    let oldCollector = OutputCollector()
+    oldCollector.mount(store: store, surfaceID: surfaceID)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    oldCollector.unmount()
+
+    let unregistered = await waitForReplayBarrierFailureToSettle {
+        store.terminalByteContinuationsBySurfaceID[surfaceID] == nil
+    }
+    #expect(unregistered)
+    let replayCountAfterUnmount = await router.count(of: "mobile.terminal.replay")
+
+    await router.enqueueReplayTexts(["fresh-replay", "stale-replay"])
+    let currentCollector = OutputCollector()
+    currentCollector.mount(store: store, surfaceID: surfaceID)
+    let remountRequested = await waitForReplayRequestCount(
+        router,
+        atLeast: replayCountAfterUnmount + 1
+    )
+    #expect(remountRequested)
+
+    let freshDelivered = try await pollUntil {
+        currentCollector.lines.contains("fresh-replay")
+    }
+    #expect(freshDelivered)
+
+    await router.releaseAllHeld()
+    let staleDelivered = try await pollUntil(attempts: 50) {
+        currentCollector.lines.contains("stale-replay")
+    }
+    #expect(!staleDelivered, "superseded replay responses must not deliver stale bytes")
+
+    currentCollector.unmount()
+}
+
+@MainActor
 @Test func genericReplayRequestReusesPreservedBarrierAfterRetryExhaustion() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
