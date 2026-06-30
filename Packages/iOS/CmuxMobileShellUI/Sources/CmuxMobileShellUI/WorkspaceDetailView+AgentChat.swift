@@ -137,17 +137,15 @@ extension WorkspaceDetailView {
     @ViewBuilder
     var toolbarTrailingCluster: some View {
         HStack(spacing: 8) {
-            ZStack {
-                if shouldShowChatToggle {
-                    chatToggleButton
-                        .transition(.scale(scale: 0.82, anchor: .trailing).combined(with: .opacity))
-                }
+            if shouldShowChatToggle {
+                chatToggleButton
+                    .frame(width: 44, height: 44)
+                    .transition(.scale(scale: 0.82, anchor: .trailing).combined(with: .opacity))
             }
-            .frame(width: 44, height: 44)
             terminalPickerToolbarButton
                 .frame(width: 44, height: 44)
         }
-        .frame(width: 96, height: 44, alignment: .trailing)
+        .frame(width: shouldShowChatToggle ? 96 : 44, height: 44, alignment: .trailing)
         .animation(.snappy(duration: 0.25), value: shouldShowChatToggle)
     }
 
@@ -284,12 +282,16 @@ extension WorkspaceDetailView {
         pinnedChatSessionID = openingSession.id
     }
 
-    /// Keeps cached stores bounded to sessions the workspace still knows about.
-    /// During transport loss the session list itself is preserved, so this does
-    /// not evict usable GUI state just because the Mac is reconnecting.
+    /// Keeps the active transcript store warm without retaining stores for every
+    /// ended session the host keeps in history. During transport loss the warm
+    /// session is still derived from the preserved session list, so reconnects do
+    /// not evict the GUI state the user can currently open.
     private func pruneCachedChatConversations() {
-        let liveIDs = Set(visibleChatSessions.map(\.id))
-        chatConversationStores = chatConversationStores.filter { liveIDs.contains($0.key) }
+        guard let warmID = warmChatSession?.id else {
+            chatConversationStores.removeAll()
+            return
+        }
+        chatConversationStores = chatConversationStores.filter { $0.key == warmID }
     }
 
     /// While chat is open and pinned to a session that has ended, if the agent
