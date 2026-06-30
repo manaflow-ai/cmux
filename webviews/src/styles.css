@@ -119,6 +119,12 @@ body {
   line-height: var(--cmux-diff-ui-line-height);
   z-index: 180;
 }
+.stage-commit-dialog::backdrop {
+  /* `.stage-commit-dialog-backdrop` supplies the dimming for both the modal
+     (showModal) and the non-modal fallback path, so keep the native modal
+     backdrop transparent to avoid stacking a second tint over it. */
+  background: transparent;
+}
 .stage-commit-dialog form {
   display: contents;
 }

@@ -451,8 +451,13 @@ function StageCommitDialog({
       <div className="stage-commit-dialog-backdrop" aria-hidden="true" />
       <dialog
         open
+        ref={presentStageCommitModal}
         className="stage-commit-dialog"
         aria-labelledby="stage-commit-dialog-title"
+        onCancel={(event) => {
+          event.preventDefault();
+          onCancel();
+        }}
       >
         <form
           onSubmit={(event) => {
@@ -492,6 +497,29 @@ function StageCommitDialog({
 
 function focusStageCommitInput(input: HTMLTextAreaElement | null) {
   input?.focus();
+}
+
+// Upgrade the rendered `<dialog open>` to a true top-layer modal where the
+// platform supports it (WKWebView), so the browser traps focus and inerts the
+// rest of the page. A bare `<dialog open>` is NON-modal — it never enters the
+// top layer or inerts the background — which would let keyboard/AT users tab
+// into the toolbar and sidebar behind the apparent modal. jsdom (the unit-test
+// DOM) has no showModal(), so this is a strict no-op there and the dialog stays
+// the declarative `open` element the tests already exercise.
+function presentStageCommitModal(node: HTMLDialogElement | null): void {
+  if (node == null || typeof node.showModal !== "function" || !node.open) {
+    return;
+  }
+  // Clear the declarative `open` first so showModal() does not throw
+  // InvalidStateError; showModal() re-sets `open`, so React's `open` prop and
+  // the DOM stay consistent.
+  node.removeAttribute("open");
+  try {
+    node.showModal();
+  } catch {
+    // Restore the non-modal open state if showModal() is unavailable in practice.
+    node.setAttribute("open", "");
+  }
 }
 
 function resolveDiffViewerAssetURL(rawURL: string | undefined): URL {
