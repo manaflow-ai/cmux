@@ -4,7 +4,7 @@ extension CMUXCLI {
 
 function sendHook(subcommand: string, ctx: ExtensionContext, extra: HookExtra = {}): boolean {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return false;
-  if (!process.env.CMUX_SOCKET_PATH || !["CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_WORKSPACE_ID"].some((key) => process.env[key])) return false;
+  if (!process.env.CMUX_SOCKET_PATH || !["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID"].some((key) => process.env[key])) return false;
 
   const sessionId = sessionIdFrom(ctx);
   if (!sessionId) return false;
@@ -197,7 +197,7 @@ function clearResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: strin
 
 function sendFeed(eventName: "PreToolUse" | "PostToolUse", ctx: ExtensionContext, event: unknown, extra: HookExtra = {}): void {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SOCKET_PATH || !["CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_WORKSPACE_ID"].some((key) => process.env[key])) return;
+  if (!process.env.CMUX_SOCKET_PATH || !["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID"].some((key) => process.env[key])) return;
   const sessionId = sessionIdFrom(ctx);
   if (!sessionId) return;
   const cwd = cwdFrom(ctx);

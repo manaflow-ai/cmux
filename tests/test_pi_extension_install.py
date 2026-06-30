@@ -299,6 +299,7 @@ await handlers.get("agent_end")({
         no_socket_env_log = root / "fake-cmux-env-surface-no-socket.log"
         no_socket_binding = root / "fake-surface-binding-surface-no-socket.json"
         surface_no_socket_env = check_env.copy()  # surface + workspace present, no socket yet
+        surface_no_socket_env.pop("CMUX_SOCKET_PATH", None)
         surface_no_socket_env["CMUX_TEST_PI_ARGS_LOG"] = str(no_socket_args_log)
         surface_no_socket_env["CMUX_TEST_PI_STDIN_LOG"] = str(no_socket_stdin_log)
         surface_no_socket_env["CMUX_TEST_PI_ENV_LOG"] = str(no_socket_env_log)
@@ -334,6 +335,7 @@ await handlers.get("agent_end")({
         no_surface_env_log = root / "fake-cmux-env-no-surface.log"
         no_surface_binding = root / "fake-surface-binding-no-surface.json"
         no_surface_env = check_env.copy()
+        no_surface_env.pop("CMUX_SOCKET_PATH", None)
         no_surface_env.pop("CMUX_SURFACE_ID", None)
         no_surface_env.pop("CMUX_PANEL_ID", None)
         no_surface_env["CMUX_WORKSPACE_ID"] = "workspace-pi-test"
