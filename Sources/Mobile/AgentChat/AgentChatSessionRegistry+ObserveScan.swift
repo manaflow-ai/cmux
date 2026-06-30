@@ -82,7 +82,7 @@ extension AgentChatSessionRegistry {
             processName: process.name,
             processPath: process.path,
             arguments: details.arguments,
-            environment: details.environment
+            environment: [:]
         )
     }
 

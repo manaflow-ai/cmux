@@ -94,6 +94,42 @@ struct AgentChatSessionRegistryObservationTests {
         #expect(session.transcriptPath == rolloutPath)
     }
 
+    @Test func mobileChatObserverIgnoresClaudeChildProcessWithInheritedEnvironment() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 303,
+                    name: "node",
+                    path: "/opt/homebrew/bin/node",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 300),
+            includesProcessDetails: true
+        )
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: { pid in
+                guard pid == 303 else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["node", "server.js"],
+                    environment: [
+                        "CMUX_AGENT_LAUNCH_KIND": "claude",
+                        "CLAUDE_CODE_SESSION_ID": sessionID,
+                    ]
+                )
+            },
+            codexRolloutPath: { _ in nil }
+        )
+
+        #expect(observed.isEmpty)
+    }
+
     private func topProcess(
         pid: Int,
         name: String,
