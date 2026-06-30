@@ -34,6 +34,8 @@ public typealias CMUXMobileShellStore = MobileShellComposite
 @MainActor
 @Observable
 public final class MobileShellComposite: MobileTerminalOutputSinking {
+    private static let maxTerminalReplayFailureRetries = 2
+
     private enum TerminalOutputTransport: Equatable {
         case hybrid
         case renderGrid
@@ -720,6 +722,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalReplayBarrierDroppedOutputSurfaceIDs: Set<String>
     var terminalReplayBarrierDroppedOutputCountsBySurfaceID: [String: UInt64]
     var terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID: [String: UInt64]
+    private var terminalReplayFailureRetryCountsBySurfaceID: [String: Int]
     private var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
@@ -916,6 +919,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalReplayBarrierDroppedOutputSurfaceIDs = []
         self.terminalReplayBarrierDroppedOutputCountsBySurfaceID = [:]
         self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID = [:]
+        self.terminalReplayFailureRetryCountsBySurfaceID = [:]
         self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
@@ -4948,6 +4952,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierDroppedOutputSurfaceIDs = []
         terminalReplayBarrierDroppedOutputCountsBySurfaceID = [:]
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID = [:]
+        terminalReplayFailureRetryCountsBySurfaceID = [:]
         terminalOutputQueuesBySurfaceID = [:]
         terminalOutputStreamTokensBySurfaceID = terminalOutputStreamTokensBySurfaceID.mapValues { _ in UUID() }
         terminalScrollQueueTokensBySurfaceID = [:]
@@ -6319,6 +6324,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
         return token
     }
 
@@ -6343,8 +6349,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared_\(reason) surface=\(surfaceID)")
         return true
+    }
+
+    private func prepareTerminalReplayFailureRetry(
+        surfaceID: String,
+        replayBarrierToken: UUID?
+    ) -> UUID? {
+        guard let replayBarrierToken,
+              hasTerminalOutputSink(surfaceID: surfaceID),
+              terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken else {
+            return nil
+        }
+        let retryCount = terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0
+        guard retryCount < Self.maxTerminalReplayFailureRetries else {
+            MobileDebugLog.anchormux(
+                "CMUX_REPLAY retry_exhausted surface=\(surfaceID) attempts=\(retryCount)"
+            )
+            return nil
+        }
+        terminalReplayFailureRetryCountsBySurfaceID[surfaceID] = retryCount + 1
+        MobileDebugLog.anchormux(
+            "CMUX_REPLAY retry_after_failure surface=\(surfaceID) attempt=\(retryCount + 1)"
+        )
+        return replayBarrierToken
     }
 
     private enum RenderGridEventDeliveryDecision {
@@ -6445,6 +6475,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueueTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
@@ -6611,7 +6642,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplaySurfaceIDsInFlight.insert(surfaceID)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.terminalReplaySurfaceIDsInFlight.remove(surfaceID) }
+            var retryReplayBarrierToken: UUID?
+            var retryCoveredDroppedOutputCount: UInt64?
+            defer {
+                self.terminalReplaySurfaceIDsInFlight.remove(surfaceID)
+                if let retryReplayBarrierToken {
+                    self.requestTerminalReplay(
+                        surfaceID: surfaceID,
+                        replayBarrierToken: retryReplayBarrierToken,
+                        coveredReplayBarrierDroppedOutputCount: retryCoveredDroppedOutputCount
+                    )
+                }
+            }
             do {
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",
@@ -6733,18 +6775,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             } catch {
                 mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .private)")
+                guard self.remoteClient === client else { return }
+                // The replay request is the view-only/foreground-resume path. A
+                // definitive auth failure here (after the RPC layer's
+                // force-refresh-and-retry already gave up) must drive the re-auth
+                // prompt instead of silently leaving a stale frame.
+                guard !self.disconnectForAuthorizationFailureIfNeeded(error) else { return }
+                if let retryToken = self.prepareTerminalReplayFailureRetry(
+                    surfaceID: surfaceID,
+                    replayBarrierToken: replayBarrierToken
+                ) {
+                    retryReplayBarrierToken = retryToken
+                    retryCoveredDroppedOutputCount = coveredReplayBarrierDroppedOutputCount
+                    return
+                }
                 self.clearTerminalReplayBarrierIfCurrent(
                     surfaceID: surfaceID,
                     token: replayBarrierToken,
                     reason: "failed",
                     preserveDroppedOutput: true
                 )
-                // The replay request is the view-only/foreground-resume path. A
-                // definitive auth failure here (after the RPC layer's
-                // force-refresh-and-retry already gave up) must drive the re-auth
-                // prompt instead of silently leaving a stale frame.
-                guard self.remoteClient === client else { return }
-                _ = self.disconnectForAuthorizationFailureIfNeeded(error)
             }
         }
     }

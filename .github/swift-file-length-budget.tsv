@@ -13,8 +13,8 @@
 8032	Sources/Panels/BrowserPanelView.swift
 8016	CLI/cmux_open.swift
 7366	cmuxTests/WorkspaceUnitTests.swift
+7224	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
-7174	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 6359	cmuxTests/SessionPersistenceTests.swift
 6217	cmuxTests/GhosttyConfigTests.swift
 6180	Sources/TabManager.swift
@@ -223,6 +223,7 @@
 525	Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/SocketControlSettings.swift
 524	CLI/CMUXCLI+AutoNaming.swift
 524	Sources/TerminalPaneDropTargetView.swift
+522	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/TerminalOutputDeliveryQueueTests.swift
 522	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift

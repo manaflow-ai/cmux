@@ -190,7 +190,7 @@ import Testing
     let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
 
     await router.failNextReplay()
-    let replayBarrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    _ = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
     let firstDropAccepted = store.deliverTerminalBytes(
         Data("live-during-failed-replay".utf8),
         surfaceID: surfaceID
@@ -199,19 +199,12 @@ import Testing
 
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 1)
 
-    let failureSettled = await waitForReplayBarrierFailureToSettle {
-        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
-            && store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken
-    }
-    #expect(failureSettled, "failed replay with dropped output must keep the barrier active")
-    #expect(store.terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID))
-
-    let retryDropAccepted = store.deliverTerminalBytes(
-        Data("live-after-failed-replay".utf8),
-        surfaceID: surfaceID
+    let retryRequested = await waitForReplayRequestCount(
+        router,
+        atLeast: replayCountAfterMount + 2
     )
-    #expect(retryDropAccepted == false)
-    await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 2)
+    #expect(retryRequested, "failed replay with dropped output must request a replacement replay")
+    #expect(store.terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID))
 
     let retryReplayChunk = try #require(await iterator.next())
     #expect(String(decoding: retryReplayChunk.data, as: UTF8.self) == "retry-replay")
