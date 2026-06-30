@@ -40,9 +40,15 @@ actor RoutingHostRouter {
         var surfaceID: String
         var text: String
     }
+    struct TerminalCloseRecord: Sendable {
+        var workspaceID: String
+        var surfaceID: String
+    }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
+    private(set) var terminalCloses: [TerminalCloseRecord] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
+    private var closedTerminalIDs: Set<String> = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
     private var holdFirstPasteImage = false
@@ -89,6 +95,7 @@ actor RoutingHostRouter {
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
+    func recordedTerminalCloses() -> [TerminalCloseRecord] { terminalCloses }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
 
     /// Sendable extract of the request fields the router needs, pulled off the
@@ -96,6 +103,7 @@ actor RoutingHostRouter {
     struct RequestInfo: Sendable {
         var method: String?
         var id: String?
+        var workspaceID: String?
         var surfaceID: String?
         var imageFormat: String?
         var text: String?
@@ -108,6 +116,25 @@ actor RoutingHostRouter {
         let id = info.id
         switch method {
         case "workspace.list", "mobile.workspace.list":
+            let terminals = [
+                [
+                    "id": Self.terminalA,
+                    "title": "A",
+                    "current_directory": "/tmp/route",
+                    "is_ready": true,
+                    "is_focused": !closedTerminalIDs.contains(Self.terminalA),
+                ],
+                [
+                    "id": Self.terminalB,
+                    "title": "B",
+                    "current_directory": "/tmp/route",
+                    "is_ready": true,
+                    "is_focused": closedTerminalIDs.contains(Self.terminalA),
+                ],
+            ].filter { terminal in
+                guard let id = terminal["id"] as? String else { return true }
+                return !closedTerminalIDs.contains(id)
+            }
             return try? Self.resultFrame(id: id, result: [
                 "workspaces": [
                     [
@@ -115,22 +142,7 @@ actor RoutingHostRouter {
                         "title": "Routing Workspace",
                         "current_directory": "/tmp/route",
                         "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": Self.terminalA,
-                                "title": "A",
-                                "current_directory": "/tmp/route",
-                                "is_ready": true,
-                                "is_focused": true,
-                            ],
-                            [
-                                "id": Self.terminalB,
-                                "title": "B",
-                                "current_directory": "/tmp/route",
-                                "is_ready": true,
-                                "is_focused": false,
-                            ],
-                        ],
+                        "terminals": terminals,
                     ],
                 ],
             ])
@@ -166,6 +178,16 @@ actor RoutingHostRouter {
             let text = info.text ?? ""
             pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
             return try? Self.resultFrame(id: id, result: [:])
+        case "terminal.close":
+            let workspaceID = info.workspaceID ?? ""
+            let surfaceID = info.surfaceID ?? ""
+            terminalCloses.append(TerminalCloseRecord(workspaceID: workspaceID, surfaceID: surfaceID))
+            closedTerminalIDs.insert(surfaceID)
+            return try? Self.resultFrame(id: id, result: [
+                "closed": true,
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+            ])
         case "notification.dismiss":
             dismisses.append((
                 notificationIDs: info.notificationIDs ?? [],
@@ -241,6 +263,7 @@ private actor RoutingTransport: CmxByteTransport {
             let info = RoutingHostRouter.RequestInfo(
                 method: parsed?["method"] as? String,
                 id: parsed?["id"] as? String,
+                workspaceID: params?["workspace_id"] as? String,
                 surfaceID: params?["surface_id"] as? String,
                 imageFormat: params?["image_format"] as? String,
                 text: params?["text"] as? String,
@@ -302,6 +325,8 @@ func makeRoutingConnectedStore(
     let store = MobileShellComposite(
         runtime: runtime,
         isSignedIn: true,
+        connectionState: .connected,
+        connectedHostName: "Test Mac",
         workspaces: [
             MobileWorkspacePreview(
                 id: .init(rawValue: RoutingHostRouter.workspaceID),

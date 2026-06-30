@@ -1956,11 +1956,13 @@ class TerminalController {
             "mobile.terminal.set_font",
             "mobile.workspace.list",
             "mobile.terminal.create",
+            "mobile.terminal.close",
             "mobile.terminal.input",
             "mobile.terminal.paste",
             "mobile.terminal.replay",
             "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe",
             "terminal.create",
+            "terminal.close",
             "terminal.input",
             "terminal.paste",
             "terminal.replay",
@@ -13150,6 +13152,8 @@ class TerminalController {
             result = v2MobileWorkspaceCreate(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
+        case "mobile.terminal.close", "terminal.close":
+            result = v2MobileTerminalClose(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
         case "mobile.terminal.paste", "terminal.paste":
@@ -13576,6 +13580,35 @@ class TerminalController {
             tabManager: tabManager,
             createdTerminalID: terminal.id.uuidString
         )
+    }
+
+    func v2MobileTerminalClose(params: [String: Any]) -> V2CallResult {
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              resolved.workspace.terminalPanel(for: surfaceId) != nil else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+        guard resolved.workspace.panels.count > 1 else {
+            return .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
+        }
+        guard closeSurfaceRecordingHistory(in: resolved.workspace, surfaceId: surfaceId, force: true) else {
+            return .err(
+                code: "internal_error",
+                message: "Failed to close terminal",
+                data: ["surface_id": surfaceId.uuidString]
+            )
+        }
+        return .ok([
+            "closed": true,
+            "workspace_id": resolved.workspace.id.uuidString,
+            "surface_id": surfaceId.uuidString,
+        ])
     }
 
     func v2MobileTerminalReplay(params: [String: Any]) -> V2CallResult {

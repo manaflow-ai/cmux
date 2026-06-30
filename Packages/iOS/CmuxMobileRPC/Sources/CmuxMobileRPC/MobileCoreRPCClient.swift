@@ -317,7 +317,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             )
         case "mobile.terminal.create", "terminal.create":
             return false
-        case "mobile.terminal.input", "terminal.input",
+        case "mobile.terminal.close", "terminal.close",
+             "mobile.terminal.input", "terminal.input",
              "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
