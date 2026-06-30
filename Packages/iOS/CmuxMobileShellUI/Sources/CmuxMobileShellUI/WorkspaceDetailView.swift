@@ -405,10 +405,7 @@ struct WorkspaceDetailView: View {
     var terminalPickerToolbarButton: some View {
         let liveRows = terminalPickerLiveRows
         let rows = terminalPickerRows.isEmpty ? liveRows : terminalPickerRows
-        let selection = TerminalPickerMenuSelection.resolve(
-            rows: rows,
-            selectedID: store.selectedTerminalID
-        )
+        let selection = rows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
 
         return Menu {
             terminalPickerMenuContent(rows: rows, selectedID: selection?.id)

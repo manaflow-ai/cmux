@@ -10,20 +10,16 @@ struct TerminalPickerMenuRow: Identifiable, Equatable {
     }
 }
 
-struct TerminalPickerMenuSelection: Equatable {
-    let id: MobileTerminalPreview.ID
-    let name: String
-
-    static func resolve(
-        rows: [TerminalPickerMenuRow],
+extension Collection where Element == TerminalPickerMenuRow {
+    func resolvedTerminalPickerSelection(
         selectedID: MobileTerminalPreview.ID?
-    ) -> TerminalPickerMenuSelection? {
+    ) -> (id: MobileTerminalPreview.ID, name: String)? {
         if let selectedID,
-           let selected = rows.first(where: { $0.id == selectedID }) {
-            return TerminalPickerMenuSelection(id: selected.id, name: selected.name)
+           let selected = first(where: { $0.id == selectedID }) {
+            return (id: selected.id, name: selected.name)
         }
-        guard let first = rows.first else { return nil }
-        return TerminalPickerMenuSelection(id: first.id, name: first.name)
+        guard let first else { return nil }
+        return (id: first.id, name: first.name)
     }
 }
 
