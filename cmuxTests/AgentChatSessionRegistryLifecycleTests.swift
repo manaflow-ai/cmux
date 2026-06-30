@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -127,6 +128,48 @@ struct AgentChatSessionRegistryLifecycleTests {
         #expect(live.state == .idle)
         #expect(live.pid == 222)
         #expect(registry.liveSession(surfaceID: surfaceID)?.sessionID == nextPendingID)
+    }
+
+    @MainActor
+    @Test func pendingClaudeAliasRefreshesFromRealHookStoreSessionID() async throws {
+        let home = try temporaryHomeDirectory()
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let pendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID)
+        let realSessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let transcriptPath = "/Users/example/.claude/projects/-Users-example-project/\(realSessionID).jsonl"
+        try writeClaudeHookStore(
+            home: home,
+            sessionID: realSessionID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            transcriptPath: transcriptPath,
+            pid: 222
+        )
+        let registry = AgentChatSessionRegistry(hookStore: AgentChatHookSessionStore(homeDirectory: home))
+
+        registry.noteResumeInitiated(
+            sessionID: pendingID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: "/Users/example/project"
+        )
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: realSessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            transcriptPath: nil,
+            cwd: "/Users/example/project",
+            ppid: 333,
+            receivedAt: Date(timeIntervalSince1970: 150)
+        ))
+
+        let refreshed = try #require(await registry.refreshBindingsFromHookStore(sessionID: pendingID))
+        #expect(refreshed.transcriptPath == transcriptPath)
+        #expect(refreshed.pid == 333)
     }
 
     private func temporaryHomeDirectory() throws -> URL {

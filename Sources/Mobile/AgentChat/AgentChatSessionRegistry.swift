@@ -297,10 +297,10 @@ final class AgentChatSessionRegistry {
     func refreshBindingsFromHookStore(sessionID: String) async -> AgentChatSessionRecord? {
         guard let record = records[sessionID] else { return nil }
         let store = hookStore
-        let source = record.agentKind.sourceName
+        let source = record.agentKind.sourceName, lookupSessionID = record.hookStoreLookupSessionID
         // Whole-file JSON read+parse off the main actor.
         let entry = await Task.detached(priority: .utility) {
-            store.entry(agentSource: source, sessionID: sessionID)
+            store.entry(agentSource: source, sessionID: lookupSessionID)
         }.value
         guard let entry else { return records[sessionID] }
         update(sessionID: sessionID) { $0.adoptBindings(from: entry, includingPID: false) }
@@ -384,7 +384,7 @@ final class AgentChatSessionRegistry {
                     guard candidate.surfaceID != current.surfaceID
                         || candidate.workspaceID != current.workspaceID
                         || candidate.transcriptPath != current.transcriptPath
-                        || candidate.workingDirectory != current.workingDirectory else { continue }
+                        || candidate.workingDirectory != current.workingDirectory || candidate.hookStoreSessionID != current.hookStoreSessionID else { continue }
                     update(sessionID: sessionID) { record in
                         record.adoptBindings(from: entry, includingPID: false)
                     }
@@ -403,6 +403,7 @@ final class AgentChatSessionRegistry {
                     title: nil,
                     pid: entry.pid
                 )
+                record.rememberHookStoreSessionID(entry.sessionID)
                 stampVersion(&record)
                 records[sessionID] = record
                 syncProcessExitWatch(for: record)
@@ -446,6 +447,7 @@ final class AgentChatSessionRegistry {
             title: nil,
             pid: nil
         )
+        record.rememberHookStoreSessionID(hookSessionID)
         if event.hookEventName == .sessionStart {
             // A resumed session (claude --resume reuses session ids) runs
             // under a NEW process; the old pid would make the liveness
@@ -666,7 +668,7 @@ final class AgentChatSessionRegistry {
             || candidate.workspaceID != current.workspaceID
             || candidate.transcriptPath != current.transcriptPath
             || candidate.workingDirectory != current.workingDirectory
-            || candidate.pid != current.pid else { return }
+            || candidate.pid != current.pid || candidate.hookStoreSessionID != current.hookStoreSessionID else { return }
         update(sessionID: sessionID) { record in
             record.adoptBindings(from: entry, includingPID: record.pid == nil)
         }

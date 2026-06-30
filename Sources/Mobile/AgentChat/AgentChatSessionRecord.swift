@@ -35,10 +35,19 @@ struct AgentChatSessionRecord: Sendable {
     /// The agent process id, for liveness sweeps.
     var pid: Int?
 
+    /// Real hook-store key, when this record is surfaced under a pending alias.
+    var hookStoreSessionID: String?
+
     /// Monotonic revision stamped by the registry on every change, so clients
     /// can reconcile best-effort pushes against authoritative pulls. Owned by
     /// the registry; mutators do not set it directly.
     var version: Int = 0
+
+    var hookStoreLookupSessionID: String { hookStoreSessionID ?? sessionID }
+
+    mutating func rememberHookStoreSessionID(_ id: String) {
+        if id != sessionID { hookStoreSessionID = id }
+    }
 
     /// Adopts terminal/transcript bindings from a hook-store entry. The
     /// store is rewritten by every hook event, so its non-nil fields are
@@ -56,6 +65,7 @@ struct AgentChatSessionRecord: Sendable {
         from entry: AgentChatHookSessionStore.Entry,
         includingPID: Bool = true
     ) {
+        rememberHookStoreSessionID(entry.sessionID)
         surfaceID = entry.surfaceID ?? surfaceID
         workspaceID = entry.workspaceID ?? workspaceID
         transcriptPath = entry.transcriptPath ?? transcriptPath
