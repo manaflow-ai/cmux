@@ -33,6 +33,7 @@ extension DockSocketLifecycleTests {
             restoredUnreadIndicator: nil,
             restorableAgent: nil,
             restorableAgentResumeState: nil,
+            restorableAgentAutoResumeOnVisit: false,
             resumeBinding: nil,
             agentRuntime: nil,
             isRemoteTerminal: false,
