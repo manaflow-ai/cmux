@@ -59,6 +59,7 @@ public final class CanvasRootView: NSView {
     /// Extra viewport fraction kept rendering around the visible rect so
     /// panes don't flicker on at the edge mid-flick.
     private static let lifecycleMarginFraction: CGFloat = 0.5
+    static let dragContentSuppressionMagnificationThreshold: CGFloat = 0.5
     static let revealMargin: CGFloat = 24
     static let overviewPadding: CGFloat = 48
     struct DragSession {
