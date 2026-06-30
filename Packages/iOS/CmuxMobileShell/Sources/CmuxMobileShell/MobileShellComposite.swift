@@ -2585,11 +2585,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             port: port,
             pairedMacDeviceID: previousActive.macDeviceID
         )
-        guard await isScopeCurrent(restoreScope), isCancelRestoreCurrent() else {
-            if connectionState == .connected,
+        let restoreScopeIsCurrent = await isScopeCurrent(restoreScope)
+        guard restoreScopeIsCurrent, isCancelRestoreCurrent() else {
+            if !restoreScopeIsCurrent,
+               connectionState == .connected,
                remoteClient != nil,
                foregroundMacDeviceID.map({ previousIDs.contains($0) }) == true {
-                disconnectLiveConnection()
+                suppressNextConnectionOutageEdge = true
+                connectionState = .disconnected
+                macConnectionStatus = .unavailable
+                clearRemoteConnectionContext()
                 workspacesByMac = workspacesByMac.filter { !previousIDs.contains($0.key) }
             }
             return false
