@@ -657,6 +657,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var outputQueueGeneration: UInt64 = 0
     private var pendingSurfaceFreeCount = 0
     private var renderPipelineRecoveryBlocked = false
+    private var deferredRenderPipelineRecovery: DeferredRenderPipelineRecovery?
     private static let maxPendingSurfaceFrees = 1
     private static let renderPipelineStallDeadline: CFTimeInterval = 2.0
     private static let outputApplyTimeout: CFTimeInterval = 2.0
@@ -2606,6 +2607,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// and resume; only ``prepareForDismantle()`` marks the surface dead.
     private func prepareForReuseAfterDetach() {
         renderPipelineRecoveryBlocked = false
+        deferredRenderPipelineRecovery = nil
+        completePendingSurfaceOperations(returning: false)
+        renderInFlight = false
+        renderInFlightSince = nil
+        needsAnotherRender = false
         resignInput()
         stopKeyboardHeightAnimation()
         stopDisplayLink()
@@ -2778,6 +2784,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         guard pendingSurfaceFreeCount < Self.maxPendingSurfaceFrees else {
             renderPipelineRecoveryBlocked = true
+            deferredRenderPipelineRecovery = DeferredRenderPipelineRecovery(
+                reason: reason,
+                stalledMs: stalledMs,
+                replay: replay
+            )
             stopDisplayLink()
             completePendingSurfaceOperations(returning: false)
             renderInFlight = false
@@ -2807,11 +2818,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 MobileDebugLog.anchormux(
                     "render.recover.free_drained pendingFrees=\(self.pendingSurfaceFreeCount)"
                 )
+                self.retryDeferredRenderPipelineRecoveryIfNeeded()
             }
         }
         oldBridge.detach()
 
         surface = nil
+        deferredRenderPipelineRecovery = nil
         renderInFlight = false
         renderInFlightSince = nil
         needsAnotherRender = false
@@ -2831,6 +2844,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             delegate?.ghosttySurfaceViewDidResetRenderPipeline(self)
         }
         return true
+    }
+
+    private func retryDeferredRenderPipelineRecoveryIfNeeded() {
+        guard pendingSurfaceFreeCount < Self.maxPendingSurfaceFrees,
+              let deferred = deferredRenderPipelineRecovery else { return }
+        deferredRenderPipelineRecovery = nil
+        renderPipelineRecoveryBlocked = false
+        guard !isDismantled, surface != nil else {
+            completePendingSurfaceOperations(returning: false)
+            return
+        }
+        MobileDebugLog.anchormux(
+            "render.recover.retry_after_free reason=\(deferred.reason) stalledMs=\(deferred.stalledMs)"
+        )
+        _ = recoverRenderPipeline(
+            reason: deferred.reason,
+            stalledMs: deferred.stalledMs,
+            replay: deferred.replay
+        )
     }
 
     private var preferredScreenScale: CGFloat {
@@ -4033,6 +4065,13 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
 nonisolated private enum RenderPipelineRecoveryReplay {
     case callerWillRequestReplay
     case delegateWhenNoCaller
+}
+
+/// Recovery request deferred only while an older surface free is still draining.
+nonisolated private struct DeferredRenderPipelineRecovery {
+    let reason: String
+    let stalledMs: Int
+    let replay: RenderPipelineRecoveryReplay
 }
 
 /// One output/geometry operation awaiting either its output-queue completion or
