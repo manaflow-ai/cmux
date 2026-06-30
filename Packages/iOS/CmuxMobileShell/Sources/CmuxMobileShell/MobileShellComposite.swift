@@ -6261,6 +6261,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         guard source != "event" || shouldDeliverRenderGridEvent(renderGrid) else {
+            deliverTerminalViewportPolicy(renderGrid.mobileViewportPolicy, surfaceID: renderGrid.surfaceID)
             MobileDebugLog.anchormux(
                 "sync.render_grid_advisory source=\(source) surface=\(renderGrid.surfaceID) screen=\(renderGrid.activeScreen.rawValue) seq=\(renderGrid.stateSeq)"
             )

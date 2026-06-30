@@ -26,6 +26,17 @@ extension MobileShellComposite {
         )
     }
 
+    func deliverTerminalViewportPolicy(_ policy: MobileTerminalOutputViewportPolicy, surfaceID: String) {
+        deliverTerminalOutput(
+            TerminalOutputDelivery(
+                bytes: Data(),
+                replaceable: true,
+                viewportPolicy: policy
+            ),
+            surfaceID: surfaceID
+        )
+    }
+
     private func deliverTerminalOutput(_ delivery: TerminalOutputDelivery, surfaceID: String) {
         guard let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
               let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] else { return }

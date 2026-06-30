@@ -145,7 +145,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     case nil:
                         break
                     }
-                    await surfaceView.processOutputAndWait(chunk.data)
+                    if !chunk.data.isEmpty {
+                        await surfaceView.processOutputAndWait(chunk.data)
+                    }
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
                         streamToken: chunk.streamToken
