@@ -757,6 +757,11 @@ final class FileExplorerStore: ObservableObject {
     private var directoryWatchTask: Task<Void, Never>?
     private var directoryWatchPath: String?
 
+    /// The root path the currently displayed `rootNodes` were listed from.
+    /// `reload()` keeps the tree visible for same-root refreshes and only
+    /// blanks it when this differs from `rootPath`.
+    private var loadedTreeRootPath: String?
+
     /// Paths that are logically expanded (persisted across provider changes)
     private(set) var expandedPaths: Set<String> = []
 
@@ -942,10 +947,21 @@ final class FileExplorerStore: ObservableObject {
         #endif
         contentRevision &+= 1
         cancelAllLoads()
-        rootNodes = []
-        nodesByPath = [:]
+        // A same-root refresh (directory watcher, manual reload) keeps the
+        // current tree visible and swaps it atomically when the fresh listing
+        // arrives. Blanking the tree here made every watcher event flash an
+        // empty sidebar + spinner before the relisted content came back.
+        // Only a root change (or losing the provider) shows stale content from
+        // the wrong directory, so only then is the tree dropped eagerly.
+        if loadedTreeRootPath != rootPath || rootPath.isEmpty || provider == nil {
+            rootNodes = []
+            nodesByPath = [:]
+            loadedTreeRootPath = nil
+        }
         guard !rootPath.isEmpty, provider != nil else { return }
-        isRootLoading = true
+        if rootNodes.isEmpty {
+            isRootLoading = true
+        }
         let path = rootPath
         let task = Task { [weak self] in
             guard let self else { return }
@@ -1059,6 +1075,21 @@ final class FileExplorerStore: ObservableObject {
             let entries = try await provider.listDirectory(path: path, showHidden: showHiddenFiles)
             try Task.checkCancellation()
             let children = entries.map { entry in
+                // Reuse the existing node for an unchanged path so NSOutlineView
+                // items stay valid across same-root refreshes. Expanded
+                // directories keep their subtree (the re-expand pass below
+                // refreshes it); collapsed ones drop cached children so the
+                // next expand re-lists, matching pre-reuse behavior.
+                if let existing = nodesByPath[entry.path], existing.isDirectory == entry.isDirectory {
+                    if existing.isDirectory, !expandedPaths.contains(existing.path) {
+                        existing.children = nil
+                        // A canceled in-flight load must not leave a reused
+                        // collapsed node stuck in loading/error state.
+                        existing.isLoading = false
+                        existing.error = nil
+                    }
+                    return existing
+                }
                 let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
                 nodesByPath[entry.path] = node
                 return node
@@ -1079,12 +1110,29 @@ final class FileExplorerStore: ObservableObject {
                 }
             } else {
                 rootNodes = children
+                loadedTreeRootPath = path
                 isRootLoading = false
                 setRootStatusMessage(nil)
                 if selectedPath == nil {
                     selectedPath = children.first?.path
                     selectedPaths = selectedPath.map { Set([$0]) } ?? []
                 }
+                // Drop nodesByPath entries no longer reachable from the fresh
+                // root listing. Same-root reloads keep the map (for node
+                // reuse), so without this, deleted paths would pin stale
+                // nodes — and a path deleted and later re-created would
+                // resurface its old subtree. Inline (not a method) so it
+                // shares this function's isolation under default-MainActor
+                // builds.
+                var reachable = Set<String>()
+                var stack = children
+                while let node = stack.popLast() {
+                    reachable.insert(node.path)
+                    if let nodeChildren = node.children {
+                        stack.append(contentsOf: nodeChildren)
+                    }
+                }
+                nodesByPath = nodesByPath.filter { reachable.contains($0.key) }
             }
             loadingPaths.remove(path)
             loadTasks.removeValue(forKey: path)

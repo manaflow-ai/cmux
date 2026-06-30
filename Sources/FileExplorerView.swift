@@ -92,7 +92,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         var onContainerChange: ((FileExplorerContainerView?) -> Void)?
         weak var containerView: FileExplorerContainerView?
         weak var outlineView: NSOutlineView?
-        private var lastRootNodeCount: Int = -1
+        private var lastRootContentFingerprint: Int?
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
@@ -178,10 +178,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 statusMessage: store.rootStatusMessage
             )
 
-            let newCount = store.rootNodes.count
+            let fingerprint = Self.rootContentFingerprint(of: store.rootNodes)
             withProgrammaticOutlineUpdate {
-                if newCount != lastRootNodeCount {
-                    lastRootNodeCount = newCount
+                if fingerprint != lastRootContentFingerprint {
+                    lastRootContentFingerprint = fingerprint
                     let expandedPaths = store.expandedPaths
                     outlineView.reloadData()
                     restoreExpansionState(expandedPaths, in: outlineView)
@@ -190,6 +190,21 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 }
                 applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
             }
+        }
+
+        /// Identity of the root listing as shown by the outline. A full
+        /// `reloadData()` runs only when this changes; a same-content refresh
+        /// (the directory watcher fires for changes deeper in the tree) goes
+        /// through row-level reconciliation instead. Comparing paths rather
+        /// than the node count also reloads when a same-sized listing has
+        /// different entries, which the old count check missed.
+        static func rootContentFingerprint(of nodes: [FileExplorerNode]) -> Int {
+            var hasher = Hasher()
+            for node in nodes {
+                hasher.combine(node.path)
+                hasher.combine(node.isDirectory)
+            }
+            return hasher.finalize()
         }
 
         private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {
