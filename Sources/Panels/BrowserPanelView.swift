@@ -4802,6 +4802,11 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             // field editor.
             guard editor != nil else { return false }
             guard editor?.hasMarkedText() != true else { return false }
+            // Only act while the field is being edited. WebKit replays an unhandled
+            // Return from focused web content back through performKeyEquivalent to
+            // this unfocused field; without the guard it submits and navigates the
+            // pane (#6250).
+            guard editor != nil else { return false }
             let keyCode = event.keyCode
             let modifiers = event.modifierFlags.intersection([.command, .control, .shift, .option, .function])
             // When a non-Latin input source is active (Korean, Chinese, Japanese),
