@@ -127,6 +127,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .none:
                 break
             }
+            if connectionState == .connected {
+                scheduleOfflineAgentNoteDrain()
+            }
         }
     }
     public private(set) var macConnectionStatus: MobileMacConnectionStatus
@@ -469,21 +472,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// The per-terminal composer-draft seam. `nil` in previews/tests that do not
-    /// exercise drafts; every draft hook is then a no-op and the in-memory
-    /// ``terminalInputText`` behaves exactly as before. Injected from the app
-    /// composition root.
     private let draftStore: (any TerminalDraftStoring)?
+    let offlineAgentNoteQueue: (any OfflineAgentNoteQueueStoring)?
+    public internal(set) var offlineAgentNotes: [OfflineAgentNote] = []
+    @ObservationIgnored var isLoadingOfflineAgentNotes = false
+    @ObservationIgnored var isDrainingOfflineAgentNotes = false
 
-    /// True while a saved draft is being loaded INTO ``terminalInputText``, so
-    /// its `didSet` does not immediately re-save the just-loaded value (which
-    /// would also race the key swap). Not observed: it gates a write, not view
-    /// state.
     @ObservationIgnored private var isLoadingDraft = false
-    /// Tail of the FIFO draft pipeline (see ``enqueueDraftOperation(_:)``).
-    /// Every draft-store operation chains onto this so store effects apply in
-    /// exactly the order they were issued from the main actor. Not observed: it
-    /// sequences async work, not view state.
     @ObservationIgnored private var draftOperationTail: Task<Void, Never>?
     /// Latest unflushed keystroke draft per terminal (see
     /// ``persistCurrentDraft()``). Keystroke saves coalesce here: each edit
@@ -555,7 +550,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp
     /// The injected, fire-and-forget product-analytics emitter. Defaults to
     /// ``NoopAnalytics`` so previews/tests inject nothing.
-    private let analytics: any AnalyticsEmitting
+    let analytics: any AnalyticsEmitting
     let connectAttemptRegistry = MobileRPCConnectAttemptRegistry()
     let stackTokenGate = RPCStackTokenGate()
     let stackTokenForceRefreshGate = RPCStackTokenGate()
@@ -802,10 +797,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
         draftStore: (any TerminalDraftStoring)? = nil,
+        offlineAgentNoteQueue: (any OfflineAgentNoteQueueStoring)? = nil,
         groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore()
     ) {
         self.runtime = runtime
         self.draftStore = draftStore
+        self.offlineAgentNoteQueue = offlineAgentNoteQueue
         self.groupCollapseStore = groupCollapseStore
         self.pairedMacStore = pairedMacStore
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
@@ -884,6 +881,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
+        loadOfflineAgentNotes()
     }
 
     isolated deinit {
@@ -959,6 +957,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // never land after the wipe and leak into the next account's session.
         if let draftStore {
             enqueueDraftOperation { await draftStore.clearAllDrafts() }
+        }
+        if offlineAgentNoteQueue != nil {
+            offlineAgentNotes = []
+            persistOfflineAgentNotes()
         }
         // Drop unflushed keystroke snapshots too: an armed flush that runs
         // before the wipe would only write text the wipe then deletes, but the
@@ -4199,10 +4201,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Empty text is "nothing to send", which is a success from the caller's
         // point of view (an images-only send has no text to keep on failure).
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
-        guard remoteClient != nil else { return false }
+        guard remoteClient != nil else {
+            return await enqueueOfflineAgentNote(
+                text: text,
+                workspaceID: workspaceID,
+                terminalID: terminalID
+            )
+        }
         // Reject a re-entrant send (e.g. a double tap on Send) so the same text
-        // is not pasted twice. The flag is set/cleared on the main actor around
-        // the await, so no second call can slip past it.
         guard !isSubmittingComposerInput else { return false }
         isSubmittingComposerInput = true
         defer { isSubmittingComposerInput = false }
@@ -4213,24 +4219,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalID: terminalID
         )
         guard sent else { return false }
-        // Reconcile against the CAPTURED terminal, not the live selection: if the
-        // user switched terminals while the ack was in flight, the switch persists
-        // the outgoing text as the captured terminal's draft, and the sent text
-        // must be cleared from that key, not from whatever terminal is selected
-        // when the ack returns.
         await reconcileComposerDraftAfterSend(sentText: text, submittedTerminalID: terminalID)
         return true
     }
 
-    /// Send the composer's staged attachments then its text, iMessage-style: the
-    /// images are delivered first (in pick order) so their injected file paths
-    /// land before the message that references them, then the text is submitted.
-    /// Attachments for the submitted terminal are cleared once they have all been
-    /// sent.
-    ///
-    /// Allowed with empty text as long as at least one attachment is staged; an
-    /// images-only send skips the (no-op) text submit.
-    ///
     /// Captures the target workspace + terminal ONCE up front and threads them
     /// through both the image sends and the text send, so a terminal switch while
     /// an (awaited) image send is in flight cannot reroute later images or the
@@ -5469,7 +5461,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///   `method_not_found` from an older host). Callers use this to keep the
     ///   composer text on failure instead of clearing it optimistically.
     @discardableResult
-    private func sendRemoteTerminalPaste(
+    func sendRemoteTerminalPaste(
         _ text: String,
         submitKey: String,
         workspaceID: MobileWorkspacePreview.ID,

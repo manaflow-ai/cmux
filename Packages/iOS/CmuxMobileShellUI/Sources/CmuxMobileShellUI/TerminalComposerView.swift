@@ -76,10 +76,7 @@ struct TerminalComposerView: View {
         self.requestHeightRemeasure = requestHeightRemeasure
     }
 
-    /// Single-line height of the round attach button beside the field. It stays
-    /// pinned to the bottom edge of the (taller) field via the outer `HStack`'s
-    /// `.bottom` alignment.
-    private let controlHeight: CGFloat = 40
+    let controlHeight: CGFloat = 40
 
     /// Diameter of the iMessage-style send button INSIDE the field's rounded
     /// container. With the container's 6pt vertical padding it exactly fills the
@@ -94,7 +91,6 @@ struct TerminalComposerView: View {
     /// reserves above the toolbar, pushing only the terminal up.
     private let composerLineLimit = 1...14
 
-    /// Minimum height of the compose field, matching the one-line baseline.
     private let composerFieldMinHeight: CGFloat = 40
 
     /// Whether the field's text alone is empty. Drives only secondary visuals;
@@ -275,6 +271,10 @@ struct TerminalComposerView: View {
 
     private var composerBar: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if !queuedNotes.isEmpty {
+                offlineNoteStatusRow
+            }
+
             // iMessage-style chip row of staged image attachments, ABOVE the
             // field. Shown only when something is staged so the empty composer
             // keeps its compact one-line height (and the host's measurement).

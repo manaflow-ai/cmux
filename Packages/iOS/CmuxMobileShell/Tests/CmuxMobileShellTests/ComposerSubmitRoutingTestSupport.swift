@@ -288,6 +288,7 @@ private actor RoutingTransport: CmxByteTransport {
 @MainActor
 func makeRoutingConnectedStore(
     router: RoutingHostRouter,
+    offlineAgentNoteQueue: (any OfflineAgentNoteQueueStoring)? = nil,
     pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(
         defaults: UserDefaults(suiteName: "routing-dismiss-\(UUID().uuidString)")!
     )
@@ -302,6 +303,7 @@ func makeRoutingConnectedStore(
     let store = MobileShellComposite(
         runtime: runtime,
         isSignedIn: true,
+        connectionState: .connected,
         workspaces: [
             MobileWorkspacePreview(
                 id: .init(rawValue: RoutingHostRouter.workspaceID),
@@ -309,7 +311,8 @@ func makeRoutingConnectedStore(
                 terminals: terminals
             ),
         ],
-        pendingDismissQueue: pendingDismissQueue
+        pendingDismissQueue: pendingDismissQueue,
+        offlineAgentNoteQueue: offlineAgentNoteQueue
     )
     // 127.0.0.1 is a Stack-auth-trusted route, so authorized requests carry the
     // Stack token and do not throw insecureManualRoute before reaching the
