@@ -3,6 +3,29 @@ import CmuxAgentChat
 import Foundation
 
 extension AgentChatSessionRegistry {
+    func reviveEndedObservedSessionIfNeeded(
+        current: AgentChatSessionRecord,
+        observed session: ObservedAgentSession,
+        now: Date
+    ) -> Bool {
+        if reviveEndedPendingClaudeSessionIfNeeded(current: current, observed: session, now: now) {
+            return true
+        }
+        guard current.state == .ended else {
+            return false
+        }
+        update(sessionID: current.sessionID) { record in
+            record.workspaceID = session.workspaceID ?? record.workspaceID
+            record.surfaceID = session.surfaceID
+            record.workingDirectory = session.workingDirectory ?? record.workingDirectory
+            record.transcriptPath = session.transcriptPath ?? record.transcriptPath
+            record.pid = session.pid
+            record.state = .idle
+            record.lastActivityAt = now
+        }
+        return true
+    }
+
     func reviveEndedPendingClaudeSessionIfNeeded(
         current: AgentChatSessionRecord,
         observed session: ObservedAgentSession,
@@ -15,10 +38,10 @@ extension AgentChatSessionRegistry {
             return false
         }
         update(sessionID: current.sessionID) { record in
-            record.workspaceID = session.workspaceID
+            record.workspaceID = session.workspaceID ?? record.workspaceID
             record.surfaceID = session.surfaceID
-            record.workingDirectory = session.workingDirectory
-            record.transcriptPath = session.transcriptPath
+            record.workingDirectory = session.workingDirectory ?? record.workingDirectory
+            record.transcriptPath = session.transcriptPath ?? record.transcriptPath
             record.pid = session.pid
             record.state = .idle
             record.lastActivityAt = now

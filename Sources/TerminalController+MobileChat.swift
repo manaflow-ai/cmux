@@ -109,7 +109,7 @@ extension TerminalController {
         let workspace = resolved.workspace
         var encoded: [[String: Any]] = []
         #if DEBUG
-        var dropNotInWorkspace = 0, dropDeadPID = 0, kept = 0
+        var dropNotInWorkspace = 0, dropDeadPID = 0, dropEndedMissingTranscript = 0, kept = 0
         let allRecords = service.sessionRecords(workspaceID: nil)
         #endif
         for record in service.sessionRecords(workspaceID: nil) {
@@ -136,6 +136,14 @@ extension TerminalController {
                 #endif
                 continue
             }
+            if record.state == .ended,
+               !service.hasBoundedReadableTranscript(record) {
+                #if DEBUG
+                dropEndedMissingTranscript += 1
+                cmuxDebugLog("agentChat.list drop=endedMissingTranscript session=\(record.sessionID.prefix(8)) kind=\(record.agentKind.sourceName) surface=\(record.surfaceID?.prefix(8) ?? "nil")")
+                #endif
+                continue
+            }
             #if DEBUG
             kept += 1
             #endif
@@ -151,7 +159,7 @@ extension TerminalController {
             }
         }
         #if DEBUG
-        cmuxDebugLog("agentChat.list workspace=\(workspaceID.prefix(8)) total=\(allRecords.count) dropNotInWS=\(dropNotInWorkspace) dropDeadPID=\(dropDeadPID) kept=\(kept) returned=\(encoded.count)")
+        cmuxDebugLog("agentChat.list workspace=\(workspaceID.prefix(8)) total=\(allRecords.count) dropNotInWS=\(dropNotInWorkspace) dropDeadPID=\(dropDeadPID) dropEndedMissingTranscript=\(dropEndedMissingTranscript) kept=\(kept) returned=\(encoded.count)")
         #endif
         return .ok(["sessions": encoded])
     }

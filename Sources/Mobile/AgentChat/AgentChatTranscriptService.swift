@@ -219,6 +219,13 @@ final class AgentChatTranscriptService {
         registry.record(sessionID: sessionID)
     }
 
+    /// Whether an ended session can still serve history without expensive
+    /// fallback scans. Live sessions stay visible before their JSONL exists;
+    /// ended sessions with missing JSONL only open to an unrecoverable error.
+    func hasBoundedReadableTranscript(_ record: AgentChatSessionRecord) -> Bool {
+        resolver.boundedTranscriptPath(for: record) != nil
+    }
+
     /// Re-adopts one session's terminal bindings from the hook store; see
     /// ``AgentChatSessionRegistry/refreshBindingsFromHookStore(sessionID:)``.
     @discardableResult

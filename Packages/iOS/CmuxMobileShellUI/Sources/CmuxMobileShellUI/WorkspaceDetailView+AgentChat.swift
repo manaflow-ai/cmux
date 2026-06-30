@@ -202,7 +202,15 @@ extension WorkspaceDetailView {
             else { break }
             let current = visibleChatSessions
             let next = reducer.applying(frame, to: current)
-            guard next != current else { continue }
+            guard next != current else {
+                _ = await refreshAfterIgnoredChatSessionFrameIfNeeded(
+                    frame,
+                    source: source,
+                    workspaceID: workspaceID,
+                    sourceIdentity: sourceIdentity
+                )
+                continue
+            }
             withAnimation(.snappy(duration: 0.25)) {
                 chatSessionsWorkspaceID = workspaceID
                 chatSessions = next
@@ -210,6 +218,44 @@ extension WorkspaceDetailView {
             store.rememberChatSessions(next, workspaceID: workspaceID)
             reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: true)
         }
+    }
+
+    /// If a live descriptor push names the selected terminal but carries a stale
+    /// or missing workspace id, a scoped reducer correctly ignores it. Pull the
+    /// authoritative workspace snapshot once so the toolbar toggle appears
+    /// without requiring the user to leave and re-enter the workspace.
+    private func refreshAfterIgnoredChatSessionFrameIfNeeded(
+        _ frame: ChatSessionEventFrame,
+        source: MobileChatEventSource,
+        workspaceID: String,
+        sourceIdentity: String
+    ) async -> Bool {
+        guard frame.shouldPullAuthoritativeSnapshotForIgnoredWorkspaceFrame(
+            workspaceID: workspaceID,
+            selectedTerminalID: selectedTerminalID,
+            cachedChatToggleTerminalID: cachedChatToggleTerminalID
+        )
+        else { return false }
+        let sessions: [ChatSessionDescriptor]
+        do {
+            sessions = try await source.sessions(workspaceID: workspaceID)
+        } catch {
+            return false
+        }
+        guard !Task.isCancelled,
+              workspaceID == workspace.id.rawValue,
+              sourceIdentity == store.agentChatEventSourceIdentity
+        else { return false }
+        let next = WorkspaceChatSessionRefreshOutcome.authoritative(sessions)
+            .applying(to: visibleChatSessions)
+        guard next != visibleChatSessions else { return true }
+        withAnimation(.snappy(duration: 0.25)) {
+            chatSessionsWorkspaceID = workspaceID
+            chatSessions = next
+        }
+        store.rememberChatSessions(next, workspaceID: workspaceID)
+        reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: true)
+        return true
     }
 
     /// Runs the selected terminal's chat store while terminal mode is visible.
@@ -309,15 +355,12 @@ extension WorkspaceDetailView {
     /// so the GUI becomes editable again.
     private func repinToReopenedSession() {
         guard isChatMode,
-              let pinnedID = pinnedChatSessionID,
-              let pinned = visibleChatSessions.first(where: { $0.id == pinnedID }),
-              pinned.state == .ended,
-              let terminalID = pinned.terminalID else { return }
-        let live = visibleChatSessions
-            .filter { $0.terminalID == terminalID && $0.id != pinnedID && $0.state != .ended }
-            .max { ($0.lastActivityAt ?? .distantPast) < ($1.lastActivityAt ?? .distantPast) }
-        if let live {
-            pinnedChatSessionID = live.id
+              let pinnedID = pinnedChatSessionID else { return }
+        if let replacementID = visibleChatSessions.replacementSessionIDForPinnedChat(
+            pinnedID: pinnedID,
+            cachedTerminalID: cachedChatToggleTerminalID
+        ) {
+            pinnedChatSessionID = replacementID
         }
     }
 

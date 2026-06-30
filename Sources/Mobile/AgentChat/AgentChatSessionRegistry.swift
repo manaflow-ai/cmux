@@ -199,7 +199,7 @@ final class AgentChatSessionRegistry {
                 onRecordChanged?(record, nil)
             } else {
                 guard let current = records[targetSessionID] else { continue }
-                if reviveEndedPendingClaudeSessionIfNeeded(current: current, observed: session, now: now) {
+                if reviveEndedObservedSessionIfNeeded(current: current, observed: session, now: now) {
                     continue
                 }
                 let needsBackfill = current.surfaceID == nil

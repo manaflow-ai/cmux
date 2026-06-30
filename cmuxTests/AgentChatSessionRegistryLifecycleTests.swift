@@ -131,6 +131,47 @@ struct AgentChatSessionRegistryLifecycleTests {
     }
 
     @MainActor
+    @Test func endedCodexObservationRevivesRealSessionID() throws {
+        let registry = AgentChatSessionRegistry()
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+
+        registry.applyObservedSessions([
+            ObservedAgentSession(
+                sessionID: sessionID,
+                agentKind: .codex,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                pid: 111,
+                workingDirectory: "/Users/example/project",
+                transcriptPath: "/Users/example/.codex/sessions/rollout-\(sessionID).jsonl"
+            ),
+        ])
+        registry.update(sessionID: sessionID) { record in
+            record.state = .ended
+        }
+
+        registry.applyObservedSessions([
+            ObservedAgentSession(
+                sessionID: sessionID,
+                agentKind: .codex,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                pid: 222,
+                workingDirectory: "/Users/example/project",
+                transcriptPath: nil
+            ),
+        ])
+
+        let record = try #require(registry.record(sessionID: sessionID))
+        #expect(record.state == .idle)
+        #expect(record.pid == 222)
+        #expect(record.transcriptPath == "/Users/example/.codex/sessions/rollout-\(sessionID).jsonl")
+        #expect(registry.liveSession(surfaceID: surfaceID)?.sessionID == sessionID)
+    }
+
+    @MainActor
     @Test func pendingClaudeAliasRefreshesFromRealHookStoreSessionID() async throws {
         let home = try temporaryHomeDirectory()
         let workspaceID = UUID().uuidString
@@ -170,6 +211,73 @@ struct AgentChatSessionRegistryLifecycleTests {
         let refreshed = try #require(await registry.refreshBindingsFromHookStore(sessionID: pendingID))
         #expect(refreshed.transcriptPath == transcriptPath)
         #expect(refreshed.pid == 333)
+    }
+
+    @MainActor
+    @Test func endedSessionWithMissingTranscriptIsNotListableForMobileChat() throws {
+        let home = try temporaryHomeDirectory()
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:])
+        )
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let transcriptURL = home
+            .appendingPathComponent(".claude/projects/-Users-example-project", isDirectory: true)
+            .appendingPathComponent("\(sessionID).jsonl")
+        let record = AgentChatSessionRecord(
+            sessionID: sessionID,
+            agentKind: .claude,
+            workspaceID: UUID().uuidString,
+            surfaceID: UUID().uuidString,
+            workingDirectory: "/Users/example/project",
+            transcriptPath: transcriptURL.path,
+            state: .ended,
+            lastActivityAt: Date(),
+            title: nil,
+            pid: nil
+        )
+
+        #expect(!service.hasBoundedReadableTranscript(record))
+
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        #expect(service.hasBoundedReadableTranscript(record))
+    }
+
+    @MainActor
+    @Test func endedCodexSessionListabilityDoesNotScanCodexHistory() throws {
+        let home = try temporaryHomeDirectory()
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:])
+        )
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let transcriptURL = home
+            .appendingPathComponent(".codex/sessions/2026/06/30", isDirectory: true)
+            .appendingPathComponent("rollout-2026-06-30T00-00-00-\(sessionID).jsonl")
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let record = AgentChatSessionRecord(
+            sessionID: sessionID,
+            agentKind: .codex,
+            workspaceID: UUID().uuidString,
+            surfaceID: UUID().uuidString,
+            workingDirectory: "/Users/example/project",
+            transcriptPath: nil,
+            state: .ended,
+            lastActivityAt: Date(),
+            title: nil,
+            pid: nil
+        )
+
+        #expect(!service.hasBoundedReadableTranscript(record))
     }
 
     private func temporaryHomeDirectory() throws -> URL {
