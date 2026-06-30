@@ -757,6 +757,14 @@ final class FileExplorerStore: ObservableObject {
     private var directoryWatchTask: Task<Void, Never>?
     private var directoryWatchPath: String?
 
+    /// Watches the repository's `.git` metadata so status badges refresh after
+    /// metadata-only changes (`git commit`, `git add`, `git reset`) that never
+    /// touch the working tree — and so are excluded from the main tree watcher.
+    /// Kept separate because those events must refresh git status without
+    /// triggering a tree `reload()`.
+    private var gitStateWatcher: RecursivePathWatcher?
+    private var gitStateWatchTask: Task<Void, Never>?
+
     /// Whether a `git status` fetch started by ``refreshGitStatus()`` is still
     /// running. The recursive watcher can request a refresh once per throttle
     /// window during a sustained filesystem storm; without this guard each
@@ -950,18 +958,51 @@ final class FileExplorerStore: ObservableObject {
                     self.refreshGitStatus()
                 }
             }
+            startGitStateWatcher(under: rootPath)
         } else {
             stopDirectoryWatcher()
         }
     }
 
-    /// Cancels the directory-watch consumer and drops the watcher; the watcher's
-    /// deinit tears down its filesystem stream synchronously.
+    /// Watches the repository's `.git` directory (minus the high-churn
+    /// `objects`/`logs` subtrees) so status badges refresh after metadata-only
+    /// changes the main tree watcher intentionally excludes. Only refreshes git
+    /// status — `.git` writes don't change the visible file tree, so no
+    /// `reload()`. No-op when `.git` is absent or is a worktree/submodule link
+    /// file rather than a directory.
+    private func startGitStateWatcher(under rootPath: String) {
+        let gitDirectory = URL(fileURLWithPath: rootPath, isDirectory: true)
+            .appendingPathComponent(".git", isDirectory: true)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: gitDirectory.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return }
+        guard let watcher = RecursivePathWatcher(
+            paths: [gitDirectory.path],
+            excludedPaths: [
+                gitDirectory.appendingPathComponent("objects", isDirectory: true).path,
+                gitDirectory.appendingPathComponent("logs", isDirectory: true).path,
+            ]
+        ) else { return }
+        gitStateWatcher = watcher
+        let events = watcher.events
+        gitStateWatchTask = Task { @MainActor [weak self] in
+            for await _ in events {
+                guard let self else { break }
+                self.refreshGitStatus()
+            }
+        }
+    }
+
+    /// Cancels the directory-watch consumers and drops the watchers; each
+    /// watcher's deinit tears down its filesystem stream synchronously.
     private func stopDirectoryWatcher() {
         directoryWatchTask?.cancel()
         directoryWatchTask = nil
         directoryWatcher = nil
         directoryWatchPath = nil
+        gitStateWatchTask?.cancel()
+        gitStateWatchTask = nil
+        gitStateWatcher = nil
     }
 
     private func setProvider(_ newProvider: FileExplorerProvider?, reloadIfAvailable: Bool = true) {
