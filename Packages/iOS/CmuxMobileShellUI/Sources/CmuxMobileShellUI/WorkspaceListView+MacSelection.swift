@@ -28,10 +28,6 @@ extension WorkspaceListView {
         macSelectionScope.visibleSelection
     }
 
-    var macPickerMachines: [WorkspaceFilterMachine] {
-        liveMachineSnapshots.macPickerMachines
-    }
-
     var liveMachineSnapshots: WorkspaceMachineSnapshots {
         WorkspaceMachineSnapshots(
             workspaces: workspaces,
@@ -78,7 +74,7 @@ extension WorkspaceListView {
         macSelectionScope.canRenderGroupsForSelection
     }
 
-    var macTitlePickerTitle: String {
+    func macTitlePickerTitle(machineSnapshots: WorkspaceMachineSnapshots) -> String {
         switch visibleMacSelection {
         case .all, .automatic:
             L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs")
@@ -87,7 +83,7 @@ extension WorkspaceListView {
         }
     }
 
-    var macTitlePicker: some View {
+    func macTitlePicker(machineSnapshots: WorkspaceMachineSnapshots) -> some View {
         Menu {
             Picker(
                 L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Mac"),
@@ -114,7 +110,7 @@ extension WorkspaceListView {
                 .accessibilityIdentifier("MobileWorkspaceMacPickerAdd")
             }
         } label: {
-            WorkspaceMacTitlePickerLabel(title: macTitlePickerTitle)
+            WorkspaceMacTitlePickerLabel(title: macTitlePickerTitle(machineSnapshots: machineSnapshots))
         }
         .buttonStyle(.plain)
         .tint(.white)

@@ -19,7 +19,7 @@ import Testing
             store: store
         )
 
-        #expect(view.macPickerMachines.map(\.id) == ["mac-a", "mac-b"])
+        #expect(view.liveMachineSnapshots.macPickerMachines.map(\.id) == ["mac-a", "mac-b"])
     }
 
     @Test func selectingCoalescedPairedMacMatchesAliasWorkspaceRows() async throws {
@@ -52,7 +52,7 @@ import Testing
 
         let view = workspaceListView(workspaces: [], store: store)
 
-        #expect(view.macPickerMachines.map(\.name) == ["Desk setup"])
+        #expect(view.liveMachineSnapshots.macPickerMachines.map(\.name) == ["Desk setup"])
     }
 
     @Test func createWorkspaceIsGatedWhenSpecificSelectedMacIsNotForeground() async throws {
@@ -125,6 +125,14 @@ import Testing
     @Test func filterMenuPruningClearsSelectionWhenMachineSectionWouldHide() {
         var filter = MobileWorkspaceListFilter(machines: ["mac-a"])
         let changed = filter.pruneMachinesForFilterMenu(presentMachineIDs: ["mac-a"])
+
+        #expect(changed)
+        #expect(filter.machines.isEmpty)
+    }
+
+    @Test func filterMenuPruningClearsSelectionWhenOnlyDuplicateMachineIDsArePresent() {
+        var filter = MobileWorkspaceListFilter(machines: ["mac-a"])
+        let changed = filter.pruneMachinesForFilterMenu(presentMachineIDs: ["mac-a", "mac-a"])
 
         #expect(changed)
         #expect(filter.machines.isEmpty)

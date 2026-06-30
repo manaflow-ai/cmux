@@ -79,12 +79,13 @@ extension MobileWorkspaceListFilter {
     /// must be cleared before it becomes hidden state.
     @discardableResult
     mutating func pruneMachinesForFilterMenu(presentMachineIDs: [String]) -> Bool {
-        guard presentMachineIDs.count > 1 else {
+        let presentMachineIDSet = Set(presentMachineIDs)
+        guard presentMachineIDSet.count > 1 else {
             guard !machines.isEmpty else { return false }
             machines.removeAll()
             return true
         }
-        return pruneMachines(notIn: presentMachineIDs)
+        return pruneMachines(notIn: Array(presentMachineIDSet))
     }
 
     /// The localized copy for "this filter hid every workspace". `nil` for the

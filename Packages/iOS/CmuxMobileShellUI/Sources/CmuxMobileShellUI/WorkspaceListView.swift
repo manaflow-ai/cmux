@@ -88,8 +88,10 @@ struct WorkspaceListView: View {
     @State var filter: MobileWorkspaceListFilter = .all
     /// Stable machine-menu content. Kept as value state so live workspace or
     /// device-tree updates that do not change the actual machine set/name
-    /// snapshot do not rebuild an open native Menu.
-    @State var machineSnapshots: WorkspaceMachineSnapshots = .empty
+    /// snapshot do not rebuild an open native Menu. `nil` only before the first
+    /// appearance callback, when the body can still display the live snapshot
+    /// without resetting an already-open menu.
+    @State var machineSnapshots: WorkspaceMachineSnapshots?
     /// The workspace whose destructive close action is awaiting confirmation.
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
@@ -161,6 +163,7 @@ struct WorkspaceListView: View {
 
     var body: some View {
         let currentMachineSnapshots = liveMachineSnapshots
+        let displayedMachineSnapshots = machineSnapshots ?? currentMachineSnapshots
         List {
             if let store, showsConnectionRecoveryRow {
                 Section {
@@ -237,7 +240,7 @@ struct WorkspaceListView: View {
                 settingsMenu
             }
             ToolbarItem(placement: .principal) {
-                macTitlePicker
+                macTitlePicker(machineSnapshots: displayedMachineSnapshots)
             }
             if showsDevicesButton {
                 ToolbarItem(placement: .topBarLeading) {
@@ -245,14 +248,14 @@ struct WorkspaceListView: View {
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                WorkspaceListFilterMenu(filter: $filter, machines: machineSnapshots.filterMachines)
+                WorkspaceListFilterMenu(filter: $filter, machines: displayedMachineSnapshots.filterMachines)
                 if canCreateWorkspace {
                     newWorkspaceButton
                 }
             }
             #else
             ToolbarItemGroup {
-                WorkspaceListFilterMenu(filter: $filter, machines: machineSnapshots.filterMachines)
+                WorkspaceListFilterMenu(filter: $filter, machines: displayedMachineSnapshots.filterMachines)
                 if canCreateWorkspace {
                     newWorkspaceButton
                 }
@@ -298,8 +301,9 @@ struct WorkspaceListView: View {
     }
 
     private func updateMachineSnapshots(_ snapshots: WorkspaceMachineSnapshots) {
-        guard machineSnapshots != snapshots else { return }
-        machineSnapshots = snapshots
+        if machineSnapshots != snapshots {
+            machineSnapshots = snapshots
+        }
     }
 
     #if os(iOS)
