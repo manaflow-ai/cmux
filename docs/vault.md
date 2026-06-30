@@ -4,7 +4,7 @@ Vault restores built-in agent sessions and can also read custom agent registrati
 `cmux.json`. Registrations define how cmux detects a running terminal process, where the
 agent's native session id comes from, and which command resumes that session.
 
-Pi Coding Agent and OMP are registered by default:
+Pi Coding Agent, OMP, Antigravity, and Grok are registered by default:
 
 ```jsonc
 {
@@ -34,6 +34,29 @@ Pi Coding Agent and OMP are registered by default:
         "forkCommand": "{{executable}} --session {{sessionId}} --fork",
         "cwd": "preserve",
         "sessionDirectory": "~/.omp/agent/sessions"
+      },
+      {
+        "id": "antigravity",
+        "name": "Antigravity",
+        "iconAssetName": "AgentIcons/Antigravity",
+        "detect": {
+          "processNames": ["agy", "antigravity"]
+        },
+        "sessionIdSource": { "type": "argvOption", "argvOption": "--conversation" },
+        "resumeCommand": "{{executable}} --conversation {{sessionId}}",
+        "cwd": "preserve",
+        "sessionDirectory": "~/.gemini/antigravity-cli"
+      },
+      {
+        "id": "grok",
+        "name": "Grok",
+        "detect": {
+          "processNames": ["grok", "grok-macos-aarch64", "grok-macos-aarch"]
+        },
+        "sessionIdSource": { "type": "grokSessionDirectory" },
+        "resumeCommand": "{{executable}} -r {{sessionId}}",
+        "cwd": "preserve",
+        "sessionDirectory": "~/.grok/sessions"
       }
     ]
   }
@@ -68,6 +91,8 @@ Supported `resumeCommand` placeholders are `{{sessionId}}`, `{{sessionPath}}`,
 `{{executable}}`, `{{cwd}}`, and `{{sessionDir}}`. Pi uses `pi --session <id-or-path>`
 instead of `pi --continue` so Vault reopens the exact saved session.
 OMP accepts `--session`, `--resume`, and `-r` for existing sessions; Vault emits `omp --session <id-or-path>` so relaunch reopens the exact saved OMP session.
+Antigravity exposes the conversation id behind `--conversation`, so Vault emits `agy --conversation <id>`.
+Grok restores by session id via `-r`, so Vault emits `grok -r <id>`.
 
 `resumeCommand` must include either `{{sessionId}}` or `{{sessionPath}}`, for
 example `pi --session {{sessionId}}`.

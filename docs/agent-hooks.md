@@ -11,7 +11,7 @@ cmux hooks setup --agent <agent>
 cmux hooks uninstall <agent>
 ```
 
-Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `amp`, `cursor`, `gemini`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
+Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `amp`, `cursor`, `gemini`, `kiro`, `antigravity` (or `agy`), `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
 
 ## Integrations
 
@@ -27,6 +27,7 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `amp`, `curs
 | Cursor CLI | `cursor-agent` | `~/.cursor/hooks.json` | `cursor-agent --resume <id>` | beforeShellExecution |
 | Gemini | `gemini` | `~/.gemini/settings.json` | `gemini --resume <id>` | PreToolUse |
 | Kiro CLI | `kiro-cli` | `~/.kiro/agents/cmux.json` or `$KIRO_HOME/agents/cmux.json` | `kiro-cli chat --resume-id <id>` | preToolUse, postToolUse |
+| Antigravity | `agy` | `~/.gemini/config/hooks.json` | `agy --conversation <id>` | PreToolUse, PostToolUse |
 | Rovo Dev | `acli` | `~/.rovodev/config.yml` | `acli rovodev run --restore <id>` | none |
 | Copilot | `copilot` | `~/.copilot/config.json` | `copilot --resume <id>` | PreToolUse |
 | CodeBuddy | `codebuddy` | `~/.codebuddy/settings.json` | `codebuddy --resume <id>` | PreToolUse |
