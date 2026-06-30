@@ -820,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
           "focusTextBoxOnNewTerminals": "Mette a fuoco l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati. Il focus mostra anche TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Quando è attivo, un banner di notifica viene ritirato automaticamente solo quando la sua superficie è esattamente la superficie con il focus. Un banner mostrato per una superficie senza focus nel workspace attualmente visibile resta visibile finché non porti il focus su quella superficie (o ci fai clic/la chiudi), invece di essere ritirato quando il workspace diventa visibile. Disattivato mantiene il vecchio ritiro basato sulla visibilità del workspace."
+        },
         "browser": {
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
           "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
