@@ -1213,17 +1213,9 @@ extension Workspace {
             )
             let remoteStartupCommand = remoteTerminalStartupCommand()
             let restoresRemoteWorkspaceTerminalSnapshot = remoteStartupCommand != nil && snapshot.terminal?.isRemoteTerminal != false
-            let restoresLocalTerminalInRemoteWorkspace = remoteStartupCommand != nil && snapshot.terminal?.isRemoteTerminal == false
             let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if restoresRemoteWorkspaceTerminalSnapshot {
                 effectiveResumeBindingForStartup?.remoteStartupInputWithLauncherScript(allowLauncherScript: false)
                     .map(SurfaceResumeStartupLaunch.input)
-            } else if restoresLocalTerminalInRemoteWorkspace {
-                effectiveResumeBindingForStartup.flatMap {
-                    sessionRestorePolicy.surfaceResumeStartupLaunch(
-                        forApprovedBinding: $0,
-                        allowLauncherScript: true
-                    )
-                }
             } else {
                 effectiveResumeBindingForStartup.flatMap {
                     sessionRestorePolicy.surfaceResumeStartupLaunch(
