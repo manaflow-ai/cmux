@@ -413,19 +413,9 @@ import Testing
         // Force interactive mode so the prompt works even under ssh_config BatchMode yes…
         #expect(consecutive(argv, "-o", "BatchMode=no"))
         #expect(!argv.contains("BatchMode=yes"))
-        // …and NO -f: the auth ssh opens the master in the FOREGROUND and exits only
-        // once it has authenticated and served the trivial remote command, so the
-        // master's control socket is provably serving by the time the process returns.
-        // That makes the post-auth retry deterministic — no need to poll `ssh -O check`
-        // to race a `-f`-backgrounded master that returned before its socket accepted
-        // connections. The persisted master still detaches: ControlPersist's
-        // control_persist_detach() redirects the backgrounded master's std fds to
-        // /dev/null regardless of -f (OpenSSH ssh.c, verified across 9.6–10.2), so
-        // dropping -f does not pin the terminal.
+        // No -f: foreground auth keeps the post-auth ControlMaster retry deterministic.
         #expect(!argv.contains("-f"))
-        // …but keep -n explicitly: -f used to IMPLY -n (stdin from /dev/null). Without
-        // it the controlling terminal would become the remote command's stdin, which a
-        // ForceCommand / stdin-reading remote startup could consume or block on.
+        // Keep -n explicitly; -f used to imply stdin from /dev/null.
         #expect(argv.contains("-n"))
         // The master must persist after the foreground client exits so discovery / the
         // -CC client can multiplex over it.
