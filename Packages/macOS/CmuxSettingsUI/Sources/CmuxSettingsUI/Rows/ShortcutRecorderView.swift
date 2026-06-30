@@ -353,13 +353,20 @@ public final class RecorderHostButton: NSButton {
 
         guard let chars = event.charactersIgnoringModifiers, !chars.isEmpty else { return }
 
+        // Arrow keys report `charactersIgnoringModifiers` as a Private Use Area
+        // function-key scalar (NSLeftArrowFunctionKey, …), not "←/→/↑/↓".
+        // Storing that raw value renders as a missing-glyph "?" and never
+        // matches at runtime, so canonicalize the arrow virtual key codes to
+        // the same tokens the default bindings (e.g. focusLeft) already use.
+        let key = Self.canonicalKey(forKeyCode: event.keyCode) ?? chars.lowercased()
+
         let hasModifier = event.modifierFlags.contains(.command)
             || event.modifierFlags.contains(.option)
             || event.modifierFlags.contains(.control)
             || event.modifierFlags.contains(.shift)
 
         let stroke = ShortcutStroke(
-            key: chars.lowercased(),
+            key: key,
             command: event.modifierFlags.contains(.command),
             shift: event.modifierFlags.contains(.shift),
             option: event.modifierFlags.contains(.option),
@@ -397,6 +404,21 @@ public final class RecorderHostButton: NSButton {
         hasPendingRejection = false
         onStroke?(stroke)
         stopRecording()
+    }
+
+    /// Canonical key tokens for virtual key codes whose
+    /// `charactersIgnoringModifiers` is not the value cmux stores. Currently
+    /// the four arrow keys, which report Private Use Area function-key scalars;
+    /// these tokens match the arrow defaults in `ShortcutAction+Defaults` and
+    /// the config parser, so a recorded arrow displays and matches correctly.
+    private static func canonicalKey(forKeyCode keyCode: UInt16) -> String? {
+        switch keyCode {
+        case 123: return "←"
+        case 124: return "→"
+        case 125: return "↓"
+        case 126: return "↑"
+        default: return nil
+        }
     }
 
     /// Clears the internal "pending rejection" state so the button
