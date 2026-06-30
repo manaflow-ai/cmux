@@ -414,7 +414,7 @@ public final class ChatConversationStore {
     public func applyDescriptorSnapshot(_ descriptor: ChatSessionDescriptor) {
         guard descriptor.id == self.descriptor.id else { return }
         let isUnversioned = descriptor.version == 0 && self.descriptor.version == 0
-        guard isUnversioned || descriptor.version > self.descriptor.version else { return }
+        guard isUnversioned || descriptor.version != self.descriptor.version else { return }
         self.descriptor = descriptor
         agentState = descriptor.state
         if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }

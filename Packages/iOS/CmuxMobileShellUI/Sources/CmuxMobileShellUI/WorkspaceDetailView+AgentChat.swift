@@ -237,8 +237,6 @@ extension WorkspaceDetailView {
         if let existing = chatConversationStores[session.id] {
             if let source {
                 existing.replaceSource(source, descriptor: session)
-            } else {
-                existing.applyDescriptorSnapshot(session)
             }
             return existing
         }
