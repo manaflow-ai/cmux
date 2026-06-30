@@ -1939,7 +1939,11 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
     }
 
     func testBrowserPanelRefreshesUnderPageBackgroundColorWithGhosttyOpacity() {
-        let panel = BrowserPanel(workspaceId: UUID())
+        // Covers the NSNumber opacity payload through the live subscription (the
+        // Double-opacity sibling test covers the other parsing branch). Posting to
+        // an injected center keeps this off the shared NotificationCenter.default.
+        let center = NotificationCenter()
+        let panel = BrowserPanel(workspaceId: UUID(), notificationCenter: center)
         let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
 
         let notification = Notification(
@@ -1951,7 +1955,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
             ]
         )
         let expectedColor = GhosttyBackgroundTheme.color(from: notification)
-        panel.applyWebViewBackgroundForTesting(color: expectedColor)
+        center.post(notification)
 
         guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
               let expected = expectedColor.usingColorSpace(.sRGB) else {

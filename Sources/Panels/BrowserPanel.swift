@@ -4873,12 +4873,6 @@ final class BrowserPanel: Panel, ObservableObject {
         portalAnchorView.layer?.backgroundColor = NSColor.clear.cgColor
     }
 
-#if DEBUG
-    func applyWebViewBackgroundForTesting(color: NSColor) {
-        applyWebViewBackground(color: color)
-    }
-#endif
-
     func drawsConfiguredWebViewBackgroundForCurrentPage() -> Bool {
         Self.drawsConfiguredWebViewBackground(
             isBlankPage: isShowingBlankBrowserPage,
