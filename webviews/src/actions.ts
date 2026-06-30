@@ -39,6 +39,15 @@ export function diffSourceDetail(payload: any): string {
   return parts.join(" | ");
 }
 
+// The stage/commit command is intentionally REPO-scoped, not diff-scoped: it
+// runs `git add --all` against `repoRoot` and therefore commits the user's
+// entire current working tree, independent of which diff source (unstaged,
+// staged, branch, last-turn) is on screen. Applying exactly the displayed patch
+// is the sibling `copyGitApplyCommand` (`git apply`) action; this one is the
+// deliberate "stage everything and commit" shortcut described in the PR. The
+// result is only ever copied to the clipboard for the user to read and run
+// manually — the app never executes it — so a visible `git add --all` is the
+// documented contract, not a hidden side effect.
 export function buildStageCommitCommand(repoRoot: string | undefined, message: string): string {
   if (repoRoot == null || repoRoot.trim() === "") {
     throw new Error("Missing repository path");
