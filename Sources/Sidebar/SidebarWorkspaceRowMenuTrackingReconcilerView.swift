@@ -29,10 +29,18 @@ final class SidebarWorkspaceRowMenuTrackingReconcilerView: NSView {
             forName: NSMenu.didEndTrackingNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
+        ) { [weak self] notification in
+            guard let self,
+                  Self.shouldReconcileMenuEnd(object: notification.object) else {
+                return
+            }
             self.onMenuTrackingEnded?(self.isPointerInsideBounds())
         }
+    }
+
+    static func shouldReconcileMenuEnd(object: Any?) -> Bool {
+        guard let menu = object as? NSMenu else { return false }
+        return menu.supermenu == nil
     }
 
     private func isPointerInsideBounds() -> Bool {

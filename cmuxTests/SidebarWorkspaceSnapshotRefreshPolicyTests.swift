@@ -309,6 +309,18 @@ import Testing
         )
     }
 
+    @Test func menuTrackingReconcilerIgnoresSubmenuEndNotifications() {
+        let rootMenu = NSMenu()
+        let submenu = NSMenu()
+        let item = NSMenuItem(title: "submenu", action: nil, keyEquivalent: "")
+        rootMenu.addItem(item)
+        rootMenu.setSubmenu(submenu, for: item)
+
+        #expect(SidebarWorkspaceRowMenuTrackingReconcilerView.shouldReconcileMenuEnd(object: rootMenu))
+        #expect(!SidebarWorkspaceRowMenuTrackingReconcilerView.shouldReconcileMenuEnd(object: submenu))
+        #expect(!SidebarWorkspaceRowMenuTrackingReconcilerView.shouldReconcileMenuEnd(object: nil))
+    }
+
     @Test func hoverDuringContextMenuStaysHiddenUntilDismissal() {
         var state = SidebarWorkspaceRowInteractionState()
 
