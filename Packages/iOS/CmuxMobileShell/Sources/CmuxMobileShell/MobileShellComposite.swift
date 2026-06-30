@@ -6401,6 +6401,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return replayBarrierToken
     }
 
+    @discardableResult
+    private func requestTerminalReplayForCurrentBarrier(
+        surfaceID: String,
+        replayBarrierToken: UUID?,
+        coveredReplayBarrierDroppedOutputCount: UInt64?,
+        reason: String
+    ) -> Bool {
+        guard let replayBarrierToken,
+              hasTerminalOutputSink(surfaceID: surfaceID),
+              terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken,
+              remoteClient != nil else {
+            return false
+        }
+        MobileDebugLog.anchormux("CMUX_REPLAY retry_\(reason) surface=\(surfaceID)")
+        requestTerminalReplay(
+            surfaceID: surfaceID,
+            replayBarrierToken: replayBarrierToken,
+            coveredReplayBarrierDroppedOutputCount: coveredReplayBarrierDroppedOutputCount
+        )
+        return true
+    }
+
     private func markTerminalReplayInFlight(
         surfaceID: String,
         requestID: UUID,
@@ -6730,11 +6752,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return
                 }
                 guard self.remoteClient === client else {
-                    self.clearTerminalReplayBarrierIfCurrent(
+                    self.clearTerminalReplayInFlightIfCurrent(
                         surfaceID: surfaceID,
-                        token: replayBarrierTokenForRequest,
-                        reason: "stale_client"
+                        requestID: replayRequestID
                     )
+                    transferredInFlightToRetry = true
+                    guard self.requestTerminalReplayForCurrentBarrier(
+                        surfaceID: surfaceID,
+                        replayBarrierToken: replayBarrierTokenForRequest,
+                        coveredReplayBarrierDroppedOutputCount: nil,
+                        reason: "stale_client"
+                    ) else {
+                        self.clearTerminalReplayBarrierIfCurrent(
+                            surfaceID: surfaceID,
+                            token: replayBarrierTokenForRequest,
+                            reason: "stale_client"
+                        )
+                        return
+                    }
                     return
                 }
                 let payload = try? MobileTerminalReplayResponse.decode(data)
@@ -6807,11 +6842,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return
                 }
                 guard let deliverBytes, !deliverBytes.isEmpty else {
+                    if self.terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID),
+                       let retryToken = self.prepareTerminalReplayFailureRetry(
+                        surfaceID: surfaceID,
+                        replayBarrierToken: replayBarrierTokenForRequest
+                       ) {
+                        self.clearTerminalReplayInFlightIfCurrent(
+                            surfaceID: surfaceID,
+                            requestID: replayRequestID
+                        )
+                        transferredInFlightToRetry = true
+                        self.requestTerminalReplay(
+                            surfaceID: surfaceID,
+                            replayBarrierToken: retryToken,
+                            coveredReplayBarrierDroppedOutputCount:
+                                self.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
+                        )
+                        return
+                    }
                     self.clearTerminalReplayBarrierIfCurrent(
                         surfaceID: surfaceID,
                         token: replayBarrierTokenForRequest,
-                        reason: "empty",
-                        preserveDroppedOutput: true
+                        reason: "empty"
                     )
                     return
                 }
@@ -6846,11 +6898,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .private)")
                 guard self.remoteClient === client else {
-                    self.clearTerminalReplayBarrierIfCurrent(
+                    self.clearTerminalReplayInFlightIfCurrent(
                         surfaceID: surfaceID,
-                        token: replayBarrierTokenForRequest,
-                        reason: "stale_client"
+                        requestID: replayRequestID
                     )
+                    transferredInFlightToRetry = true
+                    guard self.requestTerminalReplayForCurrentBarrier(
+                        surfaceID: surfaceID,
+                        replayBarrierToken: replayBarrierTokenForRequest,
+                        coveredReplayBarrierDroppedOutputCount: nil,
+                        reason: "stale_client"
+                    ) else {
+                        self.clearTerminalReplayBarrierIfCurrent(
+                            surfaceID: surfaceID,
+                            token: replayBarrierTokenForRequest,
+                            reason: "stale_client"
+                        )
+                        return
+                    }
                     return
                 }
                 // The replay request is the view-only/foreground-resume path. A
