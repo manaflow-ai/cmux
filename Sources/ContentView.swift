@@ -10066,6 +10066,16 @@ struct VerticalTabsSidebar: View {
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
 
+    // Polls `claude agents --json --all` while a custom sidebar is on screen so
+    // the interpreter's top-level `agents` array stays live. The subprocess and
+    // executable resolution live in `ClaudeAgentsSessionSource` (app layer); the
+    // poller (CmuxSidebar) just owns the refresh loop and the cached result, and
+    // is started/stopped with the custom-sidebar surface's appear/disappear so
+    // no `claude` process runs when no custom sidebar is shown.
+    @State private var claudeAgentsSessionPoller = ClaudeAgentsSessionPoller(
+        fetch: { await ClaudeAgentsSessionSource.fetch() }
+    )
+
     // The provider to actually render. Built-in views are always honored; only
     // the hosted-extension selection falls back to the default workspaces
     // sidebar while the experimental Extensions feature is disabled, since
@@ -10110,6 +10120,7 @@ struct VerticalTabsSidebar: View {
             selectedWorkspaceId: selectedId,
             selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
             totalUnreadCount: sidebarUnread.totalUnreadCount,
+            agents: claudeAgentsSessionPoller.sessions,
             now: now
         )
         return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
@@ -10833,6 +10844,9 @@ struct VerticalTabsSidebar: View {
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
+            // Only poll `claude agents --json` while a custom sidebar is shown.
+            .onAppear { claudeAgentsSessionPoller.start() }
+            .onDisappear { claudeAgentsSessionPoller.stop() }
         } else {
             TimelineView(.periodic(from: .now, by: 30)) { timeline in
                 let model = extensionSidebarRenderModel(renderContext: renderContext, now: timeline.date)
@@ -16488,4 +16502,55 @@ private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
 enum SidebarSelection {
     case tabs
     case notifications
+}
+
+/// App-layer source for the custom-sidebar `agents` array: runs
+/// `claude agents --json --all` off the main thread and parses it into
+/// ``CustomSidebarAgentSnapshot`` values. Injected into
+/// ``ClaudeAgentsSessionPoller`` so the CmuxSidebar package stays free of
+/// process-spawning and executable-resolution concerns.
+enum ClaudeAgentsSessionSource {
+    /// Resolves the user's `claude` binary, runs `claude agents --json --all`,
+    /// and returns the parsed sessions. Returns `nil` on any failure (claude not
+    /// found, non-zero exit, unreadable output) so the poller keeps its last
+    /// good value. The subprocess runs on a utility queue, never the main
+    /// thread.
+    static func fetch() async -> [CustomSidebarAgentSnapshot]? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: runOnce())
+            }
+        }
+    }
+
+    private static func runOnce() -> [CustomSidebarAgentSnapshot]? {
+        let resolver = AgentExecutableResolver(
+            configuredExecutablePaths: AgentExecutableResolver.cmuxConfiguredExecutablePaths()
+        )
+        guard let plan = try? resolver.resolve(.claude) else { return nil }
+
+        let process = Process()
+        process.executableURL = plan.executableURL
+        process.arguments = ["agents", "--json", "--all"]
+        process.environment = plan.environment
+
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        // Discard stderr so a chatty diagnostic can't fill an undrained pipe
+        // buffer and wedge the process before it exits.
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        // Read to EOF before waiting so a large `--all` payload can't deadlock
+        // against a full stdout pipe buffer.
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        return ClaudeAgentsSessionParser.parse(data)
+    }
 }
