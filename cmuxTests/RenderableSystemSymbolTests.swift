@@ -59,6 +59,25 @@ struct RenderableSystemSymbolTests {
         #expect(image.size.height < 16)
     }
 
+    @Test @MainActor func configuredAppKitImageKeepsNaturalConfiguredSizeWhenItExceedsPointSize() throws {
+        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+        let pointSize = CGFloat(16)
+        let symbolName = "bell"
+        let baseImage = try #require(NSImage(systemSymbolName: symbolName, accessibilityDescription: nil))
+        let configuredImage = baseImage.withSymbolConfiguration(NSImage.SymbolConfiguration(
+            pointSize: pointSize,
+            weight: .medium
+        )) ?? baseImage
+        #expect(max(configuredImage.size.width, configuredImage.size.height) > pointSize)
+
+        let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
+            systemName: symbolName,
+            pointSize: pointSize,
+            weight: .medium
+        ))
+        #expect(image.size == configuredImage.size)
+    }
+
     @Test func fittedSymbolSizeScalesLongerDimensionToRasterSize() {
         #expect(RenderableSystemSymbol.fittedSymbolSize(
             NSSize(width: 20, height: 10),
