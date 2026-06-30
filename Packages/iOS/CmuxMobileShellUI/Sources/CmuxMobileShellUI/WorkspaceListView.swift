@@ -95,11 +95,6 @@ struct WorkspaceListView: View {
     /// aggregation is explicit in the title picker and can be narrowed from
     /// there.
     @State var macSelection: WorkspaceMacSelection = .all
-    /// The workspace whose destructive close action is awaiting confirmation.
-    /// Stored at list scope so reusable rows do not own transient presentation
-    /// state while `List` is recycling swipe-action rows.
-    @State private var workspacePendingCloseID: MobileWorkspacePreview.ID?
-
     private var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -359,11 +354,7 @@ struct WorkspaceListView: View {
             renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
             setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,
             setUnread: capabilities.supportsReadStateActions ? setUnread : nil,
-            closeWorkspace: capabilities.supportsCloseActions ? requestWorkspaceClose : nil,
-            isConfirmingClose: closeConfirmationBinding(for: workspace.id),
-            confirmCloseWorkspace: capabilities.supportsCloseActions && closeWorkspace != nil ? { _ in
-                confirmCloseWorkspace()
-            } : nil
+            closeWorkspace: capabilities.supportsCloseActions ? closeWorkspace : nil
         )
         .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
         .listRowSeparator(.hidden)
@@ -433,33 +424,4 @@ struct WorkspaceListView: View {
         #endif
     }
 
-    private var requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)? {
-        guard closeWorkspace != nil else {
-            return nil
-        }
-        return { workspaceID in
-            workspacePendingCloseID = workspaceID
-        }
-    }
-
-    private func closeConfirmationBinding(for workspaceID: MobileWorkspacePreview.ID) -> Binding<Bool> {
-        Binding(
-            get: { workspacePendingCloseID == workspaceID },
-            set: { isPresented in
-                if isPresented {
-                    workspacePendingCloseID = workspaceID
-                } else if workspacePendingCloseID == workspaceID {
-                    workspacePendingCloseID = nil
-                }
-            }
-        )
-    }
-
-    private func confirmCloseWorkspace() {
-        guard let workspaceID = workspacePendingCloseID else {
-            return
-        }
-        workspacePendingCloseID = nil
-        closeWorkspace?(workspaceID)
-    }
 }

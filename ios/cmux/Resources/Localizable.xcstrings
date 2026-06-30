@@ -1922,6 +1922,23 @@
         }
       }
     },
+    "mobile.debug.copyLogs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Debug Logs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバッグログをコピー"
+          }
+        }
+      }
+    },
     "mobile.deviceTree.collapseHint": {
       "extractionState": "manual",
       "localizations": {

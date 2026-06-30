@@ -91,6 +91,33 @@ extension MobileShellComposite {
         )
     }
 
+    /// Close a terminal surface on the Mac.
+    ///
+    /// Sends the mutation to the Mac that owns the workspace, then re-syncs from
+    /// the authoritative workspace list. If the Mac rejects the close, for
+    /// example because the terminal is the workspace's last surface, the refresh
+    /// restores the row state on iOS.
+    /// - Parameters:
+    ///   - workspaceID: The workspace containing the terminal.
+    ///   - terminalID: The terminal surface to close.
+    public func closeTerminal(
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async {
+        guard workspaceActionCapabilities(for: workspaceID).supportsTerminalCloseActions else { return }
+        guard workspaces.first(where: { $0.id == workspaceID })?.terminals.contains(where: { $0.id == terminalID }) == true else {
+            return
+        }
+        var params = workspaceMutationParams(id: workspaceID)
+        params["surface_id"] = terminalID.rawValue
+        await sendWorkspaceMutation(
+            method: "terminal.close",
+            params: params,
+            id: workspaceID,
+            actionName: "terminal_close"
+        )
+    }
+
     private func workspaceActionCapabilities(for id: MobileWorkspacePreview.ID) -> MobileWorkspaceActionCapabilities {
         workspaces.first { $0.id == id }?.actionCapabilities ?? .none
     }

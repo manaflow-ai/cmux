@@ -25,6 +25,10 @@ struct WorkspaceDetailView: View {
     /// `workspace.close.v1` capability, or previews) the close affordance is
     /// hidden from the top-bar menu. Mirrors the workspace list's gating.
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
+    /// Close a terminal surface on the Mac. When `nil` (older Macs without the
+    /// `terminal.close.v1` capability, or previews) terminal-row delete affordances
+    /// are hidden from the picker sheet.
+    let closeTerminal: ((MobileTerminalPreview.ID) -> Void)?
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
@@ -44,6 +48,8 @@ struct WorkspaceDetailView: View {
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
     @State private var isTextSheetPresented = false
+    @State private var isTerminalPickerPresented = false
+    @State private var pendingTerminalPickerAction: TerminalPickerAction?
     /// Drives the rename-workspace dialog launched from the picker menu, and its
     /// editable text (seeded with the current name when presented).
     @State private var isRenamePresented = false
@@ -490,19 +496,10 @@ struct WorkspaceDetailView: View {
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
 
-    // The picker is a native SwiftUI `Menu`, which renders as the platform menu
-    // (a `UIMenu` on iOS). That gives the standard menu gesture for free: a
-    // single tap opens it, and a press-and-drag from the button onto an item
-    // followed by a release selects that item. The previous `Button` +
-    // `.popover` was two separate hit-test sessions (tap to present, then tap an
-    // item), so it never supported press-drag-release. Selection still routes
-    // through `selectTerminalFromPicker`, which dismisses the keyboard, so the
-    // chrome behavior is preserved; only keyboard-dismiss-on-open is dropped
-    // because `Menu` has no will-open hook (the menu simply floats over the live
-    // keyboard like any nav-bar menu).
     private var terminalPickerToolbarButton: some View {
-        Menu {
-            terminalPickerMenuContent
+        Button {
+            dismissTerminalKeyboardForChrome()
+            isTerminalPickerPresented = true
         } label: {
             Label(
                 selectedTerminal?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
@@ -513,122 +510,40 @@ struct WorkspaceDetailView: View {
         .foregroundStyle(TerminalPalette.foreground)
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
-    }
-
-    @ViewBuilder
-    private var terminalPickerMenuContent: some View {
-        Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
-            ForEach(workspace.terminals) { terminal in
-                Button {
-                    selectTerminalFromPicker(terminal.id)
-                } label: {
-                    Label(
-                        terminal.name,
-                        systemImage: terminal.id == selectedTerminal?.id && activeBrowser == nil
-                            ? "checkmark.circle.fill"
-                            : "terminal"
-                    )
-                }
-                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
-            }
+        .sheet(isPresented: $isTerminalPickerPresented, onDismiss: performPendingTerminalPickerActionIfNeeded) {
+            TerminalPickerSheet(
+                workspace: workspace,
+                selectedTerminalID: selectedTerminal?.id,
+                isBrowserActive: activeBrowser != nil,
+                canCreateWorkspace: canCreateWorkspace,
+                canCloseTerminals: closeTerminal != nil,
+                selectTerminal: { terminalID in
+                    queueTerminalPickerAction(.selectTerminal(terminalID))
+                },
+                createWorkspace: {
+                    queueTerminalPickerAction(.createWorkspace)
+                },
+                createTerminal: {
+                    queueTerminalPickerAction(.createTerminal)
+                },
+                openBrowser: {
+                    queueTerminalPickerAction(.openBrowser)
+                },
+                closeTerminal: closeTerminalFromPicker,
+                renameWorkspace: workspace.actionCapabilities.supportsWorkspaceActions
+                    ? { queueTerminalPickerAction(.renameWorkspace) }
+                    : nil,
+                toggleWorkspaceReadState: workspace.actionCapabilities.supportsReadStateActions
+                    ? { queueTerminalPickerAction(.toggleWorkspaceReadState) }
+                    : nil,
+                closeWorkspace: closeWorkspace != nil ? { queueTerminalPickerAction(.closeWorkspace) } : nil,
+                openTextSheet: activeBrowser == nil ? { queueTerminalPickerAction(.openTextSheet) } : nil,
+                #if DEBUG
+                copyDebugLogs: { queueTerminalPickerAction(.copyDebugLogs) },
+                #endif
+                openFeedbackComposer: { queueTerminalPickerAction(.openFeedbackComposer) }
+            )
         }
-
-        Section {
-            Button(action: createWorkspaceFromToolbar) {
-                Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
-            }
-            .disabled(!canCreateWorkspace)
-            .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
-
-            Button(action: createTerminalFromToolbar) {
-                Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
-            }
-            .accessibilityIdentifier("MobileNewTerminalMenuItem")
-
-            Button(action: openBrowserFromToolbar) {
-                Label(
-                    L10n.string("mobile.browser.new", defaultValue: "New Browser"),
-                    systemImage: activeBrowser == nil ? "globe" : "checkmark.circle.fill"
-                )
-            }
-            .accessibilityIdentifier("MobileNewBrowserMenuItem")
-        }
-
-        // Rename the current workspace from the terminal-icon menu, mirroring
-        // the workspace list's row-scoped capability gate.
-        if workspace.actionCapabilities.supportsWorkspaceActions {
-            Section {
-                Button(action: presentRenameFromMenu) {
-                    Label(
-                        L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace"),
-                        systemImage: "pencil"
-                    )
-                }
-                .accessibilityIdentifier("MobileWorkspaceRenameMenuItem")
-            }
-        }
-
-        // Mark the current workspace read/unread from the terminal-icon menu,
-        // mirroring the workspace list's row-scoped capability gate.
-        if workspace.actionCapabilities.supportsReadStateActions {
-            Section {
-                Button(action: toggleWorkspaceReadStateFromMenu) {
-                    Label(
-                        workspace.hasUnread
-                            ? L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
-                            : L10n.string("mobile.workspace.markUnread", defaultValue: "Mark as Unread"),
-                        systemImage: workspace.hasUnread ? "envelope.open" : "envelope.badge"
-                    )
-                }
-                .accessibilityIdentifier("MobileWorkspaceMarkReadStateMenuItem")
-            }
-        }
-
-        if closeWorkspace != nil {
-            Section {
-                Button(role: .destructive, action: requestCloseWorkspaceFromMenu) {
-                    Label(
-                        L10n.string("mobile.workspace.close.action", defaultValue: "Close Workspace"),
-                        systemImage: "xmark.square"
-                    )
-                }
-                .accessibilityIdentifier("MobileCloseWorkspaceMenuItem")
-            }
-        }
-
-        #if canImport(UIKit)
-        Section {
-            // Only while the terminal pane is showing: in browser mode the
-            // terminal surface is dismantled (nothing to capture) and the
-            // sheet modifier lives on `detailContent`, so the armed flag
-            // would pop the sheet later when the browser closes.
-            if activeBrowser == nil {
-                Button(action: openTextSheetFromMenu) {
-                    Label(
-                        L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),
-                        systemImage: "doc.plaintext"
-                    )
-                }
-                .accessibilityIdentifier("MobileViewAsTextMenuItem")
-            }
-
-            #if DEBUG
-            Button(action: copyDebugLogsFromMenu) {
-                // DEV-only debug tooling; not shipped, so not localized.
-                Label("Copy Debug Logs", systemImage: "doc.on.clipboard")
-            }
-            .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
-            #endif
-
-            Button(action: openFeedbackComposerFromMenu) {
-                Label(
-                    L10n.string("mobile.feedback.send", defaultValue: "Send Feedback"),
-                    systemImage: "paperplane"
-                )
-            }
-            .accessibilityIdentifier("MobileSendFeedbackMenuItem")
-        }
-        #endif
     }
 
     #if canImport(UIKit)
@@ -865,6 +780,54 @@ struct WorkspaceDetailView: View {
         // already selected). A push-notification deep link uses the plain
         // `selectTerminal` path instead and is allowed to autofocus.
         store.selectTerminalFromChrome(terminalID)
+    }
+
+    private func closeTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
+        closeTerminal?(terminalID)
+    }
+
+    private enum TerminalPickerAction {
+        case selectTerminal(MobileTerminalPreview.ID)
+        case createWorkspace
+        case createTerminal
+        case openBrowser
+        case renameWorkspace
+        case toggleWorkspaceReadState
+        case closeWorkspace
+        case openTextSheet
+        case copyDebugLogs
+        case openFeedbackComposer
+    }
+
+    private func queueTerminalPickerAction(_ action: TerminalPickerAction) {
+        pendingTerminalPickerAction = action
+    }
+
+    private func performPendingTerminalPickerActionIfNeeded() {
+        guard let pendingTerminalPickerAction else { return }
+        self.pendingTerminalPickerAction = nil
+        switch pendingTerminalPickerAction {
+        case .selectTerminal(let terminalID):
+            selectTerminalFromPicker(terminalID)
+        case .createWorkspace:
+            createWorkspaceFromToolbar()
+        case .createTerminal:
+            createTerminalFromToolbar()
+        case .openBrowser:
+            openBrowserFromToolbar()
+        case .renameWorkspace:
+            presentRenameFromMenu()
+        case .toggleWorkspaceReadState:
+            toggleWorkspaceReadStateFromMenu()
+        case .closeWorkspace:
+            requestCloseWorkspaceFromMenu()
+        case .openTextSheet:
+            openTextSheetFromMenu()
+        case .copyDebugLogs:
+            copyDebugLogsFromMenu()
+        case .openFeedbackComposer:
+            openFeedbackComposerFromMenu()
+        }
     }
 
     private func dismissTerminalKeyboardForChrome() {
