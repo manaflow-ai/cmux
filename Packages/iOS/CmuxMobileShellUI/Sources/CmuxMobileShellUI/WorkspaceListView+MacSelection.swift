@@ -29,9 +29,11 @@ extension WorkspaceListView {
     }
 
     var liveMachineSnapshots: WorkspaceMachineSnapshots {
+        let scope = macSelectionScope
         WorkspaceMachineSnapshots(
             workspaces: workspaces,
-            macPickerMachineIDs: macSelectionScope.machineIDs,
+            filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
+            macPickerMachineIDs: scope.machineIDs,
             namesByID: macDisplayNamesByID(),
             fallbackName: fallbackMacPickerName
         )
@@ -63,6 +65,19 @@ extension WorkspaceListView {
             names[mac.macDeviceID] = mac.resolvedName
         }
         return names
+    }
+
+    var filterMenuPresentMachineIDs: [String] {
+        let aliasIndex = macSelectionScope.aliasIndex
+        var seen = Set<String>()
+        var present: [String] = []
+        for id in MobileWorkspaceListFilter.machineIDs(in: workspaces) {
+            let representativeID = aliasIndex.representativeID(for: id)
+            if seen.insert(representativeID).inserted {
+                present.append(representativeID)
+            }
+        }
+        return present
     }
 
     func filterMenuMachines(

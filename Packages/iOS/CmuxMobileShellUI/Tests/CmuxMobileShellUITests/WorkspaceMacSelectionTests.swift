@@ -122,6 +122,51 @@ import Testing
         #expect(active.machines == ["mac-b"])
     }
 
+    @Test func allMacFilterMenuMachineScopeMatchesAliasWorkspaceRows() throws {
+        let route = try route(host: "100.82.214.112")
+        let aliasWorkspace = workspace(id: "ws-old", macDeviceID: "mac-old")
+        let scope = WorkspaceMacSelectionScope(
+            selection: .all,
+            workspaces: [aliasWorkspace],
+            displayPairedMacs: [
+                pairedMac(id: "mac-fresh", name: "Desk Mac", route: route, lastSeenAt: 20),
+            ],
+            foregroundMacDeviceID: nil,
+            aliasesFor: { id in
+                id == "mac-fresh" ? ["mac-fresh", "mac-old"] : [id]
+            }
+        )
+
+        let active = scope.activeFilter(base: MobileWorkspaceListFilter(machines: ["mac-fresh"]))
+
+        #expect(active.matches(aliasWorkspace))
+    }
+
+    @Test func filterMenuMachinesUseRepresentativeIDsForAliasWorkspaces() async throws {
+        let route = try route(host: "100.82.214.112")
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-old", name: "Desk Mac", route: route, lastSeenAt: 10),
+            pairedMac(id: "mac-fresh", name: "Desk Mac", route: route, lastSeenAt: 20, isActive: true),
+            pairedMac(id: "mac-b", name: "Air", lastSeenAt: 15),
+        ])
+        let view = workspaceListView(
+            workspaces: [
+                workspace(id: "ws-old", macDeviceID: "mac-old"),
+                workspace(id: "ws-b", macDeviceID: "mac-b"),
+            ],
+            store: store
+        )
+
+        let machines = view.filterMenuMachines(
+            machineSnapshots: view.liveMachineSnapshots,
+            visibleSelection: view.visibleMacSelection
+        )
+
+        #expect(Set(machines.map(\.id)) == ["mac-b", "mac-fresh"])
+        #expect(!machines.map(\.id).contains("mac-old"))
+        #expect(view.filterMenuPresentMachineIDs == ["mac-fresh", "mac-b"])
+    }
+
     @Test func filterMenuMachinesHideWhenMacPickerOwnsMachineScope() async throws {
         let store = await shellStore(pairedMacs: [
             pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20),

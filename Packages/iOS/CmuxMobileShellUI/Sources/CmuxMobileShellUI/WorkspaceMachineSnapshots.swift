@@ -13,11 +13,14 @@ struct WorkspaceMachineSnapshots: Equatable {
 
     init(
         workspaces: [MobileWorkspacePreview],
+        filterMachineIDFor: (String) -> String = { $0 },
         macPickerMachineIDs: Set<String>,
         namesByID: [String: String],
         fallbackName: String
     ) {
-        let filterMachineIDs = Set(MobileWorkspaceListFilter.machineIDs(in: workspaces))
+        let filterMachineIDs = Set(
+            MobileWorkspaceListFilter.machineIDs(in: workspaces).map(filterMachineIDFor)
+        )
         self.filterMachines = filterMachineIDs.count > 1
             ? filterMachineIDs
                 .map { WorkspaceFilterMachine(id: $0, namesByID: namesByID, fallbackName: fallbackName) }

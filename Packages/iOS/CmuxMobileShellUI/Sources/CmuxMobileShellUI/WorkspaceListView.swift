@@ -164,6 +164,7 @@ struct WorkspaceListView: View {
     var body: some View {
         let currentMachineSnapshots = liveMachineSnapshots
         let currentVisibleMacSelection = visibleMacSelection
+        let currentFilterMenuPresentMachineIDs = filterMenuPresentMachineIDs
         let displayedMachineSnapshots = machineSnapshots ?? currentMachineSnapshots
         let displayedFilterMachines = filterMenuMachines(
             machineSnapshots: displayedMachineSnapshots,
@@ -228,7 +229,7 @@ struct WorkspaceListView: View {
         }
         .listStyle(.plain)
         .workspaceListRefreshable(refresh)
-        .onChange(of: MobileWorkspaceListFilter.machineIDs(in: workspaces)) { _, present in
+        .onChange(of: currentFilterMenuPresentMachineIDs) { _, present in
             // Drop machine filters whose Mac left the aggregated list (a secondary
             // Mac disconnected, or the list fell below two machines so the filter
             // menu's machine section hid). Otherwise a stale machine id rejects
