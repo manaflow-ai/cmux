@@ -80,9 +80,13 @@ paths = [
   '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/ScrubberDenylistsTests\.swift$''',
 ]
 regexTarget = "line"
+# Anchored to each synthetic body immediately followed by its END marker. A real
+# private key has a long body before END, so these cannot match realistic key
+# material even though MIIBVwIBADANBgkqhkiG9w0BAQEFAAS alone is a generic PKCS#8
+# prefix. (\\n matches the literal backslash-n in the Swift source string.)
 regexes = [
-  '''MIIEpAIBAAKCAQEAsecretbodyabc/def\+ghi==''',
-  '''MIIBVwIBADANBgkqhkiG9w0BAQEFAAS''',
+  '''MIIEpAIBAAKCAQEAsecretbodyabc/def\+ghi==\\n-----END RSA PRIVATE KEY-----''',
+  '''MIIBVwIBADANBgkqhkiG9w0BAQEFAAS\\n-----END PRIVATE KEY-----''',
 ]
 
 [[allowlists]]
