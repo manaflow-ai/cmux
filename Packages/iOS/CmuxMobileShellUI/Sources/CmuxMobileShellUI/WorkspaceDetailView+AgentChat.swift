@@ -167,6 +167,7 @@ extension WorkspaceDetailView {
     /// once, then fold each subsequent frame in.
     func refreshChatSessions() async {
         let workspaceID = workspace.id.rawValue
+        let sourceIdentity = store.agentChatEventSourceIdentity
         guard let source = store.makeChatEventSource() else {
             applyChatModeFallback(canInvalidateSelection: false)
             return
@@ -181,6 +182,10 @@ extension WorkspaceDetailView {
                 ? .authoritative([])
                 : .unavailable
         }
+        guard !Task.isCancelled,
+              workspaceID == workspace.id.rawValue,
+              sourceIdentity == store.agentChatEventSourceIdentity
+        else { return }
         let nextSessions = seedOutcome.applying(to: visibleChatSessions)
         withAnimation(.snappy(duration: 0.25)) {
             chatSessionsWorkspaceID = workspaceID
@@ -191,6 +196,10 @@ extension WorkspaceDetailView {
         }
         reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: seedOutcome.canInvalidateSelection)
         for await frame in stream {
+            guard !Task.isCancelled,
+                  workspaceID == workspace.id.rawValue,
+                  sourceIdentity == store.agentChatEventSourceIdentity
+            else { break }
             let current = visibleChatSessions
             let next = reducer.applying(frame, to: current)
             guard next != current else { continue }
