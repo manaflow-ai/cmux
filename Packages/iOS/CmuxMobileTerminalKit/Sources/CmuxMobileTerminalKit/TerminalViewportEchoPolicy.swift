@@ -3,6 +3,26 @@ public struct TerminalViewportEchoPolicy: Sendable {
     /// Creates a terminal viewport echo policy.
     public init() {}
 
+    /// Decide whether an identified viewport reply is still current.
+    ///
+    /// When request identity is available, an older reply must not overwrite the
+    /// effective grid computed for the latest natural-grid report. Unidentified
+    /// replies remain accepted for legacy call sites.
+    ///
+    /// - Parameters:
+    ///   - latestReport: The latest local natural grid reported to the daemon.
+    ///   - reportedGrid: The natural grid attached to this daemon reply, or
+    ///     `nil` when the caller cannot identify it.
+    /// - Returns: True when the reply may update effective-grid state.
+    public func responseMatchesLatestReport(
+        latestReport: (columns: Int, rows: Int)?,
+        reportedGrid: (columns: Int, rows: Int)?
+    ) -> Bool {
+        guard let latestReport, let reportedGrid else { return true }
+        return latestReport.columns == reportedGrid.columns &&
+            latestReport.rows == reportedGrid.rows
+    }
+
     /// Decide whether a viewport reply should clear the pending echo guard.
     ///
     /// A response identified with the natural grid that produced it must match

@@ -3011,8 +3011,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         matchingReportedSize reportedSize: TerminalGridSize?
     ) {
         guard cols > 0, rows > 0 else { return }
+        let latestReport = lastReportedSize.map { (columns: $0.columns, rows: $0.rows) }
         let pendingEcho = awaitingViewportEcho.map { (columns: $0.columns, rows: $0.rows) }
         let responseReport = reportedSize.map { (columns: $0.columns, rows: $0.rows) }
+        guard viewportEchoPolicy.responseMatchesLatestReport(
+            latestReport: latestReport,
+            reportedGrid: responseReport
+        ) else {
+            MobileDebugLog.anchormux(
+                "zoom.applyViewSize.stale reported=\(reportedSize.map { "\($0.columns)x\($0.rows)" } ?? "nil") "
+                + "latest=\(lastReportedSize.map { "\($0.columns)x\($0.rows)" } ?? "nil") "
+                + "eff=\(cols)x\(rows)"
+            )
+            return
+        }
         let clearsPendingEcho = viewportEchoPolicy.responseClearsPendingEcho(
             pendingEcho: pendingEcho,
             reportedGrid: responseReport
