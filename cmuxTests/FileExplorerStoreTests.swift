@@ -1250,3 +1250,180 @@ struct FileSearchControllerTests {
         }
     }
 }
+
+// MARK: - SSH remote listing command construction & parsing
+
+/// Regression coverage for the two P1 issues in the date-sort SSH listing
+/// rewrite: the remote command must run under a POSIX shell (not the account's
+/// login shell, which may be fish/csh) and must not spawn `stat` per entry.
+@Suite
+struct ProcessSSHFileExplorerListingTests {
+
+    // MARK: Batched stat (no per-entry process fan-out)
+
+    @Test
+    func testRemoteListingScriptUsesOneBatchedStatNotPerEntryLoop() {
+        let script = ProcessSSHFileExplorerTransport.remoteListingScript(
+            path: "/srv/app",
+            showHidden: false
+        )
+        // The previous implementation looped over every entry and ran `stat`
+        // (twice) per entry. The fix detects the stat dialect once and runs a
+        // single batched stat, so the script must not contain a per-entry loop.
+        #expect(!script.contains("for entry"))
+        #expect(!script.contains("for "))
+        // One GNU branch and one BSD branch, each a single batched stat call.
+        #expect(script.contains("stat -c %Y /"))
+        #expect(script.contains("stat -L -c '%F\t%Y\t%W\t%n'"))
+        #expect(script.contains("stat -L -f '%HT\t%m\t%B\t%N'"))
+        // Empty/unreadable dirs must report success, not a non-zero status that
+        // would surface as an error.
+        #expect(script.hasSuffix("exit 0"))
+    }
+
+    @Test
+    func testRemoteListingScriptIncludesHiddenGlobsOnlyWhenRequested() {
+        let visible = ProcessSSHFileExplorerTransport.remoteListingScript(
+            path: "/srv/app",
+            showHidden: false
+        )
+        #expect(visible.contains("-- *"))
+        #expect(!visible.contains(".[!.]*"))
+
+        let hidden = ProcessSSHFileExplorerTransport.remoteListingScript(
+            path: "/srv/app",
+            showHidden: true
+        )
+        #expect(hidden.contains("-- * .[!.]* ..?*"))
+    }
+
+    @Test
+    func testRemoteListingScriptSingleQuotesThePath() {
+        let plain = ProcessSSHFileExplorerTransport.remoteListingScript(
+            path: "/srv/my app",
+            showHidden: false
+        )
+        #expect(plain.contains("cd '/srv/my app'"))
+
+        // A single quote in the path must be escaped so the script stays valid.
+        let quoted = ProcessSSHFileExplorerTransport.remoteListingScript(
+            path: "/srv/a'b",
+            showHidden: false
+        )
+        #expect(quoted.contains("cd '/srv/a'\\''b'"))
+    }
+
+    // MARK: POSIX shell bootstrap (login-shell independence)
+
+    @Test
+    func testPosixShellBootstrapRunsUnderBinShWithEncodedScript() {
+        let script = ProcessSSHFileExplorerTransport.remoteListingScript(
+            path: "/srv/app",
+            showHidden: true
+        )
+        let command = ProcessSSHFileExplorerTransport.posixShellBootstrap(script: script)
+
+        // The login shell only ever sees `/bin/sh -c` plus a base64 payload, so
+        // fish/csh/tcsh cannot mis-parse the POSIX control flow.
+        #expect(command.hasPrefix("/bin/sh -c '"))
+        #expect(command.contains("base64 -d"))
+        #expect(command.contains("base64 -D"))
+        // The raw POSIX script must NOT leak into the login-shell command line.
+        #expect(!command.contains("stat -L"))
+        #expect(!command.contains("..?*"))
+    }
+
+    @Test
+    func testPosixShellBootstrapEncodesExactScriptRoundTrip() throws {
+        let script = ProcessSSHFileExplorerTransport.remoteListingScript(
+            path: "/srv/app",
+            showHidden: true
+        )
+        let command = ProcessSSHFileExplorerTransport.posixShellBootstrap(script: script)
+
+        // Recover the base64 payload (between `b=` and `;`) and confirm it
+        // decodes back to exactly the script we asked to run.
+        let afterAssign = try #require(command.range(of: "b="))
+        let semicolon = try #require(
+            command.range(of: ";", range: afterAssign.upperBound..<command.endIndex)
+        )
+        let encoded = String(command[afterAssign.upperBound..<semicolon.lowerBound])
+        let data = try #require(Data(base64Encoded: encoded))
+        #expect(String(data: data, encoding: .utf8) == script)
+    }
+
+    // MARK: Parsing of the tab-separated stat output
+
+    @Test
+    func testParseRemoteListingParsesTypeTimesAndName() {
+        // Lines are `type<TAB>mtime<TAB>btime<TAB>name`. Cover GNU ("directory")
+        // and BSD ("Directory"/"Regular File") type spellings plus a name with a
+        // space.
+        let output = [
+            "Directory\t1700000000\t1690000000\tsub",
+            "regular file\t1700000100\t1690000100\tmain.swift",
+            "Regular File\t1700000200\t1690000200\tfile one.txt",
+        ].joined(separator: "\n")
+
+        let entries = ProcessSSHFileExplorerTransport.parseRemoteListing(
+            output,
+            path: "/srv/app",
+            showHidden: false
+        )
+
+        #expect(entries.map(\.name) == ["sub", "main.swift", "file one.txt"])
+        #expect(entries[0].isDirectory)
+        #expect(!entries[1].isDirectory)
+        #expect(!entries[2].isDirectory)
+        #expect(entries[0].path == "/srv/app/sub")
+        #expect(entries[2].path == "/srv/app/file one.txt")
+        #expect(entries[1].modificationDate == Date(timeIntervalSince1970: 1700000100))
+        #expect(entries[1].creationDate == Date(timeIntervalSince1970: 1690000100))
+    }
+
+    @Test
+    func testParseRemoteListingExcludesDotEntriesAndRespectsHidden() {
+        let output = [
+            "Directory\t1700000000\t1690000000\t.",
+            "Directory\t1700000000\t1690000000\t..",
+            "Regular File\t1700000000\t1690000000\t.hidden",
+            "Regular File\t1700000000\t1690000000\tvisible.txt",
+        ].joined(separator: "\n")
+
+        let visibleOnly = ProcessSSHFileExplorerTransport.parseRemoteListing(
+            output,
+            path: "/srv/app",
+            showHidden: false
+        )
+        #expect(visibleOnly.map(\.name) == ["visible.txt"])
+
+        let withHidden = ProcessSSHFileExplorerTransport.parseRemoteListing(
+            output,
+            path: "/srv/app",
+            showHidden: true
+        )
+        // `.` and `..` are always dropped; the dotfile survives when requested.
+        #expect(withHidden.map(\.name) == [".hidden", "visible.txt"])
+    }
+
+    @Test
+    func testParseRemoteListingTreatsMissingOrLowBirthTimeAsUnknown() {
+        let output = [
+            "Regular File\t1700000000\t0\tzero-birth.txt",
+            "Regular File\t1700000000\t42\ttiny-birth.txt",
+            "Regular File\t1700000000\t1690000000\treal-birth.txt",
+        ].joined(separator: "\n")
+
+        let entries = ProcessSSHFileExplorerTransport.parseRemoteListing(
+            output,
+            path: "/srv/app",
+            showHidden: false
+        )
+
+        #expect(entries[0].creationDate == nil)
+        #expect(entries[1].creationDate == nil)
+        #expect(entries[2].creationDate == Date(timeIntervalSince1970: 1690000000))
+        // Modification time is still populated for every entry.
+        #expect(entries.allSatisfy { $0.modificationDate == Date(timeIntervalSince1970: 1700000000) })
+    }
+}

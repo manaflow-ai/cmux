@@ -857,52 +857,96 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         connection: SSHFileExplorerConnection,
         showHidden: Bool
     ) async throws -> [FileExplorerEntry] {
-        let escapedPath = shellSingleQuote(path)
-        let showHiddenValue = showHidden ? "1" : "0"
         let output = try await runSSHCommand(
             connection: connection,
-            command: """
-            dir=\(escapedPath)
-            show_hidden=\(showHiddenValue)
-            for entry in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do
-              [ -e "$entry" ] || [ -L "$entry" ] || continue
-              name=${entry##*/}
-              if [ "$name" = "." ] || [ "$name" = ".." ]; then
-                continue
-              fi
-              if [ "$show_hidden" != "1" ]; then
-                case "$name" in .*) continue ;; esac
-              fi
-              if [ -d "$entry" ]; then kind=d; else kind=f; fi
-              mtime=$(stat -c %Y "$entry" 2>/dev/null || stat -f %m "$entry" 2>/dev/null || printf '')
-              btime=$(stat -c %W "$entry" 2>/dev/null || stat -f %B "$entry" 2>/dev/null || printf '')
-              case "$btime" in
-                ''|*[!0-9]*) btime='' ;;
-                *) if [ "$btime" -lt 100000000 ]; then btime=''; fi ;;
-              esac
-              printf '%s\\t%s\\t%s\\t%s\\n' "$kind" "$mtime" "$btime" "$name"
-            done
-            """
+            command: posixShellBootstrap(script: remoteListingScript(path: path, showHidden: showHidden))
         )
+        return parseRemoteListing(output, path: path, showHidden: showHidden)
+    }
 
+    /// POSIX `sh` script that lists `path` for the file explorer.
+    ///
+    /// It detects GNU vs BSD `stat` once, then runs a single batched `stat`
+    /// over the directory's entries, so remote process creation stays O(1)
+    /// regardless of entry count. The previous implementation spawned two or
+    /// more `stat` processes per entry, which could make large remote
+    /// directories appear to hang. Timestamps are always collected so changing
+    /// the sort key re-sorts the cached listing without a re-fetch.
+    ///
+    /// The trailing `exit 0` makes empty or unreadable directories report
+    /// success with an empty listing instead of the non-zero status that
+    /// `runSSHCommand` would otherwise surface as an error (an unmatched glob
+    /// is passed literally to `stat`, which fails on it).
+    static func remoteListingScript(path: String, showHidden: Bool) -> String {
+        let escapedPath = shellSingleQuote(path)
+        // `.[!.]*` and `..?*` match dotfiles while excluding `.` and `..`.
+        let globs = showHidden ? "-- * .[!.]* ..?*" : "-- *"
+        // Literal tabs separate the fields; GNU `stat -c` does not expand `\t`.
+        return """
+        cd \(escapedPath) 2>/dev/null || exit 0
+        if stat -c %Y / >/dev/null 2>&1; then
+          stat -L -c '%F\t%Y\t%W\t%n' \(globs) 2>/dev/null
+        else
+          stat -L -f '%HT\t%m\t%B\t%N' \(globs) 2>/dev/null
+        fi
+        exit 0
+        """
+    }
+
+    /// Wraps a POSIX script so it runs under `/bin/sh`, independent of the
+    /// remote account's login shell.
+    ///
+    /// OpenSSH runs the remote command through the user's login shell, and
+    /// non-POSIX shells (fish, csh/tcsh) cannot parse `for`/`if`/`case` or
+    /// `$(...)`. The script is base64-encoded so only `/bin/sh -c` plus a
+    /// base64 payload — which contains no shell metacharacters — reaches the
+    /// login shell. `base64 -d` (GNU/coreutils) falls back to `-D` (BSD/macOS).
+    static func posixShellBootstrap(script: String) -> String {
+        let encoded = Data(script.utf8).base64EncodedString()
+        return "/bin/sh -c 'b=\(encoded); eval \"$(printf %s \"$b\" | base64 -d 2>/dev/null || printf %s \"$b\" | base64 -D 2>/dev/null)\"'"
+    }
+
+    /// Parses the tab-separated output of ``remoteListingScript(path:showHidden:)``.
+    ///
+    /// Each line is `type<TAB>mtime<TAB>btime<TAB>name`. The trailing `name`
+    /// field is split last so names containing spaces survive; the leading
+    /// type description ("directory"/"Directory", "regular file", …) may also
+    /// contain spaces but never a tab.
+    static func parseRemoteListing(
+        _ output: String,
+        path: String,
+        showHidden: Bool
+    ) -> [FileExplorerEntry] {
         let normalizedPath = path.hasSuffix("/") ? path : path + "/"
         return output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
             let parts = line.split(separator: "\t", maxSplits: 3, omittingEmptySubsequences: false)
             guard parts.count == 4 else { return nil }
             let name = String(parts[3])
+            guard name != "." && name != ".." else { return nil }
             guard showHidden || !name.hasPrefix(".") else { return nil }
+            let isDirectory = String(parts[0]).caseInsensitiveCompare("directory") == .orderedSame
             return FileExplorerEntry(
                 name: name,
                 path: normalizedPath + name,
-                isDirectory: parts[0] == "d",
-                creationDate: dateFromEpochString(String(parts[2])),
+                isDirectory: isDirectory,
+                creationDate: dateFromEpochString(String(parts[2]), minimumEpoch: birthTimeMinimumEpoch),
                 modificationDate: dateFromEpochString(String(parts[1]))
             )
         }
     }
 
-    private static func dateFromEpochString(_ value: String) -> Date? {
-        guard let seconds = TimeInterval(value), seconds > 0 else { return nil }
+    /// Birth times below this epoch (≈1973-03-03) are treated as unknown; some
+    /// filesystems report `0` or other small sentinels when birth time is
+    /// unavailable.
+    private static let birthTimeMinimumEpoch: TimeInterval = 100_000_000
+
+    private static func dateFromEpochString(
+        _ value: String,
+        minimumEpoch: TimeInterval = 0
+    ) -> Date? {
+        guard let seconds = TimeInterval(value), seconds > 0, seconds >= minimumEpoch else {
+            return nil
+        }
         return Date(timeIntervalSince1970: seconds)
     }
 

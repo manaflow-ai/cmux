@@ -51,9 +51,9 @@
 1900	cmuxTests/NotificationAndMenuBarTests.swift
 1866	Sources/Panels/BrowserWebAuthnSupport.swift
 1810	Sources/SessionIndexStore.swift
+1770	Sources/FileExplorerStore.swift
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
-1726	Sources/FileExplorerStore.swift
 1687	cmuxTests/MarkdownPanelTests.swift
 1680	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1670	Sources/FileExplorerView.swift
@@ -65,6 +65,7 @@
 1499	cmuxTests/OmnibarAndToolsTests.swift
 1435	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1433	Sources/RemoteTmuxControlConnection.swift
+1429	cmuxTests/FileExplorerStoreTests.swift
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1373	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1363	Sources/CMUXInstalledExtensionSidebarHostView.swift
@@ -74,7 +75,6 @@
 1287	cmuxTests/RestorableAgentSessionIndexTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1258	Sources/Feed/FeedCoordinator.swift
-1252	cmuxTests/FileExplorerStoreTests.swift
 1209	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
 1205	Sources/RemoteTmuxController.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
