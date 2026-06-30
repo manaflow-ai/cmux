@@ -46,6 +46,7 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
         coordinator.stop()
+        (uiView as? GhosttySurfaceView)?.prepareForDismantle()
     }
 
     @MainActor

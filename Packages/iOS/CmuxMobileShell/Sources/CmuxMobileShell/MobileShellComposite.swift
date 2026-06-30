@@ -589,7 +589,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
     /// it.
     public let diagnosticLog: DiagnosticLog?
-    var remoteClient: MobileCoreRPCClient? {
+    // `@ObservationIgnored` so the nonisolated `deinit` can read this `Sendable`
+    // handle to disconnect a still-connected foreground client. Connection state
+    // is observed through `connectionState`, not this transport handle, so
+    // dropping observation here changes no reactive read (all reads are
+    // imperative: `hasActiveMacConnection`, `chatRPCClient()`, guards).
+    @ObservationIgnored var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
                 stopTerminalRefreshPolling()
@@ -600,7 +605,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     /// `remoteClient` narrowed for `MobileShellComposite+AgentChat.swift`.
     var remoteClientForAgentChat: MobileCoreRPCClient? { remoteClient }
-    private var terminalEventListenerTask: Task<Void, Never>?
+    @ObservationIgnored private var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
     /// Recovers the Mac's identity post-handshake for tickets that arrived
     /// without one (the minimal v2 pairing QR). Owned separately from the
@@ -617,7 +622,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// precondition: a prior generation's server subscription keeps pushing
     /// across re-subscribes) so events arriving during the round-trip are
     /// consumed, not buffered invisibly behind the await.
-    private var terminalSubscriptionStartTask: Task<Void, Never>?
+    @ObservationIgnored private var terminalSubscriptionStartTask: Task<Void, Never>?
     // Liveness watchdog for the render-grid push subscription. The `for await`
     // listener loop blocks indefinitely if the underlying connection half-dies
     // (network blip, Mac stops pushing, background/foreground cycle): the
@@ -640,17 +645,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// probe holding it may clear the slot, so a cancelled probe from an older
     /// generation completing late cannot free or clobber a newer generation's
     /// in-flight slot.
-    private var renderGridLivenessProbeTask: Task<Void, Never>?
+    @ObservationIgnored private var renderGridLivenessProbeTask: Task<Void, Never>?
     private var renderGridLivenessProbeID: UUID?
     private var lastTerminalEventAt: Date?
-    private var terminalSubscriptionRefreshTask: Task<Void, Never>?
-    private var createWorkspaceTask: Task<Void, Never>?
-    private var createTerminalTask: Task<Void, Never>?
-    private var workspaceListRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var terminalSubscriptionRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var createWorkspaceTask: Task<Void, Never>?
+    @ObservationIgnored private var createTerminalTask: Task<Void, Never>?
+    @ObservationIgnored private var workspaceListRefreshTask: Task<Void, Never>?
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
-    private var pullToRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var pullToRefreshTask: Task<Void, Never>?
     private var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
@@ -675,7 +680,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The in-flight multi-Mac aggregation pass, tracked so sign-out / account
     /// switch can cancel it; its scope guards then bail before any cross-account
     /// write. Replaced (cancelling the prior) on each scheduled pass.
-    private var secondaryAggregationTask: Task<Void, Never>?
+    @ObservationIgnored private var secondaryAggregationTask: Task<Void, Never>?
     /// Bumped on Stack team switches so every aggregation caller, including
     /// direct pull-to-refresh calls that are not owned by
     /// ``secondaryAggregationTask``, can reject old-team results after awaits.
@@ -886,19 +891,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairingAttemptID = UUID()
     }
 
-    isolated deinit {
+    // Isolated `deinit` (SE-0371) is rejected by the iOS build toolchain on CI,
+    // so cleanup runs from this nonisolated `deinit`, which may only touch
+    // `Sendable` stored state. The long-lived task handles and `remoteClient`
+    // are `@ObservationIgnored` (plain `Sendable` storage), so the deinit can
+    // cancel each task — cancelling, not releasing, is what stops a task parked
+    // in `for await client.subscribe(...)` — and explicitly disconnect the
+    // foreground client, whose `MobileCoreRPCSession` keeps its reader/writer
+    // running until `disconnect()`. Discarded preview/test/rebuilt stores
+    // therefore stop leaking subscriptions, probes, and sockets. The liveness
+    // `DispatchSourceTimer` (always `resume()`d, `[weak self]` handler) and the
+    // `SecondaryMacSubscription`s self-release safely once this store drops.
+    deinit {
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
         terminalSubscriptionStartTask?.cancel()
-        renderGridLivenessTimer?.cancel()
         renderGridLivenessProbeTask?.cancel()
         terminalSubscriptionRefreshTask?.cancel()
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
         pullToRefreshTask?.cancel()
-        teardownSecondaryMacSubscriptions()
+        secondaryAggregationTask?.cancel()
         if let remoteClient {
             Task { await remoteClient.disconnect() }
         }
@@ -1288,7 +1303,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var connectionRequiresReauth: Bool = false
 
     private var networkPathObservationStarted = false
-    private var networkPathObservationTask: Task<Void, Never>?
+    @ObservationIgnored private var networkPathObservationTask: Task<Void, Never>?
     private var recoveryInFlight = false
     private var recoveryTask: Task<Void, Never>?
     private var lastReconnectStackUserID: String?
@@ -1921,7 +1936,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// snapshot; the device tree then overlays live online/offline state on the
     /// registry rows instead of registry "last seen" staleness guesses.
     public private(set) var presenceMap = PresenceMap()
-    private var presenceTask: Task<Void, Never>?
+    @ObservationIgnored private var presenceTask: Task<Void, Never>?
 
     /// Start or stop the presence subscription to match the session: running
     /// while signed in (and a client is injected), torn down with a blanked map

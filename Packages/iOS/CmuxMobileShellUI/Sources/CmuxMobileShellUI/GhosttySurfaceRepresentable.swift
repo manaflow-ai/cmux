@@ -36,6 +36,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// band and pins first responder so the keyboard hands over in place; when it
     /// flips off, the field is unmounted and the band collapses to zero height.
     var isComposerActive: Bool = false
+    @Environment(MobileTerminalKeyboardCorrectionPreference.self)
+    private var keyboardCorrectionPreference
 
     func makeCoordinator() -> Coordinator {
         Coordinator(surfaceID: surfaceID, store: store)
@@ -56,7 +58,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let view = GhosttySurfaceView(
             runtime: runtime,
             delegate: context.coordinator,
-            fontSize: fontSize
+            fontSize: fontSize,
+            keyboardCorrectionPreference: keyboardCorrectionPreference
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         #if DEBUG
