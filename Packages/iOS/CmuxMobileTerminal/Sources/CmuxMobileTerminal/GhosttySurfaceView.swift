@@ -2274,7 +2274,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   or `false` when the caller should reset its delivery queue and replay.
     @discardableResult
     public func processOutputAndWait(_ data: Data) async -> Bool {
-        guard !renderPipelineStoppedAfterRecoveryLimit else { return false }
+        guard !renderPipelineStoppedAfterRecoveryLimit else { return true }
         await withCheckedContinuation { continuation in
             let waiter = SurfaceOperationWaiter()
             let startedAt = CACurrentMediaTime()
@@ -2311,7 +2311,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
         guard !renderPipelineStoppedAfterRecoveryLimit else {
-            completion?(false)
+            completion?(true)
             return
         }
         guard let surface, !isDismantled else {
@@ -3219,7 +3219,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func syncSurfaceGeometryAndWait(shouldReassertNaturalSize: Bool = true) async -> Bool {
-        guard !renderPipelineStoppedAfterRecoveryLimit else { return false }
+        guard !renderPipelineStoppedAfterRecoveryLimit else { return true }
         needsGeometrySync = false
         pendingGeometryReassert = false
         await withCheckedContinuation { continuation in

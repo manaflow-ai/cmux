@@ -6352,7 +6352,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             : .deliver
         switch deliveryDecision {
         case .deliver:
-            terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
             break
         case .advisory(let requestReplay, let updateTrackedScreen, let deliverViewportPolicy):
             if updateTrackedScreen {
@@ -6369,8 +6368,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return
         }
+        guard deliverTerminalRenderGrid(renderGrid, surfaceID: renderGrid.surfaceID) else { return }
+        terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
         markTerminalBytesDelivered(surfaceID: renderGrid.surfaceID, endSeq: renderGrid.stateSeq)
-        deliverTerminalRenderGrid(renderGrid, surfaceID: renderGrid.surfaceID)
     }
 
     private static func terminalSnapshotReplacementBytes(_ snapshotBytes: Data) -> Data {
@@ -6603,16 +6603,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     deliverBytes = bytes
                     MobileDebugLog.anchormux("CMUX_REPLAY raw_tail surface=\(surfaceID) bytes=\(bytes?.count ?? -1) seq=\(replaySeq ?? 0)")
                 }
-                if let replaySeq {
-                    self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
-                }
                 if let renderGrid {
-                    self.terminalActiveScreenBySurfaceID[surfaceID] = renderGrid.activeScreen
-                    self.deliverTerminalRenderGrid(
+                    let accepted = self.deliverTerminalRenderGrid(
                         renderGrid,
                         surfaceID: surfaceID,
                         bypassReplayBarrier: replayBarrierToken != nil
                     )
+                    guard accepted else { return }
+                    self.terminalActiveScreenBySurfaceID[surfaceID] = renderGrid.activeScreen
+                    if let replaySeq {
+                        self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
+                    }
                     return
                 }
                 guard let deliverBytes, !deliverBytes.isEmpty else {
@@ -6623,13 +6624,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     return
                 }
-                self.deliverTerminalBytes(
+                let accepted = self.deliverTerminalBytes(
                     deliverBytes,
                     surfaceID: surfaceID,
                     bypassReplayBarrier: replayBarrierToken != nil
                 )
+                if accepted, let replaySeq {
+                    self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
+                }
             } catch {
                 mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+                if let replayBarrierToken,
+                   self.terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken {
+                    self.terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+                    self.terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+                    MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared_failed surface=\(surfaceID)")
+                }
                 // The replay request is the view-only/foreground-resume path. A
                 // definitive auth failure here (after the RPC layer's
                 // force-refresh-and-retry already gave up) must drive the re-auth
@@ -6754,11 +6764,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             let overlap = deliveredSeq - seq
             let deliverBytes = Data(bytes.dropFirst(Int(overlap)))
-            deliverTerminalBytes(deliverBytes, surfaceID: surfaceID)
+            guard deliverTerminalBytes(deliverBytes, surfaceID: surfaceID) else { return }
             markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
             return
         }
-        deliverTerminalBytes(bytes, surfaceID: surfaceID)
+        guard deliverTerminalBytes(bytes, surfaceID: surfaceID) else { return }
         markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
     }
 

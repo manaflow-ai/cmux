@@ -58,7 +58,11 @@ import Testing
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
     #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil)
 
-    store.deliverTerminalBytes(Data("live-before-replay".utf8), surfaceID: surfaceID)
+    let liveBeforeReplayAccepted = store.deliverTerminalBytes(
+        Data("live-before-replay".utf8),
+        surfaceID: surfaceID
+    )
+    #expect(liveBeforeReplayAccepted == false)
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
 
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
@@ -72,10 +76,18 @@ import Testing
     #expect(String(decoding: replayChunk.data, as: UTF8.self) == "authoritative-replay")
     #expect(replayChunk.streamToken != stalledChunk.streamToken)
 
-    store.deliverTerminalBytes(Data("live-before-replay-ack".utf8), surfaceID: surfaceID)
+    let liveBeforeReplayAckAccepted = store.deliverTerminalBytes(
+        Data("live-before-replay-ack".utf8),
+        surfaceID: surfaceID
+    )
+    #expect(liveBeforeReplayAckAccepted == false)
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == 0)
 
-    store.deliverTerminalBytes(Data("after-stale-ack".utf8), surfaceID: surfaceID)
+    let afterStaleAckAccepted = store.deliverTerminalBytes(
+        Data("after-stale-ack".utf8),
+        surfaceID: surfaceID
+    )
+    #expect(afterStaleAckAccepted == false)
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == 0)
 
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)

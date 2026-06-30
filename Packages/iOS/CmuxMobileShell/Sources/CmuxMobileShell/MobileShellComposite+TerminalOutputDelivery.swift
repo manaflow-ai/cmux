@@ -5,12 +5,13 @@ public import Foundation
 
 extension MobileShellComposite {
     /// Yield a raw PTY byte chunk to the surface stream, if one is attached.
+    @discardableResult
     func deliverTerminalBytes(
         _ bytes: Data,
         surfaceID: String,
         bypassReplayBarrier: Bool = false
-    ) {
-        deliverTerminalOutput(
+    ) -> Bool {
+        return deliverTerminalOutput(
             TerminalOutputDelivery(
                 bytes: bytes,
                 replaceable: false,
@@ -21,12 +22,13 @@ extension MobileShellComposite {
         )
     }
 
+    @discardableResult
     func deliverTerminalRenderGrid(
         _ frame: MobileTerminalRenderGridFrame,
         surfaceID: String,
         bypassReplayBarrier: Bool = false
-    ) {
-        deliverTerminalOutput(
+    ) -> Bool {
+        return deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,
                 replaceable: frame.isReplaceableViewportPatchForMobileDelivery,
@@ -38,7 +40,7 @@ extension MobileShellComposite {
     }
 
     func deliverTerminalViewportPolicy(_ policy: MobileTerminalOutputViewportPolicy, surfaceID: String) {
-        deliverTerminalOutput(
+        _ = deliverTerminalOutput(
             TerminalOutputDelivery(
                 bytes: Data(),
                 replaceable: true,
@@ -53,12 +55,12 @@ extension MobileShellComposite {
         _ delivery: TerminalOutputDelivery,
         surfaceID: String,
         bypassReplayBarrier: Bool = false
-    ) {
+    ) -> Bool {
         guard let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
-              let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] else { return }
+              let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] else { return false }
         if terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil, !bypassReplayBarrier {
             MobileDebugLog.anchormux("terminal.output.drop_replay_barrier surface=\(surfaceID)")
-            return
+            return false
         }
         var queue = terminalOutputQueuesBySurfaceID[surfaceID] ?? TerminalOutputDeliveryQueue()
         let immediate = queue.enqueue(delivery)
@@ -83,6 +85,7 @@ extension MobileShellComposite {
                 )
             )
         }
+        return true
     }
 
     /// Mark the current yielded terminal-output chunk as applied by the iOS surface.
