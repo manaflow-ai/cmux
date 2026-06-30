@@ -149,6 +149,36 @@ jobs:
         # -O/wholemodule, which hits the Xcode 26 codegen bug without it.
         run: ./ios/scripts/reload.sh --tag cistream --simulator "iPhone 17 Pro Max" --no-attach --swift-frontend-workaround
 
+      - name: Install agent CLIs (claude, codex, opencode, pi)
+        # The streamed terminals run real agents on this runner. Install the CLIs
+        # and symlink them onto the default PATH: cmux workspace shells launch from
+        # the GUI Mac app and do NOT have ~/.bun/bin or ~/.local/bin on PATH (the
+        # earlier capture showed `zsh: command not found: opencode`), but they do
+        # have /usr/local/bin.
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.bun/bin:$PATH"
+          # Claude Code (authenticates in CI via CLAUDE_CODE_OAUTH_TOKEN).
+          curl -fsSL https://claude.ai/install.sh | bash || npm install -g @anthropic-ai/claude-code || true
+          # bun-global agents (package names verified from a working install).
+          command -v bun >/dev/null || curl -fsSL https://bun.sh/install | bash
+          export PATH="$HOME/.bun/bin:$PATH"
+          bun install -g opencode-ai @openai/codex @earendil-works/pi-coding-agent || true
+          sudo mkdir -p /usr/local/bin || mkdir -p /usr/local/bin || true
+          link() { [ -x "$2" ] && { sudo ln -sf "$2" "/usr/local/bin/$1" 2>/dev/null || ln -sf "$2" "/usr/local/bin/$1"; } || echo "warn: $1 not found at $2"; }
+          link claude   "$HOME/.local/bin/claude"
+          link opencode "$HOME/.bun/bin/opencode"
+          link codex    "$HOME/.bun/bin/codex"
+          link pi       "$HOME/.bun/bin/pi"
+          for a in claude opencode codex pi; do printf '%s: ' "$a"; command -v "$a" >/dev/null && { command -v "$a"; "$a" --version 2>&1 | head -1; } || echo MISSING; done
+          # Pre-seed claude config so the fresh-$HOME onboarding (theme picker) and
+          # the per-folder trust prompt don't block the headless run. The sandbox
+          # path is deterministic (capture-streamed uses /tmp/cmux-stream-<agent>).
+          cat > "$HOME/.claude.json" <<'JSON'
+          {"hasCompletedOnboarding": true, "theme": "dark", "projects": {"/tmp/cmux-stream-claude": {"hasTrustDialogAccepted": true}}}
+          JSON
+          echo "seeded ~/.claude.json"
+
       - name: Pair simulator + capture one streamed terminal
         env:
           # Dedicated CI screenshot account (NOT a personal account). dev-secrets
@@ -156,6 +186,10 @@ jobs:
           # mobile-dev-launch signs the device in with this account.
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          # Agent auth for the real streamed sessions. claude uses the OAuth token
+          # natively; DeepSeek (OpenAI-compatible) backs the others.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="/tmp/idbvenv/bin:$HOME/.bun/bin:$PATH"
@@ -175,6 +209,12 @@ jobs:
           # workspaces to stream).
           MAC_APP="$(ls -d "$HOME/Library/Developer/Xcode/DerivedData/cmux-cistream/Build/Products/Debug/"*.app 2>/dev/null | head -1)"
           [ -n "$MAC_APP" ] || { echo "::error::tagged Mac app not found"; exit 1; }
+          # `open` launches the Mac app with launchd's environment, not this
+          # shell's, so agent terminals spawned by the app won't see step env vars.
+          # Push the agent auth into the GUI session env BEFORE launching so the
+          # workspace shells (and the agents they run) inherit it.
+          [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && launchctl setenv CLAUDE_CODE_OAUTH_TOKEN "$CLAUDE_CODE_OAUTH_TOKEN" || true
+          [ -n "${DEEPSEEK_API_KEY:-}" ] && launchctl setenv DEEPSEEK_API_KEY "$DEEPSEEK_API_KEY" || true
           open "$MAC_APP"
           for i in $(seq 1 60); do CMUX_TAG=cistream ./scripts/cmux-debug-cli.sh identify >/dev/null 2>&1 && break; sleep 2; done
           CMUX_TAG=cistream ./scripts/cmux-debug-cli.sh identify >/dev/null 2>&1 || { echo "::error::tagged Mac app debug socket never came up"; exit 1; }
@@ -190,7 +230,7 @@ jobs:
           xcrun simctl io "$SIM_ID" screenshot /tmp/streamed-ci/_diag/after-pair.png || true
           idb ui describe-all --udid "$SIM_ID" > /tmp/streamed-ci/_diag/after-pair-a11y.json 2>&1 || true
           set +e
-          python3 ios/scripts/capture-streamed.py --tag cistream --sim-id "$SIM_ID" --agents opencode --out /tmp/streamed-ci
+          python3 ios/scripts/capture-streamed.py --tag cistream --sim-id "$SIM_ID" --agents claude --out /tmp/streamed-ci
           CAP_RC=$?
           set -e
           # Post-capture device diagnostics (always), so a failure tells us the
