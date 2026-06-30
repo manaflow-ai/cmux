@@ -64,6 +64,14 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
 
     private let listenerFD: Int32
     private let queue = DispatchQueue(label: "com.cmux.tests.codex-teams-app-server", qos: .userInitiated)
+    // Connection handlers must run off `queue`: `acceptLoop()` occupies that serial
+    // queue for the listener's whole lifetime, so dispatching `handle(clientFD:)`
+    // back onto it would starve every connection. Use a concurrent queue instead.
+    private let connectionQueue = DispatchQueue(
+        label: "com.cmux.tests.codex-teams-app-server.connections",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
     private let lock = NSLock()
     private var stopped = false
     private var methods: [String] = []
@@ -121,7 +129,7 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
                 if errno == EINTR { continue }
                 continue
             }
-            queue.async { [weak self] in
+            connectionQueue.async { [weak self] in
                 self?.handle(clientFD: clientFD)
             }
         }
