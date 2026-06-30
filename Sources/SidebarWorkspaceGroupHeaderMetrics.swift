@@ -42,6 +42,8 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     static let baseIconFontSize: CGFloat = 11
     /// Folder/group icon frame edge at the default sidebar font size.
     static let baseIconFrame: CGFloat = 14
+    /// Pinned group glyph point size at the default sidebar font size.
+    static let basePinnedIconFontSize: CGFloat = 9
     /// Group name point size at the default sidebar font size.
     static let baseNameFontSize: CGFloat = 11
     /// Unread badge point size at the default sidebar font size.
@@ -67,6 +69,8 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     var iconFontSize: CGFloat { Self.baseIconFontSize * fontScale }
     /// Scaled folder/group icon frame edge.
     var iconFrame: CGFloat { Self.baseIconFrame * fontScale }
+    /// Scaled pinned group glyph point size.
+    var pinnedIconFontSize: CGFloat { Self.basePinnedIconFontSize * fontScale }
     /// Scaled group name point size.
     var nameFontSize: CGFloat { Self.baseNameFontSize * fontScale }
     /// Scaled unread badge point size.

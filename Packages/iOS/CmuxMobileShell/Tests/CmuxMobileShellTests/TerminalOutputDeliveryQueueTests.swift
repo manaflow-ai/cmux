@@ -90,6 +90,38 @@ import Testing
     #expect(!vt.contains("old"))
 }
 
+@Test func terminalOutputQueueDoesNotReplaceRenderGridSnapshotWithPolicyOnlyDelivery() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        columns: 12,
+        rows: 2,
+        text: "snapshot\ncontents",
+        full: false,
+        changedRows: [0, 1]
+    )
+    let renderGrid = TerminalOutputDelivery(renderGrid: frame, replaceable: true)
+    let policyOnly = TerminalOutputDelivery(
+        bytes: Data(),
+        replaceable: true,
+        replacementScope: .viewportPolicy,
+        viewportPolicy: .natural
+    )
+
+    #expect(queue.enqueue(inFlight) == inFlight)
+    #expect(queue.enqueue(renderGrid) == nil)
+    #expect(queue.enqueue(policyOnly) == nil)
+
+    #expect(queue.pendingCount == 2)
+    let maybeDelivered = queue.completeInFlight()
+    let delivered = try #require(maybeDelivered)
+    let vt = try #require(String(data: delivered.bytes, encoding: .utf8))
+    #expect(vt.contains("snapshot"))
+    #expect(queue.completeInFlight() == policyOnly)
+}
+
 @Test func terminalOutputQueuePreservesNonreplaceableBarriers() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)

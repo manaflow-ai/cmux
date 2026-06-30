@@ -285,6 +285,10 @@ final class cmuxUITests: XCTestCase {
 
         let app = try launchConnectedApp(port: port)
         try openSelectedWorkspaceIfNeeded(app)
+        XCTAssertTrue(app.buttons["MobileWorkspaceBackButton"].waitForExistence(timeout: 4))
+        let titleControl = app.descendants(matching: .any)["MobileWorkspaceTitleMenu"]
+        XCTAssertTrue(titleControl.waitForExistence(timeout: 4))
+        XCTAssertFalse(app.buttons["MobileWorkspaceTitleMenu"].exists)
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
         await assertHostSelection(
@@ -295,6 +299,9 @@ final class cmuxUITests: XCTestCase {
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleRenameMenuItem", in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleReadStateMenuItem", in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleCloseMenuItem", in: app)
         tapMenuItem(app.buttons["MobileNewTerminalMenuItem"], in: app)
         await assertHostSelection(
             workspaceID: "workspace-3",
@@ -549,29 +556,42 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testInlineWorkspaceTitleMenuShowsWorkspaceActions() throws {
+    func testInlineWorkspaceTerminalPickerShowsWorkspaceActions() throws {
         let app = launchAgentChatInlinePreviewApp()
-        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let titleControl = app.descendants(matching: .any)["MobileWorkspaceTitleMenu"]
         let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let chatToggle = app.buttons["AgentChatInlinePreviewChatToggle"]
         let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
-        XCTAssertTrue(titleMenu.waitForExistence(timeout: 8))
+        XCTAssertTrue(titleControl.waitForExistence(timeout: 8))
+        XCTAssertFalse(app.buttons["MobileWorkspaceTitleMenu"].exists)
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(chatToggle.waitForExistence(timeout: 4))
         XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
         XCTAssertTrue(
             waitForCompactToolbarHeightsToMatch(
-                titleMenu: titleMenu,
+                titleMenu: titleControl,
                 backButton: backButton,
                 surfacePicker: surfacePicker,
                 tolerance: 2,
                 timeout: 4
             )
         )
+        XCTAssertTrue(
+            waitForWorkspaceTitleCenteredAndSeparated(
+                titleMenu: titleControl,
+                backButton: backButton,
+                trailingControl: chatToggle,
+                in: app,
+                timeout: 4
+            )
+        )
 
-        tapCompactToolbarTitleMenu(titleMenu, in: app)
+        tap(surfacePicker, in: app)
 
-        XCTAssertTrue(app.buttons["Rename Workspace"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.buttons["Mark as Read"].exists)
-        XCTAssertFalse(app.buttons["New Terminal"].exists)
+        assertMenuButtonExists("MobileWorkspaceTitleRenameMenuItem", in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleReadStateMenuItem", in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleCloseMenuItem", in: app)
+        assertMenuButtonExists("MobileNewTerminalMenuItem", in: app)
     }
 
     @MainActor
@@ -580,17 +600,18 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_INLINE_WORKSPACE_TITLE": "✳️ Claude Code",
             "CMUX_UITEST_INLINE_WORKSPACE_SUBTITLE": "🧑🏽‍💻 Claude Code",
         ])
-        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let titleControl = app.descendants(matching: .any)["MobileWorkspaceTitleMenu"]
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
 
-        XCTAssertTrue(titleMenu.waitForExistence(timeout: 8))
+        XCTAssertTrue(titleControl.waitForExistence(timeout: 8))
+        XCTAssertFalse(app.buttons["MobileWorkspaceTitleMenu"].exists)
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
 
         XCTAssertTrue(
             waitForCompactToolbarHeightsToMatch(
-                titleMenu: titleMenu,
+                titleMenu: titleControl,
                 backButton: backButton,
                 surfacePicker: surfacePicker,
                 tolerance: 2,
@@ -603,9 +624,10 @@ final class cmuxUITests: XCTestCase {
         screenshotAttachment.lifetime = .keepAlways
         add(screenshotAttachment)
 
-        tapCompactToolbarTitleMenu(titleMenu, in: app)
-        XCTAssertTrue(app.buttons["Rename Workspace"].waitForExistence(timeout: 4))
-        XCTAssertFalse(app.buttons["New Terminal"].exists)
+        tap(surfacePicker, in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleRenameMenuItem", in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleReadStateMenuItem", in: app)
+        assertMenuButtonExists("MobileWorkspaceTitleCloseMenuItem", in: app)
     }
 
     /// Regression for WhatsApp-style chat keyboard tracking: focusing the chat
@@ -1112,6 +1134,10 @@ final class cmuxUITests: XCTestCase {
                 && $0.adjustedTopInset > 20
                 && $0.contentHeight > $0.boundsHeight * 1.6
         }
+        XCTAssertTrue(
+            topMetrics.topContentScrollViewRegistered,
+            "When the keyboard is not active, the chat transcript should remain registered as the navigation bar's top content scroll view so the normal top underlap effect works. metrics=\(topMetrics)"
+        )
         XCTAssertEqual(
             topMetrics.offsetY,
             -topMetrics.adjustedTopInset,
@@ -1157,6 +1183,27 @@ final class cmuxUITests: XCTestCase {
         _ = try waitForTranscriptMetrics(table, timeout: 4) {
             $0.distanceFromBottom < 60
         }
+    }
+
+    @MainActor
+    func testAgentChatExpansionControlsPreserveTranscriptScrollPosition() throws {
+        let app = launchAgentChatInlinePreviewApp()
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        _ = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.frameHeight > 240 && $0.contentHeight > $0.boundsHeight * 1.6
+        }
+
+        try assertExpansionTogglePreservesTranscriptPosition(
+            buttonID: "ChatToolUseToggle-msg-fixture-4",
+            table: table,
+            app: app
+        )
+        try assertExpansionTogglePreservesTranscriptPosition(
+            buttonID: "ChatTerminalToggle-msg-fixture-6",
+            table: table,
+            app: app
+        )
     }
 
     @MainActor
@@ -1260,6 +1307,28 @@ final class cmuxUITests: XCTestCase {
         let afterKeyboard = try waitForTranscriptMetrics(table, timeout: 6) {
             $0.frameMaxY < beforeKeyboard.frameMaxY - 120
         }
+        let metricsAttachment = XCTAttachment(
+            string: "scrollPosition=\(scrollPosition)\nbefore=\(beforeKeyboard)\nafter=\(afterKeyboard)"
+        )
+        metricsAttachment.name = "keyboard-top-edge-metrics-\(scrollPosition)"
+        metricsAttachment.lifetime = .keepAlways
+        add(metricsAttachment)
+        let screenshotAttachment = XCTAttachment(screenshot: app.screenshot())
+        screenshotAttachment.name = "keyboard-top-edge-screenshot-\(scrollPosition)"
+        screenshotAttachment.lifetime = .keepAlways
+        add(screenshotAttachment)
+        XCTAssertTrue(
+            afterKeyboard.topEdgeEffectSoft,
+            "Chat transcript must keep the iOS 26 top scroll-edge effect while the keyboard clips the transcript from \(scrollPosition). The keyboard may move the viewport, but it must not remove the top fade under the navigation chrome. before=\(beforeKeyboard) after=\(afterKeyboard)",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            afterKeyboard.topContentScrollViewRegistered,
+            "Chat transcript must keep driving the navigation bar's top content scroll view while the keyboard clips the transcript from \(scrollPosition). Deregistering it removes the top scroll-edge treatment shown in the keyboard repro. before=\(beforeKeyboard) after=\(afterKeyboard)",
+            file: file,
+            line: line
+        )
         let keyboardFrame = keyboardFrameAfterFocus(
             in: app,
             overlap: afterKeyboard.keyboardOverlap,
@@ -1658,6 +1727,22 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    private func assertMenuButtonExists(
+        _ identifier: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let item = app.buttons[identifier]
+        XCTAssertTrue(
+            item.waitForExistence(timeout: 4),
+            "Expected menu to contain \(identifier).",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
     private func assertTerminalReplay(
         terminalID: String,
         server: MobileSyncMockHostServer,
@@ -1976,34 +2061,42 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func tapCompactToolbarTitleMenu(
-        _ titleMenu: XCUIElement,
+    private func waitForWorkspaceTitleCenteredAndSeparated(
+        titleMenu: XCUIElement,
+        backButton: XCUIElement,
+        trailingControl: XCUIElement,
         in app: XCUIApplication,
+        timeout: TimeInterval,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) {
-        XCTAssertTrue(titleMenu.waitForExistence(timeout: 4), file: file, line: line)
-        dismissKeyboard(in: app)
-        guard let frame = waitForToolbarFrame(of: titleMenu, timeout: 4) else {
-            XCTFail("Title menu has no usable frame: \(titleMenu.debugDescription)", file: file, line: line)
-            return
-        }
-        app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: frame.minX + min(24, frame.width / 2), dy: frame.midY))
-            .tap()
-    }
-
-    @MainActor
-    private func waitForToolbarFrame(of element: XCUIElement, timeout: TimeInterval) -> CGRect? {
+    ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
+        let window = app.windows.firstMatch
+        let windowFrame = window.exists ? window.frame : app.frame
+        let centerTolerance = max(windowFrame.width * 0.10, 28)
+        var lastTitleFrame = titleMenu.frame
+        var lastBackFrame = backButton.frame
+        var lastTrailingFrame = trailingControl.frame
+
         while Date() < deadline {
-            if let frame = waitForUsableFrame(of: element, timeout: 0.1),
-               frame.midY > 60 {
-                return frame
+            lastTitleFrame = titleMenu.frame
+            lastBackFrame = backButton.frame
+            lastTrailingFrame = trailingControl.frame
+            if lastTitleFrame.midY > 60,
+               abs(lastTitleFrame.midX - windowFrame.midX) <= centerTolerance,
+               lastTitleFrame.minX > lastBackFrame.maxX + 16,
+               lastTitleFrame.maxX < lastTrailingFrame.minX - 2 {
+                return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        return waitForUsableFrame(of: element, timeout: 0.1)
+
+        XCTFail(
+            "Workspace title must be centered as its own toolbar island, separated from leading and trailing controls. title=\(lastTitleFrame), back=\(lastBackFrame), trailing=\(lastTrailingFrame), window=\(windowFrame)",
+            file: file,
+            line: line
+        )
+        return false
     }
 
     private struct ChatTranscriptMetrics: CustomStringConvertible {
@@ -2032,9 +2125,12 @@ final class cmuxUITests: XCTestCase {
         let keyboardTransitionDuration: TimeInterval
         let maxAnimationPresentationGap: CGFloat
         let keyboardAnimationSamples: Int
+        let topEdgeEffectSoft: Bool
+        let bottomEdgeEffectSoft: Bool
+        let topContentScrollViewRegistered: Bool
 
         var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples), topEdgeEffectSoft=\(topEdgeEffectSoft), bottomEdgeEffectSoft=\(bottomEdgeEffectSoft), topContentScrollViewRegistered=\(topContentScrollViewRegistered)"
         }
 
         var effectiveFrameMaxY: CGFloat {
@@ -2086,6 +2182,9 @@ final class cmuxUITests: XCTestCase {
             self.keyboardTransitionDuration = TimeInterval(values["keyboardTransitionDuration"] ?? 0)
             self.maxAnimationPresentationGap = values["maxAnimationPresentationGap"] ?? 0
             self.keyboardAnimationSamples = Int(values["keyboardAnimationSamples"] ?? 0)
+            self.topEdgeEffectSoft = (values["topEdgeEffectSoft"] ?? 0) >= 0.5
+            self.bottomEdgeEffectSoft = (values["bottomEdgeEffectSoft"] ?? 0) >= 0.5
+            self.topContentScrollViewRegistered = (values["topContentScrollViewRegistered"] ?? 0) >= 0.5
         }
     }
 
@@ -2552,6 +2651,57 @@ final class cmuxUITests: XCTestCase {
             line: line
         )
         return lastMetrics
+    }
+
+    @MainActor
+    private func assertExpansionTogglePreservesTranscriptPosition(
+        buttonID: String,
+        table: XCUIElement,
+        app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let button = app.buttons[buttonID]
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline, !button.isHittable {
+            table.swipeDown(velocity: .fast)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
+        }
+        XCTAssertTrue(button.isHittable, "Expected expansion control \(buttonID) to become hittable", file: file, line: line)
+
+        let before = try waitForTranscriptMetrics(
+            table,
+            timeout: 4,
+            matching: { $0.distanceFromBottom > 180 && $0.contentHeight > $0.boundsHeight * 1.4 },
+            file: file,
+            line: line
+        )
+        button.tap()
+        let predicate = NSPredicate(format: "value == %@", "Expanded")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: button)
+        let result = XCTWaiter.wait(for: [expectation], timeout: 4)
+        XCTAssertEqual(result, .completed, "Expected \(buttonID) to expand", file: file, line: line)
+        let after = try waitForTranscriptMetrics(
+            table,
+            timeout: 4,
+            matching: { $0.distanceFromBottom > 120 },
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            abs(after.visibleTopY - before.visibleTopY),
+            120,
+            "Tapping \(buttonID) must preserve the visible transcript region instead of jumping. before=\(before) after=\(after)",
+            file: file,
+            line: line
+        )
+        XCTAssertGreaterThan(
+            after.distanceFromBottom,
+            120,
+            "Tapping \(buttonID) must leave the transcript away from the live tail. before=\(before) after=\(after)",
+            file: file,
+            line: line
+        )
     }
 
     @MainActor
@@ -3419,6 +3569,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         let result: [String: Any]
 
         switch method {
+        case "mobile.host.status":
+            result = mobileHostStatusResult()
         case "workspace.list":
             result = workspaceListResult()
         case "workspace.create":
@@ -3538,6 +3690,18 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         text += terminal.lines.joined(separator: "\r\n")
         text += "\r\n"
         return Data(text.utf8)
+    }
+
+    private func mobileHostStatusResult() -> [String: Any] {
+        [
+            "capabilities": [
+                "workspace.actions.v1",
+                "workspace.read_state.v1",
+                "workspace.close.v1",
+            ],
+            "mac_display_name": "UI Test Mac",
+            "mac_device_id": "ui-test-mac",
+        ]
     }
 
     private func workspaceListResult() -> [String: Any] {

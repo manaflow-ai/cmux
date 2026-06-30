@@ -138,6 +138,7 @@ class TerminalController {
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
     private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
+    private nonisolated static let v2ConsumedBrowserDownloadIDLimit = 128
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
     private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
     private struct MobileViewportReport {
@@ -260,6 +261,7 @@ class TerminalController {
     private var v2BrowserInitStylesBySurface: [UUID: [String]] = [:]
     private var v2BrowserDialogQueueBySurface: [UUID: [V2BrowserPendingDialog]] = [:]
     private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
+    private var v2ConsumedBrowserDownloadKeysBySurface: [UUID: [String]] = [:]
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
     private nonisolated let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
     /// Stateless browser-control logic (JS builders, value normalization,
@@ -282,6 +284,7 @@ class TerminalController {
             v2BrowserInitStylesBySurface.removeValue(forKey: surfaceId)
             v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
+            v2ConsumedBrowserDownloadKeysBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
 
@@ -338,9 +341,7 @@ class TerminalController {
                   let event = note.userInfo?["event"] as? [String: Any] else { return }
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                var queue = self.v2BrowserDownloadEventsBySurface[surfaceId] ?? []
-                queue.append(event)
-                self.v2BrowserDownloadEventsBySurface[surfaceId] = queue
+                self.v2RecordBrowserDownloadEvent(surfaceId: surfaceId, event: event)
             }
         }
     }
@@ -8831,14 +8832,61 @@ class TerminalController {
         }
     }
 
-    private func v2PopBrowserDownloadEvent(surfaceId: UUID) -> [String: Any]? {
-        guard let first = v2BrowserDownloadEventsBySurface[surfaceId]?.first else {
-            return nil
+    func v2RecordBrowserDownloadEvent(surfaceId: UUID, event: [String: Any]) {
+        guard v2ShouldStoreBrowserDownloadEvent(event, surfaceId: surfaceId), (event["type"] as? String) != "started" else { return }
+        var queue = v2BrowserDownloadEventsBySurface[surfaceId] ?? []
+        if v2IsTerminalBrowserDownloadEvent(event),
+           let downloadID = v2DownloadID(from: event) {
+            queue.removeAll { v2DownloadID(from: $0) == downloadID }
         }
+        queue.append(event)
+        if queue.count > Self.v2ConsumedBrowserDownloadIDLimit { queue.removeFirst(queue.count - Self.v2ConsumedBrowserDownloadIDLimit) }
+        v2BrowserDownloadEventsBySurface[surfaceId] = queue
+    }
+
+    func v2PopBrowserDownloadEvent(surfaceId: UUID) -> [String: Any]? {
         var remaining = v2BrowserDownloadEventsBySurface[surfaceId] ?? []
-        remaining.removeFirst()
-        v2BrowserDownloadEventsBySurface[surfaceId] = remaining
-        return first
+        while !remaining.isEmpty {
+            let first = remaining.removeFirst()
+            v2BrowserDownloadEventsBySurface[surfaceId] = remaining
+            guard v2ShouldStoreBrowserDownloadEvent(first, surfaceId: surfaceId), (first["type"] as? String) != "started" else { continue }
+            v2MarkBrowserDownloadEventConsumed(first, surfaceId: surfaceId)
+            return first
+        }
+        return nil
+    }
+
+    private func v2DownloadID(from event: [String: Any]) -> String? {
+        (event["download_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+
+    private func v2IsTerminalBrowserDownloadEvent(_ event: [String: Any]) -> Bool {
+        let type = event["type"] as? String
+        return type == "saved" || type == "cancelled" || type == "failed"
+    }
+
+    private func v2ShouldStoreBrowserDownloadEvent(_ event: [String: Any], surfaceId: UUID) -> Bool {
+        guard let downloadID = v2DownloadID(from: event) else { return true }
+        let consumed = v2ConsumedBrowserDownloadKeysBySurface[surfaceId] ?? []
+        if consumed.contains(downloadID) { return false }
+        guard let type = (event["type"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else { return true }
+        return !consumed.contains("\(type)\u{0}\(downloadID)")
+    }
+
+    func v2MarkBrowserDownloadEventConsumed(_ event: [String: Any], surfaceId: UUID) {
+        guard let downloadID = v2DownloadID(from: event), let type = (event["type"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else { return }
+        let isTerminal = v2IsTerminalBrowserDownloadEvent(event)
+        let eventKey = "\(type)\u{0}\(downloadID)"
+        let consumedKey = isTerminal ? downloadID : eventKey
+        var consumed = v2ConsumedBrowserDownloadKeysBySurface[surfaceId] ?? []
+        consumed.removeAll { $0 == consumedKey }
+        consumed.append(consumedKey)
+        if consumed.count > Self.v2ConsumedBrowserDownloadIDLimit { consumed.removeFirst(consumed.count - Self.v2ConsumedBrowserDownloadIDLimit) }
+        v2ConsumedBrowserDownloadKeysBySurface[surfaceId] = consumed
+        v2BrowserDownloadEventsBySurface[surfaceId]?.removeAll {
+            if isTerminal { return v2DownloadID(from: $0) == downloadID }
+            return v2DownloadID(from: $0) == downloadID && (($0["type"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty == type)
+        }
     }
 
     private nonisolated func v2WaitForDownloadFile(path: String, timeout: TimeInterval) -> V2DownloadFileWaitResult {
@@ -8926,11 +8974,12 @@ class TerminalController {
             object: nil,
             queue: nil
         ) { note in
-            guard let candidateSurfaceId = note.userInfo?["surfaceId"] as? UUID,
-                  candidateSurfaceId == surfaceId,
-                  let event = note.userInfo?["event"] as? [String: Any] else {
+            guard let candidateSurfaceId = note.userInfo?["surfaceId"] as? UUID, candidateSurfaceId == surfaceId,
+                  let event = note.userInfo?["event"] as? [String: Any],
+                  (event["type"] as? String) != "started" else {
                 return
             }
+            guard self.v2MainSync({ self.v2ShouldStoreBrowserDownloadEvent(event, surfaceId: surfaceId) }) else { return }
             finishOnce(event)
         }
 
@@ -8942,6 +8991,11 @@ class TerminalController {
         }
         if let observer {
             NotificationCenter.default.removeObserver(observer)
+        }
+        if let event {
+            v2MainSync {
+                v2MarkBrowserDownloadEventConsumed(event, surfaceId: surfaceId)
+            }
         }
         return event
     }
