@@ -3402,8 +3402,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
     var activeMouseOpenURLModifierFlags: NSEvent.ModifierFlags?
-    var recentMouseOpenURLModifierFlags: NSEvent.ModifierFlags?
-    var recentMouseOpenURLModifierFlagsDeadline: TimeInterval = 0
     var recentHandledOpenURLRouteDeadline: TimeInterval = 0
 
     static func retainRenderedFrameNotifications() -> () -> Void {
