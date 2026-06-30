@@ -180,11 +180,15 @@ jobs:
           {"hasCompletedOnboarding": true, "theme": "dark", "projects": {"/tmp/cmux-stream-claude": {"hasTrustDialogAccepted": true}, "/private/tmp/cmux-stream-claude": {"hasTrustDialogAccepted": true}}}
           JSON
           echo "seeded ~/.claude.json"
-          # Seed the recorded claude session into its on-disk store at the matching
-          # project cwd (/private/tmp/cmux-stream-claude) so `claude --continue`
-          # replays the real session read-only (no API call).
-          mkdir -p "$HOME/.claude/projects/-private-tmp-cmux-stream-claude"
-          cp ios/fastlane/streamed-sessions/claude/*.jsonl "$HOME/.claude/projects/-private-tmp-cmux-stream-claude/"
+          # Seed the recorded claude session into its on-disk store. Seed BOTH cwd
+          # encodings: macOS /tmp is a symlink to /private/tmp and claude may key
+          # the project dir by either the logical or the resolved path. The launch
+          # uses `claude --resume <id>` (opens the jsonl by id) rather than
+          # --continue (which needs the ~/.claude.json history index we don't seed).
+          for enc in -private-tmp-cmux-stream-claude -tmp-cmux-stream-claude; do
+            mkdir -p "$HOME/.claude/projects/$enc"
+            cp ios/fastlane/streamed-sessions/claude/*.jsonl "$HOME/.claude/projects/$enc/"
+          done
           echo "seeded claude session(s): $(ls "$HOME/.claude/projects/-private-tmp-cmux-stream-claude/")"
 
       - name: Pair simulator + capture one streamed terminal

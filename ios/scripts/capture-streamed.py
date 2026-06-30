@@ -46,9 +46,9 @@ PROMPT = ("Explain what main.swift does, then give 3 concrete improvements with 
 # or nondeterminism. The launch command resumes the seeded session; auth tokens
 # are still set (the CLIs gate launch on them) but resuming makes no API call.
 AGENTS = {
-    "claude": {"title": "App entry point", "launch": "claude --continue", "order": 3},
+    "claude": {"title": "App entry point", "launch": "claude --resume 21f5e73a-4a3a-42ac-bd73-bc8d88256d65", "order": 3},
     "codex": {"title": "Readability pass", "launch": "codex resume --last", "order": 4},
-    "opencode": {"title": "String catalogs", "launch": "opencode", "order": 5},
+    "opencode": {"title": "String catalogs", "launch": "opencode --continue", "order": 5},
     "pi": {"title": "Ship improvements", "launch": "pi --continue", "order": 6},
 }
 # response is considered "settled" when the screen shows code + a cost/footer and
