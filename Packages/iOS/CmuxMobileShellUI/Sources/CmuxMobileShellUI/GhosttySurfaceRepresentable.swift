@@ -323,7 +323,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     surfaceView?.retryViewportReport()
                     return
                 }
-                surfaceView?.applyViewSize(cols: effective.columns, rows: effective.rows)
+                surfaceView?.applyViewSize(
+                    cols: effective.columns,
+                    rows: effective.rows,
+                    matchingReportedSize: size
+                )
             }
         }
 

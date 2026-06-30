@@ -789,6 +789,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private(set) var surface: ghostty_surface_t?
     private var lastReportedSize: TerminalGridSize?
+    private let viewportEchoPolicy = TerminalViewportEchoPolicy()
     /// Local natural grid waiting for the Mac's effective-grid echo. While set,
     /// an older smaller effective grid is treated as stale viewport-growth state.
     private var awaitingViewportEcho: TerminalGridSize?
@@ -806,7 +807,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// render stays pinned to the prior `effectiveGrid` and looks frozen even
     /// though the main thread is fine. On a no-effective result we re-arm the
     /// report (display-link driven, no timers) up to `maxViewportReportRetries`
-    /// so a transient drop self-heals; a confirmed result resets the count.
+    /// so a transient drop self-heals; a matching confirmed result resets the count.
     private var viewportReportRetries = 0
     private static let maxViewportReportRetries = 3
     /// Frames of "no zoom in progress" required before the natural grid is
@@ -2995,13 +2996,38 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     public func applyViewSize(cols: Int, rows: Int) {
+        applyViewSize(cols: cols, rows: rows, matchingReportedSize: nil)
+    }
+
+    /// Apply the daemon's effective grid for a specific natural-grid report.
+    ///
+    /// `reportedSize` identifies the local natural grid that produced this
+    /// asynchronous response. Older replies must not clear the pending guard for
+    /// a newer viewport report, or stale smaller effective grids can regain the
+    /// large-gap top-anchor correction during keyboard and rotation growth.
+    public func applyViewSize(
+        cols: Int,
+        rows: Int,
+        matchingReportedSize reportedSize: TerminalGridSize?
+    ) {
         guard cols > 0, rows > 0 else { return }
-        // A value came back from the Mac, so the round-trip recovered.
-        let hadAwaitingViewportEcho = awaitingViewportEcho != nil
-        viewportReportRetries = 0
-        awaitingViewportEcho = nil
+        let pendingEcho = awaitingViewportEcho.map { (columns: $0.columns, rows: $0.rows) }
+        let responseReport = reportedSize.map { (columns: $0.columns, rows: $0.rows) }
+        let clearsPendingEcho = viewportEchoPolicy.responseClearsPendingEcho(
+            pendingEcho: pendingEcho,
+            reportedGrid: responseReport
+        )
+        if viewportEchoPolicy.responseResetsRetryCount(
+            pendingEcho: pendingEcho,
+            reportedGrid: responseReport
+        ) {
+            viewportReportRetries = 0
+        }
+        if clearsPendingEcho {
+            awaitingViewportEcho = nil
+        }
         if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows {
-            if hadAwaitingViewportEcho {
+            if clearsPendingEcho {
                 setNeedsGeometrySync(reassertNaturalSize: false)
             }
             return
