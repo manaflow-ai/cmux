@@ -575,8 +575,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var zoomOverlayShown = false
     /// Media time of the last zoom interaction (pinch step, zoom button, or HUD
     /// tap). The display link fades the HUD once this is older than
-    /// `zoomOverlayVisibleDuration`. Time-based off the per-frame callback, not a
-    /// timer/`Task.sleep`, so it honors the no-sleep rule and tracks real
+    /// `zoomOverlayVisibleDuration`. Time-based off the per-frame callback, not
+    /// a sleeping timer task, so it honors the no-sleep rule and tracks real
     /// elapsed time regardless of frame rate.
     private var zoomOverlayLastInteraction: CFTimeInterval = 0
     private static let zoomOverlayVisibleDuration: CFTimeInterval = 2.5
@@ -660,7 +660,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var renderPipelineStoppedAfterRecoveryLimit = false
     private static let maxRenderPipelineRecoveries = 1
     private static let renderPipelineStallDeadline: CFTimeInterval = 2.0
-    private static let outputApplyTimeoutNanoseconds: UInt64 = 2_000_000_000
+    private static let outputApplyTimeout: CFTimeInterval = 2.0
+    private static let visibleSnapshotTimeout: CFTimeInterval = 0.6
+    private var nextSurfaceOperationID: UInt64 = 0
+    private var pendingOutputApply: PendingSurfaceOperation?
+    private var pendingGeometryApply: PendingSurfaceOperation?
+    private var pendingVisibleSnapshot: PendingVisibleSnapshot?
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
@@ -1570,7 +1575,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///     toolbar stays visible regardless, so closing the composer just collapses its
     ///     band. Gating the re-focus on `keyboardVisible` makes both directions
     ///     correct.
-    ///   No sleep / `asyncAfter`: the `become` is issued synchronously here.
+    ///   No deferred timer task: the `become` is issued synchronously here.
     public func setComposerActive(_ active: Bool) {
         guard composerActive != active else { return }
         composerActive = active
@@ -2276,34 +2281,139 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public func processOutputAndWait(_ data: Data) async -> Bool {
         guard !renderPipelineStoppedAfterRecoveryLimit else { return true }
         await withCheckedContinuation { continuation in
-            let waiter = SurfaceOperationWaiter()
-            let startedAt = CACurrentMediaTime()
-            let timeoutTask = Task { @MainActor [weak self] in
-                do {
-                    // Genuine apply deadline: if libghostty or the worker queue is
-                    // wedged, unblock the shell stream and rebuild below.
-                    try await Task.sleep(nanoseconds: Self.outputApplyTimeoutNanoseconds)
-                } catch {
-                    return
-                }
-                guard let self else {
-                    _ = waiter.resume(returning: false, continuation: continuation)
-                    return
-                }
-                let elapsedMs = Int((CACurrentMediaTime() - startedAt) * 1000)
-                if waiter.resume(returning: false, continuation: continuation) {
-                    MobileDebugLog.anchormux(
-                        "output.apply.TIMEOUT bytes=\(data.count) elapsedMs=\(elapsedMs)"
-                    )
-                    self.recoverRenderPipeline(reason: "output_timeout", stalledMs: elapsedMs)
-                }
-            }
+            let operationID = registerPendingOutputApply(
+                byteCount: data.count,
+                continuation: continuation
+            )
             processOutput(data) { applied in
-                if waiter.resume(returning: applied, continuation: continuation) {
-                    timeoutTask.cancel()
-                }
+                self.completePendingOutputApply(id: operationID, returning: applied)
             }
         }
+    }
+
+    private func makeSurfaceOperationID() -> UInt64 {
+        nextSurfaceOperationID &+= 1
+        return nextSurfaceOperationID
+    }
+
+    private func ensureSurfaceOperationDeadlinePump() {
+        guard window != nil, displayLink == nil, !renderingSuspended else { return }
+        startDisplayLink()
+    }
+
+    private func registerPendingOutputApply(
+        byteCount: Int,
+        continuation: CheckedContinuation<Bool, Never>
+    ) -> UInt64 {
+        let operationID = makeSurfaceOperationID()
+        if let existing = pendingOutputApply {
+            pendingOutputApply = nil
+            let elapsedMs = Int((CACurrentMediaTime() - existing.startedAt) * 1000)
+            MobileDebugLog.anchormux("output.apply.OVERLAP elapsedMs=\(elapsedMs)")
+            existing.continuation.resume(returning: false)
+        }
+        pendingOutputApply = PendingSurfaceOperation(
+            id: operationID,
+            startedAt: CACurrentMediaTime(),
+            byteCount: byteCount,
+            continuation: continuation
+        )
+        ensureSurfaceOperationDeadlinePump()
+        return operationID
+    }
+
+    @discardableResult
+    private func completePendingOutputApply(id: UInt64, returning result: Bool) -> Bool {
+        guard let pending = pendingOutputApply, pending.id == id else { return false }
+        pendingOutputApply = nil
+        pending.continuation.resume(returning: result)
+        return true
+    }
+
+    private func registerPendingGeometryApply(
+        continuation: CheckedContinuation<Bool, Never>
+    ) -> UInt64 {
+        let operationID = makeSurfaceOperationID()
+        if let existing = pendingGeometryApply {
+            pendingGeometryApply = nil
+            let elapsedMs = Int((CACurrentMediaTime() - existing.startedAt) * 1000)
+            MobileDebugLog.anchormux("geometry.apply.OVERLAP elapsedMs=\(elapsedMs)")
+            existing.continuation.resume(returning: false)
+        }
+        pendingGeometryApply = PendingSurfaceOperation(
+            id: operationID,
+            startedAt: CACurrentMediaTime(),
+            byteCount: nil,
+            continuation: continuation
+        )
+        ensureSurfaceOperationDeadlinePump()
+        return operationID
+    }
+
+    @discardableResult
+    private func completePendingGeometryApply(id: UInt64, returning result: Bool) -> Bool {
+        guard let pending = pendingGeometryApply, pending.id == id else { return false }
+        pendingGeometryApply = nil
+        pending.continuation.resume(returning: result)
+        return true
+    }
+
+    @discardableResult
+    private func checkSurfaceOperationDeadlines(now: CFTimeInterval) -> Bool {
+        if let pending = pendingOutputApply,
+           now - pending.startedAt >= Self.outputApplyTimeout {
+            pendingOutputApply = nil
+            let elapsedMs = Int((now - pending.startedAt) * 1000)
+            MobileDebugLog.anchormux(
+                "output.apply.TIMEOUT bytes=\(pending.byteCount ?? 0) elapsedMs=\(elapsedMs)"
+            )
+            let recovered = recoverRenderPipeline(reason: "output_timeout", stalledMs: elapsedMs)
+            pending.continuation.resume(returning: renderPipelineStoppedAfterRecoveryLimit)
+            return recovered
+        }
+
+        if let pending = pendingGeometryApply,
+           now - pending.startedAt >= Self.outputApplyTimeout {
+            pendingGeometryApply = nil
+            let elapsedMs = Int((now - pending.startedAt) * 1000)
+            MobileDebugLog.anchormux("geometry.apply.TIMEOUT elapsedMs=\(elapsedMs)")
+            let recovered = recoverRenderPipeline(reason: "geometry_timeout", stalledMs: elapsedMs)
+            pending.continuation.resume(returning: renderPipelineStoppedAfterRecoveryLimit)
+            return recovered
+        }
+
+        if let pending = pendingVisibleSnapshot,
+           now - pending.startedAt >= Self.visibleSnapshotTimeout {
+            pendingVisibleSnapshot = nil
+            pending.continuation.resume(returning: nil)
+        }
+        return false
+    }
+
+    private func completePendingSurfaceOperations(returning result: Bool) {
+        if let pending = pendingOutputApply {
+            pendingOutputApply = nil
+            pending.continuation.resume(returning: result)
+        }
+        if let pending = pendingGeometryApply {
+            pendingGeometryApply = nil
+            pending.continuation.resume(returning: result)
+        }
+        skipPendingVisibleSnapshot()
+    }
+
+    private func skipPendingVisibleSnapshot() {
+        guard let pending = pendingVisibleSnapshot else { return }
+        pendingVisibleSnapshot = nil
+        pending.continuation.resume(returning: nil)
+    }
+
+    @discardableResult
+    private func completePendingVisibleSnapshot(id: UInt64, returning section: String?) -> Bool {
+        guard let pending = pendingVisibleSnapshot, pending.id == id else { return false }
+        pendingVisibleSnapshot = nil
+        pending.continuation.resume(returning: section)
+        return true
     }
 
     private func processOutput(
@@ -2657,6 +2767,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             renderInFlight = false
             renderInFlightSince = nil
             needsAnotherRender = false
+            completePendingSurfaceOperations(returning: true)
             MobileDebugLog.anchormux(
                 "render.recover.limit reason=\(reason) stalledMs=\(stalledMs) generation=\(surfaceGeneration)"
             )
@@ -2669,6 +2780,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         MobileDebugLog.anchormux(
             "render.recover reason=\(reason) stalledMs=\(stalledMs) generation=\(surfaceGeneration)"
         )
+        completePendingSurfaceOperations(returning: false)
 
         stopDisplayLink()
         let oldSurface = surface
@@ -2772,6 +2884,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @objc func handleDisplayLinkFire() {
         guard let surface else { return }
+        let now = CACurrentMediaTime()
         #if DEBUG
         // Main-thread liveness heartbeat + presented-surface state. Time-gated,
         // no behavior change. The `contents`/size fields let an IDLE blank be
@@ -2781,7 +2894,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // content itself is empty (sync/producer). `sinceOutput` ties a blank
         // to a render-grid stream gap or rules it out. CALayer reads only — no
         // libghostty call, so no futex/main-thread-wedge risk.
-        let nowHeartbeat = CACurrentMediaTime()
+        let nowHeartbeat = now
         if nowHeartbeat - lastHeartbeatTime >= 2.0 {
             lastHeartbeatTime = nowHeartbeat
             let renderLayer = (layer.sublayers ?? []).first(where: { isGhosttyRendererLayer($0) })
@@ -2798,8 +2911,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
         }
         #endif
+        if checkSurfaceOperationDeadlines(now: now) {
+            return
+        }
         if let renderInFlightSince {
-            let stalledMs = Int((CACurrentMediaTime() - renderInFlightSince) * 1000)
+            let stalledMs = Int((now - renderInFlightSince) * 1000)
             if stalledMs >= Int(Self.renderPipelineStallDeadline * 1000),
                recoverRenderPipeline(reason: "render_in_flight", stalledMs: stalledMs) {
                 return
@@ -2833,7 +2949,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             pendingGeometryReassert = false
             syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
         }
-        let now = CACurrentMediaTime()
         let blinkChanged = cursorBlinkState.advance(now: now)
         // Draw on content/cursor changes, and for a short bounded burst after
         // any geometry change. iOS has no renderer-side vsync, so a frame is
@@ -2885,7 +3000,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // Fade the zoom HUD once interaction has been quiet. Uses real elapsed
         // time off the continuous display link (no timer / sleep).
         if zoomOverlayShown,
-           CACurrentMediaTime() - zoomOverlayLastInteraction > Self.zoomOverlayVisibleDuration {
+           now - zoomOverlayLastInteraction > Self.zoomOverlayVisibleDuration {
             fadeOutZoomOverlay()
         }
     }
@@ -3223,30 +3338,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         needsGeometrySync = false
         pendingGeometryReassert = false
         await withCheckedContinuation { continuation in
-            let waiter = SurfaceOperationWaiter()
-            let startedAt = CACurrentMediaTime()
-            let timeoutTask = Task { @MainActor [weak self] in
-                do {
-                    // Genuine geometry deadline: the shell stream must not wait
-                    // forever on a libghostty worker queue that stopped draining.
-                    try await Task.sleep(nanoseconds: Self.outputApplyTimeoutNanoseconds)
-                } catch {
-                    return
-                }
-                guard let self else {
-                    _ = waiter.resume(returning: false, continuation: continuation)
-                    return
-                }
-                let elapsedMs = Int((CACurrentMediaTime() - startedAt) * 1000)
-                if waiter.resume(returning: false, continuation: continuation) {
-                    MobileDebugLog.anchormux("geometry.apply.TIMEOUT elapsedMs=\(elapsedMs)")
-                    self.recoverRenderPipeline(reason: "geometry_timeout", stalledMs: elapsedMs)
-                }
-            }
+            let operationID = registerPendingGeometryApply(continuation: continuation)
             syncSurfaceGeometry(shouldReassertNaturalSize: shouldReassertNaturalSize) { applied in
-                if waiter.resume(returning: applied, continuation: continuation) {
-                    timeoutTask.cancel()
-                }
+                self.completePendingGeometryApply(id: operationID, returning: applied)
             }
         }
     }
@@ -3769,7 +3863,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// terminal surface, for the DEV "Copy Debug Logs" action so a bug report
     /// pairs the on-screen content with the debug log. Reads the VIEWPORT
     /// (visible grid only, not scrollback) via libghostty.
-    public static func visibleTerminalSnapshot() -> String {
+    public static func visibleTerminalSnapshot() async -> String {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
         // Collect the main-actor state + surface pointers first, then read the
         // viewport text on the serial output queue. `ghostty_surface_read_text`
@@ -3777,53 +3871,66 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // reading it on the MAIN thread here contends that lock during a render
         // storm and stalls the present — tapping Copy Debug Logs would itself
         // blank the terminal. The output queue is never concurrent with
-        // `process_output`, so the read can't wedge. No `main.sync` runs on that
-        // queue, so this `.sync` cannot deadlock.
+        // `process_output`, so the read can't wedge. The await is bounded by
+        // the surface's display-link deadline so this diagnostic path does not
+        // add a sleeping timer task or block the main actor.
         var pending: [VisibleSnapshotRequest] = []
         for view in registeredSurfaceViews.values.compactMap(\.value) {
             guard view.window != nil, !view.isHidden, view.alpha > 0.01,
                   let surface = view.surface else { continue }
             let grid = view.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "?"
             pending.append(VisibleSnapshotRequest(
+                view: view,
                 grid: grid,
                 font: Int(view.liveFontSize),
-                surface: surface,
-                queue: view.outputQueue
+                surface: surface
             ))
         }
         if pending.isEmpty {
             return "===== visible terminal: (no on-screen surface) ====="
         }
-        // Read on the output queue, but bound the wait. If a render wedge has the
-        // queue stuck mid-`process_output`, a plain `.sync` here would freeze the
-        // whole app exactly when the user taps Copy Debug Logs to capture that
-        // bug. Time out and ship the logs without the snapshot instead.
-        // This synchronous DEV-only "Copy Debug Logs" path reads the viewport off
-        // the serial output queue and must give up after a deadline if a render
-        // wedge holds it; an actor/await cannot express the bounded synchronous
-        // wait the synchronous caller needs.
-        // carve-out justification: one-shot cross-queue completion signal with a
-        // bounded wait, not a lock guarding shared state.
         var sections: [String] = []
         for item in pending {
-            let deadline = DispatchTime.now() + 0.6
-            let holder = VisibleSnapshotHolder()
-            // carve-out justification: one-shot cross-queue completion signal with a bounded wait.
-            let done = DispatchSemaphore(value: 0)
-            item.queue.async {
-                let text = surfaceText(item.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
-                holder.sections = [
-                    "===== visible terminal · grid=\(item.grid) · font=\(item.font) =====\n"
-                    + text
-                ]
-                done.signal()
-            }
-            if done.wait(timeout: deadline) == .timedOut {
+            guard let section = await item.view.visibleSnapshotSection(
+                surface: item.surface,
+                grid: item.grid,
+                font: item.font
+            ) else {
                 return "===== visible terminal: (snapshot skipped — render busy) ====="
             }
-            sections.append(contentsOf: holder.sections)
+            sections.append(section)
         }
         return sections.joined(separator: "\n\n")
+    }
+
+    private func visibleSnapshotSection(
+        surface: ghostty_surface_t,
+        grid: String,
+        font: Int
+    ) async -> String? {
+        await withCheckedContinuation { continuation in
+            let operationID = makeSurfaceOperationID()
+            if let existing = pendingVisibleSnapshot {
+                pendingVisibleSnapshot = nil
+                existing.continuation.resume(returning: nil)
+            }
+            pendingVisibleSnapshot = PendingVisibleSnapshot(
+                id: operationID,
+                startedAt: CACurrentMediaTime(),
+                continuation: continuation
+            )
+            ensureSurfaceOperationDeadlinePump()
+            let queue = outputQueue
+            let read = VisibleSnapshotRead(surface: surface, grid: grid, font: font)
+            queue.async {
+                let text = Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
+                let section = "===== visible terminal · grid=\(read.grid) · font=\(read.font) =====\n"
+                    + text
+                DispatchQueue.main.async { [weak self] in
+                    self?.completePendingVisibleSnapshot(id: operationID, returning: section)
+                }
+            }
+        }
     }
 
     private func handleBell() {
@@ -3886,27 +3993,39 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
     }
 }
 
+/// One output/geometry operation awaiting either its output-queue completion or
+/// the display-link deadline that rebuilds the stalled render pipeline.
+private struct PendingSurfaceOperation {
+    let id: UInt64
+    let startedAt: CFTimeInterval
+    let byteCount: Int?
+    let continuation: CheckedContinuation<Bool, Never>
+}
+
+/// One visible-terminal snapshot read awaiting output-queue completion or its
+/// display-link deadline. A timeout skips only the diagnostic snapshot.
+private struct PendingVisibleSnapshot {
+    let id: UInt64
+    let startedAt: CFTimeInterval
+    let continuation: CheckedContinuation<String?, Never>
+}
+
 /// One surface's request for the bounded visible-terminal snapshot.
-///
-/// The `ghostty_surface_t` is a C pointer that the snapshot only dereferences on
-/// `GhosttySurfaceView.outputQueue` (the queue that owns `process_output`) and
-/// never mutates, so carrying it across the queue hop is safe — hence
-/// `@unchecked Sendable`.
-private struct VisibleSnapshotRequest: @unchecked Sendable {
+private struct VisibleSnapshotRequest {
+    let view: GhosttySurfaceView
     let grid: String
     let font: Int
     let surface: ghostty_surface_t
-    let queue: GhosttySurfaceWorkQueue
 }
 
-/// Carrier for the snapshot text produced off `GhosttySurfaceView.outputQueue`.
+/// Raw surface read payload captured by the off-main output queue.
 ///
-/// `sections` is written exactly once on that queue before its semaphore is
-/// signaled and read by the caller only after the matching wait, so the two
-/// accesses never overlap — hence `@unchecked Sendable`. On the timeout path the
-/// caller never reads it, leaving the queue task the sole accessor.
-private final class VisibleSnapshotHolder: @unchecked Sendable {
-    var sections: [String] = []
+/// The C surface pointer is dereferenced only on `GhosttySurfaceWorkQueue`,
+/// which is the same FIFO queue that owns `process_output` and surface free.
+private struct VisibleSnapshotRead: @unchecked Sendable {
+    let surface: ghostty_surface_t
+    let grid: String
+    let font: Int
 }
 
 private class DisplayLinkProxy {
