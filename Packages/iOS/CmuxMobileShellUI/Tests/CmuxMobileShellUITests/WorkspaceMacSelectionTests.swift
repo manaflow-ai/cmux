@@ -3,6 +3,7 @@ import CmuxMobilePairedMac
 @testable import CmuxMobileShell
 import CmuxMobileShellModel
 import Foundation
+import SwiftUI
 import Testing
 @testable import CmuxMobileShellUI
 
@@ -74,6 +75,23 @@ import Testing
         #expect(view.canCreateWorkspaceForMacSelection)
     }
 
+    @Test func sharedSelectionScopeAllowsCreateWhenConnectedMacIsAlias() {
+        let scope = WorkspaceMacSelectionScope(
+            selection: .machine("mac-fresh"),
+            workspaces: [],
+            displayPairedMacs: [
+                pairedMac(id: "mac-fresh", name: "Desk Mac", lastSeenAt: 20),
+            ],
+            connectedMacDeviceID: "mac-old",
+            aliasesFor: { id in
+                id == "mac-fresh" ? ["mac-fresh", "mac-old"] : [id]
+            }
+        )
+
+        #expect(scope.visibleSelection == .machine("mac-fresh"))
+        #expect(scope.canCreateWorkspace(base: true))
+    }
+
     private func workspaceListView(
         workspaces: [MobileWorkspacePreview],
         store: CMUXMobileShellStore
@@ -87,7 +105,16 @@ import Testing
             wrapWorkspaceTitles: false,
             selectWorkspace: { _ in },
             createWorkspace: {},
+            macSelection: binding(initialValue: .all),
             store: store
+        )
+    }
+
+    private func binding(initialValue: WorkspaceMacSelection) -> Binding<WorkspaceMacSelection> {
+        var value = initialValue
+        return Binding(
+            get: { value },
+            set: { value = $0 }
         )
     }
 
