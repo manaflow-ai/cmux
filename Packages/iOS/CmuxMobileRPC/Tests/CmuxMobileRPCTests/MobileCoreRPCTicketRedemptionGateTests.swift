@@ -150,11 +150,17 @@ import Testing
         }
 
         clock.advance(by: 20_000_000)
+        // Two providers are still stuck (they never resolve until released below),
+        // so the gate has superseded two timed-out attempts. Retained abandoned
+        // work must stay bounded to the most recent attempt rather than growing
+        // one task per timeout.
+        #expect(await gate.abandonedCount <= 1)
         let retry = try await gate.ticket(timeoutNanoseconds: 60 * 1_000_000_000) {
             redeemedTicket
         }
         #expect(retry.authToken == "ticket-secret")
         #expect(retry.ticketRef == "ticket-ref-123")
+        #expect(await gate.abandonedCount <= 1)
         await neverReleaseProvider.release()
     }
 }

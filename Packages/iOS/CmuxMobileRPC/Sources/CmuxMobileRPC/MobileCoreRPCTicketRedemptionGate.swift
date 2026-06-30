@@ -34,6 +34,10 @@ actor MobileCoreRPCTicketRedemptionGate {
         current?.waiters ?? 0
     }
 
+    var abandonedCount: Int {
+        abandoned.count
+    }
+
     func ticket(
         timeoutNanoseconds: UInt64,
         provider: @escaping @Sendable () async throws -> CmxAttachTicket
@@ -138,9 +142,17 @@ actor MobileCoreRPCTicketRedemptionGate {
     }
 
     private func abandon(_ existing: Current, cancelTask: Bool) {
-        for (_, abandonedWork) in abandoned {
+        // Supersede any previously abandoned work: it was already cancelled once,
+        // so stop retaining it. Cancelling the stale completion observer and
+        // dropping the reference keeps `abandoned` bounded to the most recent
+        // attempt even when a non-cooperative provider ignores cancellation and
+        // never resolves `task.result`; otherwise repeated redemption timeouts on
+        // this long-lived gate would accumulate tasks and observers without bound.
+        for abandonedWork in abandoned.values {
             abandonedWork.task.cancel()
+            abandonedWork.completionObserver?.cancel()
         }
+        abandoned.removeAll()
         if cancelTask {
             existing.task.cancel()
         }
