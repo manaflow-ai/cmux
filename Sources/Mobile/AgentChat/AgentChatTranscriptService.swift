@@ -532,6 +532,15 @@ final class AgentChatTranscriptService {
         }
         codexTranscriptResolutionTasks[key.sessionID] = nil
         codexTranscriptResolutionKeys[key.sessionID] = nil
+        // If a hook recorded the authoritative transcript path while this
+        // fallback scan was in flight, that recorded path wins. The key match
+        // above only proves no *newer scan* was scheduled; it does not see a
+        // registry transcript-path update, so guard against overwriting a now-
+        // valid recorded path with this (possibly stale) scan result.
+        if let record = registry.record(sessionID: key.sessionID),
+           resolver.recordedTranscriptPath(for: record) != nil {
+            return
+        }
         applyDirectCodexTranscriptResolution(resolved, sessionID: key.sessionID)
     }
 
