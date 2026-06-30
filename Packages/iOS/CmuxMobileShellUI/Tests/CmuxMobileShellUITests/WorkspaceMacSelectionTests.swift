@@ -22,6 +22,32 @@ import Testing
         #expect(view.macPickerMachines.map(\.id) == ["mac-a", "mac-b"])
     }
 
+    @Test func titlePickerMachineSelectionSwitchesBeforeApplyingFilter() async throws {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+        ])
+        var selected = WorkspaceMacSelection.all
+        var requestedSwitches: [String] = []
+        let view = workspaceListView(
+            workspaces: [workspace(id: "ws-a", macDeviceID: "mac-a")],
+            store: store,
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { macDeviceID in
+                requestedSwitches.append(macDeviceID)
+                return true
+            }
+        )
+
+        await view.applyMacTitlePickerSelection(.machine("mac-b"))
+
+        #expect(requestedSwitches == ["mac-b"])
+        #expect(selected == .machine("mac-b"))
+    }
+
     @Test func selectingCoalescedPairedMacMatchesAliasWorkspaceRows() async throws {
         let route = try route(host: "100.82.214.112")
         let store = await shellStore(pairedMacs: [
@@ -108,7 +134,9 @@ import Testing
 
     private func workspaceListView(
         workspaces: [MobileWorkspacePreview],
-        store: CMUXMobileShellStore
+        store: CMUXMobileShellStore,
+        macSelection: Binding<WorkspaceMacSelection>? = nil,
+        switchMac: ((String) async -> Bool)? = nil
     ) -> WorkspaceListView {
         WorkspaceListView(
             workspaces: workspaces,
@@ -119,7 +147,8 @@ import Testing
             wrapWorkspaceTitles: false,
             selectWorkspace: { _ in },
             createWorkspace: {},
-            macSelection: binding(initialValue: .all),
+            macSelection: macSelection ?? binding(initialValue: .all),
+            switchMac: switchMac,
             store: store
         )
     }
