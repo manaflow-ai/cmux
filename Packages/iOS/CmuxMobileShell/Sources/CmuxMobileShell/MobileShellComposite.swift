@@ -2459,7 +2459,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             switchingTo: macDeviceID,
             storeMacs: storeMacs
         )
-        macSwitchRestoreBaseline = previousForegroundMac
+        if let previousForegroundMac {
+            macSwitchRestoreBaseline = previousForegroundMac
+        } else if hasActiveMacConnection {
+            macSwitchRestoreBaseline = nil
+        }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let (host, port) = Self.firstReconnectHostPortRoute(
             refreshedTarget.routes,
@@ -2501,10 +2505,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // The switch did not connect and the destructive connect path dropped
             // the previous session; reconnect to the still-active previous Mac so
             // the user is not left stranded on a failed switch.
-            // The target switch is over before this restore starts; picker
-            // cancellation must not invalidate the restore's connection generation.
+            // Keep the attempt alive through the restore so a rapid follow-up
+            // picker selection can either cancel this rollback while preserving
+            // its baseline, or replace it with a new live foreground baseline.
             let restoreTarget = macSwitchRestoreBaseline ?? previousForegroundMac
-            finishMacSwitchAttempt(switchAttemptID)
             if await restorePreviousMacIfNeeded(restoreTarget) {
                 macSwitchRestoreBaseline = nil
             }
@@ -5291,7 +5295,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macSwitchRestorePreviousOnCancelAttemptIDs.removeAll(keepingCapacity: true)
         macSwitchAttemptID = attemptID
         macSwitchAttemptSignInGeneration = signInGeneration
-        macSwitchRestoreBaseline = nil
+        if hasActiveMacConnection {
+            macSwitchRestoreBaseline = nil
+        }
         invalidatePairingAttempt()
         connectionAttemptGeneration = UUID()
         return attemptID
