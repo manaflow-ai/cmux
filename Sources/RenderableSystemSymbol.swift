@@ -222,10 +222,10 @@ struct CmuxSystemSymbolImage: View {
             pointSize: rasterSize,
             weight: weight
         ) {
-            let imageSize = RenderableSystemSymbol.configuredSymbolImageSize(image.size, fallbackDimension: rasterSize)
             Image(nsImage: image)
                 .renderingMode(.template)
-                .frame(width: imageSize.width, height: imageSize.height, alignment: alignment)
+                // Preserve the old font-based path's stable layout slot while the image draws at AppKit's natural size.
+                .frame(width: rasterSize, height: rasterSize, alignment: alignment)
         } else {
             Color.clear
                 .frame(width: rasterSize, height: rasterSize, alignment: alignment)
