@@ -53,16 +53,16 @@ extension GhosttySurfaceView {
     /// on the serial `outputQueue` because `ghostty_surface_read_text` takes
     /// the surface lock that `process_output` holds during a render storm, so
     /// a main-thread read would stall the present and blank the terminal.
-    /// Unlike that synchronous DEV path there is no bounded semaphore wait
-    /// here — the caller awaits, so a busy queue just resumes the continuation
-    /// late while the sheet shows its loading state.
+    /// The await is bounded by the surface's display-link deadline, like the
+    /// diagnostic visible snapshot path, so a wedged output queue resumes nil
+    /// instead of leaving the copy sheet loading forever.
     ///
     /// The continuation body enqueues on `outputQueue` synchronously while
     /// still on the main actor, so the read is FIFO-ordered before any
     /// later-enqueued `disposeSurface` free of the same pointer — the same
     /// lifetime argument `visibleTerminalSnapshot()` relies on.
     ///
-    /// The read is bounded at the source: iOS surfaces are created with
+    /// The bytes read are bounded at the source: iOS surfaces are created with
     /// `scrollback-limit = 2000000` (see `GhosttyRuntime.applyiOSDefaults`),
     /// so the SCREEN range can never materialize more than ~2MB of text no
     /// matter how long the session ran. The sheet's 5000-line budget is then
@@ -96,28 +96,6 @@ extension GhosttySurfaceView {
             }
         guard let matchingView,
               let surface = matchingView.surface else { return nil }
-        let handle = CopyableTextSurfaceHandle(surface: surface)
-        return await withCheckedContinuation { continuation in
-            matchingView.outputQueue.async {
-                // SCREEN = scrollback + all written rows. Fall back to the
-                // viewport-only read if the screen read fails outright.
-                let text = surfaceText(handle.surface, pointTag: GHOSTTY_POINT_SCREEN)
-                    ?? surfaceText(handle.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
-                continuation.resume(returning: text)
-            }
-        }
+        return await matchingView.copyableTextForCurrentSurface(surface: surface)
     }
-}
-
-/// Carrier for the "View as Text" sheet's surface pointer across the hop to
-/// `GhosttySurfaceView.outputQueue`. Same safety argument as
-/// `VisibleSnapshotRequest` in `GhosttySurfaceView.swift`: the pointer is only
-/// dereferenced on the queue that owns `process_output` and is FIFO-ordered
-/// before any queued free — hence `@unchecked Sendable`.
-///
-/// Deliberately `private` to this file: it holds the class's raw
-/// `ghostty_surface_t`, which must not escape `GhosttySurfaceView`'s
-/// queue/lifetime discipline into the wider module.
-private struct CopyableTextSurfaceHandle: @unchecked Sendable {
-    let surface: ghostty_surface_t
 }

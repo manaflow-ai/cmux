@@ -662,12 +662,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private static let renderPipelineStallDeadline: CFTimeInterval = 2.0
     private static let outputApplyTimeout: CFTimeInterval = 2.0
     private static let visibleSnapshotTimeout: CFTimeInterval = 0.6
+    private static let copyableTextTimeout: CFTimeInterval = 2.0
     private var nextSurfaceOperationID: UInt64 = 0
     private var pendingOutputApply: PendingSurfaceOperation?
     private var pendingGeometryApply: PendingSurfaceOperation?
     private var pendingVisibleSnapshot: PendingVisibleSnapshot?
+    private var pendingCopyableTextRead: PendingCopyableTextRead?
     private var hasPendingSurfaceOperationDeadline: Bool {
         pendingOutputApply != nil || pendingGeometryApply != nil || pendingVisibleSnapshot != nil
+            || pendingCopyableTextRead != nil
     }
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
@@ -1115,6 +1118,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// `willResignActive` and `didEnterBackground`.
     private func suspendRendering() {
         renderingSuspended = true
+        skipPendingVisibleSnapshot()
+        skipPendingCopyableTextRead()
         stopDisplayLink()
         guard let surface else { return }
         ghostty_surface_set_occlusion(surface, false)  // false = occluded; drawFrame skips
@@ -2397,6 +2402,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             pendingVisibleSnapshot = nil
             pending.continuation.resume(returning: nil)
         }
+
+        if let pending = pendingCopyableTextRead,
+           now - pending.startedAt >= Self.copyableTextTimeout {
+            pendingCopyableTextRead = nil
+            pending.continuation.resume(returning: nil)
+        }
         return false
     }
 
@@ -2414,6 +2425,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             completed = true
         }
         skipPendingVisibleSnapshot()
+        skipPendingCopyableTextRead()
         return completed
     }
 
@@ -2423,11 +2435,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pending.continuation.resume(returning: nil)
     }
 
+    private func skipPendingCopyableTextRead() {
+        guard let pending = pendingCopyableTextRead else { return }
+        pendingCopyableTextRead = nil
+        pending.continuation.resume(returning: nil)
+    }
+
     @discardableResult
     private func completePendingVisibleSnapshot(id: UInt64, returning section: String?) -> Bool {
         guard let pending = pendingVisibleSnapshot, pending.id == id else { return false }
         pendingVisibleSnapshot = nil
         pending.continuation.resume(returning: section)
+        return true
+    }
+
+    @discardableResult
+    private func completePendingCopyableTextRead(id: UInt64, returning text: String?) -> Bool {
+        guard let pending = pendingCopyableTextRead, pending.id == id else { return false }
+        pendingCopyableTextRead = nil
+        pending.continuation.resume(returning: text)
         return true
     }
 
@@ -2732,6 +2758,44 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
     }
 
+    func copyableTextForCurrentSurface(surface expectedSurface: ghostty_surface_t) async -> String? {
+        let generation = surfaceGeneration
+        guard surface == expectedSurface,
+              !isDismantled,
+              !renderingSuspended else {
+            return nil
+        }
+        return await withCheckedContinuation { continuation in
+            let operationID = makeSurfaceOperationID()
+            if let existing = pendingCopyableTextRead {
+                pendingCopyableTextRead = nil
+                existing.continuation.resume(returning: nil)
+            }
+            pendingCopyableTextRead = PendingCopyableTextRead(
+                id: operationID,
+                startedAt: CACurrentMediaTime(),
+                continuation: continuation
+            )
+            ensureSurfaceOperationDeadlinePump()
+            let read = CopyableTextRead(surface: expectedSurface, generation: generation)
+            outputQueue.async { [weak self] in
+                // SCREEN = scrollback + all written rows. Fall back to the
+                // viewport-only read if the screen read fails outright.
+                let text = Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_SCREEN)
+                    ?? Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    guard self.surface == read.surface,
+                          self.surfaceGeneration == read.generation else {
+                        self.completePendingCopyableTextRead(id: operationID, returning: nil)
+                        return
+                    }
+                    self.completePendingCopyableTextRead(id: operationID, returning: text)
+                }
+            }
+        }
+    }
+
     func renderedHTMLForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {
         _ = pointTag
         // ghostty_surface_read_text_html not available in this build
@@ -2817,6 +2881,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let oldSurface = surface
         let oldBridge = bridge
         let oldQueue = outputQueue
+        oldBridge.detach()
         if let oldSurface {
             GhosttySurfaceView.unregister(surface: oldSurface)
             pendingSurfaceFreeCount += 1
@@ -2829,7 +2894,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 self.retryDeferredRenderPipelineRecoveryIfNeeded()
             }
         }
-        oldBridge.detach()
 
         surface = nil
         deferredRenderPipelineRecovery = nil
@@ -4118,6 +4182,13 @@ nonisolated private struct PendingVisibleSnapshot {
     let continuation: CheckedContinuation<String?, Never>
 }
 
+/// One "View as Text" read awaiting output-queue completion or deadline.
+nonisolated private struct PendingCopyableTextRead {
+    let id: UInt64
+    let startedAt: CFTimeInterval
+    let continuation: CheckedContinuation<String?, Never>
+}
+
 /// One surface's request for the bounded visible-terminal snapshot.
 nonisolated private struct VisibleSnapshotRequest {
     let view: GhosttySurfaceView
@@ -4136,6 +4207,15 @@ nonisolated private struct VisibleSnapshotRead: @unchecked Sendable {
     let generation: UInt64
     let grid: String
     let font: Int
+}
+
+/// Raw full-text read payload captured by the off-main output queue.
+///
+/// The C surface pointer is dereferenced only on `GhosttySurfaceWorkQueue`,
+/// which is the same FIFO queue that owns `process_output` and surface free.
+nonisolated private struct CopyableTextRead: @unchecked Sendable {
+    let surface: ghostty_surface_t
+    let generation: UInt64
 }
 
 private class DisplayLinkProxy {

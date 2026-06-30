@@ -393,11 +393,11 @@ import Testing
 private func waitForReplayBarrierFailureToSettle(
     _ condition: @MainActor () -> Bool
 ) async -> Bool {
-    for _ in 0..<1_000 {
+    for _ in 0..<300 {
         if condition() {
             return true
         }
-        await Task.yield()
+        try? await Task.sleep(nanoseconds: 10_000_000)
     }
     return condition()
 }
@@ -406,11 +406,11 @@ private func waitForReplayRequestCount(
     _ router: LivenessHostRouter,
     atLeast expectedCount: Int
 ) async -> Bool {
-    for _ in 0..<1_000 {
+    for _ in 0..<300 {
         if await router.count(of: "mobile.terminal.replay") >= expectedCount {
             return true
         }
-        await Task.yield()
+        try? await Task.sleep(nanoseconds: 10_000_000)
     }
     return await router.count(of: "mobile.terminal.replay") >= expectedCount
 }
