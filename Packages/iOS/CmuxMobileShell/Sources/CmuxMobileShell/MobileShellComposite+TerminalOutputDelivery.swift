@@ -66,7 +66,8 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux("terminal.output.drop_replay_barrier surface=\(surfaceID)")
             if remoteClient != nil,
                terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == nil,
-               !terminalReplaySurfaceIDsInFlight.contains(surfaceID) {
+               !terminalReplaySurfaceIDsInFlight.contains(surfaceID),
+               !terminalReplayFailureRetryExhausted(surfaceID: surfaceID) {
                 MobileDebugLog.anchormux("terminal.output.replay_retry_after_drop surface=\(surfaceID)")
                 requestTerminalReplay(
                     surfaceID: surfaceID,

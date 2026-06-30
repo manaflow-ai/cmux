@@ -6401,6 +6401,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return replayBarrierToken
     }
 
+    func terminalReplayFailureRetryExhausted(surfaceID: String) -> Bool {
+        (terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0) >= Self.maxTerminalReplayFailureRetries
+    }
+
     @discardableResult
     private func requestTerminalReplayForCurrentBarrier(
         surfaceID: String,
