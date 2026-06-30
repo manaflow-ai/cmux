@@ -156,6 +156,7 @@ printf '\\n---\\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env["CMUX_TEST_OPENCODE_PLUGIN_PATH"] = str(plugin_path)
         check_env["CMUX_TEST_OPENCODE_PLUGIN_COPY_PATH"] = str(plugin_copy_path)
         check_env.pop("CMUX_SOCKET_PATH", None)
+        check_env.pop("CMUX_SOCKET", None)
         check_env.pop("CMUX_SURFACE_ID", None)
         check_env.pop("CMUX_PANEL_ID", None)
         check_env["CMUX_WORKSPACE_ID"] = "workspace-opencode-test"
