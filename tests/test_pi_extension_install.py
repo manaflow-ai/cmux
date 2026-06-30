@@ -288,6 +288,47 @@ await handlers.get("agent_end")({
         # without a surface env must still register session hooks once a socket and a
         # scoped identity (here, a workspace) are present, must stay silent when no
         # socket is available, and must skip surface-scoped resume bindings.
+        #
+        # Regression (CodeRabbit, PR #6991): when a surface id is present but no socket
+        # is available, sendHook must report a skip so session_start does not still run
+        # ensureResumeBinding and emit a surface-scoped "surface resume set" without a socket.
+        no_socket_args_log = root / "fake-cmux-args-surface-no-socket.log"
+        no_socket_stdin_log = root / "fake-cmux-stdin-surface-no-socket.log"
+        no_socket_env_log = root / "fake-cmux-env-surface-no-socket.log"
+        no_socket_binding = root / "fake-surface-binding-surface-no-socket.json"
+        surface_no_socket_env = check_env.copy()  # surface + workspace present, no socket yet
+        surface_no_socket_env["CMUX_TEST_PI_ARGS_LOG"] = str(no_socket_args_log)
+        surface_no_socket_env["CMUX_TEST_PI_STDIN_LOG"] = str(no_socket_stdin_log)
+        surface_no_socket_env["CMUX_TEST_PI_ENV_LOG"] = str(no_socket_env_log)
+        surface_no_socket_env["CMUX_TEST_PI_BINDING_FILE"] = str(no_socket_binding)
+        surface_no_socket_check = subprocess.run(
+            [bun, "--eval", check_source],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=surface_no_socket_env,
+            timeout=20,
+        )
+        if surface_no_socket_check.returncode != 0:
+            print("FAIL: generated Pi extension failed with a surface but no socket")
+            print(f"exit={surface_no_socket_check.returncode}")
+            print(f"stdout={surface_no_socket_check.stdout.strip()}")
+            print(f"stderr={surface_no_socket_check.stderr.strip()}")
+            return 1
+        surface_no_socket_args = (
+            no_socket_args_log.read_text(encoding="utf-8") if no_socket_args_log.exists() else ""
+        )
+        if "surface resume set" in surface_no_socket_args:
+            print(
+                "FAIL: Pi extension set a surface resume binding without a socket; a skipped "
+                f"session-start hook still ran ensureResumeBinding: {surface_no_socket_args!r}"
+            )
+            return 1
+        if "hooks pi" in surface_no_socket_args:
+            print(f"FAIL: Pi extension routed a session hook without a socket, got {surface_no_socket_args!r}")
+            return 1
+
         no_surface_args_log = root / "fake-cmux-args-no-surface.log"
         no_surface_stdin_log = root / "fake-cmux-stdin-no-surface.log"
         no_surface_env_log = root / "fake-cmux-env-no-surface.log"

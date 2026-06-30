@@ -3,11 +3,11 @@ extension CMUXCLI {
 }
 
 function sendHook(subcommand: string, ctx: ExtensionContext, extra: HookExtra = {}): boolean {
-  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return true;
-  if (!process.env.CMUX_SOCKET_PATH || !["CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_WORKSPACE_ID"].some((key) => process.env[key])) return true;
+  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return false;
+  if (!process.env.CMUX_SOCKET_PATH || !["CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_WORKSPACE_ID"].some((key) => process.env[key])) return false;
 
   const sessionId = sessionIdFrom(ctx);
-  if (!sessionId) return true;
+  if (!sessionId) return false;
 
   const cwd = cwdFrom(ctx);
   const payload: HookExtra = {
