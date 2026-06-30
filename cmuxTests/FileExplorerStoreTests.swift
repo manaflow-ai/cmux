@@ -1273,9 +1273,12 @@ struct ProcessSSHFileExplorerListingTests {
         #expect(!script.contains("for entry"))
         #expect(!script.contains("for "))
         // One GNU branch and one BSD branch, each a single batched stat call.
+        // `stat` must not dereference (no `-L`) so dangling symlinks are listed
+        // rather than dropped.
         #expect(script.contains("stat -c %Y /"))
-        #expect(script.contains("stat -L -c '%F\t%Y\t%W\t%n'"))
-        #expect(script.contains("stat -L -f '%HT\t%m\t%B\t%N'"))
+        #expect(script.contains("stat -c '%F\t%Y\t%W\t%n'"))
+        #expect(script.contains("stat -f '%HT\t%m\t%B\t%N'"))
+        #expect(!script.contains("stat -L"))
         // A readable but empty directory must report success (trailing exit 0),
         // not a non-zero status that would surface as an error.
         #expect(script.hasSuffix("exit 0"))
@@ -1345,7 +1348,7 @@ struct ProcessSSHFileExplorerListingTests {
         #expect(command.contains("base64 -d"))
         #expect(command.contains("base64 -D"))
         // The raw POSIX script must NOT leak into the login-shell command line.
-        #expect(!command.contains("stat -L"))
+        #expect(!command.contains("stat -c"))
         #expect(!command.contains("..?*"))
     }
 
@@ -1395,6 +1398,26 @@ struct ProcessSSHFileExplorerListingTests {
         #expect(entries[2].path == "/srv/app/file one.txt")
         #expect(entries[1].modificationDate == Date(timeIntervalSince1970: 1700000100))
         #expect(entries[1].creationDate == Date(timeIntervalSince1970: 1690000100))
+    }
+
+    @Test
+    func testParseRemoteListingKeepsSymlinksVisibleAsNonDirectories() {
+        // Dangling and directory symlinks both report as "Symbolic Link" under
+        // non-dereferencing stat; they must stay listed (so users can manage
+        // them) and never be treated as expandable directories.
+        let output = [
+            "Symbolic Link\t1700000000\t1690000000\tbroken-link",
+            "Symbolic Link\t1700000000\t1690000000\tdir-link",
+        ].joined(separator: "\n")
+
+        let entries = ProcessSSHFileExplorerTransport.parseRemoteListing(
+            output,
+            path: "/srv/app",
+            showHidden: false
+        )
+
+        #expect(entries.map(\.name) == ["broken-link", "dir-link"])
+        #expect(entries.allSatisfy { !$0.isDirectory })
     }
 
     @Test

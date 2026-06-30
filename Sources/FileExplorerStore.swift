@@ -883,14 +883,19 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         let escapedPath = shellSingleQuote(path)
         // `.[!.]*` and `..?*` match dotfiles while excluding `.` and `..`.
         let globs = showHidden ? "-- * .[!.]* ..?*" : "-- *"
+        // `stat` does NOT dereference symlinks (no `-L`): a following stat omits
+        // dangling symlinks entirely on GNU, hiding them from the explorer. With
+        // plain lstat every entry is listed, and symlinks report as their own
+        // type — matching the previous `ls -F` behavior.
+        //
         // Literal tabs separate the fields; GNU `stat -c` does not expand `\t`.
         return """
         cd \(escapedPath) 2>/dev/null || exit 1
         [ -r . ] || exit 1
         if stat -c %Y / >/dev/null 2>&1; then
-          stat -L -c '%F\t%Y\t%W\t%n' \(globs) 2>/dev/null
+          stat -c '%F\t%Y\t%W\t%n' \(globs) 2>/dev/null
         elif stat -f %m / >/dev/null 2>&1; then
-          stat -L -f '%HT\t%m\t%B\t%N' \(globs) 2>/dev/null
+          stat -f '%HT\t%m\t%B\t%N' \(globs) 2>/dev/null
         else
           exit 1
         fi
