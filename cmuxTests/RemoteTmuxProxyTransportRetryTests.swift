@@ -24,6 +24,7 @@ import Testing
         "stdio forwarding failed\nssh_exchange_identification: Connection closed by remote host\nConnection closed by UNKNOWN port 65535",
         "kex_exchange_identification: Connection closed by remote host\nConnection closed by UNKNOWN port 65535",
         "ssh: Could not resolve hostname inner.invalid: nodename nor servname provided\nConnection closed by UNKNOWN port 65535",
+        "nc: getaddrinfo: name or service not known\nConnection closed by UNKNOWN port 65535",
         "nc: getaddrinfo: nodename nor servname provided, or not known\nConnection closed by UNKNOWN port 65535",
         "channel 1: open failed: administratively prohibited: open failed\nConnection closed by UNKNOWN port 65535",
         "nc: connect to inner.invalid port 22 (tcp) failed: Connection timed out\nConnection closed by UNKNOWN port 65535",
