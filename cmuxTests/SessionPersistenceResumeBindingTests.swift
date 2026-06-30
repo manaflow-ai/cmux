@@ -374,6 +374,7 @@ import Testing
             root: root,
             integrationDir: shellIntegrationDirectory(),
             pathPrefix: binURL.path,
+            codexShimURL: fakeCodexURL,
             codexOutputURL: codexOutputURL
         )
         try runLauncherUntilOutput(
@@ -555,6 +556,7 @@ import Testing
         root: URL,
         integrationDir: URL,
         pathPrefix: String,
+        codexShimURL: URL,
         codexOutputURL: URL
     ) throws -> [String: String] {
         let homeURL = root.appendingPathComponent("home", isDirectory: true)
@@ -592,6 +594,7 @@ import Testing
             "CMUX_SHELL_INTEGRATION": "1",
             "CMUX_SHELL_INTEGRATION_DIR": integrationDir.path,
             "CMUX_ZSH_RESTORE_TERM": "xterm-256color",
+            "CMUX_CODEX_WRAPPER_SHIM": codexShimURL.path,
             "CMUX_FAKE_CODEX_OUTPUT": codexOutputURL.path,
             "ZSH_DISABLE_COMPFIX": "true",
             "DISABLE_AUTO_UPDATE": "true",
