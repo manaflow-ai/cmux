@@ -14064,6 +14064,17 @@ struct TabItemView: View, Equatable {
                 }
             }
         }
+        .overlay {
+            if rowInteractionState.contextMenuVisible {
+                SidebarWorkspaceRowMenuTrackingReconciler { pointerInsideRow in
+                    guard rowInteractionState.contextMenuTrackingDidEnd(pointerInsideRow: pointerInsideRow) else {
+                        return
+                    }
+                    onContextMenuDisappear()
+                    flushDeferredWorkspaceObservationInvalidation()
+                }
+            }
+        }
         .overlay(alignment: .top) {
             SidebarWorkspaceTopDropIndicator(
                 isVisible: topDropIndicatorVisible,
@@ -14085,11 +14096,6 @@ struct TabItemView: View, Equatable {
         }
         .onDisappear {
             rowInteractionState.setPointerHovering(false)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)) { _ in
-            guard rowInteractionState.contextMenuTrackingDidEnd() else { return }
-            onContextMenuDisappear()
-            flushDeferredWorkspaceObservationInvalidation()
         }
         .onReceive(
             tabManager.selectedTabIdPublisher

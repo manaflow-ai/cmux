@@ -280,7 +280,7 @@ import Testing
         state.contextMenuDidAppear()
         #expect(state.contextMenuVisible)
 
-        #expect(state.contextMenuTrackingDidEnd())
+        #expect(state.contextMenuTrackingDidEnd(pointerInsideRow: true))
         state.setPointerHovering(true)
 
         #expect(
@@ -289,6 +289,23 @@ import Testing
                 shortcutHintModeActive: false
             ),
             "AppKit menu tracking ending must clear stale SwiftUI context-menu visibility so later hover can reveal row affordances."
+        )
+    }
+
+    @Test func appKitMenuTrackingEndUsesReconciledPointerExit() {
+        var state = SidebarWorkspaceRowInteractionState()
+
+        state.setPointerHovering(true)
+        state.contextMenuDidAppear()
+
+        #expect(state.contextMenuTrackingDidEnd(pointerInsideRow: false))
+
+        #expect(
+            !state.shouldShowCloseButton(
+                canCloseWorkspace: true,
+                shortcutHintModeActive: false
+            ),
+            "If the pointer leaves through the context menu, AppKit menu tracking reconciliation must keep the row affordance hidden."
         )
     }
 

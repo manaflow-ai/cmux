@@ -114,8 +114,9 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
     }
 
     @discardableResult
-    mutating func contextMenuTrackingDidEnd() -> Bool {
+    mutating func contextMenuTrackingDidEnd(pointerInsideRow: Bool) -> Bool {
         guard contextMenuVisible else { return false }
+        deferredPointerHoveringWhileContextMenu = pointerInsideRow
         contextMenuVisible = false
         applyDeferredPointerHovering()
         return true

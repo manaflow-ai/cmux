@@ -285,11 +285,15 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
+        .overlay {
+            if rowInteractionState.contextMenuVisible {
+                SidebarWorkspaceRowMenuTrackingReconciler { pointerInsideRow in
+                    rowInteractionState.contextMenuTrackingDidEnd(pointerInsideRow: pointerInsideRow)
+                }
+            }
+        }
         .onDisappear {
             rowInteractionState.setPointerHovering(false)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didEndTrackingNotification)) { _ in
-            rowInteractionState.contextMenuTrackingDidEnd()
         }
         .contextMenu {
             Button(
