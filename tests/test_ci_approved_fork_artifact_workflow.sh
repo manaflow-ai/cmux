@@ -38,6 +38,8 @@ for needle in \
   "./scripts/reload.sh --tag \"\$BUILD_TAG\"" \
   "App path:" \
   "could not locate built app" \
+  "is not a .app bundle" \
+  "Contents/MacOS" \
   "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1" \
   "artifact/provenance.json" \
   "rm -rf \"\$artifact_dir\"" \

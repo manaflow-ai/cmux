@@ -154,6 +154,16 @@ jobs:
             app_path="$(awk '/^App path:/{getline; sub(/^[[:space:]]+/, ""); print; exit}' "$log")"
           fi
           [ -n "$app_path" ] && [ -d "$app_path" ] || { echo "could not locate built app" >&2; exit 1; }
+          # Artifact integrity: only ever package a real .app bundle, never an
+          # arbitrary directory the reported path might point at. (The maintainer
+          # review of the approved head SHA is the security boundary here — the
+          # build already runs the fork's reload.sh — but this keeps a buggy or
+          # tampered path from publishing unrelated runner files as the app.)
+          case "$app_path" in
+            *.app) ;;
+            *) echo "resolved app path is not a .app bundle: $app_path" >&2; exit 1 ;;
+          esac
+          [ -d "$app_path/Contents/MacOS" ] || { echo "resolved app path is missing Contents/MacOS: $app_path" >&2; exit 1; }
 
           # The fork controls the checked-out workspace, so artifact/ may
           # already exist as a fork-supplied symlink or stale directory.
