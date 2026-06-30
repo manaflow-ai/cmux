@@ -170,6 +170,8 @@ Environment fallbacks:
 
 **`new-workspace`**: The flags `--command` and `--working-directory` were removed. They were accepted by the old relay but sent incorrect param names that `workspace.create` does not use, so the server silently ignored them. Use `--cwd` for the working directory.
 
+**`send` / `send-key`**: The `--text` and `--key` flags were removed. Both commands now take their argument positionally, matching the Mac CLI convention: `cmux send "hello world"` and `cmux send-key ctrl+c`.
+
 **Window commands**: Prior to this release, `list-windows`, `current-window`, `new-window`, `focus-window`, and `close-window` used a v1 text protocol and returned plain-text responses (e.g. `window:abc123` per line). They now use v2 JSON-RPC and return JSON. Scripts parsing that output will need updating.
 
 Browser relay behavior:

@@ -378,10 +378,14 @@ func TestDialSocketFailsFastWhenTCPAddressStaysStale(t *testing.T) {
 }
 
 func TestCLIPing(t *testing.T) {
-	sockPath := startMockV2Socket(t)
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{"--socket", sockPath, "ping"})
 	if code != 0 {
 		t.Fatalf("ping should return 0, got %d", code)
+	}
+	req := receiveRequest(t, requests)
+	if req["method"] != "system.ping" {
+		t.Fatalf("expected method system.ping, got %v", req["method"])
 	}
 }
 
@@ -585,13 +589,16 @@ func TestCLINoSocket(t *testing.T) {
 }
 
 func TestCLISocketEnvVar(t *testing.T) {
-	sockPath := startMockSocket(t, "pong")
-	os.Setenv("CMUX_SOCKET_PATH", sockPath)
-	defer os.Unsetenv("CMUX_SOCKET_PATH")
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SOCKET_PATH", sockPath)
 
 	code := runCLI([]string{"ping"})
 	if code != 0 {
 		t.Fatalf("ping with env socket should return 0, got %d", code)
+	}
+	req := receiveRequest(t, requests)
+	if req["method"] != "system.ping" {
+		t.Fatalf("expected method system.ping, got %v", req["method"])
 	}
 }
 

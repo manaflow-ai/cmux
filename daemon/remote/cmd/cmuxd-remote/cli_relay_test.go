@@ -69,10 +69,15 @@ func TestBoolFlagCoercionFocusFalse(t *testing.T) {
 // TestBoolFlagCoercionInvalidValue verifies that an invalid --focus value
 // returns a non-zero exit code without sending a request.
 func TestBoolFlagCoercionInvalidValue(t *testing.T) {
-	sockPath, _ := startMockV2SocketWithRequestCapture(t)
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{"--socket", sockPath, "new-workspace", "--focus", "maybe"})
 	if code == 0 {
 		t.Fatal("new-workspace --focus maybe: expected non-zero exit")
+	}
+	select {
+	case req := <-requests:
+		t.Fatalf("expected no request to be sent on invalid flag value, got: %v", req)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 

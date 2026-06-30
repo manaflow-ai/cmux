@@ -98,7 +98,7 @@ var commands = []commandSpec{
 	{name: "focus-panel", v2Method: "surface.focus", flagKeys: []string{"panel", "workspace"}, paramKeyOverrides: map[string]string{"panel": "surface_id"}},
 	{name: "new-surface", v2Method: "surface.create", flagKeys: []string{"workspace", "pane", "type", "url", "focus"}, boolFlags: []string{"focus"}},
 	{name: "new-split", v2Method: "surface.split", flagKeys: []string{"surface", "direction", "focus"}, boolFlags: []string{"focus"}},
-	{name: "close-surface", v2Method: "surface.close", flagKeys: []string{"surface"}},
+	{name: "close-surface", v2Method: "surface.close", flagKeys: []string{"workspace", "surface"}},
 	{name: "send", v2Method: "surface.send_text", flagKeys: []string{"surface"}, positionalKey: "text"},
 	{name: "send-key", v2Method: "surface.send_key", flagKeys: []string{"surface"}, positionalKey: "key"},
 	{name: "read-screen", v2Method: "surface.read_text", flagKeys: []string{"surface"}},
@@ -307,8 +307,12 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 			}
 		}
 
-		applyWorkspaceEnvFallback(params)
-		applySurfaceEnvFallback(params)
+		if specUsesParam(spec, "workspace_id") {
+			applyWorkspaceEnvFallback(params)
+		}
+		if specUsesParam(spec, "surface_id") {
+			applySurfaceEnvFallback(params)
+		}
 	}
 
 	resp, err := socketRoundTripV2(socketPath, spec.v2Method, params, refreshAddr)
@@ -663,6 +667,21 @@ func applyBrowserValuePositionals(params map[string]any, positionals []string, a
 			}
 		}
 	}
+}
+
+// specUsesParam reports whether any of spec's flagKeys resolves to paramKey
+// after applying flagToParamKey and any paramKeyOverrides.
+func specUsesParam(spec *commandSpec, paramKey string) bool {
+	for _, k := range spec.flagKeys {
+		resolved := flagToParamKey(k)
+		if override, ok := spec.paramKeyOverrides[k]; ok {
+			resolved = override
+		}
+		if resolved == paramKey {
+			return true
+		}
+	}
+	return false
 }
 
 func applyWorkspaceEnvFallback(params map[string]any) {
