@@ -2404,10 +2404,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return true
         }
         guard isCurrentMacSwitchAttempt(switchAttemptID) else {
-            if consumeMacSwitchRestorePreviousOnCancel(switchAttemptID),
-               await restorePreviousMacIfNeeded(macSwitchRestoreBaseline) {
-                macSwitchRestoreBaseline = nil
-            }
+            await restoreMacSwitchBaselineIfCancelled(switchAttemptID)
             return false
         }
         // Refresh routes from the per-user backup so a Mac that relaunched on a
@@ -2419,15 +2416,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // the open and strand the user on a workspace whose Mac never connected.
         if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: identityProvider?.currentUserID)
-            guard isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
+            guard isCurrentMacSwitchAttempt(switchAttemptID) else {
+                await restoreMacSwitchBaselineIfCancelled(switchAttemptID)
+                return false
+            }
         }
         let scope = await currentScopeSnapshot()
-        guard isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
+        guard isCurrentMacSwitchAttempt(switchAttemptID) else {
+            await restoreMacSwitchBaselineIfCancelled(switchAttemptID)
+            return false
+        }
         let storeMacs = (try? await pairedMacStore.loadAll(
             stackUserID: scope?.userID ?? identityProvider?.currentUserID,
             teamID: scope?.teamID
         )) ?? []
-        guard isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
+        guard isCurrentMacSwitchAttempt(switchAttemptID) else {
+            await restoreMacSwitchBaselineIfCancelled(switchAttemptID)
+            return false
+        }
         guard let refreshedTarget = storeMacs.first(where: { $0.macDeviceID == macDeviceID })
             ?? pairedMacs.first(where: { $0.macDeviceID == macDeviceID }) else {
             if !hasActiveMacConnection,
@@ -2477,11 +2483,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             name: refreshedTarget.displayName ?? host, host: host, port: port,
             pairedMacDeviceID: macDeviceID)
         guard isCurrentMacSwitchAttempt(switchAttemptID) else {
-            if consumeMacSwitchRestorePreviousOnCancel(switchAttemptID) {
-                if await restorePreviousMacIfNeeded(macSwitchRestoreBaseline ?? previousForegroundMac) {
-                    macSwitchRestoreBaseline = nil
-                }
-            }
+            await restoreMacSwitchBaselineIfCancelled(switchAttemptID, fallback: previousForegroundMac)
             return false
         }
         // The switch succeeded only if the live foreground identity is THIS Mac.
@@ -5215,6 +5217,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             invalidatePairingAttempt()
             connectionAttemptGeneration = UUID()
         }
+    }
+
+    @discardableResult
+    private func restoreMacSwitchBaselineIfCancelled(
+        _ attemptID: UUID,
+        fallback: MobilePairedMac? = nil
+    ) async -> Bool {
+        guard consumeMacSwitchRestorePreviousOnCancel(attemptID) else { return false }
+        let restored = await restorePreviousMacIfNeeded(macSwitchRestoreBaseline ?? fallback)
+        if restored {
+            macSwitchRestoreBaseline = nil
+        }
+        return restored
     }
 
     private func consumeMacSwitchRestorePreviousOnCancel(_ attemptID: UUID) -> Bool {
