@@ -139,6 +139,10 @@ import Testing
     let coldReplayChunk = try #require(await iterator.next())
     #expect(String(decoding: coldReplayChunk.data, as: UTF8.self) == "cold-replay")
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    let coldReplaySettled = await waitForReplayBarrierFailureToSettle {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(coldReplaySettled, "cold mount replay must settle before starting the held replay")
     let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
 
     store.deliverTerminalBytes(Data("stalled-first".utf8), surfaceID: surfaceID)

@@ -666,6 +666,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var pendingOutputApply: PendingSurfaceOperation?
     private var pendingGeometryApply: PendingSurfaceOperation?
     private var pendingVisibleSnapshot: PendingVisibleSnapshot?
+    private var hasPendingSurfaceOperationDeadline: Bool {
+        pendingOutputApply != nil || pendingGeometryApply != nil || pendingVisibleSnapshot != nil
+    }
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
@@ -2052,7 +2055,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// would pump it, so apply immediately.
     private func scheduleDisplayLinkWork() {
         needsDraw = true
-        if displayLink == nil {
+        if displayLink == nil, !renderPipelineRecoveryBlocked {
             applyPendingFontSizeIfNeeded()
         }
     }
@@ -2434,6 +2437,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ) {
         guard let surface, !isDismantled else {
             completion?(true)
+            return
+        }
+        // A blocked recovery will rebuild this surface once the prior free drains.
+        // Leave wait-style callers pending so recovery or the deadline pump resumes false.
+        guard !renderPipelineRecoveryBlocked else {
             return
         }
         #if DEBUG
@@ -2912,11 +2920,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func startDisplayLink() {
-        guard displayLink == nil, !renderPipelineRecoveryBlocked else { return }
+        guard displayLink == nil else { return }
+        guard !renderPipelineRecoveryBlocked || hasPendingSurfaceOperationDeadline else { return }
         let link = CADisplayLink(target: DisplayLinkProxy(target: self), selector: #selector(DisplayLinkProxy.handleDisplayLink))
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
         displayLink = link
+        guard !renderPipelineRecoveryBlocked else { return }
         cursorBlinkState.start(now: CACurrentMediaTime())
         needsDraw = true
         updateCursorOverlay()
@@ -2937,8 +2947,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @objc func handleDisplayLinkFire() {
-        guard let surface else { return }
         let now = CACurrentMediaTime()
+        if checkSurfaceOperationDeadlines(now: now) {
+            return
+        }
+        if renderPipelineRecoveryBlocked {
+            if !hasPendingSurfaceOperationDeadline {
+                stopDisplayLink()
+            }
+            return
+        }
+        guard surface != nil else {
+            if !hasPendingSurfaceOperationDeadline {
+                stopDisplayLink()
+            }
+            return
+        }
         #if DEBUG
         // Main-thread liveness heartbeat + presented-surface state. Time-gated,
         // no behavior change. The `contents`/size fields let an IDLE blank be
@@ -2965,9 +2989,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
         }
         #endif
-        if checkSurfaceOperationDeadlines(now: now) {
-            return
-        }
         if let renderInFlightSince {
             let stalledMs = Int((now - renderInFlightSince) * 1000)
             if stalledMs >= Int(Self.renderPipelineStallDeadline * 1000),
@@ -3086,7 +3107,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // now bounded in libghostty (so a foreground stall self-heals as a
         // skipped frame the display link re-drives), but we still gate on
         // suspension; `resumeRendering` clears it on the next active transition.
-        guard !renderingSuspended,
+        guard !renderPipelineRecoveryBlocked,
+              !renderingSuspended,
               let surface,
               !isDismantled else { return }
         // Coalesce: never let more than one render_now sit on the serial queue.
@@ -3131,7 +3153,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         needsDraw = true
         // A geometry sync (for any reason) satisfies a pending post-zoom resync.
         zoomSettleFrames = nil
-        if displayLink == nil, window != nil {
+        if displayLink == nil, window != nil, !renderPipelineRecoveryBlocked {
             // No frame pump while detached/backgrounded; apply directly so the
             // surface still gets sized before the next render path resumes.
             needsGeometrySync = false
@@ -3407,6 +3429,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ) {
         guard let surface else {
             completion?(true)
+            return
+        }
+        // The current surface is scheduled for deferred recovery; geometry
+        // cannot be acknowledged against it without risking a stale replay ack.
+        guard !renderPipelineRecoveryBlocked else {
             return
         }
 
