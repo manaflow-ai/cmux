@@ -2380,7 +2380,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 stalledMs: elapsedMs,
                 replay: .callerWillRequestReplay
             )
-            pending.continuation.resume(returning: false)
+            if recovered || !renderPipelineRecoveryBlocked {
+                pending.continuation.resume(returning: false)
+            } else {
+                pendingOutputApply = pending
+            }
             return recovered
         }
 
@@ -2394,7 +2398,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 stalledMs: elapsedMs,
                 replay: .callerWillRequestReplay
             )
-            pending.continuation.resume(returning: false)
+            if recovered || !renderPipelineRecoveryBlocked {
+                pending.continuation.resume(returning: false)
+            } else {
+                pendingGeometryApply = pending
+            }
             return recovered
         }
 
@@ -2876,7 +2884,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 replay: replay
             )
             stopDisplayLink()
-            completePendingSurfaceOperations(returning: false)
+            skipPendingVisibleSnapshot()
+            skipPendingCopyableTextRead()
             renderInFlight = false
             renderInFlightSince = nil
             needsAnotherRender = false

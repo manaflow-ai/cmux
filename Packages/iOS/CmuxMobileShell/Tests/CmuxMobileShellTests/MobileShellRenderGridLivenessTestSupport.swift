@@ -58,14 +58,7 @@ actor LivenessHostRouter {
         var topics: [String]?
     }
 
-    private struct CountWaiter {
-        var method: String
-        var expectedCount: Int
-        var continuation: CheckedContinuation<Void, Never>
-    }
-
     private var recorded: [RecordedRequest] = []
-    private var countWaiters: [CountWaiter] = []
     private var hostStatusRequestCount = 0
     private var heldHostStatusRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
@@ -83,7 +76,6 @@ actor LivenessHostRouter {
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
-        resumeSatisfiedCountWaiters()
     }
 
     func count(of method: String) -> Int {
@@ -91,30 +83,13 @@ actor LivenessHostRouter {
     }
 
     func waitForCount(of method: String, atLeast expectedCount: Int) async {
-        guard count(of: method) < expectedCount else { return }
-        await withCheckedContinuation { continuation in
-            countWaiters.append(CountWaiter(
-                method: method,
-                expectedCount: expectedCount,
-                continuation: continuation
-            ))
-        }
-    }
-
-    private func resumeSatisfiedCountWaiters() {
-        var remaining: [CountWaiter] = []
-        var ready: [CheckedContinuation<Void, Never>] = []
-        for waiter in countWaiters {
-            if count(of: waiter.method) >= waiter.expectedCount {
-                ready.append(waiter.continuation)
-            } else {
-                remaining.append(waiter)
+        for _ in 0..<300 {
+            if count(of: method) >= expectedCount {
+                return
             }
+            try? await Task.sleep(nanoseconds: 10_000_000)
         }
-        countWaiters = remaining
-        for continuation in ready {
-            continuation.resume(returning: ())
-        }
+        Issue.record("timed out waiting for \(method) count >= \(expectedCount)")
     }
 
     func topics(for method: String) -> [[String]] {
