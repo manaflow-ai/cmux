@@ -66,6 +66,7 @@ nonisolated struct SocketCommandObservability: Sendable {
 
     private static let maxSampleExcerptLines = 80
     private static let maxSampleExcerptCharacters = 6_000
+    private let watchdogSampleCoordinator = WatchdogSampleCoordinator()
     private let logger: Logger
 
     init(
@@ -174,7 +175,17 @@ nonisolated struct SocketCommandObservability: Sendable {
 
             let finishedAt = DispatchTime.now().uptimeNanoseconds
             let elapsed = finishedAt >= startedAt ? finishedAt - startedAt : 0
+            guard await watchdogSampleCoordinator.beginCaptureIfIdle() else {
+                // A sample for the same main-actor stall is already in flight.
+                // Coalesce onto it instead of spawning another `/usr/bin/sample`:
+                // every command queued behind one hang would otherwise cross the
+                // threshold together and fan out a burst of samplers, disk writes,
+                // and log work against an already-unhealthy app.
+                logMainActorWatchdogCoalesced(command: command, elapsedNanoseconds: elapsed)
+                return
+            }
             let sample = await captureWatchdogSample(for: command)
+            await watchdogSampleCoordinator.endCapture()
             guard !Task.isCancelled else { return }
             logMainActorWatchdog(command: command, elapsedNanoseconds: elapsed, sample: sample)
         }
@@ -250,6 +261,14 @@ nonisolated struct SocketCommandObservability: Sendable {
                 "socket.command.main_actor_watchdog method=\(command.method, privacy: .public) proto=\(command.protocolName.rawValue, privacy: .public) peer_pid=\(peerPid, privacy: .public) ms=\(elapsedMs, privacy: .public) sample_path=\(samplePath, privacy: .public) sample_error=\(error, privacy: .public)"
             )
         }
+    }
+
+    private func logMainActorWatchdogCoalesced(command: Command, elapsedNanoseconds: UInt64) {
+        let peerPid = command.peerPid.map(String.init) ?? "unknown"
+        let elapsedMs = String(format: "%.2f", Double(elapsedNanoseconds) / 1_000_000)
+        logger.fault(
+            "socket.command.main_actor_watchdog method=\(command.method, privacy: .public) proto=\(command.protocolName.rawValue, privacy: .public) peer_pid=\(peerPid, privacy: .public) ms=\(elapsedMs, privacy: .public) sample=coalesced"
+        )
     }
 
     private static func sanitizedToken(_ value: String) -> String {

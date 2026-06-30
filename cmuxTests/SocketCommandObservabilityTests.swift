@@ -106,4 +106,18 @@ import Testing
         #expect(excerpt.contains("v2BrowserEval"))
         #expect(!excerpt.contains("socket-worker"))
     }
+
+    @Test func watchdogSampleCoordinatorCoalescesConcurrentCaptures() async {
+        let coordinator = WatchdogSampleCoordinator()
+
+        // First watchdog claims the single sampler slot.
+        #expect(await coordinator.beginCaptureIfIdle())
+        // A second watchdog firing during the same stall must coalesce instead of
+        // spawning another `/usr/bin/sample`.
+        #expect(await coordinator.beginCaptureIfIdle() == false)
+
+        // After the in-flight capture finishes the slot is reusable for a later stall.
+        await coordinator.endCapture()
+        #expect(await coordinator.beginCaptureIfIdle())
+    }
 }
