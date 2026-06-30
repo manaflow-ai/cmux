@@ -44,28 +44,68 @@ public extension View {
         #endif
     }
 
-    /// Liquid Glass capsule backing for a navigation-bar title / principal item.
+    /// Liquid Glass backing for a navigation-bar title / principal item.
     ///
     /// The terminal/chat header bar is cleared (`mobileTerminalNavigationChrome`)
     /// so the pane shows through the whole header, which leaves a plain title
-    /// floating over busy terminal text and hard to read. Wrap the title in this
-    /// so it sits on its own Liquid Glass pill (iOS 26+). On iOS 18 the bar keeps
-    /// a translucent material background, so the title is already backed and this
-    /// is a no-op.
+    /// floating over busy terminal text and hard to read. Wrap the title in the
+    /// same glass button style used by neighboring toolbar controls so the
+    /// system owns the control height instead of this helper guessing padding.
+    /// On iOS 18 the bar keeps a translucent material background, so the title
+    /// is already backed and this is a no-op.
     @ViewBuilder
     func mobileGlassNavigationTitle() -> some View {
         #if os(iOS) && compiler(>=6.2)
         if #available(iOS 26.0, *) {
-            self
-                .padding(.horizontal, 14)
-                // Taller vertical padding so the single-line title pill's glass
-                // background matches the height of the back button and the other
-                // bar-button glass items. Padding (not a fixed height) so the
-                // multi-line chat header pill can still grow.
-                .padding(.vertical, 9)
-                .glassEffect(.regular, in: .capsule)
+            Button {} label: {
+                self
+            }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.capsule)
+            .allowsHitTesting(false)
+            .accessibilityRemoveTraits(.isButton)
         } else {
             self
+        }
+        #else
+        self
+        #endif
+    }
+
+    /// Compact Liquid Glass backing for a navigation-bar title item.
+    ///
+    /// Multi-line title content can otherwise make its glass control taller
+    /// than neighboring toolbar buttons. Use SwiftUI's compact control sizing
+    /// so the title remains a normal toolbar control without guessing a height.
+    @ViewBuilder
+    func mobileGlassCompactToolbarControl() -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            self
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+
+    /// Non-interactive compact glass title backing.
+    @ViewBuilder
+    func mobileGlassCompactNavigationTitle() -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            Button {} label: {
+                self
+            }
+            .mobileGlassCompactToolbarControl()
+            .allowsHitTesting(false)
+            .accessibilityRemoveTraits(.isButton)
+        } else {
+            self.mobileGlassNavigationTitle()
         }
         #else
         self

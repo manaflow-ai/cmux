@@ -29,6 +29,7 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
     /// Phone-local browser surfaces, injected from the app root. When this
     /// workspace has an active browser surface the detail view presents a
@@ -51,7 +52,7 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State private var isRenamePresented = false
     @State private var renameText = ""
-    /// Live pane width, used to width-cap the centered glass title pill so a long
+    /// Live pane width, used to width-cap the leading glass title pill so a long
     /// workspace name truncates instead of underlapping the toolbar buttons.
     @State private var contentWidth: CGFloat = 0
     /// Captured at the moment the "View as Text" action is tapped so the
@@ -77,14 +78,6 @@ struct WorkspaceDetailView: View {
     @Environment(\.scenePhase) private var scenePhase
     #endif
 
-    private var selectedTerminal: MobileTerminalPreview? {
-        workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
-    }
-
-    /// Extra blank top padding for the terminal/chat, on top of the safe area. The
-    /// grid already sits below the nav bar (in the top safe area), so this is just
-    /// a hairline so the first row is not jammed against the bar's bottom edge.
-    private var terminalTopPadding: CGFloat { 4 }
     /// The active browser surface for this workspace, when a browser pane is open.
     private var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
@@ -121,10 +114,6 @@ struct WorkspaceDetailView: View {
         return sessionForSelectedTerminal
     }
 
-    /// The tab/terminal name for a session, for the chat header subtitle.
-    private func tabName(for session: ChatSessionDescriptor) -> String? {
-        workspace.terminals.first { $0.id.rawValue == session.terminalID }?.name
-    }
     #endif
 
     var body: some View {
@@ -171,6 +160,8 @@ struct WorkspaceDetailView: View {
                 get: { chatDrafts[session.id] ?? "" },
                 set: { chatDrafts[session.id] = $0 }
             ),
+            backButtonConfiguration: backButtonConfiguration,
+            titleMenuContent: { titleMenuContent },
             onExitChat: {
                 withAnimation(.snappy(duration: 0.28)) {
                     isChatMode = false
@@ -189,6 +180,10 @@ struct WorkspaceDetailView: View {
             }
         }
         .task(id: chatRefreshKey) { await refreshChatSessions() }
+        .closeWorkspaceConfirmation(
+            isPresented: $isConfirmingClose,
+            confirm: confirmCloseWorkspaceFromMenu
+        )
         .workspaceRenameDialog(
             isPresented: $isRenamePresented,
             text: $renameText,
@@ -311,11 +306,30 @@ struct WorkspaceDetailView: View {
         .id(browser.id.rawValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
-        .navigationTitle(browser.title ?? workspace.name)
+        .navigationTitle("")
         .mobileTerminalNavigationChrome()
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                glassTitle(browser.title ?? workspace.name)
+            if backButtonConfiguration != nil {
+                ToolbarItem(placement: .topBarLeading) {
+                    workspaceBackToolbarButton
+                }
+                if #available(iOS 26.0, *) {
+                    ToolbarSpacer(.fixed, placement: .topBarLeading)
+                }
+            }
+            ToolbarItem(placement: .topBarLeading) {
+                WorkspaceTitleMenu(
+                    contentWidth: contentWidth,
+                    hasBackButton: backButtonConfiguration != nil,
+                    hasChatToggle: isChatMode || sessionForSelectedTerminal != nil,
+                    menuContent: { titleMenuContent }
+                ) {
+                    Text(browser.title ?? workspace.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(TerminalPalette.foreground)
+                }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
@@ -459,15 +473,30 @@ struct WorkspaceDetailView: View {
         #else
         .background(TerminalPalette.background)
         #endif
-        .navigationTitle(workspace.name)
+        .navigationTitle(systemNavigationTitle)
         .mobileTerminalNavigationChrome()
         #if os(iOS)
         .task(id: chatRefreshKey) { await refreshChatSessions() }
         #endif
         .toolbar {
             #if os(iOS)
-            ToolbarItem(placement: .principal) {
-                glassTitle(workspace.name)
+            if backButtonConfiguration != nil {
+                ToolbarItem(placement: .topBarLeading) {
+                    workspaceBackToolbarButton
+                }
+                if #available(iOS 26.0, *) {
+                    ToolbarSpacer(.fixed, placement: .topBarLeading)
+                }
+            }
+            ToolbarItem(placement: .topBarLeading) {
+                WorkspaceTitleMenu(
+                    contentWidth: contentWidth,
+                    hasBackButton: backButtonConfiguration != nil,
+                    hasChatToggle: isChatMode || sessionForSelectedTerminal != nil,
+                    menuContent: { titleMenuContent }
+                ) {
+                    WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
+                }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
@@ -505,25 +534,27 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// A nav-bar title on its own Liquid Glass capsule (iOS 26+) so it stays
-    /// readable over the pane showing through the cleared header bar. On iOS 18
-    /// the bar keeps a material background, so `mobileGlassNavigationTitle` is a
-    /// no-op and this renders as plain text.
-    private func glassTitle(_ text: String) -> some View {
-        Text(text)
-            .font(.headline)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .foregroundStyle(TerminalPalette.foreground)
-            // Centered principal item: cap it to the clear center gap so a long
-            // name truncates instead of underlapping the bar buttons, but reserve
-            // only the actual side clusters (not a flat 300pt) so the middle grows
-            // as much as it safely can.
-            .frame(maxWidth: MobileNavTitleWidth.cap(
-                contentWidth: contentWidth,
-                hasChatToggle: isChatMode || sessionForSelectedTerminal != nil
-            ))
-            .mobileGlassNavigationTitle()
+    /// Compact-stack back button colocated with the leading title so both
+    /// terminal and chat modes share one toolbar order.
+    @ViewBuilder
+    private var workspaceBackToolbarButton: some View {
+        if let backButtonConfiguration {
+            WorkspaceBackButton(
+                unreadCount: backButtonConfiguration.unreadCount,
+                badgeContrast: backButtonConfiguration.badgeContrast,
+                action: backButtonConfiguration.action
+            )
+        }
+    }
+
+    private var titleMenuContent: some View {
+        WorkspaceTitleMenuContent(
+            workspace: workspace,
+            canCloseWorkspace: closeWorkspace != nil,
+            presentRename: presentRenameFromMenu,
+            toggleReadState: toggleWorkspaceReadStateFromMenu,
+            requestClose: requestCloseWorkspaceFromMenu
+        )
     }
     #endif
 
@@ -537,7 +568,7 @@ struct WorkspaceDetailView: View {
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
 
-    // The picker is a native SwiftUI `Menu`, which renders as the platform menu
+    // The surface picker is a native SwiftUI `Menu`, which renders as the platform menu
     // (a `UIMenu` on iOS). That gives the standard menu gesture for free: a
     // single tap opens it, and a press-and-drag from the button onto an item
     // followed by a release selects that item. The previous `Button` +
@@ -553,11 +584,12 @@ struct WorkspaceDetailView: View {
         } label: {
             Label(
                 selectedTerminal?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
-                systemImage: "terminal"
+                systemImage: "rectangle.stack"
             )
             .labelStyle(.iconOnly)
         }
         .foregroundStyle(TerminalPalette.foreground)
+        .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
     }
@@ -599,48 +631,6 @@ struct WorkspaceDetailView: View {
                 )
             }
             .accessibilityIdentifier("MobileNewBrowserMenuItem")
-        }
-
-        // Rename the current workspace from the terminal-icon menu, mirroring
-        // the workspace list's row-scoped capability gate.
-        if workspace.actionCapabilities.supportsWorkspaceActions {
-            Section {
-                Button(action: presentRenameFromMenu) {
-                    Label(
-                        L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace"),
-                        systemImage: "pencil"
-                    )
-                }
-                .accessibilityIdentifier("MobileWorkspaceRenameMenuItem")
-            }
-        }
-
-        // Mark the current workspace read/unread from the terminal-icon menu,
-        // mirroring the workspace list's row-scoped capability gate.
-        if workspace.actionCapabilities.supportsReadStateActions {
-            Section {
-                Button(action: toggleWorkspaceReadStateFromMenu) {
-                    Label(
-                        workspace.hasUnread
-                            ? L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
-                            : L10n.string("mobile.workspace.markUnread", defaultValue: "Mark as Unread"),
-                        systemImage: workspace.hasUnread ? "envelope.open" : "envelope.badge"
-                    )
-                }
-                .accessibilityIdentifier("MobileWorkspaceMarkReadStateMenuItem")
-            }
-        }
-
-        if closeWorkspace != nil {
-            Section {
-                Button(role: .destructive, action: requestCloseWorkspaceFromMenu) {
-                    Label(
-                        L10n.string("mobile.workspace.close.action", defaultValue: "Close Workspace"),
-                        systemImage: "xmark.square"
-                    )
-                }
-                .accessibilityIdentifier("MobileCloseWorkspaceMenuItem")
-            }
         }
 
         #if canImport(UIKit)

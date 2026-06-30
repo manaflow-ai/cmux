@@ -42,7 +42,7 @@
 2395	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
 2242	Sources/TerminalNotificationStore.swift
-2231	Sources/TerminalWindowPortal.swift
+2229	Sources/TerminalWindowPortal.swift
 2126	cmuxTests/CmuxConfigTests.swift
 2091	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2078	Sources/SessionPersistence.swift
@@ -98,8 +98,8 @@
 945	Sources/SessionIndexRegisteredAgents.swift
 937	Sources/Panels/BrowserPopupWindowController.swift
 937	Sources/TextBoxMentionIndexStore.swift
-934	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 928	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
+924	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 905	Sources/CmuxSSHURLRequest.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
