@@ -148,6 +148,7 @@ struct WorkspaceDetailView: View {
                         contentWidth: contentWidth,
                         hasBackButton: backButtonConfiguration != nil,
                         hasChatToggle: shouldShowChatToggle,
+                        isEnabled: hasTitleMenuActions,
                         menuContent: { titleMenuContent }
                     ) {
                         Text(browser.title ?? workspace.name)
@@ -313,6 +314,7 @@ struct WorkspaceDetailView: View {
                         contentWidth: contentWidth,
                         hasBackButton: backButtonConfiguration != nil,
                         hasChatToggle: shouldShowChatToggle,
+                        isEnabled: hasTitleMenuActions,
                         menuContent: { titleMenuContent }
                     ) {
                         WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
@@ -377,6 +379,7 @@ struct WorkspaceDetailView: View {
             requestClose: requestCloseWorkspaceFromMenu
         )
     }
+
     #endif
 
     private var newWorkspaceToolbarButton: some View {

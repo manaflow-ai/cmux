@@ -28,4 +28,10 @@ extension WorkspaceDetailView {
         guard terminalPickerRows != rows else { return }
         terminalPickerRows = rows
     }
+
+    var hasTitleMenuActions: Bool {
+        workspace.actionCapabilities.supportsWorkspaceActions
+            || workspace.actionCapabilities.supportsReadStateActions
+            || closeWorkspace != nil
+    }
 }

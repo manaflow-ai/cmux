@@ -5,26 +5,38 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
     let contentWidth: CGFloat
     let hasBackButton: Bool
     let hasChatToggle: Bool
+    var isEnabled = true
     @ViewBuilder let menuContent: () -> MenuContent
     @ViewBuilder let label: () -> Label
 
+    @ViewBuilder
     var body: some View {
-        Menu {
-            menuContent()
-        } label: {
-            label()
-                .frame(
-                    minWidth: MobileNavTitleWidth.floor,
-                    maxWidth: MobileNavTitleWidth(
-                        contentWidth: contentWidth,
-                        hasBackButton: hasBackButton,
-                        hasChatToggle: hasChatToggle
-                    ).leadingCap,
-                    alignment: .leading
-                )
-                .layoutPriority(1)
+        if isEnabled {
+            Menu {
+                menuContent()
+            } label: {
+                fittedLabel
+            }
+            .mobileGlassCompactToolbarControl()
+            .accessibilityIdentifier("MobileWorkspaceTitleMenu")
+        } else {
+            fittedLabel
+                .mobileGlassCompactNavigationTitle()
+                .accessibilityIdentifier("MobileWorkspaceTitleMenu")
         }
-        .mobileGlassCompactToolbarControl()
-        .accessibilityIdentifier("MobileWorkspaceTitleMenu")
+    }
+
+    private var fittedLabel: some View {
+        label()
+            .frame(
+                minWidth: MobileNavTitleWidth.floor,
+                maxWidth: MobileNavTitleWidth(
+                    contentWidth: contentWidth,
+                    hasBackButton: hasBackButton,
+                    hasChatToggle: hasChatToggle
+                ).leadingCap,
+                alignment: .leading
+            )
+            .layoutPriority(1)
     }
 }

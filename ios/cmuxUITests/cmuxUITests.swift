@@ -288,6 +288,13 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["MobileWorkspaceBackButton"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.buttons["MobileWorkspaceTitleMenu"].waitForExistence(timeout: 4))
 
+        tapCompactToolbarTitleMenu(app.buttons["MobileWorkspaceTitleMenu"], in: app)
+        XCTAssertTrue(app.buttons["MobileWorkspaceTitleRenameMenuItem"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileWorkspaceTitleReadStateMenuItem"].exists)
+        XCTAssertTrue(app.buttons["MobileWorkspaceTitleCloseMenuItem"].exists)
+        XCTAssertFalse(app.buttons["MobileNewTerminalMenuItem"].exists)
+        dismissOpenMenu(in: app)
+
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
         await assertHostSelection(
             workspaceID: "workspace-3",
@@ -2098,6 +2105,12 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    private func dismissOpenMenu(in app: XCUIApplication) {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).tap()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+    }
+
+    @MainActor
     private func waitForToolbarFrame(of element: XCUIElement, timeout: TimeInterval) -> CGRect? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -3607,6 +3620,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             result = createTerminalResult(params: params)
         case "mobile.events.subscribe":
             result = ["stream_id": params["stream_id"] as? String ?? "events"]
+        case "mobile.host.status":
+            result = mobileHostStatusResult()
         case "mobile.terminal.viewport", "terminal.viewport":
             result = [
                 "columns": params["viewport_columns"] as? Int ?? 80,
@@ -3625,6 +3640,28 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         ]
         let responsePayload = try JSONSerialization.data(withJSONObject: envelope)
         return Self.frame(responsePayload)
+    }
+
+    private func mobileHostStatusResult() -> [String: Any] {
+        [
+            "routes": [],
+            "terminal_fidelity": "render_grid",
+            "capabilities": [
+                "events.v1",
+                "notification.badge.v1",
+                "notification.dismiss.v1",
+                "notification.reconcile.v1",
+                "terminal.bytes.v1",
+                "terminal.render_grid.v1",
+                "terminal.replay.v1",
+                "terminal.viewport.v1",
+                "workspace.actions.v1",
+                "workspace.read_state.v1",
+                "workspace.close.v1",
+                "dogfood.v1",
+                "workspace.groups.v1",
+            ],
+        ]
     }
 
     private func createWorkspaceResult() -> [String: Any] {

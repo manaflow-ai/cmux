@@ -28,6 +28,8 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
     /// Compact-stack back button owned by the workspace toolbar, colocated with
     /// the leading title so their order is deterministic.
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
+    /// Whether the workspace title pill should open a menu.
+    let isTitleMenuEnabled: Bool
     /// Workspace-scoped actions exposed from the title pill.
     let titleMenuContent: () -> TitleMenuContent
     /// Flips chat mode off (the toggle's "back to terminal" path).
@@ -64,6 +66,7 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
                             contentWidth: contentWidth,
                             hasBackButton: backButtonConfiguration != nil,
                             hasChatToggle: true,
+                            isEnabled: isTitleMenuEnabled,
                             menuContent: titleMenuContent
                         ) {
                             ChatSessionHeaderView(
