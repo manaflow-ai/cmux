@@ -35,6 +35,11 @@ struct AgentChatSessionRecord: Sendable {
     /// The agent process id, for liveness sweeps.
     var pid: Int?
 
+    /// Monotonic revision stamped by the registry on every change, so clients
+    /// can reconcile best-effort pushes against authoritative pulls. Owned by
+    /// the registry; mutators do not set it directly.
+    var version: Int = 0
+
     /// Adopts terminal/transcript bindings from a hook-store entry. The
     /// store is rewritten by every hook event, so its non-nil fields are
     /// fresher than the record's (panel UUIDs change across app
@@ -70,7 +75,8 @@ struct AgentChatSessionRecord: Sendable {
             terminalID: surfaceID,
             workingDirectory: workingDirectory,
             state: state,
-            lastActivityAt: lastActivityAt
+            lastActivityAt: lastActivityAt,
+            version: version
         )
     }
 }
