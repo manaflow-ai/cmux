@@ -1,17 +1,30 @@
 import CmuxMobileSupport
 import SwiftUI
 
-struct WorkspaceToolbarTitleControl<Label: View>: View {
+struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
     let contentWidth: CGFloat
     let hasBackButton: Bool
     let hasTrailingCluster: Bool
     let hasChatToggle: Bool
+    var isEnabled = true
+    @ViewBuilder let menuContent: () -> MenuContent
     @ViewBuilder let label: () -> Label
 
+    @ViewBuilder
     var body: some View {
-        fittedLabel
-            .mobileGlassCompactNavigationTitle()
+        if isEnabled {
+            Menu {
+                menuContent()
+            } label: {
+                fittedLabel
+            }
+            .mobileGlassCompactToolbarControl()
             .accessibilityIdentifier("MobileWorkspaceTitleMenu")
+        } else {
+            fittedLabel
+                .mobileGlassCompactNavigationTitle()
+                .accessibilityIdentifier("MobileWorkspaceTitleMenu")
+        }
     }
 
     private var fittedLabel: some View {
