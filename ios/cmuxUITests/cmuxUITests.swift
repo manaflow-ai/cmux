@@ -278,6 +278,34 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testDirectTerminalSmallEffectiveGridStartsAtViewportTop() async throws {
+        let server = try MobileSyncMockHostServer(effectiveViewportOverride: (columns: 80, rows: 24))
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let dock = waitForDock(in: app, timeout: 8, describe: "direct terminal with smaller effective grid") {
+            guard let renderHeight = Int($0["renderHeight"] ?? ""),
+                  let viewportHeight = Int($0["viewportHeight"] ?? "") else {
+                return false
+            }
+            return renderHeight > 120
+                && viewportHeight > renderHeight + 120
+                && $0["toolbarVisible"] == "1"
+        }
+
+        guard let renderMinY = Int(dock["renderMinY"] ?? "") else {
+            XCTFail("Missing terminal render top geometry. dock=\(dock)")
+            return
+        }
+        XCTAssertLessThanOrEqual(
+            renderMinY,
+            8,
+            "A smaller shared/effective terminal grid must anchor to the top of the direct terminal viewport, not leave a large blank spacer above it. dock=\(dock)"
+        )
+    }
+
+    @MainActor
     func testWorkspaceToolbarCreatesWorkspaceAndTerminal() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
@@ -3176,6 +3204,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var selectedTerminalID = "terminal-build"
     private var replayCounts: [String: Int] = [:]
     private var streamOffset: UInt64 = 1
+    private let effectiveViewportOverride: (columns: Int, rows: Int)?
     private var workspaces: [Workspace] = [
         Workspace(
             id: "workspace-main",
@@ -3225,8 +3254,12 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         ),
     ]
 
-    init(defaultTerminalLines: [String]? = nil) throws {
+    init(
+        defaultTerminalLines: [String]? = nil,
+        effectiveViewportOverride: (columns: Int, rows: Int)? = nil
+    ) throws {
         listener = try NWListener(using: .tcp, on: .any)
+        self.effectiveViewportOverride = effectiveViewportOverride
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
         // dropdown switch).
@@ -3428,10 +3461,17 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         case "mobile.events.subscribe":
             result = ["stream_id": params["stream_id"] as? String ?? "events"]
         case "mobile.terminal.viewport", "terminal.viewport":
-            result = [
-                "columns": params["viewport_columns"] as? Int ?? 80,
-                "rows": params["viewport_rows"] as? Int ?? 24,
-            ]
+            if let effectiveViewportOverride {
+                result = [
+                    "columns": effectiveViewportOverride.columns,
+                    "rows": effectiveViewportOverride.rows,
+                ]
+            } else {
+                result = [
+                    "columns": params["viewport_columns"] as? Int ?? 80,
+                    "rows": params["viewport_rows"] as? Int ?? 24,
+                ]
+            }
         case "mobile.terminal.replay", "terminal.replay":
             result = terminalReplayResult(params: params)
         default:
