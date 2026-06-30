@@ -110,11 +110,18 @@ extension WorkspaceListView {
         }
     }
 
+    var macTitlePickerSelection: Binding<WorkspaceMacSelection> {
+        Binding(
+            get: { currentMacTitlePickerSelection },
+            set: { _ = handleMacTitlePickerSelection($0) }
+        )
+    }
+
     func macTitlePicker(machineSnapshots: WorkspaceMachineSnapshots) -> some View {
         Menu {
             Picker(
                 L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Mac"),
-                selection: $macSelection
+                selection: macTitlePickerSelection
             ) {
                 Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"))
                     .tag(WorkspaceMacSelection.all)
