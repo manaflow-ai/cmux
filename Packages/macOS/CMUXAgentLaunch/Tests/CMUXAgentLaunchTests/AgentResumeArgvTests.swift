@@ -121,6 +121,75 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Shell bootstrap executables fall back to the agent executable")
+    func shellBootstrapExecutableFallsBackToAgentExecutable() {
+        let fishBootstrapArguments = [
+            "/bin/bash",
+            "--noprofile",
+            "--norc",
+            "-c",
+            "exec -l /opt/homebrew/bin/fish",
+        ]
+
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "claude",
+                sessionId: "SID",
+                executablePath: "/bin/bash",
+                arguments: fishBootstrapArguments
+            ) == ["claude", "--resume", "SID"]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: "/bin/bash",
+                arguments: fishBootstrapArguments
+            ) == ["codex", "resume", "SID"]
+        )
+
+        let sanitizedFishBootstrapArguments = ["/bin/bash", "--noprofile", "--norc"]
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "claude",
+                sessionId: "SID",
+                executablePath: "/bin/bash",
+                arguments: sanitizedFishBootstrapArguments
+            ) == ["claude", "--resume", "SID"]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: "/bin/bash",
+                arguments: sanitizedFishBootstrapArguments
+            ) == ["codex", "resume", "SID"]
+        )
+
+        let shellOptionBootstrapArguments = ["/bin/bash", "-o", "pipefail", "-c", "exec codex"]
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: "/bin/bash",
+                arguments: shellOptionBootstrapArguments
+            ) == ["codex", "resume", "SID"]
+        )
+    }
+
+    @Test("Shell-named wrappers without shell dispatcher argv are preserved")
+    func shellNamedWrapperExecutableIsPreservedWhenNotBootstrap() {
+        let executable = "/Users/alice/.local/bin/fish"
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: executable,
+                arguments: [executable, "--sandbox", "danger-full-access"]
+            ) == [executable, "resume", "SID", "--sandbox", "danger-full-access"]
+        )
+    }
+
     @Test("cmux wrapper launchers resolve before per-kind verbs")
     func launcherWrappers() {
         #expect(

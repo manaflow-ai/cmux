@@ -749,9 +749,12 @@ enum AgentResumeCommandBuilder {
         fallbackExecutable: String
     ) -> (executable: String, tail: [String]) {
         let arguments = launchCommand?.arguments ?? []
-        let executable = normalized(launchCommand?.executablePath)
-            ?? arguments.first
-            ?? fallbackExecutable
+        guard let executable = normalized(launchCommand?.executablePath) ?? normalized(arguments.first) else {
+            return (fallbackExecutable, [])
+        }
+        if AgentLaunchCaptureTrust().argvLooksLikeShellWrapper(arguments) {
+            return (fallbackExecutable, [])
+        }
         let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
         return (executable, tail)
     }
@@ -1110,6 +1113,7 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         var hookCandidatesBySession: [SessionKey: Entry] = [:]
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
+        let launchCaptureTrust = AgentLaunchCaptureTrust()
 
         for (kind, registration) in hookKinds {
             let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
@@ -1132,7 +1136,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 // agent's launch cwd even though the launch command is stripped.
                 effectiveRecord.launchCommand = trustedLaunchCommand(
                     effectiveRecord.launchCommand,
-                    kind: kind
+                    kind: kind, launchCaptureTrust: launchCaptureTrust
                 )
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
@@ -1253,21 +1257,21 @@ struct RestorableAgentSessionIndex: Sendable {
         normalizedNonEmptyValue(rawValue)
     }
 
-    /// Drops launch captures that cannot describe this agent kind: a capture
-    /// inherited from a different agent's session (codex started under claude
-    /// carries claude's `CMUX_AGENT_LAUNCH_*`) or the hook dispatch shell's own
-    /// argv. Resume/fork then fall back to the kind's bare verbs instead of
-    /// rendering the foreign binary. Existing poisoned records heal on load.
+    /// Drops cross-kind launch captures. Shell-dispatch argv is neutralized without
+    /// losing trusted cwd/environment, so resume/fork fall back to bare verbs.
     private static func trustedLaunchCommand(
         _ launchCommand: AgentLaunchCommandSnapshot?,
-        kind: RestorableAgentKind
+        kind: RestorableAgentKind, launchCaptureTrust: AgentLaunchCaptureTrust
     ) -> AgentLaunchCommandSnapshot? {
         guard let launchCommand else { return nil }
-        guard AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
-              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
+        guard launchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue) else {
             return nil
         }
-        return launchCommand
+        guard launchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else { return launchCommand }
+        var sanitized = launchCommand
+        sanitized.executablePath = nil
+        sanitized.arguments = []
+        return sanitized
     }
 
     private static func hookRecordIsRestorable(

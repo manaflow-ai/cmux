@@ -339,7 +339,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             approvalPolicy: try container.decodeIfPresent(SurfaceResumeApprovalPolicy.self, forKey: .approvalPolicy),
             approvalRecordId: try container.decodeIfPresent(String.self, forKey: .approvalRecordId),
             updatedAt: try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt)
-                ?? Date().timeIntervalSince1970
+                ?? 0
         )
     }
 

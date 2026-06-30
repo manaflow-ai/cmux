@@ -428,6 +428,22 @@ jobs:
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
+      - name: Prepare isolated app-host home
+        run: |
+          set -euo pipefail
+          APP_HOST_HOME="${RUNNER_TEMP}/cmux-app-host-home-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-shard-${{ matrix.shard }}"
+          rm -rf "$APP_HOST_HOME"
+          mkdir -p \
+            "$APP_HOST_HOME/.config/cmux" \
+            "$APP_HOST_HOME/Library/Application Support" \
+            "$APP_HOST_HOME/Library/Caches" \
+            "$APP_HOST_HOME/Library/Logs/DiagnosticReports" \
+            "$APP_HOST_HOME/Library/Preferences"
+          chmod -R a+rwX "$APP_HOST_HOME"
+          echo "CFFIXED_USER_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"
+          echo "CARGO_HOME=${HOME}/.cargo" >> "$GITHUB_ENV"
+          echo "RUSTUP_HOME=${HOME}/.rustup" >> "$GITHUB_ENV"
+
       - name: Resolve Swift packages
         run: |
           set -euo pipefail

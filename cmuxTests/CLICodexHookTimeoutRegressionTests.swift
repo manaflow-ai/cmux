@@ -45,7 +45,7 @@ struct CLICodexHookTimeoutRegressionTests {
         let promptCommands = commands.filter { $0.contains("hooks codex prompt-submit") }
         let stopCommands = commands.filter { $0.contains("hooks codex stop") }
         let feedCommands = commands.filter { $0.contains("hooks feed --source codex") }
-        #expect(!commands.contains(previousCommand), "Installer should remove stale synchronous hook")
+        #expect(!commands.contains { $0.contains(previousCommand) }, "Installer should remove stale synchronous hook")
         #expect(sessionStartCommands.count == 1, "Installer should install one session-start hook")
         #expect(sessionStartCommands.allSatisfy { $0.contains("nohup sh -c") && $0.contains("cat >\"$payload\"") })
         #expect(sessionStartCommands.allSatisfy { $0.contains("agent_pid=") && $0.contains("CMUX_CODEX_PID=") })
@@ -102,7 +102,9 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!install.timedOut, Comment(rawValue: install.stderr))
         #expect(install.status == 0, Comment(rawValue: install.stderr))
 
-        let command = try #require(codexHookCommands(in: codexHome).first { $0.contains("hooks codex prompt-submit") })
+        let command = try #require(
+            codexHookCommands(in: codexHome).first { $0.contains("hooks codex prompt-submit") }?.command
+        )
         let payload = #"{"session_id":"codex-session","prompt":"rename this workspace"}"#
         let run = runProcess(
             executablePath: "/bin/sh",
@@ -506,16 +508,54 @@ struct CLICodexHookTimeoutRegressionTests {
         ]
     }
 
-    private func codexHookCommands(in codexHome: URL) throws -> [String] {
+    private struct CodexHookCommand {
+        let command: String
+        let searchableText: String
+
+        func contains(_ value: String) -> Bool {
+            searchableText.contains(value)
+        }
+    }
+
+    private func codexHookCommands(in codexHome: URL) throws -> [CodexHookCommand] {
         let hookURL = codexHome.appendingPathComponent("hooks.json", isDirectory: false)
         let json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
         let hooks = try #require(json["hooks"] as? [String: Any])
-        return hooks.values
-            .compactMap { $0 as? [[String: Any]] }
-            .flatMap { $0 }
-            .compactMap { $0["hooks"] as? [[String: Any]] }
-            .flatMap { $0 }
-            .compactMap { $0["command"] as? String }
+        return hookCommandStrings(from: hooks).map { command in
+            CodexHookCommand(
+                command: command,
+                searchableText: codexHookSearchableText(for: command)
+            )
+        }
+    }
+
+    private func hookCommandStrings(from value: Any) -> [String] {
+        if let array = value as? [Any] {
+            return array.flatMap { hookCommandStrings(from: $0) }
+        }
+        if let object = value as? [String: Any] {
+            let direct = (object["command"] as? String).map { [$0] } ?? []
+            let nested = object
+                .filter { $0.key != "command" }
+                .flatMap { hookCommandStrings(from: $0.value) }
+            return direct + nested
+        }
+        return []
+    }
+
+    private func codexHookSearchableText(for command: String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else {
+            return command
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              let script = try? String(contentsOfFile: trimmed, encoding: .utf8)
+        else {
+            return command
+        }
+        return command + "\n" + script
     }
 
     private func makeExecutableShellFile(at url: URL, lines: [String]) throws {
