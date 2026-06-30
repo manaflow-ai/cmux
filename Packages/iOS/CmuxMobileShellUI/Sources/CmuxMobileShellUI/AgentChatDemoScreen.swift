@@ -70,13 +70,11 @@ struct AgentChatDemoScreen: View {
                             action: {}
                         )
                     }
-                    if #available(iOS 26.0, *) {
-                        ToolbarSpacer(.fixed, placement: .topBarLeading)
-                    }
-                    ToolbarItem(placement: .topBarLeading) {
+                    ToolbarItem(placement: .principal) {
                         WorkspaceToolbarTitleControl(
                             contentWidth: contentWidth,
                             hasBackButton: true,
+                            hasTrailingCluster: true,
                             hasChatToggle: true
                         ) {
                             header(for: stack)

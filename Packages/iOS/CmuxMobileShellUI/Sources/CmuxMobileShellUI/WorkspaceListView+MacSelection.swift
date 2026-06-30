@@ -28,18 +28,15 @@ extension WorkspaceListView {
         macSelectionScope.visibleSelection
     }
 
-    var macPickerMachines: [WorkspaceFilterMachine] {
+    var liveMachineSnapshots: WorkspaceMachineSnapshots {
         let scope = macSelectionScope
-        let names = macDisplayNamesByID()
-        return scope.machineIDs
-            .map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? fallbackMacPickerName) }
-            .sorted { lhs, rhs in
-                let nameOrder = lhs.name.localizedStandardCompare(rhs.name)
-                if nameOrder != .orderedSame {
-                    return nameOrder == .orderedAscending
-                }
-                return lhs.id < rhs.id
-            }
+        return WorkspaceMachineSnapshots(
+            workspaces: workspaces,
+            filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
+            macPickerMachineIDs: scope.machineIDs,
+            namesByID: macDisplayNamesByID(),
+            fallbackName: fallbackMacPickerName
+        )
     }
 
     var fallbackMacPickerName: String {
@@ -70,6 +67,31 @@ extension WorkspaceListView {
         return names
     }
 
+    var filterMenuPresentMachineIDs: [String] {
+        let aliasIndex = macSelectionScope.aliasIndex
+        var seen = Set<String>()
+        var present: [String] = []
+        for id in MobileWorkspaceListFilter.machineIDs(in: workspaces) {
+            let representativeID = aliasIndex.representativeID(for: id)
+            if seen.insert(representativeID).inserted {
+                present.append(representativeID)
+            }
+        }
+        return present
+    }
+
+    func filterMenuMachines(
+        machineSnapshots: WorkspaceMachineSnapshots,
+        visibleSelection: WorkspaceMacSelection
+    ) -> [WorkspaceFilterMachine] {
+        switch visibleSelection {
+        case .machine:
+            return []
+        case .all, .automatic:
+            return machineSnapshots.filterMachines
+        }
+    }
+
     var canCreateWorkspaceForMacSelection: Bool {
         macSelectionScope.canCreateWorkspace(base: canCreateWorkspace)
     }
@@ -79,12 +101,12 @@ extension WorkspaceListView {
         macSelectionScope.canRenderGroupsForSelection
     }
 
-    var macTitlePickerTitle: String {
+    func macTitlePickerTitle(machineSnapshots: WorkspaceMachineSnapshots) -> String {
         switch visibleMacSelection {
         case .all, .automatic:
             L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs")
         case .machine(let id):
-            macPickerMachines.first { $0.id == id }?.name ?? fallbackMacPickerName
+            machineSnapshots.macPickerMachines.first { $0.id == id }?.name ?? fallbackMacPickerName
         }
     }
 
@@ -154,7 +176,7 @@ extension WorkspaceListView {
         }
     }
 
-    var macTitlePicker: some View {
+    func macTitlePicker(machineSnapshots: WorkspaceMachineSnapshots) -> some View {
         Menu {
             Picker(
                 L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Mac"),
@@ -162,7 +184,7 @@ extension WorkspaceListView {
             ) {
                 Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"))
                     .tag(WorkspaceMacSelection.all)
-                ForEach(macPickerMachines) { machine in
+                ForEach(machineSnapshots.macPickerMachines) { machine in
                     Text(machine.name)
                         .tag(WorkspaceMacSelection.machine(machine.id))
                 }
@@ -181,7 +203,7 @@ extension WorkspaceListView {
                 .accessibilityIdentifier("MobileWorkspaceMacPickerAdd")
             }
         } label: {
-            WorkspaceMacTitlePickerLabel(title: macTitlePickerTitle)
+            WorkspaceMacTitlePickerLabel(title: macTitlePickerTitle(machineSnapshots: machineSnapshots))
         }
         .buttonStyle(.plain)
         .tint(.white)

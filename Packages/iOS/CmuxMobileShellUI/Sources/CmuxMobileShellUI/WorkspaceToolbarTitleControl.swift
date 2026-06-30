@@ -4,6 +4,7 @@ import SwiftUI
 struct WorkspaceToolbarTitleControl<Label: View>: View {
     let contentWidth: CGFloat
     let hasBackButton: Bool
+    let hasTrailingCluster: Bool
     let hasChatToggle: Bool
     @ViewBuilder let label: () -> Label
 
@@ -14,14 +15,17 @@ struct WorkspaceToolbarTitleControl<Label: View>: View {
     }
 
     private var fittedLabel: some View {
-        label()
+        let cap = MobileNavTitleWidth(
+            contentWidth: contentWidth,
+            hasBackButton: hasBackButton,
+            hasTrailingCluster: hasTrailingCluster,
+            hasChatToggle: hasChatToggle
+        ).cap
+
+        return label()
             .frame(
-                minWidth: MobileNavTitleWidth.floor,
-                maxWidth: MobileNavTitleWidth(
-                    contentWidth: contentWidth,
-                    hasBackButton: hasBackButton,
-                    hasChatToggle: hasChatToggle
-                ).leadingCap,
+                minWidth: min(MobileNavTitleWidth.floor, cap),
+                maxWidth: cap,
                 alignment: .leading
             )
             .layoutPriority(1)

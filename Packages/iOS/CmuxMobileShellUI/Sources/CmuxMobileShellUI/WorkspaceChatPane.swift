@@ -25,8 +25,7 @@ struct WorkspaceChatPane: View {
     /// Composer draft, owned by the parent so it survives toggling back to
     /// the terminal and returning mid-thought.
     @Binding var draft: String
-    /// Compact-stack back button owned by the workspace toolbar, colocated with
-    /// the leading title so their order is deterministic.
+    /// Compact-stack back button owned by the workspace toolbar.
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     /// Flips chat mode off (the toggle's "back to terminal" path).
     let onExitChat: () -> Void
@@ -35,7 +34,7 @@ struct WorkspaceChatPane: View {
 
     @State private var accessoryConfiguration = TerminalAccessoryConfiguration.shared
     @State private var isShowingShortcutSettings = false
-    /// Full content width, used to bound the leading toolbar header so a long
+    /// Full content width, used to bound the centered toolbar header so a long
     /// workspace name truncates before the trailing toolbar buttons.
     @State private var contentWidth: CGFloat = 0
 
@@ -55,23 +54,28 @@ struct WorkspaceChatPane: View {
             // which would be dropped under the workspace's own chrome.
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 8) {
+                if backButtonConfiguration != nil {
+                    ToolbarItem(placement: .topBarLeading) {
                         workspaceBackToolbarButton
-                        WorkspaceToolbarTitleControl(
-                            contentWidth: contentWidth,
-                            hasBackButton: backButtonConfiguration != nil,
-                            hasChatToggle: true
-                        ) {
-                            ChatSessionHeaderView(
-                                descriptor: conversation.descriptor,
-                                agentState: conversation.agentState,
-                                isConnected: conversation.isConnected,
-                                titleOverride: workspaceName,
-                                subtitle: tabName,
-                                style: .toolbarCompact
-                            )
-                        }
+                    }
+                }
+                ToolbarItem(placement: .principal) {
+                    // WorkspaceDetailView mounts the terminal picker/chat
+                    // toggle in a sibling trailing toolbar item.
+                    WorkspaceToolbarTitleControl(
+                        contentWidth: contentWidth,
+                        hasBackButton: backButtonConfiguration != nil,
+                        hasTrailingCluster: true,
+                        hasChatToggle: true
+                    ) {
+                        ChatSessionHeaderView(
+                            descriptor: conversation.descriptor,
+                            agentState: conversation.agentState,
+                            isConnected: conversation.isConnected,
+                            titleOverride: workspaceName,
+                            subtitle: tabName,
+                            style: .toolbarCompact
+                        )
                     }
                 }
             }

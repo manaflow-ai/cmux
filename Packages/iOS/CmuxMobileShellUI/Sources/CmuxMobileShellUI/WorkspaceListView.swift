@@ -60,15 +60,6 @@ struct WorkspaceListView: View {
     /// `nil` in previews.
     var store: CMUXMobileShellStore?
 
-    /// Machines present in the (aggregated) workspace list, for the filter's
-    /// machine multi-select. Single-machine yields no machine section. Names
-    /// come from the device tree (registry or paired Macs), falling back to id.
-    private var filterMachines: [WorkspaceFilterMachine] {
-        let ids = MobileWorkspaceListFilter.machineIDs(in: workspaces)
-        guard ids.count > 1 else { return [] }
-        let names = macDisplayNamesByID()
-        return ids.map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? fallbackMacPickerName) }
-    }
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
@@ -103,6 +94,12 @@ struct WorkspaceListView: View {
     @State var filter: MobileWorkspaceListFilter = .all
     @State var macTitlePickerSwitchTask: Task<Void, Never>?
     @State var macTitlePickerSwitchGeneration: UInt64 = 0
+    /// Stable machine-menu content. Kept as value state so live workspace or
+    /// device-tree updates that do not change the actual machine set/name
+    /// snapshot do not rebuild an open native Menu. `nil` only before the first
+    /// appearance callback, when the body can still display the live snapshot
+    /// without resetting an already-open menu.
+    @State var machineSnapshots: WorkspaceMachineSnapshots?
     /// The workspace whose destructive close action is awaiting confirmation.
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
@@ -120,7 +117,7 @@ struct WorkspaceListView: View {
     /// not flatten sections the list already has (it would only lose the chevron
     /// action). A search flattens to a single matched, pinned-first list so
     /// members can be found across groups; floating pinned members out of their
-    /// group is acceptable while filtering. An active row filter (Unread)
+    /// group is acceptable while filtering. An active filter-menu dimension
     /// flattens the same way, for the same reason. A single-Mac picker scope
     /// still renders groups only for the foreground Mac whose group metadata is
     /// available here; "All Macs" and secondary Mac selections flatten because
@@ -129,6 +126,7 @@ struct WorkspaceListView: View {
         !groups.isEmpty
             && trimmedQuery.isEmpty
             && filter.readState == .all
+            && filter.machines.isEmpty
             && canRenderGroupsForSelection
     }
 
@@ -172,6 +170,14 @@ struct WorkspaceListView: View {
     }
 
     var body: some View {
+        let currentMachineSnapshots = liveMachineSnapshots
+        let currentVisibleMacSelection = visibleMacSelection
+        let currentFilterMenuPresentMachineIDs = filterMenuPresentMachineIDs
+        let displayedMachineSnapshots = machineSnapshots ?? currentMachineSnapshots
+        let displayedFilterMachines = filterMenuMachines(
+            machineSnapshots: displayedMachineSnapshots,
+            visibleSelection: currentVisibleMacSelection
+        )
         List {
             if let store, showsConnectionRecoveryRow {
                 Section {
@@ -231,13 +237,13 @@ struct WorkspaceListView: View {
         }
         .listStyle(.plain)
         .workspaceListRefreshable(refresh)
-        .onChange(of: MobileWorkspaceListFilter.machineIDs(in: workspaces)) { _, present in
+        .onChange(of: currentFilterMenuPresentMachineIDs) { _, present in
             // Drop machine filters whose Mac left the aggregated list (a secondary
             // Mac disconnected, or the list fell below two machines so the filter
             // menu's machine section hid). Otherwise a stale machine id rejects
             // every row and strands the user on a blank list with no visible
             // control to clear the filter.
-            filter.pruneMachines(notIn: present)
+            filter.pruneMachinesForFilterMenu(presentMachineIDs: present)
         }
         .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
         .mobileInlineNavigationTitle()
@@ -248,7 +254,7 @@ struct WorkspaceListView: View {
                 settingsMenu
             }
             ToolbarItem(placement: .principal) {
-                macTitlePicker
+                macTitlePicker(machineSnapshots: displayedMachineSnapshots)
             }
             if showsDevicesButton {
                 ToolbarItem(placement: .topBarLeading) {
@@ -256,14 +262,14 @@ struct WorkspaceListView: View {
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                WorkspaceListFilterMenu(filter: $filter, machines: [])
+                WorkspaceListFilterMenu(filter: $filter, machines: displayedFilterMachines)
                 if canCreateWorkspace {
                     newWorkspaceButton
                 }
             }
             #else
             ToolbarItemGroup {
-                WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
+                WorkspaceListFilterMenu(filter: $filter, machines: displayedFilterMachines)
                 if canCreateWorkspace {
                     newWorkspaceButton
                 }
@@ -273,6 +279,16 @@ struct WorkspaceListView: View {
         .accessibilityIdentifier("MobileWorkspaceList")
         .onDisappear {
             cancelMacTitlePickerSwitch()
+        }
+        .onAppear {
+            updateMachineSnapshots(currentMachineSnapshots)
+            filter.pruneMachinesForFilterMenu(visibleMacSelection: currentVisibleMacSelection)
+        }
+        .onChange(of: currentMachineSnapshots) { _, snapshots in
+            updateMachineSnapshots(snapshots)
+        }
+        .onChange(of: currentVisibleMacSelection) { _, selection in
+            filter.pruneMachinesForFilterMenu(visibleMacSelection: selection)
         }
         #if os(iOS)
         .sheet(isPresented: $showingShortcutsSettings) {
@@ -303,6 +319,12 @@ struct WorkspaceListView: View {
         return store.connectionRequiresReauth
             || store.connectionRecoveryFailed
             || store.isRecoveringConnection
+    }
+
+    private func updateMachineSnapshots(_ snapshots: WorkspaceMachineSnapshots) {
+        if machineSnapshots != snapshots {
+            machineSnapshots = snapshots
+        }
     }
 
     #if os(iOS)
