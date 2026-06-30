@@ -2560,6 +2560,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     @discardableResult
     private func restorePreviousMacIfNeeded(_ previousActive: MobilePairedMac?) async -> Bool {
+        guard isSignedIn else { return false }
         guard let previousActive else { return false }
         let previousIDs = Set(pairedMacAliasIDs(for: previousActive.macDeviceID))
         let previousStillForeground = connectionState == .connected
@@ -3099,13 +3100,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// request before it reaches the foreground mutation point.
     public func cancelPendingMacSwitch(restorePreviousOnCancel: Bool = false) {
         guard let attemptID = macSwitchAttemptID else { return }
-        if restorePreviousOnCancel {
+        let restoreTarget = restorePreviousOnCancel ? macSwitchRestoreBaseline : nil
+        let restoreSignInGeneration = signInGeneration
+        let restoreScopeGeneration = secondaryAggregationScopeGeneration
+        if restorePreviousOnCancel, restoreTarget == nil {
             macSwitchRestorePreviousOnCancelAttemptIDs.insert(attemptID)
         }
         macSwitchAttemptID = nil
         macSwitchAttemptSignInGeneration = nil
         invalidatePairingAttempt()
         connectionAttemptGeneration = UUID()
+        if let restoreTarget {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard self.isSignedIn,
+                      self.signInGeneration == restoreSignInGeneration,
+                      self.secondaryAggregationScopeGeneration == restoreScopeGeneration else { return }
+                _ = await self.restorePreviousMacIfNeeded(restoreTarget)
+                if self.macSwitchAttemptID == nil,
+                   self.signInGeneration == restoreSignInGeneration,
+                   self.secondaryAggregationScopeGeneration == restoreScopeGeneration {
+                    self.macSwitchRestoreBaseline = nil
+                }
+            }
+        }
     }
 
     /// Accepts the pending version mismatch warning and retries the stored pairing URL.

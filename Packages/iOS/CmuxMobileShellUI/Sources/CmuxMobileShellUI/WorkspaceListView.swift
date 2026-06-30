@@ -313,7 +313,7 @@ struct WorkspaceListView: View {
         // leaving a parent sheet covering it.
         .sheet(isPresented: $showingDeviceTree) {
             if let store {
-                DeviceTreeView(store: store, selectWorkspace: selectWorkspace, showAddDevice: showAddDevice)
+                DeviceTreeView(store: store, selectWorkspace: selectWorkspaceFromList, showAddDevice: showAddDevice)
             }
         }
         #endif
