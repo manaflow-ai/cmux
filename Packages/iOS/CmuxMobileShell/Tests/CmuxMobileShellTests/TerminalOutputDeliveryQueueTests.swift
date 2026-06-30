@@ -153,7 +153,7 @@ import Testing
 
     #expect(queue.pendingCount == 1)
     let delivered = try #require(queue.completeInFlight())
-    let deliveredText = String(decoding: delivered.bytes, as: UTF8.self)
+    let deliveredText = try #require(String(data: delivered.bytes, encoding: .utf8))
     let expectedText = (0..<128).map { "raw-\($0)\n" }.joined()
     #expect(deliveredText == expectedText)
     #expect(queue.completeInFlight() == nil)
