@@ -684,6 +684,80 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertEqual(delivered?.clickAction, action)
     }
 
+    func testDesktopNotificationTitleIncludesAutoNamedWorkspace() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("AppDelegate.shared must be set for this test")
+            return
+        }
+        let store = TerminalNotificationStore.shared
+        let manager = TabManager()
+        let defaults = UserDefaults.standard
+        let commandOutputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-notification-title-\(UUID().uuidString).txt", isDirectory: false)
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let hadSoundValue = defaults.object(forKey: NotificationSoundSettings.key) != nil
+        let originalSoundValue = defaults.object(forKey: NotificationSoundSettings.key)
+        let hadCommandValue = defaults.object(forKey: NotificationSoundSettings.customCommandKey) != nil
+        let originalCommandValue = defaults.object(forKey: NotificationSoundSettings.customCommandKey)
+
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+        defaults.set("none", forKey: NotificationSoundSettings.key)
+        defaults.set(
+            "printf '%s\\n%s\\n%s' \"$CMUX_NOTIFICATION_TITLE\" \"$CMUX_NOTIFICATION_SUBTITLE\" \"$CMUX_NOTIFICATION_BODY\" > '\(commandOutputURL.path)'",
+            forKey: NotificationSoundSettings.customCommandKey
+        )
+
+        defer {
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if hadSoundValue {
+                defaults.set(originalSoundValue, forKey: NotificationSoundSettings.key)
+            } else {
+                defaults.removeObject(forKey: NotificationSoundSettings.key)
+            }
+            if hadCommandValue {
+                defaults.set(originalCommandValue, forKey: NotificationSoundSettings.customCommandKey)
+            } else {
+                defaults.removeObject(forKey: NotificationSoundSettings.customCommandKey)
+            }
+            store.replaceNotificationsForTesting([])
+            try? FileManager.default.removeItem(at: commandOutputURL)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        XCTAssertTrue(workspace.setCustomTitle("Review notification naming", source: .auto))
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            title: "Claude Code",
+            subtitle: "Waiting",
+            body: "Claude is waiting for your input"
+        )
+
+        let commandFinished = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                FileManager.default.fileExists(atPath: commandOutputURL.path)
+            },
+            object: NSObject()
+        )
+        XCTAssertEqual(XCTWaiter().wait(for: [commandFinished], timeout: 2.0), .completed)
+
+        let output = try String(contentsOf: commandOutputURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(
+            output.components(separatedBy: "\n"),
+            ["Review notification naming · Claude Code", "Waiting", "Claude is waiting for your input"]
+        )
+    }
+
     func testNotificationClickActionDoesNotMarkReadWhenRevealTargetIsMissing() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()

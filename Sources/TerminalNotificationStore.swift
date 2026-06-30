@@ -1734,7 +1734,26 @@ final class TerminalNotificationStore: ObservableObject {
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
             ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
             ?? "cmux"
-        return notification.title.isEmpty ? appName : notification.title
+        guard let baseTitle = Self.normalizedNotificationTitleComponent(notification.title) else {
+            return appName
+        }
+        guard let workspaceTitle = Self.normalizedNotificationTitleComponent(
+            AppDelegate.shared?.tabTitle(for: notification.tabId)
+        ) else {
+            return baseTitle
+        }
+        guard workspaceTitle.localizedCaseInsensitiveCompare(baseTitle) != .orderedSame else {
+            return baseTitle
+        }
+        return "\(workspaceTitle) · \(baseTitle)"
+    }
+
+    private static func normalizedNotificationTitleComponent(_ value: String?) -> String? {
+        let collapsed = value?
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return collapsed.isEmpty ? nil : collapsed
     }
 
     private func scheduleUserNotification(
