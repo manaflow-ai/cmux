@@ -232,7 +232,7 @@ jobs:
           xcrun simctl io "$SIM_ID" screenshot /tmp/streamed-ci/_diag/after-pair.png || true
           idb ui describe-all --udid "$SIM_ID" > /tmp/streamed-ci/_diag/after-pair-a11y.json 2>&1 || true
           set +e
-          python3 ios/scripts/capture-streamed.py --tag cistream --sim-id "$SIM_ID" --agents claude --out /tmp/streamed-ci
+          python3 ios/scripts/capture-streamed.py --tag cistream --sim-id "$SIM_ID" --agents pi --out /tmp/streamed-ci
           CAP_RC=$?
           set -e
           # Post-capture device diagnostics (always), so a failure tells us the
