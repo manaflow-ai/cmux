@@ -91,11 +91,13 @@ actor LivenessHostRouter {
         recorded.filter { $0.method == method }.count
     }
 
+    @discardableResult
     func waitForCount(
         of method: String,
         atLeast expectedCount: Int,
-        timeoutNanoseconds: UInt64 = 3_000_000_000
-    ) async {
+        timeoutNanoseconds: UInt64 = 3_000_000_000,
+        recordIssueOnTimeout: Bool = true
+    ) async -> Bool {
         let reached = await withTaskGroup(of: Bool.self) { group in
             group.addTask {
                 await self.waitUntilCountReached(of: method, atLeast: expectedCount)
@@ -110,9 +112,10 @@ actor LivenessHostRouter {
             group.cancelAll()
             return reached
         }
-        if !reached {
+        if !reached, recordIssueOnTimeout {
             Issue.record("timed out waiting for \(method) count >= \(expectedCount)")
         }
+        return reached
     }
 
     private func waitUntilCountReached(of method: String, atLeast expectedCount: Int) async {

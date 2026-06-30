@@ -682,13 +682,11 @@ private func waitForReplayRequestCount(
     _ router: LivenessHostRouter,
     atLeast expectedCount: Int
 ) async -> Bool {
-    for _ in 0..<300 {
-        if await router.count(of: "mobile.terminal.replay") >= expectedCount {
-            return true
-        }
-        try? await Task.sleep(nanoseconds: 10_000_000)
-    }
-    return await router.count(of: "mobile.terminal.replay") >= expectedCount
+    await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: expectedCount,
+        recordIssueOnTimeout: false
+    )
 }
 
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
