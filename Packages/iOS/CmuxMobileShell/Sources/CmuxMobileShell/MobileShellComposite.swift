@@ -2325,8 +2325,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let previews = await fetchSecondaryWorkspaces(on: sub.client, macDeviceID: macID),
               secondaryMacSubscriptions[macID] === sub,
               isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
-        let activeWriteScope = await currentScopeSnapshot()
-        guard isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
+        guard let activeWriteScope = await currentScopeSnapshot(),
+              secondaryMacSubscriptions[macID] === sub,
+              activeWriteScope.generation == secondaryAggregationScopeGeneration,
+              isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
         mobileShellLog.info("promote: reusing live secondary connection as foreground mac=\(macID, privacy: .public)")
         // Take a fresh connection generation so the foreground machinery (polling,
         // event listener, in-flight request guards) treats this client as current.
@@ -2372,11 +2374,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         startTerminalRefreshPolling()
         syncSelectedTerminalForWorkspace()
         if let pairedMacStore {
-            Task {
+            Task { [weak self] in
+                guard let self, await self.isScopeCurrent(activeWriteScope) else { return }
                 try? await pairedMacStore.setActive(
                     macDeviceID: macID,
-                    stackUserID: activeWriteScope?.userID,
-                    teamID: activeWriteScope?.teamID
+                    stackUserID: activeWriteScope.userID,
+                    teamID: activeWriteScope.teamID
                 )
             }
         }
