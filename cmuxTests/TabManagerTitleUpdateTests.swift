@@ -397,7 +397,7 @@ struct TabManagerTitleUpdateTests {
     }
 
     @Test
-    func rawTitleRefreshGateKeepsDefaultBehaviorUntilCoalescingIsEnabled() throws {
+    func rawTitleRefreshGateOnlyRunsWhenCoalescingIsDisabled() throws {
         let suiteName = "TabManagerTitleRawRefreshGate.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -409,18 +409,18 @@ struct TabManagerTitleUpdateTests {
         let workspace = try #require(manager.selectedWorkspace)
 
         settings.set(1_000, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
-        #expect(manager.shouldScheduleRawTitleRefresh(forWorkspaceId: workspace.id))
-        #expect(!manager.shouldScheduleRawTitleRefresh(forWorkspaceId: UUID()))
-
-        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
         #expect(!manager.shouldScheduleRawTitleRefresh(forWorkspaceId: workspace.id))
+        #expect(!manager.shouldScheduleRawTitleRefresh(forWorkspaceId: UUID()))
 
         settings.set(false, for: catalog.terminal.titleUpdateCoalescingEnabled)
         #expect(manager.shouldScheduleRawTitleRefresh(forWorkspaceId: workspace.id))
+
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        #expect(!manager.shouldScheduleRawTitleRefresh(forWorkspaceId: workspace.id))
     }
 
     @Test
-    func titleCoalescingDelayIsDefaultOffAndClampedWhenEnabled() throws {
+    func titleCoalescingDelayIsDefaultOnAndClampedWhenEnabled() throws {
         let suiteName = "TabManagerTitleCoalescingClamp.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -429,7 +429,14 @@ struct TabManagerTitleUpdateTests {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let catalog = SettingCatalog()
 
-        settings.set(1_000, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+        #expect(
+            abs(
+                PanelTitleUpdateCoalescingSettings.delay(settings: settings) -
+                    1.0
+            ) < 0.000_1
+        )
+
+        settings.set(false, for: catalog.terminal.titleUpdateCoalescingEnabled)
         #expect(
             abs(
                 PanelTitleUpdateCoalescingSettings.delay(settings: settings) -
