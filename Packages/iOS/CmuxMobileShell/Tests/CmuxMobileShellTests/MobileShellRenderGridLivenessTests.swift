@@ -103,6 +103,10 @@ import Testing
     await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 3, text: "grid"))
     let gridDelivered = try await pollUntil(attempts: 30) { collector.lines.contains { $0.contains("grid") } }
     #expect(gridDelivered == false, "primary render-grid events are advisory in hybrid mode; raw bytes own full-height primary rendering")
+    #expect(
+        collector.viewportPolicies.last == .natural,
+        "advisory primary render-grid events must still clear any stale remote-grid pin so primary output can use the phone's full height"
+    )
 
     await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 0, text: "raw"))
     let rawDelivered = try await pollUntil { collector.lines.contains { $0.contains("raw") } }
