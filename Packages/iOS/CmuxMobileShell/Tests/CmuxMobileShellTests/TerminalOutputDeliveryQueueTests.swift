@@ -180,6 +180,60 @@ import Testing
     #expect(String(decoding: afterFollowUp.data, as: UTF8.self) == "after-follow-up")
 }
 
+@MainActor
+@Test func terminalReplayBarrierRetriesAfterReplayFailureWithDroppedOutput() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "retry-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink must arm the cold-attach replay")
+    let coldReplayChunk = try #require(await iterator.next())
+    #expect(String(decoding: coldReplayChunk.data, as: UTF8.self) == "cold-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+
+    await router.failNextReplay()
+    let replayBarrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    let firstDropAccepted = store.deliverTerminalBytes(
+        Data("live-during-failed-replay".utf8),
+        surfaceID: surfaceID
+    )
+    #expect(firstDropAccepted == false)
+
+    let sawFailedReplay = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= replayCountAfterMount + 1
+    }
+    #expect(sawFailedReplay, "first dropped live output should request a replay")
+
+    let failureSettled = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+            && store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken
+    }
+    #expect(failureSettled, "failed replay with dropped output must keep the barrier active")
+    #expect(store.terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID))
+
+    let retryDropAccepted = store.deliverTerminalBytes(
+        Data("live-after-failed-replay".utf8),
+        surfaceID: surfaceID
+    )
+    #expect(retryDropAccepted == false)
+    let sawRetryReplay = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= replayCountAfterMount + 2
+    }
+    #expect(sawRetryReplay, "next dropped live output should retry the preserved barrier replay")
+
+    let retryReplayChunk = try #require(await iterator.next())
+    #expect(String(decoding: retryReplayChunk.data, as: UTF8.self) == "retry-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retryReplayChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+    #expect(!store.terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID))
+}
+
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)

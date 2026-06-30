@@ -714,7 +714,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var terminalActiveScreenBySurfaceID: [String: MobileTerminalRenderGridFrame.Screen]
-    private var terminalReplaySurfaceIDsInFlight: Set<String>
+    var terminalReplaySurfaceIDsInFlight: Set<String>
     var terminalReplayBarrierTokensBySurfaceID: [String: UUID]
     var terminalReplayBarrierAckStreamTokensBySurfaceID: [String: UUID]
     var terminalReplayBarrierDroppedOutputSurfaceIDs: Set<String>

@@ -68,6 +68,7 @@ actor LivenessHostRouter {
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
     private var replayTexts: [String] = []
+    private var replayFailuresRemaining = 0
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -90,6 +91,10 @@ actor LivenessHostRouter {
 
     func enqueueReplayTexts(_ texts: [String]) {
         replayTexts.append(contentsOf: texts)
+    }
+
+    func failNextReplay(count: Int = 1) {
+        replayFailuresRemaining += count
     }
 
     /// Hold every `mobile.events.subscribe` response until released.
@@ -175,6 +180,10 @@ actor LivenessHostRouter {
                 "already_subscribed": alreadySubscribed,
             ])
         case "mobile.terminal.replay":
+            if replayFailuresRemaining > 0 {
+                replayFailuresRemaining -= 1
+                return try? Self.errorFrame(id: id, message: "replay failed")
+            }
             guard !replayTexts.isEmpty else {
                 return try? Self.resultFrame(id: id, result: [:])
             }
