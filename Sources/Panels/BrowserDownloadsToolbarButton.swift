@@ -16,10 +16,15 @@ struct BrowserDownloadsToolbarButton: View {
     let onClear: () -> Void
 
     @State private var isPresented = false
+    @State private var seenIDs: Set<String> = []
 
-    private var hasDownloads: Bool { !downloads.isEmpty }
     private var completedCount: Int {
         downloads.reduce(0) { $0 + ($1.state == .saved ? 1 : 0) }
+    }
+
+    /// Downloads not yet viewed in the popover — drives the notification bubble.
+    private var unseenCount: Int {
+        downloads.reduce(0) { $0 + (seenIDs.contains($1.id) ? 0 : 1) }
     }
 
     var body: some View {
@@ -27,24 +32,35 @@ struct BrowserDownloadsToolbarButton: View {
             isPresented.toggle()
         } label: {
             ZStack(alignment: .topTrailing) {
-                // Plain SF Symbol (not CmuxSystemSymbolImage) so `.symbolEffect`
-                // animations apply: a continuous bounce while a download is in
-                // flight, and a one-shot bounce each time one completes.
-                Image(systemName: "arrow.down.circle.fill")
-                    .font(.system(size: iconPointSize, weight: .medium))
-                    .foregroundStyle(isDownloading || hasDownloads ? Color.accentColor : Color.primary)
-                    .symbolEffect(.bounce, options: .repeating, isActive: isDownloading)
-                    .symbolEffect(.bounce, value: completedCount)
-                    .frame(width: hitSize, height: hitSize, alignment: .center)
+                // Monochrome to match the rest of the omnibar — motion carries
+                // the state instead of a persistent accent tint: a spinner while
+                // a download is in flight, and a bounce each time one lands.
+                // (A repeating `.bounce` would need macOS 15; plain SF Symbol so
+                // the discrete `.bounce` applies — CmuxSystemSymbolImage is
+                // NSImage-backed and ignores `.symbolEffect`.)
+                Group {
+                    if isDownloading {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: iconPointSize, weight: .medium))
+                            .foregroundStyle(Color.primary)
+                            .symbolEffect(.bounce, value: completedCount)
+                    }
+                }
+                .frame(width: hitSize, height: hitSize, alignment: .center)
 
-                if hasDownloads {
-                    Text(downloads.count > 99 ? "99+" : "\(downloads.count)")
+                // Notification bubble: count of downloads not yet viewed. Clears
+                // when the popover is opened (see onChange below).
+                if unseenCount > 0 {
+                    Text(unseenCount > 99 ? "99+" : "\(unseenCount)")
                         .font(.system(size: 9, weight: .bold))
                         .monospacedDigit()
                         .foregroundStyle(.white)
                         .padding(.horizontal, 3)
                         .frame(minWidth: 14, minHeight: 14)
-                        .background(Capsule().fill(Color.accentColor))
+                        .background(Capsule().fill(Color.red))
                         .overlay(Capsule().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
                         .offset(x: 6, y: -4)
                         .transition(.scale.combined(with: .opacity))
@@ -52,12 +68,16 @@ struct BrowserDownloadsToolbarButton: View {
             }
             .frame(width: hitSize, height: hitSize, alignment: .center)
             .contentShape(Rectangle())
-            .animation(.spring(response: 0.32, dampingFraction: 0.55), value: downloads.count)
-            .animation(.easeInOut(duration: 0.2), value: isDownloading)
+            .animation(.spring(response: 0.32, dampingFraction: 0.55), value: unseenCount)
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .safeHelp(String(localized: "browser.downloads.title", defaultValue: "Downloads"))
         .accessibilityLabel(String(localized: "browser.downloads.title", defaultValue: "Downloads"))
+        .onChange(of: isPresented) { _, presented in
+            if presented {
+                seenIDs = Set(downloads.map(\.id))
+            }
+        }
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             BrowserDownloadsPopoverContent(
                 downloads: downloads,
