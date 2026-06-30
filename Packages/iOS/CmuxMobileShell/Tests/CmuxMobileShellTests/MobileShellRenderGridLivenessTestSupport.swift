@@ -67,6 +67,7 @@ actor LivenessHostRouter {
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var replayTexts: [String] = []
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -85,6 +86,10 @@ actor LivenessHostRouter {
 
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
+    }
+
+    func enqueueReplayTexts(_ texts: [String]) {
+        replayTexts.append(contentsOf: texts)
     }
 
     /// Hold every `mobile.events.subscribe` response until released.
@@ -169,7 +174,15 @@ actor LivenessHostRouter {
                 "topics": ["workspace.updated", "terminal.render_grid"],
                 "already_subscribed": alreadySubscribed,
             ])
-        case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
+        case "mobile.terminal.replay":
+            guard !replayTexts.isEmpty else {
+                return try? Self.resultFrame(id: id, result: [:])
+            }
+            let text = replayTexts.removeFirst()
+            return try? Self.resultFrame(id: id, result: [
+                "data_b64": Data(text.utf8).base64EncodedString(),
+            ])
+        case "mobile.events.unsubscribe", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
         case "terminal.input":
             return try? Self.resultFrame(id: id, result: [

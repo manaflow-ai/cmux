@@ -14,7 +14,7 @@
 8016	CLI/cmux_open.swift
 7366	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
-7125	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+7131	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 6359	cmuxTests/SessionPersistenceTests.swift
 6217	cmuxTests/GhosttyConfigTests.swift
 6180	Sources/TabManager.swift
@@ -25,7 +25,7 @@
 4483	Sources/cmuxApp.swift
 4367	cmuxTests/BrowserPanelTests.swift
 4121	Sources/BrowserWindowPortal.swift
-4043	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
+4044	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3934	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
 3896	cmuxTests/WindowAndDragTests.swift

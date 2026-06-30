@@ -655,10 +655,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the same FIFO-before-dispose ordering discipline.
     var outputQueue = GhosttySurfaceWorkQueue(generation: 0)
     private var outputQueueGeneration: UInt64 = 0
-    private var isRecoveringRenderPipeline = false
-    private var renderPipelineRecoveryCount = 0
-    private var renderPipelineStoppedAfterRecoveryLimit = false
-    private static let maxRenderPipelineRecoveries = 1
     private static let renderPipelineStallDeadline: CFTimeInterval = 2.0
     private static let outputApplyTimeout: CFTimeInterval = 2.0
     private static let visibleSnapshotTimeout: CFTimeInterval = 0.6
@@ -2279,7 +2275,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   or `false` when the caller should reset its delivery queue and replay.
     @discardableResult
     public func processOutputAndWait(_ data: Data) async -> Bool {
-        guard !renderPipelineStoppedAfterRecoveryLimit else { return true }
         return await withCheckedContinuation { continuation in
             let operationID = registerPendingOutputApply(
                 byteCount: data.count,
@@ -2367,8 +2362,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             MobileDebugLog.anchormux(
                 "output.apply.TIMEOUT bytes=\(pending.byteCount ?? 0) elapsedMs=\(elapsedMs)"
             )
-            let recovered = recoverRenderPipeline(reason: "output_timeout", stalledMs: elapsedMs)
-            pending.continuation.resume(returning: renderPipelineStoppedAfterRecoveryLimit)
+            let recovered = recoverRenderPipeline(
+                reason: "output_timeout",
+                stalledMs: elapsedMs,
+                replay: .callerWillRequestReplay
+            )
+            pending.continuation.resume(returning: false)
             return recovered
         }
 
@@ -2377,8 +2376,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             pendingGeometryApply = nil
             let elapsedMs = Int((now - pending.startedAt) * 1000)
             MobileDebugLog.anchormux("geometry.apply.TIMEOUT elapsedMs=\(elapsedMs)")
-            let recovered = recoverRenderPipeline(reason: "geometry_timeout", stalledMs: elapsedMs)
-            pending.continuation.resume(returning: renderPipelineStoppedAfterRecoveryLimit)
+            let recovered = recoverRenderPipeline(
+                reason: "geometry_timeout",
+                stalledMs: elapsedMs,
+                replay: .callerWillRequestReplay
+            )
+            pending.continuation.resume(returning: false)
             return recovered
         }
 
@@ -2390,16 +2393,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return false
     }
 
-    private func completePendingSurfaceOperations(returning result: Bool) {
+    @discardableResult
+    private func completePendingSurfaceOperations(returning result: Bool) -> Bool {
+        var completed = false
         if let pending = pendingOutputApply {
             pendingOutputApply = nil
             pending.continuation.resume(returning: result)
+            completed = true
         }
         if let pending = pendingGeometryApply {
             pendingGeometryApply = nil
             pending.continuation.resume(returning: result)
+            completed = true
         }
         skipPendingVisibleSnapshot()
+        return completed
     }
 
     private func skipPendingVisibleSnapshot() {
@@ -2420,10 +2428,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         _ data: Data,
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
-        guard !renderPipelineStoppedAfterRecoveryLimit else {
-            completion?(true)
-            return
-        }
         guard let surface, !isDismantled else {
             completion?(true)
             return
@@ -2755,32 +2759,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @discardableResult
-    private func recoverRenderPipeline(reason: String, stalledMs: Int) -> Bool {
-        guard !isRecoveringRenderPipeline,
-              !isDismantled,
+    private func recoverRenderPipeline(
+        reason: String,
+        stalledMs: Int,
+        replay: RenderPipelineRecoveryReplay
+    ) -> Bool {
+        guard !isDismantled,
               surface != nil else {
             return false
         }
-        guard renderPipelineRecoveryCount < Self.maxRenderPipelineRecoveries else {
-            renderPipelineStoppedAfterRecoveryLimit = true
-            stopDisplayLink()
-            renderInFlight = false
-            renderInFlightSince = nil
-            needsAnotherRender = false
-            completePendingSurfaceOperations(returning: true)
-            MobileDebugLog.anchormux(
-                "render.recover.limit reason=\(reason) stalledMs=\(stalledMs) generation=\(surfaceGeneration)"
-            )
-            return false
-        }
-        isRecoveringRenderPipeline = true
-        defer { isRecoveringRenderPipeline = false }
-        renderPipelineRecoveryCount += 1
 
         MobileDebugLog.anchormux(
             "render.recover reason=\(reason) stalledMs=\(stalledMs) generation=\(surfaceGeneration)"
         )
-        completePendingSurfaceOperations(returning: false)
+        let completedFailedOperation = completePendingSurfaceOperations(returning: false)
 
         stopDisplayLink()
         let oldSurface = surface
@@ -2808,7 +2800,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         bridge.attach(to: self)
 
         initializeSurface()
-        delegate?.ghosttySurfaceViewDidResetRenderPipeline(self)
+        if replay == .delegateWhenNoCaller && !completedFailedOperation {
+            delegate?.ghosttySurfaceViewDidResetRenderPipeline(self)
+        }
         return true
     }
 
@@ -2917,7 +2911,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if let renderInFlightSince {
             let stalledMs = Int((now - renderInFlightSince) * 1000)
             if stalledMs >= Int(Self.renderPipelineStallDeadline * 1000),
-               recoverRenderPipeline(reason: "render_in_flight", stalledMs: stalledMs) {
+               recoverRenderPipeline(
+                   reason: "render_in_flight",
+                   stalledMs: stalledMs,
+                   replay: .delegateWhenNoCaller
+               ) {
                 return
             }
         }
@@ -3028,8 +3026,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // now bounded in libghostty (so a foreground stall self-heals as a
         // skipped frame the display link re-drives), but we still gate on
         // suspension; `resumeRendering` clears it on the next active transition.
-        guard !renderPipelineStoppedAfterRecoveryLimit,
-              !renderingSuspended,
+        guard !renderingSuspended,
               let surface,
               !isDismantled else { return }
         // Coalesce: never let more than one render_now sit on the serial queue.
@@ -3334,7 +3331,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func syncSurfaceGeometryAndWait(shouldReassertNaturalSize: Bool = true) async -> Bool {
-        guard !renderPipelineStoppedAfterRecoveryLimit else { return true }
         needsGeometrySync = false
         pendingGeometryReassert = false
         return await withCheckedContinuation { continuation in
@@ -3991,6 +3987,11 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
         enqueueScrollMechanicsDelta(deltaY, touchPoint: touchPoint)
         recenterScrollMechanicsViewIfNeeded()
     }
+}
+
+private enum RenderPipelineRecoveryReplay {
+    case callerWillRequestReplay
+    case delegateWhenNoCaller
 }
 
 /// One output/geometry operation awaiting either its output-queue completion or

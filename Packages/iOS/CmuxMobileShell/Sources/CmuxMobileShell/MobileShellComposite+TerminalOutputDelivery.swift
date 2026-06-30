@@ -59,6 +59,7 @@ extension MobileShellComposite {
         guard let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
               let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] else { return false }
         if terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil, !bypassReplayBarrier {
+            terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
             MobileDebugLog.anchormux("terminal.output.drop_replay_barrier surface=\(surfaceID)")
             return false
         }
@@ -98,6 +99,12 @@ extension MobileShellComposite {
             terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
             terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
             MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared surface=\(surfaceID)")
+            if terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID) != nil {
+                let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+                MobileDebugLog.anchormux("terminal.output.replay_followup surface=\(surfaceID)")
+                requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+                return
+            }
         }
         guard let next,
               let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
