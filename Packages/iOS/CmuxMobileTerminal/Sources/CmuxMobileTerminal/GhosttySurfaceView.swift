@@ -2322,7 +2322,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let a11yNow = CACurrentMediaTime()
             if a11yNow - Self.lastAccessibilityTextTime > 0.5 {
                 Self.lastAccessibilityTextTime = a11yNow
-                accessibilityText = Self.accessibilitySurfaceText(surface)
+                accessibilityText = Self.accessibilitySurfaceText(surfaceHandle.pointer)
             }
             #endif
             DispatchQueue.main.async {
@@ -3108,7 +3108,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 let pinnedW = CGFloat(eff.cols) * cell.width / scale
                 let pinnedH = CGFloat(eff.rows) * cell.height / scale
                 if !fillsNaturalGrid, !withinOneCell, pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
-                    let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
+                    let fitted = Self.fitSurfaceToGrid(surfaceHandle.pointer, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
                     let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
                     let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
                     pinnedSize = CGSize(
