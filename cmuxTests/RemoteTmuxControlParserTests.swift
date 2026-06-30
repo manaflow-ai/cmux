@@ -73,6 +73,25 @@ import Testing
         ])
     }
 
+    @Test func blockContentPreservesBlankLines() {
+        // `capture-pane -p -S` emits physical blank rows inside the command block.
+        // Those rows are part of the terminal grid and must not be treated like
+        // ignorable empty notification lines; dropping them compacts prompt redraw
+        // scrollback into a stack at the top of the mirror.
+        let messages = parse(
+            "%begin 1700000000 5 0\r\n"
+            + "\r\n"
+            + "prompt one\r\n"
+            + "\r\n"
+            + "\r\n"
+            + "prompt two\r\n"
+            + "%end 1700000000 5 0\r\n"
+        )
+        #expect(messages == [
+            .commandResult(commandNumber: 5, lines: ["", "prompt one", "", "", "prompt two"], isError: false)
+        ])
+    }
+
     @Test func enterDCSIsStrippedAndEmittedBeforeFirstBlock() {
         // The real stream prepends the `ESC P 1000 p` enter sequence to the
         // first %begin line; the parser emits `.enter` and strips the framing.
