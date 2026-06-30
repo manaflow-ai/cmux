@@ -18,15 +18,9 @@ public import Foundation
 /// consumes until ST — matching tmux's own screen exactly (verified empirically by
 /// diffing cmux's render against `capture-pane`).
 public struct RemoteTmuxScreenTitleFilter {
-    private enum State {
-        case text        // normal passthrough
-        case esc         // saw ESC, holding it until we know if it's `ESC k`
-        case title       // inside `ESC k …`, dropping the title bytes
-        case titleEsc    // inside the title, saw ESC — maybe the `ESC \` terminator
-    }
+    private var state: RemoteTmuxScreenTitleFilterState = .text
 
-    private var state: State = .text
-
+    /// Creates a filter with no buffered escape-sequence state.
     public init() {}
 
     /// Returns `data` with any `ESC k … ESC \` title sequences removed.
