@@ -221,6 +221,14 @@ struct TerminalShortcutsSettingsView: View {
     }
 
     private func moveDisplayedItems(from offsets: IndexSet, to destination: Int) {
+        // Agent-chat ("Shared Shortcuts") scope only: a single flat list whose items
+        // may be spread across several terminal rows. Reorder strictly *within* each
+        // item's current row (`limitedTo:`) so a drag never silently reshuffles the
+        // terminal row layout. A flat reorder cannot move one item across a
+        // fixed-length row boundary without either changing row lengths or cascading
+        // another item into a different row — the silent row scramble fixed for this
+        // path. Cross-row moves are intentionally routed through the Terminal
+        // Shortcuts per-item row picker (`moveItem(_:toRow:)`) instead.
         let visibleIDs = displayedItems.map(\.id)
         let visibleSet = Set(visibleIDs)
         var reorderedVisibleIDs = visibleIDs
