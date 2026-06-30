@@ -17,20 +17,43 @@ struct BrowserDownloadsToolbarButton: View {
 
     @State private var isPresented = false
 
+    private var hasDownloads: Bool { !downloads.isEmpty }
+    private var completedCount: Int {
+        downloads.reduce(0) { $0 + ($1.state == .saved ? 1 : 0) }
+    }
+
     var body: some View {
         Button {
             isPresented.toggle()
         } label: {
-            ZStack {
-                CmuxSystemSymbolImage(systemName: "arrow.down.circle", pointSize: iconPointSize, weight: .medium)
-                if isDownloading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .scaleEffect(0.55)
+            ZStack(alignment: .topTrailing) {
+                // Plain SF Symbol (not CmuxSystemSymbolImage) so `.symbolEffect`
+                // animations apply: a continuous bounce while a download is in
+                // flight, and a one-shot bounce each time one completes.
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: iconPointSize, weight: .medium))
+                    .foregroundStyle(isDownloading || hasDownloads ? Color.accentColor : Color.primary)
+                    .symbolEffect(.bounce, options: .repeating, isActive: isDownloading)
+                    .symbolEffect(.bounce, value: completedCount)
+                    .frame(width: hitSize, height: hitSize, alignment: .center)
+
+                if hasDownloads {
+                    Text(downloads.count > 99 ? "99+" : "\(downloads.count)")
+                        .font(.system(size: 9, weight: .bold))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 3)
+                        .frame(minWidth: 14, minHeight: 14)
+                        .background(Capsule().fill(Color.accentColor))
+                        .overlay(Capsule().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
+                        .offset(x: 6, y: -4)
+                        .transition(.scale.combined(with: .opacity))
                 }
             }
             .frame(width: hitSize, height: hitSize, alignment: .center)
             .contentShape(Rectangle())
+            .animation(.spring(response: 0.32, dampingFraction: 0.55), value: downloads.count)
+            .animation(.easeInOut(duration: 0.2), value: isDownloading)
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .safeHelp(String(localized: "browser.downloads.title", defaultValue: "Downloads"))
