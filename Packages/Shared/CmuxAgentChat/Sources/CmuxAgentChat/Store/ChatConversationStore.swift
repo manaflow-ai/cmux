@@ -437,7 +437,7 @@ public final class ChatConversationStore {
         guard descriptor.id == self.descriptor.id else { return }
         let isUnversioned = descriptor.version == 0 && self.descriptor.version == 0
         let isNewer = descriptor.version > self.descriptor.version
-        let isProducerReset = allowsVersionReset && descriptor.version != self.descriptor.version
+        let isProducerReset = allowsVersionReset
         guard isUnversioned || isNewer || isProducerReset else { return }
         self.descriptor = descriptor
         agentState = descriptor.state

@@ -56,8 +56,8 @@ private actor GatedHistoryEventSource: ChatEventSource {
 struct ChatConversationStoreSourceReplacementTests {
     private static nonisolated let baseTime = Date(timeIntervalSince1970: 1_781_006_400)
 
-    private static func descriptor() -> ChatSessionDescriptor {
-        ChatSessionDescriptor(id: "session-1", agentKind: .claude, title: "Test")
+    private static func descriptor(state: ChatAgentState = .idle) -> ChatSessionDescriptor {
+        ChatSessionDescriptor(id: "session-1", agentKind: .claude, title: "Test", state: state)
     }
 
     private static func prose(seq: Int, text: String) -> ChatMessage {
@@ -104,5 +104,21 @@ struct ChatConversationStoreSourceReplacementTests {
         #expect(await SourceReplacementPoller.waitUntil {
             Self.userProseTexts(store.rows) == ["new history"]
         })
+    }
+
+    @Test("source replacement accepts an equal-version fresh descriptor")
+    func sourceReplacementAcceptsEqualVersionFreshDescriptor() async {
+        let oldSource = FixtureChatEventSource()
+        let newSource = FixtureChatEventSource()
+        let store = ChatConversationStore(
+            descriptor: Self.descriptor(state: .working(since: Self.baseTime)),
+            source: oldSource,
+            sourceIdentity: "old",
+            now: { Self.baseTime }
+        )
+
+        store.replaceSource(newSource, descriptor: Self.descriptor(state: .idle), sourceIdentity: "new")
+
+        #expect(store.agentState == .idle)
     }
 }
