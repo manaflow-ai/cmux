@@ -39,6 +39,23 @@ extension MobileShellComposite {
         return (try? await source.sessions(workspaceID: workspaceID)) ?? []
     }
 
+    /// Returns whether a chat-session list failure means the connected Mac does
+    /// not support chat RPCs, rather than a transient transport failure.
+    public func chatSessionListFailureMeansUnsupported(_ error: any Error) -> Bool {
+        guard case let MobileShellConnectionError.rpcError(code, message) = error else {
+            return false
+        }
+        let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let normalizedCode,
+           ["method_not_found", "not_found", "unknown_method", "unsupported_method"].contains(normalizedCode) {
+            return true
+        }
+        return normalizedMessage.contains("unknown method")
+            || normalizedMessage.contains("method not found")
+            || normalizedMessage.contains("unsupported method")
+    }
+
     /// The connected RPC client, for chat use only.
     private func chatRPCClient() -> MobileCoreRPCClient? {
         guard connectionState == .connected else { return nil }

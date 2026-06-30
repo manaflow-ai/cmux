@@ -173,7 +173,9 @@ extension WorkspaceDetailView {
         do {
             seedOutcome = .authoritative(try await source.sessions(workspaceID: workspaceID))
         } catch {
-            seedOutcome = .authoritative([])
+            seedOutcome = store.chatSessionListFailureMeansUnsupported(error)
+                ? .authoritative([])
+                : .unavailable
         }
         let nextSessions = seedOutcome.applying(to: visibleChatSessions)
         withAnimation(.snappy(duration: 0.25)) {
