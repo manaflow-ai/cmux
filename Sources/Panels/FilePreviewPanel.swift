@@ -4451,7 +4451,7 @@ struct FilePreviewPointerObserver: NSViewRepresentable {
     }
 }
 
-private final class FilePreviewPointerObserverView: NSView {
+final class FilePreviewPointerObserverView: NSView {
     var onPointerDown: (() -> Void)?
     private var eventMonitor: Any?
 
