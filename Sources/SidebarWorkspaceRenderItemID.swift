@@ -17,6 +17,10 @@ struct SidebarWorkspaceRenderItemID: Hashable {
         Self(kind: 2, uuid: uuid)
     }
 
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.kind == rhs.kind && lhs.uuid == rhs.uuid
+    }
+
     func hash(into hasher: inout Hasher) {
         hasher.combine(kind)
         hasher.combine(uuid)

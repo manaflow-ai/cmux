@@ -296,6 +296,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 SidebarWorkspaceRowMenuTrackingReconciler { pointerInsideRow in
                     rowInteractionState.contextMenuTrackingDidEnd(pointerInsideRow: pointerInsideRow)
                 }
+                .onAppear {
+                    rowInteractionState.contextMenuTrackingObserverDidInstall()
+                }
             }
         }
         .onDisappear {

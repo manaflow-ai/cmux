@@ -31,7 +31,7 @@ import Testing
             finderDirectoryPath: nil
         )
 
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: current,
             next: next,
             force: false,
@@ -66,7 +66,7 @@ import Testing
             finderDirectoryPath: "/tmp/workspace"
         )
 
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: current,
             next: next,
             force: false,
@@ -92,7 +92,7 @@ import Testing
             mediaActivity: BrowserMediaActivity(isPlayingAudio: false)
         )
 
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: current,
             next: next,
             force: false,
@@ -111,7 +111,7 @@ import Testing
         let current = Self.snapshot(title: "old", isPinned: false)
         let next = Self.snapshot(title: "new", isPinned: true)
 
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: current,
             next: next,
             force: false,
@@ -367,6 +367,7 @@ import Testing
 
         state.setPointerHovering(true)
         state.contextMenuDidAppear()
+        state.contextMenuTrackingObserverDidInstall()
         state.setPointerHovering(false)
         state.contextMenuDidDisappear()
 

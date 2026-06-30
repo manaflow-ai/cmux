@@ -1,12 +1,14 @@
 import Foundation
 import SwiftUI
 
+@MainActor
 struct SidebarBonsplitTabDropDelegate: DropDelegate {
     let isEnabled: Bool
     let targetWorkspaceId: UUID
-    let tabManager: TabManager
+    let bonsplitSourceWorkspaceId: @MainActor (UUID) -> UUID?
+    let moveBonsplitTabToWorkspace: @MainActor (BonsplitTabDragPayload.Transfer, UUID) -> Bool
+    let syncSidebarSelectionAfterDrop: @MainActor () -> Void
     @Binding var selectedTabIds: Set<UUID>
-    @Binding var lastSidebarSelectionIndex: Int?
 
     func validateDrop(info: DropInfo) -> Bool {
         guard isEnabled else { return false }
@@ -21,36 +23,21 @@ struct SidebarBonsplitTabDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         guard validateDrop(info: info),
-              let transfer = BonsplitTabDragPayload.currentTransfer(),
-              let app = AppDelegate.shared else {
+              let transfer = BonsplitTabDragPayload.currentTransfer() else {
             return false
         }
 
-        if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
-           source.workspaceId == targetWorkspaceId {
-            syncSidebarSelection()
+        if bonsplitSourceWorkspaceId(transfer.tab.id) == targetWorkspaceId {
+            syncSidebarSelectionAfterDrop()
             return true
         }
 
-        guard app.moveBonsplitTab(
-            tabId: transfer.tab.id,
-            toWorkspace: targetWorkspaceId,
-            focus: true,
-            focusWindow: true
-        ) else {
+        guard moveBonsplitTabToWorkspace(transfer, targetWorkspaceId) else {
             return false
         }
 
         selectedTabIds = [targetWorkspaceId]
-        syncSidebarSelection()
+        syncSidebarSelectionAfterDrop()
         return true
-    }
-
-    private func syncSidebarSelection() {
-        if let selectedId = tabManager.selectedTabId {
-            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
-        } else {
-            lastSidebarSelectionIndex = nil
-        }
     }
 }

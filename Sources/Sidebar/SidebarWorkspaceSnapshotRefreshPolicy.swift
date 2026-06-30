@@ -61,7 +61,7 @@ struct SidebarWorkspaceSnapshotRefreshPolicy {
         let hasDeferredWorkspaceObservationInvalidation: Bool
     }
 
-    static func decision(
+    func decision(
         current: SidebarWorkspaceSnapshotBuilder.Snapshot?,
         next: SidebarWorkspaceSnapshotBuilder.Snapshot,
         force: Bool,
@@ -90,11 +90,14 @@ struct SidebarWorkspaceSnapshotRefreshPolicy {
 struct SidebarWorkspaceRowInteractionState: Equatable {
     private(set) var isPointerHovering = false
     private(set) var contextMenuVisible = false
+    private var contextMenuTrackingObserverInstalled = false
     private var deferredPointerHoveringWhileContextMenu: Bool?
 
     mutating func setPointerHovering(_ hovering: Bool) {
         if contextMenuVisible {
-            deferredPointerHoveringWhileContextMenu = hovering
+            if hovering || contextMenuTrackingObserverInstalled {
+                deferredPointerHoveringWhileContextMenu = hovering
+            }
             isPointerHovering = false
             return
         }
@@ -104,12 +107,19 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
 
     mutating func contextMenuDidAppear() {
         deferredPointerHoveringWhileContextMenu = isPointerHovering
+        contextMenuTrackingObserverInstalled = false
         contextMenuVisible = true
         isPointerHovering = false
     }
 
+    mutating func contextMenuTrackingObserverDidInstall() {
+        guard contextMenuVisible else { return }
+        contextMenuTrackingObserverInstalled = true
+    }
+
     mutating func contextMenuDidDisappear() {
         contextMenuVisible = false
+        contextMenuTrackingObserverInstalled = false
         applyDeferredPointerHovering()
     }
 
@@ -118,6 +128,7 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
         guard contextMenuVisible else { return false }
         deferredPointerHoveringWhileContextMenu = pointerInsideRow
         contextMenuVisible = false
+        contextMenuTrackingObserverInstalled = false
         applyDeferredPointerHovering()
         return true
     }
