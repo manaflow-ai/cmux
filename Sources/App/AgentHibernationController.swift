@@ -11,10 +11,31 @@ struct AgentHibernationPlannerInput: Sendable {
     let key: AgentHibernationPanelKey
     let hasRestorableAgent: Bool
     let isLive: Bool
+    let hasLiveProcess: Bool
     let isProtected: Bool
     let lifecycle: AgentHibernationLifecycleState
     let hasUnconfirmedTerminalInput: Bool
     let lastActivityAt: TimeInterval
+
+    init(
+        key: AgentHibernationPanelKey,
+        hasRestorableAgent: Bool,
+        isLive: Bool,
+        hasLiveProcess: Bool = false,
+        isProtected: Bool,
+        lifecycle: AgentHibernationLifecycleState,
+        hasUnconfirmedTerminalInput: Bool,
+        lastActivityAt: TimeInterval
+    ) {
+        self.key = key
+        self.hasRestorableAgent = hasRestorableAgent
+        self.isLive = isLive
+        self.hasLiveProcess = hasLiveProcess
+        self.isProtected = isProtected
+        self.lifecycle = lifecycle
+        self.hasUnconfirmedTerminalInput = hasUnconfirmedTerminalInput
+        self.lastActivityAt = lastActivityAt
+    }
 }
 
 enum AgentHibernationPlanner {
@@ -28,9 +49,12 @@ enum AgentHibernationPlanner {
         let excess = liveRestorable.count - settings.maxLiveTerminals
         guard excess > 0 else { return [] }
 
+        // Live scoped processes still create cap pressure, but they are not
+        // eligible for teardown; reclaim safe idle panes first instead.
         let eligible = liveRestorable
             .filter { input in
                 !input.isProtected &&
+                    !input.hasLiveProcess &&
                     input.lifecycle.allowsHibernation &&
                     !input.hasUnconfirmedTerminalInput &&
                     now - input.lastActivityAt >= settings.idleSeconds
@@ -201,9 +225,14 @@ final class AgentHibernationController {
         let plannerInputs = records.map { record in
             let isLive = isLiveByKey[record.key] ?? false
             var effectiveLastActivityAt = record.lastActivityAt
+            if record.hasLiveProcess {
+                tailFingerprintSamples.removeValue(forKey: record.key)
+                confirmations.removeValue(forKey: record.key)
+            }
             if shouldMaintainTailSamples,
                isLive,
                !record.isProtected,
+               !record.hasLiveProcess,
                record.lifecycle.allowsHibernation,
                !record.hasUnconfirmedTerminalInput,
                let tailActivityAt = updateTailFingerprintSample(record: record, now: nowTime) {
@@ -214,6 +243,7 @@ final class AgentHibernationController {
                 key: record.key,
                 hasRestorableAgent: true,
                 isLive: isLive,
+                hasLiveProcess: record.hasLiveProcess,
                 isProtected: record.isProtected,
                 lifecycle: record.lifecycle,
                 hasUnconfirmedTerminalInput: record.hasUnconfirmedTerminalInput,
@@ -247,7 +277,8 @@ final class AgentHibernationController {
         guard record.lifecycle.allowsHibernation,
               !record.hasUnconfirmedTerminalInput,
               !record.isProtected,
-              record.terminalPanel.surface.hasLiveSurface || record.hasLiveProcess,
+              !record.hasLiveProcess,
+              record.terminalPanel.surface.hasLiveSurface,
               !record.terminalPanel.isAgentHibernated else {
             confirmations.removeValue(forKey: record.key)
             return
@@ -287,7 +318,7 @@ final class AgentHibernationController {
         now: TimeInterval
     ) -> TimeInterval? {
         guard !record.terminalPanel.isAgentHibernated,
-              record.terminalPanel.surface.hasLiveSurface || record.hasLiveProcess,
+              record.terminalPanel.surface.hasLiveSurface,
               let fingerprint = hibernationFingerprint(for: record) else {
             tailFingerprintSamples.removeValue(forKey: record.key)
             confirmations.removeValue(forKey: record.key)
@@ -316,28 +347,12 @@ final class AgentHibernationController {
     }
 
     private func hibernationFingerprint(for record: AgentHibernationRecord) -> String? {
-        if let tail = tailFingerprint(for: record.terminalPanel) {
-            return Self.scrollbackFingerprint(tail: tail, processIDs: record.processIDs)
-        }
-        guard record.hasLiveProcess,
-              !record.terminalPanel.surface.hasLiveSurface else { return nil }
-        return Self.processFallbackFingerprint(
-            kind: record.agent.kind,
-            sessionId: record.agent.sessionId,
-            processIDs: record.processIDs
-        )
+        guard let tail = tailFingerprint(for: record.terminalPanel) else { return nil }
+        return Self.scrollbackFingerprint(tail: tail, processIDs: record.processIDs)
     }
 
     nonisolated static func scrollbackFingerprint(tail: String, processIDs: Set<Int>) -> String {
         "scrollback:\(processIdentityFingerprint(processIDs)):\(tail)"
-    }
-
-    nonisolated static func processFallbackFingerprint(
-        kind: RestorableAgentKind,
-        sessionId: String,
-        processIDs: Set<Int>
-    ) -> String {
-        "process:\(kind.rawValue):\(sessionId):\(processIdentityFingerprint(processIDs))"
     }
 
     nonisolated static func tailFingerprintStableSince(
