@@ -58,7 +58,7 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 24) {
                         workspaceBackToolbarButton
                         Menu {
                             titleMenuContent()
@@ -82,7 +82,7 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
                             )
                             .layoutPriority(1)
                         }
-                        .mobileGlassCompactToolbarControl()
+                        .mobileIsolatedGlassCompactToolbarControl(horizontalPadding: 16)
                         .accessibilityIdentifier("MobileWorkspaceTitleMenu")
                     }
                 }
@@ -101,7 +101,7 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
                 badgeContrast: backButtonConfiguration.badgeContrast,
                 action: backButtonConfiguration.action
             )
-            .mobileGlassCompactToolbarControl()
+            .mobileIsolatedGlassCompactToolbarControl(horizontalPadding: 16)
         }
     }
 

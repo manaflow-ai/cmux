@@ -93,6 +93,26 @@ public extension View {
         #endif
     }
 
+    /// Compact toolbar glass that must remain visually separate from adjacent
+    /// glass controls.
+    @ViewBuilder
+    func mobileIsolatedGlassCompactToolbarControl(horizontalPadding: CGFloat = 14) -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            self
+                .buttonStyle(.plain)
+                .controlSize(.small)
+                .padding(.horizontal, horizontalPadding)
+                .frame(minHeight: 44)
+                .glassEffect(.regular.interactive(), in: .capsule)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+
     /// Non-interactive compact glass title backing.
     @ViewBuilder
     func mobileGlassCompactNavigationTitle() -> some View {

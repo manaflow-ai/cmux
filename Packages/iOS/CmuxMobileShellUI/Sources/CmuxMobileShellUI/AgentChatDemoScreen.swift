@@ -28,7 +28,8 @@ struct AgentChatDemoScreen: View {
                 } else {
                     ProgressView()
                         .task {
-                            let (messages, descriptor) = ChatFixtureConversation().make()
+                            let (messages, fixtureDescriptor) = ChatFixtureConversation().make()
+                            let descriptor = demoDescriptor(from: fixtureDescriptor)
                             let source = FixtureChatEventSource(backlog: messages, replyToSends: true)
                             stack = DemoStack(
                                 store: ChatConversationStore(descriptor: descriptor, source: source)
@@ -63,36 +64,7 @@ struct AgentChatDemoScreen: View {
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        WorkspaceBackButton(
-                            unreadCount: 0,
-                            badgeContrast: .darkBackground,
-                            action: {}
-                        )
-                    }
-                    if #available(iOS 26.0, *) {
-                        ToolbarSpacer(.fixed, placement: .topBarLeading)
-                    }
-                    ToolbarItem(placement: .topBarLeading) {
-                        Menu {
-                            Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
-                                .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
-                            Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
-                                .accessibilityIdentifier("MobileWorkspaceTitleMarkReadMenuItem")
-                        } label: {
-                            header(for: stack)
-                                .frame(
-                                    minWidth: MobileNavTitleWidth.floor,
-                                    maxWidth: MobileNavTitleWidth(
-                                        contentWidth: contentWidth,
-                                        hasBackButton: true,
-                                        hasChatToggle: true
-                                    ).leadingCap,
-                                    alignment: .leading
-                                )
-                                .layoutPriority(1)
-                        }
-                        .mobileGlassCompactToolbarControl()
-                        .accessibilityIdentifier("MobileWorkspaceTitleMenu")
+                        inlineWorkspaceLeadingToolbar(for: stack)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -113,6 +85,38 @@ struct AgentChatDemoScreen: View {
         }
     }
 
+    private func inlineWorkspaceLeadingToolbar(for stack: DemoStack) -> some View {
+        HStack(spacing: 24) {
+            WorkspaceBackButton(
+                unreadCount: 0,
+                badgeContrast: .darkBackground,
+                action: {}
+            )
+            .mobileIsolatedGlassCompactToolbarControl(horizontalPadding: 16)
+
+            Menu {
+                Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
+                    .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
+                Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
+                    .accessibilityIdentifier("MobileWorkspaceTitleMarkReadMenuItem")
+            } label: {
+                header(for: stack)
+                    .frame(
+                        minWidth: MobileNavTitleWidth.floor,
+                        maxWidth: MobileNavTitleWidth(
+                            contentWidth: contentWidth,
+                            hasBackButton: true,
+                            hasChatToggle: true
+                        ).leadingCap,
+                        alignment: .leading
+                    )
+                    .layoutPriority(1)
+            }
+            .mobileIsolatedGlassCompactToolbarControl(horizontalPadding: 16)
+            .accessibilityIdentifier("MobileWorkspaceTitleMenu")
+        }
+    }
+
     private func baseChatScreen(for stack: DemoStack) -> some View {
         switch style {
         case .standalone:
@@ -130,6 +134,15 @@ struct AgentChatDemoScreen: View {
                 onOpenTerminal: {}
             )
         }
+    }
+
+    private func demoDescriptor(from descriptor: ChatSessionDescriptor) -> ChatSessionDescriptor {
+        let demoState = ProcessInfo.processInfo.environment["CMUX_UITEST_AGENT_CHAT_STATE"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard demoState == "idle" else {
+            return descriptor
+        }
+        return descriptor.withState(.idle)
     }
 
     private func header(for stack: DemoStack) -> some View {
