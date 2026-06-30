@@ -2497,18 +2497,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && foregroundMacDeviceID == macDeviceID
         if switched {
             macSwitchRestoreBaseline = nil
-            // The foreground connection has already landed on the target Mac. From
-            // here on, persistence/list refresh should not be cancellable as a switch.
             finishMacSwitchAttempt(switchAttemptID)
-            do {
-                try await pairedMacStore.setActive(
-                    macDeviceID: macDeviceID,
-                    stackUserID: scope?.userID,
-                    teamID: scope?.teamID
-                )
-            } catch {
-                mobileShellLog.error("paired mac store setActive failed mac=\(macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)")
+            let activeWriteScope = scope
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let activeWriteScope {
+                    guard await self.isScopeCurrent(activeWriteScope) else { return }
+                }
+                guard self.connectionState == .connected,
+                      self.remoteClient != nil,
+                      self.foregroundMacDeviceID == macDeviceID else { return }
+                do {
+                    try await pairedMacStore.setActive(
+                        macDeviceID: macDeviceID,
+                        stackUserID: activeWriteScope?.userID,
+                        teamID: activeWriteScope?.teamID
+                    )
+                    guard self.connectionState == .connected,
+                          self.remoteClient != nil,
+                          self.foregroundMacDeviceID == macDeviceID else { return }
+                    await self.loadPairedMacs()
+                } catch {
+                    mobileShellLog.error("paired mac store setActive failed mac=\(macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)")
+                }
             }
+            return true
         } else if macSwitchRestoreBaseline != nil || previousForegroundMac != nil, !hasActiveMacConnection {
             // The switch did not connect and the destructive connect path dropped
             // the previous session; reconnect to the still-active previous Mac so
@@ -2522,7 +2535,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         await loadPairedMacs()
-        return switched
+        return false
     }
 
     /// Resolves the live foreground Mac that a failed destructive switch should restore.
