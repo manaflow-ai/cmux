@@ -33,7 +33,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
-            let window = try #require(window(withId: windowId))
+            let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
 
             let secondWorkspace = manager.addTab(select: false)
@@ -42,7 +42,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let optionWorkspaceNumber = optionDigitWorkspaceShortcut()
 
             try withTemporaryShortcut(action: .selectWorkspaceByNumber, shortcut: optionWorkspaceNumber) {
-                let event = try #require(optionTwoEvent(windowNumber: window.windowNumber))
+                let event = try #require(optionTwoEvent(windowNumber: testWindow.windowNumber))
 
                 #expect(
                     appDelegate.debugHandleCustomShortcut(event: event),
@@ -63,7 +63,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
-            let window = try #require(window(withId: windowId))
+            let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let workspace = try #require(manager.selectedWorkspace)
             let panelId = try #require(workspace.focusedPanelId)
@@ -74,8 +74,8 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             terminalPanel.hostedView.setVisibleInUI(true)
             terminalPanel.hostedView.setActive(true)
             terminalPanel.hostedView.moveFocus()
-            window.makeKeyAndOrderFront(nil)
-            window.displayIfNeeded()
+            testWindow.makeKeyAndOrderFront(nil)
+            testWindow.displayIfNeeded()
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
             #expect(
@@ -86,10 +86,10 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let optionWorkspaceNumber = optionDigitWorkspaceShortcut()
 
             try withTemporaryShortcut(action: .selectWorkspaceByNumber, shortcut: optionWorkspaceNumber) {
-                let event = try #require(optionTwoEvent(windowNumber: window.windowNumber))
+                let event = try #require(optionTwoEvent(windowNumber: testWindow.windowNumber))
 
                 #expect(
-                    window.performKeyEquivalent(with: event),
+                    testWindow.performKeyEquivalent(with: event),
                     "Terminal key-equivalent fallback should route active Option+digit workspace bindings"
                 )
                 #expect(
@@ -134,14 +134,14 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
-            let window = try #require(window(withId: windowId))
-            let contentView = try #require(window.contentView)
+            let testWindow = try #require(self.window(withId: windowId))
+            let contentView = try #require(testWindow.contentView)
             let focusableView = OptionDigitFocusableTestView(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
             contentView.addSubview(focusableView)
-            window.makeKeyAndOrderFront(nil)
-            window.displayIfNeeded()
+            testWindow.makeKeyAndOrderFront(nil)
+            testWindow.displayIfNeeded()
 
-            #expect(window.makeFirstResponder(focusableView), "Expected focusable view to own first responder")
+            #expect(testWindow.makeFirstResponder(focusableView), "Expected focusable view to own first responder")
 
             let event = try #require(makeKeyEvent(
                 modifierFlags: [.option],
@@ -151,7 +151,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             ))
 
             #expect(
-                window.performKeyEquivalent(with: event),
+                testWindow.performKeyEquivalent(with: event),
                 "Inactive Option+digit workspace bindings should leave printable Option text forwarding intact"
             )
             #expect(focusableView.keyDownCallCount == 1, "Printable Option text should be forwarded to the text responder")
