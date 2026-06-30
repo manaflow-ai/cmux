@@ -2613,7 +2613,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && remoteClient != nil
             && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
         guard restored, let pairedMacStore else { return restored }
-        guard cancelRestoreGeneration == nil else { return restored }
         let scope = await currentScopeSnapshot()
         if let scope {
             guard await isScopeCurrent(scope), isCancelRestoreCurrent() else { return restored }
