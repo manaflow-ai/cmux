@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,7 +7,8 @@ import XCTest
 @testable import cmux
 #endif
 
-final class CmuxConfigNamedColorTests: XCTestCase {
+@Suite("cmux config named color decoding", .serialized)
+struct CmuxConfigNamedColorTests {
     private func decode(_ json: String, colorDefaults: UserDefaults? = nil) throws -> CmuxConfigFile {
         let data = json.data(using: .utf8)!
         let decoder = JSONDecoder()
@@ -16,7 +18,8 @@ final class CmuxConfigNamedColorTests: XCTestCase {
         return try decoder.decode(CmuxConfigFile.self, from: data)
     }
 
-    func testDecodeWorkspaceCommandAcceptsNamedColor() throws {
+    @Test("Workspace command accepts a named palette color")
+    func decodeWorkspaceCommandAcceptsNamedColor() throws {
         let suiteName = "cmux-config-named-color-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -34,10 +37,11 @@ final class CmuxConfigNamedColorTests: XCTestCase {
         }
         """
         let config = try decode(json, colorDefaults: defaults)
-        XCTAssertEqual(config.commands[0].workspace?.color, "#283593")
+        #expect(config.commands[0].workspace?.color == "#283593")
     }
 
-    func testDecodeWorkspaceCommandRejectsUnknownNamedColor() {
+    @Test("Workspace command rejects an unknown named color")
+    func decodeWorkspaceCommandRejectsUnknownNamedColor() {
         let suiteName = "cmux-config-unknown-color-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -53,11 +57,14 @@ final class CmuxConfigNamedColorTests: XCTestCase {
           }]
         }
         """
-        XCTAssertThrowsError(try decode(json, colorDefaults: defaults))
+        #expect(throws: (any Error).self) {
+            _ = try decode(json, colorDefaults: defaults)
+        }
     }
 
     @MainActor
-    func testConfigParseCacheInvalidatesWhenWorkspaceColorPaletteChanges() throws {
+    @Test("Config parse cache invalidates when the workspace color palette changes")
+    func configParseCacheInvalidatesWhenWorkspaceColorPaletteChanges() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -92,10 +99,10 @@ final class CmuxConfigNamedColorTests: XCTestCase {
         let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
         colorStore.persistPaletteMap(["Codex Test": "#111111"])
         store.loadAll()
-        XCTAssertEqual(store.loadedCommands.first?.workspace?.color, "#111111")
+        #expect(store.loadedCommands.first?.workspace?.color == "#111111")
 
         colorStore.persistPaletteMap(["Codex Test": "#222222"])
         store.loadAll()
-        XCTAssertEqual(store.loadedCommands.first?.workspace?.color, "#222222")
+        #expect(store.loadedCommands.first?.workspace?.color == "#222222")
     }
 }
