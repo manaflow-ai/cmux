@@ -718,7 +718,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalReplayBarrierTokensBySurfaceID: [String: UUID]
     var terminalReplayBarrierAckStreamTokensBySurfaceID: [String: UUID]
     var terminalReplayBarrierDroppedOutputSurfaceIDs: Set<String>
-    var terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs: Set<String>
+    var terminalReplayBarrierDroppedOutputCountsBySurfaceID: [String: UInt64]
+    var terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID: [String: UInt64]
     private var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
@@ -913,7 +914,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalReplayBarrierTokensBySurfaceID = [:]
         self.terminalReplayBarrierAckStreamTokensBySurfaceID = [:]
         self.terminalReplayBarrierDroppedOutputSurfaceIDs = []
-        self.terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs = []
+        self.terminalReplayBarrierDroppedOutputCountsBySurfaceID = [:]
+        self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID = [:]
         self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
@@ -4944,7 +4946,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierTokensBySurfaceID = [:]
         terminalReplayBarrierAckStreamTokensBySurfaceID = [:]
         terminalReplayBarrierDroppedOutputSurfaceIDs = []
-        terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs = []
+        terminalReplayBarrierDroppedOutputCountsBySurfaceID = [:]
+        terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID = [:]
         terminalOutputQueuesBySurfaceID = [:]
         terminalOutputStreamTokensBySurfaceID = terminalOutputStreamTokensBySurfaceID.mapValues { _ in UUID() }
         terminalScrollQueueTokensBySurfaceID = [:]
@@ -6314,7 +6317,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierTokensBySurfaceID[surfaceID] = token
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
-        terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs.remove(surfaceID)
+        terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         return token
     }
 
@@ -6337,7 +6341,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
-        terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs.remove(surfaceID)
+        terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared_\(reason) surface=\(surfaceID)")
         return true
     }
@@ -6438,7 +6443,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
-        terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs.remove(surfaceID)
+        terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueueTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
@@ -6567,7 +6573,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func requestTerminalReplay(
         surfaceID: String,
         replayBarrierToken: UUID? = nil,
-        coversReplayBarrierDroppedOutput: Bool = false
+        coveredReplayBarrierDroppedOutputCount: UInt64? = nil
     ) {
         guard let client = remoteClient else {
             clearTerminalReplayBarrierIfCurrent(
@@ -6679,10 +6685,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         return
                     }
                     if self.terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] != nil {
-                        if coversReplayBarrierDroppedOutput {
-                            self.terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs.insert(surfaceID)
+                        if let coveredReplayBarrierDroppedOutputCount {
+                            self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID[surfaceID] =
+                                coveredReplayBarrierDroppedOutputCount
                         } else {
-                            self.terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs.remove(surfaceID)
+                            self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
                         }
                     }
                     self.terminalActiveScreenBySurfaceID[surfaceID] = renderGrid.activeScreen
@@ -6707,10 +6714,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
                 if accepted,
                    self.terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] != nil {
-                    if coversReplayBarrierDroppedOutput {
-                        self.terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs.insert(surfaceID)
+                    if let coveredReplayBarrierDroppedOutputCount {
+                        self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID[surfaceID] =
+                            coveredReplayBarrierDroppedOutputCount
                     } else {
-                        self.terminalReplayBarrierAckCoversDroppedOutputSurfaceIDs.remove(surfaceID)
+                        self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
                     }
                 }
                 if accepted, let replaySeq {
@@ -6724,7 +6732,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                 }
             } catch {
-                mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+                mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .private)")
                 self.clearTerminalReplayBarrierIfCurrent(
                     surfaceID: surfaceID,
                     token: replayBarrierToken,
