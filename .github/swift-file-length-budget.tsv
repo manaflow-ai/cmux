@@ -5,7 +5,7 @@
 17908	Sources/AppDelegate.swift
 16491	Sources/ContentView.swift
 14170	Sources/TerminalController.swift
-13036	Sources/Workspace.swift
+13048	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12214	Sources/GhosttyTerminalView.swift
 11592	Sources/Panels/BrowserPanel.swift
@@ -42,7 +42,7 @@
 2395	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
 2242	Sources/TerminalNotificationStore.swift
-2231	Sources/TerminalWindowPortal.swift
+2229	Sources/TerminalWindowPortal.swift
 2126	cmuxTests/CmuxConfigTests.swift
 2091	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2078	Sources/SessionPersistence.swift
@@ -101,8 +101,8 @@
 932	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 928	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
-914	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 905	Sources/CmuxSSHURLRequest.swift
+904	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
 897	Sources/Panels/TerminalPanel.swift
 885	cmuxTests/SidebarWorkspaceDropPlannerTests.swift

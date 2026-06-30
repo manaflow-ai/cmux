@@ -119,13 +119,18 @@ extension DockSplitStore {
         }
         installSubscription(for: panel, tracksTerminalTitle: true)
         detachedSurfaceTransfersByPanelId[detached.panelId] = detached
-        applyVisibility(to: panel)
-        recordExplicitPanelCreation()
-        if focus {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(newTabId)
-            applyDockSelection(tabId: newTabId, inPane: paneId)
-            panel.focus()
+        withCoalescedTerminalViewReattach {
+            applyVisibility(to: panel)
+            if let terminal = panel as? TerminalPanel {
+                requestTerminalViewReattach(terminal)
+            }
+            recordExplicitPanelCreation()
+            if focus {
+                bonsplitController.focusPane(paneId)
+                bonsplitController.selectTab(newTabId)
+                applyDockSelection(tabId: newTabId, inPane: paneId)
+                panel.focus()
+            }
         }
         return detached.panelId
     }
