@@ -245,6 +245,11 @@ export function App({ config, initialStatus }: ConfigProps) {
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
+  // The stage/commit dialog opens as a modal (showModal), which inerts every
+  // element outside it — including copyFallbackRef. The execCommand("copy")
+  // fallback needs a selectable textarea, so the dialog renders its own inside
+  // the modal and the copy targets this ref instead of the inert outer one.
+  const stageCommitFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
   const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
@@ -344,7 +349,7 @@ export function App({ config, initialStatus }: ConfigProps) {
       return;
     }
     try {
-      const message = await copyStageCommitCommand(repoRoot, commitMessage, label, copyFallbackRef.current);
+      const message = await copyStageCommitCommand(repoRoot, commitMessage, label, stageCommitFallbackRef.current);
       dispatch({ type: "set-copy-feedback", message });
       setStageCommitDialogOpen(false);
     } catch {
@@ -419,6 +424,7 @@ export function App({ config, initialStatus }: ConfigProps) {
       {stageCommitDialogOpen ? (
         <StageCommitDialog
           cancelLabel={commentLabels.cancelComment}
+          fallbackRef={stageCommitFallbackRef}
           label={label}
           onCancel={() => setStageCommitDialogOpen(false)}
           onSubmit={copyStageCommit}
@@ -430,11 +436,13 @@ export function App({ config, initialStatus }: ConfigProps) {
 
 function StageCommitDialog({
   cancelLabel,
+  fallbackRef,
   label,
   onCancel,
   onSubmit,
 }: {
   cancelLabel: string;
+  fallbackRef: React.RefObject<HTMLTextAreaElement | null>;
   label: DiffViewerLabelResolver;
   onCancel: () => void;
   onSubmit: (message: string) => Promise<void>;
@@ -490,6 +498,13 @@ function StageCommitDialog({
             </button>
           </div>
         </form>
+        <textarea
+          ref={fallbackRef}
+          aria-hidden="true"
+          readOnly
+          tabIndex={-1}
+          className="copy-fallback-textarea"
+        />
       </dialog>
     </>
   );

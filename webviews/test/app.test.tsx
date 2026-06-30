@@ -170,9 +170,15 @@ test("App copies a stage and commit command for repo-backed diffs", async () => 
   changeTextareaValue(input!, "Review changes");
   submitStageCommitDialog();
 
+  // The dialog renders its own fallback textarea inside the modal so the
+  // execCommand("copy") path keeps working while showModal() inerts the rest of
+  // the page. The value is written synchronously during submit; read it before
+  // the successful copy closes (and unmounts) the dialog.
+  const stageCommitCopied = stageCommitFallbackValue();
+  expect(stageCommitCopied).toContain("git -C '/tmp/repo' add --all");
+  expect(stageCommitCopied).toContain("Review changes");
+
   await waitFor(() => dom?.window.document.getElementById("copy-feedback")?.textContent === "Copied stage & commit command");
-  expect(copyFallbackValue()).toContain("git -C '/tmp/repo' add --all");
-  expect(copyFallbackValue()).toContain("Review changes");
   expect(stageCommitDialog()).toBeNull();
 });
 
@@ -343,8 +349,8 @@ function changeTextareaValue(textarea: HTMLTextAreaElement, value: string): void
   textarea.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
 }
 
-function copyFallbackValue(): string | undefined {
-  return dom?.window.document.querySelector<HTMLTextAreaElement>(".copy-fallback-textarea")?.value;
+function stageCommitFallbackValue(): string | undefined {
+  return stageCommitDialog()?.querySelector<HTMLTextAreaElement>(".copy-fallback-textarea")?.value;
 }
 
 function contentFilesWidth(): string | undefined {
