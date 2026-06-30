@@ -58,8 +58,11 @@ let package = Package(
         .testTarget(
             name: "CmuxMobileShellUITests",
             dependencies: [
+                "CMUXMobileCore",
+                "CmuxMobilePairedMac",
                 "CmuxMobileShellUI",
                 "CmuxMobileShell",
+                "CmuxMobileShellModel",
                 "CmuxMobileWorkspace",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
