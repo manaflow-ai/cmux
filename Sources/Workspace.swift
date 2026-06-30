@@ -4628,13 +4628,24 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
-        // Agents re-report the same lifecycle frequently on a hot path. Skip the
-        // sidebar refresh (notification + group revision) and hibernation record
-        // when nothing actually changed, matching the runtime model's own
-        // duplicate-write guard.
-        guard agentLifecycleStatesByPanelId[targetPanelId]?[key] != lifecycle else { return }
-        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
-        recordAgentLifecycleChange(panelId: targetPanelId)
+        let didChange = agentLifecycleStatesByPanelId[targetPanelId]?[key] != lifecycle
+        if didChange {
+            agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        }
+        // Always record the lifecycle heartbeat, even for a repeated value:
+        // hibernation derives `hasUnconfirmedTerminalInput` from
+        // `terminalInputAt > lifecycleChangeAt`, so an agent re-reporting `.idle`
+        // after handling typed input must still advance the timestamp or the
+        // panel stays ineligible for hibernation. Only refresh the sidebar when
+        // the displayed state actually changed, to avoid invalidating it on the
+        // agent's frequent duplicate reports.
+        AgentHibernationController.shared.recordAgentLifecycleChange(
+            workspaceId: id,
+            panelId: targetPanelId
+        )
+        if didChange {
+            postAgentLifecycleSidebarRefresh()
+        }
     }
 
     @discardableResult
@@ -4668,21 +4679,25 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func recordAgentLifecycleChange(panelId: UUID) {
+        AgentHibernationController.shared.recordAgentLifecycleChange(
+            workspaceId: id,
+            panelId: panelId
+        )
+        postAgentLifecycleSidebarRefresh()
+    }
+
+    private func postAgentLifecycleSidebarRefresh() {
         // Agent lifecycle is sidebar presentation state, so refresh the sidebar
         // without broadly invalidating this `Workspace` (a hot agent-monitoring
         // path with many unrelated observers — the CPU-spin class in CLAUDE.md).
         // Mounted rows already refresh from the runtime observation model's
-        // change stream; post a sidebar-scoped notification so the default
-        // sidebar can also refresh collapsed group-header state colors whose
-        // members have no mounted row. Mirrors `.workspaceCurrentDirectoryDidChange`.
+        // change stream; this notification lets the default sidebar also refresh
+        // collapsed group-header state colors whose members have no mounted row.
+        // Mirrors `.workspaceCurrentDirectoryDidChange`.
         NotificationCenter.default.post(
             name: .workspaceAgentLifecycleDidChange,
             object: self,
             userInfo: ["workspaceId": id]
-        )
-        AgentHibernationController.shared.recordAgentLifecycleChange(
-            workspaceId: id,
-            panelId: panelId
         )
     }
 
