@@ -4859,20 +4859,20 @@ final class Workspace: Identifiable, ObservableObject {
 
     nonisolated private static func surfaceResumeBindingHistoryIdentity(
         _ binding: SurfaceResumeBindingSnapshot
-    ) -> String {
+    ) -> [String] {
         let source = binding.source ?? ""
         let kind = binding.kind ?? ""
         if let checkpointId = binding.checkpointId, !checkpointId.isEmpty {
-            return "checkpoint|\(source)|\(kind)|\(checkpointId)"
+            return ["checkpoint", source, kind, checkpointId]
         }
-        return "command|\(source)|\(kind)|\(binding.cwd ?? "")|\(binding.command)"
+        return ["command", source, kind, binding.cwd ?? "", binding.command]
     }
 
     nonisolated static func normalizedSurfaceResumeBindingHistory(
         _ candidates: [SurfaceResumeBindingSnapshot]
     ) -> [SurfaceResumeBindingSnapshot] {
         let maxHistoryEntries = 8
-        var seen: Set<String> = []
+        var seen: Set<[String]> = []
         var normalized: [SurfaceResumeBindingSnapshot] = []
         normalized.reserveCapacity(min(candidates.count, maxHistoryEntries))
         for candidate in candidates where shouldRecordSurfaceResumeBindingInHistory(candidate) {
