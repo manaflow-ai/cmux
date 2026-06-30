@@ -1276,8 +1276,24 @@ struct ProcessSSHFileExplorerListingTests {
         #expect(script.contains("stat -c %Y /"))
         #expect(script.contains("stat -L -c '%F\t%Y\t%W\t%n'"))
         #expect(script.contains("stat -L -f '%HT\t%m\t%B\t%N'"))
-        // Empty/unreadable dirs must report success, not a non-zero status that
-        // would surface as an error.
+        // A readable but empty directory must report success (trailing exit 0),
+        // not a non-zero status that would surface as an error.
+        #expect(script.hasSuffix("exit 0"))
+    }
+
+    @Test
+    func testRemoteListingScriptSurfacesInaccessibleDirectoriesAsErrors() {
+        let script = ProcessSSHFileExplorerTransport.remoteListingScript(
+            path: "/srv/secret",
+            showHidden: false
+        )
+        // A missing/unsearchable directory, an unreadable directory, and a host
+        // without a usable `stat` must exit non-zero so the listing surfaces as
+        // an error instead of masquerading as an empty directory.
+        #expect(script.contains("cd '/srv/secret' 2>/dev/null || exit 1"))
+        #expect(script.contains("[ -r . ] || exit 1"))
+        #expect(script.contains("else\n  exit 1"))
+        // A readable but empty directory still succeeds (trailing exit 0).
         #expect(script.hasSuffix("exit 0"))
     }
 

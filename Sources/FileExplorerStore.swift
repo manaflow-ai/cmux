@@ -873,21 +873,26 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     /// directories appear to hang. Timestamps are always collected so changing
     /// the sort key re-sorts the cached listing without a re-fetch.
     ///
-    /// The trailing `exit 0` makes empty or unreadable directories report
-    /// success with an empty listing instead of the non-zero status that
-    /// `runSSHCommand` would otherwise surface as an error (an unmatched glob
-    /// is passed literally to `stat`, which fails on it).
+    /// Access failures stay distinguishable from empty directories: an
+    /// unreadable or missing directory (`cd` fails or `.` is not readable), or
+    /// a host without a usable `stat`, exits non-zero so `runSSHCommand` raises
+    /// `sshCommandFailed`. A readable but genuinely empty directory reaches the
+    /// trailing `exit 0` and lists as empty, even though its unmatched glob
+    /// makes `stat` itself exit non-zero.
     static func remoteListingScript(path: String, showHidden: Bool) -> String {
         let escapedPath = shellSingleQuote(path)
         // `.[!.]*` and `..?*` match dotfiles while excluding `.` and `..`.
         let globs = showHidden ? "-- * .[!.]* ..?*" : "-- *"
         // Literal tabs separate the fields; GNU `stat -c` does not expand `\t`.
         return """
-        cd \(escapedPath) 2>/dev/null || exit 0
+        cd \(escapedPath) 2>/dev/null || exit 1
+        [ -r . ] || exit 1
         if stat -c %Y / >/dev/null 2>&1; then
           stat -L -c '%F\t%Y\t%W\t%n' \(globs) 2>/dev/null
-        else
+        elif stat -f %m / >/dev/null 2>&1; then
           stat -L -f '%HT\t%m\t%B\t%N' \(globs) 2>/dev/null
+        else
+          exit 1
         fi
         exit 0
         """
