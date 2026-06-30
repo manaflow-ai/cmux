@@ -57,7 +57,7 @@ struct WorkspaceDetailView: View {
     /// workspace selection changes underneath it (e.g. Mac-side sync) while
     /// the sheet is open; the sheet loads its snapshot once per presentation.
     @State private var textSheetSurfaceID: String?
-    @State var terminalPickerRows: [TerminalPickerMenuRow] = []
+    @State private var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Chat-mode toggle: when on (and a session exists) the detail renders
     /// the agent chat inline in place of the terminal. The toolbar button
     /// flips this; there is no cover and no Done button.
@@ -403,11 +403,18 @@ struct WorkspaceDetailView: View {
     // because `Menu` has no will-open hook (the menu simply floats over the live
     // keyboard like any nav-bar menu).
     var terminalPickerToolbarButton: some View {
-        Menu {
-            terminalPickerMenuContent
+        let liveRows = terminalPickerLiveRows
+        let rows = terminalPickerRows.isEmpty ? liveRows : terminalPickerRows
+        let selection = TerminalPickerMenuSelection.resolve(
+            rows: rows,
+            selectedID: store.selectedTerminalID
+        )
+
+        return Menu {
+            terminalPickerMenuContent(rows: rows, selectedID: selection?.id)
         } label: {
             Label(
-                terminalPickerSelectedName ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
+                selection?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
                 systemImage: "rectangle.stack"
             )
             .labelStyle(.iconOnly)
@@ -415,21 +422,24 @@ struct WorkspaceDetailView: View {
         .foregroundStyle(TerminalPalette.foreground)
         .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
-        .accessibilityValue(host)
+        .accessibilityValue(selection?.name ?? "")
         .onAppear(perform: syncTerminalPickerRows)
-        .onChange(of: terminalPickerLiveRows) { _, _ in syncTerminalPickerRows() }
+        .onChange(of: liveRows) { _, _ in syncTerminalPickerRows() }
     }
 
     @ViewBuilder
-    private var terminalPickerMenuContent: some View {
+    private func terminalPickerMenuContent(
+        rows: [TerminalPickerMenuRow],
+        selectedID: MobileTerminalPreview.ID?
+    ) -> some View {
         Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
-            ForEach(terminalPickerRowsForMenu) { terminal in
+            ForEach(rows) { terminal in
                 Button {
                     selectTerminalFromPicker(terminal.id)
                 } label: {
                     Label(
                         terminal.name,
-                        systemImage: terminal.id == terminalPickerSelectedID && activeBrowser == nil
+                        systemImage: terminal.id == selectedID && activeBrowser == nil
                             ? "checkmark.circle.fill"
                             : "terminal"
                     )
@@ -492,6 +502,12 @@ struct WorkspaceDetailView: View {
             .accessibilityIdentifier("MobileSendFeedbackMenuItem")
         }
         #endif
+    }
+
+    private func syncTerminalPickerRows() {
+        let rows = terminalPickerLiveRows
+        guard terminalPickerRows != rows else { return }
+        terminalPickerRows = rows
     }
 
     #if canImport(UIKit)

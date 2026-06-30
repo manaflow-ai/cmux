@@ -10,32 +10,26 @@ struct TerminalPickerMenuRow: Identifiable, Equatable {
     }
 }
 
+struct TerminalPickerMenuSelection: Equatable {
+    let id: MobileTerminalPreview.ID
+    let name: String
+
+    static func resolve(
+        rows: [TerminalPickerMenuRow],
+        selectedID: MobileTerminalPreview.ID?
+    ) -> TerminalPickerMenuSelection? {
+        if let selectedID,
+           let selected = rows.first(where: { $0.id == selectedID }) {
+            return TerminalPickerMenuSelection(id: selected.id, name: selected.name)
+        }
+        guard let first = rows.first else { return nil }
+        return TerminalPickerMenuSelection(id: first.id, name: first.name)
+    }
+}
+
 extension WorkspaceDetailView {
     var terminalPickerLiveRows: [TerminalPickerMenuRow] {
         workspace.terminals.map(TerminalPickerMenuRow.init)
-    }
-
-    var terminalPickerRowsForMenu: [TerminalPickerMenuRow] {
-        terminalPickerRows.isEmpty ? terminalPickerLiveRows : terminalPickerRows
-    }
-
-    var terminalPickerSelectedID: MobileTerminalPreview.ID? {
-        if let selectedID = store.selectedTerminalID,
-           terminalPickerRowsForMenu.contains(where: { $0.id == selectedID }) {
-            return selectedID
-        }
-        return terminalPickerRowsForMenu.first?.id
-    }
-
-    var terminalPickerSelectedName: String? {
-        guard let terminalPickerSelectedID else { return nil }
-        return terminalPickerRowsForMenu.first { $0.id == terminalPickerSelectedID }?.name
-    }
-
-    func syncTerminalPickerRows() {
-        let rows = terminalPickerLiveRows
-        guard terminalPickerRows != rows else { return }
-        terminalPickerRows = rows
     }
 
     var hasTitleMenuActions: Bool {
