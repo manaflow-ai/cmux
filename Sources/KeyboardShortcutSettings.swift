@@ -384,9 +384,9 @@ enum KeyboardShortcutSettings {
             case .triggerFlash:
                 return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
             case .nextSidebarTab:
-                return StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
+                return StoredShortcut(key: "↓", command: false, shift: false, option: true, control: true)
             case .prevSidebarTab:
-                return StoredShortcut(key: "[", command: true, shift: false, option: false, control: true)
+                return StoredShortcut(key: "↑", command: false, shift: false, option: true, control: true)
             case .focusHistoryBack:
                 return StoredShortcut(key: "[", command: true, shift: false, option: false, control: false)
             case .focusHistoryForward:
