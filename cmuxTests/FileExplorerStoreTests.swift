@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Testing
 
 #if canImport(cmux_DEV)
@@ -1261,121 +1262,210 @@ struct FileSearchControllerTests {
 @Suite
 struct ProcessSSHFileExplorerListingTests {
 
-    // MARK: Batched stat (no per-entry process fan-out, no ARG_MAX overflow)
+    // MARK: Behavioral coverage — execute the real generated command
 
-    @Test
-    func testRemoteListingScriptBatchesStatViaFindWithoutPerEntryFanout() {
-        let script = ProcessSSHFileExplorerTransport.remoteListingScript(
-            path: "/srv/app",
-            showHidden: false
+    /// Builds the command the SSH transport would send and runs it locally
+    /// through `shell` (which stands in for the remote login shell OpenSSH hands
+    /// the command to), returning captured stdout and the process exit status.
+    private func runRemoteListing(
+        path: String,
+        showHidden: Bool,
+        shell: String = "/bin/sh"
+    ) throws -> (output: String, status: Int32) {
+        let command = ProcessSSHFileExplorerTransport.posixShellBootstrap(
+            script: ProcessSSHFileExplorerTransport.remoteListingScript(
+                path: path,
+                showHidden: showHidden
+            )
         )
-        // The previous implementation looped over every entry and ran `stat`
-        // (twice) per entry. The fix detects the stat dialect once and enumerates
-        // with `find ... -exec stat {} +`, so there is no per-entry loop and no
-        // giant glob that could overflow ARG_MAX in large directories.
-        #expect(!script.contains("for entry"))
-        #expect(!script.contains("for "))
-        #expect(script.contains("find . -mindepth 1 -maxdepth 1"))
-        #expect(script.contains("-exec stat -c '%F\t%Y\t%W\t%n' {} +"))
-        #expect(script.contains("-exec stat -f '%HT\t%m\t%B\t%N' {} +"))
-        // GNU vs BSD stat is detected once, against a path that always exists.
-        #expect(script.contains("stat -c %Y /"))
-        #expect(script.contains("stat -f %m /"))
-        // `stat` must not dereference (no `-L`) so dangling symlinks are listed
-        // rather than dropped.
-        #expect(!script.contains("stat -L"))
-        // A readable but empty directory must report success (trailing exit 0),
-        // not a non-zero status that would surface as an error.
-        #expect(script.hasSuffix("exit 0"))
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shell)
+        process.arguments = ["-c", command]
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (String(decoding: data, as: UTF8.self), process.terminationStatus)
+    }
+
+    private func makeListingFixtureDirectory(name: String? = nil) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-listing-\(name ?? UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func names(
+        from output: String,
+        path: String,
+        showHidden: Bool
+    ) -> [FileExplorerEntry] {
+        ProcessSSHFileExplorerTransport.parseRemoteListing(output, path: path, showHidden: showHidden)
     }
 
     @Test
-    func testRemoteListingScriptSurfacesInaccessibleDirectoriesAsErrors() {
-        let script = ProcessSSHFileExplorerTransport.remoteListingScript(
-            path: "/srv/secret",
-            showHidden: false
+    func testRemoteListingExecutesAndReportsDirectoryContents() throws {
+        let root = try makeListingFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "x".write(to: root.appendingPathComponent("file one.txt"), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("sub"),
+            withIntermediateDirectories: true
         )
-        // A missing/unsearchable directory, an unreadable directory, and a host
-        // without a usable `stat` must exit non-zero so the listing surfaces as
-        // an error instead of masquerading as an empty directory.
-        #expect(script.contains("cd '/srv/secret' 2>/dev/null || exit 1"))
-        #expect(script.contains("[ -r . ] || exit 1"))
-        #expect(script.contains("else\n  exit 1"))
-        // A readable but empty directory still succeeds (trailing exit 0).
-        #expect(script.hasSuffix("exit 0"))
+
+        let (output, status) = try runRemoteListing(path: root.path, showHidden: false)
+        #expect(status == 0)
+        let entries = names(from: output, path: root.path, showHidden: false)
+        let byName = Dictionary(entries.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        #expect(Set(entries.map(\.name)) == ["file one.txt", "sub"])
+        #expect(byName["sub"]?.isDirectory == true)
+        #expect(byName["file one.txt"]?.isDirectory == false)
+        #expect(byName["file one.txt"]?.path == root.path + "/file one.txt")
+        // Timestamps are always collected so date sorts work without re-listing.
+        #expect(byName["sub"]?.modificationDate != nil)
     }
 
     @Test
-    func testRemoteListingScriptFiltersDotfilesUnlessHiddenRequested() {
-        let visible = ProcessSSHFileExplorerTransport.remoteListingScript(
-            path: "/srv/app",
-            showHidden: false
-        )
-        #expect(visible.contains("! -name '.*'"))
+    func testRemoteListingExecutionHidesDotfilesUnlessRequested() throws {
+        let root = try makeListingFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "x".write(to: root.appendingPathComponent(".secret"), atomically: true, encoding: .utf8)
+        try "y".write(to: root.appendingPathComponent("visible.txt"), atomically: true, encoding: .utf8)
 
-        let hidden = ProcessSSHFileExplorerTransport.remoteListingScript(
-            path: "/srv/app",
-            showHidden: true
-        )
-        #expect(!hidden.contains("-name"))
+        let (visibleOut, visibleStatus) = try runRemoteListing(path: root.path, showHidden: false)
+        #expect(visibleStatus == 0)
+        #expect(names(from: visibleOut, path: root.path, showHidden: false).map(\.name) == ["visible.txt"])
+
+        let (allOut, allStatus) = try runRemoteListing(path: root.path, showHidden: true)
+        #expect(allStatus == 0)
+        #expect(Set(names(from: allOut, path: root.path, showHidden: true).map(\.name)) == [".secret", "visible.txt"])
     }
 
     @Test
-    func testRemoteListingScriptSingleQuotesThePath() {
-        let plain = ProcessSSHFileExplorerTransport.remoteListingScript(
-            path: "/srv/my app",
-            showHidden: false
+    func testRemoteListingExecutionKeepsDanglingAndDirectorySymlinks() throws {
+        let root = try makeListingFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("target"),
+            withIntermediateDirectories: true
         )
-        #expect(plain.contains("cd '/srv/my app'"))
-
-        // A single quote in the path must be escaped so the script stays valid.
-        let quoted = ProcessSSHFileExplorerTransport.remoteListingScript(
-            path: "/srv/a'b",
-            showHidden: false
+        try FileManager.default.createSymbolicLink(
+            atPath: root.appendingPathComponent("dir-link").path,
+            withDestinationPath: "target"
         )
-        #expect(quoted.contains("cd '/srv/a'\\''b'"))
-    }
-
-    // MARK: POSIX shell bootstrap (login-shell independence)
-
-    @Test
-    func testPosixShellBootstrapRunsUnderBinShWithEncodedScript() {
-        let script = ProcessSSHFileExplorerTransport.remoteListingScript(
-            path: "/srv/app",
-            showHidden: true
+        try FileManager.default.createSymbolicLink(
+            atPath: root.appendingPathComponent("broken-link").path,
+            withDestinationPath: "does-not-exist"
         )
-        let command = ProcessSSHFileExplorerTransport.posixShellBootstrap(script: script)
 
-        // The login shell only ever sees `/bin/sh -c` plus a base64 payload, so
-        // fish/csh/tcsh cannot mis-parse the POSIX control flow.
-        #expect(command.hasPrefix("/bin/sh -c '"))
-        #expect(command.contains("base64 -d"))
-        #expect(command.contains("base64 -D"))
-        // A failed decode (no/incompatible base64) must error, not run `eval ""`
-        // and report an empty listing.
-        #expect(command.contains("[ -n \"$s\" ] || exit 1"))
-        // The raw POSIX script must NOT leak into the login-shell command line.
-        #expect(!command.contains("stat -c"))
-        #expect(!command.contains("-mindepth"))
+        let (output, status) = try runRemoteListing(path: root.path, showHidden: false)
+        #expect(status == 0)
+        let entries = names(from: output, path: root.path, showHidden: false)
+        // The dangling symlink must stay visible (the earlier `stat -L` path
+        // silently dropped it on GNU). Symlinks are never expandable directories.
+        #expect(Set(entries.map(\.name)) == ["target", "dir-link", "broken-link"])
+        let byName = Dictionary(entries.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        #expect(byName["broken-link"]?.isDirectory == false)
+        #expect(byName["dir-link"]?.isDirectory == false)
+        #expect(byName["target"]?.isDirectory == true)
     }
 
     @Test
-    func testPosixShellBootstrapEncodesExactScriptRoundTrip() throws {
-        let script = ProcessSSHFileExplorerTransport.remoteListingScript(
-            path: "/srv/app",
-            showHidden: true
-        )
-        let command = ProcessSSHFileExplorerTransport.posixShellBootstrap(script: script)
+    func testRemoteListingExecutionEmptyDirectorySucceedsWithNoEntries() throws {
+        let root = try makeListingFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (output, status) = try runRemoteListing(path: root.path, showHidden: true)
+        #expect(status == 0)
+        #expect(names(from: output, path: root.path, showHidden: true).isEmpty)
+    }
 
-        // Recover the base64 payload (between `b=` and `;`) and confirm it
-        // decodes back to exactly the script we asked to run.
-        let afterAssign = try #require(command.range(of: "b="))
-        let semicolon = try #require(
-            command.range(of: ";", range: afterAssign.upperBound..<command.endIndex)
+    @Test
+    func testRemoteListingExecutionMissingDirectoryExitsNonZero() throws {
+        let root = try makeListingFixtureDirectory()
+        try FileManager.default.removeItem(at: root)
+        // A missing directory must surface as a non-zero exit (→ sshCommandFailed),
+        // never a silently empty listing.
+        let (output, status) = try runRemoteListing(path: root.path, showHidden: false)
+        #expect(status != 0)
+        #expect(output.isEmpty)
+    }
+
+    @Test(.enabled(if: geteuid() != 0, "permission bits do not restrict the root user"))
+    func testRemoteListingExecutionUnreadableDirectoryExitsNonZero() throws {
+        let root = try makeListingFixtureDirectory()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try "x".write(to: root.appendingPathComponent("f"), atomically: true, encoding: .utf8)
+        // Execute bit only (so `cd` succeeds) but no read bit, exercising `[ -r . ]`.
+        try FileManager.default.setAttributes([.posixPermissions: 0o111], ofItemAtPath: root.path)
+        let (_, status) = try runRemoteListing(path: root.path, showHidden: false)
+        #expect(status != 0)
+    }
+
+    @Test
+    func testRemoteListingExecutionHandlesPathWithSingleQuote() throws {
+        let root = try makeListingFixtureDirectory(name: "qu'ote-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "x".write(to: root.appendingPathComponent("inside.txt"), atomically: true, encoding: .utf8)
+        // If the path were not single-quote-escaped, `cd` would fail and the
+        // command would error instead of listing the file.
+        let (output, status) = try runRemoteListing(path: root.path, showHidden: false)
+        #expect(status == 0)
+        #expect(names(from: output, path: root.path, showHidden: false).map(\.name) == ["inside.txt"])
+    }
+
+    // MARK: POSIX shell bootstrap (login-shell independence, base64 dependency)
+
+    @Test(.enabled(if: FileManager.default.isExecutableFile(atPath: "/bin/zsh"),
+                   "zsh is required for the cross-login-shell behavior test"))
+    func testRemoteListingRunsIdenticallyAcrossLoginShells() throws {
+        // The base64 bootstrap is what makes the command independent of the
+        // remote login shell. Running it through /bin/sh and /bin/zsh (a common
+        // interactive login shell) must produce the same listing.
+        let root = try makeListingFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "x".write(to: root.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("d"),
+            withIntermediateDirectories: true
         )
-        let encoded = String(command[afterAssign.upperBound..<semicolon.lowerBound])
-        let data = try #require(Data(base64Encoded: encoded))
-        #expect(String(data: data, encoding: .utf8) == script)
+
+        let (shOut, shStatus) = try runRemoteListing(path: root.path, showHidden: false, shell: "/bin/sh")
+        let (zshOut, zshStatus) = try runRemoteListing(path: root.path, showHidden: false, shell: "/bin/zsh")
+        #expect(shStatus == 0)
+        #expect(zshStatus == 0)
+        let shNames = Set(names(from: shOut, path: root.path, showHidden: false).map(\.name))
+        let zshNames = Set(names(from: zshOut, path: root.path, showHidden: false).map(\.name))
+        #expect(shNames == ["a.txt", "d"])
+        #expect(shNames == zshNames)
+    }
+
+    @Test
+    func testRemoteListingExitsNonZeroWhenBase64Unavailable() throws {
+        // With base64 missing from PATH the decode yields an empty script, which
+        // must error rather than run `eval ""` and report an empty listing.
+        let root = try makeListingFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "x".write(to: root.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+
+        let command = ProcessSSHFileExplorerTransport.posixShellBootstrap(
+            script: ProcessSSHFileExplorerTransport.remoteListingScript(path: root.path, showHidden: false)
+        )
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        // An empty PATH removes the external `base64` (printf/[/cd are builtins),
+        // forcing the decode-failure path. /bin/sh is launched by absolute path.
+        process.environment = ["PATH": ""]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus != 0)
     }
 
     // MARK: Parsing of the tab-separated stat output
