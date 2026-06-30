@@ -102,6 +102,42 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func agentLifecycleChangeRefreshesSidebarWithoutBroadWorkspaceInvalidation() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        let generationBeforeRecord = workspace.sidebarAgentRuntimeObservation.changeGeneration
+        var workspaceWillChangeCount = 0
+        let objectWillChangeCancellable = workspace.objectWillChange.sink {
+            workspaceWillChangeCount += 1
+        }
+        defer { objectWillChangeCancellable.cancel() }
+
+        var sidebarPublishCount = 0
+        let sidebarCancellable = workspace.sidebarObservationPublisher.sink {
+            sidebarPublishCount += 1
+        }
+        defer { sidebarCancellable.cancel() }
+        // Ignore the initial replay emission a late subscriber receives so the
+        // assertion only sees the refresh caused by the lifecycle change.
+        sidebarPublishCount = 0
+
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .needsInput)
+
+        #expect(
+            workspace.sidebarAgentRuntimeObservation.changeGeneration > generationBeforeRecord,
+            "Agent lifecycle changes must notify the narrow sidebar runtime observation stream."
+        )
+        #expect(
+            workspaceWillChangeCount == 0,
+            "Agent lifecycle color state is sidebar presentation state and must not broadly invalidate Workspace observers."
+        )
+        #expect(
+            sidebarPublishCount > 0,
+            "Agent lifecycle changes must still refresh sidebar state coloring through the sidebar observation publisher."
+        )
+    }
+
     @Test func sidebarImmediateObservationPublisherEmitsForLateTitleSubscriber() {
         let workspace = Workspace()
         workspace.title = "Restored Workspace"

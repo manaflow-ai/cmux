@@ -2614,6 +2614,17 @@ final class Workspace: Identifiable, ObservableObject {
     lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = makeSidebarImmediateObservationPublisher()
     lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = makeSidebarObservationPublisher()
 
+    // Agent lifecycle transitions are sidebar presentation state, so they must not
+    // invalidate the whole `Workspace` object: that is a hot agent-monitoring path
+    // with many unrelated observers, and broad `objectWillChange` fan-out is the
+    // sidebar CPU-spin class called out in CLAUDE.md. `recordAgentLifecycleChange`
+    // fires this narrow signal instead, and `makeSidebarObservationPublisher` folds
+    // it into the sidebar observation pipeline that drives state coloring.
+    private let agentLifecycleSidebarRefreshSubject = PassthroughSubject<Void, Never>()
+    var agentLifecycleSidebarRefreshPublisher: AnyPublisher<Void, Never> {
+        agentLifecycleSidebarRefreshSubject.eraseToAnyPublisher()
+    }
+
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {
         extensionSidebarProjectRootRefreshID &+= 1
         let refreshID = extensionSidebarProjectRootRefreshID
@@ -4663,7 +4674,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func recordAgentLifecycleChange(panelId: UUID) {
-        objectWillChange.send()
+        // Notify only the sidebar observation pipeline, not every `Workspace`
+        // observer. The lifecycle state itself already lives on the runtime
+        // observation model (its setter bumps `changeGeneration`); this signal
+        // refreshes the Combine-driven sidebar state coloring.
+        agentLifecycleSidebarRefreshSubject.send(())
         AgentHibernationController.shared.recordAgentLifecycleChange(
             workspaceId: id,
             panelId: panelId
