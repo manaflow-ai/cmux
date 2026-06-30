@@ -17,7 +17,7 @@ extension TabManager {
         // out into one unbounded blocking scan per workspace; the sidebar git
         // metadata path uses the same bounded permit pool.
         let probeLimiter = workspaceGitProbeLimiter
-        Task.detached(priority: .utility) { [weak self, weak newWorkspace, directory] in
+        newWorkspace.autoColorProbeTask = Task.detached(priority: .utility) { [weak self, weak newWorkspace, directory] in
             // Don't queue for a permit if the workspace/window is already gone.
             guard self != nil, newWorkspace != nil else { return }
             guard await probeLimiter.acquire() else { return }

@@ -2223,6 +2223,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    /// In-flight cwd-based auto-color probe, retained so it can be cancelled when
+    /// the workspace is torn down — dropping its git-probe-limiter waiter promptly
+    /// instead of leaving it queued behind slow filesystem/Git probes.
+    var autoColorProbeTask: Task<Void, Never>?
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every
     /// surface recreated on session restore. Managed `CMUX_*` and terminal-identity
@@ -3266,6 +3270,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var sharedLiveAgentIndexCancellable: AnyCancellable?
 
     deinit {
+        autoColorProbeTask?.cancel()
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
                 if let observer = registration.observer {
