@@ -59,6 +59,29 @@ extension MobileShellComposite {
         }.map(\.macDeviceID)
         return matching.isEmpty ? [macDeviceID] : matching
     }
+
+    static func macDeviceIDAliasSetsByPairedMacID(
+        in macs: [MobilePairedMac],
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool
+    ) -> [String: Set<String>] {
+        var groupKeyByMacID: [String: String] = [:]
+        var idsByGroupKey: [String: Set<String>] = [:]
+        for mac in macs {
+            let key = mac.dialEndpointKey(
+                supportedKinds: supportedKinds,
+                preferNonLoopback: preferNonLoopback
+            ) ?? "device:\(mac.macDeviceID)"
+            groupKeyByMacID[mac.macDeviceID] = key
+            idsByGroupKey[key, default: Set<String>()].insert(mac.macDeviceID)
+        }
+
+        var result: [String: Set<String>] = [:]
+        for (macID, groupKey) in groupKeyByMacID {
+            result[macID] = idsByGroupKey[groupKey] ?? Set([macID])
+        }
+        return result
+    }
 }
 
 private extension MobilePairedMac {

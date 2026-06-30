@@ -2561,14 +2561,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return direct
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
+        let aliasSetsByMacID = Self.macDeviceIDAliasSetsByPairedMacID(
+            in: candidates,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        )
         return candidates.first { candidate in
             guard candidate.macDeviceID != macDeviceID else { return false }
-            return Self.macDeviceIDsForLogicalPairedMac(
-                candidate.macDeviceID,
-                in: candidates,
-                supportedKinds: supportedKinds,
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
-            ).contains(previousForegroundMacDeviceID)
+            return aliasSetsByMacID[candidate.macDeviceID]?.contains(previousForegroundMacDeviceID) == true
         }
     }
 
