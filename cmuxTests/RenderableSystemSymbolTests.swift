@@ -37,15 +37,24 @@ struct RenderableSystemSymbolTests {
         ) == 2)
     }
 
-    @Test @MainActor func configuredAppKitImageUsesTemplateImageWithClampedSize() throws {
+    @Test @MainActor func configuredAppKitImageUsesTemplateImageWithClampedRasterInput() throws {
         RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+        let pointSize = CGFloat(0)
+        let clampedPointSize = RenderableSystemSymbol.clampedRasterPointSize(pointSize)
+        let symbolName = "questionmark.circle"
+        let baseImage = try #require(NSImage(systemSymbolName: symbolName, accessibilityDescription: nil))
+        let configuredImage = baseImage.withSymbolConfiguration(NSImage.SymbolConfiguration(
+            pointSize: clampedPointSize,
+            weight: .medium
+        )) ?? baseImage
+
         let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
-            systemName: "questionmark.circle",
-            pointSize: 0,
+            systemName: symbolName,
+            pointSize: pointSize,
             weight: .medium
         ))
         #expect(image.isTemplate)
-        #expect(image.size == NSSize(width: 1, height: 1))
+        #expect(image.size == configuredImage.size)
     }
 
     @Test @MainActor func configuredAppKitImagePreservesNonSquareSymbolNaturalSize() throws {
@@ -93,6 +102,10 @@ struct RenderableSystemSymbolTests {
         ) == NSSize(width: 20, height: 10))
         #expect(RenderableSystemSymbol.configuredSymbolImageSize(
             NSSize(width: 0, height: 10),
+            fallbackDimension: 16
+        ) == NSSize(width: 16, height: 16))
+        #expect(RenderableSystemSymbol.configuredSymbolImageSize(
+            NSSize(width: .nan, height: 10),
             fallbackDimension: 16
         ) == NSSize(width: 16, height: 16))
     }

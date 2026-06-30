@@ -222,9 +222,10 @@ struct CmuxSystemSymbolImage: View {
             pointSize: rasterSize,
             weight: weight
         ) {
+            let imageSize = RenderableSystemSymbol.configuredSymbolImageSize(image.size, fallbackDimension: rasterSize)
             Image(nsImage: image)
                 .renderingMode(.template)
-                .frame(width: rasterSize, height: rasterSize, alignment: alignment)
+                .frame(width: imageSize.width, height: imageSize.height, alignment: alignment)
         } else {
             Color.clear
                 .frame(width: rasterSize, height: rasterSize, alignment: alignment)
