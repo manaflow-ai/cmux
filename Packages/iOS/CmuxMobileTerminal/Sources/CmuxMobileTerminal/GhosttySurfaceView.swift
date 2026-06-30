@@ -598,16 +598,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// settled layer size rather than leaving a stale mid-animation surface.
     /// Bounded to avoid a perpetual main-queue present flood.
     private var pendingRenderFrames: Int = 0
-    /// At most one `render_now` is in flight on `outputQueue` at a time. The
-    /// display link can fire at 120Hz and previously enqueued a render every
-    /// frame with no guard, so during a continuous pinch renders piled up
-    /// faster than the serial queue drained them. Each op stayed fast, but the
-    /// DISPLAYED frame fell seconds behind the live font and only caught up
-    /// when zoom stopped and the backlog drained — the "frozen, no updates"
-    /// symptom. Coalescing caps the backlog: while a render is in flight, mark
-    /// `needsAnotherRender` and re-enqueue exactly one when it completes.
-    private var renderInFlight: Bool = false
-    private var needsAnotherRender: Bool = false
+    /// Coalesces display-link `render_now` calls and reopens if a render wedges.
+    private var renderFlightState = TerminalRenderFlightState()
     /// True while the app is inactive/backgrounded. On iOS `render_now`
     /// produces a frame synchronously on `outputQueue` and acquires a
     /// swap-chain frame slot from libghostty; if the app is backgrounded while
@@ -619,6 +611,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// GPU is available so any in-flight render drains — and gate dispatch so
     /// no `render_now` is sent into the background.
     private var renderingSuspended: Bool = false
+    private static let renderFlightTimeout: CFTimeInterval = 3.0
     #if DEBUG
     /// Last time the display-link heartbeat logged (DEBUG diagnostic). The
     /// per-frame callback runs on the main thread, so a steady heartbeat proves
@@ -650,6 +643,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     static let outputQueue = DispatchQueue(
         label: "dev.cmux.GhosttySurfaceView.output",
         qos: .userInitiated
+    )
+    private static let renderQueue = DispatchQueue(
+        label: "dev.cmux.GhosttySurfaceView.render",
+        qos: .userInteractive,
+        attributes: .concurrent
     )
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
@@ -1113,8 +1111,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// re-mark the surface visible, and restart the frame pump. Idempotent.
     private func resumeRendering() {
         renderingSuspended = false
-        renderInFlight = false
-        needsAnotherRender = false
+        renderFlightState.reset()
         guard let surface, window != nil else { return }
         ghostty_surface_set_occlusion(surface, true)  // true = visible
         setFocus(true)
@@ -2682,7 +2679,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 : -1
             MobileDebugLog.anchormux(
                 "tick.alive win=\(window != nil) suspended=\(renderingSuspended) "
-                + "renderInFlight=\(renderInFlight) "
+                + "renderInFlight=\(renderFlightState.isInFlight) "
                 + "needsDraw=\(needsDraw) contents=\(renderLayer?.contents != nil) "
                 + "surf=\(Int(renderSize.width))x\(Int(renderSize.height)) "
                 + "sinceOutput=\(sinceOutputMs)ms"
@@ -2718,6 +2715,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
         }
         let now = CACurrentMediaTime()
+        if renderFlightState.isStale(now: now, timeout: Self.renderFlightTimeout) {
+            MobileDebugLog.anchormux(
+                "render.stale reopening elapsedMs=\(Int((now - (renderFlightState.startedAt ?? now)) * 1000))"
+            )
+            needsDraw = true
+        }
         let blinkChanged = cursorBlinkState.advance(now: now)
         // Draw on content/cursor changes, and for a short bounded burst after
         // any geometry change. iOS has no renderer-side vsync, so a frame is
@@ -2774,8 +2777,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// Drive a full render cycle via `ghostty_surface_render_now`, dispatched
-    /// to the off-main surface queue.
+    /// Drive a full render cycle via `ghostty_surface_render_now`, off main.
     ///
     /// On iOS libghostty's renderer-thread event loop does not pump frames
     /// (it's a platform-display-driven embedder), so `ghostty_surface_refresh`
@@ -2783,13 +2785,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// doesn't run, the cell grid stays 0x0, and the surface renders blank
     /// (uninitialized buffer shows as garbled). `render_now` instead runs
     /// `applyPendingResizeIfNeeded` + drainMailbox + `updateFrame` + drawFrame
-    /// directly on the calling thread, so the terminal grid is sized and the
-    /// cells are rebuilt from real content. We run it on `outputQueue` so the
-    /// GPU encode/swap-chain wait stays OFF the main thread (calling it on main
-    /// is what tripped the scene-update watchdog under fast zoom). The present
-    /// still hops to main inside libghostty (`setSurface`). The display link
-    /// gates this on `needsDraw`/`pendingRenderFrames`, so it is not a
-    /// per-frame loop that would flood the main queue with present blocks.
+    /// directly on the calling thread, so the terminal grid is sized and cells
+    /// are rebuilt from real content. Rendering is separate from `outputQueue`
+    /// so a wedged GPU frame wait cannot block later `process_output`.
     private func requestRender() {
         // Never dispatch a render into the background: a backgrounded
         // `render_now` can stall acquiring a swap-chain frame slot from
@@ -2798,15 +2796,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // skipped frame the display link re-drives), but we still gate on
         // suspension; `resumeRendering` clears it on the next active transition.
         guard !renderingSuspended, let surface, !isDismantled else { return }
-        // Coalesce: never let more than one render_now sit on the serial queue.
-        // (Called on main from the display link.)
-        if renderInFlight {
-            needsAnotherRender = true
-            return
+        let now = CACurrentMediaTime()
+        let decision = renderFlightState.request(now: now, staleTimeout: Self.renderFlightTimeout)
+        guard case let .enqueue(generation, replacedStale) = decision else { return }
+        if replacedStale {
+            MobileDebugLog.anchormux("render.stale replaced generation=\(generation)")
         }
-        renderInFlight = true
         let enqueuedAt = CACurrentMediaTime()
-        Self.outputQueue.async { [weak self] in
+        Self.renderQueue.async { [weak self] in
             // Queue LAG = how long this render waited behind other ops. If this
             // climbs into hundreds of ms the queue is backlogged (the freeze).
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
@@ -2814,14 +2811,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             ghostty_surface_render_now(surface)
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.renderInFlight = false
+                let completion = self.renderFlightState.complete(generation: generation)
                 guard !self.isDismantled else {
-                    self.needsAnotherRender = false
                     return
                 }
-                if self.needsAnotherRender {
-                    self.needsAnotherRender = false
+                if completion == .enqueueCoalesced {
                     self.requestRender()
+                } else if completion == .ignoredStaleCompletion {
+                    MobileDebugLog.anchormux("render.stale late_completion generation=\(generation)")
                 }
             }
         }
