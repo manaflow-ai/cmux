@@ -11,15 +11,10 @@ final class ChatScrollEdgeCoordinator {
     func configure(
         tableView: ChatTranscriptUITableView?,
         owner: UIViewController,
-        composerView: UIView,
-        suppressTopEdgeEffect: Bool
+        composerView: UIView
     ) {
-        configureEdgeEffect(for: tableView, suppressTopEdgeEffect: suppressTopEdgeEffect)
-        configureContentScrollView(
-            tableView,
-            owner: owner,
-            suppressTopEdgeEffect: suppressTopEdgeEffect
-        )
+        configureEdgeEffect(for: tableView)
+        configureContentScrollView(tableView, owner: owner)
         configureBottomInteraction(tableView, composerView: composerView)
     }
 
@@ -28,25 +23,18 @@ final class ChatScrollEdgeCoordinator {
         clearTopContentScrollViewController()
     }
 
-    private func configureEdgeEffect(
-        for tableView: ChatTranscriptUITableView?,
-        suppressTopEdgeEffect: Bool
-    ) {
+    private func configureEdgeEffect(for tableView: ChatTranscriptUITableView?) {
         guard let tableView else { return }
-        tableView.applyScrollEdgeEffects(topSoft: !suppressTopEdgeEffect, bottomSoft: true)
+        tableView.applyScrollEdgeEffects(topSoft: true, bottomSoft: true)
     }
 
     private func configureContentScrollView(
         _ tableView: ChatTranscriptUITableView?,
-        owner: UIViewController,
-        suppressTopEdgeEffect: Bool
+        owner: UIViewController
     ) {
         if #available(iOS 26.0, *) {
-            guard let tableView, !suppressTopEdgeEffect else {
+            guard let tableView else {
                 clearTopContentScrollViewController()
-                #if DEBUG
-                tableView?.recordTopContentScrollViewRegistration(false)
-                #endif
                 return
             }
             let topController = nearestNavigationContentViewController(from: owner) ?? owner

@@ -419,15 +419,8 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         scrollEdgeCoordinator.configure(
             tableView: tables.first,
             owner: self,
-            composerView: composerHostingController.view,
-            suppressTopEdgeEffect: shouldSuppressTopScrollEdgeEffect
+            composerView: composerHostingController.view
         )
-    }
-
-    private var shouldSuppressTopScrollEdgeEffect: Bool {
-        isKeyboardAnimationActive
-            || keyboardOverlap > 0.5
-            || keyboardAnimationTargetOverlap > 0.5
     }
 
     private func updateComposerVisibility() {

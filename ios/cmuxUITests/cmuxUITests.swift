@@ -1285,15 +1285,25 @@ final class cmuxUITests: XCTestCase {
         let afterKeyboard = try waitForTranscriptMetrics(table, timeout: 6) {
             $0.frameMaxY < beforeKeyboard.frameMaxY - 120
         }
-        XCTAssertFalse(
+        let metricsAttachment = XCTAttachment(
+            string: "scrollPosition=\(scrollPosition)\nbefore=\(beforeKeyboard)\nafter=\(afterKeyboard)"
+        )
+        metricsAttachment.name = "keyboard-top-edge-metrics-\(scrollPosition)"
+        metricsAttachment.lifetime = .keepAlways
+        add(metricsAttachment)
+        let screenshotAttachment = XCTAttachment(screenshot: app.screenshot())
+        screenshotAttachment.name = "keyboard-top-edge-screenshot-\(scrollPosition)"
+        screenshotAttachment.lifetime = .keepAlways
+        add(screenshotAttachment)
+        XCTAssertTrue(
             afterKeyboard.topEdgeEffectSoft,
-            "Chat transcript must not force the iOS 26 top scroll-edge effect while the keyboard clips the transcript from \(scrollPosition). before=\(beforeKeyboard) after=\(afterKeyboard)",
+            "Chat transcript must keep the iOS 26 top scroll-edge effect while the keyboard clips the transcript from \(scrollPosition). The keyboard may move the viewport, but it must not remove the top fade under the navigation chrome. before=\(beforeKeyboard) after=\(afterKeyboard)",
             file: file,
             line: line
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             afterKeyboard.topContentScrollViewRegistered,
-            "Chat transcript must stop driving the navigation bar's top content scroll view while the keyboard clips the transcript from \(scrollPosition). Leaving it registered keeps the iOS 26 top scroll-edge treatment visible even though the transcript edge effect is suppressed. before=\(beforeKeyboard) after=\(afterKeyboard)",
+            "Chat transcript must keep driving the navigation bar's top content scroll view while the keyboard clips the transcript from \(scrollPosition). Deregistering it removes the top scroll-edge treatment shown in the keyboard repro. before=\(beforeKeyboard) after=\(afterKeyboard)",
             file: file,
             line: line
         )
