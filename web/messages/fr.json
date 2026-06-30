@@ -737,13 +737,13 @@
       "layoutItem1": "Lignes de premier niveau épinglées (espaces de travail et groupes).",
       "layoutItem2": "Lignes de premier niveau non épinglées (espaces de travail et groupes).",
       "creatingTitle": "Créer un groupe",
-      "creatingIntro": "Un groupe se crée de deux manières : par un raccourci clavier ou par le menu contextuel d’un workspace. Les deux insèrent un nouveau workspace d’ancrage au-dessus de la sélection et déplacent les workspaces sélectionnés dans le groupe. Une fois le groupe créé, vous le gérez et y ajoutez des workspaces depuis l’en-tête du groupe (voir Gérer un groupe ci-dessous).",
-      "keyboardTitle": "Depuis le clavier ({shortcut})",
-      "keyboardDesc": "Sélectionnez deux espaces de travail ou plus dans la barre latérale, puis appuyez sur {shortcut}. Un nouvel espace de travail d'ancrage est inséré au-dessus de la sélection et tous les espaces de travail sélectionnés deviennent des enfants. Le groupe est automatiquement nommé Group 1, Group 2, et ainsi de suite — renommez-le à tout moment via le menu contextuel de l'en-tête.",
+      "creatingIntro": "Un groupe se crée depuis un raccourci clavier ou un menu contextuel de la barre latérale. Les groupes vides insèrent un nouvel espace de travail d’ancrage comme en-tête du groupe. Les groupes basés sur une sélection insèrent cet ancrage au-dessus de la sélection et déplacent les espaces de travail sélectionnés dans le groupe. Une fois le groupe créé, tu le gères et tu y ajoutes des espaces de travail depuis l’en-tête du groupe (voir Gestion d’un groupe ci-dessous).",
+      "keyboardTitle": "Depuis les raccourcis clavier",
+      "keyboardDesc": "Appuie sur ⌃⌘G pour créer un nouveau groupe d’espaces de travail vide. Sélectionne au moins deux espaces de travail dans la barre latérale, puis appuie sur {shortcut} pour grouper la sélection. Les deux chemins créent un nouvel espace de travail d’ancrage et nomment automatiquement le groupe Group 1, Group 2, etc. Renomme-le à tout moment depuis le menu contextuel de l’en-tête.",
       "keyboardNote": "{shortcut} entre en conflit avec le raccourci par défaut de React Grab. Le gestionnaire de groupe ne consomme l'accord que lorsqu'il existe une multi-sélection explicite d'au moins deux espaces de travail dans la barre latérale, de sorte que React Grab se déclenche toujours en sélection unique et dans les contextes navigateur ou terminal. Réaffectez-le dans Réglages → Clavier si vous préférez que les deux ne partagent pas une touche.",
       "keyboardSingle": "Les groupes à onglet unique ne sont pas créés depuis le raccourci. Utilisez pour cela l'entrée Nouveau groupe depuis cet espace de travail du menu contextuel de l'espace de travail.",
       "contextMenuTitle": "Depuis un menu contextuel d'espace de travail",
-      "contextMenuDesc": "Faites un clic droit sur n'importe quel espace de travail dans la barre latérale et choisissez Nouveau groupe depuis cet espace de travail, ou Nouveau groupe depuis la sélection lorsque plusieurs espaces de travail sont sélectionnés. Cela utilise le même comportement de nommage automatique que le raccourci.",
+      "contextMenuDesc": "Clique avec le bouton droit sur un espace de travail dans la barre latérale et choisis Nouveau groupe d’espaces de travail vide, Nouveau groupe depuis l’espace de travail ou Nouveau groupe depuis la sélection lorsque plusieurs espaces de travail sont sélectionnés. La zone vide sous la liste de la barre latérale propose aussi Nouveau groupe d’espaces de travail vide. Ces chemins utilisent le même nommage automatique que les raccourcis.",
       "managingTitle": "Gérer un groupe",
       "managingIntro": "Une fois le groupe créé, le menu contextuel de son en-tête et le bouton + de l’en-tête vous permettent de gérer le groupe et d’y ajouter des workspaces. Aucune de ces actions ne crée de nouveau groupe.",
       "headerMenuTitle": "Depuis le menu contextuel de l'en-tête de groupe",
@@ -820,6 +820,9 @@
           "claudeResumeMode": "Définit comment cmux répond à l’invite de reprise de session de Claude Code lors de la reprise automatique d’un agent Claude. « ask » conserve l’invite ; « full » sélectionne automatiquement « Resume full session as-is » ; « summary » sélectionne « Resume from summary ».",
           "showTextBoxOnNewTerminals": "Affiche l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés.",
           "focusTextBoxOnNewTerminals": "Place le focus sur l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés. Le focus affiche aussi TextBox."
+        },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Lorsque cette option est activée, une bannière de notification n'est retirée automatiquement que lorsque sa surface est exactement la surface ayant le focus. Une bannière affichée pour une surface sans focus dans le workspace actuellement visible reste affichée jusqu'à ce que vous donniez le focus à cette surface (ou que vous cliquiez dessus / la fermiez), au lieu d'être retirée lorsque le workspace devient visible. Désactivée, cette option conserve l'ancien retrait basé sur la visibilité du workspace."
         },
         "browser": {
           "defaultSearchEngine": "Moteur de recherche par défaut pour les saisies de la barre d’adresse du navigateur qui ne sont pas des URL. Utilisez custom avec customSearchEngineURLTemplate pour d’autres fournisseurs.",
@@ -1069,7 +1072,8 @@
       "closeWorkspaceDesc": "Fermer un espace de travail.",
       "splitCommands": "Commandes de division",
       "newSplitDesc": "Créer un nouveau panneau divisé. Directions : left, right, up, down.",
-      "listSurfacesDesc": "Lister toutes les surfaces dans l'espace de travail actuel.",
+      "listPanelsDesc": "Lister toutes les surfaces dans l'espace de travail actuel.",
+      "listPaneSurfacesDesc": "Lister les surfaces du panneau actif.",
       "focusSurfaceDesc": "Mettre le focus sur une surface spécifique.",
       "inputCommands": "Commandes de saisie",
       "sendDesc": "Envoyer du texte au terminal actif.",

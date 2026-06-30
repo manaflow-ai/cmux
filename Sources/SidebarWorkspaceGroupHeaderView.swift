@@ -37,7 +37,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.rowSpacing == rhs.rowSpacing &&
             lhs.isFirstRow == rhs.isFirstRow &&
             lhs.isBeingDragged == rhs.isBeingDragged &&
-            lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible
+            lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
+            lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible
     }
 
     let groupId: UUID
@@ -67,8 +68,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isFirstRow: Bool
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
+    let bottomDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
-    let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: () -> Void
     let onTapPlus: () -> Void
@@ -110,6 +111,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         return "\(shortcutModifierSymbol)\(shortcutDigit)"
     }
 
+    private var pinnedGroupTooltip: String {
+        String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
+    }
+
     private var rowHeightProbe: some View {
         GeometryReader { proxy in
             Color.clear
@@ -124,8 +129,23 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                .cmuxFont(size: metrics.chevronFontSize, weight: .semibold)
+            if isPinned {
+                CmuxSystemSymbolImage(
+                    magnified: "pin.fill",
+                    pointSize: metrics.pinnedIconFontSize,
+                    weight: .semibold
+                )
+                .foregroundStyle(Color.secondary.opacity(0.8))
+                .frame(width: metrics.iconFrame, height: metrics.iconFrame)
+                .safeHelp(pinnedGroupTooltip)
+                .accessibilityLabel(Text(pinnedGroupTooltip))
+            }
+            CmuxSystemSymbolImage(
+                systemName: isCollapsed ? "chevron.right" : "chevron.down",
+                pointSize: metrics.chevronFontSize,
+                weight: .semibold,
+                appliesGlobalFontMagnification: true
+            )
                 .foregroundStyle(.secondary)
                 .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
                 .contentShape(Rectangle())
@@ -140,8 +160,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 )
 
             HStack(spacing: 6) {
-                Image(systemName: displayedIconSymbol)
-                    .cmuxFont(size: metrics.iconFontSize, weight: .semibold)
+                CmuxSystemSymbolImage(
+                    systemName: displayedIconSymbol,
+                    pointSize: metrics.iconFontSize,
+                    weight: .semibold,
+                    appliesGlobalFontMagnification: true
+                )
                     .foregroundStyle(iconColor)
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
@@ -178,8 +202,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 shortcutHintModeActive: showsShortcutHint
             )
             Button(action: onTapPlus) {
-                Image(systemName: "plus")
-                    .cmuxFont(size: metrics.plusFontSize, weight: .medium)
+                CmuxSystemSymbolImage(
+                    systemName: "plus",
+                    pointSize: metrics.plusFontSize,
+                    weight: .medium,
+                    appliesGlobalFontMagnification: true
+                )
                     .foregroundStyle(.secondary)
                     .frame(width: metrics.plusFrame, height: metrics.plusFrame)
                     .contentShape(Rectangle())
@@ -257,12 +285,20 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 rowSpacing: rowSpacing
             )
         }
+        .overlay(alignment: .bottom) {
+            SidebarWorkspaceTopDropIndicator(
+                isVisible: bottomDropIndicatorVisible,
+                isFirstRow: false,
+                rowSpacing: rowSpacing,
+                isBottomEdge: true,
+                leadingInset: metrics.groupScopedBottomDropIndicatorLeadingInset
+            )
+        }
         .overlay {
             SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
         .contextMenu {
             Button(
                 String(

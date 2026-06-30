@@ -24,6 +24,8 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     let lastSeenAt: Date
     /// How many aggregated workspaces this computer contributes.
     let workspaceCount: Int
+    /// Stored paired-Mac ids represented by this visible row.
+    let aliasIDs: [String]
 
     var id: String { deviceId }
 }
