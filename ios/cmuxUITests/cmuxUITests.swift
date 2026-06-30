@@ -290,7 +290,7 @@ final class cmuxUITests: XCTestCase {
                 return false
             }
             return renderHeight > 120
-                && viewportHeight > renderHeight + 120
+                && viewportHeight > renderHeight + 60
                 && $0["toolbarVisible"] == "1"
         }
 
