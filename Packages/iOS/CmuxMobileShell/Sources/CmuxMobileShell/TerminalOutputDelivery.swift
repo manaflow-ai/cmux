@@ -54,20 +54,21 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         }
     }
 
-    mutating func appendBytes(from delivery: TerminalOutputDelivery) -> Bool {
+    fileprivate mutating func appendBytes(from delivery: TerminalOutputDelivery) -> Bool {
         guard replacementScope == nil,
               delivery.replacementScope == nil,
               viewportPolicy == delivery.viewportPolicy else {
             return false
         }
-        switch (payload, delivery.payload) {
-        case (.bytes(var bytes), .bytes(let nextBytes)):
-            bytes.append(nextBytes)
-            payload = .bytes(bytes)
-            return true
-        default:
+        guard case .bytes(var bytes) = payload,
+              case .bytes(let nextBytes) = delivery.payload else {
             return false
         }
+        // Drop the enum's owner before append so Data can grow without copying the accumulated buffer.
+        payload = .bytes(Data())
+        bytes.append(nextBytes)
+        payload = .bytes(bytes)
+        return true
     }
 }
 

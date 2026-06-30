@@ -184,20 +184,24 @@ import Testing
     #expect(queue.completeInFlight() == nil)
 }
 
-@Test func terminalOutputQueueDrainsRawFallbackBacklogInOrder() {
+@Test func terminalOutputQueueDrainsMixedBacklogInOrderAcrossBarriers() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+    let firstRawBytes = TerminalOutputDelivery(bytes: Data("raw-a".utf8), replaceable: false)
+    let viewport = TerminalOutputDelivery(bytes: Data("viewport".utf8), replaceable: true)
+    let secondRawBytes = TerminalOutputDelivery(bytes: Data("raw-b".utf8), replaceable: false)
+    let thirdRawBytes = TerminalOutputDelivery(bytes: Data("raw-c".utf8), replaceable: false)
 
     #expect(queue.enqueue(inFlight) == inFlight)
-    for index in 0..<128 {
-        let delivery = TerminalOutputDelivery(bytes: Data("raw-\(index)".utf8), replaceable: false)
-        #expect(queue.enqueue(delivery) == nil)
-    }
+    #expect(queue.enqueue(firstRawBytes) == nil)
+    #expect(queue.enqueue(viewport) == nil)
+    #expect(queue.enqueue(secondRawBytes) == nil)
+    #expect(queue.enqueue(thirdRawBytes) == nil)
 
-    #expect(queue.pendingCount == 1)
-    let expectedText = (0..<128).map { "raw-\($0)" }.joined()
-    let delivered = queue.completeInFlight()
-    #expect(delivered?.bytes == Data(expectedText.utf8))
+    #expect(queue.pendingCount == 3)
+    #expect(queue.completeInFlight() == firstRawBytes)
+    #expect(queue.completeInFlight() == viewport)
+    #expect(queue.completeInFlight()?.bytes == Data("raw-braw-c".utf8))
     #expect(queue.completeInFlight() == nil)
     #expect(queue.isIdle)
 }
