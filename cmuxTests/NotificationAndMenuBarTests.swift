@@ -1836,6 +1836,46 @@ final class MenuBarNotificationLineFormatterTests: XCTestCase {
 }
 
 
+final class NativeNotificationTextTests: XCTestCase {
+    func testBannerTextBreaksSubtitleURLAutoLinking() {
+        let subtitle = "PR https://github.com/manaflow-ai/cmux/pull/6499 - Claude Code"
+
+        let formatted = NativeNotificationText.textForBanner(subtitle)
+
+        XCTAssertEqual(
+            formatted,
+            "PR github dot com/manaflow-ai/cmux/pull/6499 - Claude Code"
+        )
+        XCTAssertFalse(formatted.contains("https://"))
+        XCTAssertFalse(formatted.contains("github.com"))
+    }
+
+    func testBannerBodyBreaksGitHubURLAutoLinking() {
+        let body = "PR https://github.com/manaflow-ai/cmux/pull/6499 - Claude Code teammate opened split panes again."
+
+        let formatted = NativeNotificationText.bodyForBanner(body)
+
+        XCTAssertEqual(
+            formatted,
+            "PR github dot com/manaflow-ai/cmux/pull/6499 - Claude Code teammate opened split panes again."
+        )
+        XCTAssertFalse(formatted.contains("https://"))
+        XCTAssertFalse(formatted.contains("github.com"))
+    }
+
+    func testBannerBodyBreaksMultipleURLsWithoutChangingOtherText() {
+        let body = "See https://example.com/a?b=1 and http://docs.example.org/ref#anchor."
+
+        let formatted = NativeNotificationText.bodyForBanner(body)
+
+        XCTAssertEqual(
+            formatted,
+            "See example dot com/a?b=1 and docs dot example dot org/ref#anchor."
+        )
+    }
+}
+
+
 final class MenuBarIconDebugSettingsTests: XCTestCase {
     func testDisplayedUnreadCountUsesPreviewOverrideWhenEnabled() {
         let suiteName = "MenuBarIconDebugSettingsTests.\(UUID().uuidString)"

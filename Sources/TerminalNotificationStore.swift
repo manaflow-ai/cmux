@@ -85,6 +85,59 @@ enum TaggedRunBadgeSettings {
     }
 }
 
+enum NativeNotificationText {
+    static func textForBanner(_ text: String) -> String {
+        bodyForBanner(text)
+    }
+
+    static func bodyForBanner(_ body: String) -> String {
+        guard !body.isEmpty else { return body }
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+            return body
+        }
+
+        let nsBody = body as NSString
+        let matches = detector
+            .matches(in: body, options: [], range: NSRange(location: 0, length: nsBody.length))
+            .filter { $0.resultType == .link && $0.range.length > 0 }
+        guard !matches.isEmpty else { return body }
+
+        var result = body
+        for match in matches.reversed() {
+            guard let range = Range(match.range, in: result) else { continue }
+            let original = nsBody.substring(with: match.range)
+            result.replaceSubrange(range, with: displayText(for: match.url, original: original))
+        }
+        return result
+    }
+
+    private static func displayText(for url: URL?, original: String) -> String {
+        guard let url, let host = url.host, !host.isEmpty else {
+            return original.replacingOccurrences(of: "://", with: " :// ")
+        }
+
+        let hostAndPort = url.port.map { "\(host):\($0)" } ?? host
+        let suffix = suffixAfterHostAndPort(hostAndPort, in: original) ?? url.path
+        return host.replacingOccurrences(of: ".", with: " dot ") + suffix
+    }
+
+    private static func suffixAfterHostAndPort(_ hostAndPort: String, in original: String) -> String? {
+        let candidate: Substring
+        if let schemeRange = original.range(of: "://") {
+            candidate = original[schemeRange.upperBound...]
+        } else {
+            candidate = original[...]
+        }
+
+        guard candidate.lowercased().hasPrefix(hostAndPort.lowercased()) else {
+            return nil
+        }
+
+        let suffixStart = candidate.index(candidate.startIndex, offsetBy: hostAndPort.count)
+        return String(candidate[suffixStart...])
+    }
+}
+
 enum AppFocusState {
     static var overrideIsFocused: Bool?
 
@@ -1754,7 +1807,9 @@ final class TerminalNotificationStore: ObservableObject {
         let nativeDeliveryHooks = nativeNotificationDeliveryHooks
         let notificationTitle = resolvedNotificationTitle(for: notification)
         let notificationSubtitle = notification.subtitle
-        let notificationBody = notification.body
+        let bannerTitle = NativeNotificationText.textForBanner(notificationTitle)
+        let bannerSubtitle = NativeNotificationText.textForBanner(notificationSubtitle)
+        let bannerBody = NativeNotificationText.textForBanner(notification.body)
         let notificationId = notification.id
         let notificationTabId = notification.tabId
         let notificationSurfaceId = notification.surfaceId
@@ -1763,9 +1818,9 @@ final class TerminalNotificationStore: ObservableObject {
 
         let handleAuthorization: NativeNotificationDeliveryHooks.AuthorizationCompletion = { authorized, effectiveAuthorizationState in
             let content = UNMutableNotificationContent()
-            content.title = notificationTitle
-            content.subtitle = notificationSubtitle
-            content.body = notificationBody
+            content.title = bannerTitle
+            content.subtitle = bannerSubtitle
+            content.body = bannerBody
             guard authorized else {
                 NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(
                     effects: Self.fallbackEffects(effects, authorizationState: effectiveAuthorizationState)
@@ -1790,9 +1845,9 @@ final class TerminalNotificationStore: ObservableObject {
                 content: content,
                 trigger: nil
             )
-            let commandTitle = content.title
-            let commandSubtitle = content.subtitle
-            let commandBody = content.body
+            let commandTitle = notificationTitle
+            let commandSubtitle = notificationSubtitle
+            let commandBody = notification.body
 
             nativeDeliveryHooks.schedule(request) { error in
                 if let error {
