@@ -338,7 +338,10 @@ struct WorkspaceListView: View {
         } else {
             startsMachineSwitch = false
         }
-        let cancelTask = cancelMacTitlePickerSwitch(restorePreviousOnCancel: !startsMachineSwitch)
+        let cancelTask = cancelMacTitlePickerSwitch(
+            restorePreviousOnCancel: true,
+            cancelStoreSwitch: !startsMachineSwitch
+        )
         guard startsMachineSwitch else {
             macTitlePickerPendingSelection = nil
             macSelection = selection
@@ -376,7 +379,10 @@ struct WorkspaceListView: View {
     }
 
     @discardableResult
-    func cancelMacTitlePickerSwitch(restorePreviousOnCancel: Bool = true) -> Task<Void, Never>? {
+    func cancelMacTitlePickerSwitch(
+        restorePreviousOnCancel: Bool = true,
+        cancelStoreSwitch: Bool = true
+    ) -> Task<Void, Never>? {
         let pendingSwitchTask = macTitlePickerSwitchTask
         let pendingSwitchTaskKind = macTitlePickerSwitchTaskKind
         if pendingSwitchTaskKind == .cancellation {
@@ -391,6 +397,7 @@ struct WorkspaceListView: View {
         macTitlePickerSwitchGeneration &+= 1
         let generation = macTitlePickerSwitchGeneration
         guard pendingSwitchTask != nil else { return nil }
+        guard cancelStoreSwitch else { return nil }
         let cancelMacSwitch = cancelMacSwitch
         let task = Task { @MainActor in
             defer {

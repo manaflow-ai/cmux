@@ -359,6 +359,100 @@ import Testing
         await firstTask?.value
     }
 
+    @Test func replacingPendingTitlePickerMachineSelectionKeepsRollbackArmed() async throws {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 30, isActive: true),
+            pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 20),
+            pairedMac(id: "mac-c", name: "Mac C", lastSeenAt: 10),
+        ])
+        var selected = WorkspaceMacSelection.all
+        var requestedSwitches: [String] = []
+        var cancelRestoreRequests: [Bool] = []
+        var firstSwitchContinuation: CheckedContinuation<Bool, Never>?
+        var secondSwitchContinuation: CheckedContinuation<Bool, Never>?
+        var firstSwitchDidStart = false
+        var firstSwitchStartedContinuation: CheckedContinuation<Void, Never>?
+        var cancelDidStart = false
+        var cancelStartedContinuation: CheckedContinuation<Void, Never>?
+        func markFirstSwitchStarted() {
+            guard !firstSwitchDidStart else { return }
+            firstSwitchDidStart = true
+            firstSwitchStartedContinuation?.resume()
+            firstSwitchStartedContinuation = nil
+        }
+        func waitForFirstSwitchStart() async {
+            guard !firstSwitchDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if firstSwitchDidStart {
+                    continuation.resume()
+                } else {
+                    firstSwitchStartedContinuation = continuation
+                }
+            }
+        }
+        func markCancelStarted() {
+            guard !cancelDidStart else { return }
+            cancelDidStart = true
+            cancelStartedContinuation?.resume()
+            cancelStartedContinuation = nil
+        }
+        func waitForCancelStart() async {
+            guard !cancelDidStart else { return }
+            await withCheckedContinuation { continuation in
+                if cancelDidStart {
+                    continuation.resume()
+                } else {
+                    cancelStartedContinuation = continuation
+                }
+            }
+        }
+        let view = workspaceListView(
+            workspaces: [workspace(id: "ws-a", macDeviceID: "mac-a")],
+            store: store,
+            macSelection: Binding(
+                get: { selected },
+                set: { selected = $0 }
+            ),
+            switchMac: { macDeviceID in
+                requestedSwitches.append(macDeviceID)
+                if macDeviceID == "mac-b" {
+                    markFirstSwitchStarted()
+                    return await withCheckedContinuation { continuation in
+                        firstSwitchContinuation = continuation
+                    }
+                }
+                return await withCheckedContinuation { continuation in
+                    secondSwitchContinuation = continuation
+                }
+            },
+            cancelMacSwitch: { restorePreviousOnCancel in
+                cancelRestoreRequests.append(restorePreviousOnCancel)
+                markCancelStarted()
+            }
+        )
+
+        let firstTask = view.handleMacTitlePickerSelection(.machine("mac-b"))
+        await waitForFirstSwitchStart()
+
+        let secondTask = view.handleMacTitlePickerSelection(.machine("mac-c"))
+        await Task.yield()
+
+        #expect(!cancelRestoreRequests.contains(false))
+
+        view.handleMacTitlePickerSelection(.all)
+        await waitForCancelStart()
+
+        #expect(cancelRestoreRequests == [true])
+        #expect(selected == .all)
+
+        firstSwitchContinuation?.resume(returning: false)
+        secondSwitchContinuation?.resume(returning: false)
+        await firstTask?.value
+        await secondTask?.value
+
+        #expect(selected == .all)
+    }
+
     @Test func selectingWorkspaceCancelsPendingTitlePickerSwitch() async throws {
         let workspaceID = MobileWorkspacePreview.ID(rawValue: "ws-a")
         let store = await shellStore(pairedMacs: [
