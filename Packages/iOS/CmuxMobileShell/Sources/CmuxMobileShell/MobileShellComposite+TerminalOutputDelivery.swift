@@ -4,6 +4,19 @@ import CmuxMobileShellModel
 public import Foundation
 
 extension MobileShellComposite {
+    func claimTerminalReplayBarrierFollowUp(surfaceID: String) -> Bool {
+        let followUpCount = terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] ?? 0
+        guard followUpCount < Self.maxTerminalReplayBarrierFollowUps else {
+            MobileDebugLog.anchormux(
+                "terminal.output.replay_followup_cap_reached surface=\(surfaceID) attempts=\(followUpCount)"
+            )
+            terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
+            return false
+        }
+        terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] = followUpCount + 1
+        return true
+    }
+
     /// Yield a raw PTY byte chunk to the surface stream, if one is attached.
     @discardableResult
     func deliverTerminalBytes(
@@ -125,12 +138,18 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared surface=\(surfaceID)")
             let droppedOutputDuringBarrier = terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID) != nil
             terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
-            if droppedOutputDuringBarrier, needsFollowUpReplay {
-                let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+            if droppedOutputDuringBarrier,
+               needsFollowUpReplay,
+               claimTerminalReplayBarrierFollowUp(surfaceID: surfaceID) {
+                let replayBarrierToken = beginTerminalReplayBarrier(
+                    surfaceID: surfaceID,
+                    preservingFollowUpCount: true
+                )
                 MobileDebugLog.anchormux("terminal.output.replay_followup surface=\(surfaceID)")
                 requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
                 return
             }
+            terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
         }
         guard let next,
               let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
