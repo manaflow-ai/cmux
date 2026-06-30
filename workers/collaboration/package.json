@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "smoke:relay": "bun scripts/smoke-relay.ts",
     "test": "bun test",
     "typecheck": "tsgo --noEmit && tsgo --noEmit -p tsconfig.test.json",
     "check": "bun run typecheck && bun test && wrangler deploy --dry-run --outdir dist"

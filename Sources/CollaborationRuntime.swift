@@ -217,8 +217,9 @@ struct CollaborationTerminalHeaderState: Equatable {
 @Observable
 final class CollaborationRuntime {
     static let shared = CollaborationRuntime()
+    private static let defaultRelayURLString = "https://collaboration.cmux.dev"
 
-    private(set) var relayURLString = "http://localhost:8787"
+    private(set) var relayURLString = CollaborationRuntime.defaultRelayURLString
     private(set) var sessionCode: String?
     private(set) var inviteToken: String?
     private(set) var connectionLabel = CollaborationStrings.disconnected
@@ -249,6 +250,11 @@ final class CollaborationRuntime {
     private init() {
         let displayName = NSFullUserName().isEmpty ? Host.current().localizedName ?? "cmux" : NSFullUserName()
         peerIdentity = CollaborationPeerIdentity.ephemeral(displayName: displayName)
+    }
+
+    private static func normalizedRelayURL(from value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? defaultRelayURLString : trimmed
     }
 
     func state(for panel: any CollaborationEditablePanel) -> CollaborationDocumentHeaderState {
@@ -513,8 +519,8 @@ final class CollaborationRuntime {
     }
 
     func createSessionForAutomation(relayURL: String?) async -> [String: Any] {
-        if let relayURL, !relayURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            relayURLString = relayURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let relayURL {
+            relayURLString = Self.normalizedRelayURL(from: relayURL)
         }
         do {
             let response = try await createSession()
@@ -545,8 +551,8 @@ final class CollaborationRuntime {
     }
 
     func joinSessionForAutomation(relayURL: String?, code: String, token: String) async -> [String: Any] {
-        if let relayURL, !relayURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            relayURLString = relayURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let relayURL {
+            relayURLString = Self.normalizedRelayURL(from: relayURL)
         }
         await joinSession(code: code, token: token)
         return statusPayload()
@@ -613,12 +619,12 @@ final class CollaborationRuntime {
         alert.addButton(withTitle: CollaborationStrings.cancel)
 
         let relayField = NSTextField(string: relayURLString)
-        relayField.placeholderString = "http://localhost:8787"
+        relayField.placeholderString = CollaborationStrings.relayURLPlaceholder
         relayField.frame = NSRect(x: 0, y: 0, width: 360, height: 24)
         alert.accessoryView = relayField
 
         let response = alert.runModal()
-        relayURLString = relayField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        relayURLString = Self.normalizedRelayURL(from: relayField.stringValue)
         switch response {
         case .alertFirstButtonReturn:
             Task { _ = await createSessionForAutomation(relayURL: relayURLString) }
@@ -663,12 +669,12 @@ final class CollaborationRuntime {
         alert.addButton(withTitle: CollaborationStrings.cancel)
 
         let relayField = NSTextField(string: relayURLString)
-        relayField.placeholderString = "http://localhost:8787"
+        relayField.placeholderString = CollaborationStrings.relayURLPlaceholder
         relayField.frame = NSRect(x: 0, y: 0, width: 360, height: 24)
         alert.accessoryView = relayField
 
         let response = alert.runModal()
-        relayURLString = relayField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        relayURLString = Self.normalizedRelayURL(from: relayField.stringValue)
         switch response {
         case .alertFirstButtonReturn:
             Task { await createSessionAndShare(panel: panel) }
@@ -1450,6 +1456,10 @@ enum CollaborationStrings {
 
     static var startMessage: String {
         String(localized: "collaboration.start.message", defaultValue: "Enter a relay URL, then create a new invite or join an existing one.")
+    }
+
+    static var relayURLPlaceholder: String {
+        String(localized: "collaboration.relay.urlPlaceholder", defaultValue: "Relay URL")
     }
 
     static var createSession: String {

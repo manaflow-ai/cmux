@@ -1,6 +1,15 @@
+# cmux Multiplayer collaboration relay — Cloudflare Worker + Durable Objects.
+#
+# Deploys run from .github/workflows/collaboration.yml on push to main. The
+# Durable Object migration block is the service's schema migration story:
+# wrangler applies class migrations atomically with every deploy.
+
 name = "cmux-collaboration-worker"
 main = "src/index.ts"
 compatibility_date = "2026-06-01"
+
+[observability]
+enabled = true
 
 [[durable_objects.bindings]]
 name = "COLLABORATION_SESSIONS"
@@ -9,3 +18,9 @@ class_name = "CollaborationSessionObject"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["CollaborationSessionObject"]
+
+# Production relay URL used by downloadable cmux builds. The workers.dev URL
+# remains available for ad hoc dev/staging smoke tests.
+[[routes]]
+pattern = "collaboration.cmux.dev"
+custom_domain = true

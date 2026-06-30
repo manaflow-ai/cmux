@@ -11,16 +11,31 @@ bun test
 bun run dev
 ```
 
-The local relay defaults to `http://localhost:8787`. In cmux, open a plain-text file preview, click **Collaborate**, enter that relay URL, and choose **Create Session**. A second cmux instance can join with the displayed session code and invite token.
+Downloadable cmux builds default to the production relay at `https://collaboration.cmux.dev`. For local development, override the relay URL with `http://localhost:8787` in the collaboration dialog or with `cmux collaboration create --relay-url http://localhost:8787`.
 
 ## Deploy
+
+Pushes to `main` that touch this worker run `.github/workflows/collaboration.yml`, which typechecks, runs unit tests, dry-runs Wrangler, then deploys to Cloudflare with Durable Object migrations applied atomically.
 
 ```bash
 bun run check
 bun run deploy
 ```
 
-`wrangler.toml` binds the `COLLABORATION_SESSIONS` Durable Object namespace. Production deployments should expose the Worker behind HTTPS; the macOS client converts `https://` relay URLs to `wss://` for WebSocket joins.
+The deploy job requires repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. `wrangler.toml` binds the `COLLABORATION_SESSIONS` Durable Object namespace and exposes the production custom domain `collaboration.cmux.dev`; the macOS client converts `https://` relay URLs to `wss://` for WebSocket joins.
+
+After deployment, smoke-test the public relay:
+
+```bash
+bun run smoke:relay
+```
+
+The smoke test performs a real health check, session creation, two WebSocket peer joins, heartbeat handling, and document frame forwarding. Set `CMUX_COLLABORATION_RELAY_URL` or pass a URL to test another relay:
+
+```bash
+CMUX_COLLABORATION_RELAY_URL=http://localhost:8787 bun run smoke:relay
+bun run smoke:relay https://collaboration.cmux.dev
+```
 
 ## HTTP API
 
@@ -61,6 +76,12 @@ The relay treats non-heartbeat frames as opaque JSON envelopes with a string `ty
 - `document.snapshot.request`
 - `document.snapshot`
 - `presence.update`
+- `terminal.open`
+- `terminal.output`
+- `terminal.input`
+- `terminal.pointer`
+- `terminal.selection`
+- `terminal.close`
 
 `peer.heartbeat` updates liveness and is not forwarded.
 
@@ -70,5 +91,4 @@ The relay treats non-heartbeat frames as opaque JSON envelopes with a string `ty
 - No Git automation.
 - No account auth or ACLs beyond the invite token.
 - No NAT traversal or direct peer-to-peer transport.
-- No terminal sharing.
 - Durable Object active memory is the session state; document content is never persisted by the relay.

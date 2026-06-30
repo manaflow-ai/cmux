@@ -4,6 +4,7 @@ import { CollaborationRelaySessionState } from "./session-state";
 import { createSessionMetadata, readSessionMetadata, type SessionMetadata } from "./session-metadata";
 
 const HEARTBEAT_TIMEOUT_MS = 30_000;
+const liveSessionStates = new Map<string, CollaborationRelaySessionState>();
 
 export class CollaborationSessionObject extends DurableObject {
   private metadata: SessionMetadata | null = null;
@@ -44,14 +45,16 @@ export class CollaborationSessionObject extends DurableObject {
       return new Response(JSON.stringify({ error: "invalid_peer" }), { status: 400 });
     }
 
+    const state = this.stateFor(metadata.sessionID);
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
+    const now = Date.now();
     server.accept();
-    this.state.addPeer(metadata.sessionID, peer, server, Date.now());
-    server.addEventListener("message", (event) => this.state.handleMessage(peer.peerID, event.data, Date.now()));
-    server.addEventListener("close", () => this.state.dropPeer(peer.peerID, "disconnect"));
-    server.addEventListener("error", () => this.state.dropPeer(peer.peerID, "disconnect"));
+    state.addPeer(metadata.sessionID, peer, server, now);
+    server.addEventListener("message", (event) => state.handleMessage(peer.peerID, event.data, Date.now()));
+    server.addEventListener("close", () => this.dropPeer(metadata.sessionID, peer.peerID, "disconnect"));
+    server.addEventListener("error", () => this.dropPeer(metadata.sessionID, peer.peerID, "disconnect"));
     await this.ensureAlarm();
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -69,5 +72,27 @@ export class CollaborationSessionObject extends DurableObject {
     if (this.metadata !== null) return this.metadata;
     this.metadata = await readSessionMetadata(this.ctx.storage);
     return this.metadata;
+  }
+
+  private stateFor(sessionID: string): CollaborationRelaySessionState {
+    let state = liveSessionStates.get(sessionID);
+    if (state === undefined) {
+      state = new CollaborationRelaySessionState();
+      liveSessionStates.set(sessionID, state);
+    }
+    this.state = state;
+    return state;
+  }
+
+  private dropPeer(
+    sessionID: string,
+    peerID: string,
+    reason: "disconnect" | "timeout" | "leave",
+  ): void {
+    const state = this.stateFor(sessionID);
+    state.dropPeer(peerID, reason);
+    if (state.peerCount === 0) {
+      liveSessionStates.delete(sessionID);
+    }
   }
 }

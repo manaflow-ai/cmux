@@ -559,6 +559,7 @@ jobs:
             CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 ./scripts/smoke-launch-macos-app.sh "$app_path"
             CMUX_SMOKE_DIRECT_EXEC=1 ./scripts/smoke-launch-macos-app.sh "$app_path"
             ./scripts/verify-app-bundle-channel-metadata.sh "$app_path" nightly
+            ./scripts/smoke-installable-artifact.sh --channel nightly "$app_path"
             rm -f "$zip_submit"
 
             dmg_tmp_dir="$(mktemp -d)"
@@ -588,6 +589,7 @@ jobs:
             fi
             xcrun stapler staple "$dmg_release"
             xcrun stapler validate "$dmg_release"
+            ./scripts/smoke-installable-artifact.sh --channel nightly "$dmg_release"
             cp "$dmg_release" "$dmg_immutable"
           }
 
