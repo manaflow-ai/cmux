@@ -183,16 +183,34 @@ final class CmuxMainWindow: NSWindow {
 
     /// Whether `proposedFrame` is reachable enough across `visibleFrames` that
     /// AppKit's constraining pass should be skipped. The frame qualifies when it
-    /// overlaps some screen's visible area by at least `minimumVisibleExtent`
-    /// points in both dimensions (or its full extent, when smaller) — i.e. a
+    /// overlaps some screen's visible area by enough in *both* dimensions that a
     /// usable, grabbable slice of the window is on-screen.
+    ///
+    /// "Enough" is the larger of an absolute floor (`minimumVisibleExtent`) and a
+    /// fraction of the window (`minimumVisibleFraction`), capped at the window's
+    /// own extent. The fraction matters: a purely absolute floor treats a large
+    /// window with only a thin strip on-screen as "reachable" — e.g. after an
+    /// external display is unplugged a full-width window can be left hanging off
+    /// the right edge with hundreds of points still visible, far above any small
+    /// absolute floor, yet effectively off-screen and unusable (#2824). Requiring
+    /// a proportional slice means such a window is handed back to AppKit's default
+    /// constrain pass and pulled into view, while a window that is mostly (or
+    /// fully) on-screen — including one whose titlebar merely pokes into the menu
+    /// bar — is still preserved untouched, so it cannot creep on sleep/wake.
     nonisolated static func shouldPreserveFrameDuringConstrain(
         _ proposedFrame: NSRect,
         visibleFrames: [NSRect],
-        minimumVisibleExtent: CGFloat = 60
+        minimumVisibleExtent: CGFloat = 60,
+        minimumVisibleFraction: CGFloat = 0.6
     ) -> Bool {
-        let requiredWidth = min(proposedFrame.width, minimumVisibleExtent)
-        let requiredHeight = min(proposedFrame.height, minimumVisibleExtent)
+        let requiredWidth = min(
+            proposedFrame.width,
+            max(minimumVisibleExtent, proposedFrame.width * minimumVisibleFraction)
+        )
+        let requiredHeight = min(
+            proposedFrame.height,
+            max(minimumVisibleExtent, proposedFrame.height * minimumVisibleFraction)
+        )
         for visibleFrame in visibleFrames {
             let intersection = proposedFrame.intersection(visibleFrame)
             if intersection.width >= requiredWidth, intersection.height >= requiredHeight {

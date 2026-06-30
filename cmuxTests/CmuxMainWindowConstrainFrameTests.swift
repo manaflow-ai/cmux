@@ -91,6 +91,30 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         )
     }
 
+    // #2824: unplugging an external display can leave a large window hanging off
+    // the right edge of the remaining screen. A few hundred points stay visible —
+    // far more than the absolute floor — but the window is effectively off-screen
+    // and unusable. A purely absolute extent check wrongly preserved it; only a
+    // proportional slice of the window being visible counts as reachable.
+    func testDoesNotPreserveLargeWindowStrandedOffRightEdge() {
+        let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        // 340pt of an 800pt-wide window peeks past the right edge (~42%).
+        let frame = NSRect(x: 1100, y: 100, width: 800, height: 600)
+        XCTAssertFalse(
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [visible])
+        )
+    }
+
+    // A full-width window left off the right edge after disconnect: 556pt of a
+    // 1512pt window remain visible, yet it is unreachable in practice.
+    func testDoesNotPreserveFullWidthWindowStrandedAfterDisconnect() {
+        let visible = NSRect(x: 0, y: 0, width: 1512, height: 982)
+        let frame = NSRect(x: 956, y: 14, width: 1512, height: 968)
+        XCTAssertFalse(
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [visible])
+        )
+    }
+
     func testDoesNotPreserveWhenNoScreensAvailable() {
         let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         XCTAssertFalse(
