@@ -137,6 +137,118 @@ struct AgentChatSessionRegistryObservationTests {
         #expect(record.state == .idle)
     }
 
+    @MainActor
+    @Test func pendingClaudeObservationBackfillsExistingRealSession() throws {
+        let registry = AgentChatSessionRegistry()
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let pendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID)
+        let realSessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+
+        registry.noteResumeInitiated(
+            sessionID: realSessionID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: "/Users/example/project"
+        )
+
+        registry.applyObservedSessions([
+            ObservedAgentSession(
+                sessionID: pendingID,
+                agentKind: .claude,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                pid: 333,
+                workingDirectory: "/Users/example/project",
+                transcriptPath: nil
+            ),
+        ])
+
+        let record = try #require(registry.record(sessionID: realSessionID))
+        #expect(registry.record(sessionID: pendingID) == nil)
+        #expect(record.pid == 333)
+        #expect(record.surfaceID == surfaceID)
+        #expect(registry.liveSession(surfaceID: surfaceID)?.sessionID == realSessionID)
+    }
+
+    @MainActor
+    @Test func hookStoreSeedMergesRealEntryIntoPendingClaudeSession() async throws {
+        let home = try temporaryHomeDirectory()
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let pendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID)
+        let realSessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let transcriptPath = "/Users/example/.claude/projects/-Users-example-project/\(realSessionID).jsonl"
+        try writeClaudeHookStore(
+            home: home,
+            sessionID: realSessionID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            transcriptPath: transcriptPath,
+            pid: 444
+        )
+        let registry = AgentChatSessionRegistry(
+            hookStore: AgentChatHookSessionStore(homeDirectory: home)
+        )
+
+        registry.noteResumeInitiated(
+            sessionID: pendingID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: "/Users/example/project"
+        )
+        await registry.seedFromHookStores(agentSources: ["claude"])
+
+        let record = try #require(registry.record(sessionID: pendingID))
+        #expect(registry.record(sessionID: realSessionID) == nil)
+        #expect(record.transcriptPath == transcriptPath)
+        #expect(record.pid == 444)
+        #expect(registry.liveSession(surfaceID: surfaceID)?.sessionID == pendingID)
+    }
+
+    @MainActor
+    @Test func realClaudeHookRemovesPendingAliasWhenRealRecordAlreadyExists() throws {
+        let registry = AgentChatSessionRegistry()
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let pendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID)
+        let realSessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+
+        registry.noteResumeInitiated(
+            sessionID: pendingID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: "/Users/example/project"
+        )
+        registry.noteResumeInitiated(
+            sessionID: realSessionID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: "/Users/example/project"
+        )
+
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: realSessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            transcriptPath: "/Users/example/.claude/projects/-Users-example-project/\(realSessionID).jsonl",
+            cwd: "/Users/example/project",
+            ppid: 555,
+            receivedAt: Date(timeIntervalSince1970: 130)
+        ))
+
+        let record = try #require(registry.record(sessionID: realSessionID))
+        #expect(registry.record(sessionID: pendingID) == nil)
+        #expect(record.pid == 555)
+        #expect(registry.liveSession(surfaceID: surfaceID)?.sessionID == realSessionID)
+    }
+
     @Test func mobileChatObserverStillDetectsDirectCodexFromRolloutFile() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()
@@ -341,5 +453,38 @@ struct AgentChatSessionRegistryObservationTests {
             virtualBytes: 1,
             threadCount: 1
         )
+    }
+
+    private func temporaryHomeDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-chat-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func writeClaudeHookStore(
+        home: URL,
+        sessionID: String,
+        workspaceID: String,
+        surfaceID: String,
+        transcriptPath: String,
+        pid: Int
+    ) throws {
+        let directory = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let payload: [String: Any] = [
+            "sessions": [
+                sessionID: [
+                    "workspaceId": workspaceID,
+                    "surfaceId": surfaceID,
+                    "cwd": "/Users/example/project",
+                    "transcriptPath": transcriptPath,
+                    "pid": pid,
+                    "updatedAt": 140.0,
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        try data.write(to: directory.appendingPathComponent("claude-hook-sessions.json"))
     }
 }
