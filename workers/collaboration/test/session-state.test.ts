@@ -93,6 +93,36 @@ test("forwards terminal collaboration frames to other peers", () => {
   });
 });
 
+test("preserves terminal output caret attribution", () => {
+  const state = new CollaborationRelaySessionState();
+  const first = new FakeSocket();
+  const second = new FakeSocket();
+  state.addPeer("ABCD-1234", peer("p1"), first, 1000);
+  state.addPeer("ABCD-1234", peer("p2"), second, 1000);
+
+  state.handleMessage(
+    "p1",
+    JSON.stringify({
+      type: "terminal.output",
+      terminalID: "term1",
+      sequence: 7,
+      dataBase64: "b2s=",
+      caretPeerID: null,
+    }),
+    1100
+  );
+
+  expect(JSON.parse(second.sent.at(-1) ?? "{}")).toEqual({
+    type: "terminal.output",
+    terminalID: "term1",
+    sequence: 7,
+    dataBase64: "b2s=",
+    caretPeerID: null,
+    fromPeerID: "p1",
+    receivedAt: 1100,
+  });
+});
+
 test("rejects malformed frames and broadcasts peer departure", () => {
   const state = new CollaborationRelaySessionState();
   const first = new FakeSocket();

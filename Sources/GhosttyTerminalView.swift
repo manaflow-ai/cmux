@@ -3417,6 +3417,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let _renderedFrameLock = NSLock()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
+    private var terminalCollaboratorCaretViews: [String: TerminalCollaboratorCaretView] = [:]
+    private var terminalCollaboratorCaretHideTasks: [String: Task<Void, Never>] = [:]
+    private var terminalCollaboratorPointerViews: [String: TerminalCollaboratorPointerView] = [:]
+    private var terminalCollaboratorPointerHideTasks: [String: Task<Void, Never>] = [:]
+    private var terminalCollaboratorSelectionViews: [String: TerminalCollaboratorSelectionView] = [:]
 
     static func retainRenderedFrameNotifications() -> () -> Void {
         // See GhosttyApp.retainTickNotifications() on the idempotent release.
@@ -3603,6 +3608,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
+    static func shouldForwardPassiveMousePositionToGhostty(
+        mouseCaptured: Bool,
+        pressedMouseButtons: Int,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard mouseCaptured else { return true }
+        guard pressedMouseButtons == 0 else { return true }
+        return !modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
+    }
+
     // Visibility is used for focus gating. Explicit portal visibility transitions
     // also drive Ghostty occlusion so hidden workspace/split surfaces pause and
     // queue a redraw when they become visible again.
@@ -3658,6 +3673,181 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeCursorOverlayView.layer?.borderWidth = 1
         keyboardCopyModeCursorOverlayView.isHidden = true
         addSubview(keyboardCopyModeCursorOverlayView, positioned: .above, relativeTo: nil)
+    }
+
+    func showTerminalCollaboratorCaret(peerID: String, displayName: String, colorHex: String?) {
+        guard let surface,
+              let caretFrame = terminalCollaboratorCaretFrame(surface: surface) else { return }
+
+        let view = terminalCollaboratorCaretViews[peerID] ?? TerminalCollaboratorCaretView(frame: .zero)
+        if view.superview == nil {
+            addSubview(view, positioned: .above, relativeTo: nil)
+        }
+        terminalCollaboratorCaretViews[peerID] = view
+
+        let color = colorHex.flatMap(NSColor.init(hex:)) ?? .controlAccentColor
+        view.update(displayName: displayName, color: color)
+        view.frame = terminalCollaboratorOverlayFrame(for: caretFrame, labelWidth: view.preferredLabelWidth)
+        view.caretFrame = convert(caretFrame, to: view)
+        view.isHidden = false
+
+        terminalCollaboratorCaretHideTasks[peerID]?.cancel()
+        terminalCollaboratorCaretHideTasks[peerID] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1.6))
+            guard !Task.isCancelled else { return }
+            self?.terminalCollaboratorCaretViews[peerID]?.fadeOut()
+            self?.terminalCollaboratorCaretHideTasks[peerID] = nil
+        }
+    }
+
+    private func syncTerminalCollaboratorCaretOverlays() {
+        guard let surface,
+              let caretFrame = terminalCollaboratorCaretFrame(surface: surface) else {
+            terminalCollaboratorCaretViews.values.forEach { $0.isHidden = true }
+            return
+        }
+        for view in terminalCollaboratorCaretViews.values where !view.isHidden {
+            view.frame = terminalCollaboratorOverlayFrame(for: caretFrame, labelWidth: view.preferredLabelWidth)
+            view.caretFrame = convert(caretFrame, to: view)
+        }
+    }
+
+    func showTerminalCollaboratorPointer(
+        peerID: String,
+        displayName: String,
+        colorHex: String?,
+        normalizedX: Double,
+        normalizedY: Double,
+        visible: Bool
+    ) {
+        let view = terminalCollaboratorPointerViews[peerID] ?? TerminalCollaboratorPointerView(frame: .zero)
+        if view.superview == nil {
+            addSubview(view, positioned: .above, relativeTo: nil)
+        }
+        terminalCollaboratorPointerViews[peerID] = view
+
+        terminalCollaboratorPointerHideTasks[peerID]?.cancel()
+        let color = colorHex.flatMap(NSColor.init(hex:)) ?? .controlAccentColor
+        if visible {
+            let anchor = terminalCollaboratorPointerAnchor(normalizedX: normalizedX, normalizedY: normalizedY)
+            view.update(displayName: displayName, color: color)
+            view.frame = terminalCollaboratorPointerFrame(for: anchor, labelWidth: view.preferredLabelWidth)
+            view.anchorPoint = convert(anchor, to: view)
+            view.isHidden = false
+            view.alphaValue = 1
+            terminalCollaboratorPointerHideTasks[peerID] = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(1.2))
+                guard !Task.isCancelled else { return }
+                self?.terminalCollaboratorPointerViews[peerID]?.fadeOut()
+                self?.terminalCollaboratorPointerHideTasks[peerID] = nil
+            }
+        } else {
+            view.fadeOut()
+            terminalCollaboratorPointerHideTasks[peerID] = nil
+        }
+    }
+
+    private func terminalCollaboratorPointerAnchor(normalizedX: Double, normalizedY: Double) -> NSPoint {
+        NSPoint(
+            x: min(max(CGFloat(normalizedX), 0), 1) * bounds.width,
+            y: min(max(CGFloat(normalizedY), 0), 1) * bounds.height
+        )
+    }
+
+    private func terminalCollaboratorPointerFrame(for anchor: NSPoint, labelWidth: CGFloat) -> NSRect {
+        let pointerSize = NSSize(width: 20, height: 20)
+        let labelHeight: CGFloat = 18
+        let labelGap: CGFloat = 5
+        let hotspot = TerminalCollaboratorPointerView.hotspot
+        let labelRect = NSRect(
+            x: min(max(anchor.x + 14 - hotspot.x, 0), max(bounds.width - labelWidth, 0)),
+            y: min(max(anchor.y + hotspot.y - 16 - labelHeight, 0), max(bounds.height - labelHeight, 0)),
+            width: labelWidth,
+            height: labelHeight
+        )
+        let pointerRect = NSRect(
+            x: anchor.x - hotspot.x,
+            y: anchor.y + hotspot.y - pointerSize.height,
+            width: pointerSize.width,
+            height: pointerSize.height
+        )
+        return pointerRect.union(labelRect).insetBy(dx: -labelGap, dy: -labelGap)
+    }
+
+    private func syncTerminalCollaboratorPointerOverlays() {
+        for view in terminalCollaboratorPointerViews.values where !view.isHidden {
+            let anchor = convert(view.anchorPoint, from: view)
+            view.frame = terminalCollaboratorPointerFrame(for: anchor, labelWidth: view.preferredLabelWidth)
+            view.anchorPoint = convert(anchor, to: view)
+        }
+    }
+
+    func showTerminalCollaboratorSelection(
+        peerID: String,
+        colorHex: String?,
+        normalizedRects: [CGRect],
+        visible: Bool
+    ) {
+        let view = terminalCollaboratorSelectionViews[peerID] ?? TerminalCollaboratorSelectionView(frame: bounds)
+        if view.superview == nil {
+            addSubview(view, positioned: .above, relativeTo: nil)
+        }
+        terminalCollaboratorSelectionViews[peerID] = view
+
+        if visible, !normalizedRects.isEmpty {
+            let color = colorHex.flatMap(NSColor.init(hex:)) ?? .controlAccentColor
+            view.frame = bounds
+            view.update(normalizedRects: normalizedRects, color: color)
+            view.isHidden = false
+            view.alphaValue = 1
+        } else {
+            view.isHidden = true
+        }
+    }
+
+    private func syncTerminalCollaboratorSelectionOverlays() {
+        for view in terminalCollaboratorSelectionViews.values where !view.isHidden {
+            view.frame = bounds
+            view.needsDisplay = true
+        }
+    }
+
+    private func terminalCollaboratorCaretFrame(surface: ghostty_surface_t) -> NSRect? {
+        var x: Double = 0
+        var y: Double = 0
+        var width: Double = cellSize.width
+        var height: Double = cellSize.height
+        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+
+        let resolvedWidth = width > 0 ? CGFloat(width) : max(cellSize.width, 1)
+        let resolvedHeight = height > 0 ? CGFloat(height) : max(cellSize.height, 1)
+        return NSRect(
+            x: min(max(CGFloat(x), 0), max(bounds.width - resolvedWidth, 0)),
+            y: min(max(bounds.height - CGFloat(y), 0), max(bounds.height - resolvedHeight, 0)),
+            width: resolvedWidth,
+            height: resolvedHeight
+        )
+    }
+
+    private func terminalCollaboratorOverlayFrame(for caretFrame: NSRect, labelWidth: CGFloat) -> NSRect {
+        let labelHeight: CGFloat = 18
+        let horizontalGap: CGFloat = 4
+        let verticalGap: CGFloat = 3
+        let desiredX = caretFrame.minX
+        let labelY: CGFloat
+        if caretFrame.maxY + verticalGap + labelHeight <= bounds.height {
+            labelY = caretFrame.maxY + verticalGap
+        } else {
+            labelY = max(caretFrame.minY - verticalGap - labelHeight, 0)
+        }
+        let maxX = max(bounds.width - labelWidth, 0)
+        let labelRect = NSRect(
+            x: min(max(desiredX + horizontalGap, 0), maxX),
+            y: labelY,
+            width: labelWidth,
+            height: labelHeight
+        )
+        return caretFrame.union(labelRect).insetBy(dx: -2, dy: -1)
     }
 
     func applySurfaceBackground() {
@@ -3910,6 +4100,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         super.layout()
         updateSurfaceSize()
         syncKeyboardCopyModeCursorOverlay()
+        syncTerminalCollaboratorCaretOverlays()
+        syncTerminalCollaboratorPointerOverlays()
+        syncTerminalCollaboratorSelectionOverlays()
         invalidateTextInputCoordinates()
         terminalSurface?.hostedView.scheduleSuppressedFirstResponderFocusReapplyIfReady(
             reason: "becomeFirstResponder.hiddenOrTiny.layout"
@@ -6446,6 +6639,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
         ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
+        noteTerminalCollaboratorSelection()
         return true
     }
 
@@ -6457,6 +6651,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let point = convert(event.locationInWindow, from: nil)
         let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
         _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
+        noteTerminalCollaboratorSelection()
         return true
     }
 
@@ -7275,21 +7470,78 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = performBindingAction("reset")
     }
 
+    private func noteTerminalCollaboratorPointer(at point: NSPoint?, visible: Bool) {
+        guard let surfaceID = terminalSurface?.id else { return }
+        CollaborationRuntime.shared.noteTerminalPointer(
+            surfaceID: surfaceID,
+            point: point,
+            bounds: bounds,
+            visible: visible
+        )
+    }
+
+    private func terminalCollaboratorSelectionRects() -> [CGRect] {
+        guard let snapshot = readSelectionSnapshot(),
+              !snapshot.string.isEmpty else {
+            return []
+        }
+
+        let cellWidth = max(cellSize.width, 1)
+        let cellHeight = max(cellSize.height, 1)
+        let gridLeft = surface.flatMap { keyboardCopyModeGridMetrics(surface: $0)?.xInset } ?? 0
+        let lines = snapshot.string.components(separatedBy: "\n")
+        var rects: [CGRect] = []
+
+        for (index, line) in lines.enumerated() {
+            if line.isEmpty, index == lines.count - 1 { continue }
+            let characterCount = max(line.utf16.count, line.isEmpty ? 1 : 0)
+            let width = CGFloat(characterCount) * cellWidth
+            let topOriginY = snapshot.topLeft.y + (CGFloat(index) * cellHeight)
+            let rect = CGRect(
+                x: index == 0 ? snapshot.topLeft.x : gridLeft,
+                y: bounds.height - topOriginY - cellHeight,
+                width: max(width, cellWidth),
+                height: cellHeight
+            )
+            rects.append(rect)
+        }
+
+        return rects
+    }
+
+    private func noteTerminalCollaboratorSelection() {
+        guard let surfaceID = terminalSurface?.id else { return }
+        let rects = terminalCollaboratorSelectionRects()
+        CollaborationRuntime.shared.noteTerminalSelection(
+            surfaceID: surfaceID,
+            rects: rects,
+            bounds: bounds,
+            visible: !rects.isEmpty
+        )
+    }
+
     override func mouseMoved(with event: NSEvent) {
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
-        ghostty_surface_mouse_pos(
-            surface,
-            eventPoint.x,
-            bounds.height - eventPoint.y,
-            hoverModsFromFlags(
-                event.modifierFlags,
-                suppressCommandPathHover: suppressCommandPathHover
+        noteTerminalCollaboratorPointer(at: eventPoint, visible: true)
+        if Self.shouldForwardPassiveMousePositionToGhostty(
+            mouseCaptured: ghostty_surface_mouse_captured(surface),
+            pressedMouseButtons: NSEvent.pressedMouseButtons,
+            modifierFlags: event.modifierFlags
+        ) {
+            ghostty_surface_mouse_pos(
+                surface,
+                eventPoint.x,
+                bounds.height - eventPoint.y,
+                hoverModsFromFlags(
+                    event.modifierFlags,
+                    suppressCommandPathHover: suppressCommandPathHover
+                )
             )
-        )
+        }
         updateWordPathHover(
             at: eventPoint,
             cmdHeld: event.modifierFlags.contains(.command),
@@ -7304,15 +7556,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
-        ghostty_surface_mouse_pos(
-            surface,
-            eventPoint.x,
-            bounds.height - eventPoint.y,
-            hoverModsFromFlags(
-                event.modifierFlags,
-                suppressCommandPathHover: suppressCommandPathHover
+        noteTerminalCollaboratorPointer(at: eventPoint, visible: true)
+        if Self.shouldForwardPassiveMousePositionToGhostty(
+            mouseCaptured: ghostty_surface_mouse_captured(surface),
+            pressedMouseButtons: NSEvent.pressedMouseButtons,
+            modifierFlags: event.modifierFlags
+        ) {
+            ghostty_surface_mouse_pos(
+                surface,
+                eventPoint.x,
+                bounds.height - eventPoint.y,
+                hoverModsFromFlags(
+                    event.modifierFlags,
+                    suppressCommandPathHover: suppressCommandPathHover
+                )
             )
-        )
+        }
         updateWordPathHover(
             at: eventPoint,
             cmdHeld: event.modifierFlags.contains(.command),
@@ -7346,6 +7605,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if NSEvent.pressedMouseButtons != 0 {
             return
         }
+        noteTerminalCollaboratorPointer(at: nil, visible: false)
         ghostty_surface_mouse_pos(surface, -1, -1, mouseModsFromEvent(event))
     }
 
@@ -7353,10 +7613,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
+        noteTerminalCollaboratorPointer(at: eventPoint, visible: true)
         // Forward the raw drag coordinates, including out-of-bounds positions.
         // Selection auto-scroll depends on libghostty observing the pointer leave
         // the viewport rather than a cached in-bounds hover point.
         ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
+        noteTerminalCollaboratorSelection()
     }
 
 #if DEBUG
@@ -7840,6 +8102,276 @@ private final class GhosttyFlashOverlayView: NSView {
     }
 }
 
+private final class TerminalCollaboratorCaretView: NSView {
+    private let labelFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
+    private var displayName = ""
+    private var color = NSColor.controlAccentColor
+    private(set) var preferredLabelWidth: CGFloat = 72
+
+    var caretFrame: NSRect = .zero {
+        didSet { needsDisplay = true }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        alphaValue = 1
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var acceptsFirstResponder: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func update(displayName: String, color: NSColor) {
+        self.displayName = displayName
+        self.color = color
+        alphaValue = 1
+        let textWidth = (displayName as NSString).size(withAttributes: [.font: labelFont]).width
+        preferredLabelWidth = min(max(ceil(textWidth) + 12, 44), 128)
+        needsDisplay = true
+    }
+
+    func fadeOut() {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            self?.isHidden = true
+            self?.alphaValue = 1
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let caretX = min(max(caretFrame.minX, 0), max(bounds.width - 2, 0))
+        let caretHeight = max(min(caretFrame.height * 0.9, caretFrame.height), min(caretFrame.height, 10))
+        let caretY = caretFrame.midY - (caretHeight / 2)
+        let caretRect = NSRect(
+            x: caretX,
+            y: caretY,
+            width: 2,
+            height: caretHeight
+        )
+        color.setFill()
+        NSBezierPath(roundedRect: caretRect, xRadius: 1, yRadius: 1).fill()
+
+        let labelX = min(max(caretX - 1, 0), max(bounds.width - preferredLabelWidth, 0))
+        let labelY: CGFloat
+        if caretFrame.maxY + 18 <= bounds.height {
+            labelY = caretFrame.maxY + 2
+        } else {
+            labelY = max(caretFrame.minY - 18, 0)
+        }
+        let labelRect = NSRect(
+            x: labelX,
+            y: labelY,
+            width: preferredLabelWidth,
+            height: 16
+        )
+        color.setFill()
+        NSBezierPath(roundedRect: labelRect, xRadius: 4, yRadius: 4).fill()
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byTruncatingTail
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: labelFont,
+            .foregroundColor: NSColor.white,
+            .paragraphStyle: paragraph
+        ]
+        let textSize = (displayName as NSString).size(withAttributes: attributes)
+        let textRect = NSRect(
+            x: labelRect.minX + 6,
+            y: labelRect.midY - (textSize.height / 2),
+            width: labelRect.width - 12,
+            height: textSize.height
+        )
+        (displayName as NSString).draw(in: textRect, withAttributes: attributes)
+    }
+}
+
+private final class TerminalCollaboratorPointerView: NSView {
+    static let hotspot = NSPoint(x: 2.744 * (20.0 / 19.0), y: 1.407 * (20.0 / 19.0))
+
+    private let labelFont = NSFont.systemFont(ofSize: 10.5, weight: .medium)
+    private var displayName = ""
+    private var color = NSColor.controlAccentColor
+    private(set) var preferredLabelWidth: CGFloat = 72
+
+    var anchorPoint: NSPoint = .zero {
+        didSet { needsDisplay = true }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        alphaValue = 1
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var acceptsFirstResponder: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func update(displayName: String, color: NSColor) {
+        self.displayName = displayName
+        self.color = color
+        alphaValue = 1
+        let textWidth = (displayName as NSString).size(withAttributes: [.font: labelFont]).width
+        preferredLabelWidth = min(max(ceil(textWidth) + 12, 48), 128)
+        needsDisplay = true
+    }
+
+    func fadeOut() {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            self?.isHidden = true
+            self?.alphaValue = 1
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let scale: CGFloat = 20.0 / 19.0
+        let hotspot = Self.hotspot
+        func svgPoint(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+            NSPoint(
+                x: anchorPoint.x + (x * scale) - hotspot.x,
+                y: anchorPoint.y - ((y * scale) - hotspot.y)
+            )
+        }
+
+        let pointerPath = NSBezierPath()
+        pointerPath.move(to: svgPoint(2.744, 1.407))
+        pointerPath.line(to: svgPoint(16.922, 8.531))
+        pointerPath.line(to: svgPoint(10.547, 10.547))
+        pointerPath.line(to: svgPoint(8.531, 16.922))
+        pointerPath.close()
+        pointerPath.lineJoinStyle = .round
+
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        shadow.shadowBlurRadius = 1.5
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
+        shadow.set()
+        color.setFill()
+        pointerPath.fill()
+        NSGraphicsContext.restoreGraphicsState()
+
+        color.setFill()
+        pointerPath.fill()
+        NSColor.white.withAlphaComponent(0.95).setStroke()
+        pointerPath.lineWidth = 1.25
+        pointerPath.stroke()
+
+        let labelX = min(max(anchorPoint.x + 14 - hotspot.x, 0), max(bounds.width - preferredLabelWidth, 0))
+        let labelY = min(max(anchorPoint.y + hotspot.y - 16 - 18, 0), max(bounds.height - 18, 0))
+        let labelRect = NSRect(
+            x: labelX,
+            y: labelY,
+            width: preferredLabelWidth,
+            height: 18
+        )
+
+        NSGraphicsContext.saveGraphicsState()
+        let labelShadow = NSShadow()
+        labelShadow.shadowOffset = NSSize(width: 0, height: -1)
+        labelShadow.shadowBlurRadius = 3
+        labelShadow.shadowColor = NSColor.black.withAlphaComponent(0.22)
+        labelShadow.set()
+        color.setFill()
+        NSBezierPath(roundedRect: labelRect, xRadius: 6, yRadius: 6).fill()
+        NSGraphicsContext.restoreGraphicsState()
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byTruncatingTail
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: labelFont,
+            .foregroundColor: NSColor.white,
+            .paragraphStyle: paragraph
+        ]
+        let textSize = (displayName as NSString).size(withAttributes: attributes)
+        let textRect = NSRect(
+            x: labelRect.minX + 6,
+            y: labelRect.midY - (textSize.height / 2),
+            width: labelRect.width - 12,
+            height: textSize.height
+        )
+        (displayName as NSString).draw(in: textRect, withAttributes: attributes)
+    }
+}
+
+private final class TerminalCollaboratorSelectionView: NSView {
+    private var normalizedRects: [CGRect] = []
+    private var color = NSColor.controlAccentColor
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        alphaValue = 1
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var acceptsFirstResponder: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func update(normalizedRects: [CGRect], color: NSColor) {
+        self.normalizedRects = normalizedRects
+        self.color = color
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard bounds.width > 0, bounds.height > 0 else { return }
+
+        color.withAlphaComponent(0.28).setFill()
+        color.withAlphaComponent(0.55).setStroke()
+        for normalized in normalizedRects {
+            let rect = CGRect(
+                x: normalized.minX * bounds.width,
+                y: normalized.minY * bounds.height,
+                width: normalized.width * bounds.width,
+                height: normalized.height * bounds.height
+            ).intersection(bounds)
+            guard !rect.isNull, rect.width > 0, rect.height > 0 else { continue }
+            let path = NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2)
+            path.fill()
+            path.lineWidth = 1
+            path.stroke()
+        }
+    }
+}
+
 private final class TerminalViewportBorderOverlayView: NSView {
     var effectiveSize: CGSize? {
         didSet { needsDisplay = true }
@@ -7956,6 +8488,42 @@ final class GhosttySurfaceScrollView: NSView {
 
     func forwardKeyDownToSurface(_ event: NSEvent) {
         surfaceView.keyDown(with: event)
+    }
+
+    func showTerminalCollaboratorCaret(peerID: String, displayName: String, colorHex: String?) {
+        surfaceView.showTerminalCollaboratorCaret(peerID: peerID, displayName: displayName, colorHex: colorHex)
+    }
+
+    func showTerminalCollaboratorPointer(
+        peerID: String,
+        displayName: String,
+        colorHex: String?,
+        normalizedX: Double,
+        normalizedY: Double,
+        visible: Bool
+    ) {
+        surfaceView.showTerminalCollaboratorPointer(
+            peerID: peerID,
+            displayName: displayName,
+            colorHex: colorHex,
+            normalizedX: normalizedX,
+            normalizedY: normalizedY,
+            visible: visible
+        )
+    }
+
+    func showTerminalCollaboratorSelection(
+        peerID: String,
+        colorHex: String?,
+        normalizedRects: [CGRect],
+        visible: Bool
+    ) {
+        surfaceView.showTerminalCollaboratorSelection(
+            peerID: peerID,
+            colorHex: colorHex,
+            normalizedRects: normalizedRects,
+            visible: visible
+        )
     }
 
     private var lastFlashStyle: FlashStyle = .navigation

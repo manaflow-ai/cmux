@@ -975,6 +975,49 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
 }
 
 @MainActor
+final class GhosttyPassiveMouseForwardingTests: XCTestCase {
+    func testForwardsPassiveMouseWhenTerminalHasNoMouseCapture() {
+        XCTAssertTrue(
+            GhosttyNSView.shouldForwardPassiveMousePositionToGhostty(
+                mouseCaptured: false,
+                pressedMouseButtons: 0,
+                modifierFlags: []
+            )
+        )
+    }
+
+    func testSuppressesPassiveMouseWhenCapturedAndNoButtonsOrModifiers() {
+        XCTAssertFalse(
+            GhosttyNSView.shouldForwardPassiveMousePositionToGhostty(
+                mouseCaptured: true,
+                pressedMouseButtons: 0,
+                modifierFlags: []
+            )
+        )
+    }
+
+    func testForwardsCapturedMouseWhenButtonIsPressed() {
+        XCTAssertTrue(
+            GhosttyNSView.shouldForwardPassiveMousePositionToGhostty(
+                mouseCaptured: true,
+                pressedMouseButtons: 1,
+                modifierFlags: []
+            )
+        )
+    }
+
+    func testForwardsCapturedMouseWhenModifierIsHeld() {
+        XCTAssertTrue(
+            GhosttyNSView.shouldForwardPassiveMousePositionToGhostty(
+                mouseCaptured: true,
+                pressedMouseButtons: 0,
+                modifierFlags: [.command]
+            )
+        )
+    }
+}
+
+@MainActor
 final class TerminalOffscreenStartupTests: XCTestCase {
 #if DEBUG
     private final class RecordingMobileTabManager: TabManager {

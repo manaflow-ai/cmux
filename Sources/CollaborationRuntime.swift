@@ -76,6 +76,24 @@ private struct CollaborationTerminalOutputWire: Codable {
     let terminalID: String
     let sequence: UInt64
     let dataBase64: String
+    let fromPeerID: String?
+    let caretPeerID: String?
+
+    init(
+        type: String,
+        terminalID: String,
+        sequence: UInt64,
+        dataBase64: String,
+        fromPeerID: String? = nil,
+        caretPeerID: String? = nil
+    ) {
+        self.type = type
+        self.terminalID = terminalID
+        self.sequence = sequence
+        self.dataBase64 = dataBase64
+        self.fromPeerID = fromPeerID
+        self.caretPeerID = caretPeerID
+    }
 }
 
 private struct CollaborationTerminalInputWire: Codable {
@@ -83,6 +101,39 @@ private struct CollaborationTerminalInputWire: Codable {
     let terminalID: String
     let inputID: String
     let dataBase64: String
+    let fromPeerID: String?
+
+    init(type: String, terminalID: String, inputID: String, dataBase64: String, fromPeerID: String? = nil) {
+        self.type = type
+        self.terminalID = terminalID
+        self.inputID = inputID
+        self.dataBase64 = dataBase64
+        self.fromPeerID = fromPeerID
+    }
+}
+
+private struct CollaborationTerminalPointerWire: Codable {
+    let type: String
+    let terminalID: String
+    let fromPeerID: String
+    let x: Double
+    let y: Double
+    let visible: Bool
+}
+
+private struct CollaborationTerminalSelectionRectWire: Codable {
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+}
+
+private struct CollaborationTerminalSelectionWire: Codable {
+    let type: String
+    let terminalID: String
+    let fromPeerID: String
+    let rects: [CollaborationTerminalSelectionRectWire]
+    let visible: Bool
 }
 
 private struct CollaborationTerminalCloseWire: Codable {
@@ -152,6 +203,10 @@ private final class WeakCollaborationTerminalPanel {
     }
 }
 
+private struct TerminalOutputCaretSuppression {
+    let expiresAt: Date
+}
+
 struct CollaborationTerminalHeaderState: Equatable {
     var isShared = false
     var statusText = ""
@@ -182,9 +237,13 @@ final class CollaborationRuntime {
     private var hostedTerminalsByID: [String: WeakCollaborationTerminalPanel] = [:]
     private var hostedTerminalIDsBySurfaceID: [UUID: String] = [:]
     private var hostedTerminalOutputSequencesByID: [String: UInt64] = [:]
+    private var hostedTerminalOutputCaretSuppressionsByID: [String: TerminalOutputCaretSuppression] = [:]
     private var mirroredTerminalsByID: [String: WeakCollaborationTerminalPanel] = [:]
+    private var mirroredTerminalIDsBySurfaceID: [UUID: String] = [:]
     private var terminalStatesByID: [String: CollaborationTerminalHeaderState] = [:]
     private var peersByID: [String: CollaborationPeerWire] = [:]
+    private var terminalPointerLastSentAtBySurfaceID: [UUID: TimeInterval] = [:]
+    private var terminalSelectionLastSentAtBySurfaceID: [UUID: TimeInterval] = [:]
     private var snapshotFallbackTasks: [String: Task<Void, Never>] = [:]
 
     private init() {
@@ -234,8 +293,9 @@ final class CollaborationRuntime {
     func leave(terminal: TerminalPanel) {
         let terminalID = terminalID(for: terminal)
         hostedTerminalsByID.removeValue(forKey: terminalID)
-        hostedTerminalIDsBySurfaceID.removeValue(forKey: terminal.id)
+        removeTerminalSurfaceMappings(for: terminalID)
         hostedTerminalOutputSequencesByID.removeValue(forKey: terminalID)
+        hostedTerminalOutputCaretSuppressionsByID.removeValue(forKey: terminalID)
         mirroredTerminalsByID.removeValue(forKey: terminalID)
         terminalStatesByID.removeValue(forKey: terminalID)
         Task {
@@ -259,6 +319,116 @@ final class CollaborationRuntime {
                 inputID: "\(peerIdentity.peerID)-\(UUID().uuidString)",
                 data: data
             ))
+        }
+    }
+
+    func noteTerminalPointer(surfaceID: UUID, point: CGPoint?, bounds: CGRect, visible: Bool) {
+        let terminalID = hostedTerminalIDsBySurfaceID[surfaceID] ?? mirroredTerminalIDsBySurfaceID[surfaceID]
+        guard let terminalID else { return }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        if visible {
+            let lastSentAt = terminalPointerLastSentAtBySurfaceID[surfaceID] ?? 0
+            guard now - lastSentAt >= (1.0 / 60.0) else { return }
+            terminalPointerLastSentAtBySurfaceID[surfaceID] = now
+        } else {
+            terminalPointerLastSentAtBySurfaceID.removeValue(forKey: surfaceID)
+        }
+
+        let normalizedX: Double
+        let normalizedY: Double
+        if visible, let point, bounds.width > 0, bounds.height > 0 {
+            normalizedX = Double(min(max(point.x / bounds.width, 0), 1))
+            normalizedY = Double(min(max(point.y / bounds.height, 0), 1))
+        } else {
+            normalizedX = 0
+            normalizedY = 0
+        }
+
+        Task {
+            try? await send(CollaborationTerminalPointerWire(
+                type: "terminal.pointer",
+                terminalID: terminalID,
+                fromPeerID: peerIdentity.peerID,
+                x: normalizedX,
+                y: normalizedY,
+                visible: visible
+            ))
+        }
+    }
+
+    func noteTerminalSelection(surfaceID: UUID, rects: [CGRect], bounds: CGRect, visible: Bool) {
+        let terminalID = hostedTerminalIDsBySurfaceID[surfaceID] ?? mirroredTerminalIDsBySurfaceID[surfaceID]
+        guard let terminalID else { return }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        if visible {
+            let lastSentAt = terminalSelectionLastSentAtBySurfaceID[surfaceID] ?? 0
+            guard now - lastSentAt >= (1.0 / 12.0) else { return }
+            terminalSelectionLastSentAtBySurfaceID[surfaceID] = now
+        } else {
+            terminalSelectionLastSentAtBySurfaceID.removeValue(forKey: surfaceID)
+        }
+
+        let normalizedRects: [CollaborationTerminalSelectionRectWire]
+        if visible, bounds.width > 0, bounds.height > 0 {
+            normalizedRects = rects.compactMap { rect in
+                let clipped = rect.intersection(bounds)
+                guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { return nil }
+                return CollaborationTerminalSelectionRectWire(
+                    x: Double(clipped.minX / bounds.width),
+                    y: Double(clipped.minY / bounds.height),
+                    width: Double(clipped.width / bounds.width),
+                    height: Double(clipped.height / bounds.height)
+                )
+            }
+        } else {
+            normalizedRects = []
+        }
+
+        Task {
+            try? await send(CollaborationTerminalSelectionWire(
+                type: "terminal.selection",
+                terminalID: terminalID,
+                fromPeerID: peerIdentity.peerID,
+                rects: normalizedRects,
+                visible: visible && !normalizedRects.isEmpty
+            ))
+        }
+    }
+
+    private func peerVisibleToThisClient(_ peerID: String?) -> CollaborationPeerWire? {
+        guard let peerID, peerID != peerIdentity.peerID else { return nil }
+        return peersByID[peerID] ?? CollaborationPeerWire(
+            peerID: peerID,
+            displayName: peerID,
+            color: peerIdentity.color
+        )
+    }
+
+    private func terminalOutputPeerID(for terminalID: String) -> String? {
+        if let suppression = hostedTerminalOutputCaretSuppressionsByID[terminalID] {
+            if suppression.expiresAt > Date() {
+                return nil
+            }
+            hostedTerminalOutputCaretSuppressionsByID.removeValue(forKey: terminalID)
+        }
+        return peerIdentity.peerID
+    }
+
+    private func removeTerminalSurfaceMappings(for terminalID: String) {
+        let hostedSurfaceIDs = hostedTerminalIDsBySurfaceID
+            .filter { $0.value == terminalID }
+            .map(\.key)
+        let mirroredSurfaceIDs = mirroredTerminalIDsBySurfaceID
+            .filter { $0.value == terminalID }
+            .map(\.key)
+
+        hostedTerminalIDsBySurfaceID = hostedTerminalIDsBySurfaceID.filter { $0.value != terminalID }
+        mirroredTerminalIDsBySurfaceID = mirroredTerminalIDsBySurfaceID.filter { $0.value != terminalID }
+        for surfaceID in hostedSurfaceIDs + mirroredSurfaceIDs {
+            terminalPointerLastSentAtBySurfaceID.removeValue(forKey: surfaceID)
+            terminalSelectionLastSentAtBySurfaceID.removeValue(forKey: surfaceID)
         }
     }
 
@@ -423,9 +593,13 @@ final class CollaborationRuntime {
         hostedTerminalsByID.removeAll()
         hostedTerminalIDsBySurfaceID.removeAll()
         hostedTerminalOutputSequencesByID.removeAll()
+        hostedTerminalOutputCaretSuppressionsByID.removeAll()
         mirroredTerminalsByID.removeAll()
+        mirroredTerminalIDsBySurfaceID.removeAll()
         terminalStatesByID.removeAll()
         peersByID.removeAll()
+        terminalPointerLastSentAtBySurfaceID.removeAll()
+        terminalSelectionLastSentAtBySurfaceID.removeAll()
         connectionLabel = CollaborationStrings.disconnected
         return statusPayload()
     }
@@ -709,6 +883,7 @@ final class CollaborationRuntime {
         hostedTerminalsByID.removeAll()
         hostedTerminalIDsBySurfaceID.removeAll()
         hostedTerminalOutputSequencesByID.removeAll()
+        hostedTerminalOutputCaretSuppressionsByID.removeAll()
         terminalStatesByID.removeAll()
 
         for terminal in openTerminals {
@@ -768,6 +943,7 @@ final class CollaborationRuntime {
             return
         }
         mirroredTerminalsByID[terminalID] = WeakCollaborationTerminalPanel(panel)
+        mirroredTerminalIDsBySurfaceID[panel.id] = terminalID
         terminalStatesByID[terminalID] = CollaborationTerminalHeaderState(
             isShared: true,
             statusText: CollaborationStrings.shared,
@@ -775,12 +951,30 @@ final class CollaborationRuntime {
         )
     }
 
-    private func handleRemoteTerminalOutput(terminalID: String, data: Data) {
-        mirroredTerminalsByID[terminalID]?.panel?.surface.processRemoteOutput(data)
+    private func handleRemoteTerminalOutput(terminalID: String, data: Data, caretPeerID: String?) {
+        guard let panel = mirroredTerminalsByID[terminalID]?.panel else { return }
+        panel.surface.processRemoteOutput(data)
+        if let peer = peerVisibleToThisClient(caretPeerID) {
+            panel.surface.hostedView.showTerminalCollaboratorCaret(
+                peerID: peer.peerID,
+                displayName: peer.displayName,
+                colorHex: peer.color
+            )
+        }
     }
 
-    private func handleRemoteTerminalInput(terminalID: String, data: Data) {
+    private func handleRemoteTerminalInput(terminalID: String, data: Data, fromPeerID: String?) {
         guard let panel = hostedTerminalsByID[terminalID]?.panel else { return }
+        if let peer = peerVisibleToThisClient(fromPeerID) {
+            hostedTerminalOutputCaretSuppressionsByID[terminalID] = TerminalOutputCaretSuppression(
+                expiresAt: Date().addingTimeInterval(1.5)
+            )
+            panel.surface.hostedView.showTerminalCollaboratorCaret(
+                peerID: peer.peerID,
+                displayName: peer.displayName,
+                colorHex: peer.color
+            )
+        }
         let text = String(decoding: data, as: UTF8.self)
         switch panel.sendInputResult(text) {
         case .sent:
@@ -790,10 +984,51 @@ final class CollaborationRuntime {
         }
     }
 
+    private func handleRemoteTerminalPointer(_ pointer: CollaborationTerminalPointerWire) {
+        guard let peer = peerVisibleToThisClient(pointer.fromPeerID) else { return }
+        let panels = [
+            hostedTerminalsByID[pointer.terminalID]?.panel,
+            mirroredTerminalsByID[pointer.terminalID]?.panel
+        ].compactMap { $0 }
+
+        for panel in panels {
+            panel.surface.hostedView.showTerminalCollaboratorPointer(
+                peerID: peer.peerID,
+                displayName: peer.displayName,
+                colorHex: peer.color,
+                normalizedX: pointer.x,
+                normalizedY: pointer.y,
+                visible: pointer.visible
+            )
+        }
+    }
+
+    private func handleRemoteTerminalSelection(_ selection: CollaborationTerminalSelectionWire) {
+        guard let peer = peerVisibleToThisClient(selection.fromPeerID) else { return }
+        let panels = [
+            hostedTerminalsByID[selection.terminalID]?.panel,
+            mirroredTerminalsByID[selection.terminalID]?.panel
+        ].compactMap { $0 }
+
+        let rects = selection.rects.map {
+            CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
+        }
+        for panel in panels {
+            panel.surface.hostedView.showTerminalCollaboratorSelection(
+                peerID: peer.peerID,
+                colorHex: peer.color,
+                normalizedRects: rects,
+                visible: selection.visible
+            )
+        }
+    }
+
     private func handleRemoteTerminalClose(terminalID: String) {
         mirroredTerminalsByID.removeValue(forKey: terminalID)
         hostedTerminalsByID.removeValue(forKey: terminalID)
+        removeTerminalSurfaceMappings(for: terminalID)
         hostedTerminalOutputSequencesByID.removeValue(forKey: terminalID)
+        hostedTerminalOutputCaretSuppressionsByID.removeValue(forKey: terminalID)
         terminalStatesByID.removeValue(forKey: terminalID)
     }
 
@@ -900,13 +1135,19 @@ final class CollaborationRuntime {
         case "terminal.output":
             let output = try decoder.decode(CollaborationTerminalOutputWire.self, from: data)
             if let bytes = Data(base64Encoded: output.dataBase64) {
-                handleRemoteTerminalOutput(terminalID: output.terminalID, data: bytes)
+                handleRemoteTerminalOutput(terminalID: output.terminalID, data: bytes, caretPeerID: output.caretPeerID)
             }
         case "terminal.input":
             let input = try decoder.decode(CollaborationTerminalInputWire.self, from: data)
             if let bytes = Data(base64Encoded: input.dataBase64) {
-                handleRemoteTerminalInput(terminalID: input.terminalID, data: bytes)
+                handleRemoteTerminalInput(terminalID: input.terminalID, data: bytes, fromPeerID: input.fromPeerID)
             }
+        case "terminal.pointer":
+            let pointer = try decoder.decode(CollaborationTerminalPointerWire.self, from: data)
+            handleRemoteTerminalPointer(pointer)
+        case "terminal.selection":
+            let selection = try decoder.decode(CollaborationTerminalSelectionWire.self, from: data)
+            handleRemoteTerminalSelection(selection)
         case "terminal.close":
             let close = try decoder.decode(CollaborationTerminalCloseWire.self, from: data)
             handleRemoteTerminalClose(terminalID: close.terminalID)
@@ -943,18 +1184,21 @@ final class CollaborationRuntime {
                 descriptor: descriptor
             ))
         case .terminalOutput(let terminalID, let sequence, let data):
+            let caretPeerID = terminalOutputPeerID(for: terminalID)
             try await send(CollaborationTerminalOutputWire(
                 type: "terminal.output",
                 terminalID: terminalID,
                 sequence: sequence,
-                dataBase64: data.base64EncodedString()
+                dataBase64: data.base64EncodedString(),
+                caretPeerID: caretPeerID
             ))
         case .terminalInput(let terminalID, let inputID, let data):
             try await send(CollaborationTerminalInputWire(
                 type: "terminal.input",
                 terminalID: terminalID,
                 inputID: inputID,
-                dataBase64: data.base64EncodedString()
+                dataBase64: data.base64EncodedString(),
+                fromPeerID: peerIdentity.peerID
             ))
         case .terminalClose(let terminalID):
             try await send(CollaborationTerminalCloseWire(type: "terminal.close", terminalID: terminalID))
