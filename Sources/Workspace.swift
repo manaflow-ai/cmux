@@ -1489,7 +1489,11 @@ extension Workspace {
                 clearRestoredAgentSnapshot(panelId: terminalPanel.id)
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
             }
-            if shouldAutoResumeAgentOnVisit {
+            // A preserved remote PTY is re-attached with its agent still running
+            // (the eager path suppresses startup input for it above), so arming
+            // lazy resume would inject a duplicate resume command into the live
+            // session on first visit. Exclude it, mirroring that suppression.
+            if shouldAutoResumeAgentOnVisit && restoredRemotePTYAttachCommand == nil {
                 restoredAgentAutoResumeOnVisitPanelIds.insert(terminalPanel.id)
             } else {
                 restoredAgentAutoResumeOnVisitPanelIds.remove(terminalPanel.id)
