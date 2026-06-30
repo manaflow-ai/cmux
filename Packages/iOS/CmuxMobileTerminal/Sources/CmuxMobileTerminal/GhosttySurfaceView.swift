@@ -3185,13 +3185,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // anchors at the viewport top so letterboxing cannot turn into a blank
         // top spacer.
         let naturalSize = result.naturalSize
+        let effectiveMatchesNatural = effectiveGrid.map { grid in
+            grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
+        } ?? true
+        let shouldReportNaturalSize = naturalSize != lastReportedSize ||
+            (shouldReassertNaturalSize && !effectiveMatchesNatural)
+        let awaitingViewportEchoForPlacement: (cols: Int, rows: Int)?
+        if shouldReportNaturalSize {
+            awaitingViewportEchoForPlacement = (cols: naturalSize.columns, rows: naturalSize.rows)
+        } else {
+            awaitingViewportEchoForPlacement = awaitingViewportEcho.map { (cols: $0.columns, rows: $0.rows) }
+        }
         let naturalRenderSize = CGSize(
             width: max(1, CGFloat(naturalSize.pixelWidth) / scale),
             height: max(1, CGFloat(naturalSize.pixelHeight) / scale)
         )
         let allowsLargeTopGapCorrection = TerminalLetterboxGeometry.allowsLargeTopGapCorrection(
             pinnedGrid: result.pinnedGrid,
-            awaitingViewportEcho: awaitingViewportEcho.map { (cols: $0.columns, rows: $0.rows) },
+            awaitingViewportEcho: awaitingViewportEchoForPlacement,
             naturalGrid: (naturalSize.columns, naturalSize.rows),
             previousRenderAllowedTopGapCorrection: lastRenderRectAllowsTopGapCorrection
         )
@@ -3233,11 +3244,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingRenderFrames = 6
         syncSnapshotFallback()
 
-        let effectiveMatchesNatural = effectiveGrid.map { grid in
-            grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
-        } ?? true
-        let shouldReportNaturalSize = naturalSize != lastReportedSize ||
-            (shouldReassertNaturalSize && !effectiveMatchesNatural)
         guard shouldReportNaturalSize, naturalSize.columns > 0, naturalSize.rows > 0 else { return }
         lastReportedSize = naturalSize
         awaitingViewportEcho = naturalSize
