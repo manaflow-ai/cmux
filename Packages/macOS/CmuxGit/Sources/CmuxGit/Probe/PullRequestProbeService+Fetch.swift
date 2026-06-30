@@ -245,16 +245,32 @@ extension PullRequestProbeService {
             return collected
         }
 
+        // Branch-lookup PRs can be outside the recent REST window, so the
+        // window-wide GraphQL fetch never covered them. Fetch their CI rollups
+        // in one batched call so their sidebar badges reflect real status
+        // instead of defaulting to `.neutral`. (`pullRequestCheckStatuses`
+        // skips the network when there are no open PRs to query.)
+        let foundPullRequests: [GitHubPullRequestProbeItem] = branchResults.compactMap { entry in
+            guard case .found(let pullRequest) = entry.1 else { return nil }
+            return pullRequest
+        }
+        let lookupCheckStatuses = await pullRequestCheckStatuses(
+            repoSlug: repoSlug,
+            pullRequests: foundPullRequests,
+            session: session,
+            authHeader: authHeader
+        )
         return Self.foldingBranchLookupResults(
             branchResults,
-            fetchedCheckStatuses: [:],
+            fetchedCheckStatuses: lookupCheckStatuses,
             into: baseEntry,
             refreshedAt: refreshedAt
         )
     }
 
     /// Folds per-branch lookup results into a refreshed cache entry, applying a
-    /// CI rollup to each found PR (cached lookup only, for now).
+    /// CI rollup to each found PR — preferring a freshly fetched status and
+    /// falling back to one already cached in `baseEntry`.
     nonisolated static func foldingBranchLookupResults(
         _ branchResults: [(String, WorkspacePullRequestBranchFetchResult)],
         fetchedCheckStatuses: [Int: PullRequestCheckStatus],
@@ -268,11 +284,12 @@ extension PullRequestProbeService {
         for (branch, result) in branchResults {
             switch result {
             case .found(let pullRequest):
-                let ciStatus = Self.cachedCheckStatus(
-                    for: pullRequest,
-                    normalizedBranch: branch,
-                    in: baseEntry
-                )
+                let ciStatus = fetchedCheckStatuses[pullRequest.number]
+                    ?? Self.cachedCheckStatus(
+                        for: pullRequest,
+                        normalizedBranch: branch,
+                        in: baseEntry
+                    )
                 pullRequestsByBranch[branch] = ciStatus.map {
                     Self.applyingCheckStatus($0, to: pullRequest)
                 } ?? pullRequest

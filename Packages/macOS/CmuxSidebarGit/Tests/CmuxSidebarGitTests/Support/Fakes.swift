@@ -7,6 +7,7 @@ import CmuxFoundation
 /// closed to control exactly when a snapshot probe completes.
 actor GatedMetadataReader: WorkspaceGitMetadataReading {
     private struct ProbeWaiter {
+        let id: UUID
         let minimumCount: Int
         let continuation: CheckedContinuation<Bool, Never>
     }
@@ -33,21 +34,45 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
     }
 
     func waitForTrackedPathEventGenerationProbe(
-        count minimumCount: Int = 1
+        count minimumCount: Int = 1,
+        timeout: Duration = .seconds(10)
     ) async -> Bool {
         if probedTrackedPathEventGenerations.count >= minimumCount {
             return true
         }
-        return await withCheckedContinuation { continuation in
+        // Bound the wait so a probe that never arrives fails the test
+        // deterministically instead of hanging the whole suite. The timeout
+        // task and the probe path both resolve the waiter by id on the actor,
+        // so the continuation is resumed exactly once.
+        let waiterID = UUID()
+        let timeoutTask = Task {
+            try? await Task.sleep(for: timeout)
+            if Task.isCancelled { return }
+            await self.expireProbeWaiter(id: waiterID)
+        }
+        let satisfied = await withCheckedContinuation { continuation in
             if probedTrackedPathEventGenerations.count >= minimumCount {
                 continuation.resume(returning: true)
             } else {
                 probeWaiters.append(ProbeWaiter(
+                    id: waiterID,
                     minimumCount: minimumCount,
                     continuation: continuation
                 ))
             }
         }
+        timeoutTask.cancel()
+        return satisfied
+    }
+
+    private func expireProbeWaiter(id: UUID) {
+        guard let index = probeWaiters.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let waiter = probeWaiters.remove(at: index)
+        waiter.continuation.resume(
+            returning: probedTrackedPathEventGenerations.count >= waiter.minimumCount
+        )
     }
 
     func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
