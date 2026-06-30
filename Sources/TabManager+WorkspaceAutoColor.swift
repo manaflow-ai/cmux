@@ -18,6 +18,8 @@ extension TabManager {
         // metadata path uses the same bounded permit pool.
         let probeLimiter = workspaceGitProbeLimiter
         Task.detached(priority: .utility) { [weak self, weak newWorkspace, directory] in
+            // Don't queue for a permit if the workspace/window is already gone.
+            guard self != nil, newWorkspace != nil else { return }
             guard await probeLimiter.acquire() else { return }
             defer {
                 Task {
@@ -25,19 +27,38 @@ extension TabManager {
                 }
             }
 
+            // The permit can be contended, so re-check before the filesystem
+            // scan: skip workspaces closed, re-parented, or already colored
+            // while this task waited in the limiter queue.
             guard !Task.isCancelled,
+                  await TabManager.canAutoColorWorkspace(self, newWorkspace),
                   let color = WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: directory) else {
                 return
             }
             await MainActor.run { [weak self, weak newWorkspace] in
-                guard let self,
-                      let newWorkspace,
-                      newWorkspace.owningTabManager === self,
-                      newWorkspace.customColor == nil else {
+                guard let newWorkspace,
+                      TabManager.canAutoColorWorkspace(self, newWorkspace) else {
                     return
                 }
                 newWorkspace.setCustomColor(color)
             }
         }
+    }
+
+    /// Whether `workspace` is still owned by `manager` and has no color yet, so
+    /// an in-flight auto-color probe should keep going. Run on the main actor
+    /// because workspace ownership and color are main-actor state.
+    @MainActor
+    private static func canAutoColorWorkspace(
+        _ manager: TabManager?,
+        _ workspace: Workspace?
+    ) -> Bool {
+        guard let manager,
+              let workspace,
+              workspace.owningTabManager === manager,
+              workspace.customColor == nil else {
+            return false
+        }
+        return true
     }
 }
