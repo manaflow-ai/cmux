@@ -2309,7 +2309,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             supportedKinds: supportedRouteKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
-        let aliasIDsByMacID = Self.macDeviceIDAliasesByPairedMacID(
+        let aliasIDsByMacID = macDeviceIDAliasesByPairedMacID(
             in: visibleLoaded,
             supportedKinds: supportedRouteKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
@@ -2572,7 +2572,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return direct
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let aliasSetsByMacID = Self.macDeviceIDAliasSetsByPairedMacID(
+        let aliasSetsByMacID = macDeviceIDAliasSetsByPairedMacID(
             in: candidates,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
@@ -3529,7 +3529,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             supportedKinds: supportedRouteKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
-        let aliasIDsByMacID = Self.macDeviceIDAliasesByPairedMacID(
+        let aliasIDsByMacID = macDeviceIDAliasesByPairedMacID(
             in: visibleLoadedMacs,
             supportedKinds: supportedRouteKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes

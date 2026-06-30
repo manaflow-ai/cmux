@@ -60,7 +60,7 @@ extension MobileShellComposite {
         return matching.isEmpty ? [macDeviceID] : matching
     }
 
-    static func macDeviceIDAliasSetsByPairedMacID(
+    func macDeviceIDAliasSetsByPairedMacID(
         in macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool
@@ -72,7 +72,7 @@ extension MobileShellComposite {
         ).mapValues(Set.init)
     }
 
-    static func macDeviceIDAliasesByPairedMacID(
+    func macDeviceIDAliasesByPairedMacID(
         in macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool

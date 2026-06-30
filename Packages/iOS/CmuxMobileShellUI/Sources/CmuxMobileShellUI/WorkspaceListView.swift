@@ -8,11 +8,6 @@ import AppKit
 #endif
 
 struct WorkspaceListView: View {
-    private enum MacTitlePickerTaskKind: Equatable {
-        case switchRequest
-        case cancellation
-    }
-
     let workspaces: [MobileWorkspacePreview]
     /// The Mac's workspace groups, in section order. Empty when the Mac reports no
     /// groups; the list then renders flat. Passed as value snapshots so no
@@ -98,7 +93,7 @@ struct WorkspaceListView: View {
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
     @State var filter: MobileWorkspaceListFilter = .all
     @State private var macTitlePickerSwitchTask: Task<Void, Never>?
-    @State private var macTitlePickerSwitchTaskKind: MacTitlePickerTaskKind?
+    @State private var macTitlePickerSwitchIsCancellation = false
     @State private var macTitlePickerSwitchGeneration: UInt64 = 0
     @State private var macTitlePickerPendingSelection: WorkspaceMacSelection?
     @State private var deferredWorkspaceSelectionGeneration: UInt64 = 0
@@ -370,14 +365,14 @@ struct WorkspaceListView: View {
             defer {
                 if macTitlePickerSwitchGeneration == generation {
                     macTitlePickerSwitchTask = nil
-                    macTitlePickerSwitchTaskKind = nil
+                    macTitlePickerSwitchIsCancellation = false
                 }
             }
             await cancelTask?.value
             await applyMacTitlePickerSelection(selection, switchGeneration: generation)
         }
         macTitlePickerSwitchTask = task
-        macTitlePickerSwitchTaskKind = .switchRequest
+        macTitlePickerSwitchIsCancellation = false
         return task
     }
 
@@ -400,15 +395,15 @@ struct WorkspaceListView: View {
         cancelStoreSwitch: Bool = true
     ) -> Task<Void, Never>? {
         let pendingSwitchTask = macTitlePickerSwitchTask
-        let pendingSwitchTaskKind = macTitlePickerSwitchTaskKind
-        if pendingSwitchTaskKind == .cancellation {
+        let pendingSwitchIsCancellation = pendingSwitchTask != nil && macTitlePickerSwitchIsCancellation
+        if pendingSwitchIsCancellation {
             return pendingSwitchTask
         }
-        if pendingSwitchTaskKind == .switchRequest {
+        if pendingSwitchTask != nil {
             pendingSwitchTask?.cancel()
         }
         macTitlePickerSwitchTask = nil
-        macTitlePickerSwitchTaskKind = nil
+        macTitlePickerSwitchIsCancellation = false
         macTitlePickerPendingSelection = nil
         macTitlePickerSwitchGeneration &+= 1
         let generation = macTitlePickerSwitchGeneration
@@ -419,13 +414,13 @@ struct WorkspaceListView: View {
             defer {
                 if macTitlePickerSwitchGeneration == generation {
                     macTitlePickerSwitchTask = nil
-                    macTitlePickerSwitchTaskKind = nil
+                    macTitlePickerSwitchIsCancellation = false
                 }
             }
             await cancelMacSwitch?(restorePreviousOnCancel)
         }
         macTitlePickerSwitchTask = task
-        macTitlePickerSwitchTaskKind = .cancellation
+        macTitlePickerSwitchIsCancellation = true
         return task
     }
 
