@@ -42,9 +42,10 @@ struct TerminalWireCodableTests {
 
     @Test("ChatSessionEvent.sessionRemoved round-trips")
     func sessionRemovedEventRoundTrip() throws {
-        let event = ChatSessionEvent.sessionRemoved
+        let event = ChatSessionEvent.sessionRemoved(version: 9)
         let data = try encoder.encode(event)
         #expect(String(decoding: data, as: UTF8.self).contains("\"session_removed\""))
+        #expect(String(decoding: data, as: UTF8.self).contains("\"version\":9"))
         #expect(try decoder.decode(ChatSessionEvent.self, from: data) == event)
     }
 

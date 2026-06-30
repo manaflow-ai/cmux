@@ -83,6 +83,52 @@ struct AgentChatSessionRegistryLifecycleTests {
         #expect(registry.liveSession(surfaceID: surfaceID)?.sessionID == pendingID)
     }
 
+    @MainActor
+    @Test func transcriptBackedEndedPendingClaudeIsPreservedWhenNewIdleProcessAppears() throws {
+        let registry = AgentChatSessionRegistry()
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let pendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID)
+        let nextPendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID, pid: 222)
+        let transcriptPath = "/Users/example/.claude/projects/-Users-example-project/session.jsonl"
+
+        registry.applyObservedSessions([
+            ObservedAgentSession(
+                sessionID: pendingID,
+                agentKind: .claude,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                pid: 111,
+                workingDirectory: "/Users/example/project",
+                transcriptPath: nil
+            ),
+        ])
+        registry.update(sessionID: pendingID) { record in
+            record.transcriptPath = transcriptPath
+            record.state = .ended
+        }
+
+        registry.applyObservedSessions([
+            ObservedAgentSession(
+                sessionID: pendingID,
+                agentKind: .claude,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                pid: 222,
+                workingDirectory: "/Users/example/project",
+                transcriptPath: nil
+            ),
+        ])
+
+        let ended = try #require(registry.record(sessionID: pendingID))
+        let live = try #require(registry.record(sessionID: nextPendingID))
+        #expect(ended.state == .ended)
+        #expect(ended.transcriptPath == transcriptPath)
+        #expect(live.state == .idle)
+        #expect(live.pid == 222)
+        #expect(registry.liveSession(surfaceID: surfaceID)?.sessionID == nextPendingID)
+    }
+
     private func temporaryHomeDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-chat-\(UUID().uuidString)", isDirectory: true)

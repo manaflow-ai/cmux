@@ -169,11 +169,8 @@ final class AgentChatSessionRegistry {
     func applyObservedSessions(_ observed: [ObservedAgentSession]) {
         let now = Date()
         for session in observed {
-            let targetSessionID = canonicalClaudeSessionID(
-                incomingSessionID: session.sessionID,
-                source: session.agentKind.sourceName,
-                surfaceID: session.surfaceID
-            )
+            let canonicalSessionID = canonicalClaudeSessionID(incomingSessionID: session.sessionID, source: session.agentKind.sourceName, surfaceID: session.surfaceID)
+            let targetSessionID = observedClaudeSessionID(canonicalSessionID: canonicalSessionID, observed: session)
             #if DEBUG
             cmuxDebugLog(
                 "agentChat.detect session=\(targetSessionID.prefix(8)) kind=\(session.agentKind.sourceName) "
@@ -557,7 +554,8 @@ final class AgentChatSessionRegistry {
             .map(\.sessionID)
         guard !aliases.isEmpty else { return }
         for alias in aliases {
-            guard let record = records.removeValue(forKey: alias) else { continue }
+            guard var record = records.removeValue(forKey: alias) else { continue }
+            stampVersion(&record)
             exitWatchers[alias]?.source.cancel()
             exitWatchers[alias] = nil
             hookStoreConsultedAt.removeValue(forKey: alias)

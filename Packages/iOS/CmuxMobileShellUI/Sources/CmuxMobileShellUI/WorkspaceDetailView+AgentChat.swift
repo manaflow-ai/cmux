@@ -172,7 +172,7 @@ extension WorkspaceDetailView {
             applyChatModeFallback(canInvalidateSelection: false)
             return
         }
-        let reducer = ChatSessionListReducer(workspaceID: workspaceID)
+        var reducer = ChatSessionListReducer(workspaceID: workspaceID)
         let stream = await source.sessionEvents()
         let seedOutcome: WorkspaceChatSessionRefreshOutcome
         do {

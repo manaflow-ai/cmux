@@ -10,7 +10,8 @@ extension AgentChatSessionRegistry {
     ) -> Bool {
         guard current.state == .ended,
               session.agentKind == .claude,
-              Self.isPendingClaudeSessionID(current.sessionID) else {
+              Self.isPendingClaudeSessionID(current.sessionID),
+              current.transcriptPath == nil else {
             return false
         }
         update(sessionID: current.sessionID) { record in
@@ -23,6 +24,20 @@ extension AgentChatSessionRegistry {
             record.lastActivityAt = now
         }
         return true
+    }
+
+    func observedClaudeSessionID(
+        canonicalSessionID: String,
+        observed session: ObservedAgentSession
+    ) -> String {
+        guard let current = record(sessionID: canonicalSessionID),
+              current.state == .ended,
+              current.transcriptPath != nil,
+              session.agentKind == .claude,
+              Self.isPendingClaudeSessionID(canonicalSessionID) else {
+            return canonicalSessionID
+        }
+        return Self.pendingClaudeSessionID(surfaceID: session.surfaceID, pid: session.pid)
     }
 
     func observeAgentProcesses() async {
@@ -171,6 +186,10 @@ extension AgentChatSessionRegistry {
 
     nonisolated static func pendingClaudeSessionID(surfaceID: String) -> String {
         "pending-claude-\(surfaceID)"
+    }
+
+    nonisolated static func pendingClaudeSessionID(surfaceID: String, pid: Int) -> String {
+        "pending-claude-\(surfaceID)-pid-\(pid)"
     }
 
     nonisolated static func isPendingClaudeSessionID(_ sessionID: String) -> Bool {

@@ -442,7 +442,7 @@ final class AgentChatTranscriptService {
         }
         failedResolutions.remove(record.sessionID)
         guard MobileHostService.hasEventSubscribers(topic: Self.eventTopic) else { return }
-        emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved))
+        emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
     }
 
     private static func descriptorChangedMeaningfully(
