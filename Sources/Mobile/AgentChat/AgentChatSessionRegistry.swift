@@ -157,55 +157,9 @@ final class AgentChatSessionRegistry {
         return nil
     }
 
-    // MARK: Observe-floor detection (process tree)
-
-    /// Off-main scan + main-actor apply: discover live codex/claude sessions by
-    /// observing the process table, with no dependency on hooks firing. Resolves
-    /// identity from the agent's own state (codex: the rollout file it holds
-    /// open; claude: `CLAUDE_CODE_SESSION_ID` or `--session-id`/`--resume`).
-    /// Fresh idle Claude prompts do not expose either signal yet, so they get a
-    /// cmux-owned pending id from their terminal surface and later hooks on that
-    /// surface fill in transcript/state. The snapshot is captured off the main
-    /// actor, and overlapping callers share one in-flight scan so list-refresh
-    /// bursts cannot fan out into concurrent process-table walks.
-    private var observeInFlight: (id: UUID, task: Task<Void, Never>)?
-    private var observeLastStartedAt: Date?
-    private static let observeThrottleInterval: TimeInterval = 2
-
-    func observeAgentProcesses() async {
-        if let task = observeAgentProcessesTask(force: true) {
-            await task.value
-        }
-    }
-
-    func scheduleAgentProcessObservation() {
-        _ = observeAgentProcessesTask(force: false)
-    }
-
-    private func observeAgentProcessesTask(force: Bool) -> Task<Void, Never>? {
-        if let inFlight = observeInFlight {
-            return inFlight.task
-        }
-        if !force,
-           let observeLastStartedAt {
-            let elapsed = Date().timeIntervalSince(observeLastStartedAt)
-            if elapsed < Self.observeThrottleInterval {
-                return nil
-            }
-        }
-        observeLastStartedAt = Date()
-        let id = UUID()
-        let task = Task { @MainActor [weak self] in
-            let observed = await Task.detached { Self.scanObservedAgentSessions() }.value
-            guard let self else { return }
-            self.applyObservedSessions(observed)
-            if self.observeInFlight?.id == id {
-                self.observeInFlight = nil
-            }
-        }
-        observeInFlight = (id, task)
-        return task
-    }
+    var observeInFlight: (id: UUID, task: Task<Void, Never>)?
+    var observeLastStartedAt: Date?
+    static let observeThrottleInterval: TimeInterval = 2
 
     /// Folds detections in: create a record for any session not already known
     /// (state `.idle`, from cmux's own observation), and backfill a missing
@@ -263,53 +217,6 @@ final class AgentChatSessionRegistry {
                 }
             }
         }
-    }
-
-    /// Off-main: one entry per distinct live codex/claude session under any cmux
-    /// surface, identity resolved without hooks.
-    private nonisolated static func scanObservedAgentSessions() -> [ObservedAgentSession] {
-        let snapshot = CmuxTopProcessSnapshot.capture(
-            includeProcessDetails: true,
-            includeCMUXScope: true
-        )
-        return scanObservedAgentSessions(
-            in: snapshot,
-            processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:),
-            codexRolloutPath: openCodexRolloutPath(pid:)
-        )
-    }
-
-    /// libproc: the path of a `~/.codex/sessions/**/rollout-*.jsonl` the process
-    /// holds open (codex keeps its rollout open for writing), or nil.
-    private nonisolated static func openCodexRolloutPath(pid: Int) -> String? {
-        let listSize = proc_pidinfo(pid_t(pid), PROC_PIDLISTFDS, 0, nil, 0)
-        guard listSize > 0 else { return nil }
-        let count = Int(listSize) / MemoryLayout<proc_fdinfo>.stride
-        guard count > 0 else { return nil }
-        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: count)
-        let used = proc_pidinfo(pid_t(pid), PROC_PIDLISTFDS, 0, &fds, listSize)
-        guard used > 0 else { return nil }
-        let actual = Int(used) / MemoryLayout<proc_fdinfo>.stride
-        for index in 0..<min(actual, fds.count) {
-            guard fds[index].proc_fdtype == UInt32(PROX_FDTYPE_VNODE) else { continue }
-            var info = vnode_fdinfowithpath()
-            let size = proc_pidfdinfo(
-                pid_t(pid),
-                fds[index].proc_fd,
-                PROC_PIDFDVNODEPATHINFO,
-                &info,
-                Int32(MemoryLayout<vnode_fdinfowithpath>.size)
-            )
-            guard size > 0 else { continue }
-            let path = withUnsafeBytes(of: &info.pvip.vip_path) { raw -> String in
-                guard let base = raw.baseAddress else { return "" }
-                return String(cString: base.assumingMemoryBound(to: CChar.self))
-            }
-            if path.hasSuffix(".jsonl"), path.contains("/.codex/sessions/") {
-                return path
-            }
-        }
-        return nil
     }
 
     /// The watched agent process exited. Before ending the session, verify
