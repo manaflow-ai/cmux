@@ -74,6 +74,19 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugActivateApp() -> String { activateApp() }
 
+    func controlDebugAttemptUpdate() -> Bool {
+        guard let appDelegate = AppDelegate.shared else { return false }
+        appDelegate.attemptUpdate(nil)
+        return true
+    }
+
+    func controlDebugUpdatePrepareRelaunchBenchmark() -> JSONValue? {
+        guard let payload = AppDelegate.shared?.debugBenchmarkUpdatePrepareRelaunch() else {
+            return nil
+        }
+        return JSONValue(foundationObject: payload)
+    }
+
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {
         isTerminalFocused(surfaceArgument)
     }

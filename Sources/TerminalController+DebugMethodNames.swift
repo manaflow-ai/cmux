@@ -7,6 +7,8 @@ extension TerminalController {
         "debug.textbox.inline_fixture",
         "debug.textbox.interact",
         "debug.app.activate",
+        "debug.update.attempt",
+        "debug.update.prepare_relaunch_benchmark",
         "debug.command_palette.toggle",
         "debug.command_palette.rename_tab.open",
         "debug.command_palette.visible",

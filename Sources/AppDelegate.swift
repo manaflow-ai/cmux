@@ -4150,6 +4150,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             charactersPerTerminal: charactersPerTerminal
         )
     }
+
+    func debugBenchmarkUpdatePrepareRelaunch() -> [String: Any] {
+        let shape = debugUpdateRelaunchShape()
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        var resumeIndexesMs: Double = 0
+        var saveSnapshotMs: Double = 0
+        var closedHistoryFlushMs: Double = 0
+
+        let previousIsTerminatingApp = isTerminatingApp
+        isTerminatingApp = true
+        defer { isTerminatingApp = previousIsTerminatingApp }
+
+        let resumeIndexesStart = ProcessInfo.processInfo.systemUptime
+        let (resumeIndexes, resumeIndexesSource) = resumeIndexesForTerminatingSessionSave()
+        resumeIndexesMs = Self.debugElapsedMs(since: resumeIndexesStart)
+
+        let saveSnapshotStart = ProcessInfo.processInfo.systemUptime
+        _ = saveSessionSnapshot(
+            includeScrollback: true,
+            removeWhenEmpty: false,
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+        )
+        saveSnapshotMs = Self.debugElapsedMs(since: saveSnapshotStart)
+
+        let closedHistoryFlushStart = ProcessInfo.processInfo.systemUptime
+        ClosedItemHistoryStore.shared.flushPendingSaves()
+        closedHistoryFlushMs = Self.debugElapsedMs(since: closedHistoryFlushStart)
+
+        return [
+            "destructive": false,
+            "elapsed_ms": Self.debugElapsedMs(since: startedAt),
+            "resume_indexes_ms": resumeIndexesMs,
+            "resume_indexes_source": resumeIndexesSource,
+            "save_session_snapshot_ms": saveSnapshotMs,
+            "closed_history_flush_ms": closedHistoryFlushMs,
+            "shape": shape
+        ]
+    }
+
+    private static func debugElapsedMs(since start: TimeInterval) -> Double {
+        ((ProcessInfo.processInfo.systemUptime - start) * 1000.0 * 100.0).rounded() / 100.0
+    }
+
+    private func debugUpdateRelaunchShape() -> [String: Any] {
+        let contexts = sortedMainWindowContextsForSessionSnapshot()
+        var workspaceCount = 0
+        var panelCount = 0
+        var terminalCount = 0
+        for context in contexts {
+            let workspaces = context.tabManager.tabs
+            workspaceCount += workspaces.count
+            for workspace in workspaces {
+                panelCount += workspace.panels.count
+                terminalCount += workspace.panels.values.filter { $0 is TerminalPanel }.count
+            }
+        }
+        return [
+            "windows": contexts.count,
+            "workspaces": workspaceCount,
+            "panels": panelCount,
+            "terminals": terminalCount,
+            "ns_windows": NSApp.windows.count
+        ]
+    }
 #endif
 
     nonisolated static func shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: Bool) -> Bool {
@@ -4312,13 +4377,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) -> Bool {
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+        let resumeIndexes: ProcessDetectedResumeIndexes
+        if isTerminatingApp {
+            resumeIndexes = resumeIndexesForTerminatingSessionSave().indexes
+        } else {
+            resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+        }
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
             surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
         )
+    }
+
+    private func resumeIndexesForTerminatingSessionSave() -> (indexes: ProcessDetectedResumeIndexes, source: String) {
+        let ttyScope = liveSurfaceTTYNamesByPanelKeyForSessionSnapshot()
+        guard ttyScope.fullyVerified else {
+            let indexes = ProcessDetectedResumeIndexes.loadSynchronously()
+            return (indexes, "fresh_synchronous_scan_unverified_tty_fallback")
+        }
+        let indexes = ProcessDetectedResumeIndexes.loadSynchronously(panelTTYNamesByKey: ttyScope.panelTTYNamesByKey)
+        return (indexes, "fresh_tty_scoped_scan")
+    }
+
+    private func liveSurfaceTTYNamesByPanelKeyForSessionSnapshot()
+        -> (panelTTYNamesByKey: [RestorableAgentSessionIndex.PanelKey: String], fullyVerified: Bool) {
+        var ttyNamesByPanelKey: [RestorableAgentSessionIndex.PanelKey: String] = [:]
+        var seenTTYDevices = Set<Int64>()
+        for context in sortedMainWindowContextsForSessionSnapshot() {
+            for workspace in context.tabManager.tabs {
+                for panel in workspace.panels.values {
+                    guard let terminalPanel = panel as? TerminalPanel,
+                          terminalPanel.surface.hasLiveSurface else {
+                        continue
+                    }
+                    let trimmedTTYName = terminalPanel.surface.controllingTTYName()?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard let trimmedTTYName, !trimmedTTYName.isEmpty else {
+                        return (ttyNamesByPanelKey, false)
+                    }
+                    guard let ttyDevice = CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: trimmedTTYName),
+                          seenTTYDevices.insert(ttyDevice).inserted else {
+                        return (ttyNamesByPanelKey, false)
+                    }
+                    ttyNamesByPanelKey[
+                        RestorableAgentSessionIndex.PanelKey(workspaceId: workspace.id, panelId: terminalPanel.id)
+                    ] = trimmedTTYName
+                }
+            }
+        }
+        return (ttyNamesByPanelKey, true)
     }
 
     private func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(

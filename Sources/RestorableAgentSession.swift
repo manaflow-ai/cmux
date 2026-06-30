@@ -1926,27 +1926,47 @@ struct ProcessDetectedResumeIndexes: Sendable {
 
     static func loadSynchronously(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        panelTTYNamesByKey: [RestorableAgentSessionIndex.PanelKey: String]? = nil
     ) -> ProcessDetectedResumeIndexes {
         let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        let processSnapshot = CmuxTopProcessSnapshot.capture(
+            includeProcessDetails: false,
+            includeCMUXScope: panelTTYNamesByKey == nil
+        )
+        var processArgumentsCache: [Int: CmuxTopProcessArguments] = [:]
+        let processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = { pid in
+            if let cached = processArgumentsCache[pid] {
+                return cached
+            }
+            guard let arguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: pid) else {
+                return nil
+            }
+            processArgumentsCache[pid] = arguments
+            return arguments
+        }
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: registry,
             fileManager: fileManager,
             processSnapshot: processSnapshot,
-            capturedAt: capturedAt
+            capturedAt: capturedAt,
+            processArgumentsProvider: processArgumentsProvider,
+            panelTTYNamesByKey: panelTTYNamesByKey
         )
         let restorableAgentIndex = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: detectedSnapshots
+            detectedSnapshots: detectedSnapshots,
+            processArgumentsProvider: processArgumentsProvider
         )
         let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
             fileManager: fileManager,
             processSnapshot: processSnapshot,
-            capturedAt: capturedAt
+            capturedAt: capturedAt,
+            processArgumentsProvider: processArgumentsProvider,
+            panelTTYNamesByKey: panelTTYNamesByKey
         )
         return ProcessDetectedResumeIndexes(
             restorableAgentIndex: restorableAgentIndex,
