@@ -115,9 +115,12 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         return group.id
     }
 
-    /// Create a brand-new workspace inheriting the anchor's cwd, attach it
-    /// to the group, and position it within the group's tabs[] range per
-    /// `placement`. Returns the new workspace.
+    /// Create a brand-new workspace, attach it to the group, and position it
+    /// within the group's tabs[] range per `placement`. The new workspace
+    /// inherits the anchor's cwd only when the host reports working-directory
+    /// inheritance is enabled (`app.workspaceInheritWorkingDirectory`);
+    /// otherwise it falls back to home like ungrouped creation. Returns the
+    /// new workspace.
     @discardableResult
     public func createWorkspaceInGroup(
         groupId: UUID,
@@ -133,11 +136,18 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         let placement = explicitPlacement
             ?? host.defaultNewWorkspacePlacementInGroup
         guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
-        let cwd = model.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+        // Only adopt the anchor's cwd when the user keeps working-directory
+        // inheritance on. With it off, leave the cwd unset so the new workspace
+        // falls back to home — matching ungrouped new-workspace creation and the
+        // `app.workspaceInheritWorkingDirectory` setting, which group creation
+        // would otherwise silently bypass.
+        let cwd = host.inheritsWorkingDirectoryForNewWorkspaces
+            ? model.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+            : nil
         let newWorkspace = host.createWorkspaceForGroup(
             workingDirectory: cwd,
             initialSurface: initialSurface,
-            inheritWorkingDirectory: cwd == nil,
+            inheritWorkingDirectory: host.inheritsWorkingDirectoryForNewWorkspaces && cwd == nil,
             select: select
         )
         model.assignGroup(workspaceId: newWorkspace.id, groupId: groupId)

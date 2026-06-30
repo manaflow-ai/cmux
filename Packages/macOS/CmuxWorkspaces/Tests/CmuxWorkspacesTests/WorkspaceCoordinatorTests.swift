@@ -38,6 +38,7 @@ private final class StubGroupHost: WorkspaceGroupHosting {
     var sidebarSelectedWorkspaceIds: Set<UUID> = []
     var localizedAutoGroupNameFormat: String { "Group %lld" }
     var defaultNewWorkspacePlacementInGroup: WorkspaceGroupNewPlacement { .end }
+    var inheritsWorkingDirectoryForNewWorkspaces = true
     private(set) var groupNameChangeCount = 0
 
     init(model: WorkspacesModel<CoordinatorStubTab>) {
@@ -570,5 +571,44 @@ struct WorkspaceCoordinatorTests {
         #expect(model.workspaceGroups[0].anchorWorkspaceId == b.id)
         let memberIds = model.tabs.filter { $0.groupId == groupId }.map(\.id)
         #expect(memberIds.first == b.id)
+    }
+
+    // MARK: New-in-group working directory
+
+    @Test
+    func inGroupCreationInheritsAnchorCwdWhenInheritanceEnabled() throws {
+        let (model, host, groups, _) = makeWorld()
+        let child = CoordinatorStubTab(currentDirectory: "/anchor/project")
+        model.tabs = [child]
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [child.id],
+            anchorWorkingDirectory: "/anchor/project"
+        ))
+        host.inheritsWorkingDirectoryForNewWorkspaces = true
+
+        let created = try #require(groups.createWorkspaceInGroup(groupId: groupId))
+
+        #expect(created.currentDirectory == "/anchor/project")
+    }
+
+    @Test
+    func inGroupCreationSkipsAnchorCwdWhenInheritanceDisabled() throws {
+        let (model, host, groups, _) = makeWorld()
+        let child = CoordinatorStubTab(currentDirectory: "/anchor/project")
+        model.tabs = [child]
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [child.id],
+            anchorWorkingDirectory: "/anchor/project"
+        ))
+        host.inheritsWorkingDirectoryForNewWorkspaces = false
+
+        let created = try #require(groups.createWorkspaceInGroup(groupId: groupId))
+
+        // With inheritance off, the new in-group workspace must NOT adopt the
+        // anchor's cwd; it falls back to the host default (home), matching
+        // ungrouped new-workspace creation.
+        #expect(created.currentDirectory != "/anchor/project")
     }
 }
