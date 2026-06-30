@@ -1,0 +1,11 @@
+name = "cmux-collaboration-worker"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+
+[[durable_objects.bindings]]
+name = "COLLABORATION_SESSIONS"
+class_name = "CollaborationSessionObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CollaborationSessionObject"]

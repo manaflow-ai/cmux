@@ -20,6 +20,18 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Absolute path to the markdown file being displayed.
     let filePath: String
 
+    var collaborationFileURL: URL {
+        URL(fileURLWithPath: filePath)
+    }
+
+    var collaborationFilePath: String {
+        filePath
+    }
+
+    var collaborationText: String {
+        textContent
+    }
+
     /// The workspace this panel belongs to.
     private(set) var workspaceId: UUID
 
@@ -288,6 +300,15 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         textContent = nextContent
         content = nextContent
         isDirty = nextContent != originalTextContent
+        GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+    }
+
+    func applyCollaborationText(_ text: String) {
+        guard textContent != text else { return }
+        textContent = text
+        content = text
+        textView?.string = text
+        isDirty = text != originalTextContent
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
     }
 

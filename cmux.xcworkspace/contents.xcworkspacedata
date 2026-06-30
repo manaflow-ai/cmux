@@ -20,6 +20,9 @@
          location = "group:CmuxAuthRuntime">
       </FileRef>
       <FileRef
+         location = "group:CmuxCollaboration">
+      </FileRef>
+      <FileRef
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef

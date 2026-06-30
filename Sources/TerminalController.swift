@@ -1105,6 +1105,43 @@ class TerminalController {
             return v2Ok(id: request.id, result: ["pong": true])
         case "system.capabilities":
             return v2Ok(id: request.id, result: v2Capabilities())
+        case "collaboration.status":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 5) {
+                let payload = await CollaborationRuntime.shared.statusPayload()
+                return .ok(payload)
+            }
+        case "collaboration.session.create":
+            let relayURL = request.params["relay_url"] as? String
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                let payload = await CollaborationRuntime.shared.createSessionForAutomation(relayURL: relayURL)
+                return .ok(payload)
+            }
+        case "collaboration.session.join":
+            guard let code = request.params["session_code"] as? String,
+                  let token = request.params["invite_token"] as? String else {
+                return v2Result(
+                    id: request.id,
+                    .err(
+                        code: "invalid_params",
+                        message: "collaboration.session.join requires session_code and invite_token",
+                        data: nil
+                    )
+                )
+            }
+            let relayURL = request.params["relay_url"] as? String
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 15) {
+                let payload = await CollaborationRuntime.shared.joinSessionForAutomation(
+                    relayURL: relayURL,
+                    code: code,
+                    token: token
+                )
+                return .ok(payload)
+            }
+        case "collaboration.session.leave":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 5) {
+                let payload = await CollaborationRuntime.shared.leaveSessionForAutomation()
+                return .ok(payload)
+            }
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
@@ -1805,6 +1842,37 @@ class TerminalController {
             return v2Ok(id: id, result: ["pong": true])
         case "system.capabilities":
             return v2Ok(id: id, result: v2Capabilities())
+        case "collaboration.status":
+            return v2Ok(id: id, result: CollaborationRuntime.shared.statusPayload())
+        case "collaboration.session.create":
+            let relayURL = params["relay_url"] as? String
+            return v2Result(
+                id: id,
+                .ok(CollaborationRuntime.shared.createSessionForAutomationRequest(relayURL: relayURL))
+            )
+        case "collaboration.session.join":
+            guard let code = params["session_code"] as? String,
+                  let token = params["invite_token"] as? String else {
+                return v2Result(
+                    id: id,
+                    .err(
+                        code: "invalid_params",
+                        message: "collaboration.session.join requires session_code and invite_token",
+                        data: nil
+                    )
+                )
+            }
+            let relayURL = params["relay_url"] as? String
+            return v2Result(
+                id: id,
+                .ok(CollaborationRuntime.shared.joinSessionForAutomationRequest(
+                    relayURL: relayURL,
+                    code: code,
+                    token: token
+                ))
+            )
+        case "collaboration.session.leave":
+            return v2Ok(id: id, result: CollaborationRuntime.shared.leaveSessionForAutomation())
         // mobile.host.status/mobile.workspace.list/mobile.terminal.* (+terminal.*
         // aliases), mobile.terminal.paste/terminal.paste, and chat.sessions.dump
         // handled by ControlCommandCoordinator (bodies stay; shared with
@@ -1946,6 +2014,10 @@ class TerminalController {
         var methods: [String] = [
             "system.ping",
             "system.capabilities",
+            "collaboration.status",
+            "collaboration.session.create",
+            "collaboration.session.join",
+            "collaboration.session.leave",
             "system.identify",
             "system.tree",
             "sidebar.custom.open",

@@ -3,7 +3,7 @@ import CmuxFoundation
 import SwiftUI
 
 @MainActor
-protocol FilePreviewTextEditingPanel: AnyObject {
+protocol FilePreviewTextEditingPanel: CollaborationEditablePanel {
     var textContent: String { get }
 
     func attachTextView(_ textView: NSTextView)
@@ -106,7 +106,18 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         func textDidChange(_ notification: Notification) {
             guard !isApplyingPanelUpdate,
                   let textView = notification.object as? NSTextView else { return }
+            let previousText = panel.textContent
             panel.updateTextContent(textView.string)
+            CollaborationRuntime.shared.noteLocalTextChange(
+                panel: panel,
+                previousText: previousText,
+                nextText: textView.string
+            )
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            CollaborationRuntime.shared.noteLocalSelection(panel: panel, textView: textView)
         }
     }
 }

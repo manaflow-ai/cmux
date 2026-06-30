@@ -1007,6 +1007,18 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         URL(fileURLWithPath: filePath)
     }
 
+    var collaborationFileURL: URL {
+        fileURL
+    }
+
+    var collaborationFilePath: String {
+        filePath
+    }
+
+    var collaborationText: String {
+        textContent
+    }
+
     init(
         workspaceId: UUID,
         filePath: String,
@@ -1145,6 +1157,13 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard textContent != nextContent else { return }
         textContent = nextContent
         isDirty = nextContent != originalTextContent
+    }
+
+    func applyCollaborationText(_ text: String) {
+        guard textContent != text else { return }
+        textContent = text
+        textView?.string = text
+        isDirty = text != originalTextContent
     }
 
     private func prepareContentForPreviewMode() {
@@ -1332,6 +1351,8 @@ struct FilePreviewPanelView: View {
             foregroundColor: themeForegroundColor
         ) {
             if panel.previewMode == .text {
+                CollaborationHeaderControls(panel: panel)
+
                 PanelHeaderIconButton(
                     systemName: "arrow.counterclockwise",
                     label: String(localized: "filePreview.revert", defaultValue: "Revert"),

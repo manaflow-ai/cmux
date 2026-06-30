@@ -3522,6 +3522,83 @@ struct CMUXCLI {
             let response = try client.sendV2(method: "system.capabilities")
             print(jsonString(formatIDs(response, mode: idFormat)))
 
+        case "collaboration", "collab", "multiplayer":
+            let sub = commandArgs.first?.lowercased() ?? "status"
+            let rest = Array(commandArgs.dropFirst())
+            switch sub {
+            case "status":
+                let response = try client.sendV2(method: "collaboration.status")
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                print("Collaboration: \((response["status"] as? String) ?? "unknown")")
+                if let code = response["session_code"] as? String {
+                    print("  session_code: \(code)")
+                }
+                if let token = response["invite_token"] as? String {
+                    print("  invite_token:  \(token)")
+                }
+                print("  relay_url:    \((response["relay_url"] as? String) ?? "?")")
+                print("  shared_files: \((response["shared_documents"] as? Int) ?? 0)")
+
+            case "create", "new":
+                let (relayURL, remaining) = parseOption(rest, name: "--relay-url")
+                if let extra = remaining.first {
+                    throw CLIError(message: "cmux collaboration create: unexpected argument '\(extra)'")
+                }
+                var params: [String: Any] = [:]
+                if let relayURL { params["relay_url"] = relayURL }
+                let response = try client.sendV2(
+                    method: "collaboration.session.create",
+                    params: params,
+                    responseTimeout: 35
+                )
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                print("Created collaboration session.")
+                print("  relay_url:    \((response["relay_url"] as? String) ?? "?")")
+                print("  session_code: \((response["session_code"] as? String) ?? "?")")
+                print("  invite_token:  \((response["invite_token"] as? String) ?? "?")")
+
+            case "join":
+                let (relayURL, afterRelay) = parseOption(rest, name: "--relay-url")
+                let (sessionCode, afterCode) = parseOption(afterRelay, name: "--session-code")
+                let (inviteToken, remaining) = parseOption(afterCode, name: "--invite-token")
+                if let extra = remaining.first {
+                    throw CLIError(message: "cmux collaboration join: unexpected argument '\(extra)'")
+                }
+                guard let sessionCode, let inviteToken else {
+                    throw CLIError(message: "Usage: cmux collaboration join --session-code <code> --invite-token <token> [--relay-url <url>]")
+                }
+                var params: [String: Any] = [
+                    "session_code": sessionCode,
+                    "invite_token": inviteToken,
+                ]
+                if let relayURL { params["relay_url"] = relayURL }
+                let response = try client.sendV2(method: "collaboration.session.join", params: params)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                print("Joined collaboration session.")
+                print("  relay_url:    \((response["relay_url"] as? String) ?? "?")")
+                print("  session_code: \((response["session_code"] as? String) ?? "?")")
+
+            case "leave":
+                let response = try client.sendV2(method: "collaboration.session.leave")
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                print("Left collaboration session.")
+
+            default:
+                throw CLIError(message: "Usage: cmux collaboration <status|create|join|leave>")
+            }
+
         case "agent-hibernation":
             try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 

@@ -118,6 +118,8 @@ struct MarkdownPanelView: View {
             foregroundColor: themeForegroundColor
         ) {
             if panel.displayMode == .text {
+                CollaborationHeaderControls(panel: panel)
+
                 PanelHeaderIconButton(
                     systemName: "arrow.counterclockwise",
                     label: String(localized: "markdown.toolbar.revert", defaultValue: "Revert"),
