@@ -72,7 +72,13 @@ enum CommandClickFileOpenRouter {
     @MainActor
     @discardableResult
     static func openInDefaultApplication(filePath: String) -> Bool {
-        FileExternalOpenAction.openDefault(fileURL: URL(fileURLWithPath: filePath))
+        openInDefaultApplication(fileURL: URL(fileURLWithPath: filePath))
+    }
+
+    @MainActor
+    @discardableResult
+    static func openInDefaultApplication(fileURL: URL) -> Bool {
+        FileExternalOpenAction.openDefault(fileURL: fileURL)
     }
 
     /// Resolve the working directory for a terminal surface, preferring the
@@ -107,6 +113,7 @@ enum CommandClickFileOpenRouter {
         surfaceId: UUID,
         filePath: String,
         modifierFlags: NSEvent.ModifierFlags,
+        defaultApplicationURL: URL? = nil,
         fallback: (@MainActor @Sendable () -> Void)? = nil
     ) -> Bool {
         guard route(path: filePath, modifierFlags: modifierFlags) != .fallback else {
@@ -116,10 +123,15 @@ enum CommandClickFileOpenRouter {
         // native app handoff both run after the callback returns.
         DispatchQueue.main.async {
             let resolvedRoute = route(path: filePath, modifierFlags: modifierFlags)
+            let nativeFileURL = defaultApplicationURL ?? URL(fileURLWithPath: filePath)
             if resolvedRoute == .defaultApplication {
-                if !openInDefaultApplication(filePath: filePath) {
+                if !openInDefaultApplication(fileURL: nativeFileURL) {
                     fallback?()
                 }
+                return
+            }
+            guard resolvedRoute == .cmux else {
+                fallback?()
                 return
             }
 
@@ -131,24 +143,14 @@ enum CommandClickFileOpenRouter {
                 fallback?()
                 return
             }
-
-            switch resolvedRoute {
-            case .cmux:
-                if openInCmux(
-                    workspace: resolvedWorkspace,
-                    sourcePanelId: surfaceId,
-                    filePath: filePath
-                ) {
-                    return
-                }
-                fallback?()
-            case .defaultApplication:
-                if !openInDefaultApplication(filePath: filePath) {
-                    fallback?()
-                }
-            case .fallback:
-                fallback?()
+            if openInCmux(
+                workspace: resolvedWorkspace,
+                sourcePanelId: surfaceId,
+                filePath: filePath
+            ) {
+                return
             }
+            fallback?()
         }
         return true
     }
@@ -168,6 +170,7 @@ enum CommandClickFileOpenRouter {
             surfaceId: surfaceId,
             filePath: fileURL.path,
             modifierFlags: modifierFlags,
+            defaultApplicationURL: fileURL,
             fallback: {
                 NSWorkspace.shared.open(fileURL)
             }

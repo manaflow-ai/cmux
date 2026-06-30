@@ -3,13 +3,19 @@ import AppKit
 extension GhosttyNSView {
     func modifierFlagsForOpenURLAction() -> NSEvent.ModifierFlags {
         if let activeMouseOpenURLModifierFlags {
+            recentMouseOpenURLModifierFlags = nil
+            recentMouseOpenURLModifierFlagsDeadline = 0
             return activeMouseOpenURLModifierFlags
+        }
+        defer {
+            recentMouseOpenURLModifierFlags = nil
+            recentMouseOpenURLModifierFlagsDeadline = 0
         }
         if let recentMouseOpenURLModifierFlags,
            ProcessInfo.processInfo.systemUptime <= recentMouseOpenURLModifierFlagsDeadline {
             return recentMouseOpenURLModifierFlags
         }
-        return NSEvent.modifierFlags
+        return []
     }
 
     func withMouseOpenURLModifierFlags<T>(
@@ -29,6 +35,11 @@ extension GhosttyNSView {
     }
 
     func shouldSuppressDefaultApplicationFallbackForHandledOpenURL(ghosttyConsumed: Bool) -> Bool {
-        ghosttyConsumed && ProcessInfo.processInfo.systemUptime <= recentHandledOpenURLRouteDeadline
+        guard ghosttyConsumed,
+              ProcessInfo.processInfo.systemUptime <= recentHandledOpenURLRouteDeadline else {
+            return false
+        }
+        recentHandledOpenURLRouteDeadline = 0
+        return true
     }
 }

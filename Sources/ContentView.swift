@@ -14986,7 +14986,7 @@ struct TabItemView: View, Equatable {
         isActive ? activeSecondaryColor(0.75) : .secondary
     }
 
-    private func currentClickModifierFlags() -> NSEvent.ModifierFlags { NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags }
+    private func currentClickModifierFlags() -> NSEvent.ModifierFlags { NSApp.currentEvent?.modifierFlags ?? [] }
 
     private func openPullRequestLink(_ url: URL, modifierFlags: NSEvent.ModifierFlags = []) {
         updateSelection()
