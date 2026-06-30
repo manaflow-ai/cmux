@@ -2,6 +2,7 @@
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileSupport
+import Foundation
 import SwiftUI
 
 /// Debug-only host for the agent chat surface fed by the fixture
@@ -35,9 +36,11 @@ struct AgentChatDemoScreen: View {
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                        .accessibilityIdentifier("AgentChatDemoDone")
+                if style == .standalone {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(L10n.string("mobile.common.done", defaultValue: "Done")) { dismiss() }
+                            .accessibilityIdentifier("AgentChatDemoDone")
+                    }
                 }
             }
         }
@@ -58,13 +61,37 @@ struct AgentChatDemoScreen: View {
             baseChatScreen(for: stack)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
                 .toolbar {
-                    ToolbarItem(placement: .principal) {
-                        header(for: stack)
-                            .frame(maxWidth: MobileNavTitleWidth.cap(
-                                contentWidth: contentWidth,
-                                hasChatToggle: true
-                            ))
-                            .mobileGlassNavigationTitle()
+                    ToolbarItem(placement: .topBarLeading) {
+                        WorkspaceBackButton(
+                            unreadCount: 0,
+                            badgeContrast: .darkBackground,
+                            action: {}
+                        )
+                    }
+                    if #available(iOS 26.0, *) {
+                        ToolbarSpacer(.fixed, placement: .topBarLeading)
+                    }
+                    ToolbarItem(placement: .topBarLeading) {
+                        Menu {
+                            Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
+                                .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
+                            Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
+                                .accessibilityIdentifier("MobileWorkspaceTitleMarkReadMenuItem")
+                        } label: {
+                            header(for: stack)
+                                .frame(
+                                    minWidth: MobileNavTitleWidth.floor,
+                                    maxWidth: MobileNavTitleWidth(
+                                        contentWidth: contentWidth,
+                                        hasBackButton: true,
+                                        hasChatToggle: true
+                                    ).leadingCap,
+                                    alignment: .leading
+                                )
+                                .layoutPriority(1)
+                        }
+                        .mobileGlassCompactToolbarControl()
+                        .accessibilityIdentifier("MobileWorkspaceTitleMenu")
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -97,8 +124,27 @@ struct AgentChatDemoScreen: View {
         ChatSessionHeaderView(
             descriptor: stack.store.descriptor,
             agentState: stack.store.agentState,
-            isConnected: stack.store.isConnected
+            isConnected: stack.store.isConnected,
+            titleOverride: style == .inlineWorkspace ? inlineWorkspaceTitle : nil,
+            subtitle: style == .inlineWorkspace ? inlineWorkspaceSubtitle : nil,
+            style: style == .inlineWorkspace ? .toolbarCompact : .regular
         )
+    }
+
+    private var inlineWorkspaceTitle: String? {
+        guard style == .inlineWorkspace else { return nil }
+        return UITestConfig.value(
+            for: "CMUX_UITEST_INLINE_WORKSPACE_TITLE",
+            env: ProcessInfo.processInfo.environment
+        ) ?? "cmux"
+    }
+
+    private var inlineWorkspaceSubtitle: String? {
+        guard style == .inlineWorkspace else { return nil }
+        return UITestConfig.value(
+            for: "CMUX_UITEST_INLINE_WORKSPACE_SUBTITLE",
+            env: ProcessInfo.processInfo.environment
+        ) ?? "cmuxterm-hq"
     }
 
     /// Holds the demo's store so its identity is stable across re-renders.
