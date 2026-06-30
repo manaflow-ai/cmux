@@ -29,17 +29,16 @@ extension WorkspaceListView {
     }
 
     var macPickerMachines: [WorkspaceFilterMachine] {
-        let scope = macSelectionScope
-        let names = macDisplayNamesByID()
-        return scope.machineIDs
-            .map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? fallbackMacPickerName) }
-            .sorted { lhs, rhs in
-                let nameOrder = lhs.name.localizedStandardCompare(rhs.name)
-                if nameOrder != .orderedSame {
-                    return nameOrder == .orderedAscending
-                }
-                return lhs.id < rhs.id
-            }
+        liveMachineSnapshots.macPickerMachines
+    }
+
+    var liveMachineSnapshots: WorkspaceMachineSnapshots {
+        WorkspaceMachineSnapshots(
+            workspaces: workspaces,
+            macPickerMachineIDs: macSelectionScope.machineIDs,
+            namesByID: macDisplayNamesByID(),
+            fallbackName: fallbackMacPickerName
+        )
     }
 
     var fallbackMacPickerName: String {
@@ -84,7 +83,7 @@ extension WorkspaceListView {
         case .all, .automatic:
             L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs")
         case .machine(let id):
-            macPickerMachines.first { $0.id == id }?.name ?? fallbackMacPickerName
+            machineSnapshots.macPickerMachines.first { $0.id == id }?.name ?? fallbackMacPickerName
         }
     }
 
@@ -96,7 +95,7 @@ extension WorkspaceListView {
             ) {
                 Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"))
                     .tag(WorkspaceMacSelection.all)
-                ForEach(macPickerMachines) { machine in
+                ForEach(machineSnapshots.macPickerMachines) { machine in
                     Text(machine.name)
                         .tag(WorkspaceMacSelection.machine(machine.id))
                 }

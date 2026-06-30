@@ -59,7 +59,7 @@ struct WorkspaceMacSelectionScope {
         case .automatic:
             break
         case .all:
-            active.machines.removeAll()
+            break
         case .machine(let id):
             active.machines = aliasIndex.filterMachineIDs(for: id)
         }

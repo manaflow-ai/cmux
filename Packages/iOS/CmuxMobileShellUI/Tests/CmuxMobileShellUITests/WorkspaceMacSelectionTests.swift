@@ -106,6 +106,22 @@ import Testing
         #expect(scope.canCreateWorkspace(base: true))
     }
 
+    @Test func allMacSelectionPreservesFilterMenuMachineScope() {
+        let scope = WorkspaceMacSelectionScope(
+            selection: .all,
+            workspaces: [
+                workspace(id: "ws-a", macDeviceID: "mac-a"),
+                workspace(id: "ws-b", macDeviceID: "mac-b"),
+            ],
+            displayPairedMacs: [],
+            foregroundMacDeviceID: nil,
+            aliasesFor: { [$0] }
+        )
+        let active = scope.activeFilter(base: MobileWorkspaceListFilter(machines: ["mac-b"]))
+
+        #expect(active.machines == ["mac-b"])
+    }
+
     private func workspaceListView(
         workspaces: [MobileWorkspacePreview],
         store: CMUXMobileShellStore
