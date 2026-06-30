@@ -174,8 +174,10 @@ jobs:
           # Pre-seed claude config so the fresh-$HOME onboarding (theme picker) and
           # the per-folder trust prompt don't block the headless run. The sandbox
           # path is deterministic (capture-streamed uses /tmp/cmux-stream-<agent>).
+          # Trust both path spellings: macOS resolves /tmp -> /private/tmp, and
+          # claude keys the trust map by the realpath it sees (/private/tmp/...).
           cat > "$HOME/.claude.json" <<'JSON'
-          {"hasCompletedOnboarding": true, "theme": "dark", "projects": {"/tmp/cmux-stream-claude": {"hasTrustDialogAccepted": true}}}
+          {"hasCompletedOnboarding": true, "theme": "dark", "projects": {"/tmp/cmux-stream-claude": {"hasTrustDialogAccepted": true}, "/private/tmp/cmux-stream-claude": {"hasTrustDialogAccepted": true}}}
           JSON
           echo "seeded ~/.claude.json"
 
