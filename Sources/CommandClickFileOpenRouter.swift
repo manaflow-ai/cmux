@@ -3,7 +3,7 @@ import CmuxSettings
 import Foundation
 
 struct OpenRoutingModifierPolicy {
-    func shouldBypassCmuxOpenRouting(modifierFlags: NSEvent.ModifierFlags) -> Bool {
+    nonisolated func shouldBypassCmuxOpenRouting(modifierFlags: NSEvent.ModifierFlags) -> Bool {
         let flags = modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.contains(.command), flags.contains(.shift) else { return false }
         return flags.isDisjoint(with: [.control, .option])
@@ -13,11 +13,11 @@ struct OpenRoutingModifierPolicy {
 struct BrowserOpenRoutingPolicy {
     private let modifierPolicy: OpenRoutingModifierPolicy
 
-    init(modifierPolicy: OpenRoutingModifierPolicy = OpenRoutingModifierPolicy()) {
+    nonisolated init(modifierPolicy: OpenRoutingModifierPolicy = OpenRoutingModifierPolicy()) {
         self.modifierPolicy = modifierPolicy
     }
 
-    func shouldOpenInCmuxBrowser(
+    nonisolated func shouldOpenInCmuxBrowser(
         settingEnabled: Bool,
         modifierFlags: NSEvent.ModifierFlags
     ) -> Bool {
@@ -115,6 +115,14 @@ enum CommandClickFileOpenRouter {
         // Ghostty's open-url callback holds a runtime lock; split creation and
         // native app handoff both run after the callback returns.
         DispatchQueue.main.async {
+            let resolvedRoute = route(path: filePath, modifierFlags: modifierFlags)
+            if resolvedRoute == .defaultApplication {
+                if !openInDefaultApplication(filePath: filePath) {
+                    fallback?()
+                }
+                return
+            }
+
             let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
                 panelId: surfaceId,
                 preferredWorkspaceId: preferredWorkspaceId
@@ -124,7 +132,7 @@ enum CommandClickFileOpenRouter {
                 return
             }
 
-            switch route(path: filePath, modifierFlags: modifierFlags) {
+            switch resolvedRoute {
             case .cmux:
                 if openInCmux(
                     workspace: resolvedWorkspace,
@@ -182,7 +190,7 @@ enum CommandClickFileOpenRouter {
         filePath: String,
         fallback: (@MainActor @Sendable () -> Void)? = nil
     ) {
-        _ = deferredOpenFileIfRouted(
+        let didRoute = deferredOpenFileIfRouted(
             workspace: workspace,
             preferredWorkspaceId: preferredWorkspaceId,
             surfaceId: surfaceId,
@@ -190,5 +198,8 @@ enum CommandClickFileOpenRouter {
             modifierFlags: [],
             fallback: fallback
         )
+        if !didRoute {
+            fallback?()
+        }
     }
 }

@@ -2,7 +2,14 @@ import AppKit
 
 extension GhosttyNSView {
     func modifierFlagsForOpenURLAction() -> NSEvent.ModifierFlags {
-        activeMouseOpenURLModifierFlags ?? NSEvent.modifierFlags
+        if let activeMouseOpenURLModifierFlags {
+            return activeMouseOpenURLModifierFlags
+        }
+        if let recentMouseOpenURLModifierFlags,
+           ProcessInfo.processInfo.systemUptime <= recentMouseOpenURLModifierFlagsDeadline {
+            return recentMouseOpenURLModifierFlags
+        }
+        return NSEvent.modifierFlags
     }
 
     func withMouseOpenURLModifierFlags<T>(
@@ -10,6 +17,8 @@ extension GhosttyNSView {
         _ work: () -> T
     ) -> T {
         let previous = activeMouseOpenURLModifierFlags
+        recentMouseOpenURLModifierFlags = flags
+        recentMouseOpenURLModifierFlagsDeadline = ProcessInfo.processInfo.systemUptime + 2
         activeMouseOpenURLModifierFlags = flags
         defer { activeMouseOpenURLModifierFlags = previous }
         return work()

@@ -3049,7 +3049,7 @@ class GhosttyApp {
                         return (false, resolvedPath)
                     }
                     #if DEBUG
-                    cmuxDebugLog("link.openURL resolvedAsFilePath=\(resolvedPath)")
+                    cmuxDebugLog("link.openURL resolvedAsFilePath=1 pathBytes=\(resolvedPath.utf8.count)")
                     #endif
                     return (true, resolvedPath)
                 }
@@ -3103,7 +3103,7 @@ class GhosttyApp {
             let shouldOpenTerminalLinksInCmuxBrowser = BrowserOpenRoutingPolicy().shouldOpenInCmuxBrowser(settingEnabled: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(), modifierFlags: openURLModifierFlags)
             if !shouldOpenTerminalLinksInCmuxBrowser {
                 #if DEBUG
-                cmuxDebugLog("link.openURL cmuxBrowser=disabledOrBypassed, opening externally url=\(target.url)")
+                cmuxDebugLog("link.openURL cmuxBrowser=disabledOrBypassed, opening externally scheme=\(target.url.scheme ?? "nil") hostPresent=\(target.url.host == nil ? 0 : 1)")
                 #endif
                 return performOnMain {
                     NSWorkspace.shared.open(target.url)
@@ -3399,6 +3399,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
     var activeMouseOpenURLModifierFlags: NSEvent.ModifierFlags?
+    var recentMouseOpenURLModifierFlags: NSEvent.ModifierFlags?
+    var recentMouseOpenURLModifierFlagsDeadline: TimeInterval = 0
 
     static func retainRenderedFrameNotifications() -> () -> Void {
         // See GhosttyApp.retainTickNotifications() on the idempotent release.

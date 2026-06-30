@@ -13,9 +13,7 @@ struct BrowserNavigationModifierBypassPolicy {
         navigationType: WKNavigationType,
         modifierFlags: NSEvent.ModifierFlags,
         buttonNumber: Int,
-        hasRecentMiddleClickIntent: Bool = false,
-        currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
-        currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber
+        hasRecentMiddleClickIntent: Bool = false
     ) -> Bool {
         guard Self.canOpenInDefaultBrowser(url) else {
             return false
@@ -27,9 +25,7 @@ struct BrowserNavigationModifierBypassPolicy {
             navigationType: navigationType,
             modifierFlags: modifierFlags,
             buttonNumber: buttonNumber,
-            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent,
-            currentEventType: currentEventType,
-            currentEventButtonNumber: currentEventButtonNumber
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
         )
     }
 
