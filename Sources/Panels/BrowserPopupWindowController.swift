@@ -716,7 +716,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             return
         }
 
-        // Only guard main-frame navigations
+        if BrowserNavigationModifierBypassPolicy().openDefaultBrowserIfNeeded(navigationAction: navigationAction, webView: webView, debugEventName: "popup.nav.decidePolicy.action") { clearAttemptedRequest(discardPendingBypasses: true); decisionHandler(.cancel); return }
         guard navigationAction.targetFrame?.isMainFrame != false else {
             decisionHandler(.allow)
             return
