@@ -165,6 +165,75 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testVMNewExplicitFreestyleProviderCreatesSeparateDetachedVM() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-new-explicit-freestyle")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let homeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-new-explicit-freestyle-\(UUID().uuidString)", isDirectory: true)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: homeURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "vm.create":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["provider"] as? String, "freestyle")
+                XCTAssertNil(params["image"])
+                XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "id": "vm-explicit-freestyle",
+                        "provider": "freestyle",
+                        "image": "snapshot-default",
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--provider", "freestyle", "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("OK vm-explicit-freestyle"), result.stdout)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["vm.create"]
+        )
+    }
+
     func testVMNewDefaultReusesPinnedSSHDWorkspaceOverFreestyleSSH() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-new-sshd-reuse")

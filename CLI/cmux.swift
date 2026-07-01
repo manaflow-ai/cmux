@@ -2904,8 +2904,8 @@ struct CMUXCLI {
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    private static func activeVMCreateIdempotency(image: String?, provider: String?) throws -> ActiveVMCreateIdempotency {
-        if usesPersistentDefaultFreestyleCloud(image: image, provider: provider) {
+    private static func activeVMCreateIdempotency(image: String?, provider: String?, usesPersistentDefaultCloud: Bool) throws -> ActiveVMCreateIdempotency {
+        if usesPersistentDefaultCloud {
             return ActiveVMCreateIdempotency(
                 signature: "persistent-cloud-vm-slot",
                 key: persistentCloudVMSlotID
@@ -2937,11 +2937,11 @@ struct CMUXCLI {
         try? saveVMCreateIdempotencyStore(store, to: url)
     }
 
-    private static func usesPersistentDefaultFreestyleCloud(image: String?, provider: String?) -> Bool {
+    private static func usesPersistentDefaultFreestyleCloud(image: String?, providerOption: String?) -> Bool {
         let normalizedImage = image?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedImage?.isEmpty != false else { return false }
-        let normalizedProvider = provider?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalizedProvider == nil || normalizedProvider == "" || normalizedProvider == "freestyle"
+        let normalizedProvider = providerOption?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalizedProvider == nil || normalizedProvider == ""
     }
 
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
@@ -3755,13 +3755,17 @@ struct CMUXCLI {
                 if let normalizedProvider { params["provider"] = normalizedProvider }
                 let usesPersistentDefaultCloud = Self.usesPersistentDefaultFreestyleCloud(
                     image: imageOpt,
-                    provider: normalizedProvider
+                    providerOption: providerOpt
                 )
                 if usesPersistentDefaultCloud {
                     params["provider"] = "freestyle"
                 }
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
-                let idempotency = try Self.activeVMCreateIdempotency(image: imageOpt, provider: normalizedProvider)
+                let idempotency = try Self.activeVMCreateIdempotency(
+                    image: imageOpt,
+                    provider: normalizedProvider,
+                    usesPersistentDefaultCloud: usesPersistentDefaultCloud
+                )
                 params["idempotency_key"] = idempotency.key
                 let vmCreateStartedAt = Date()
                 let response = try client.sendV2(

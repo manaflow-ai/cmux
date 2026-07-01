@@ -690,7 +690,6 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             inArray(cloudVms.status, ["provisioning", "running"]),
             eq(cloudVms.billingTeamId, input.billingTeamId),
           ];
-          if (previousVm) activePredicates.push(ne(cloudVms.id, previousVm.id));
           const [active] = await tx
             .select({ total: count() })
             .from(cloudVms)

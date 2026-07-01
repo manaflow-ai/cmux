@@ -340,7 +340,7 @@ describe("VM Effect workflows", () => {
     ]);
   });
 
-  dbTest("resets Base by retaining the previous generation", async () => {
+  dbTest("resets Base by retaining the previous generation when capacity allows", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
 
@@ -369,7 +369,7 @@ describe("VM Effect workflows", () => {
       billingCustomerType: "team",
       billingTeamId: "team-base-reset",
       billingPlanId: "free",
-      maxActiveVms: 1,
+      maxActiveVms: 2,
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: "test-version",
@@ -379,7 +379,7 @@ describe("VM Effect workflows", () => {
       billingCustomerType: "team",
       billingTeamId: "team-base-reset",
       billingPlanId: "free",
-      maxActiveVms: 1,
+      maxActiveVms: 2,
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: "test-version",
@@ -390,7 +390,7 @@ describe("VM Effect workflows", () => {
       billingCustomerType: "team",
       billingTeamId: "team-base-reset",
       billingPlanId: "free",
-      maxActiveVms: 1,
+      maxActiveVms: 2,
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: "test-version",
@@ -420,6 +420,53 @@ describe("VM Effect workflows", () => {
         and status = 'running'
     `;
     expect(vmCount).toBe("2");
+  });
+
+  dbTest("does not reset Base past the active VM limit while retaining the previous generation", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.succeed({
+          provider: "freestyle" as const,
+          providerVmId: "provider-vm-base-reset-limit",
+          status: "running" as const,
+          image: "snapshot-test",
+          createdAt: Date.now(),
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = providerLayer(provider);
+
+    await Effect.runPromise(openBaseVm({
+      userId: "user-base-reset-limit",
+      billingCustomerType: "team",
+      billingTeamId: "team-base-reset-limit",
+      billingPlanId: "free",
+      maxActiveVms: 1,
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: "test-version",
+    }).pipe(Effect.provide(layer)));
+
+    const error = await Effect.runPromise(resetBaseVm({
+      userId: "user-base-reset-limit",
+      billingCustomerType: "team",
+      billingTeamId: "team-base-reset-limit",
+      billingPlanId: "free",
+      maxActiveVms: 1,
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: "test-version",
+      reason: "limit test",
+    }).pipe(Effect.flip, Effect.provide(layer)));
+
+    expect(error).toBeInstanceOf(VmLimitExceededError);
   });
 
   dbTest("reuses an idempotency key after a terminal failed row", async () => {
