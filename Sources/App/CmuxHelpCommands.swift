@@ -23,6 +23,7 @@ extension cmuxApp {
 
             helpResourceButton(.githubIssues)
             helpResourceButton(.discord)
+            helpResourceButton(.upgradeToPro)
 
             Divider()
 

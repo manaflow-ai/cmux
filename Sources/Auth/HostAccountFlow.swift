@@ -64,6 +64,10 @@ final class HostAccountFlow: AccountFlow {
         // stale the user signs in again (full browser round trip).
     }
 
+    func openProUpgrade() {
+        NSWorkspace.shared.open(AuthEnvironment.pricingURL)
+    }
+
     private static func identity(from user: CMUXAuthUser?) -> AccountIdentity? {
         guard let user else { return nil }
         return AccountIdentity(
