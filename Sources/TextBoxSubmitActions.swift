@@ -87,6 +87,20 @@ extension TextBoxInputContainer {
         pendingProviderLaunchAction != nil
     }
 
+    var allowsSubmitActionSelection: Bool {
+        Self.allowsSubmitActionSelection(
+            pendingProviderLaunchAction: pendingProviderLaunchAction,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit
+        )
+    }
+
+    static func allowsSubmitActionSelection(
+        pendingProviderLaunchAction: TextBoxSubmitAction?,
+        shouldForceTextEntrySubmit: Bool
+    ) -> Bool {
+        pendingProviderLaunchAction == nil && !shouldForceTextEntrySubmit
+    }
+
     var isPendingProviderLaunchAwaitingAgent: Bool {
         Self.isPendingProviderLaunchAwaitingAgent(
             pendingProviderLaunchAction: pendingProviderLaunchAction,
@@ -304,14 +318,16 @@ extension TextBoxInputContainer {
                 }
                 Divider()
             }
-            ForEach(submitActions) { action in
-                Button {
-                    defaultSubmitActionID = action.id
-                } label: {
-                    submitActionMenuLabel(action)
+            if allowsSubmitActionSelection {
+                ForEach(submitActions) { action in
+                    Button {
+                        defaultSubmitActionID = action.id
+                    } label: {
+                        submitActionMenuLabel(action)
+                    }
                 }
+                Divider()
             }
-            Divider()
             Button {
                 openSubmitActionsDocumentation()
             } label: {
@@ -536,7 +552,10 @@ extension TextBoxInputContainer {
     }
 
     func cycleSubmitAction() {
-        guard Self.shouldCycleSubmitAction(pendingProviderLaunchAction: pendingProviderLaunchAction) else {
+        guard Self.allowsSubmitActionSelection(
+            pendingProviderLaunchAction: pendingProviderLaunchAction,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit
+        ) else {
             return
         }
         guard let nextID = Self.nextCycledSubmitActionID(
@@ -549,8 +568,14 @@ extension TextBoxInputContainer {
         defaultSubmitActionID = nextID
     }
 
-    static func shouldCycleSubmitAction(pendingProviderLaunchAction: TextBoxSubmitAction?) -> Bool {
-        pendingProviderLaunchAction == nil
+    static func defaultSubmitActionIDAfterSuccessfulSubmit(
+        currentDefaultSubmitActionID: String,
+        submittedAction: TextBoxSubmitAction
+    ) -> String {
+        guard submittedAction.kind == .commandTemplate else {
+            return currentDefaultSubmitActionID
+        }
+        return TerminalTextBoxInputSettings.defaultSubmitActionID
     }
 
     static func nextCycledSubmitActionID(

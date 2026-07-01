@@ -2452,6 +2452,7 @@ struct TextBoxInputContainer: View {
     @State private var contentRevision: UInt64 = 0
     @State var pendingProviderLaunchStartedAt: Date?
     @State var pendingProviderLaunchTimeoutTimer: Timer?
+    @State private var preservePendingProviderLaunchForDefaultActionReset = false
     @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
 
     private var pendingCommentCount: Int {
@@ -2590,7 +2591,13 @@ struct TextBoxInputContainer: View {
         .onChange(of: allowsCommandTemplateSubmit) { _, _ in
             reconcilePendingProviderLaunch()
         }
-        .onChange(of: defaultSubmitActionID) { _, _ in cancelPendingProviderLaunch() }
+        .onChange(of: defaultSubmitActionID) { _, _ in
+            if preservePendingProviderLaunchForDefaultActionReset {
+                preservePendingProviderLaunchForDefaultActionReset = false
+                return
+            }
+            cancelPendingProviderLaunch()
+        }
     }
 
     private func addFilesButton(foreground: Color) -> some View {
@@ -2830,6 +2837,7 @@ struct TextBoxInputContainer: View {
                     DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
                 }
             }
+            resetDefaultSubmitActionAfterSuccessfulSubmit(submittedAction: launchAction)
             let submittedAttachments = submittedParts.compactMap { part -> TextBoxAttachment? in
                 if case .attachment(let attachment) = part { return attachment }
                 return nil
@@ -2842,6 +2850,16 @@ struct TextBoxInputContainer: View {
             )
             submittedTextView?.cleanupDisposableAttachmentFiles(cleanupAttachments)
         }
+    }
+
+    private func resetDefaultSubmitActionAfterSuccessfulSubmit(submittedAction: TextBoxSubmitAction) {
+        let nextID = Self.defaultSubmitActionIDAfterSuccessfulSubmit(
+            currentDefaultSubmitActionID: defaultSubmitActionID,
+            submittedAction: submittedAction
+        )
+        guard nextID != defaultSubmitActionID else { return }
+        preservePendingProviderLaunchForDefaultActionReset = true
+        defaultSubmitActionID = nextID
     }
 
     private func markContentChanged() {

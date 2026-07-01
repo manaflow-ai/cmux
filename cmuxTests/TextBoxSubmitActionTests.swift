@@ -705,13 +705,21 @@ struct TextBoxSubmitActionTests {
             )
         )
         XCTAssertFalse(
-            TextBoxInputContainer.shouldCycleSubmitAction(
-                pendingProviderLaunchAction: TextBoxSubmitAction.builtInActions[0]
+            TextBoxInputContainer.allowsSubmitActionSelection(
+                pendingProviderLaunchAction: TextBoxSubmitAction.builtInActions[0],
+                shouldForceTextEntrySubmit: false
             )
         )
         XCTAssertTrue(
-            TextBoxInputContainer.shouldCycleSubmitAction(
-                pendingProviderLaunchAction: nil
+            TextBoxInputContainer.allowsSubmitActionSelection(
+                pendingProviderLaunchAction: nil,
+                shouldForceTextEntrySubmit: false
+            )
+        )
+        XCTAssertFalse(
+            TextBoxInputContainer.allowsSubmitActionSelection(
+                pendingProviderLaunchAction: nil,
+                shouldForceTextEntrySubmit: true
             )
         )
         XCTAssertTrue(
@@ -836,6 +844,12 @@ struct TextBoxSubmitActionTests {
     func testForcedTextEntryPreventsShiftTabCycling() {
         let actions = TextBoxSubmitAction.builtInActions
 
+        XCTAssertFalse(
+            TextBoxInputContainer.allowsSubmitActionSelection(
+                pendingProviderLaunchAction: nil,
+                shouldForceTextEntrySubmit: true
+            )
+        )
         #expect(
             TextBoxInputContainer.nextCycledSubmitActionID(
                 defaultSubmitActionID: actions[0].id,
@@ -850,6 +864,51 @@ struct TextBoxSubmitActionTests {
                 shouldForceTextEntrySubmit: false
             ),
             actions[1].id
+        )
+    }
+
+    @Test
+    func testHookActiveAgentForcesTextEntryAtPromptIdle() {
+        let context = "agentPIDKey:codex.12345"
+        let shouldForceTextEntry = TextBoxInputContainer.shouldForceTextEntrySubmit(
+            allowsCommandTemplateSubmit: true,
+            terminalAgentContext: context
+        )
+
+        XCTAssertTrue(shouldForceTextEntry)
+        XCTAssertTrue(TextBoxAgentDetection.supportsActiveAgentPrefixes(context: context))
+        XCTAssertFalse(
+            TextBoxInputContainer.allowsSubmitActionSelection(
+                pendingProviderLaunchAction: nil,
+                shouldForceTextEntrySubmit: shouldForceTextEntry
+            )
+        )
+        XCTAssertEqual(
+            TextBoxInputContainer.submitActionPresentation(
+                selectedSubmitAction: TextBoxSubmitAction.builtInActions[1],
+                shouldForceTextEntrySubmit: shouldForceTextEntry
+            ).action.id,
+            TextBoxSubmitAction.textEntryAction.id
+        )
+    }
+
+    @Test
+    func testSuccessfulCommandTemplateSubmitResetsDefaultActionToTextEntry() throws {
+        let codex = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "codex" })
+
+        XCTAssertEqual(
+            TextBoxInputContainer.defaultSubmitActionIDAfterSuccessfulSubmit(
+                currentDefaultSubmitActionID: codex.id,
+                submittedAction: codex
+            ),
+            TextBoxSubmitAction.textEntryAction.id
+        )
+        XCTAssertEqual(
+            TextBoxInputContainer.defaultSubmitActionIDAfterSuccessfulSubmit(
+                currentDefaultSubmitActionID: codex.id,
+                submittedAction: TextBoxSubmitAction.textEntryAction
+            ),
+            codex.id
         )
     }
 

@@ -115,6 +115,9 @@ enum TextBoxAgentDetection: CaseIterable {
     private func matchesActive(metadataLine rawLine: String) -> Bool {
         let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return false }
+        if let value = Self.metadataValue(line, prefix: "agentPIDKey:") {
+            return matchesIdentity(value)
+        }
         if let value = Self.metadataValue(line, prefix: "textBoxLaunchCommand:") {
             return matchesLaunchExecutable(command: value)
         }
